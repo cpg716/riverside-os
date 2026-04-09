@@ -52,14 +52,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     riverside_server::db_startup_diag::log_postgres_startup_context(&pool).await;
 
-    if let Err(e) = riverside_server::schema_bootstrap::ensure_staff_rbac_schema(&pool).await {
+    if let Err(e) = riverside_server::schema_bootstrap::ensure_core_schema(&pool).await {
         tracing::error!(
             error = %e,
-            "Failed to ensure staff RBAC schema (embedded migration 34); fix DATABASE_URL or apply migrations/34_staff_contacts_and_permissions.sql"
+            "Failed to ensure core database schema; check migrations/ folder and DATABASE_URL"
         );
         return Err(e.into());
     }
-    tracing::info!("Staff RBAC schema (migration 34) OK.");
+    tracing::info!("Core database schema (RBAC + Counterpoint Finishing) OK.");
 
     // 3. Application State
     let stripe_secret_key = std::env::var("STRIPE_SECRET_KEY")

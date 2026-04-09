@@ -188,6 +188,8 @@ const SYNC_LOYALTY_HIST = process.env.SYNC_LOYALTY_HIST === "1";
 const SYNC_VENDOR_ITEMS = process.env.SYNC_VENDOR_ITEMS === "1";
 const SYNC_STORE_CREDIT_OPENING = process.env.SYNC_STORE_CREDIT_OPENING === "1";
 const SYNC_OPEN_DOCS = process.env.SYNC_OPEN_DOCS === "1";
+const SYNC_RECEIVING_HISTORY = process.env.SYNC_RECEIVING_HISTORY === "1";
+const SYNC_TICKET_NOTES = process.env.SYNC_TICKET_NOTES === "1";
 const CP_CUSTOMER_STORE_CREDIT_EXISTS_RAW = process.env.CP_CUSTOMER_STORE_CREDIT_EXISTS ?? "";
 const CP_CUSTOMERS_QUERY = injectStoreCreditCustomerExistsClause(
   applyCounterpointSqlCompat(expandImportSince(process.env.CP_CUSTOMERS_QUERY ?? "")),
@@ -234,6 +236,8 @@ const CP_STORE_CREDIT_QUERY = expandImportSince(process.env.CP_STORE_CREDIT_QUER
 const CP_OPEN_DOCS_QUERY = expandImportSince(process.env.CP_OPEN_DOCS_QUERY ?? "");
 const CP_OPEN_DOC_LINES_QUERY = expandImportSince(process.env.CP_OPEN_DOC_LINES_QUERY ?? "");
 const CP_OPEN_DOC_PMT_QUERY = expandImportSince(process.env.CP_OPEN_DOC_PMT_QUERY ?? "");
+const CP_RECEIVING_HISTORY_QUERY = expandImportSince(process.env.CP_RECEIVING_HISTORY_QUERY ?? "");
+const CP_TICKET_NOTES_QUERY = expandImportSince(process.env.CP_TICKET_NOTES_QUERY ?? "");
 const BRIDGE_VERSION = "0.7.3";
 
 /** Fast vendor list — no IM_ITEM / PS_TKT_HIST joins (avoids timeouts & missing DOC_TYP / VEND_NO). */
@@ -285,6 +289,8 @@ function initEffectiveSqlFromConstants() {
     open_docs: CP_OPEN_DOCS_QUERY,
     open_doc_lines: CP_OPEN_DOC_LINES_QUERY,
     open_doc_pmt: CP_OPEN_DOC_PMT_QUERY,
+    receiving_history: CP_RECEIVING_HISTORY_QUERY,
+    ticket_notes: CP_TICKET_NOTES_QUERY,
     vendors_fast_simple: CP_VENDORS_FAST_QUERY || CP_VENDORS_QUERY_SIMPLE,
   };
 }
@@ -586,28 +592,10 @@ async function rebuildEffectiveSql(pool) {
     const fixBits = [];
 
     // Catalog cells: detect actual DIM column names on IM_INV_CELL
-    if (imInvCell && effectiveSql.catalog_cells?.includes("DIM_3_VAL")) {
-      if (!imInvCell.has("DIM_3_VAL")) {
-        // Try common alternatives: DIM_3, GRID_3_VAL, DIM3_VAL
-        const dim3Alt = ["DIM_3", "GRID_3_VAL", "DIM3_VAL", "DIM3"].find((c) => imInvCell.has(c));
-        if (dim3Alt) {
-          effectiveSql.catalog_cells = String(effectiveSql.catalog_cells)
-            .replace(/\bc\.DIM_3_VAL\b/gi, `c.${dim3Alt}`);
-          fixBits.push(`IM_INV_CELL: DIM_3_VAL → ${dim3Alt}`);
-        } else {
-          // No dim3 column at all — truly 2-dim grid; replace with empty string
-          effectiveSql.catalog_cells = String(effectiveSql.catalog_cells)
-            .replace(/ISNULL\s*\(\s*RTRIM\s*\(\s*LTRIM\s*\(\s*CONVERT\s*\(\s*NVARCHAR\s*\(\s*80\s*\)\s*,\s*c\.DIM_3_VAL\s*\)\s*\)\s*\)\s*,\s*N''\s*\)/gi, "N''")
-            .replace(/c\.DIM_3_VAL\s+IS\s+NOT\s+NULL\s+THEN\s+N'\s*\/\s*'\s*\+\s*RTRIM\s*\(\s*LTRIM\s*\(\s*CONVERT\s*\(\s*NVARCHAR\s*\(\s*80\s*\)\s*,\s*c\.DIM_3_VAL\s*\)\s*\)\s*\)\s+ELSE\s+N''/gi, "1=0 THEN N'' ELSE N''");
-          fixBits.push("IM_INV_CELL: removed DIM_3_VAL (2-dim grid)");
-        }
-      }
-    }
-    // Same for DIM_1_VAL / DIM_2_VAL (rare but possible naming drift)
-    if (imInvCell && effectiveSql.catalog_cells) {
-      for (const [dimN, dimRef] of [["DIM_1_VAL", "c.DIM_1_VAL"], ["DIM_2_VAL", "c.DIM_2_VAL"]]) {
+    if (imInvCell) {
+      for (const [dimN, dimRef] of [["DIM_1_VAL", "c.DIM_1_VAL"], ["DIM_2_VAL", "c.DIM_2_VAL"], ["DIM_3_VAL", "c.DIM_3_VAL"]]) {
         if (!imInvCell.has(dimN) && effectiveSql.catalog_cells.includes(dimRef)) {
-          const alt = [dimN.replace("_VAL", ""), dimN.replace("_", "").replace("_VAL", ""), `GRID_${dimN.match(/\d/)[0]}_VAL`].find((c) => imInvCell.has(c));
+          const alt = [dimN.replace("_VAL", "_UPR"), dimN.replace("_VAL", ""), dimN.replace("_", "").replace("_VAL", ""), `GRID_${dimN.match(/\d/)[0]}_VAL`].find((c) => imInvCell.has(c));
           if (alt) {
             effectiveSql.catalog_cells = String(effectiveSql.catalog_cells).replace(new RegExp(`\\bc\\.${dimN}\\b`, "gi"), `c.${alt}`);
             fixBits.push(`IM_INV_CELL: ${dimN} → ${alt}`);
@@ -615,7 +603,7 @@ async function rebuildEffectiveSql(pool) {
             effectiveSql.catalog_cells = String(effectiveSql.catalog_cells)
               .replace(new RegExp(`ISNULL\\s*\\(\\s*RTRIM\\s*\\(\\s*LTRIM\\s*\\(\\s*CONVERT\\s*\\(\\s*NVARCHAR\\s*\\(\\s*80\\s*\\)\\s*,\\s*c\\.${dimN}\\s*\\)\\s*\\)\\s*\\)\\s*,\\s*N''\\s*\\)`, "gi"), "N''")
               .replace(new RegExp(`c\\.${dimN}\\s+IS\\s+NOT\\s+NULL\\s+THEN\\s+N'\\s*\\/\\s*'\\s*\\+\\s*RTRIM\\s*\\(\\s*LTRIM\\s*\\(\\s*CONVERT\\s*\\(\\s*NVARCHAR\\s*\\(\\s*80\\s*\\)\\s*,\\s*c\\.${dimN}\\s*\\)\\s*\\)\\s*\\)\\s+ELSE\\s+N''`, "gi"), "1=0 THEN N'' ELSE N''");
-            fixBits.push(`IM_INV_CELL: removed ${dimN} (1-dim grid)`);
+            fixBits.push(`IM_INV_CELL: removed ${dimN}`);
           }
         }
       }
@@ -645,7 +633,7 @@ async function rebuildEffectiveSql(pool) {
 
 function logCanonicalSyncOrder() {
   console.info(
-    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → vendors → customers → store_credit_opening (opt) → customer_notes (opt) → category_masters (opt, before catalog) → catalog → inventory → vendor_items (opt) → gift_cards (opt) → tickets/opt → open_docs (opt) → loyalty_hist (opt).",
+    "[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → vendors → customers → store_credit_opening (opt) → customer_notes (opt) → category_masters (opt, before catalog) → catalog → inventory → vendor_items (opt) → gift_cards (opt) → tickets/opt → open_docs (opt) → loyalty_hist (opt) → receiving_history (opt) → ticket_notes (opt).",
   );
 }
 
@@ -937,6 +925,7 @@ const ENTITY_HTTP_PATH = {
   sales_rep_stubs: "sales-rep-stubs",
   store_credit_opening: "store-credit-opening",
   open_docs: "open-docs",
+  receiving_history: "receiving-history",
 };
 
 function bridgeIngestHeaders() {
@@ -1016,6 +1005,64 @@ function normalizeRowKeys(row) {
   return out;
 }
 
+async function syncReceivingHistory(pool) {
+  if (!String(effectiveSql.receiving_history ?? "").trim()) {
+    console.warn("[receiving_history] CP_RECEIVING_HISTORY_QUERY empty; skip");
+    return;
+  }
+  try {
+    const result = await pool.request().query(effectiveSql.receiving_history);
+    const rows = (result.recordset ?? []).map((r) => normalizeRowKeys(r));
+    if (rows.length === 0) {
+      console.info("[receiving_history] no rows");
+      return;
+    }
+
+    const RECV_BATCH = 50;
+    const CONCURRENCY = 5;
+    const pendingRequests = [];
+    
+    console.info(`[receiving_history] sending ${rows.length} rows (batch=${RECV_BATCH}, parallel=${CONCURRENCY})...`);
+
+    for (let i = 0; i < rows.length; i += RECV_BATCH) {
+      const chunk = rows.slice(i, i + RECV_BATCH).map((r) => ({
+        vend_no: String(r.vend_no ?? "").trim(),
+        item_no: String(r.item_no ?? "").trim(),
+        recv_dat: r.recv_dat != null ? String(new Date(r.recv_dat).toISOString()) : "",
+        unit_cost: Number(r.unit_cost ?? 0),
+        qty_recv: Number(r.qty_recv ?? 0),
+        po_no: r.po_no != null ? String(r.po_no).trim() : undefined,
+        recv_no: r.recv_no != null ? String(r.recv_no).trim() : undefined,
+      }));
+
+      const lastDat = rows[Math.min(i + RECV_BATCH - 1, rows.length - 1)].recv_dat;
+      const body = {
+        rows: chunk,
+        sync: { entity: "receiving_history", cursor: lastDat },
+      };
+
+      const promise = rosPost("receiving_history", body)
+        .then((summary) => {
+          console.info("[receiving_history] batch", summary);
+        })
+        .catch((err) => {
+          console.error("[receiving_history] batch failed:", err.message);
+        })
+        .finally(() => {
+          pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+        });
+
+      pendingRequests.push(promise);
+      if (pendingRequests.length >= CONCURRENCY) {
+        await Promise.race(pendingRequests);
+      }
+    }
+    await Promise.all(pendingRequests);
+  } catch (err) {
+    console.error("[receiving_history] sync failed:", err?.message ?? err);
+  }
+}
+
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
 function mapCustomerRow(r) {
@@ -1062,7 +1109,19 @@ function mapInventoryRow(r) {
 
 function mapCatalogRow(r, cellRows) {
   const itemNo = String(r.item_no ?? "").trim();
-  const isGrid = String(r.is_grid ?? r.is_grd ?? "N").toUpperCase() === "Y" || (cellRows && cellRows.length > 0);
+  
+  // Filter out redundant "dummy" or "parent-only" variations that lack real dimension data
+  const validCells = (cellRows ?? []).filter(c => {
+    const sku = String(c.sku ?? "").trim();
+    const label = String(c.variation_label ?? "").trim();
+    // A valid variation must have a non-empty SKU and a label that isn't just whitespace or " / / "
+    if (!sku || sku === itemNo) return false;
+    if (!label || label === "/" || label === " / " || label === " / / ") return false;
+    return true;
+  });
+
+  const isGrid = String(r.is_grid ?? r.is_grd ?? "N").toUpperCase() === "Y" || validCells.length > 0;
+  
   return {
     item_no: itemNo,
     description: r.description ?? r.descr ?? undefined,
@@ -1083,11 +1142,11 @@ function mapCatalogRow(r, cellRows) {
             : undefined,
     is_grid: isGrid,
     barcode: r.barcode ?? undefined,
-    cells: (cellRows ?? []).map((c) => ({
+    cells: validCells.map((c) => ({
       counterpoint_item_key: String(c.counterpoint_item_key ?? c.cell_descr ?? "").trim(),
       sku: String(c.sku ?? "").trim(),
       barcode: c.barcode ?? undefined,
-      variation_label: c.variation_label ?? c.descr ?? undefined,
+      variation_label: String(c.variation_label ?? c.descr ?? "").trim(),
       stock_on_hand: c.stock_on_hand != null ? Number(c.stock_on_hand) : undefined,
       reorder_point: c.reorder_point ?? (c.min_qty != null ? Number(c.min_qty) : undefined),
       retail_price: c.retail_price != null ? String(c.retail_price) : undefined,
@@ -1148,6 +1207,7 @@ function mapTicketLineRow(r) {
     unit_price: String(r.unit_price ?? r.prc ?? "0"),
     unit_cost: r.unit_cost != null ? String(r.unit_cost) : undefined,
     description: r.description ?? r.descr ?? undefined,
+    reason_code: r.reason_code ?? r.reas_cod ?? undefined,
   };
 }
 
@@ -1177,6 +1237,7 @@ function mapOpenDocRow(r) {
           : r.doc_sta != null
             ? String(r.doc_sta).trim()
             : undefined,
+    doc_typ: r.doc_typ ? String(r.doc_typ).trim() : undefined,
     lines: [],
     payments: [],
   };
@@ -1197,22 +1258,43 @@ async function syncCustomers(pool) {
     return;
   }
 
-  console.info("[customers] SQL returned", rows.length, "row(s); sending in batches of", BATCH);
+  const CUSTOMER_BATCH = Math.max(1, Number.parseInt(process.env.BATCH_SIZE ?? "200", 10));
+  const MAX_CONCURRENCY = 5;
+  console.info("[customers] SQL returned", rows.length, "row(s); sending with parallel-concurrency=5");
+  
   const mapped = rows.map((row) => mapCustomerRow(normalizeRowKeys(row))).filter((r) => r.cust_no);
-  for (let i = 0; i < mapped.length; i += BATCH) {
-    const chunk = mapped.slice(i, i + BATCH);
+  const pendingRequests = [];
+  let inFlight = 0;
+
+  for (let i = 0; i < mapped.length; i += CUSTOMER_BATCH) {
+    const chunk = mapped.slice(i, i + CUSTOMER_BATCH);
     const last = chunk[chunk.length - 1]?.cust_no;
     const body = {
       rows: chunk,
       sync: { entity: "customers", cursor: last },
     };
-    const summary = await rosPost("customers", body);
-    console.info("[customers] batch", summary);
-    if (last) {
-      state.customers_cursor = last;
-      writeState(state);
+
+    const promise = rosPost("customers", body)
+      .then((summary) => {
+        console.info("[customers] batch", summary);
+        if (last) {
+          state.customers_cursor = last;
+          writeState(state);
+        }
+      })
+      .catch((err) => {
+        console.error("[customers] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= MAX_CONCURRENCY) {
+      await Promise.race(pendingRequests);
     }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncInventory(pool) {
@@ -1224,17 +1306,40 @@ async function syncInventory(pool) {
   const result = await pool.request().query(effectiveSql.inventory);
   const rows = result.recordset ?? [];
   const mapped = rows.map((row) => mapInventoryRow(normalizeRowKeys(row))).filter((r) => r.sku);
-  for (let i = 0; i < mapped.length; i += BATCH) {
-    const chunk = mapped.slice(i, i + BATCH);
+  
+  const INV_BATCH = 50; 
+  const MAX_CONCURRENCY = 5;
+  const pendingRequests = [];
+  let inFlight = 0;
+
+  console.info(`[inventory] processing ${mapped.length} rows (batch=${INV_BATCH}, parallel=${MAX_CONCURRENCY})...`);
+
+  for (let i = 0; i < mapped.length; i += INV_BATCH) {
+    const chunk = mapped.slice(i, i + INV_BATCH);
     const body = {
       rows: chunk,
       sync: { entity: "inventory", cursor: String(i + chunk.length) },
     };
-    const summary = await rosPost("inventory", body);
-    console.info("[inventory] batch", summary);
-    state.inventory_cursor = String(i + chunk.length);
-    writeState(state);
+
+    const promise = rosPost("inventory", body)
+      .then((summary) => {
+        console.info("[inventory] batch", summary);
+        state.inventory_cursor = String(i + chunk.length);
+        writeState(state);
+      })
+      .catch((err) => {
+        console.error("[inventory] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= MAX_CONCURRENCY) {
+      await Promise.race(pendingRequests);
+    }
   }
+  await Promise.all(pendingRequests);
 }
 
 function mapCategoryMasterRow(r) {
@@ -1273,53 +1378,133 @@ async function syncCatalog(pool) {
     console.warn("[catalog] CP_CATALOG_QUERY empty; skip");
     return;
   }
-  const result = await pool.request().query(effectiveSql.catalog);
-  const parentRows = (result.recordset ?? []).map((r) => normalizeRowKeys(r));
-  if (parentRows.length === 0) {
-    console.info("[catalog] no rows");
-    return;
-  }
 
+  // Load cells first (usually small enough to buffer in safe chunks)
   let cellLookup = {};
   if (String(effectiveSql.catalog_cells ?? "").trim()) {
     try {
+      console.info("[catalog] Fetching matrix variations...");
       const cellResult = await pool.request().query(effectiveSql.catalog_cells);
+      const seenCells = new Set();
       for (const cr of cellResult.recordset ?? []) {
         const nr = normalizeRowKeys(cr);
         const parentKey = String(nr.parent_item_no ?? nr.item_no ?? "").trim();
+        const ckey = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
+        const dedupeKey = `${parentKey}|${ckey}`;
+        
+        if (!cellKeyIsValid(nr) || seenCells.has(dedupeKey)) continue;
+        seenCells.add(dedupeKey);
+        
         if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
         cellLookup[parentKey].push(nr);
       }
+      console.info(`[catalog] Buffered ${Object.keys(cellLookup).length} matrix parents.`);
     } catch (cellErr) {
-      console.error("[catalog] IM_INV_CELL query failed (parent items will import WITHOUT matrix variants):", cellErr?.message ?? cellErr);
-      console.warn("[catalog] Run DISCOVER_SCHEMA.cmd to see actual IM_INV_CELL columns, then fix CP_CATALOG_CELLS_QUERY in .env");
+      console.error("[catalog] IM_INV_CELL query failed:", cellErr?.message ?? cellErr);
       cellLookup = {};
     }
   }
 
-  const mapped = parentRows
-    .map((r) => {
-      const itemNo = String(r.item_no ?? "").trim();
-      return mapCatalogRow(r, cellLookup[itemNo] ?? []);
-    })
-    .filter((r) => r.item_no);
-
-  console.info("[catalog] SQL returned", mapped.length, "item(s); sending in batches of", BATCH);
-  const state = readState();
-  for (let i = 0; i < mapped.length; i += BATCH) {
-    const chunk = mapped.slice(i, i + BATCH);
-    const last = chunk[chunk.length - 1]?.item_no;
-    const body = {
-      rows: chunk,
-      sync: { entity: "catalog", cursor: last },
-    };
-    const summary = await rosPost("catalog", body);
-    console.info("[catalog] batch", summary);
-    if (last) {
-      state.catalog_cursor = last;
-      writeState(state);
-    }
+  /**
+   * Helper to check if a cell record is non-empty logic-wise.
+   */
+  function cellKeyIsValid(nr) {
+    const key = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
+    if (!key) return false;
+    // Skip records where the key is just the parent item no (redundant)
+    if (key === String(nr.parent_item_no ?? "").trim()) return false;
+    return true;
   }
+
+  const CATALOG_BATCH_SIZE = 50; // High-speed batch size for v8.2
+  const MAX_CONCURRENCY = 5; // Parallel processing limit
+  console.info(`[catalog] Starting Hyper-Speed ingest (batch=${CATALOG_BATCH_SIZE}, parallel=${MAX_CONCURRENCY})...`);
+  
+  const state = readState();
+  const processedItemNos = new Set(); // SPU (Squelcher): tracks parents to avoid multiplication loops
+  let batchBuffer = [];
+  let totalProcessed = 0;
+  let skippedDuplicates = 0;
+  let inFlight = 0;
+  const pendingRequests = [];
+
+  return new Promise((resolve, reject) => {
+    const request = pool.request();
+    request.stream = true;
+    request.query(effectiveSql.catalog);
+
+    request.on("row", (row) => {
+      const normalized = normalizeRowKeys(row);
+      const itemNo = String(normalized.item_no ?? "").trim();
+
+      // DUPLICATE SQUELCHER: 
+      // If we've already seen this itemNo in THE SAME PASS, skip it.
+      if (!itemNo || processedItemNos.has(itemNo)) {
+        if (itemNo) skippedDuplicates++;
+        return;
+      }
+      processedItemNos.add(itemNo);
+
+      const mapped = mapCatalogRow(normalized, cellLookup[itemNo] ?? []);
+      
+      if (mapped.item_no) {
+        batchBuffer.push(mapped);
+        if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
+          const chunk = [...batchBuffer];
+          batchBuffer = [];
+          
+          const last = chunk[chunk.length - 1].item_no;
+          const promise = rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
+            .then((summary) => {
+              totalProcessed += chunk.length;
+              console.info(`[catalog] processed ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`, summary);
+              if (last) {
+                state.catalog_cursor = last;
+                writeState(state);
+              }
+              inFlight--;
+              if (inFlight < MAX_CONCURRENCY) request.resume();
+            })
+            .catch((err) => {
+              console.error("[catalog] batch failed:", err.message);
+              inFlight--;
+              request.resume();
+            });
+
+          pendingRequests.push(promise);
+          inFlight++;
+          if (inFlight >= MAX_CONCURRENCY) {
+            request.pause();
+          }
+        }
+      }
+    });
+
+    request.on("error", (err) => {
+      console.error("[catalog] stream error:", err.message);
+      reject(err);
+    });
+
+    request.on("done", async () => {
+      try {
+        if (batchBuffer.length > 0) {
+          const last = batchBuffer[batchBuffer.length - 1].item_no;
+          pendingRequests.push(rosPost("catalog", { rows: batchBuffer, sync: { entity: "catalog", cursor: last } }));
+          totalProcessed += batchBuffer.length;
+          if (last) {
+            state.catalog_cursor = last;
+            writeState(state);
+          }
+        }
+        
+        await Promise.all(pendingRequests);
+        console.info(`[catalog] finished. ${totalProcessed} total items synced (${skippedDuplicates} duplicates filtered).`);
+        resolve();
+      } catch (e) {
+        reject(e);
+      }
+    });
+  });
 }
 
 async function syncGiftCards(pool) {
@@ -1351,7 +1536,12 @@ async function syncGiftCards(pool) {
       return mapGiftCardRow(r, histLookup[certNo] ?? []);
     })
     .filter((r) => r.cert_no);
-  console.info("[gift_cards] SQL returned", mapped.length, "card(s); sending in batches of", BATCH);
+
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
+  let inFlight = 0;
+  console.info("[gift_cards] SQL returned", mapped.length, "card(s); sending with parallel-concurrency=5");
+
   const state = readState();
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
@@ -1360,13 +1550,28 @@ async function syncGiftCards(pool) {
       rows: chunk,
       sync: { entity: "gift_cards", cursor: last },
     };
-    const summary = await rosPost("gift_cards", body);
-    console.info("[gift_cards] batch", summary);
-    if (last) {
-      state.gift_cards_cursor = last;
-      writeState(state);
+
+    const promise = rosPost("gift_cards", body)
+      .then((summary) => {
+        console.info("[gift_cards] batch", summary);
+        if (last) {
+          state.gift_cards_cursor = last;
+          writeState(state);
+        }
+      })
+      .catch((err) => {
+        console.error("[gift_cards] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
     }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncTickets(pool) {
@@ -1433,14 +1638,32 @@ async function syncTickets(pool) {
       const nr = normalizeRowKeys(row);
       const ref = String(nr.tkt_no ?? nr.ticket_ref ?? "").trim();
       if (!ref) continue;
-      if (!giftLookup[ref]) giftLookup[ref] = [];
       giftLookup[ref].push(nr);
+    }
+  }
+
+  let noteLookup = {};
+  if (SYNC_TICKET_NOTES && String(effectiveSql.ticket_notes ?? "").trim()) {
+    try {
+      const noteResult = await pool.request().query(effectiveSql.ticket_notes);
+      for (const row of noteResult.recordset ?? []) {
+        const nr = normalizeRowKeys(row);
+        // Robust fallback: your v8.2 might use DOC_ID or TKT_NO or TKT_REF
+        const ref = String(nr.ticket_ref ?? nr.tkt_no ?? nr.doc_id ?? nr.doc_ref ?? "").trim();
+        if (!ref) continue;
+        if (!noteLookup[ref]) noteLookup[ref] = [];
+        noteLookup[ref].push(nr.note ?? nr.note_txt ?? nr.note_text ?? "");
+      }
+    } catch (noteErr) {
+      console.warn("[tickets] note lookup failed (skipping notes for this pass):", noteErr?.message ?? noteErr);
+      noteLookup = {};
     }
   }
 
   const mapped = headerRows.map((r) => {
     const tkt = mapTicketRow(r);
     const ref = tkt.ticket_ref;
+    tkt.notes = (noteLookup[ref] ?? []).join("\n").trim() || undefined;
     tkt.lines = (lineLookup[ref] ?? []).map((lr) => {
       const nr = normalizeRowKeys(lr);
       const seq = nr.lin_seq_no != null ? Number(nr.lin_seq_no) : nr.lin_seq != null ? Number(nr.lin_seq) : NaN;
@@ -1475,8 +1698,12 @@ async function syncTickets(pool) {
     return tkt;
   }).filter((r) => r.ticket_ref);
 
-  console.info("[tickets] SQL returned", mapped.length, "ticket(s); sending in batches of", BATCH);
+  console.info("[tickets] Processing mapped headers (parallel-concurrency=5)...");
   const state = readState();
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
+  let inFlight = 0;
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const last = chunk[chunk.length - 1]?.ticket_ref;
@@ -1484,13 +1711,28 @@ async function syncTickets(pool) {
       rows: chunk,
       sync: { entity: "tickets", cursor: last },
     };
-    const summary = await rosPost("tickets", body);
-    console.info("[tickets] batch", summary);
-    if (last) {
-      state.tickets_cursor = last;
-      writeState(state);
+
+    const promise = rosPost("tickets", body)
+      .then((summary) => {
+        console.info("[tickets] batch", summary);
+        if (last) {
+          state.tickets_cursor = last;
+          writeState(state);
+        }
+      })
+      .catch((err) => {
+        console.error("[tickets] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
     }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncStoreCreditOpening(pool) {
@@ -1518,8 +1760,12 @@ async function syncStoreCreditOpening(pool) {
     return;
   }
 
-  console.info("[store_credit_opening] SQL returned", mapped.length, "row(s); sending in batches of", BATCH);
+  console.info("[store_credit_opening] Sending opening balances (parallel-concurrency=5)...");
   const state = readState();
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
+  let inFlight = 0;
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const last = chunk[chunk.length - 1]?.cust_no;
@@ -1527,13 +1773,28 @@ async function syncStoreCreditOpening(pool) {
       rows: chunk,
       sync: { entity: "store_credit_opening", cursor: last ?? String(i + chunk.length) },
     };
-    const summary = await rosPost("store_credit_opening", body);
-    console.info("[store_credit_opening] batch", summary);
-    if (last) {
-      state.store_credit_opening_cursor = last;
-      writeState(state);
+
+    const promise = rosPost("store_credit_opening", body)
+      .then((summary) => {
+        console.info("[store_credit_opening] batch", summary);
+        if (last) {
+          state.store_credit_opening_cursor = last;
+          writeState(state);
+        }
+      })
+      .catch((err) => {
+        console.error("[store_credit_opening] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
     }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncOpenDocs(pool) {
@@ -1595,8 +1856,12 @@ async function syncOpenDocs(pool) {
     })
     .filter((r) => r.doc_ref);
 
-  console.info("[open_docs] SQL returned", mapped.length, "document(s); sending in batches of", BATCH);
+  console.info("[open_docs] Sending items (parallel-concurrency=5)...");
   const state = readState();
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
+  let inFlight = 0;
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const last = chunk[chunk.length - 1]?.doc_ref;
@@ -1604,13 +1869,28 @@ async function syncOpenDocs(pool) {
       rows: chunk,
       sync: { entity: "open_docs", cursor: last },
     };
-    const summary = await rosPost("open_docs", body);
-    console.info("[open_docs] batch", summary);
-    if (last) {
-      state.open_docs_cursor = last;
-      writeState(state);
+
+    const promise = rosPost("open_docs", body)
+      .then((summary) => {
+        console.info("[open_docs] batch", summary);
+        if (last) {
+          state.open_docs_cursor = last;
+          writeState(state);
+        }
+      })
+      .catch((err) => {
+        console.error("[open_docs] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
     }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncLoyaltyHist(pool) {
@@ -1641,20 +1921,41 @@ async function syncLoyaltyHist(pool) {
       };
     })
     .filter((r) => r.cust_no);
+
   if (mapped.length === 0) {
     console.info("[loyalty_hist] no valid rows");
     return;
   }
-  console.info("[loyalty_hist] SQL returned", mapped.length, "row(s); sending in batches of", BATCH);
-  const state = readState();
+
+  console.info("[loyalty_hist] SQL returned", mapped.length, "row(s); sending with parallel-concurrency=5");
+
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
-    const body = { rows: chunk, sync: { entity: "loyalty_hist", cursor: String(i + chunk.length) } };
-    const summary = await rosPost("loyalty_hist", body);
-    console.info("[loyalty_hist] batch", summary);
-    state.loyalty_hist_cursor = String(i + chunk.length);
-    writeState(state);
+    const body = {
+      rows: chunk,
+      sync: { entity: "loyalty_hist", cursor: String(i + chunk.length) },
+    };
+    
+    const promise = rosPost("loyalty_hist", body)
+      .then((summary) => {
+        console.info("[loyalty_hist] batch", summary);
+      })
+      .catch((err) => {
+        console.error("[loyalty_hist] batch failed:", err.message);
+      })
+      .finally(() => {
+        pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+      });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
+    }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncVendorItems(pool) {
@@ -1676,20 +1977,36 @@ async function syncVendorItems(pool) {
       vend_cost: r.vend_cost != null ? String(r.vend_cost) : undefined,
     }))
     .filter((r) => r.vend_no && r.item_no);
+    
   if (mapped.length === 0) {
     console.info("[vendor_items] no valid rows");
     return;
   }
-  console.info("[vendor_items] SQL returned", mapped.length, "row(s); sending in batches of", BATCH);
+
+  console.info("[vendor_items] SQL returned", mapped.length, "row(s); sending with parallel-concurrency=5");
+
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
   const state = readState();
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const body = { rows: chunk, sync: { entity: "vendor_items", cursor: String(i + chunk.length) } };
-    const summary = await rosPost("vendor_items", body);
-    console.info("[vendor_items] batch", summary);
-    state.vendor_items_cursor = String(i + chunk.length);
-    writeState(state);
+    
+    const promise = rosPost("vendor_items", body).then(summary => {
+      console.info("[vendor_items] batch", summary);
+      state.vendor_items_cursor = String(i + chunk.length);
+      writeState(state);
+    }).finally(() => {
+      pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+    });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
+    }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncVendors(pool) {
@@ -1724,16 +2041,31 @@ async function syncVendors(pool) {
       payment_terms: r.payment_terms ?? r.terms_cod ?? undefined,
     }))
     .filter((r) => r.vend_no);
-  console.info("[vendors] SQL returned", mapped.length, "vendor(s); sending in batches of", BATCH);
+
+  console.info("[vendors] SQL returned", mapped.length, "vendor(s); sending with parallel-concurrency=5");
+
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
   const state = readState();
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const last = chunk[chunk.length - 1]?.vend_no;
     const body = { rows: chunk, sync: { entity: "vendors", cursor: last } };
-    const summary = await rosPost("vendors", body);
-    console.info("[vendors] batch", summary);
-    if (last) { state.vendors_cursor = last; writeState(state); }
+    
+    const promise = rosPost("vendors", body).then(summary => {
+      console.info("[vendors] batch", summary);
+      if (last) { state.vendors_cursor = last; writeState(state); }
+    }).finally(() => {
+      pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+    });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
+    }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncCustomerNotes(pool) {
@@ -1756,16 +2088,31 @@ async function syncCustomerNotes(pool) {
       user_id: r.user_id ?? r.usr_id ?? undefined,
     }))
     .filter((r) => r.cust_no && r.note_text);
-  console.info("[customer_notes] SQL returned", mapped.length, "note(s); sending in batches of", BATCH);
+    
+  console.info("[customer_notes] SQL returned", mapped.length, "note(s); sending with parallel-concurrency=5");
+
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
   const state = readState();
+
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const body = { rows: chunk, sync: { entity: "customer_notes", cursor: String(i + chunk.length) } };
-    const summary = await rosPost("customer_notes", body);
-    console.info("[customer_notes] batch", summary);
-    state.customer_notes_cursor = String(i + chunk.length);
-    writeState(state);
+    
+    const promise = rosPost("customer_notes", body).then(summary => {
+      console.info("[customer_notes] batch", summary);
+      state.customer_notes_cursor = String(i + chunk.length);
+      writeState(state);
+    }).finally(() => {
+      pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+    });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
+    }
   }
+  await Promise.all(pendingRequests);
 }
 
 async function syncStaff(pool) {
@@ -1832,15 +2179,30 @@ async function syncStaff(pool) {
     return;
   }
 
+  console.info("[staff] SQL returned", allRows.length, "total staff; sending with parallel-concurrency=5");
+
+  const CONCURRENCY = 5;
+  const pendingRequests = [];
   const state = readState();
+
   for (let i = 0; i < allRows.length; i += BATCH) {
     const chunk = allRows.slice(i, i + BATCH);
     const body = { rows: chunk, sync: { entity: "staff", cursor: String(i + chunk.length) } };
-    const summary = await rosPost("staff", body);
-    console.info("[staff] batch", summary);
-    state.staff_cursor = String(i + chunk.length);
-    writeState(state);
+    
+    const promise = rosPost("staff", body).then(summary => {
+      console.info("[staff] batch", summary);
+      state.staff_cursor = String(i + chunk.length);
+      writeState(state);
+    }).finally(() => {
+      pendingRequests.splice(pendingRequests.indexOf(promise), 1);
+    });
+
+    pendingRequests.push(promise);
+    if (pendingRequests.length >= CONCURRENCY) {
+      await Promise.race(pendingRequests);
+    }
   }
+  await Promise.all(pendingRequests);
 }
 
 /**
@@ -2303,6 +2665,7 @@ async function main() {
     { on: SYNC_TICKETS, label: "tickets", hb: "tickets", run: () => syncTickets(pool) },
     { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
     { on: SYNC_LOYALTY_HIST, label: "loyalty_hist", hb: "loyalty_hist", run: () => syncLoyaltyHist(pool) },
+    { on: SYNC_RECEIVING_HISTORY, label: "receiving_history", hb: "receiving_history", run: () => syncReceivingHistory(pool) },
   ];
 
   const tick = async () => {

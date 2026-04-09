@@ -116,6 +116,32 @@ pub struct CounterpointInventorySummary {
     pub skipped: i32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CounterpointReceivingRow {
+    pub vend_no: String,
+    pub item_no: String,
+    pub recv_dat: String,
+    pub unit_cost: Decimal,
+    pub qty_recv: Decimal,
+    #[serde(default)]
+    pub po_no: Option<String>,
+    #[serde(default)]
+    pub recv_no: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CounterpointReceivingPayload {
+    pub rows: Vec<CounterpointReceivingRow>,
+    #[serde(default)]
+    pub sync: Option<SyncCursorIn>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointReceivingSummary {
+    pub inserted: i32,
+    pub skipped: i32,
+}
+
 fn trim_opt(s: &Option<String>) -> Option<String> {
     s.as_ref()
         .map(|x| x.trim())
@@ -260,10 +286,10 @@ async fn email_taken_by_other(
 }
 
 async fn upsert_customer_row(
-    pool: &PgPool,
     tx: &mut Transaction<'_, Postgres>,
     row: &CounterpointCustomerRow,
     summary: &mut CounterpointCustomerBatchSummary,
+    staff_map: &HashMap<String, Uuid>,
 ) -> Result<(), sqlx::Error> {
     let code = row.cust_no.trim();
     if code.is_empty() {
@@ -292,7 +318,11 @@ async fn upsert_customer_row(
     let loyalty_pts = row.loyalty_points;
     let cust_type = trim_opt(&row.customer_type);
     let ar_bal = trim_opt(&row.ar_balance);
-    let preferred_rep = resolve_staff_id(pool, row.sls_rep.as_deref()).await;
+    let preferred_rep = row
+        .sls_rep
+        .as_deref()
+        .and_then(|c| staff_map.get(c.trim()))
+        .copied();
 
     let existing_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM customers WHERE customer_code = $1")
@@ -404,6 +434,15 @@ pub async fn execute_counterpoint_customer_batch(
         ));
     }
 
+    // High-performance staff cache for salesperson resolution
+    let staff_map: HashMap<String, Uuid> = sqlx::query_as::<_, (String, Uuid)>(
+        "SELECT cp_code, ros_staff_id FROM counterpoint_staff_map",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
     let mut tx = pool.begin().await?;
     let mut summary = CounterpointCustomerBatchSummary {
         created: 0,
@@ -413,7 +452,7 @@ pub async fn execute_counterpoint_customer_batch(
     };
 
     for row in &payload.rows {
-        upsert_customer_row(pool, &mut tx, row, &mut summary).await?;
+        upsert_customer_row(&mut tx, row, &mut summary, &staff_map).await?;
     }
 
     tx.commit().await?;
@@ -500,6 +539,63 @@ pub async fn execute_counterpoint_inventory_batch(
     }
 
     Ok(CounterpointInventorySummary { updated, skipped })
+}
+
+pub async fn execute_counterpoint_receiving_batch(
+    pool: &PgPool,
+    payload: CounterpointReceivingPayload,
+) -> Result<CounterpointReceivingSummary, CounterpointSyncError> {
+    if payload.rows.is_empty() {
+        return Err(CounterpointSyncError::InvalidPayload("rows empty".into()));
+    }
+    let mut tx = pool.begin().await?;
+    let mut inserted = 0;
+    let mut skipped = 0;
+
+    for row in &payload.rows {
+        let recv_dat = match DateTime::parse_from_rfc3339(&row.recv_dat) {
+            Ok(dt) => dt.with_timezone(&Utc),
+            Err(_) => {
+                skipped += 1;
+                continue;
+            }
+        };
+
+        // Try to link to a variant for easier reporting
+        let variant_id: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM product_variants WHERE sku = $1")
+                .bind(&row.item_no)
+                .fetch_optional(&mut *tx)
+                .await?;
+
+        sqlx::query(
+            r#"
+            INSERT INTO counterpoint_receiving_history (
+                vend_no, item_no, recv_dat, unit_cost, qty_recv, po_no, recv_no, variant_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            "#,
+        )
+        .bind(&row.vend_no)
+        .bind(&row.item_no)
+        .bind(recv_dat)
+        .bind(row.unit_cost)
+        .bind(row.qty_recv)
+        .bind(&row.po_no)
+        .bind(&row.recv_no)
+        .bind(variant_id)
+        .execute(&mut *tx)
+        .await?;
+
+        inserted += 1;
+    }
+
+    tx.commit().await?;
+    if let Some(ref s) = payload.sync {
+        let _ = record_sync_run(pool, &s.entity, s.cursor.as_deref(), true, None).await;
+    }
+
+    Ok(CounterpointReceivingSummary { inserted, skipped })
 }
 
 pub async fn record_sync_run(
@@ -1066,6 +1162,15 @@ pub async fn execute_counterpoint_catalog_batch(
         ));
     }
 
+    // High-performance cache for vendor and category maps
+    let vendor_map: HashMap<String, Uuid> = sqlx::query_as::<_, (String, Uuid)>(
+        "SELECT vendor_code, id FROM vendors WHERE vendor_code IS NOT NULL",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
     let mut tx = pool.begin().await?;
     let mut summary = CatalogUpsertSummary {
         products_created: 0,
@@ -1076,7 +1181,7 @@ pub async fn execute_counterpoint_catalog_batch(
     };
 
     for row in &payload.rows {
-        if let Err(e) = upsert_catalog_item(&mut tx, row, &mut summary).await {
+        if let Err(e) = upsert_catalog_item(&mut tx, row, &mut summary, &vendor_map).await {
             tracing::warn!(item_no = %row.item_no, error = %e, "catalog row upsert failed, recording issue");
             record_sync_issue(pool, "catalog", Some(&row.item_no), "error", &e.to_string()).await;
             summary.skipped += 1;
@@ -1119,25 +1224,11 @@ async fn resolve_category_id(
     Ok(existing)
 }
 
-async fn resolve_vendor_id(
-    tx: &mut Transaction<'_, Postgres>,
-    vendor_no: Option<&str>,
-) -> Result<Option<Uuid>, sqlx::Error> {
-    let vn = match vendor_no {
-        Some(v) if !v.trim().is_empty() => v.trim(),
-        _ => return Ok(None),
-    };
-    let id: Option<Uuid> = sqlx::query_scalar("SELECT id FROM vendors WHERE vendor_code = $1")
-        .bind(vn)
-        .fetch_optional(&mut **tx)
-        .await?;
-    Ok(id)
-}
-
 async fn upsert_catalog_item(
     tx: &mut Transaction<'_, Postgres>,
     row: &CounterpointCatalogRow,
     summary: &mut CatalogUpsertSummary,
+    vendor_map: &HashMap<String, Uuid>,
 ) -> Result<(), CounterpointSyncError> {
     let item_no = row.item_no.trim();
     if item_no.is_empty() {
@@ -1152,7 +1243,11 @@ async fn upsert_catalog_item(
     let cost = row.unit_cost.unwrap_or(Decimal::ZERO);
     let is_grid = row.is_grid.unwrap_or(!row.cells.is_empty());
     let category_id = resolve_category_id(tx, row.category.as_deref()).await?;
-    let vendor_id = resolve_vendor_id(tx, row.vendor_no.as_deref()).await?;
+    let vendor_id = row
+        .vendor_no
+        .as_deref()
+        .and_then(|v| vendor_map.get(v.trim()))
+        .copied();
 
     let existing_product: Option<Uuid> = sqlx::query_scalar(
         "SELECT p.id FROM products p JOIN product_variants pv ON pv.product_id = p.id WHERE pv.counterpoint_item_key = $1 LIMIT 1",
@@ -1574,6 +1669,8 @@ pub struct CounterpointTicketRow {
     #[serde(default)]
     pub sls_rep: Option<String>,
     #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
     pub lines: Vec<TicketLineRow>,
     #[serde(default)]
     pub payments: Vec<TicketPaymentRow>,
@@ -1606,6 +1703,8 @@ pub struct TicketLineRow {
     pub unit_cost: Option<Decimal>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub reason_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1812,6 +1911,103 @@ pub async fn execute_counterpoint_ticket_batch(
         ));
     }
 
+    // High-performance caches for salesperson and payment resolution
+    let staff_map: HashMap<String, Uuid> = sqlx::query_as::<_, (String, Uuid)>(
+        "SELECT cp_code, ros_staff_id FROM counterpoint_staff_map",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
+    let pmt_map: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT cp_pmt_typ, ros_method FROM counterpoint_payment_method_map",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
+    // Batch pre-fetch variants to avoid per-line DB lookups (massive bottleneck for 13k+ tickets)
+    let mut all_item_keys = HashSet::new();
+    let mut all_skus = HashSet::new();
+    for tkt in &payload.rows {
+        for line in &tkt.lines {
+            if let Some(ref k) = line.counterpoint_item_key {
+                all_item_keys.insert(k.trim().to_string());
+            }
+            if let Some(ref s) = line.sku {
+                all_skus.insert(s.trim().to_lowercase());
+            }
+        }
+    }
+
+    let mut variant_cache: HashMap<String, (Uuid, Uuid)> = HashMap::new();
+    if !all_item_keys.is_empty() {
+        let keys: Vec<String> = all_item_keys.into_iter().collect();
+        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
+            "SELECT counterpoint_item_key, id, product_id FROM product_variants WHERE counterpoint_item_key = ANY($1)",
+        )
+        .bind(&keys)
+        .fetch_all(pool)
+        .await?;
+        for (k, id, pid) in rows {
+            variant_cache.insert(k, (id, pid));
+        }
+    }
+    if !all_skus.is_empty() {
+        let skus: Vec<String> = all_skus.into_iter().collect();
+        let rows: Vec<(String, Uuid, Uuid)> = sqlx::query_as(
+            "SELECT lower(trim(sku)), id, product_id FROM product_variants WHERE lower(trim(sku)) = ANY($1)",
+        )
+        .bind(&skus)
+        .fetch_all(pool)
+        .await?;
+        for (s, id, pid) in rows {
+            // Only insert if not already there via item_key (item_key wins)
+            variant_cache.entry(s).or_insert((id, pid));
+        }
+    }
+
+    // Batch pre-fetch customer IDs and duplicate ticket refs (Extreme Performance for 13k+ tickets)
+    let cust_codes: HashSet<String> = payload
+        .rows
+        .iter()
+        .filter_map(|t| t.cust_no.as_ref().map(|s| s.trim().to_string()))
+        .collect();
+    let ticket_refs: Vec<String> = payload
+        .rows
+        .iter()
+        .map(|t| t.ticket_ref.trim().to_string())
+        .collect();
+
+    let customer_id_map: HashMap<String, Uuid> = if cust_codes.is_empty() {
+        HashMap::new()
+    } else {
+        let codes: Vec<String> = cust_codes.into_iter().collect();
+        sqlx::query_as::<_, (String, Uuid)>(
+            "SELECT customer_code, id FROM customers WHERE customer_code = ANY($1)",
+        )
+        .bind(&codes)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect()
+    };
+
+    let existing_ticket_refs: HashSet<String> = if ticket_refs.is_empty() {
+        HashSet::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT counterpoint_ticket_ref FROM orders WHERE counterpoint_ticket_ref = ANY($1)",
+        )
+        .bind(&ticket_refs)
+        .fetch_all(pool)
+        .await?
+        .into_iter()
+        .collect()
+    };
+
     let mut tx = pool.begin().await?;
     let mut summary = TicketSyncSummary {
         orders_created: 0,
@@ -1829,14 +2025,7 @@ pub async fn execute_counterpoint_ticket_batch(
             continue;
         }
 
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM orders WHERE counterpoint_ticket_ref = $1)",
-        )
-        .bind(ticket_ref)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if exists {
+        if existing_ticket_refs.contains(ticket_ref) {
             summary.orders_skipped_existing += 1;
             continue;
         }
@@ -1854,28 +2043,60 @@ pub async fn execute_counterpoint_ticket_batch(
             continue;
         }
 
-        let resolved_lines = match resolve_ticket_lines_for_import(&mut tx, &tkt.lines).await? {
-            Ok(v) => v,
-            Err(msg) => {
-                record_sync_issue(pool, "tickets", Some(ticket_ref), "error", &msg).await;
-                summary.skipped += 1;
-                continue;
+        let mut resolved_lines = Vec::with_capacity(tkt.lines.len());
+        let mut resolve_err = None;
+        for line in &tkt.lines {
+            let mut resolved = None;
+            if let Some(ref k) = line.counterpoint_item_key {
+                resolved = variant_cache.get(k.trim()).copied();
             }
-        };
+            if resolved.is_none() {
+                if let Some(ref s) = line.sku {
+                    resolved = variant_cache.get(&s.trim().to_lowercase()).copied();
+                }
+            }
 
-        let customer_id: Option<Uuid> = if let Some(ref cn) = tkt.cust_no {
-            let cn = cn.trim();
-            if !cn.is_empty() {
-                sqlx::query_scalar("SELECT id FROM customers WHERE customer_code = $1")
-                    .bind(cn)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            } else {
-                None
+            // Fallback for matrix parents (optimized fallback)
+            if resolved.is_none() {
+                let parent_only = line
+                    .counterpoint_item_key
+                    .as_deref()
+                    .or(line.sku.as_deref())
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty() && !s.contains('|'));
+                if let Some(parent) = parent_only {
+                    resolved = resolve_variant_matrix_parent_price_fallback(
+                        &mut tx,
+                        parent,
+                        line.unit_price,
+                    )
+                    .await?;
+                }
             }
-        } else {
-            None
-        };
+
+            if let Some(v) = resolved {
+                resolved_lines.push(v);
+            } else {
+                let sku_str = line.sku.as_deref().unwrap_or("");
+                let key = line.counterpoint_item_key.as_deref().unwrap_or("");
+                resolve_err = Some(format!(
+                    "unresolved line (sku={sku_str:?} counterpoint_item_key={key:?}); import catalog and align SKUs or cell keys"
+                ));
+                break;
+            }
+        }
+
+        if let Some(msg) = resolve_err {
+            record_sync_issue(pool, "tickets", Some(ticket_ref), "error", &msg).await;
+            summary.skipped += 1;
+            continue;
+        }
+
+        let customer_id: Option<Uuid> = tkt
+            .cust_no
+            .as_deref()
+            .and_then(|c| customer_id_map.get(c.trim()))
+            .copied();
 
         let booked_at = tkt
             .booked_at
@@ -1894,17 +2115,25 @@ pub async fn execute_counterpoint_ticket_batch(
             "open"
         };
 
-        let processed_by = resolve_staff_id(pool, tkt.usr_id.as_deref()).await;
-        let salesperson = resolve_staff_id(pool, tkt.sls_rep.as_deref()).await;
+        let processed_by = tkt
+            .usr_id
+            .as_deref()
+            .and_then(|c| staff_map.get(c.trim()))
+            .copied();
+        let salesperson = tkt
+            .sls_rep
+            .as_deref()
+            .and_then(|c| staff_map.get(c.trim()))
+            .copied();
 
         let order_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO orders (
                 customer_id, counterpoint_ticket_ref, is_counterpoint_import,
                 status, booked_at, total_price, amount_paid, balance_due,
-                processed_by_staff_id, primary_salesperson_id
+                processed_by_staff_id, primary_salesperson_id, notes
             )
-            VALUES ($1, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9, $10)
             RETURNING id
             "#,
         )
@@ -1917,6 +2146,7 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(balance)
         .bind(processed_by)
         .bind(salesperson)
+        .bind(tkt.notes.as_deref())
         .fetch_one(&mut *tx)
         .await?;
         summary.orders_created += 1;
@@ -1929,9 +2159,10 @@ pub async fn execute_counterpoint_ticket_batch(
                 INSERT INTO order_items (
                     order_id, product_id, variant_id, salesperson_id, fulfillment,
                     quantity, unit_price, unit_cost,
-                    state_tax, local_tax, applied_spiff, calculated_commission
+                    state_tax, local_tax, applied_spiff, calculated_commission,
+                    counterpoint_reason_code
                 )
-                VALUES ($1, $2, $3, $4, 'takeaway'::fulfillment_type, $5, $6, $7, 0, 0, 0, 0)
+                VALUES ($1, $2, $3, $4, 'takeaway'::fulfillment_type, $5, $6, $7, 0, 0, 0, 0, $8)
                 "#,
             )
             .bind(order_id)
@@ -1941,13 +2172,17 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(line.quantity)
             .bind(line.unit_price)
             .bind(cost)
+            .bind(line.reason_code.as_deref())
             .execute(&mut *tx)
             .await?;
             summary.line_items_created += 1;
         }
 
         for pmt in &tkt.payments {
-            let method = resolve_payment_method(&mut tx, &pmt.pmt_typ).await;
+            let method = pmt_map
+                .get(&pmt.pmt_typ.trim().to_uppercase())
+                .cloned()
+                .unwrap_or_else(|| "cash".to_string());
 
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
@@ -2183,6 +2418,13 @@ fn order_status_for_cp_open_doc(
     }
 }
 
+fn fulfillment_type_for_cp_doc_typ(doc_typ: Option<&str>) -> &'static str {
+    match doc_typ.map(|s| s.trim().to_uppercase()).as_deref() {
+        Some("L") => "layaway",
+        _ => "special_order",
+    }
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // Open documents (PS_DOC → orders as special_order lines; idempotent on doc ref)
 // ────────────────────────────────────────────────────────────────────────────
@@ -2200,9 +2442,11 @@ pub struct CounterpointOpenDocRow {
     pub usr_id: Option<String>,
     #[serde(default)]
     pub sls_rep: Option<String>,
-    /// Raw Counterpoint doc / status flag when available (VOID, cancel markers, etc.).
     #[serde(default)]
     pub cp_status: Option<String>,
+    /// CP `DOC_TYP`: O=Order (Special Order), L=Layaway.
+    #[serde(default)]
+    pub doc_typ: Option<String>,
     #[serde(default)]
     pub lines: Vec<TicketLineRow>,
     #[serde(default)]
@@ -2234,6 +2478,15 @@ pub async fn execute_counterpoint_open_doc_batch(
             "rows cannot be empty".into(),
         ));
     }
+
+    // High-performance staff cache for salesperson resolution
+    let staff_map: HashMap<String, Uuid> = sqlx::query_as::<_, (String, Uuid)>(
+        "SELECT cp_code, ros_staff_id FROM counterpoint_staff_map",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
 
     let mut tx = pool.begin().await?;
     let mut summary = OpenDocSyncSummary {
@@ -2294,8 +2547,16 @@ pub async fn execute_counterpoint_open_doc_batch(
             doc.amount_paid,
         );
 
-        let processed_by = resolve_staff_id(pool, doc.usr_id.as_deref()).await;
-        let salesperson = resolve_staff_id(pool, doc.sls_rep.as_deref()).await;
+        let processed_by = doc
+            .usr_id
+            .as_deref()
+            .and_then(|c| staff_map.get(c.trim()))
+            .copied();
+        let salesperson = doc
+            .sls_rep
+            .as_deref()
+            .and_then(|c| staff_map.get(c.trim()))
+            .copied();
 
         if doc.lines.is_empty() {
             record_sync_issue(
@@ -2350,6 +2611,8 @@ pub async fn execute_counterpoint_open_doc_batch(
         .await?;
         summary.orders_created += 1;
 
+        let fulfillment = fulfillment_type_for_cp_doc_typ(doc.doc_typ.as_deref());
+
         for ((variant_id, product_id), line) in resolved_lines.iter().zip(doc.lines.iter()) {
             let cost = line.unit_cost.unwrap_or(Decimal::ZERO);
 
@@ -2358,18 +2621,21 @@ pub async fn execute_counterpoint_open_doc_batch(
                 INSERT INTO order_items (
                     order_id, product_id, variant_id, salesperson_id, fulfillment,
                     quantity, unit_price, unit_cost,
-                    state_tax, local_tax, applied_spiff, calculated_commission
+                    state_tax, local_tax, applied_spiff, calculated_commission,
+                    counterpoint_reason_code
                 )
-                VALUES ($1, $2, $3, $4, 'special_order'::fulfillment_type, $5, $6, $7, 0, 0, 0, 0)
+                VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9)
                 "#,
             )
             .bind(order_id)
             .bind(product_id)
             .bind(variant_id)
             .bind(salesperson)
+            .bind(fulfillment)
             .bind(line.quantity)
             .bind(line.unit_price)
             .bind(cost)
+            .bind(line.reason_code.as_deref())
             .execute(&mut *tx)
             .await?;
             summary.line_items_created += 1;
@@ -3139,16 +3405,82 @@ pub async fn execute_counterpoint_loyalty_hist_batch(
         .into_iter()
         .collect();
 
-    let loyalty_by_code: HashMap<String, i32> = if cust_codes.is_empty() {
+    // 1. Batch resolve customer IDs
+    let customer_id_map: HashMap<String, Uuid> = if cust_codes.is_empty() {
         HashMap::new()
     } else {
-        let recs = sqlx::query_as::<_, (String, i32)>(
-            r#"SELECT customer_code, COALESCE(loyalty_points, 0)::int FROM customers WHERE customer_code = ANY($1)"#,
+        sqlx::query_as::<_, (String, Uuid)>(
+            "SELECT customer_code, id FROM customers WHERE customer_code = ANY($1)",
         )
         .bind(&cust_codes[..])
         .fetch_all(&mut *tx)
-        .await?;
-        recs.into_iter().collect()
+        .await?
+        .into_iter()
+        .collect()
+    };
+
+    // 1b. Batch fetch current loyalty points from customers for opening balance logic
+    let loyalty_by_code: HashMap<String, i32> = if cust_codes.is_empty() {
+        HashMap::new()
+    } else {
+        sqlx::query_as::<_, (String, i32)>(
+            "SELECT customer_code, COALESCE(loyalty_points, 0)::int FROM customers WHERE customer_code = ANY($1)",
+        )
+        .bind(&cust_codes[..])
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect()
+    };
+
+    // 2. Batch check for duplicates in one query
+    let mut cp_refs = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let cust_no = row.cust_no.trim();
+        if cust_no.is_empty() {
+            continue;
+        }
+        let date_part = row
+            .bus_dat
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or("_");
+        let ref_part = row.ref_no.as_deref().map(str::trim).unwrap_or("");
+        cp_refs.push(format!("{cust_no}|{date_part}|{ref_part}"));
+    }
+
+    let existing_refs: HashSet<String> = if cp_refs.is_empty() {
+        HashSet::new()
+    } else {
+        sqlx::query_scalar::<_, String>(
+            "SELECT (metadata->>'cp_ref') FROM loyalty_point_ledger WHERE reason = 'cp_loy_pts_hist' AND (metadata->>'cp_ref') = ANY($1)"
+        )
+        .bind(&cp_refs[..])
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect()
+    };
+
+    // 3. Batch fetch latest balances for all customers in this chunk
+    let mut current_balances: HashMap<Uuid, i32> = if customer_id_map.is_empty() {
+        HashMap::new()
+    } else {
+        let ids: Vec<Uuid> = customer_id_map.values().cloned().collect();
+        sqlx::query_as::<_, (Uuid, i32)>(
+            r#"
+            SELECT DISTINCT ON (customer_id) customer_id, balance_after
+            FROM loyalty_point_ledger
+            WHERE customer_id = ANY($1)
+            ORDER BY customer_id, created_at DESC, id DESC
+            "#,
+        )
+        .bind(&ids[..])
+        .fetch_all(&mut *tx)
+        .await?
+        .into_iter()
+        .collect()
     };
 
     for row in &rows {
@@ -3157,6 +3489,15 @@ pub async fn execute_counterpoint_loyalty_hist_batch(
             summary.skipped += 1;
             continue;
         }
+
+        let cid = match customer_id_map.get(cust_no) {
+            Some(id) => *id,
+            None => {
+                summary.skipped += 1;
+                continue;
+            }
+        };
+
         let earnd = row.pts_earnd.unwrap_or(0);
         let redeemd = row.pts_redeemd.unwrap_or(0);
         let delta = earnd - redeemd;
@@ -3164,17 +3505,6 @@ pub async fn execute_counterpoint_loyalty_hist_batch(
             summary.skipped += 1;
             continue;
         }
-
-        let customer_id: Option<Uuid> =
-            sqlx::query_scalar("SELECT id FROM customers WHERE customer_code = $1")
-                .bind(cust_no)
-                .fetch_optional(&mut *tx)
-                .await?;
-
-        let Some(cid) = customer_id else {
-            summary.skipped += 1;
-            continue;
-        };
 
         let date_part = row
             .bus_dat
@@ -3185,56 +3515,23 @@ pub async fn execute_counterpoint_loyalty_hist_batch(
         let ref_part = row.ref_no.as_deref().map(str::trim).unwrap_or("");
         let cp_ref = format!("{cust_no}|{date_part}|{ref_part}");
 
-        let dup: bool = sqlx::query_scalar(
-            r#"
-            SELECT EXISTS(
-                SELECT 1 FROM loyalty_point_ledger
-                WHERE reason = 'cp_loy_pts_hist' AND metadata->>'cp_ref' = $1
-            )
-            "#,
-        )
-        .bind(&cp_ref)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        if dup {
+        if existing_refs.contains(&cp_ref) {
             summary.skipped += 1;
             continue;
         }
 
-        let prev_bal: Option<i32> = sqlx::query_scalar(
-            r#"
-            SELECT balance_after FROM loyalty_point_ledger
-            WHERE customer_id = $1
-            ORDER BY created_at DESC, id DESC
-            LIMIT 1
-            "#,
-        )
-        .bind(cid)
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let prev = match prev_bal {
-            Some(p) => p,
+        let prev = match current_balances.get(&cid) {
+            Some(b) => *b,
             None => {
                 let cp_bal = loyalty_by_code.get(cust_no).copied().unwrap_or(0);
                 let sum_d = sum_by_cust.get(cust_no).copied().unwrap_or(0);
-                match cp_bal.checked_sub(sum_d) {
-                    Some(opening) => opening,
-                    None => {
-                        tracing::warn!(
-                            cust_no = %cust_no,
-                            cp_balance = cp_bal,
-                            sum_payload_deltas = sum_d,
-                            "counterpoint loyalty import: opening balance underflow; using 0"
-                        );
-                        0
-                    }
-                }
+                cp_bal.checked_sub(sum_d).unwrap_or(0)
             }
         };
 
         let bal_after = prev + delta;
+        current_balances.insert(cid, bal_after); // Update "moving" balance for next row in this batch
+
         let meta = serde_json::json!({
             "cp_ref": cp_ref,
             "source": "ps_loy_pts_hist",

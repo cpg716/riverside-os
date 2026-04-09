@@ -598,6 +598,42 @@ async fn cp_loyalty_hist(
     }
 }
 
+async fn cp_receiving_history(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<crate::logic::counterpoint_sync::CounterpointReceivingPayload>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    let n = payload.rows.len();
+    let res =
+        crate::logic::counterpoint_sync::execute_counterpoint_receiving_batch(&state.db, payload)
+            .await;
+    match res {
+        Ok(summary) => {
+            tracing::info!(
+                entity = "receiving_history",
+                batch_size = n,
+                inserted = summary.inserted,
+                skipped = summary.skipped,
+                "counterpoint receiving history batch applied"
+            );
+            Ok(Json(json!(summary)))
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, entity = "receiving_history", batch_size = n, "counterpoint receiving batch failed");
+            let _ = crate::logic::counterpoint_sync::record_sync_run(
+                &state.db,
+                "receiving_history",
+                None,
+                false,
+                Some(&e.to_string()),
+            )
+            .await;
+            Err(cp_err(e))
+        }
+    }
+}
+
 async fn cp_vendor_items(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1097,6 +1133,7 @@ pub fn router() -> Router<AppState> {
             .route("/customer-notes", post(cp_customer_notes))
             .route("/sales-rep-stubs", post(cp_sales_rep_stubs))
             .route("/staff", post(cp_staff))
+            .route("/receiving-history", post(cp_receiving_history))
             .route("/staging", post(cp_staging)),
     )
 }
