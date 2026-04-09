@@ -13,11 +13,11 @@ import {
   TrendingUp,
   Star,
 } from "lucide-react";
+import { LoyaltyRedeemDialog } from "../loyalty/LoyaltyRedeemDialog";
 import {
-  LoyaltyRedeemDialog,
   loyaltyEligibleDisplayName,
   type LoyaltyEligibleCustomer,
-} from "../loyalty/LoyaltyRedeemDialog";
+} from "../loyalty/LoyaltyLogic";
 
 interface CustomerRecord {
   id: string;

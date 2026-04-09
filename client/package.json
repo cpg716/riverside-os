@@ -20,7 +20,8 @@
     "tauri:dev": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri dev",
     "tauri:build": "PATH=\"$HOME/.cargo/bin:$PATH\" tauri build",
     "generate:staff-avatars": "node scripts/generate-staff-avatars.mjs",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

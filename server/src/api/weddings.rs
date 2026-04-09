@@ -49,6 +49,18 @@ fn spawn_meilisearch_wedding_party(state: &AppState, party_id: Uuid) {
     }
 }
 
+fn spawn_meilisearch_appointment_upsert(state: &AppState, appt_id: Uuid) {
+    let state = state.clone();
+    crate::logic::meilisearch_sync::spawn_meili(async move {
+        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
+            crate::logic::meilisearch_sync::upsert_appointment_document(
+                &client, &state.db, appt_id,
+            )
+            .await;
+        }
+    });
+}
+
 pub use crate::logic::wedding_api_types::{
     ActionRow, ActivityFeedRow, AppointmentRow, PaginatedParties, Pagination, PartyListQuery,
     WeddingActions, WeddingLedgerLine, WeddingLedgerResponse, WeddingLedgerSummary,
@@ -1341,6 +1353,8 @@ async fn create_appointment(
         .wedding_events
         .appointments_updated(wedding_client_sender(&headers).as_deref());
 
+    spawn_meilisearch_appointment_upsert(&state, id);
+
     Ok(Json(appt))
 }
 
@@ -1416,6 +1430,8 @@ async fn update_appointment(
         state
             .wedding_events
             .appointments_updated(wedding_client_sender(&headers).as_deref());
+
+        spawn_meilisearch_appointment_upsert(&state, appointment_id);
     }
 
     let appt: AppointmentRow = sqlx::query_as(

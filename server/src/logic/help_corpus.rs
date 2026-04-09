@@ -123,7 +123,7 @@ fn parse_sections(md: &str, manual_id: &str, manual_title_fallback: &str) -> Vec
         let heading = h1.clone().unwrap_or_else(|| "Overview".to_string());
         let slug = unique_slug("overview", &mut slug_counts);
         out.push(HelpChunkDoc {
-            id: format!("{manual_id}#{slug}"),
+            id: format!("{manual_id}__{slug}"),
             manual_id: manual_id.to_string(),
             manual_title: h1
                 .clone()
@@ -169,7 +169,7 @@ fn parse_sections(md: &str, manual_id: &str, manual_title_fallback: &str) -> Vec
             .clone()
             .unwrap_or_else(|| manual_title_fallback.to_string());
         out.push(HelpChunkDoc {
-            id: format!("{manual_id}#{slug}"),
+            id: format!("{manual_id}__{slug}"),
             manual_id: manual_id.to_string(),
             manual_title: title,
             section_slug: slug,

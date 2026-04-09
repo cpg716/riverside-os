@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Printer, RefreshCw, Star } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";

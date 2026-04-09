@@ -137,6 +137,16 @@ async fn list_vendors(
     Ok(Json(rows))
 }
 
+fn spawn_meilisearch_vendor_upsert(state: &AppState, vendor_id: Uuid) {
+    let state = state.clone();
+    crate::logic::meilisearch_sync::spawn_meili(async move {
+        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
+            crate::logic::meilisearch_sync::upsert_vendor_document(&client, &state.db, vendor_id)
+                .await;
+        }
+    });
+}
+
 async fn create_vendor(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -151,7 +161,7 @@ async fn create_vendor(
         r#"
         INSERT INTO vendors (name, email, phone, account_number, payment_terms, vendor_code)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, name, email, phone, account_number, payment_terms, vendor_code, is_active
+        RETURNING id, name, email, phone, account_number, payment_terms, vendor_code, nuorder_brand_id as "nuorder_brand_id?", is_active
         "#,
     )
     .bind(name)
@@ -192,6 +202,8 @@ async fn create_vendor(
     )
     .fetch_one(&state.db)
     .await?;
+
+    spawn_meilisearch_vendor_upsert(&state, v.id);
 
     Ok(Json(json!({
         "id": v.id,

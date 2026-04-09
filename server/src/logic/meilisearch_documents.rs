@@ -47,6 +47,42 @@ pub struct OrderDoc {
     pub search_text: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct StaffDoc {
+    pub id: String,
+    pub is_active: bool,
+    pub role: String,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct VendorDoc {
+    pub id: String,
+    pub is_active: bool,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CategoryDoc {
+    pub id: String,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AppointmentDoc {
+    pub id: String,
+    pub is_cancelled: bool,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TaskDoc {
+    pub id: String,
+    pub status: String,
+    pub assignee_id: Option<String>,
+    pub search_text: String,
+}
+
 pub fn build_variant_search_text(
     sku: &str,
     barcode: Option<&str>,

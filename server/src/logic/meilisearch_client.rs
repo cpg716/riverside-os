@@ -15,6 +15,11 @@ pub const INDEX_WEDDING_PARTIES: &str = "ros_wedding_parties";
 pub const INDEX_ORDERS: &str = "ros_orders";
 /// In-app help manuals (markdown chunks).
 pub const INDEX_HELP: &str = "ros_help";
+pub const INDEX_STAFF: &str = "ros_staff";
+pub const INDEX_VENDORS: &str = "ros_vendors";
+pub const INDEX_CATEGORIES: &str = "ros_categories";
+pub const INDEX_APPOINTMENTS: &str = "ros_appointments";
+pub const INDEX_TASKS: &str = "ros_tasks";
 
 /// When `RIVERSIDE_MEILISEARCH_URL` is empty or client creation fails, search stays on PostgreSQL.
 pub fn meilisearch_from_env() -> Option<Client> {
@@ -152,6 +157,80 @@ pub async fn ensure_help_index_settings(client: &Client) -> Result<(), MeiliErro
     Ok(())
 }
 
+pub async fn ensure_staff_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_STAFF);
+    wait_task_ok(
+        client,
+        index.set_searchable_attributes(["search_text"]).await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index
+            .set_filterable_attributes(["is_active", "role"])
+            .await?,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn ensure_vendors_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_VENDORS);
+    wait_task_ok(
+        client,
+        index.set_searchable_attributes(["search_text"]).await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index.set_filterable_attributes(["is_active"]).await?,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn ensure_categories_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_CATEGORIES);
+    wait_task_ok(
+        client,
+        index.set_searchable_attributes(["search_text"]).await?,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn ensure_appointments_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_APPOINTMENTS);
+    wait_task_ok(
+        client,
+        index.set_searchable_attributes(["search_text"]).await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index.set_filterable_attributes(["is_cancelled"]).await?,
+    )
+    .await?;
+    Ok(())
+}
+
+pub async fn ensure_tasks_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_TASKS);
+    wait_task_ok(
+        client,
+        index.set_searchable_attributes(["search_text"]).await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index
+            .set_filterable_attributes(["status", "assignee_id"])
+            .await?,
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn ensure_all_meilisearch_index_settings(client: &Client) -> Result<(), MeiliError> {
     ensure_variant_index_settings(client).await?;
     ensure_store_products_index_settings(client).await?;
@@ -159,5 +238,10 @@ pub async fn ensure_all_meilisearch_index_settings(client: &Client) -> Result<()
     ensure_wedding_parties_index_settings(client).await?;
     ensure_orders_index_settings(client).await?;
     ensure_help_index_settings(client).await?;
+    ensure_staff_index_settings(client).await?;
+    ensure_vendors_index_settings(client).await?;
+    ensure_categories_index_settings(client).await?;
+    ensure_appointments_index_settings(client).await?;
+    ensure_tasks_index_settings(client).await?;
     Ok(())
 }

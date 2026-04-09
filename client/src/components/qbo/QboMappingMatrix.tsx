@@ -2,9 +2,16 @@ import { useEffect, useState } from "react";
 import { Info, Settings2, ShieldCheck } from "lucide-react";
 import type {
   AccountMapping,
-  QboMappingMatrixProps,
   QboMatrixAccount,
 } from "./QboMappingLogic";
+
+export interface QboMappingMatrixProps {
+  categories: { id: string; name: string }[];
+  tenders: readonly { id: string; label: string }[];
+  accounts: QboMatrixAccount[];
+  initialMappings: Record<string, AccountMapping>;
+  onSave: (mappings: Record<string, AccountMapping>) => Promise<void>;
+}
 
 function AccountSelect({
   valueId,

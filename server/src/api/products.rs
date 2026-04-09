@@ -1583,7 +1583,7 @@ async fn get_product_hub(
             p.track_low_stock,
             p.employee_markup_percent,
             COALESCE(p.employee_extra_amount, 0::numeric) AS employee_extra_amount,
-            p.nuorder_product_id
+            p.catalog_handle AS nuorder_product_id
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN vendors v_primary ON v_primary.id = p.primary_vendor_id

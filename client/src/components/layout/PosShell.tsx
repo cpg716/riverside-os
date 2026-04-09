@@ -89,6 +89,7 @@ export default function PosShell({
   sessionId,
   pendingPosCustomer,
   pendingPosOrderId,
+  setPendingPosOrderId,
   clearPendingPosCustomer,
   clearPendingPosOrder,
   pendingWeddingPosLink,

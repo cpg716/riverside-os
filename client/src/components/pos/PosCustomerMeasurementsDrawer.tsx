@@ -3,10 +3,11 @@ import { Ruler, X } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import CustomerMeasurementVaultForm, {
+import CustomerMeasurementVaultForm from "../customers/CustomerMeasurementVaultForm";
+import {
   measurementDraftFromLatest,
   serializeMeasurementPatch,
-} from "../customers/CustomerMeasurementVaultForm";
+} from "../customers/CustomerMeasurementLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

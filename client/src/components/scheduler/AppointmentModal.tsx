@@ -2,8 +2,8 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Calendar, Check, AlertTriangle, Trash, CheckCircle, Loader2 } from 'lucide-react';
 import { weddingApi, type RosCustomerSearchHit } from '../../lib/weddingApi';
 import { type Appointment } from './SchedulerWorkspace';
-import { useToast } from '../ui/ToastProvider';
-import { useBackofficeAuth } from '../../context/BackofficeAuthContext';
+import { useToast } from '../ui/ToastProviderLogic';
+import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import ConfirmationModal from '../ui/ConfirmationModal';
 

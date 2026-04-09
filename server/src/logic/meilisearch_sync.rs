@@ -5,12 +5,50 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_CUSTOMERS, INDEX_ORDERS, INDEX_STORE_PRODUCTS, INDEX_VARIANTS, INDEX_WEDDING_PARTIES,
+    INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_ORDERS, INDEX_STAFF,
+    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
 };
 use crate::logic::meilisearch_documents::{
     augment_search_with_phone_digits, build_customer_search_text, variant_doc_from_row,
-    CustomerDoc, OrderDoc, StoreProductDoc, WeddingPartyDoc,
+    AppointmentDoc, CategoryDoc, CustomerDoc, OrderDoc, StaffDoc, StoreProductDoc, TaskDoc,
+    VendorDoc, WeddingPartyDoc,
 };
+use futures_util::StreamExt;
+
+#[derive(sqlx::FromRow)]
+struct VariantRow {
+    variant_id: Uuid,
+    product_id: Uuid,
+    category_id: Option<Uuid>,
+    primary_vendor_id: Option<Uuid>,
+    web_published: bool,
+    is_clothing_footwear: Option<bool>,
+    sku: String,
+    barcode: Option<String>,
+    vendor_upc: Option<String>,
+    product_name: String,
+    brand: Option<String>,
+    variation_label: Option<String>,
+    catalog_handle: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct Row {
+    variant_id: Uuid,
+    product_id: Uuid,
+    category_id: Option<Uuid>,
+    primary_vendor_id: Option<Uuid>,
+    web_published: bool,
+    is_clothing_footwear: Option<bool>,
+    sku: String,
+    barcode: Option<String>,
+    vendor_upc: Option<String>,
+    product_name: String,
+    brand: Option<String>,
+    variation_label: Option<String>,
+    catalog_handle: Option<String>,
+    is_active: bool,
+}
 
 fn log_meili_add_err(context: &'static str, e: &meilisearch_sdk::errors::Error) {
     tracing::warn!(error = %e, context, "Meilisearch add_documents failed; will rely on SQL search until reindex");
@@ -25,24 +63,6 @@ pub async fn delete_variant_document(client: &Client, variant_id: Uuid) {
 }
 
 pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id: Uuid) {
-    #[derive(sqlx::FromRow)]
-    struct Row {
-        variant_id: Uuid,
-        product_id: Uuid,
-        category_id: Option<Uuid>,
-        primary_vendor_id: Option<Uuid>,
-        web_published: bool,
-        is_clothing_footwear: Option<bool>,
-        sku: String,
-        barcode: Option<String>,
-        vendor_upc: Option<String>,
-        product_name: String,
-        brand: Option<String>,
-        variation_label: Option<String>,
-        catalog_handle: Option<String>,
-        is_active: bool,
-    }
-
     let row = sqlx::query_as::<_, Row>(
         r#"
         SELECT
@@ -416,6 +436,199 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, order_id: Uui
     }
 }
 
+pub async fn upsert_staff_document(client: &Client, pool: &PgPool, staff_id: Uuid) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        full_name: String,
+        cashier_code: Option<String>,
+        role: String,
+        is_active: bool,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        "SELECT id, full_name, cashier_code, role::text, is_active FROM staff WHERE id = $1",
+    )
+    .bind(staff_id)
+    .fetch_optional(pool)
+    .await;
+
+    let Ok(Some(row)) = row else {
+        let index = client.index(INDEX_STAFF);
+        let _ = index.delete_document(staff_id.to_string()).await;
+        return;
+    };
+
+    let search_text = format!(
+        "{} {}",
+        row.full_name,
+        row.cashier_code.as_deref().unwrap_or("")
+    );
+    let doc = StaffDoc {
+        id: row.id.to_string(),
+        is_active: row.is_active,
+        role: row.role,
+        search_text,
+    };
+
+    let index = client.index(INDEX_STAFF);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("staff upsert", &e);
+    }
+}
+
+pub async fn upsert_vendor_document(client: &Client, pool: &PgPool, vendor_id: Uuid) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        name: String,
+        vendor_code: Option<String>,
+        is_active: bool,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        "SELECT id, name, vendor_code, is_active FROM vendors WHERE id = $1",
+    )
+    .bind(vendor_id)
+    .fetch_optional(pool)
+    .await;
+
+    let Ok(Some(row)) = row else {
+        let index = client.index(INDEX_VENDORS);
+        let _ = index.delete_document(vendor_id.to_string()).await;
+        return;
+    };
+
+    let search_text = format!("{} {}", row.name, row.vendor_code.as_deref().unwrap_or(""));
+    let doc = VendorDoc {
+        id: row.id.to_string(),
+        is_active: row.is_active,
+        search_text,
+    };
+
+    let index = client.index(INDEX_VENDORS);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("vendor upsert", &e);
+    }
+}
+
+pub async fn upsert_category_document(client: &Client, pool: &PgPool, category_id: Uuid) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        name: String,
+    }
+
+    let row = sqlx::query_as::<_, Row>("SELECT id, name FROM categories WHERE id = $1")
+        .bind(category_id)
+        .fetch_optional(pool)
+        .await;
+
+    let Ok(Some(row)) = row else {
+        let index = client.index(INDEX_CATEGORIES);
+        let _ = index.delete_document(category_id.to_string()).await;
+        return;
+    };
+
+    let doc = CategoryDoc {
+        id: row.id.to_string(),
+        search_text: row.name,
+    };
+
+    let index = client.index(INDEX_CATEGORIES);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("category upsert", &e);
+    }
+}
+
+pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id: Uuid) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        customer_first: Option<String>,
+        customer_last: Option<String>,
+        party_name: Option<String>,
+        notes: Option<String>,
+        status: String,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        r#"
+        SELECT
+            a.id,
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            wp.party_name,
+            a.notes,
+            a.status
+        FROM wedding_appointments a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(appt_id)
+    .fetch_optional(pool)
+    .await;
+
+    let Ok(Some(row)) = row else {
+        let index = client.index(INDEX_APPOINTMENTS);
+        let _ = index.delete_document(appt_id.to_string()).await;
+        return;
+    };
+
+    let search_text = format!(
+        "{} {} {} {}",
+        row.customer_first.as_deref().unwrap_or(""),
+        row.customer_last.as_deref().unwrap_or(""),
+        row.party_name.as_deref().unwrap_or(""),
+        row.notes.as_deref().unwrap_or("")
+    );
+
+    let doc = AppointmentDoc {
+        id: row.id.to_string(),
+        is_cancelled: row.status == "Cancelled",
+        search_text,
+    };
+
+    let index = client.index(INDEX_APPOINTMENTS);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("appointment upsert", &e);
+    }
+}
+
+pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid) {
+    let task = sqlx::query!(
+        r#"
+        SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, ti.due_date, s.full_name AS assignee_name
+        FROM task_instance ti
+        LEFT JOIN staff s ON s.id = ti.assignee_staff_id
+        WHERE ti.id = $1
+        "#,
+        task_id
+    )
+    .fetch_optional(pool)
+    .await;
+
+    let Ok(Some(task)) = task else {
+        let index = client.index(INDEX_TASKS);
+        let _ = index.delete_document(task_id.to_string()).await;
+        return;
+    };
+
+    let doc = TaskDoc {
+        id: task.id.to_string(),
+        status: task.status.unwrap_or_else(|| "open".to_string()),
+        assignee_id: None,
+        search_text: format!("{} {}", task.title, task.assignee_name),
+    };
+
+    let index = client.index(INDEX_TASKS);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("task upsert", &e);
+    }
+}
+
 /// Spawn a cheap background sync (does not block the request path).
 pub fn spawn_meili<F>(fut: F)
 where
@@ -425,79 +638,409 @@ where
 }
 
 /// Full rebuild: settings + all documents (admin / script).
+/// Optimized with bulk additions to avoid 500k sequential HTTP calls.
 pub async fn reindex_all_meilisearch(
     client: &Client,
     pool: &PgPool,
 ) -> Result<(), meilisearch_sdk::errors::Error> {
-    use meilisearch_sdk::errors::Error as MeiliError;
-
+    tracing::info!("Starting full Meilisearch reindex...");
     crate::logic::meilisearch_client::ensure_all_meilisearch_index_settings(client).await?;
 
-    let vids: Vec<Uuid> = sqlx::query_scalar(
+    // 1. Variants (the largest index)
+    let index_v = client.index(INDEX_VARIANTS);
+    index_v.delete_all_documents().await?;
+
+    let mut variant_stream = sqlx::query_as::<_, VariantRow>(
         r#"
-        SELECT pv.id
+        SELECT
+            pv.id AS variant_id,
+            p.id AS product_id,
+            p.category_id,
+            p.primary_vendor_id,
+            COALESCE(pv.web_published, false) AS web_published,
+            c.is_clothing_footwear,
+            pv.sku,
+            pv.barcode,
+            pv.vendor_upc,
+            p.name AS product_name,
+            p.brand,
+            pv.variation_label,
+            NULLIF(btrim(p.catalog_handle::text), '') AS catalog_handle
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
         WHERE p.is_active = true
         "#,
     )
-    .fetch_all(pool)
-    .await
-    .map_err(|e| MeiliError::Other(Box::new(e)))?;
-    let n_variants = vids.len();
+    .fetch(pool);
 
-    for vid in vids {
-        upsert_variant_document(client, pool, vid).await;
+    let mut v_batch = Vec::with_capacity(1000);
+    let mut n_variants = 0usize;
+    while let Some(res) = variant_stream.next().await {
+        if let Ok(row) = res {
+            v_batch.push(variant_doc_from_row(
+                row.variant_id,
+                row.product_id,
+                row.category_id,
+                row.primary_vendor_id,
+                row.web_published,
+                row.is_clothing_footwear.unwrap_or(false),
+                &row.sku,
+                row.barcode.as_deref(),
+                row.vendor_upc.as_deref(),
+                &row.product_name,
+                row.brand.as_deref(),
+                row.variation_label.as_deref(),
+                row.catalog_handle.as_deref(),
+            ));
+            if v_batch.len() >= 1000 {
+                n_variants += v_batch.len();
+                index_v.add_documents(&v_batch, Some("id")).await?;
+                v_batch.clear();
+            }
+        }
+    }
+    if !v_batch.is_empty() {
+        n_variants += v_batch.len();
+        index_v.add_documents(&v_batch, Some("id")).await?;
     }
 
-    let pids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM products")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| MeiliError::Other(Box::new(e)))?;
-    let n_products = pids.len();
-    for pid in pids {
-        upsert_store_product_document(client, pool, pid).await;
+    // 2. Store Products
+    let index_p = client.index(INDEX_STORE_PRODUCTS);
+    index_p.delete_all_documents().await?;
+    let mut product_stream = sqlx::query!(
+        r#"
+        SELECT
+            p.id,
+            btrim(p.catalog_handle::text) AS slug,
+            p.name,
+            p.brand,
+            p.is_active,
+            (
+                SELECT COUNT(*)::bigint FROM product_variants pv
+                WHERE pv.product_id = p.id AND COALESCE(pv.web_published, false) = true
+            ) AS web_count
+        FROM products p
+        WHERE p.is_active = true
+        "#
+    )
+    .fetch(pool);
+
+    let mut p_batch = Vec::with_capacity(500);
+    while let Some(res) = product_stream.next().await {
+        if let Ok(row) = res {
+            let slug = row.slug.unwrap_or_default();
+            let slug_ok = !slug.is_empty();
+            let catalog_ok =
+                row.is_active.unwrap_or(true) && slug_ok && row.web_count.unwrap_or(0) > 0;
+            if catalog_ok {
+                p_batch.push(StoreProductDoc {
+                    id: row.id.to_string(),
+                    catalog_ok,
+                    search_text: format!(
+                        "{} {} {}",
+                        row.name,
+                        slug,
+                        row.brand.as_deref().unwrap_or("")
+                    ),
+                });
+            }
+            if p_batch.len() >= 500 {
+                index_p.add_documents(&p_batch, Some("id")).await?;
+                p_batch.clear();
+            }
+        }
+    }
+    if !p_batch.is_empty() {
+        index_p.add_documents(&p_batch, Some("id")).await?;
     }
 
-    let cids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM customers")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| MeiliError::Other(Box::new(e)))?;
-    let n_customers = cids.len();
-    for cid in cids {
-        upsert_customer_document(client, pool, cid).await;
+    // 3. Customers
+    let index_c = client.index(INDEX_CUSTOMERS);
+    index_c.delete_all_documents().await?;
+    let mut customer_stream = sqlx::query!(
+        r#"
+        SELECT
+            id, customer_code, first_name, last_name, company_name, email, phone,
+            city, state, postal_code, address_line1,
+            (
+                SELECT string_agg(DISTINCT COALESCE(wp.party_name, '') || ' ' || COALESCE(wp.groom_name, ''), ' ')
+                FROM wedding_members wm
+                JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                WHERE wm.customer_id = customers.id
+                  AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                  AND wp.event_date >= CURRENT_DATE
+            ) AS wedding_names
+        FROM customers
+        "#
+    ).fetch(pool);
+
+    let mut c_batch = Vec::with_capacity(1000);
+    while let Some(res) = customer_stream.next().await {
+        if let Ok(row) = res {
+            let search_text = build_customer_search_text(
+                row.first_name.as_deref(),
+                row.last_name.as_deref(),
+                Some(&row.customer_code),
+                row.company_name.as_deref(),
+                row.email.as_deref(),
+                row.phone.as_deref(),
+                row.city.as_deref(),
+                row.state.as_deref(),
+                row.postal_code.as_deref(),
+                row.address_line1.as_deref(),
+                row.wedding_names.as_deref(),
+            );
+            c_batch.push(CustomerDoc {
+                id: row.id.to_string(),
+                search_text,
+                customer_code: Some(row.customer_code),
+            });
+            if c_batch.len() >= 1000 {
+                index_c.add_documents(&c_batch, Some("id")).await?;
+                c_batch.clear();
+            }
+        }
+    }
+    if !c_batch.is_empty() {
+        index_c.add_documents(&c_batch, Some("id")).await?;
     }
 
-    let wpids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM wedding_parties")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| MeiliError::Other(Box::new(e)))?;
-    let n_parties = wpids.len();
-    for wpid in wpids {
-        upsert_wedding_party_document(client, pool, wpid).await;
+    // 4. Wedding Parties
+    let index_w = client.index(INDEX_WEDDING_PARTIES);
+    index_w.delete_all_documents().await?;
+    let mut party_stream = sqlx::query!(
+        r#"
+        SELECT
+            wp.id, wp.is_deleted, wp.party_name, wp.groom_name, wp.notes,
+            wp.groom_email, wp.bride_name, wp.bride_email, wp.groom_phone, wp.bride_phone,
+            (
+                SELECT string_agg(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ' ')
+                FROM wedding_members wm
+                JOIN customers c ON c.id = wm.customer_id
+                WHERE wm.wedding_party_id = wp.id
+            ) AS member_blob
+        FROM wedding_parties wp
+        "#
+    ).fetch(pool);
+    let mut w_batch = Vec::with_capacity(500);
+    while let Some(res) = party_stream.next().await {
+        if let Ok(row) = res {
+            let mut base = String::new();
+            for p in [
+                row.party_name.as_deref(),
+                Some(row.groom_name.as_ref()),
+                row.notes.as_deref(),
+                row.groom_email.as_deref(),
+                row.bride_name.as_deref(),
+                row.bride_email.as_deref(),
+                row.member_blob.as_deref(),
+            ] {
+                if let Some(s) = p.filter(|x| !x.trim().is_empty()) {
+                    if !base.is_empty() {
+                        base.push(' ');
+                    }
+                    base.push_str(s);
+                }
+            }
+            let search_text = augment_search_with_phone_digits(
+                &base,
+                &[row.groom_phone.clone(), row.bride_phone.clone()],
+            );
+            w_batch.push(WeddingPartyDoc {
+                id: row.id.to_string(),
+                is_deleted: row.is_deleted,
+                search_text,
+            });
+            if w_batch.len() >= 500 {
+                index_w.add_documents(&w_batch, Some("id")).await?;
+                w_batch.clear();
+            }
+        }
+    }
+    if !w_batch.is_empty() {
+        index_w.add_documents(&w_batch, Some("id")).await?;
     }
 
-    let oids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM orders")
-        .fetch_all(pool)
-        .await
-        .map_err(|e| MeiliError::Other(Box::new(e)))?;
-    let n_orders = oids.len();
-    for oid in oids {
-        upsert_order_document(client, pool, oid).await;
+    // 5. Orders
+    let index_o = client.index(INDEX_ORDERS);
+    index_o.delete_all_documents().await?;
+    let mut order_stream = sqlx::query!(
+        r#"
+        SELECT
+            o.id, o.status::text AS status,
+            c.first_name AS customer_first, c.last_name AS customer_last,
+            NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
+            ps.full_name AS salesperson
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
+        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
+        "#
+    )
+    .fetch(pool);
+    let mut o_batch = Vec::with_capacity(1000);
+    while let Some(res) = order_stream.next().await {
+        if let Ok(row) = res {
+            let s = row.status.as_deref().unwrap_or_default().to_lowercase();
+            let status_open = s == "open" || s == "pending_measurement";
+            let search_text = format!(
+                "{:?} {} {} {} {}",
+                row.id,
+                row.customer_first.as_deref().unwrap_or(""),
+                row.customer_last.as_deref().unwrap_or(""),
+                row.party_name.as_deref().unwrap_or(""),
+                row.salesperson
+            );
+            o_batch.push(OrderDoc {
+                id: row.id.map(|u| u.to_string()).unwrap_or_default(),
+                status_open,
+                search_text,
+            });
+            if o_batch.len() >= 1000 {
+                index_o.add_documents(&o_batch, Some("id")).await?;
+                o_batch.clear();
+            }
+        }
+    }
+    if !o_batch.is_empty() {
+        index_o.add_documents(&o_batch, Some("id")).await?;
     }
 
+    // 6. Help
     if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {
         tracing::warn!(error = %e, "Meilisearch help reindex failed (other indexes succeeded)");
     }
 
-    tracing::info!(
-        variants = n_variants,
-        products = n_products,
-        customers = n_customers,
-        wedding_parties = n_parties,
-        orders = n_orders,
-        "Meilisearch reindex completed"
-    );
+    // 7. Staff
+    let index_staff = client.index(INDEX_STAFF);
+    index_staff.delete_all_documents().await?;
+    let mut staff_stream =
+        sqlx::query!("SELECT id, full_name, cashier_code, role::text, is_active FROM staff")
+            .fetch(pool);
+    let mut staff_batch = Vec::new();
+    while let Some(res) = staff_stream.next().await {
+        if let Ok(row) = res {
+            let search_text = format!("{} {}", row.full_name, row.cashier_code);
+            staff_batch.push(StaffDoc {
+                id: row.id.to_string(),
+                is_active: row.is_active.unwrap_or(true),
+                role: row.role.clone().unwrap_or_else(|| "cashier".to_string()),
+                search_text,
+            });
+        }
+    }
+    if !staff_batch.is_empty() {
+        index_staff.add_documents(&staff_batch, Some("id")).await?;
+    }
 
+    // 8. Vendors
+    let index_vendors = client.index(INDEX_VENDORS);
+    index_vendors.delete_all_documents().await?;
+    let mut vendor_stream =
+        sqlx::query!("SELECT id, name, vendor_code, is_active FROM vendors").fetch(pool);
+    let mut vendor_batch = Vec::new();
+    while let Some(res) = vendor_stream.next().await {
+        if let Ok(row) = res {
+            vendor_batch.push(VendorDoc {
+                id: row.id.to_string(),
+                is_active: row.is_active,
+                search_text: format!("{} {}", row.name, row.vendor_code.as_deref().unwrap_or("")),
+            });
+        }
+    }
+    if !vendor_batch.is_empty() {
+        index_vendors
+            .add_documents(&vendor_batch, Some("id"))
+            .await?;
+    }
+
+    // 9. Categories
+    let index_categories = client.index(INDEX_CATEGORIES);
+    index_categories.delete_all_documents().await?;
+    let mut category_stream = sqlx::query!("SELECT id, name FROM categories").fetch(pool);
+    let mut category_batch = Vec::new();
+    while let Some(res) = category_stream.next().await {
+        if let Ok(row) = res {
+            category_batch.push(CategoryDoc {
+                id: row.id.to_string(),
+                search_text: row.name,
+            });
+        }
+    }
+    if !category_batch.is_empty() {
+        index_categories
+            .add_documents(&category_batch, Some("id"))
+            .await?;
+    }
+
+    // 10. Appointments
+    let index_appointments = client.index(INDEX_APPOINTMENTS);
+    index_appointments.delete_all_documents().await?;
+    let mut appt_stream = sqlx::query!(
+        r#"
+        SELECT a.id, c.first_name, c.last_name, wp.party_name, a.notes, a.status
+        FROM wedding_appointments a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
+        "#
+    )
+    .fetch(pool);
+    let mut appt_batch = Vec::new();
+    while let Some(res) = appt_stream.next().await {
+        if let Ok(row) = res {
+            let is_cancelled = row.status == "Cancelled";
+            let search_text = format!(
+                "{} {} {} {}",
+                row.first_name.as_deref().unwrap_or(""),
+                row.last_name.as_deref().unwrap_or(""),
+                row.party_name.as_deref().unwrap_or(""),
+                row.notes.as_deref().unwrap_or("")
+            );
+            appt_batch.push(AppointmentDoc {
+                id: row.id.to_string(),
+                is_cancelled,
+                search_text,
+            });
+        }
+    }
+    if !appt_batch.is_empty() {
+        index_appointments
+            .add_documents(&appt_batch, Some("id"))
+            .await?;
+    }
+
+    // 11. Tasks
+    let index_tasks = client.index(INDEX_TASKS);
+    index_tasks.delete_all_documents().await?;
+    let mut task_stream = sqlx::query!(
+        r#"
+        SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, s.full_name AS assignee_name
+        FROM task_instance ti
+        LEFT JOIN staff s ON s.id = ti.assignee_staff_id
+        "#
+    ).fetch(pool);
+    let mut task_batch = Vec::new();
+    while let Some(res) = task_stream.next().await {
+        if let Ok(row) = res {
+            let search_text = format!(
+                "{} {}",
+                row.title,
+                row.assignee_name.as_deref().unwrap_or("")
+            );
+            task_batch.push(TaskDoc {
+                id: row.id.to_string(),
+                status: row.status.clone().unwrap_or_else(|| "open".to_string()),
+                assignee_id: None,
+                search_text,
+            });
+        }
+    }
+    if !task_batch.is_empty() {
+        index_tasks.add_documents(&task_batch, Some("id")).await?;
+    }
+
+    tracing::info!(variants = n_variants, "Meilisearch reindex completed");
     Ok(())
 }

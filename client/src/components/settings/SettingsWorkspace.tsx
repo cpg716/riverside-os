@@ -975,9 +975,9 @@ export default function SettingsWorkspace({
                     setActiveTab(tab.id);
                     onSettingsSectionNavigate?.(tab.id);
                   }}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? 'bg-app-text text-white shadow-xl shadow-black/20 translate-x-2' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/30'}`}
+                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-black/20 translate-x-2' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/30'}`}
                 >
-                  <tab.icon size={18} className={activeTab === tab.id ? 'text-white' : 'text-app-accent group-hover:scale-110 transition-transform'} />
+                  <tab.icon size={18} className={activeTab === tab.id ? '' : 'text-app-accent group-hover:scale-110 transition-transform'} />
                   <span className="uppercase tracking-widest text-[11px]">{tab.label}</span>
                 </button>
               ))}

@@ -21,6 +21,8 @@ pub enum PosMetaError {
     Database(#[from] sqlx::Error),
     #[error("{0}")]
     Unauthorized(String),
+    #[error("{0}")]
+    NotFound(String),
 }
 
 impl IntoResponse for PosMetaError {
@@ -29,6 +31,7 @@ impl IntoResponse for PosMetaError {
             PosMetaError::Unauthorized(m) => {
                 (axum::http::StatusCode::UNAUTHORIZED, m).into_response()
             }
+            PosMetaError::NotFound(m) => (axum::http::StatusCode::NOT_FOUND, m).into_response(),
             PosMetaError::Database(e) => {
                 tracing::error!(error = %e, "pos meta database error");
                 (
@@ -145,7 +148,7 @@ pub struct GiftCardLoadLineMeta {
 async fn rms_payment_line_meta(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<RmsPaymentLineMeta>, PosMetaError> {
+) -> Result<Json<Option<RmsPaymentLineMeta>>, PosMetaError> {
     middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(|(_, axum::Json(v))| {
@@ -170,24 +173,20 @@ async fn rms_payment_line_meta(
     .fetch_optional(&state.db)
     .await?;
 
-    let Some((product_id, variant_id, sku, name)) = row else {
-        return Err(PosMetaError::Unauthorized(
-            "RMS payment line product is not configured (run migrations)".to_string(),
-        ));
-    };
-
-    Ok(Json(RmsPaymentLineMeta {
-        product_id,
-        variant_id,
-        sku,
-        name,
-    }))
+    Ok(Json(row.map(|(product_id, variant_id, sku, name)| {
+        RmsPaymentLineMeta {
+            product_id,
+            variant_id,
+            sku,
+            name,
+        }
+    })))
 }
 
 async fn gift_card_load_line_meta(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<GiftCardLoadLineMeta>, PosMetaError> {
+) -> Result<Json<Option<GiftCardLoadLineMeta>>, PosMetaError> {
     middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(|(_, axum::Json(v))| {
@@ -212,18 +211,14 @@ async fn gift_card_load_line_meta(
     .fetch_optional(&state.db)
     .await?;
 
-    let Some((product_id, variant_id, sku, name)) = row else {
-        return Err(PosMetaError::Unauthorized(
-            "POS gift card load line product is not configured (run migrations)".to_string(),
-        ));
-    };
-
-    Ok(Json(GiftCardLoadLineMeta {
-        product_id,
-        variant_id,
-        sku,
-        name,
-    }))
+    Ok(Json(row.map(|(product_id, variant_id, sku, name)| {
+        GiftCardLoadLineMeta {
+            product_id,
+            variant_id,
+            sku,
+            name,
+        }
+    })))
 }
 
 pub fn router() -> Router<AppState> {

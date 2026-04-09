@@ -115,6 +115,15 @@ async fn resolve_task_actor_staff_id(
     }
 }
 
+fn spawn_meilisearch_task_upsert(state: &AppState, task_id: Uuid) {
+    let state = state.clone();
+    crate::logic::meilisearch_sync::spawn_meili(async move {
+        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
+            crate::logic::meilisearch_sync::upsert_task_document(&client, &state.db, task_id).await;
+        }
+    });
+}
+
 async fn may_manage_tasks(pool: &sqlx::PgPool, staff_id: Uuid) -> bool {
     let role: Option<DbStaffRole> =
         sqlx::query_scalar(r#"SELECT role FROM staff WHERE id = $1 AND is_active = TRUE"#)
@@ -205,6 +214,7 @@ async fn patch_instance_item(
     tasks::set_instance_item_done(&state.db, instance_id, item_id, actor, body.done, allow)
         .await
         .map_err(map_task_err)?;
+    spawn_meilisearch_task_upsert(&state, instance_id);
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -218,6 +228,7 @@ async fn post_complete_instance(
     let done = tasks::try_complete_instance(&state.db, instance_id, actor, allow)
         .await
         .map_err(map_task_err)?;
+    spawn_meilisearch_task_upsert(&state, instance_id);
     Ok(Json(json!({ "completed": done })))
 }
 

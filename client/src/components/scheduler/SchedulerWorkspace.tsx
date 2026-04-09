@@ -4,7 +4,7 @@ import { weddingApi } from '../../lib/weddingApi';
 import AppointmentModal from './AppointmentModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
 import { formatPhone } from '../../lib/utils.ts';
-import { useBackofficeAuth } from '../../context/BackofficeAuthContext';
+import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 
 // Helper for formatting dates to match original UX
@@ -17,11 +17,14 @@ export interface Appointment {
   datetime: string;
   status: string;
   type?: string;
-  customer_name?: string; // Align with back-end if possible, or mapping
-  customerName?: string;
-  phone?: string;
-  salesperson?: string;
-  notes?: string;
+  customer_name?: string | null; // Align with back-end if possible, or mapping
+  customerName?: string | null;
+  phone?: string | null;
+  salesperson?: string | null;
+  notes?: string | null;
+  partyId?: string | null;
+  memberId?: string | null;
+  customerId?: string | null;
 }
 
 interface SchedulerWorkspaceProps {

@@ -602,6 +602,16 @@ fn validate_phone(phone: &str) -> bool {
     t.len() <= 40
 }
 
+fn spawn_meilisearch_staff_upsert(state: &AppState, staff_id: Uuid) {
+    let state = state.clone();
+    crate::logic::meilisearch_sync::spawn_meili(async move {
+        if let Some(client) = crate::logic::meilisearch_client::meilisearch_from_env() {
+            crate::logic::meilisearch_sync::upsert_staff_document(&client, &state.db, staff_id)
+                .await;
+        }
+    });
+}
+
 async fn admin_patch_staff(
     State(state): State<AppState>,
     Path(staff_id): Path<Uuid>,
@@ -800,6 +810,8 @@ async fn admin_patch_staff(
     .bind(ec_value)
     .execute(&state.db)
     .await?;
+
+    spawn_meilisearch_staff_upsert(&state, staff_id);
 
     Ok(Json(json!({ "status": "updated" })))
 }

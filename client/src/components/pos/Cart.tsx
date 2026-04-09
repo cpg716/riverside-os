@@ -85,7 +85,7 @@ export interface ResolvedSkuItem {
   primary_vendor_id?: string | null;
 }
 
-export type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
+export type FulfillmentKind = "takeaway" | "special_order" | "wedding_order" | "layaway";
 
 export interface CartLineItem extends ResolvedSkuItem {
   quantity: number;
@@ -551,10 +551,12 @@ export default function Cart({
 
   useEffect(() => {
     let cancelled = false;
+    const h = apiAuth();
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/pos/rms-payment-line-meta`, {
-          headers: apiAuth(),
+          headers: h,
         });
         if (!res.ok || cancelled) return;
         const m = (await res.json()) as RmsPaymentLineMeta;
@@ -570,10 +572,12 @@ export default function Cart({
 
   useEffect(() => {
     let cancelled = false;
+    const h = apiAuth();
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/pos/gift-card-load-line-meta`, {
-          headers: apiAuth(),
+          headers: h,
         });
         if (!res.ok || cancelled) return;
         const m = (await res.json()) as GiftCardLoadLineMeta;
@@ -727,10 +731,12 @@ export default function Cart({
   useEffect(() => {
     if (!saleHydrated) return;
     let cancelled = false;
+    const h = apiAuth();
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/staff/self/pricing-limits`, {
-          headers: { ...apiAuth() },
+          headers: h,
         });
         if (!res.ok || cancelled) return;
         const j = (await res.json()) as { max_discount_percent?: string };
@@ -748,10 +754,12 @@ export default function Cart({
   useEffect(() => {
     if (!saleHydrated) return;
     let cancelled = false;
+    const h = apiAuth();
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/discount-events/active`, {
-          headers: { ...apiAuth() },
+          headers: h,
         });
         if (!res.ok || cancelled) return;
         const j = (await res.json()) as ActiveDiscountEvent[];
@@ -775,10 +783,12 @@ export default function Cart({
   useEffect(() => {
     if (!saleHydrated) return;
     let cancelled = false;
+    const h = apiAuth();
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
-          headers: apiAuth(),
+          headers: h,
         });
         if (!res.ok || cancelled) return;
         const sl = (await res.json()) as PosStaffRow[];
@@ -796,10 +806,12 @@ export default function Cart({
     if (!saleHydrated) return;
     if (primaryDefaultedRef.current) return;
     let cancelled = false;
+    const h = apiAuth();
+    if (!h["x-riverside-pos-session-token"] && !h["x-riverside-staff-pin"]) return;
     void (async () => {
       try {
         const epRes = await fetch(`${baseUrl}/api/staff/effective-permissions`, {
-          headers: apiAuth(),
+          headers: h,
         });
         if (!epRes.ok || cancelled) return;
         const ep = (await epRes.json()) as { staff_id?: string; role?: string };
@@ -983,7 +995,16 @@ export default function Cart({
             );
             return;
           }
-          meta = (await res.json()) as RmsPaymentLineMeta;
+          const payload = (await res.json()) as RmsPaymentLineMeta | null;
+          if (!payload) {
+            setSearchResults([]);
+            toast(
+              "RMS payment line is not available. Ensure layout POS products are created.",
+              "error",
+            );
+            return;
+          }
+          meta = payload;
           setRmsPaymentMeta(meta);
         }
         setSearchResults([
@@ -1015,19 +1036,8 @@ export default function Cart({
         headers: apiAuth(),
       }).then(async (res) => {
         if (res.ok) {
-          const r = await res.json() as Record<string, unknown>;
-          collected.push({
-            product_id: r.product_id,
-            variant_id: r.variant_id,
-            sku: r.sku,
-            name: r.name,
-            variation_label: r.variation_label,
-            standard_retail_price: r.standard_retail_price || 0,
-            unit_cost: r.unit_cost || 0,
-            stock_on_hand: r.stock_on_hand || 0,
-            state_tax: r.state_tax || 0,
-            local_tax: r.local_tax || 0,
-          });
+          const r = (await res.json()) as SearchResult;
+          collected.push(r);
         }
       })
     );
@@ -1054,7 +1064,7 @@ export default function Cart({
             state_tax: r.state_tax || 0,
             local_tax: r.local_tax || 0,
           }));
-          collected.push(...mapped);
+          collected.push(...(mapped as SearchResult[]));
         }
       }),
     );

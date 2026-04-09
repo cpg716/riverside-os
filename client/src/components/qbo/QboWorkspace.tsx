@@ -673,7 +673,7 @@ export default function QboWorkspace({
             tenders={QBO_MATRIX_TENDERS}
             accounts={accounts}
             initialMappings={initialMatrixMappings}
-            onSave={async (m) => {
+            onSave={async (m: Record<string, AccountMapping>) => {
               try {
                 await saveMatrixMappings(m);
               } catch (e) {

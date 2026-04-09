@@ -256,24 +256,30 @@ export default function NexoCheckoutDrawer({
     () => applied.reduce((s, p) => s + p.amountCents, 0),
     [applied],
   );
-  const remainingCents = useMemo(
-    () => Math.max(0, amountDueCents - paidSoFarCents),
-    [amountDueCents, paidSoFarCents],
-  );
   const depositDisplayCents = useMemo(
     () => Math.max(0, parseMoneyToCents(appliedDepositAmount.trim())),
     [appliedDepositAmount],
   );
-  const paymentBalanced = remainingCents <= 0 && paidSoFarCents > 0;
+
   const tw = Math.max(0, Math.round(takeawayDueCents));
+  
+  const remainingCents = useMemo(() => {
+    if (allowDepositOnlyComplete && allowDepositKeypad && depositDisplayCents > 0) {
+      return Math.max(0, depositDisplayCents + tw - paidSoFarCents);
+    }
+    return Math.max(0, amountDueCents - paidSoFarCents);
+  }, [allowDepositOnlyComplete, allowDepositKeypad, depositDisplayCents, tw, amountDueCents, paidSoFarCents]);
+
+  const paymentBalanced = remainingCents <= 0 && paidSoFarCents > 0;
+  /** Deposit-only completion: no tenders required when the deposit ledger covers the full balance (no takeaway items to pay for today). */
   const depositOnlyBalanced =
     allowDepositOnlyComplete &&
     allowDepositKeypad &&
     depositDisplayCents > 0 &&
-    paidSoFarCents >= tw &&
-    paidSoFarCents + depositDisplayCents >= amountDueCents;
-  const canFinalize =
-    (paymentBalanced || depositOnlyBalanced) && operator != null && !busy;
+    tw <= 0 &&
+    paidSoFarCents === 0;
+
+  const canFinalize = (paymentBalanced || depositOnlyBalanced) && operator != null && !busy;
 
   const drawerWasOpenRef = useRef(false);
   useEffect(() => {
@@ -325,7 +331,7 @@ export default function NexoCheckoutDrawer({
     const cap = Math.min(c, maxDeposit);
     setAppliedDepositAmount(centsToFixed2(cap));
     setKeypad("");
-    toast("Deposit release amount saved", "info");
+    toast("Deposit amount applied to balance", "info");
   }, [
     allowDepositKeypad,
     keypad,
@@ -661,7 +667,7 @@ export default function NexoCheckoutDrawer({
               <div className="mt-2 border-t border-app-border pt-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Deposit release (ledger)
+                    Deposit (ledger)
                   </span>
                   <span className="text-sm font-black tabular-nums text-app-text">
                     ${appliedDepositAmount.trim() || "0.00"}

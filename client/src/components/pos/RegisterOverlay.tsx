@@ -543,30 +543,33 @@ export default function RegisterOverlay({
     return (
       <div className="ui-overlay-backdrop">
         <div
-          ref={dialogRef}
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby={titleId}
-          tabIndex={-1}
-          className="ui-modal max-w-md animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none"
-        >
-          <div className="ui-modal-body space-y-4 p-6 sm:p-8">
-            <div className="text-center">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                Register #1
-              </p>
-              <h2 id={titleId} className="mt-1 text-lg font-black text-app-text">
-                Cash drawer not open yet
-              </h2>
-              <p className="mt-2 text-xs text-app-text-muted leading-relaxed">
-                Register #2 can only open after Register #1 is running. Choose how you want to proceed.
-              </p>
-            </div>
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        className="ui-modal max-w-lg animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none bg-app-bg-alt/95 backdrop-blur-xl"
+      >
+        <div className="ui-modal-body p-8 sm:p-10 space-y-8">
+          <div className="text-center">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+              Terminal Requirement
+            </p>
+            <h2 id={titleId} className="mt-2 text-2xl font-black text-app-text tracking-tight">
+              Cash drawer not open yet
+            </h2>
+            <div className="mx-auto mt-4 h-1 w-12 rounded-full bg-app-accent/20" />
+            <p className="mt-4 text-xs text-app-text-muted leading-relaxed font-medium">
+              Register #2 and other satellite lanes can only open after Register #1 is active.
+              Register #1 manages the physical cash drawer and z-reconciliation.
+            </p>
+          </div>
             {adminListOpenError ? (
               <p className="rounded-xl border border-app-danger/20 bg-app-danger/5 p-3 text-center text-[10px] font-bold text-app-danger">
                 {adminListOpenError}
               </p>
             ) : null}
+          <div className="grid gap-4 pt-4">
             <button
               type="button"
               onClick={() => {
@@ -574,17 +577,18 @@ export default function RegisterOverlay({
                 setRegisterLane(1);
                 setAdminPrimaryPath("opening_lane1");
               }}
-              className="ui-btn-primary w-full py-4 text-sm font-black"
+              className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all hover:scale-[1.02]"
             >
-              Open Register #1 (I am opening the drawer)
+              Open Register #1 (I am at the main terminal)
             </button>
             <button
               type="button"
               onClick={() => setAdminPrimaryPath("waiting_lane1_elsewhere")}
-              className="ui-btn-secondary w-full py-4 text-sm font-bold"
+              className="ui-btn-secondary w-full py-5 text-sm font-bold rounded-2xl border-app-border/40"
             >
-              Someone else will open Register #1 first
+              Someone else is opening Register #1
             </button>
+          </div>
             <button
               type="button"
               onClick={() => void onAdminRecheck()}
@@ -628,13 +632,14 @@ export default function RegisterOverlay({
                 {adminListOpenError}
               </p>
             ) : null}
+          <div className="grid gap-3 pt-4">
             <button
               type="button"
               onClick={() => void onAdminRecheck()}
               disabled={adminRecheckBusy}
-              className="ui-btn-primary w-full py-4 text-sm font-black"
+              className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all"
             >
-              {adminRecheckBusy ? "Checking…" : "Check again"}
+              {adminRecheckBusy ? "Checking Status…" : "Check Again Now"}
             </button>
             <button
               type="button"
@@ -642,10 +647,11 @@ export default function RegisterOverlay({
                 setAdminPrimaryPath(null);
                 setAdminListOpenError(null);
               }}
-              className="ui-btn-secondary w-full py-3 text-sm font-bold"
+              className="ui-btn-secondary w-full py-4 text-sm font-bold rounded-xl border-app-border/20"
             >
-              Back
+              Return Home
             </button>
+          </div>
           </div>
         </div>
       </div>
@@ -660,117 +666,178 @@ export default function RegisterOverlay({
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal max-w-md animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none"
+        className="ui-modal max-w-4xl animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none bg-app-bg-alt/95 backdrop-blur-xl"
       >
         <form
           onSubmit={(e) => void onSubmit(e)}
-          className="ui-modal-body space-y-5 p-6 sm:p-8"
+          className="ui-modal-body p-8 sm:p-10 flex flex-col gap-8"
         >
-          <div className="text-center">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-              Open register
-            </p>
-            <h2 id={titleId} className="mt-1 text-xl font-black text-app-text">
-              Riverside Register
-            </h2>
-            <p className="mt-2 text-xs text-app-text-muted">
-              Enter your 4-digit staff code (touch keypad). This identifies you for
-              each sale, even if someone else opened the drawer.
-            </p>
+          {/* Header */}
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-app-border/10 pb-6">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+                POS Terminal Authorization
+              </p>
+              <h2 id={titleId} className="mt-1 text-3xl font-black tracking-tight text-app-text">
+                Riverside Register
+              </h2>
+            </div>
+            <div className="hidden md:block text-right">
+              <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest opacity-60">
+                Session Initialization
+              </p>
+            </div>
           </div>
 
           {error ? (
-            <div className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4 text-center text-xs font-bold text-app-danger">
+            <div className="rounded-2xl border border-app-danger/20 bg-app-danger/5 p-4 text-center text-xs font-bold text-app-danger animate-in fade-in slide-in-from-top-1">
               {error}
             </div>
           ) : null}
 
-          <div className="space-y-3">
-            <p className="text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Staff code
-            </p>
-            <PinDots length={credential.length} className="py-2" />
-            <NumericPinKeypad
-              value={credential}
-              onChange={setCredential}
-              disabled={busy}
-            />
-          </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
+            {/* Left Column: Staff Auth */}
+            <div className="space-y-6">
+              <div className="space-y-1">
+                <h3 className="text-sm font-black uppercase tracking-wider text-app-text">
+                  1. Staff Identity
+                </h3>
+                <p className="text-[11px] leading-relaxed text-app-text-muted">
+                  Enter your 4-digit staff code to identify yourself for this session.
+                  Touch the keypad numbers to input.
+                </p>
+              </div>
 
-          <div className="ui-panel flex flex-col gap-2 border-app-border/30 bg-app-bg p-4 shadow-inner">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Register number
-            </label>
-            {staffRole === "admin" ? (
-              <p className="text-center text-[10px] leading-snug text-app-text-muted">
-                From Back Office, Register #2 is recommended: no opening float, shared till with Register #1.
-                Z-close runs on Register #1 only. You can still pick Register #1 to open the cash drawer.
-              </p>
-            ) : null}
-            <select
-              value={registerLane}
-              onChange={(e) => {
-                registerLaneUserChosenRef.current = true;
-                setRegisterLane(Number(e.target.value));
-              }}
-              disabled={busy}
-              className="ui-input w-full p-3 text-center font-mono text-lg font-black"
-              aria-label="Physical register number"
-            >
-              {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={n}>
-                  Register #{n}
-                </option>
-              ))}
-            </select>
-            {registerLane > 1 && linkStatus ? (
-              <p className="text-center text-[10px] font-bold leading-snug text-app-text-muted">
-                {linkStatus}
-              </p>
-            ) : null}
-          </div>
-
-          {registerLane <= 1 ? (
-            <div className="ui-panel flex flex-col gap-2 border-app-border/30 bg-app-bg p-4 shadow-inner">
-              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Opening cash float ($)
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                required
-                value={openingFloat}
-                onChange={(e) => setOpeningFloat(e.target.value)}
-                className="ui-input w-full p-3 text-center font-mono text-2xl font-black"
-              />
+              <div className="ui-panel bg-app-bg/40 p-6 space-y-6 rounded-[24px] border-app-border/20 shadow-inner">
+                <PinDots length={credential.length} className="py-2" />
+                <NumericPinKeypad
+                  value={credential}
+                  onChange={setCredential}
+                  disabled={busy}
+                />
+              </div>
             </div>
-          ) : (
-            <div className="ui-panel flex flex-col gap-2 border-app-border/30 bg-app-bg p-4 shadow-inner">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Opening float
-              </p>
-              <p className="text-center font-mono text-2xl font-black text-app-text-muted">
-                $0.00
-              </p>
-              <p className="text-center text-[10px] text-app-text-muted">
-                Satellite lanes share one drawer with Register #1. Cash expected at Z is combined.
-              </p>
-            </div>
-          )}
 
-          <button
-            type="submit"
-            disabled={
-              busy ||
-              credential.length !== 4 ||
-              (registerLane > 1 && !primarySessionId)
-            }
-            className="ui-btn-primary h-14 w-full text-sm font-black disabled:opacity-50"
-          >
-            {busy ? "Opening…" : "Open register"}
-          </button>
+            {/* Right Column: Lane Config */}
+            <div className="flex flex-col gap-8">
+              <div className="space-y-6 flex-1">
+                <div className="space-y-1">
+                  <h3 className="text-sm font-black uppercase tracking-wider text-app-text">
+                    2. Terminal Configuration
+                  </h3>
+                  <p className="text-[11px] leading-relaxed text-app-text-muted">
+                    Select your physical register number. Satellite terminals (#2+) share
+                    the cash turnover of Register #1.
+                  </p>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Register Selection */}
+                  <div className="ui-panel bg-app-bg/40 p-5 rounded-[20px] border-app-border/20 shadow-sm">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-3 block">
+                      Physical Register Number
+                    </label>
+                    {staffRole === "admin" ? (
+                      <p className="mb-3 text-[9px] font-medium leading-tight text-app-text-muted bg-app-accent/5 p-2 rounded-lg border border-app-accent/10">
+                        Admin Note: Register #2 is recommended for satellite lanes.
+                        Z-close runs on Register #1 only.
+                      </p>
+                    ) : null}
+                    <select
+                      value={registerLane}
+                      onChange={(e) => {
+                        registerLaneUserChosenRef.current = true;
+                        setRegisterLane(Number(e.target.value));
+                      }}
+                      disabled={busy}
+                      className="ui-input w-full p-4 text-center font-mono text-xl font-black bg-app-bg/60 border-transparent focus:border-app-accent/50 transition-all rounded-xl cursor-pointer"
+                      aria-label="Physical register number"
+                    >
+                      {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
+                        <option key={n} value={n}>
+                          Register Lane #{n}
+                        </option>
+                      ))}
+                    </select>
+                    {registerLane > 1 && linkStatus ? (
+                      <p className="mt-3 text-center text-[10px] font-bold leading-snug text-app-accent animate-pulse">
+                        {linkStatus}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {/* Opening Float */}
+                  <div className="ui-panel bg-app-bg/40 p-5 rounded-[20px] border-app-border/20 shadow-sm">
+                    <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-3 block">
+                      Opening Cash Float ($)
+                    </label>
+                    {registerLane <= 1 ? (
+                      <div className="relative group">
+                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-app-text-muted/40 transition-colors group-focus-within:text-app-accent">$</span>
+                        <input
+                          type="number"
+                          step="0.01"
+                          required
+                          value={openingFloat}
+                          onChange={(e) => setOpeningFloat(e.target.value)}
+                          className="ui-input w-full p-5 pl-12 text-center font-mono text-3xl font-black bg-app-bg/60 border-transparent focus:border-app-accent/50 transition-all rounded-xl"
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center py-4 space-y-2">
+                        <p className="font-mono text-4xl font-black text-app-text-muted/30 tracking-tight">
+                          $0.00
+                        </p>
+                        <p className="text-[10px] text-center text-app-text-muted opacity-80 leading-relaxed max-w-[220px]">
+                          Satellite lane: float is managed through the primary drawer on Register #1.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Button */}
+              <div className="pt-4 mt-auto">
+                <button
+                  type="submit"
+                  disabled={
+                    busy ||
+                    credential.length !== 4 ||
+                    (registerLane > 1 && !primarySessionId)
+                  }
+                  className="ui-btn-primary h-20 w-full text-base font-black rounded-2xl shadow-xl shadow-app-accent/20 hover:shadow-app-accent/30 transition-all group overflow-hidden relative"
+                >
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
+                  <span className="relative flex items-center justify-center gap-3">
+                    {busy ? (
+                      <>
+                        <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Opening Terminal...
+                      </>
+                    ) : (
+                      <>
+                        Open Terminal Session
+                        <span className="text-xs opacity-60 font-mono px-2 py-0.5 rounded-lg bg-black/20">
+                          Lane {registerLane}
+                        </span>
+                      </>
+                    )}
+                  </span>
+                </button>
+                <div className="mt-4 flex items-center justify-center gap-2 opacity-40">
+                   <div className="h-px w-8 bg-app-text-muted" />
+                   <p className="text-[9px] text-app-text-muted uppercase tracking-widest font-black">
+                     Secure POS Handshake Protocol
+                   </p>
+                   <div className="h-px w-8 bg-app-text-muted" />
+                </div>
+              </div>
+            </div>
+          </div>
         </form>
       </div>
+
     </div>
   );
 }

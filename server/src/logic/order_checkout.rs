@@ -86,6 +86,9 @@ pub struct CheckoutRequest {
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
+    /// If set, the checkout is (at least partially) a payment against this existing order.
+    #[serde(default)]
+    pub target_order_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1876,6 +1879,19 @@ pub async fn execute_checkout(
                 .await?;
             }
         }
+    }
+
+    if let Some(target_id) = payload.target_order_id {
+        sqlx::query("UPDATE orders SET amount_paid = amount_paid + $1 WHERE id = $2")
+            .bind(payload.total_price)
+            .bind(target_id)
+            .execute(&mut *tx)
+            .await
+            .map_err(CheckoutError::Database)?;
+
+        order_recalc::recalc_order_totals(&mut tx, target_id)
+            .await
+            .map_err(CheckoutError::Database)?;
     }
 
     order_recalc::recalc_order_totals(&mut tx, order_id)
