@@ -18,13 +18,13 @@ import {
   Users,
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
-  useBackofficeAuth,
   SIDEBAR_TAB_PERMISSION,
   SIDEBAR_TAB_PERMISSIONS_ANY,
   subSectionVisible,
-} from "../../context/BackofficeAuthContext";
-import { useNotificationCenterOptional } from "../../context/NotificationCenterContext";
+} from "../../context/BackofficeAuthPermissions";
+import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import type { SidebarTabId } from "./sidebarSections";
 import { SIDEBAR_SUB_SECTIONS } from "./sidebarSections";
@@ -76,28 +76,47 @@ export default function Sidebar({
       : staffAvatarKey,
   );
 
-  const menuItems: {
-    id: SidebarTabId;
-    label: string;
-    surface: WorkspaceSurface;
-    icon: typeof ShoppingCart;
-  }[] = [
-    { id: "home", label: "Operations", surface: "BackOffice", icon: LayoutGrid },
-    { id: "register", label: "POS", surface: "POS-Core", icon: ShoppingCart },
-    { id: "customers", label: "Customers", surface: "POS-Core", icon: Users },
-    { id: "alterations", label: "Alterations", surface: "POS-Core", icon: Scissors },
-    { id: "orders", label: "Orders", surface: "POS-Core", icon: ShoppingCart },
-    { id: "inventory", label: "Inventory", surface: "BackOffice", icon: Box },
-    { id: "weddings", label: "Weddings", surface: "BackOffice", icon: Gem },
-    { id: "gift-cards", label: "Gift Cards", surface: "BackOffice", icon: Gift },
-    { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: Star },
-    { id: "staff", label: "Staff", surface: "BackOffice", icon: Shield },
-    { id: "qbo", label: "QBO bridge", surface: "BackOffice", icon: Landmark },
-    { id: "reports", label: "Reports", surface: "BackOffice", icon: BarChart3 },
-    { id: "dashboard", label: "Insights", surface: "BackOffice", icon: LayoutDashboard },
-    { id: "appointments", label: "Appointments", surface: "BackOffice", icon: CalendarClock },
-    { id: "settings", label: "Settings", surface: "BackOffice", icon: Settings },
-  ];
+  const menuItems = useMemo(
+    () =>
+      [
+        { id: "home", label: "Operations", surface: "BackOffice", icon: LayoutGrid },
+        { id: "register", label: "POS", surface: "POS-Core", icon: ShoppingCart },
+        { id: "customers", label: "Customers", surface: "POS-Core", icon: Users },
+        {
+          id: "alterations",
+          label: "Alterations",
+          surface: "POS-Core",
+          icon: Scissors,
+        },
+        { id: "orders", label: "Orders", surface: "POS-Core", icon: ShoppingCart },
+        { id: "inventory", label: "Inventory", surface: "BackOffice", icon: Box },
+        { id: "weddings", label: "Weddings", surface: "BackOffice", icon: Gem },
+        { id: "gift-cards", label: "Gift Cards", surface: "BackOffice", icon: Gift },
+        { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: Star },
+        { id: "staff", label: "Staff", surface: "BackOffice", icon: Shield },
+        { id: "qbo", label: "QBO bridge", surface: "BackOffice", icon: Landmark },
+        { id: "reports", label: "Reports", surface: "BackOffice", icon: BarChart3 },
+        {
+          id: "dashboard",
+          label: "Insights",
+          surface: "BackOffice",
+          icon: LayoutDashboard,
+        },
+        {
+          id: "appointments",
+          label: "Appointments",
+          surface: "BackOffice",
+          icon: CalendarClock,
+        },
+        { id: "settings", label: "Settings", surface: "BackOffice", icon: Settings },
+      ] as {
+        id: SidebarTabId;
+        label: string;
+        surface: WorkspaceSurface;
+        icon: typeof ShoppingCart;
+      }[],
+    [],
+  );
 
   const visibleMenuItems = useMemo(
     () =>

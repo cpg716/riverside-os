@@ -8,7 +8,7 @@ import {
 import { ChevronRight, Search, WifiOff, RefreshCw, Menu } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
 import { useOfflineSync } from "../../lib/offlineQueue";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import NotificationCenterBell from "../notifications/NotificationCenterBell";
 import { HelpCenterTriggerButton } from "../help/HelpCenterDrawer";
@@ -152,35 +152,33 @@ export default function Header({
       requests.push(
         fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
           headers: apiAuth(),
-        }).then(
-          async (res) => {
-            if (res.ok) {
-              const data = (await res.json()) as {
-                sku: string;
-                name: string;
-              };
-              setSkuHit({ sku: data.sku, name: data.name });
-            }
-          },
-        ),
+        }).then(async (res) => {
+          if (res.ok) {
+            const data = (await res.json()) as {
+              sku: string;
+              name: string;
+            };
+            setSkuHit({ sku: data.sku, name: data.name });
+          }
+        })
       );
     }
 
     requests.push(
       fetch(
         `${baseUrl}/api/products/control-board?search=${encodeURIComponent(q)}&parent_rank_first=true&limit=${GLOBAL_SEARCH_CONTROL_BOARD_LIMIT}`,
-        { headers: apiAuth() },
+        { headers: apiAuth() }
       ).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as { rows: ControlBoardRow[] };
           setProducts(
             pickDistinctProductRows(
               data.rows ?? [],
-              GLOBAL_SEARCH_PRODUCT_CAP,
-            ),
+              GLOBAL_SEARCH_PRODUCT_CAP
+            )
           );
         }
-      }),
+      })
     );
 
     try {
@@ -188,7 +186,7 @@ export default function Header({
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, apiAuth]);
+  }, [apiAuth]);
 
   const loadMoreCustomers = useCallback(async () => {
     if (!customersHasMore || customerLoadMoreBusy || loading) return;
@@ -214,7 +212,6 @@ export default function Header({
     loading,
     query,
     customers.length,
-    baseUrl,
     apiAuth,
   ]);
 

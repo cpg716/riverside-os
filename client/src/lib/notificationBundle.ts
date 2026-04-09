@@ -1,7 +1,7 @@
 import type {
   NotificationDeepLink,
   NotificationRow,
-} from "../context/NotificationCenterContext";
+} from "../context/NotificationCenterContextLogic";
 
 export type BundleListItem = {
   title: string;

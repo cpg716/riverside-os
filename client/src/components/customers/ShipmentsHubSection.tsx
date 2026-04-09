@@ -7,8 +7,8 @@ import {
   StickyNote,
   Truck,
 } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 

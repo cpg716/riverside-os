@@ -106,9 +106,8 @@ async fn qbo_map_with_misc_fallback(
         }
     }
     // 3. MISC fallback
-    if let Some(m) = qbo_map_name(pool, "MISC_FALLBACK", "default").await? {
-        let (aid, aname) = m;
-        return Ok(Some((aid, format!("MISC: {} ({})", aname, source_type))));
+    if let Some((aid, aname)) = qbo_map_name(pool, "MISC_FALLBACK", "default").await? {
+        return Ok(Some((aid, format!("MISC: {aname} ({source_type})"))));
     }
     Ok(None)
 }
@@ -237,7 +236,7 @@ pub async fn propose_daily_journal(
                     .await?;
             let (Some((inv_id, inv_name)), Some((off_id, off_name))) = (inv, off) else {
                 warnings.push(format!(
-                    "Suit swap {}→{} net cost delta {} — set `INV_ASSET` and `COGS_DEFAULT` in ledger_mappings to stage offset lines.",
+                    "Suit swap {0}→{1} net cost delta {2} — set `INV_ASSET` and `COGS_DEFAULT` in ledger_mappings to stage offset lines.",
                     s.old_sku, s.new_sku, delta
                 ));
                 continue;
@@ -253,7 +252,7 @@ pub async fn propose_daily_journal(
                 qbo_account_name: inv_name.clone(),
                 debit: d_inv,
                 credit: c_inv,
-                memo: format!("Suit swap inventory {} → {}", s.old_sku, s.new_sku),
+                memo: format!("Suit swap inventory {0} → {1}", s.old_sku, s.new_sku),
                 detail: vec![
                     serde_json::json!({"kind": "suit_swap_inventory", "delta": delta.to_string()}),
                 ],
@@ -263,7 +262,7 @@ pub async fn propose_daily_journal(
                 qbo_account_name: off_name,
                 debit: d_off,
                 credit: c_off,
-                memo: format!("Suit swap offset {} → {}", s.old_sku, s.new_sku),
+                memo: format!("Suit swap offset {0} → {1}", s.old_sku, s.new_sku),
                 detail: vec![
                     serde_json::json!({"kind": "suit_swap_offset", "delta": delta.to_string()}),
                 ],

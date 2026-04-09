@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, BarChart3, ChevronLeft, Download, RefreshCw } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   PIVOT_GROUP_OPTIONS,

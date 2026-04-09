@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import {

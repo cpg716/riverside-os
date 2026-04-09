@@ -1,10 +1,10 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
 import { Printer } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 export interface HubVariant {

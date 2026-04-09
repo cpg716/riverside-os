@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderTree, Clock3, CheckCircle2, ChevronRight, ShieldAlert } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 interface CategoryNode {
   id: string;
@@ -150,7 +150,7 @@ export default function CategoryManager() {
 
   const flat = useMemo(() => collectFlat(tree), [tree]);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(apiUrl(baseUrl, "/api/categories/tree"), {
@@ -181,7 +181,7 @@ export default function CategoryManager() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [baseUrl, apiAuth, toast]);
 
   const groupedAudit = useMemo(() => {
     const map = new Map<string, CategoryAuditEntry[]>();
@@ -196,7 +196,7 @@ export default function CategoryManager() {
 
   useEffect(() => {
     void refresh();
-  }, []);
+  }, [refresh]);
 
   const createCategory = async () => {
     if (!createName.trim()) return;

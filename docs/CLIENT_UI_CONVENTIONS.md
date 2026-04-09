@@ -11,7 +11,13 @@ Single reference for **React/Vite** layout, tokens, modal accessibility, lazy lo
 | [`DEVELOPER.md`](../DEVELOPER.md) § **Frontend concepts** | Shell integration, POS search, shared primitives summary. |
 | [`docs/ROS_UI_CONSISTENCY_PLAN.md`](ROS_UI_CONSISTENCY_PLAN.md) | Full-app **`data-theme`** / `dark:` / typography sweep; **Phases 1–5** complete (2026-04-08); guest **`/shop`** deferred; Phase 5 E2E + **`RegisterSessionBootstrap`** shell idempotency. |
 | [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) | Large-catalog APIs and UI paging; optional Meilisearch; **Settings → Integrations** search reindex. |
+| [`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`](CI_CD_AND_CODE_HYGIENE_STANDARDS.md) | **Zero-Error Baseline** requirements, `exhaustive-deps` stabilization, and Logic Separation rules. |
 | [`docs/ONLINE_STORE.md`](ONLINE_STORE.md) | Guest **`/shop`** shell (**`PublicStorefront.tsx`**, incl. **`/shop/account/*`**): **TanStack Query**, **`client/src/components/ui-shadcn/`** + **`[data-storefront]`** tokens (separate from BO **`ui-*`**). |
+
+## Architectural Hygiene
+
+- **Logic Separation:** To maintain **Fast Refresh** compliance and "Thin Components," complex transformation logic, shared interfaces, and pure helpers must reside in dedicated logic files (e.g., `ComponentLogic.ts`) rather than the component file.
+- **Hook Stability:** All asynchronous functions consumed by `useEffect` must be wrapped in **`useCallback`**. External constants (e.g., `baseUrl`) must be excluded from dependency arrays.
 
 ## Theme (light / dark / system)
 

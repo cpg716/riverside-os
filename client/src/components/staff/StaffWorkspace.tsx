@@ -11,13 +11,13 @@ import {
 import CommissionPayoutsPanel from "./CommissionPayoutsPanel";
 import StaffTasksPanel from "./StaffTasksPanel";
 import StaffSchedulePanel from "./StaffSchedulePanel";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { STAFF_PERMISSION_CATALOG } from "../../lib/staffPermissions";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffAvatarPicker from "./StaffAvatarPicker";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
@@ -141,7 +141,6 @@ export default function StaffWorkspace({
     canStaffHub,
     ctxStaffCode,
     backofficeHeaders,
-    baseUrl,
   ]);
 
   // Sync sidebar sub-section to internal tab.
@@ -309,7 +308,7 @@ export default function StaffWorkspace({
         setProfilePermLoading(false);
       }
     },
-    [backofficeHeaders, baseUrl],
+    [backofficeHeaders],
   );
 
   const toggleProfilePermission = (key: string) => {

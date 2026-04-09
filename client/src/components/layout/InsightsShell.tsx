@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { BarChart3, LayoutDashboard } from "lucide-react";
 import NotificationCenterBell from "../notifications/NotificationCenterBell";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 /** Same-origin `/api` when VITE_API_BASE is unset or empty (Vite proxy → Axum). */
 function rosApiOrigin(): string {

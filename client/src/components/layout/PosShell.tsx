@@ -16,7 +16,7 @@ const AlterationsWorkspace = lazy(() => import("../alterations/AlterationsWorksp
 import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import type { SidebarTabId } from "./sidebarSections";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { LogOut, ShieldCheck, ShieldAlert, ChevronRight } from "lucide-react";
 import NotificationCenterBell from "../notifications/NotificationCenterBell";
 import { HelpCenterTriggerButton } from "../help/HelpCenterDrawer";

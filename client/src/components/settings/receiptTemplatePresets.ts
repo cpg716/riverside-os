@@ -1,4 +1,4 @@
-import { defaultReceiptStudioProjectPages } from "./ReceiptStudioEditor";
+import { defaultReceiptStudioProjectPages } from "./ReceiptStudioLogic";
 
 export type ReceiptTemplatePreset = {
   id: string;

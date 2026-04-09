@@ -1,4 +1,4 @@
-import { useShellBackdropLayer } from "./ShellBackdropContext";
+import { useShellBackdropLayer } from "./ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 export default function RegisterRequiredModal({

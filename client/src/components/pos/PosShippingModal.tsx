@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Truck, X } from "lucide-react";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import type { Customer } from "./CustomerSelector";
 
 export interface PosShippingSelection {

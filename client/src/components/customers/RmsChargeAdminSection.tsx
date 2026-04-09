@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

@@ -35,10 +35,10 @@ fn drain_sidecar_logs(mut rx: Receiver<CommandEvent>) {
                     );
                 }
                 CommandEvent::Error(err) => {
-                    log::error!(target: "llama_server", "{}", err);
+                    log::error!(target: "llama_server", "{err}");
                 }
                 CommandEvent::Terminated(payload) => {
-                    log::info!(target: "llama_server", "terminated: {:?}", payload);
+                    log::info!(target: "llama_server", "terminated: {payload:?}");
                     break;
                 }
                 _ => {}
@@ -78,7 +78,9 @@ pub async fn rosie_llama_start(
     let mut cmd = app
         .shell()
         .sidecar("llama-server")
-        .map_err(|e| format!("llama-server sidecar missing (see src-tauri/binaries/README.md): {e}"))?
+        .map_err(|e| {
+            format!("llama-server sidecar missing (see src-tauri/binaries/README.md): {e}")
+        })?
         .args([
             "-m",
             model_path.as_str(),
@@ -102,14 +104,15 @@ pub async fn rosie_llama_start(
     *guard = Some(child);
 
     Ok(format!(
-        "llama-server started at http://{}:{}/ (set RIVERSIDE_LLAMA_* to change)",
-        host, port
+        "llama-server started at http://{host}:{port}/ (set RIVERSIDE_LLAMA_* to change)"
     ))
 }
 
 /// Stop the embedded `llama-server` if running.
 #[tauri::command]
-pub async fn rosie_llama_stop(state: tauri::State<'_, LlamaSidecarState>) -> Result<String, String> {
+pub async fn rosie_llama_stop(
+    state: tauri::State<'_, LlamaSidecarState>,
+) -> Result<String, String> {
     let mut guard = state
         .0
         .lock()

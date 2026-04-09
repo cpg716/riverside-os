@@ -16,12 +16,12 @@ import {
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import CompassMemberDetailDrawer from "./CompassMemberDetailDrawer";
 import DetailDrawer from "../layout/DetailDrawer";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   useNotificationCenter,
   useNotificationCenterOptional,
   type NotificationRow,
-} from "../../context/NotificationCenterContext";
+} from "../../context/NotificationCenterContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import ReviewsOperationsSection from "./ReviewsOperationsSection";

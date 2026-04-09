@@ -857,9 +857,7 @@ pub async fn emit_nuorder_sync_finished(
     updated: i32,
 ) -> Result<(), sqlx::Error> {
     let title = format!("NuORDER {sync_type} sync finished");
-    let body = format!(
-        "Sync completed successfully. Created: {created}, Updated: {updated}."
-    );
+    let body = format!("Sync completed successfully. Created: {created}, Updated: {updated}.");
     let dedupe = format!("nuorder_sync_done:{sync_log_id}");
     let deep = json!({ "type": "settings", "subsection": "nuorder" });
 

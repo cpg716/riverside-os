@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import CustomerAlterationsPanel from "../customers/CustomerAlterationsPanel";
 

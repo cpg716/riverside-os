@@ -5,7 +5,7 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import { apiUrl } from "../../lib/apiUrl";
 import { Badge } from "@/components/ui-shadcn/badge";
 import { Button } from "@/components/ui-shadcn/button";

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useRegisterGate } from "../../context/RegisterGateContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useRegisterGate } from "../../context/RegisterGateContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import RegisterRequiredModal from "../layout/RegisterRequiredModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import {
   centsToFixed2,
@@ -195,7 +195,7 @@ export default function OrdersWorkspace({
     setRefundsDue((await res.json()) as RefundQueueRow[]);
   }, [baseUrl, backofficeHeaders, canRefund]);
 
-  const loadOrders = async () => {
+  const loadOrders = useCallback(async () => {
     const params = new URLSearchParams();
     if (section === "all") params.set("show_closed", "true");
     params.set("limit", String(limit));
@@ -235,9 +235,9 @@ export default function OrdersWorkspace({
     setRows(data.items);
     setTotalCount(data.total_count);
     if (!selectedId && data.items.length > 0) setSelectedId(data.items[0].order_id);
-  };
+  }, [baseUrl, backofficeHeaders, section, page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, datePreset, dateFrom, dateTo, selectedId, toast]);
 
-  const loadDetail = async (id: string) => {
+  const loadDetail = useCallback(async (id: string) => {
     const res = await fetch(`${baseUrl}/api/orders/${id}`, {
       headers: backofficeHeaders(),
     });
@@ -251,11 +251,11 @@ export default function OrdersWorkspace({
     setSuitSwapTarget(null);
     setSuitSwapSku("");
     setSuitSwapNote("");
-  };
+  }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
     void loadOrders();
-  }, [page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, datePreset, dateFrom, dateTo, section]);
+  }, [loadOrders]);
 
   useEffect(() => {
     if (!deepLinkOrderId) return;
@@ -273,7 +273,7 @@ export default function OrdersWorkspace({
       return;
     }
     void loadDetail(selectedId);
-  }, [selectedId]);
+  }, [selectedId, loadDetail]);
 
   const updateItem = async (
     item: OrderItem,

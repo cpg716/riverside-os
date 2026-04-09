@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import type { WeddingMembership } from "./customerProfileTypes";
 
 export interface Customer {

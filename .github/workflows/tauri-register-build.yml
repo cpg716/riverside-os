@@ -23,7 +23,10 @@ jobs:
       - name: Install client dependencies
         run: npm ci
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: clippy, rustfmt
 
       - name: Build Tauri bundle
         run: npm run tauri:build

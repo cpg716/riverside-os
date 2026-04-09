@@ -8,7 +8,7 @@ import {
   Zap,
 } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 type Step = "mode" | "upload" | "map" | "review";
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { ListChecks } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import TaskChecklistDrawer from "./TaskChecklistDrawer";
 

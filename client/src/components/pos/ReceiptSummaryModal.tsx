@@ -12,7 +12,7 @@ import {
 import { isTauri } from "@tauri-apps/api/core";
 import { printRawEscPosBase64, printZplReceipt } from "../../lib/printerBridge";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 export interface ReceiptSummaryModalProps {
   orderId: string | null;

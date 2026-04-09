@@ -15,13 +15,13 @@ import RmsChargeAdminSection from "./RmsChargeAdminSection";
 import ShipmentsHubSection from "./ShipmentsHubSection";
 import DetailDrawer from "../layout/DetailDrawer";
 import FloatingBulkBar from "../ui/FloatingBulkBar";
-import { useToast } from "../ui/ToastProvider";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import PromptModal from "../ui/PromptModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { parseCsv } from "../../lib/parseCsv";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
@@ -243,7 +243,6 @@ export default function CustomersWorkspace({
   }, [
     messagingFocusCustomerId,
     messagingFocusHubTab,
-    baseUrl,
     apiAuth,
     onMessagingFocusConsumed,
   ]);
@@ -336,7 +335,7 @@ export default function CustomersWorkspace({
       if (!res.ok) throw new Error("browse failed");
       return (await res.json()) as CustomerBrowseRow[];
     },
-    [baseUrl, buildBrowseParams, apiAuth],
+    [buildBrowseParams, apiAuth],
   );
 
   const browseFiltersKey = useMemo(
@@ -376,7 +375,7 @@ export default function CustomersWorkspace({
         /* ignore */
       }
     })();
-  }, [baseUrl, apiAuth]);
+  }, [apiAuth]);
 
   const loadFirstPage = useCallback(
     async (clearList: boolean) => {
@@ -584,7 +583,7 @@ export default function CustomersWorkspace({
     return () => {
       cancelled = true;
     };
-  }, [mergeOpen, mergeMasterId, selected, rows, baseUrl, apiAuth]);
+  }, [mergeOpen, mergeMasterId, selected, rows, apiAuth]);
 
   const executeMerge = async () => {
     if (selected.size !== 2 || !mergeMasterId) return;

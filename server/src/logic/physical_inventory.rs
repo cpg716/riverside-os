@@ -221,9 +221,7 @@ async fn snapshot_stock(
     exclude_reserved: bool,
     exclude_layaway: bool,
 ) -> Result<()> {
-    let stock_expr = format!(
-        "pv.stock_on_hand - (CASE WHEN $3 THEN pv.reserved_stock ELSE 0 END) - (CASE WHEN $4 THEN pv.on_layaway ELSE 0 END)"
-    );
+    let stock_expr = "pv.stock_on_hand - (CASE WHEN $3 THEN pv.reserved_stock ELSE 0 END) - (CASE WHEN $4 THEN pv.on_layaway ELSE 0 END)".to_string();
 
     if scope == "category" && !category_ids.is_empty() {
         let sql = format!(

@@ -11,9 +11,25 @@ Riverside OS (ROS) is a **production retail ERM/POS** for a formalwear / wedding
 | **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
 
 Domain language and canonical requirements live in **`Riverside_OS_Master_Specification.md`**.
-Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**.
+Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**, **`CHANGELOG.md`** (version history), **`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`** (**Zero-Error / Fast Refresh** mandate).
 
 Product planning (strengths, gaps, prioritization for men’s / wedding retail): **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`**.
+
+---
+
+## Versioning
+
+Riverside OS follows [Semantic Versioning](https://semver.org) (SemVer).
+
+- **Root Source of Truth**: The `version` field in the root `package.json` is the authoritative version for the entire repository.
+- **Synchronized Modules**: Versions in `client/package.json`, `server/Cargo.toml`, and `client/src-tauri/tauri.conf.json` should always be kept in sync with the root version.
+- **Git Tags**: Official releases are marked with Git tags in the format `vMAJOR.MINOR.PATCH` (e.g., `v0.1.0`). 
+- **Changelog**: All changes are documented in `CHANGELOG.md` under the corresponding version header.
+
+To bump the version:
+1. Update `package.json` (root), `client/package.json`, `server/Cargo.toml`, and `client/src-tauri/tauri.conf.json`.
+2. Add entries to `CHANGELOG.md`.
+3. Commit and tag: `git tag -a v0.1.x -m "Release v0.1.x"`
 
 ---
 
@@ -40,7 +56,7 @@ flowchart LR
 ```
 
 - **UI**: `client/` — TypeScript, Tailwind, Lucide icons, `recharts`. Workspace tabs drive major surfaces (Operations home, **POS** [launchpad], Customers, Inventory, Weddings, Insights, Settings). Uses `localforage` for **POS offline checkout queuing** and for the **register draft cart** snapshot **`ros_pos_active_sale`** (`Cart.tsx`: lines, customer, wedding, shipping, primary salesperson, `checkoutOperator`, scoped to `sessionId`). Draft persistence waits until **hydration** from `localforage` completes before writing, so remounting the cart (other POS tabs, exit POS mode) does not clobber the saved sale with empty initial state. **`PosSaleCashierSignInOverlay`** blocks scan/search/pay until **`checkoutOperator`** is set; **`clearCart`** does **not** clear **`checkoutOperator`** (only a **register session** change resets it). **Post-checkout** **`ReceiptSummaryModal`** runs before the “next sale” idle state; **customer strip** can open **`CustomerRelationshipHubDrawer`** from POS. Distinct from **server parked** sales — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. All non-POS workspaces follow the **Zero-Browser-Dialog Architecture** (no browser native popups). **Theme**: semantic colors come from CSS variables on `:root` (`--app-accent`, etc.); `tailwind.config.js` extends `theme.colors.app` so utilities like `bg-app-accent` / `border-app-accent/20` are generated. Some shadow pairings (e.g. `shadow-lg` + `shadow-app-accent/20` on primary actions) rely on small helpers in `client/src/index.css` `@layer utilities` where the JIT does not emit colored shadow tokens alone.
-- **API**: `server/` — `riverside-server` library + `main` binary. Routers nested under `/api/...`. **`Router::with_state` is called once in `server/src/main.rs`** after `build_router()`. Implements async `tokio` + `reqwest` webhook dispatch queues.
+- **API**: `server/` — `riverside-server` library + `main` binary. Routers nested under `/api/...`. **`Router::with_state` is called once in `server/src/main.rs`** after `build_router()`. Implements async `tokio` + `reqwest` webhook dispatch queues. Uses **Rust 1.88** pinned via `rust-toolchain.toml` with `clippy` and `rustfmt` components enforced.
 - **Data**: SQL migrations in **`migrations/`** (apply in numeric order through the latest `NN_*.sql`; ledger in `00_ros_migration_ledger.sql`). **Current repo ceiling:** **`113_*.sql`** (see [Migrations reference](#migrations-reference-selected-files-see-migrations-for-full-set); drift checks: **`scripts/ros_migration_build_probes.sql`**, **`./scripts/migration-status-docker.sh`**). **Local dev database** is the **`db` service** in [`docker-compose.yml`](docker-compose.yml); use [`scripts/apply-migrations-docker.sh`](scripts/apply-migrations-docker.sh) or `docker compose exec` as in [Running locally](#running-locally).
 - **Logging / traces**: `tracing` + `tracing-subscriber`; level controlled via **`RUST_LOG`**. Optional **OpenTelemetry OTLP** export and **`tower-http`** **`TraceLayer`** for HTTP request spans — **[`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**.
 - **Timezone**: `chrono-tz`; store timezone IANA string stored in `store_settings.receipt_config.timezone` (default `America/New_York`).
@@ -330,9 +346,9 @@ npm run tauri:dev
 
 ## Build / quality checks
 
-The **API server** uses **`server/rust-toolchain.toml`** (**Rust 1.88+**). If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** in **`server/`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.88 cargo …`** explicitly.
+The **API server** uses **`server/rust-toolchain.toml`** (**Rust 1.88**). The toolchain file also enforces **`clippy`** and **`rustfmt`** components. If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** in **`server/`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.88 cargo …`** explicitly.
 
-To **avoid that class of issues entirely**, uninstall Homebrew’s compiler and rely on **rustup** only: **`brew uninstall rust`** (and **`brew uninstall rustup`** only if you installed the **`rustup`** formula). Then ensure **`which -a rustc`** lists **`~/.cargo/bin/rustc`** first and remove any **`PATH`** entries pointing at **`/opt/homebrew/opt/rust`** (or Intel **`/usr/local/opt/rust`**) from **`~/.zshrc`** / **`~/.zprofile`**. This does **not** remove toolchains managed by **`rustup`** from **`~/.rustup`**.
+To **avoid that class of issues entirely**, uninstall Homebrew’s compiler and rely on **rustup** only: **`brew uninstall rust`** (and **`brew uninstall rustup`** only if you installed the **`rustup`** formula). Then ensure **`which -a rustc`** lists **`~/.cargo/bin/rustc`** first and remove any **`PATH`** entries pointing at **`/opt/homebrew/opt/rust`** (or Intel **`/usr/local/opt/rust`**) from **`~/.zshrc`** / **`~/.zprofile`**. This does **not** remove toolchains managed by **`rustup`** from **`~/.rustup`**. All workspace `rust-toolchain.toml` files include the required components for CI/CD consistency.
 
 ```bash
 npm run check:server          # cargo check with Rust 1.88 on PATH (from repo root)
@@ -506,6 +522,8 @@ Full strict list: **`.cursorrules`**. Non-negotiables:
 5. **PG enums**: `#[sqlx(rename_all = "snake_case")]` to match database labels.
 6. **Logging**: `tracing::error!` / `tracing::warn!` — no `eprintln!` anywhere. Optional **OTLP** export: **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`**.
 7. **Transactions**: multi-step writes (checkout, update_order_item, refund) must use `db.begin()` before any mutation.
+8. **Hook Stability**: All async functions in `useEffect` MUST be wrapped in `useCallback`.
+9. **Fast Refresh / Logic Separation**: Do not export non-component code from `.tsx` files; use sibling `.ts` logic files. **Context providers** must be split from their context/hooks into a `*Logic.ts` sibling to maintain zero lint warnings.
 
 ---
 

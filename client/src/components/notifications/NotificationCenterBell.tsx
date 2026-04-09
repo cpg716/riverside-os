@@ -1,5 +1,5 @@
 import { Bell } from "lucide-react";
-import { useNotificationCenter } from "../../context/NotificationCenterContext";
+import { useNotificationCenter } from "../../context/NotificationCenterContextLogic";
 
 type Props = {
   /** Extra classes for the trigger button (shell-specific spacing). */

@@ -3,8 +3,8 @@ import { Shield } from "lucide-react";
 import {
   useBackofficeAuth,
   type StaffRole,
-} from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+} from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";

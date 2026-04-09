@@ -1,22 +1,10 @@
 import {
-  createContext,
   useCallback,
-  useContext,
-  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
-
-type ShellBackdropContextValue = {
-  depth: number;
-  push: () => void;
-  pop: () => void;
-};
-
-const ShellBackdropContext = createContext<ShellBackdropContextValue | null>(
-  null,
-);
+import { ShellBackdropContext } from "./ShellBackdropContextLogic";
 
 export function ShellBackdropProvider({ children }: { children: ReactNode }) {
   const [depth, setDepth] = useState(0);
@@ -31,18 +19,4 @@ export function ShellBackdropProvider({ children }: { children: ReactNode }) {
       {children}
     </ShellBackdropContext.Provider>
   );
-}
-
-/** Register an open overlay (drawer/modal) so the shell canvas can recess. */
-export function useShellBackdropLayer(isOpen: boolean) {
-  const ctx = useContext(ShellBackdropContext);
-  useEffect(() => {
-    if (!ctx || !isOpen) return;
-    ctx.push();
-    return () => ctx.pop();
-  }, [ctx, isOpen]);
-}
-
-export function useShellBackdropDepth(): number {
-  return useContext(ShellBackdropContext)?.depth ?? 0;
 }

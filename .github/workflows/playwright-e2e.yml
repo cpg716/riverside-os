@@ -50,9 +50,10 @@ jobs:
       - name: Seed E2E non-Admin staff (margin-pivot 403)
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_non_admin_staff.sql
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
+          components: clippy, rustfmt
 
       - uses: Swatinem/rust-cache@v2
         with:

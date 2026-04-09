@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Ruler, X } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import CustomerMeasurementVaultForm, {
   measurementDraftFromLatest,

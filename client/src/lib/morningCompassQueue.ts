@@ -1,4 +1,4 @@
-import type { NotificationRow } from "../context/NotificationCenterContext";
+import type { NotificationRow } from "../context/NotificationCenterContextLogic";
 
 /** Wedding morning-compass row (matches `GET /api/weddings/morning-compass` lists). */
 export interface CompassActionRow {

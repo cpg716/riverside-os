@@ -3,8 +3,8 @@ import { Copy, ExternalLink, Trash2 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
 import CustomerRelationshipHubDrawer from "./CustomerRelationshipHubDrawer";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";

@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import ReceivingBay from "./ReceivingBay";
 import { apiUrl } from "../../lib/apiUrl";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 
 interface PurchaseOrder {
@@ -18,6 +18,8 @@ interface Vendor {
   name: string;
 }
 
+const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+
 export default function PurchaseOrderPanel({
   initialPoId,
   onInitialPoConsumed,
@@ -27,7 +29,6 @@ export default function PurchaseOrderPanel({
 }) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
   const consumedInitialPo = useRef(false);
 
   useEffect(() => {
@@ -46,7 +47,7 @@ export default function PurchaseOrderPanel({
   const [freightTotal, setFreightTotal] = useState("0.00");
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
 
-  const refresh = () => {
+  const refresh = useCallback(() => {
     fetch(apiUrl(baseUrl, "/api/purchase-orders"), {
       headers: backofficeHeaders() as Record<string, string>,
     })
@@ -57,7 +58,7 @@ export default function PurchaseOrderPanel({
         if (!selectedPo && list.length > 0) setSelectedPo(list[0].id);
       })
       .catch(() => setOrders([]));
-  };
+  }, [backofficeHeaders, selectedPo]);
 
   useEffect(() => {
     const id = initialPoId?.trim();
@@ -80,7 +81,7 @@ export default function PurchaseOrderPanel({
         if (list.length > 0) setVendorId(list[0].id);
       })
       .catch(() => setVendors([]));
-  }, [baseUrl, backofficeHeaders]);
+  }, [refresh, backofficeHeaders]);
 
   const createDraft = async () => {
     if (!vendorId) return;

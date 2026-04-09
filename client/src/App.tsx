@@ -29,28 +29,24 @@ import {
   type RosOpenRegisterFromWmDetail,
 } from "./lib/weddingPosBridge";
 import { applyDocumentTheme, resolveThemeMode } from "./lib/rosDocumentTheme";
-import {
-  ShellBackdropProvider,
-  useShellBackdropDepth,
-} from "./components/layout/ShellBackdropContext";
+import { ShellBackdropProvider } from "./components/layout/ShellBackdropContext";
+import { useShellBackdropDepth } from "./components/layout/ShellBackdropContextLogic";
 import BackofficeSignInGate from "./components/layout/BackofficeSignInGate";
 import RegisterSessionBootstrap from "./components/layout/RegisterSessionBootstrap";
 import HelpCenterDrawer from "./components/help/HelpCenterDrawer";
 import BugReportFlow from "./components/bug-report/BugReportFlow";
 import {
-  BackofficeAuthProvider,
   SIDEBAR_TAB_PERMISSION,
   subSectionVisible,
-  useBackofficeAuth,
-} from "./context/BackofficeAuthContext";
+} from "./context/BackofficeAuthPermissions";
+import { BackofficeAuthProvider } from "./context/BackofficeAuthContext";
+import { useBackofficeAuth } from "./context/BackofficeAuthContextLogic";
 import { RegisterGateProvider } from "./context/RegisterGateContext";
-import {
-  NotificationCenterProvider,
-  type NotificationDeepLink,
-} from "./context/NotificationCenterContext";
+import { NotificationCenterProvider } from "./context/NotificationCenterContext";
+import { type NotificationDeepLink } from "./context/NotificationCenterContextLogic";
 import WeddingManagerAuthBridge from "./components/wedding-manager/WeddingManagerAuthBridge";
 import { ShoppingCart, ArrowRight } from "lucide-react";
-import { useToast } from "./components/ui/ToastProvider";
+import { useToast } from "./components/ui/ToastProviderLogic";
 import { readPersistedBackofficeSession } from "./lib/backofficeSessionPersistence";
 import {
   clearPosRegisterAuth,

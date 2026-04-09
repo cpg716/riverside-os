@@ -11,16 +11,17 @@ import {
   UserPlus,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
 import type { CustomerProfile, WeddingMembership } from "../pos/customerProfileTypes";
-import CustomerMeasurementVaultForm, {
+import CustomerMeasurementVaultForm from "./CustomerMeasurementVaultForm";
+import {
   measurementDraftFromLatest,
   serializeMeasurementPatch,
-} from "./CustomerMeasurementVaultForm";
+} from "./CustomerMeasurementLogic";
 import ShipmentsHubSection from "./ShipmentsHubSection";
 
 const defaultBase =
@@ -260,7 +261,7 @@ export default function CustomerRelationshipHubDrawer({
   useEffect(() => {
     if (!hub) return;
     setPodiumUrlDraft(hub.podium_conversation_url ?? "");
-  }, [hub?.id, hub?.podium_conversation_url]);
+  }, [hub]);
 
   useEffect(() => {
     if (!open) profileDraftInit.current = false;

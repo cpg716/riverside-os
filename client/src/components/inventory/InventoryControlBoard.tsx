@@ -23,9 +23,9 @@ import { openSingleShelfLabel, openShelfLabelsWindow } from "./labelPrint";
 import { apiUrl } from "../../lib/apiUrl";
 import { useScanner } from "../../hooks/useScanner";
 import { playScanSuccess, playScanError } from "../../lib/scanSounds";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   centsToFixed2,

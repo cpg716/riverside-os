@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import { weddingApi } from "../../lib/weddingApi";
 import {
   CalendarClock,
@@ -133,7 +133,7 @@ export default function CompassMemberDetailDrawer({
       d[memberField] = v != null && String(v).trim() !== "" ? String(v) : "";
     }
     setMeasDraft(d);
-  }, [member?.id, member?.suit, member?.waist, member?.vest, member?.shirt, member?.shoe]);
+  }, [member]);
 
   const memberPaid = ledger
     ? sumMoneyToCents(

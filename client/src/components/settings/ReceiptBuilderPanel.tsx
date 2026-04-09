@@ -3,8 +3,8 @@ import { Eye, FileText, RefreshCw } from "lucide-react";
 import ReceiptStudioEditor, { type ReceiptStudioApi } from "./ReceiptStudioEditor";
 import { RECEIPT_TEMPLATE_PRESETS } from "./receiptTemplatePresets";
 import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 
 type ReceiptBuilderApiConfig = {
   receipt_studio_project_json?: unknown;

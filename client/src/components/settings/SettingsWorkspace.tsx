@@ -1,14 +1,14 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import { Database, Save, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Link, Info, User, ClipboardList, MessageSquare, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { readPersistedBackofficeSession } from "../../lib/backofficeSessionPersistence";
 import {
   getPodiumOAuthRedirectUri,
   PODIUM_OAUTH_REDIRECT_STORAGE_KEY,
   PODIUM_OAUTH_STATE_STORAGE_KEY,
 } from "../../lib/podiumOAuth";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import StaffAvatarPicker from "../staff/StaffAvatarPicker";
 import OnlineStoreSettingsPanel from "./OnlineStoreSettingsPanel";

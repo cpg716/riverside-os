@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { ChevronRight } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   type NotificationDeepLink,
   type NotificationRow,
-} from "../../context/NotificationCenterContext";
+} from "../../context/NotificationCenterContextLogic";
 import { parseNotificationBundle } from "../../lib/notificationBundle";
 import { isActionableNotificationDeepLink } from "../../lib/notificationDeepLink";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";

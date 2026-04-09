@@ -13,7 +13,7 @@ import {
   parseMoney,
   parseMoneyToCents,
 } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 interface ProductIntelligence {

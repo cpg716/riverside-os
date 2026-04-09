@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import DetailDrawer from "../layout/DetailDrawer";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import { CheckSquare, Square } from "lucide-react";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";

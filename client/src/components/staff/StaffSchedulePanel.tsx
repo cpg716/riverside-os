@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2, Save, Trash2 } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

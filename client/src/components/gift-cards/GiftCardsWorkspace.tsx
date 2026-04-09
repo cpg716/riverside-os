@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { CreditCard, Gift, RefreshCw, X } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -125,7 +125,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   const [showVoidConfirm, setShowVoidConfirm] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -142,11 +142,11 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
     } finally {
       setLoading(false);
     }
-  };
+  }, [filterKind, filterStatus, openOnly, backofficeHeaders]);
 
   useEffect(() => {
     void load();
-  }, [filterKind, filterStatus, openOnly, backofficeHeaders]);
+  }, [load]);
 
   const initiateVoid = (id: string) => {
     setShowVoidConfirm(id);

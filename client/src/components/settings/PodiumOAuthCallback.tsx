@@ -5,7 +5,7 @@ import {
   PODIUM_OAUTH_REDIRECT_STORAGE_KEY,
   PODIUM_OAUTH_STATE_STORAGE_KEY,
 } from "../../lib/podiumOAuth";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const apiBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

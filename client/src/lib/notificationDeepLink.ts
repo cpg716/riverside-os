@@ -1,4 +1,4 @@
-import type { NotificationDeepLink } from "../context/NotificationCenterContext";
+import type { NotificationDeepLink } from "../context/NotificationCenterContextLogic";
 
 /** Whether tapping the row should navigate (vs expand-only for broadcast / non-routable). */
 export function isActionableNotificationDeepLink(

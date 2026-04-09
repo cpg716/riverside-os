@@ -6,7 +6,7 @@ import type { Components } from "react-markdown";
 import { CircleHelp, X } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { HELP_MANUALS, helpManualById } from "../../lib/help/help-manifest";
 import {
@@ -343,7 +343,7 @@ export default function HelpCenterDrawer({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, helpListSource, activeManualId, apiAuth]);
+  }, [isOpen, helpListSource, activeManualId, apiAuth, markdownById]);
 
   const allowedManualIds = useMemo(() => {
     if (manualList?.length) return new Set(manualList.map((m) => m.id));
@@ -375,18 +375,15 @@ export default function HelpCenterDrawer({
     return m ? stripYamlFrontMatter(m.markdown) : "";
   }, [helpListSource, markdownById, activeManualId]);
 
-  const activeManual =
-    activeManualId !== ""
-      ? { id: activeManualId, title: activeTitle, markdown: displayMarkdown }
-      : null;
-
-  const toc = useMemo(
-    () =>
-      activeManual && displayMarkdown
-        ? parseHelpToc(displayMarkdown, activeManual.title)
-        : [],
-    [activeManual, displayMarkdown],
-  );
+  const { activeManual, toc } = useMemo(() => {
+    const manual =
+      activeManualId !== ""
+        ? { id: activeManualId, title: activeTitle, markdown: displayMarkdown }
+        : null;
+    const tableOfContents =
+      manual && displayMarkdown ? parseHelpToc(displayMarkdown, manual.title) : [];
+    return { activeManual: manual, toc: tableOfContents };
+  }, [activeManualId, activeTitle, displayMarkdown]);
 
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(searchQ.trim()), 320);

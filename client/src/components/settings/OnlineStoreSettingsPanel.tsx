@@ -6,8 +6,8 @@ import {
   useRef,
   useState,
 } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { GRAPESJS_STUDIO_LICENSE_KEY } from "../../lib/grapesjsStudioLicense";
 import type { StoreStudioApi } from "./StorePageStudioEditor";

@@ -1,21 +1,17 @@
 import { useEffect, useState } from "react";
 import { Printer, RefreshCw, Star } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { LoyaltyRedeemDialog } from "./LoyaltyRedeemDialog";
 import {
-  LoyaltyRedeemDialog,
-  loyaltyEligibleDisplayName,
   type LoyaltyEligibleCustomer,
-} from "./LoyaltyRedeemDialog";
+  loyaltyEligibleDisplayName,
+  type LoyaltySettings,
+} from "./LoyaltyLogic";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-interface LoyaltySettings {
-  loyalty_point_threshold: number;
-  /** API may send `rust_decimal` as a string. */
-  loyalty_reward_amount: string | number;
-  points_per_dollar: number;
-}
+
 
 function printMailingLabels(customers: LoyaltyEligibleCustomer[]): void {
   const w = window.open("", "_blank", "width=600,height=800");
@@ -191,7 +187,7 @@ function EligibleList() {
   const [loading, setLoading] = useState(false);
   const [redeemCustomer, setRedeemCustomer] = useState<LoyaltyEligibleCustomer | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const h = backofficeHeaders();
@@ -200,17 +196,18 @@ function EligibleList() {
         fetch(`${BASE}/api/loyalty/settings`, { headers: h }),
         fetch(`${BASE}/api/loyalty/program-summary`, { headers: h }),
       ]);
-      if (elRes.ok) setCustomers((await elRes.json()) as LoyaltyEligibleCustomer[]);
+      if (elRes.ok)
+        setCustomers((await elRes.json()) as LoyaltyEligibleCustomer[]);
       if (stRes.ok) setSettings((await stRes.json()) as LoyaltySettings);
       else if (sumRes.ok) setSettings((await sumRes.json()) as LoyaltySettings);
     } finally {
       setLoading(false);
     }
-  };
+  }, [backofficeHeaders]);
 
   useEffect(() => {
     void load();
-  }, [backofficeHeaders]);
+  }, [load]);
 
   return (
     <div className="flex h-full flex-col overflow-hidden">

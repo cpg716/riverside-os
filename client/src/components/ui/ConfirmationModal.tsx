@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, X } from "lucide-react";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 interface ConfirmationModalProps {

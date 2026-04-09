@@ -10,11 +10,11 @@ import {
   Snowflake,
   Sun,
 } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   useNotificationCenter,
   type NotificationRow,
-} from "../../context/NotificationCenterContext";
+} from "../../context/NotificationCenterContextLogic";
 import {
   buildMorningCompassQueue,
   compassBandLabel,
@@ -24,7 +24,7 @@ import { parseNotificationBundle } from "../../lib/notificationBundle";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

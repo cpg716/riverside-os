@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { UserRoundCog, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

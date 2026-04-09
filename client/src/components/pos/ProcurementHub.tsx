@@ -9,7 +9,7 @@ import {
   ChevronLeft,
 } from "lucide-react";
 import { parseMoney, formatMoney } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 interface BoardRow {

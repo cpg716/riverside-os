@@ -1,6 +1,7 @@
 {
   "name": "riverside-os",
   "private": true,
+  "version": "0.1.0",
   "description": "Root scripts only; app code lives in server/ and client/",
   "scripts": {
     "generate:help": "cd client && npm run generate:help",

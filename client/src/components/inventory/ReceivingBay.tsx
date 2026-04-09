@@ -19,10 +19,10 @@ import {
 } from "lucide-react";
 import CameraScanner from "./CameraScanner";
 import { playScanSuccess, playScanError, playScanWarning, warmUpAudio } from "../../lib/scanSounds";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   mergedPosStaffHeaders,
   sessionPollAuthHeaders,

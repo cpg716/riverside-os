@@ -100,6 +100,9 @@ Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP E
 - **Zero-Browser-Dialog**: **Mandatory**. Never use `alert()`, `confirm()`, or `prompt()`. Use `useToast()` for feedback and `ConfirmationModal` / `PromptModal` for user intent.
 - **Client API usage**: Prefer native `fetch` over `axios` for all new endpoints to maintain zero-dependency consistency.
 - **React Hooks**: All hooks (`useState`, `useEffect`, `useMemo`, `useCallback`, `useRef`, etc.) MUST be declared at the top level of the component function, *before* any conditional `return` statements or logic. `eslint-plugin-react-hooks` is enabled in `client/` to enforce this.
+- **Hook Stability**: All async functions in `useEffect` MUST be wrapped in `useCallback`.
+- **Zero-Error Baseline**: Code must pass `npm run lint` with 0 Errors.
+- **Fast Refresh / Logic Separation**: Files containing React components should strictly only export the component(s). Move shared logic, types, and constants to dedicated `.ts` logic files (e.g., `ComponentLogic.ts`). **Context providers** must be split from their context/hooks into a `*Logic.ts` sibling to maintain zero lint warnings.
 - **No dev bypasses**: Auth middleware and PIN verification are production-enforced. Do not re-add `let _ = pin;` or similar shortcuts.
 
 ## Auth model (do not modify without understanding)
@@ -184,7 +187,7 @@ The system supports multiple thermal print modes via `orders::build_receipt_zpl`
 ## Commands
 
 ```bash
-npm run check:server   # or: cd server && rustup run 1.88 cargo check
+npm run check:server   # or: cd server && rustup run 1.88 cargo check (requires clippy/rustfmt components)
 cd client && npm run build
 # Local dev (Postgres must be up: docker compose up -d): from repo root, after `npm install` once at root:
 npm run dev

@@ -2,14 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, ChevronsUpDown, X, ShoppingBag } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import MatrixHubGrid, { type HubVariant } from "./MatrixHubGrid";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import {
   formatMoney,
   formatUsdFromCents,
   parseMoney,
   parseMoneyToCents,
 } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 type HubTab = "general" | "matrix" | "history";
@@ -275,11 +275,7 @@ export default function ProductHubDrawer({
     setEmployeeExtraDraft(
       formatMoney(parseMoney(hub.product.employee_extra_amount)),
     );
-  }, [
-    hub?.product.id,
-    hub?.product.employee_markup_percent,
-    hub?.product.employee_extra_amount,
-  ]);
+  }, [hub]);
 
   const saveEmployeePricing = async () => {
     if (!hub) return;

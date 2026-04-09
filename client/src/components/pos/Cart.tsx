@@ -33,7 +33,7 @@ import RegisterGiftCardLoadModal from "./RegisterGiftCardLoadModal";
 import PosCustomerMeasurementsDrawer from "./PosCustomerMeasurementsDrawer";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import VariantSelectionModal, { type ProductWithVariants } from "./VariantSelectionModal";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
 import { enqueueCheckout } from "../../lib/offlineQueue";
@@ -47,7 +47,7 @@ import {
   hydratePosRegisterAuthIfNeeded,
   mergedPosStaffHeaders,
 } from "../../lib/posRegisterAuth";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import ProductIntelligenceDrawer from "./ProductIntelligenceDrawer";
 import PosSaleCashierSignInOverlay from "./PosSaleCashierSignInOverlay";
 import CustomerRelationshipHubDrawer from "../customers/CustomerRelationshipHubDrawer";
@@ -958,7 +958,7 @@ export default function Cart({
     };
 
     void run();
-  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed]);
+  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth]);
 
   // --- Search Logic ---
   const runSearch = useCallback(async (raw: string) => {
@@ -1072,7 +1072,7 @@ export default function Cart({
     } catch (e) {
       console.error("POS Search Error", e);
     }
-  }, [baseUrl, apiAuth, rmsPaymentMeta, giftCardLoadMeta, toast]);
+  }, [baseUrl, apiAuth, rmsPaymentMeta, toast]);
 
   useEffect(() => {
     if (search.trim().length < 2) {

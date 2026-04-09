@@ -4,8 +4,8 @@ import {
   CheckCircle2,
   RefreshCw,
 } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 type MappingTab = "sales" | "inventory" | "expenses";
 

@@ -1,8 +1,8 @@
 import { useCallback, useMemo, useState } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { setPosRegisterAuth } from "../../lib/posRegisterAuth";
-import { useToast } from "../ui/ToastProvider";
-import { useShellBackdropLayer } from "./ShellBackdropContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useShellBackdropLayer } from "./ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
 export type OpenRegisterOption = {

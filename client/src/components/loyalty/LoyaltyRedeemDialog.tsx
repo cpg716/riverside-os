@@ -2,26 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { Gift, X } from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-export interface LoyaltyEligibleCustomer {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  phone: string | null;
-  address_line1: string | null;
-  city: string | null;
-  state: string | null;
-  zip: string | null;
-  loyalty_points: number;
-}
-
-export function loyaltyEligibleDisplayName(c: LoyaltyEligibleCustomer): string {
-  return [c.first_name, c.last_name].filter(Boolean).join(" ") || "—";
-}
+import {
+  type LoyaltyEligibleCustomer,
+  loyaltyEligibleDisplayName,
+} from "./LoyaltyLogic";
 
 export interface LoyaltyRedeemDialogProps {
   isOpen: boolean;

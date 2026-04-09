@@ -22,9 +22,9 @@ import {
 import DetailDrawer from "../layout/DetailDrawer";
 import StripeReaderSimulation from "./StripeReaderSimulation";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 export type NexoTenderTab =
   | "card_terminal"
@@ -308,7 +308,7 @@ export default function NexoCheckoutDrawer({
         ? Math.round(authoritativeDepositCents)
         : 0;
     setAppliedDepositAmount(c > 0 ? centsToFixed2(c) : "");
-  }, [authoritativeDepositCents, isOpen]);
+  }, [authoritativeDepositCents, isOpen, setAppliedDepositAmount]);
 
   const appendDigit = (d: string) => {
     if (d === "." && keypad.includes(".")) return;
@@ -433,6 +433,7 @@ export default function NexoCheckoutDrawer({
       baseUrl,
       backofficeHeaders,
       toast,
+      setApplied,
     ],
   );
 

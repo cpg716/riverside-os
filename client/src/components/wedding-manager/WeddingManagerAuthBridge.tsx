@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { setWeddingManagerAuthHeadersProvider } from "./lib/api";
 
 /** Wires Back Office staff headers into embedded wedding-manager `api.js` (REST + SSE). */

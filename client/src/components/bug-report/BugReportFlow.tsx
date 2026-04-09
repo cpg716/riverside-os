@@ -3,9 +3,9 @@ import { createPortal } from "react-dom";
 import html2canvas from "html2canvas";
 import { Bug, X } from "lucide-react";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
   getClientDiagnosticLogText,

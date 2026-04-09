@@ -15,7 +15,7 @@ import {
   Clock,
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 
 export type PosTabId =

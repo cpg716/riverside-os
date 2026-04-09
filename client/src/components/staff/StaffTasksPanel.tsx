@@ -6,10 +6,10 @@ import {
   History,
   Plus,
 } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";

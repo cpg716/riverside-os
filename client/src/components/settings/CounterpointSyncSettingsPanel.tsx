@@ -17,8 +17,8 @@ import {
   Users,
   LayoutDashboard,
 } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 
 type HubTab = "status" | "inbound" | "categories" | "payments" | "gifts" | "staff";

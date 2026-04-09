@@ -8,8 +8,8 @@ import {
   ShieldCheck,
   Zap,
 } from "lucide-react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 
 interface NuorderSyncLog {
   id: string;

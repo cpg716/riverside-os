@@ -38,9 +38,9 @@ import {
   playScanWarning,
   warmUpAudio,
 } from "../../lib/scanSounds";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

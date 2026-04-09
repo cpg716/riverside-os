@@ -6,9 +6,9 @@ import {
   posRegisterAuthHeaders,
 } from "../../lib/posRegisterAuth";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 export interface SessionOpenedPayload {
   cashierName: string;
@@ -170,7 +170,7 @@ export default function RegisterOverlay({
     return () => {
       cancelled = true;
     };
-  }, [BYPASS, staffRole, permissionsLoaded, booting, fetchRegister1IsOpen]);
+  }, [staffRole, permissionsLoaded, booting, error, fetchRegister1IsOpen]);
 
   // Back Office admins: default to Register #2 once the drawer exists (satellite, $0 float).
   useEffect(() => {
@@ -181,7 +181,6 @@ export default function RegisterOverlay({
     if (adminPrimaryPath === "opening_lane1") return;
     setRegisterLane(2);
   }, [
-    BYPASS,
     permissionsLoaded,
     staffRole,
     register1OpenForAdmin,
@@ -239,7 +238,7 @@ export default function RegisterOverlay({
     return () => {
       cancelled = true;
     };
-  }, [BYPASS, baseUrl, backofficeHeaders, registerLane]);
+  }, [baseUrl, backofficeHeaders, registerLane]);
 
   useEffect(() => {
     if (registerLane > 1) {
@@ -421,7 +420,7 @@ export default function RegisterOverlay({
 
   const overlayVisible = useMemo(
     () => !BYPASS || booting || Boolean(error),
-    [BYPASS, booting, error],
+    [booting, error],
   );
   useShellBackdropLayer(overlayVisible);
   const { dialogRef, titleId } = useDialogAccessibility(overlayVisible, {});

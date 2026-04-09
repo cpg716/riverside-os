@@ -6,17 +6,18 @@ import {
   RefreshCw,
   Table2,
 } from "lucide-react";
-import QboMappingMatrix, {
+import QboMappingMatrix from "./QboMappingMatrix";
+import {
   type AccountMapping,
   buildMatrixInitialFromGranular,
   matrixKeyToGranular,
   QBO_MATRIX_TENDERS,
-} from "./QboMappingMatrix";
-import { useToast } from "../ui/ToastProvider";
+} from "./QboMappingLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";

@@ -3,7 +3,7 @@
  * Each entry maps to a single backing API — see docs/AI_REPORTING_DATA_CATALOG.md § Curated Reports.
  */
 
-import type { StaffRole } from "../context/BackofficeAuthContext";
+import type { StaffRole } from "../context/BackofficeAuthContextLogic";
 
 export type ReportResponseKind =
   | "sales_pivot"

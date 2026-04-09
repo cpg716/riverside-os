@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { useToast } from "../ui/ToastProvider";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -107,7 +107,7 @@ export default function DiscountEventsPanel() {
         setPromoVendors(Array.isArray(j) ? j : []);
       } else setPromoVendors([]);
     })();
-  }, [canView, baseUrl, backofficeHeaders]);
+  }, [canView, backofficeHeaders]);
 
   useEffect(() => {
     const r = rows.find((x) => x.id === sel);
@@ -136,16 +136,19 @@ export default function DiscountEventsPanel() {
     setUsageRows((await res.json()) as typeof usageRows);
   }, [backofficeHeaders, canView, usageFrom, usageTo, toast]);
 
-  const loadVars = async (id: string) => {
-    const res = await fetch(`${baseUrl}/api/discount-events/${id}/variants`, {
-      headers: backofficeHeaders(),
-    });
-    if (!res.ok) {
-      setVars([]);
-      return;
-    }
-    setVars((await res.json()) as VarRow[]);
-  };
+  const loadVars = useCallback(
+    async (id: string) => {
+      const res = await fetch(`${baseUrl}/api/discount-events/${id}/variants`, {
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) {
+        setVars([]);
+        return;
+      }
+      setVars((await res.json()) as VarRow[]);
+    },
+    [backofficeHeaders],
+  );
 
   useEffect(() => {
     if (!sel) {
@@ -153,7 +156,7 @@ export default function DiscountEventsPanel() {
       return;
     }
     void loadVars(sel);
-  }, [sel, backofficeHeaders]);
+  }, [sel, loadVars]);
 
   const createEvent = async () => {
     if (!canEdit) return;

@@ -1,6 +1,6 @@
 import { useCallback, useRef, useState } from "react";
 import { Archive, Globe, Printer, ScanBarcode, Tags, X } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 
 export type BulkCategoryOption = { id: string; name: string };
 

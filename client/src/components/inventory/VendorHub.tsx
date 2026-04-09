@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Building2, Clock3, Package, Plus, Trash2, Wallet, ShieldCheck } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
-import { useToast } from "../ui/ToastProvider";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 

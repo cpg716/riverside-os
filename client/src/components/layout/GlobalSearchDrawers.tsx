@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { ExternalLink, Package, Shirt, Wallet } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";

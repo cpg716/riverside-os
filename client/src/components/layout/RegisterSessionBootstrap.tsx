@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type MutableRefObject } from 
 import {
   useBackofficeAuth,
   type StaffRole,
-} from "../../context/BackofficeAuthContext";
+} from "../../context/BackofficeAuthContextLogic";
 import {
   clearPosRegisterAuth,
   getPosRegisterAuth,

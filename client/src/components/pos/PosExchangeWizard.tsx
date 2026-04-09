@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowLeftRight, Loader2, Package, X } from "lucide-react";
 import type { Customer } from "./CustomerSelector";
-import { useToast } from "../ui/ToastProvider";
-import { useShellBackdropLayer } from "../layout/ShellBackdropContext";
+import { useToast } from "../ui/ToastProviderLogic";
+import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { formatMoney, parseMoney } from "../../lib/money";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";

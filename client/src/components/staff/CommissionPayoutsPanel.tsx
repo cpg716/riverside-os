@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Receipt } from "lucide-react";
-import { useToast } from "../ui/ToastProvider";
+import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import { useBackofficeAuth } from "../../context/BackofficeAuthContext";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   formatUsdFromCents,
   parseMoneyToCents,
@@ -187,7 +187,6 @@ export default function CommissionPayoutsPanel() {
       setFinalizeBusy(false);
     }
   }, [
-    baseUrl,
     commissionSelected,
     commissionFrom,
     commissionTo,
