@@ -1,0 +1,41 @@
+name: 🐞 Bug Report
+description: Report a problem in the POS or Back Office
+title: "[BUG]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please provide as much detail as possible.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened?
+      placeholder: "e.g. Scanning a product in the cart didn't update the total."
+    validations:
+      required: true
+  - type: input
+    id: correlation_id
+    attributes:
+      label: Correlation ID
+      description: If you submitted an in-app report, please paste the ID here.
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: How can we make this happen again?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Area
+      options:
+        - POS / Register
+        - Wedding Manager
+        - Inventory / Products
+        - Customers / CRM
+        - Insights / Reporting
+        - Hardware (Printers/Scanners)
+        - QBO Sync

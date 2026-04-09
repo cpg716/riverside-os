@@ -1,0 +1,15 @@
+{
+  "recommendations": [
+    "rust-lang.rust-analyzer",
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
+    "bradlc.vscode-tailwindcss",
+    "tauri-apps.tauri-vscode",
+    "tamasfe.even-better-toml",
+    "editorconfig.editorconfig",
+    "serayuzgur.crates",
+    "fill-labs.dependi",
+    "mechatroner.rainbow-csv",
+    "bierner.markdown-mermaid"
+  ]
+}
