@@ -1,0 +1,43 @@
+================================================================================
+  Riverside OS — Counterpoint sync bridge (small folder install)
+================================================================================
+
+What this is
+  A tiny Node.js program on the Counterpoint / SQL Server PC that reads
+  Counterpoint data and pushes it to Riverside OS on your network.
+
+What you need on this PC (Windows 10 is supported)
+  1. Node.js 18+ (LTS) from https://nodejs.org/  — install with defaults
+     (64-bit Windows installer is fine on Windows 10).
+  2. This folder (unzipped), placed anywhere you like, e.g.:
+       C:\Riverside\counterpoint-bridge\
+
+First-time setup
+  1. Double-click  START_BRIDGE.cmd
+     - It will run "npm install" once.
+     - It will create .env if missing — you must edit it.
+
+  2. Open .env in Notepad and set at least:
+       SQL_CONNECTION_STRING=...   (your Counterpoint SQL Server connection)
+       ROS_BASE_URL=http://IP:3000 (IP of the PC running Riverside OS)
+       COUNTERPOINT_SYNC_TOKEN=... (must match COUNTERPOINT_SYNC_TOKEN on ROS)
+
+  3. Double-click START_BRIDGE.cmd again — it stays running and polls SQL.
+
+Same network
+  Use the ROS computer's LAN IP, e.g. ROS_BASE_URL=http://192.168.1.100:3000
+  (Ping that PC from this one to confirm connectivity.)
+
+Optional
+  - Leave the window open, or run START_BRIDGE.cmd via Task Scheduler on login.
+  - For inventory sync, set SYNC_INVENTORY=1 and fix CP_INVENTORY_QUERY in .env.
+
+Troubleshooting
+  - "invalid or missing sync token" → token in .env must exactly match the server.
+  - Connection refused to ROS → firewall on ROS PC must allow port 3000 from this PC.
+  - health 503 on ROS → set COUNTERPOINT_SYNC_TOKEN in server .env and restart the Rust server.
+  - "invalid object name …" on customer sync → set Database= in SQL_CONNECTION_STRING to your
+    Counterpoint company DB (same as in SSMS). Default query uses dbo.VI_AR_CUST_WITH_ADDRESS;
+    if needed switch to dbo.AR_CUST (see .env.example) or fix column names via SELECT TOP 1 * in SSMS.
+
+================================================================================

@@ -1,0 +1,92 @@
+# Canonical local PostgreSQL for Riverside OS (use this as the only dev database).
+# Credentials and DB name match server/.env.example and server default DATABASE_URL when unset.
+#
+# 1. docker compose up -d
+# 2. Apply all migrations: ./scripts/apply-migrations-docker.sh
+#    Status: ./scripts/migration-status-docker.sh — see DEVELOPER.md for the full migration list.
+#
+# Host port 5433 → container 5432 so local dev does not collide with a native Postgres on localhost:5432
+# (Homebrew / Postgres.app often own 5432; the API would then hit the wrong empty `riverside_os`).
+#
+# Metabase (Insights iframe → /metabase/ via RIVERSIDE_METABASE_UPSTREAM, default http://127.0.0.1:3001) starts with `docker compose up -d` (host :3001).
+# Add ROS Postgres in Metabase UI — prefer Host "db", Port 5432 (same Compose network). If that fails, use Host "host.docker.internal", Port 5433 (published db port; extra_hosts below).
+
+services:
+  db:
+    # pgvector so migrations 62–65 (CREATE EXTENSION vector) apply on fresh DBs; migration 78 drops the extension after AI tables are removed.
+    image: pgvector/pgvector:pg16
+    container_name: riverside-os-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: riverside_os
+    ports:
+      - "5433:5432"
+    volumes:
+      - riverside_pgdata:/var/lib/postgresql/data
+
+  # Optional: fuzzy search sidecar for inventory, CRM, weddings, orders, and storefront PLP.
+  # Set RIVERSIDE_MEILISEARCH_URL=http://127.0.0.1:7700 and RIVERSIDE_MEILISEARCH_API_KEY to match MEILI_MASTER_KEY.
+  meilisearch:
+    image: getmeili/meilisearch:v1.11
+    container_name: riverside-os-meilisearch
+    environment:
+      MEILI_MASTER_KEY: dev_master_key_change_me
+    ports:
+      - "7700:7700"
+    volumes:
+      - riverside_meili_data:/meili_data
+
+  # Metabase OSS for Insights (starts with `docker compose up -d`).
+  metabase-db:
+    image: postgres:16-alpine
+    container_name: riverside-os-metabase-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: metabase
+      POSTGRES_PASSWORD: metabase
+      POSTGRES_DB: metabase
+    volumes:
+      - riverside_metabase_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U metabase -d metabase -h 127.0.0.1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  metabase:
+    image: metabase/metabase:v0.59.5
+    container_name: riverside-os-metabase
+    hostname: metabase
+    restart: unless-stopped
+    # Lets Metabase reach ROS Postgres via host port 5433 when service name "db" is unreachable (e.g. wrong network).
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      metabase-db:
+        condition: service_healthy
+    ports:
+      - "3001:3000"
+    environment:
+      # Must match how staff open ROS in the browser (Vite :5173 + Axum /metabase proxy). Otherwise
+      # Metabase HTML references /app/* at the site root → 404 on :5173 (those paths are not proxied).
+      # Override when using LAN IP: METABASE_SITE_URL=http://192.168.x.x:5173/metabase/
+      MB_SITE_URL: ${METABASE_SITE_URL:-http://localhost:5173/metabase/}
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: metabase
+      MB_DB_PORT: 5432
+      MB_DB_USER: metabase
+      MB_DB_PASS: metabase
+      MB_DB_HOST: metabase-db
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:3000/api/health >/dev/null || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 90s
+
+volumes:
+  riverside_pgdata:
+  riverside_meili_data:
+  riverside_metabase_pgdata:

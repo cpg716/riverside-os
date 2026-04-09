@@ -1,0 +1,51 @@
+Project: Riverside OS (ROS)
+Tech Stack: Rust (Axum 0.8, sqlx 0.8), Tauri 2, React (TypeScript), Tailwind CSS, PostgreSQL.
+
+Documentation (read when onboarding or planning larger changes):
+- DEVELOPER.md — full app architecture, runbooks, API overview, repo layout
+- AGENTS.md — agent-oriented invariants and file map
+- README.md — documentation catalog (all first-party docs); migrations summary
+- docs/REPORTING_BOOKED_AND_RECOGNITION.md — booked vs recognition revenue; API query `basis`; NYS tax + commission rules; Metabase `order_recognition_*` / migration 106
+- docs/STORE_DEPLOYMENT_GUIDE.md — production topology, builds, hardware
+- docs/LOCAL_UPDATE_PROTOCOL.md — offline / no-GitHub version upgrades
+- docs/CATALOG_IMPORT.md — product CSV import (`POST /api/products/import`), body limits, Lightspeed mapping
+- docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md — customer CRM vs Lightspeed X-Series (merge, groups, bulk)
+- docs/CUSTOMER_HUB_AND_RBAC.md — Relationship Hub API ↔ customers.hub_view / hub_edit / timeline / measurements + orders.view (migration 63)
+- docs/PLAN_NOTIFICATION_CENTER.md — notification inbox, bundled hourly generators (`*_bundle`, `notification_bundle`), admin morning digest, low-stock opt-in, `task_due_soon_bundle` (migrations 51–52, 56; backup + integration/PIN generators 60–61 — see docs/NOTIFICATION_GENERATORS_AND_OPS.md)
+- docs/STAFF_TASKS_AND_REGISTER_SHIFT.md — recurring staff tasks, register shift primary, /api/tasks, RBAC (55–56)
+- docs/STAFF_SCHEDULE_AND_CALENDAR.md — staff_effective_working_day, /api/staff/schedule, morning-compass today_floor_staff (57–58)
+- docs/REGISTER_DASHBOARD.md — POS Dashboard tab, register metrics API, weddings.view on morning-compass/activity-feed, notification archive
+- docs/TILL_GROUP_AND_REGISTER_OPEN.md — till close group (migration 67), register lanes (66), combined Z-close, admin open-register UX, RegisterGateContext / refunds gate
+- docs/PLAN_METABASE_INSIGHTS_EMBED.md — Metabase in Insights shell, Axum /metabase proxy, Staff commission payouts, Phase 2 metabase_ro + reporting views
+- docs/METABASE_REPORTING.md — Phase 1 shipped proxy/Compose vs Phase 2 governance views
+- docs/POS_PARKED_SALES_AND_RMS_CHARGES.md — parked sales (68), pos_rms_charge_record charge vs payment (69), PAYMENT search / R2S payment checkout, customers.rms_charge + GET /api/customers/rms-charge/records, QBO RMS_R2S_PAYMENT_CLEARING, rms_r2s_charge notifications, GET /api/insights/rms-charges, VITE_POS_OFFLINE_CARD_SIM
+- docs/RECEIPT_BUILDER_AND_DELIVERY.md — Receipt Builder (Settings), receipt.html / receipt.zpl merge (optional query gift + order_item_ids; Settings GET /api/settings/receipt/preview-html?gift=), receipt_thermal_mode (zpl / escpos_raster / studio_html), POST /api/orders/{id}/receipt/send-email + send-sms (Podium, gift + line subset in JSON), POST /api/hardware/escpos-from-png, receipt_privacy staff names on customer copies; PLAN_GRAPESJS_RECEIPT_BUILDER.md (plan)
+- docs/SHIPPING_AND_SHIPMENTS_HUB.md — Shippo (74), shipment registry + events (75), SHIPPO_API_TOKEN, /api/shipments, POS/store shipping rates, Customers → Shipments + hub tab; roadmap in PLAN_SHIPPO_SHIPPING.md; cross-tracker PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md
+- docs/ONLINE_STORE.md — public /shop, /api/store + /api/admin/store, CMS + GrapesJS Studio, cart session, /account/* (JWT, migration 77), RIVERSIDE_STORE_CUSTOMER_JWT_SECRET + store account rate limits, VITE_GRAPESJS_STUDIO_LICENSE_KEY; PLAN_ONLINE_STORE_MODULE.md for roadmap
+- docs/SEARCH_AND_PAGINATION.md — customer browse/search, inventory control-board (text search ranked by trailing parent-product unit sales; product_id filter; migrations 81–82), optional Meilisearch (RIVERSIDE_MEILISEARCH_*), SQL fallback, Settings reindex; POS, CRM, PLP
+- docs/PLAN_LOCAL_LLM_HELP.md — ROSIE planning: PWA/Tauri Help parity (Tauri loopback llama sidecar + Axum POST /api/help/rosie/v1/chat/completions fallback); RIVERSIDE_LLAMA_UPSTREAM, VITE_ROSIE_LLM_*; DEVELOPER.md Environment variables
+- docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md — Master tracker: Shippo + Podium CRM + notifications + reviews (shipped / partial / deferred)
+- docs/PLAN_PODIUM_SMS_INTEGRATION.md — Podium SMS (70–71), two-way CRM (99+: podium_conversation, podium_message), logic/podium.rs, podium_webhook.rs, podium_inbound.rs, podium_messaging.rs, messaging.rs, GET/PATCH /api/settings/podium-sms, POST /api/webhooks/podium; docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md; RIVERSIDE_PODIUM_* env; pair with master plan above
+- docs/PLAN_PODIUM_REVIEWS.md — Partial: review policy, receipt opt-out, Operations Reviews, stub invite API; live Podium reviews TBD
+- docs/RETIRED_DOCUMENT_SUMMARIES.md — summaries of removed Markdown files
+- docs/CLIENT_UI_CONVENTIONS.md — React client primitives, modal a11y hook, lazy App tabs, embedded Wedding Manager wiring (see client/UI_WORKSPACE_INVENTORY.md for tab map)
+- docs/ROS_UI_CONSISTENCY_PLAN.md — full-app data-theme / dark: + typography alignment; Phases 1–5 complete (2026-04-08); Phase 5 covers build, Playwright, visual snapshots, RegisterSessionBootstrap session-id gate; guest /shop deferred in-plan
+- docs/E2E_REGRESSION_MATRIX.md — Playwright `client/e2e/` spec ↔ workspace map, `api-gates` route inventory, known gaps; update when adding or changing E2E coverage
+- docs/COUNTERPOINT_SYNC_GUIDE.md — Counterpoint sync end-to-end: server env, bridge install, entity mapping, Settings UI, provenance tagging (migrations 84–85)
+- docs/PLAN_BUG_REPORTS.md — Shipped: in-app staff bug reports (optional screenshot, diagnostics, correlation id, triage fields, notifications, retention), POST /api/bug-reports, Settings (settings.admin), migrations 101–103; optional VITE_SENTRY_DSN
+- docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md — tracing + RUST_LOG, optional OpenTelemetry OTLP (OTEL_* / RIVERSIDE_OTEL_ENABLED), ServerLogRing, tower-http TraceLayer, main.rs shutdown; vs client Sentry
+- .cursor/cursorinfo.md — Cursor quick index (non-app folders, entry points)
+
+Strict Rules:
+1. Currency & Math: ALWAYS use the `rust_decimal` crate for financial calculations. Never use f32/f64 floats.
+2. Axum 0.8 Syntax: `Router::with_state` must be applied at the top level in `main.rs`, NOT inside nested router builder functions. `Router<AppState>` cannot be passed to `serve`.
+3. Error Handling: Use `thiserror = "2.0"`. Never use `?` on raw `sqlx::Error` when checking for `RowNotFound`; use explicit match arms to map to domain errors (e.g., `InventoryError::SkuNotFound`).
+4. Database Enums: Always map `sqlx` enums using `#[sqlx(rename_all = "snake_case")]` to match PostgreSQL labels.
+5. Database Queries: Prefer `sqlx::query_as` with `.bind()` during rapid development to avoid compile-time DB locks.
+6. Business Logic: Do not put business logic (like NYS Tax or Employee Pricing) inside API route handlers. Handlers only parse requests and return JSON. Logic lives in `server/src/logic/` and `server/src/services/`.
+7. UX Alignment Surface Modes: Treat `register` and `customers` as `POS-Core`; all other workspaces are `BackOffice`. New UX changes must preserve this mode intent (speed-first vs clarity-first).
+8. UI Primitives First: Prefer shared tokens/primitives over one-off styles. Reuse `density-compact`, `density-standard`, `ui-card`, `ui-input`, `ui-btn-primary`, `ui-btn-secondary`, and `ui-pill` before introducing custom control variants.
+9. Financial Action Safety (QBO): For QBO approve/sync/finalize flows, use explicit confirmation UX and preserve access-log behavior for write actions (`qbo_mapping_save`, `qbo_granular_mapping_save`, `qbo_staging_approve`, `qbo_sync_success`, `qbo_sync_failed`).
+10. Ledger Signal Integrity: `gift_card` splits must carry valid `sub_type` (`paid_liability` or `loyalty_giveaway`); reject `sub_type` on non-gift-card methods. `applied_deposit_amount` must be non-negative and must not exceed its split amount.
+11. QA Baseline Requirement for UX/Financial Flows: For significant POS/QBO workflow changes, update/verify Playwright coverage under `client/e2e/` and refresh snapshots when UI materially changes.
+12. E2E Base URL in this repo: Prefer `E2E_BASE_URL=http://localhost:5173` for Playwright runs (localhost is reliable in this environment; 127.0.0.1 may fail browser connection). For full-suite stability use `npx playwright test --workers=1` from `client/` (see docs/ROS_UI_CONSISTENCY_PLAN.md Phase 5).

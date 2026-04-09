@@ -1,0 +1,17 @@
+{
+  "name": "counterpoint-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Poll NCR Counterpoint SQL Server and push batches to Riverside OS /api/sync/counterpoint/*",
+  "main": "index.mjs",
+  "scripts": {
+    "start": "node index.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "mssql": "^11.0.1"
+  }
+}

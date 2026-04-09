@@ -1,0 +1,4798 @@
+ 
+
+
+
+
+
+	ABC
+	BADEF
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Copyright 1995 – 2011 by Radiant Systems, Inc. 
+ 
+PROPRIETARY RIGHTS NOTICE:  All rights reserved.  No part of this material may be 
+reproduced or transmitted in any form or by any means, electronic, mechanical, or otherwise, 
+without permission in writing from Radiant Systems, Inc. 
+ 
+SYNCHRONICS and the Synchronics designs are registered trademarks of Radiant Systems, 
+Inc., Memphis, TN. 
+ 
+Other products mentioned are trademarks of their respective manufacturers. 
+ 
+ 
+REV: 012511 
+
+ 
+Introduction 
+ 
+ 
+CounterPoint SQL is a complete retail management solution that gives you power and 
+control over every aspect of your business – point of sale, inventory, customers, 
+purchasing, sales history, and more. CounterPoint includes powerful features and 
+flexible options so you can run your business your way. CounterPoint SQL is available 
+in two editions: Express and Enterprise. Unless otherwise indicated, the reports 
+described in this handbook apply to both editions of CounterPoint. 
+ 
+CounterPoint includes an extensive library of reports. Each report is designed to give 
+you all the information you need to run your business. 
+ 
+CounterPoint reports are designed using the industry-leading Crystal Reports engine. 
+You can customize or add information to any CounterPoint report – without having to 
+create new reports from scratch. (Report customization requires the Crystal Reports 
+Designer, purchased separately.) You can save report parameters as public (available 
+to all users) or private (available only to the user who saved them). You can also 
+configure CounterPoint to allow authorized users to send reports via email. 
+ 
+This handbook covers pre-defined reports only. 
+ 
+The reports in this handbook are organized as shown in the Sample Pages below. 
+ 
+ 
+ 
+ 
+Sample Pages 
+ 
+Each report is summarized, 
+letting you know what you 
+can do with the report, how it 
+helps you in your business, 
+and some of its more 
+important features. 
+ 
+ 
+ 
+ 
+ 
+ 
+Both pages can be viewed 
+at the same time, giving you 
+an easy reference tool for 
+working with the report. 
+ 
+The first page 
+shows the menu 
+path to the report 
+and the tables that 
+are available for 
+filtering.  
+ 
+The second page 
+shows examples of 
+the report. 
+
+ 
+Overview of Reports 
+ 
+ 
+CounterPoint SQL includes an extensive library of standard reports to help you manage 
+your business.  
+ 
+For this book, reports are grouped by application (Point of Sale, Inventory, etc.). 
+Reports include fully customizable filters, which allow limiting the data on the report. 
+ 
+Separate sections are provided for Journals and History. A journal is a special kind of 
+report that provides an audit trail for posting activity such as the printing of tickets, 
+inventory adjustment, receivings, etc. Journals can be printed automatically during 
+posting, or you can print the journal for a particular posting event at any point in the 
+future. You can configure CounterPoint to print the accounting distributions when 
+printing the journal. History allows you to view or print posting activity across multiple 
+posting events. 
+ 
+Reports highlighted with a 
+ are the “key” reports that will keep you on top of sales 
+and inventory information.  
+ 
+Reports marked with an * are only available in the Enterprise Edition. 
+ 
+Section 1: Point of Sale 
+ 
+Reports 
+ 
+Drawer Reading 
+ 
+Fill Preview 
+ 
+Gift Registry Reports 
+ 
+ 
+Holds  
+ 
+ 
+Layaway Activity * 
+ 
+ 
+Layaways 
+ 
+ 
+Open Customer-specific Purchases * 
+ 
+ 
+Order Activity *  
+ 
+ 
+Orders 
+ 
+ 
+Pick Orders 
+ 
+Point of Sale Exceptions 
+ 
+ 
+Pre-Settlement List 
+ 
+ 
+Price Exceptions 
+ 
+ 
+Print Orders 
+ 
+ 
+Quotes 
+ 
+ 
+Release Orders  
+ 
+ 
+Reprint Tickets  
+X-Tape 
+ 
+Journals 
+ 
+Closed Layaway Journal 
+Closed Order Journal  
+Drawer Summary 
+Settlement 
+Ticket Journal 
+ 
+Z-Tape 
+ 
+History 
+ 
+ 
+Closed Layaway History 
+ 
+ 
+Closed Orders History 
+ 
+ 
+Drawer History 
+ 
+ 
+Settlement History 
+ 
+ 
+Ticket History 
+ 
+ 
+Z-Tape History 
+Section 2: Inventory 
+ 
+Reports 
+Assign Mix-and-Match Codes 
+Bill of Material Definitions * 
+Committed Inventory 
+Component Usage History * 
+Consolidated Grid 
+Create Inventory * 
+Customer Price List 
+ Historical Valuation * 
+ 
+Inventory Aging 
+ Inventory Analysis 
+ 
+Inventory Availability 
+ 
+Inventory Grid Overview 
+Inventory History 
+ Inventory Snapshot 
+Inventory Status 
+Item Price List 
+Item Price-1 List 
+Items 
+Items on Sale 
+Markdowns * 
+ Merchandise Analysis * 
+Merge Items Report (Rad) 
+Mix-and-Match Codes 
+Physical Count Worksheet 
+Planned Promotions 
+Price Rules * 
+Prices 
+ 
+ 
+Purge Inactive Items 
+ 
+ 
+Quick Transfer Summary * 
+ 
+ 
+Recalc Item Quantities 
+Retail Value 
+
+ 
+Overview of Reports 
+ 
+ 
+Section 2: Inventory (cont.) 
+Sales Kits * 
+Sell-Through Rate 
+Serial Numbers * 
+ Six Week Item History  
+ 
+Transfer Advice * 
+Transfer Status * 
+ Twelve Month Item History 
+Valuation 
+ 
+ 
+Where Used * 
+ 
+Journals 
+Adjustments 
+Physical Count 
+Quick Assemblies * 
+Quick Transfers * 
+Reconcile * 
+ 
+Transfer In * 
+ 
+Transfer Out * 
+ 
+History 
+Adjustments History 
+Physical Count History 
+Quick Assemblies History * 
+Quick Transfers History * 
+Reconcile History * 
+ 
+Transfer In History * 
+ 
+Transfer Out History * 
+ 
+Section 3: Customers 
+ 
+Reports 
+Aging 
+Calculate Finance Charges 
+Customers 
+Loyalty Points * 
+Open and Unposted Documents 
+Point History * 
+Point Redemptions * 
+Purge Inactive Customers 
+Recalc Customer Balances 
+Statements 
+ 
+Journals 
+Adjustments 
+Cash Receipts  
+Finance Charges 
+Point Adjustments * 
+ 
+History 
+Cash Receipts 
+Customer Adjustments 
+Finance Charges 
+Point Adjustments * 
+ 
+ 
+ 
+Section 4: Purchasing 
+ 
+Reports 
+ 
+ 
+Customer-specific Purchases * 
+Purchase Orders 
+Purchasing Advice 
+ 
+ 
+Vendors 
+ 
+Journals 
+ 
+Purchase Adjustments * 
+ 
+Purchase Requests  
+ 
+Quick Receivings * 
+ 
+Receivings  
+ 
+Returns to Vendor * 
+ 
+History 
+ 
+Purchase Adjustments History * 
+ 
+Purchase Requests History 
+ 
+Quick Receivings History * 
+ 
+Receivings History 
+ 
+Returns to Vendor History * 
+ 
+Section 5: Sales History 
+ 
+Reports 
+ 
+ 
+Commissions Due * 
+ Flash Sales 
+ 
+ 
+Management History 
+ 
+ 
+Miscellaneous Kit Sales 
+ 
+ 
+Price Exceptions History 
+ 
+ 
+Price Reductions 
+ 
+ 
+Purge Settlement History 
+ 
+ 
+Purge Ticket History 
+ 
+ 
+Return Tickets 
+ Sales Analysis by Group * 
+ Sales History by Customer by Item 
+ 
+ 
+Sales History by Item by Customer 
+ 
+ 
+Sales History by Sales Rep 
+ 
+ 
+Sales History Profit 
+ Sales Rep Productivity 
+ 
+ 
+Tax History 
+ 
+ 
+Tax Exceptions 
+ 
+ 
+Voided Tickets 
+ 
+Section 6: Timecards 
+ 
+Reports 
+Export Timecards 
+Purge Timecards 
+Timecards Report 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Overview of Reports 
+ 
+ 
+Section 7: System  
+ 
+Reports  
+Distributions Report 
+Gift Cards List 
+Interface Distributions 
+Purge Distributions 
+Store Credit List 
+ 
+ 
+Unvouchered Receivings 
+ 
+ 
+Vouchered Receivings 
+ 
+Journals 
+ 
+ 
+Closed Gift Cards 
+ 
+ 
+Closed Store Credits 
+ 
+History 
+ 
+ 
+Closed Gift Cards 
+ 
+ 
+Closed Store Credits 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+SECTION 1: POINT OF SALE REPORTS 
+ 
+ 
+Reports  
+ 
+Drawer Reading ......................................................................................................... 2 
+Fill Preview ................................................................................................................ 4 
+Gift Registry Reports ................................................................................................. 6 
+Holds ......................................................................................................................... 8 
+Layaway Activity * .................................................................................................... 10 
+Layaways................................................................................................................. 12 
+Open Customer-specific Purchases * ...................................................................... 14 
+Order Activity * ......................................................................................................... 16 
+Orders ..................................................................................................................... 18 
+Pick Orders .............................................................................................................. 20 
+Point of Sale Exceptions .......................................................................................... 22 
+Pre-Settlement List .................................................................................................. 24 
+Price Exceptions ...................................................................................................... 26 
+Print Orders ............................................................................................................. 28 
+Quotes ..................................................................................................................... 30 
+Release Orders ....................................................................................................... 32 
+Reprint Tickets ......................................................................................................... 34 
+X-Tape ..................................................................................................................... 36 
+Journals 
+Closed Layaway Journal ......................................................................................... 38 
+Closed Order Journal .............................................................................................. 40 
+Drawer Summary ..................................................................................................... 42 
+Settlement ............................................................................................................... 44 
+Ticket Journal .......................................................................................................... 46 
+Z-Tape ..................................................................................................................... 48 
+History 
+Closed Layaway History .......................................................................................... 50 
+Closed Orders History ............................................................................................. 52 
+Drawer Summary History......................................................................................... 54 
+Settlement History ................................................................................................... 56 
+Ticket History ........................................................................................................... 58 
+Z-Tape History ......................................................................................................... 60 
+
+Point of Sale Reports 
+1-2 
+1/31/2011 
+Drawer Reading 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Drawer Reading Report allows you to inquire into the current sales and pay 
+code totals for all drawers in a store or a single drawer prior to posting. A summary 
+of daily activity can be printed for each cash drawer. This report is valuable in end of 
+day reconciliation and to produce a summary of sales, payment, tax, and tender 
+information. 
+ 
+ 
+Select Point of Sale / Drawers / Reading 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Drawer Session table  
+allows you to limit which drawers  
+are included on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-3 
+1/31/2011 
+Drawer Reading 
+ 
+ 
+Detail – Drawer Session, Drawer, Store, and Report totals included 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-4 
+1/31/2011 
+Fill Preview 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The File Preview Report allows you to view the orders that can be filled based on 
+current inventory levels. Use the Parameters tab to decide whether you will allow 
+partial orders, partial lines, and which order line types to include. 
+ 
+ 
+Select Point of Sale / Batch Processing / Fill Preview 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Item, Inventory,  
+Document Header, and  
+Document Line tables allows  
+you to limit which items and  
+locations are included on the  
+report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-5 
+1/31/2011 
+Fill Preview 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-6 
+1/31/2011 
+Gift Registry Reports 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Gift Registry Reports allows you to view either detailed or summarized 
+information about gift registries. You can also view an analysis of percent of sales 
+from gift registries. 
+ 
+ 
+Select Point of Sale / Gift Registry / Gift Registry Reports 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Gift Registry, and  
+Gift Registry Line tables allows  
+you to limit which gift registries  
+and items are included  
+on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-7 
+1/31/2011 
+Gift Registry Reports 
+ 
+ 
+Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Analysis 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-8 
+1/31/2011 
+Holds 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Holds Report lets you see either a detailed or summarized report of Hold tickets 
+for your company. Use the Parameters tab to decide how much detail should print 
+on the report. The report prints in order by Hold number. 
+ 
+ 
+Select Point of Sale / Reports / Holds 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Document Header and  
+Document Line tables allows you  
+to limit which hold tickets / items  
+appear on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-9 
+1/31/2011 
+Holds 
+ 
+ 
+Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-10 
+1/31/2011 
+Layaway Activity * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Layaway Activity Report lets you see a report of all activity (Entered, Released, 
+or Posted) for layaways. The status of each document is also shown (Open, 
+Completed, or Cancelled). Use the filter to determine which documents to include 
+on the report. The report prints in order by Layaway number. 
+ 
+ 
+Select Point of Sale / Reports / Layaway Activity 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Layaway  
+table allows you to limit  
+which layaways appear  
+on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Ticket number is 
+filtered to ‘Layaway’ 
+type documents. 
+
+Point of Sale Reports 
+1-11 
+1/31/2011 
+Layaway Activity * 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-12 
+1/31/2011 
+Layaways 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Layaways Report lets you see either a detailed or summarized report of open, 
+completed, or cancelled layaways for your company. Use the Parameters tab to 
+decide how much detail should print on the report. The report prints in order by 
+Layaway number. 
+ 
+ 
+Select Point of Sale / Reports / Layaways 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Layaway and Layaway  
+Line tables allows you to limit  
+which Layaways and items appear  
+on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-13 
+1/31/2011 
+Layaways 
+ 
+ 
+Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-14 
+1/31/2011 
+Open Customer-specific Purchases * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Open Customer-specific Purchases Report lets you view either a full or brief list 
+of items from customer-specific orders that have been copied to Purchase Requests 
+(current line status can be: Received, On purchase order, or On purchase request). 
+The report prints in order by Order number. 
+ 
+ 
+Select Point of Sale / Reports / Open Customer-specific Purchases 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Document Header,  
+Document Line, and Item tables  
+allows you to limit which  
+customer-specific purchases / items  
+appear on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-15 
+1/31/2011 
+Open Customer-specific Purchases * 
+ 
+ 
+Full 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Brief 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-16 
+1/31/2011 
+Order Activity * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Order Activity Report lets you see a report of all activity (Entered, Released, or 
+Posted) for orders, backorders, and special orders. The status of each document is 
+also shown (Open, Completed, or Cancelled). Determine which documents to 
+include on the report. The report prints in order by Order number. 
+ 
+ 
+Select Point of Sale / Reports / Order Activity 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Order  
+table allows you to limit  
+which orders appear on  
+the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Ticket number 
+is filtered to just 
+‘Order’ type 
+documents 
+
+Point of Sale Reports 
+1-17 
+1/31/2011 
+Order Activity * 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-18 
+1/31/2011 
+Orders 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Orders Report lets you see either a detailed or summarized report of open, 
+completed, or cancelled orders for your company. Use the Parameters tab to decide 
+how much detail should print on the report. The report prints in order by Order 
+number. 
+ 
+ 
+Select Point of Sale / Reports / Orders 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Order and Order  
+Line tables allows you to limit  
+which orders and items  
+appear on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-19 
+1/31/2011 
+Orders 
+ 
+ 
+Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-20 
+1/31/2011 
+Pick Orders 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Pick Orders Report allows you to preview or print a report for open orders. Use 
+the Parameters tab to specify whether to print a specific form group or to print all 
+forms assigned to a specified station. You can also specify whether to include line 
+items on the report. Click the Pick Orders button to pick the selected orders. 
+ 
+ 
+Select Point of Sale / Batch Processing / Pick 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Order table allows  
+you to limit which orders are  
+included on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-21 
+1/31/2011 
+Pick Orders 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-22 
+1/31/2011 
+Point of Sale Exceptions 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Point of Sale Exceptions Report allows you to inquire into Point of Sale 
+exceptions, either by user or by overriding user. Select up to 12 columns to appear 
+on the report or use one of the pre-defined common reports. 
+NOTE: The data used for this report comes from aggregated tables. Check the 8.4 
+Release Notes \ System \ Radiant Management Console topic for additional 
+information about performing this task. 
+ 
+Select Point of Sale / Reports / Point of Sale Exceptions 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Use the Select Columns tab to  
+select the columns to appear on  
+the report. 
+ 
+ 
+ 
+ 
+Use the Exceptions tab to filter  
+which exceptions to include on  
+the report. 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-23 
+1/31/2011 
+Point of Sale Exceptions 
+ 
+ 
+Exceptions by User 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Exceptions by Overriding User 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+User level drill-down 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-24 
+1/31/2011 
+Pre-Settlement List 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Pre-Settlement List allows you to view credit card transactions waiting to be 
+settled. Credit card transactions are settled using Point of Sale / Credit Cards / 
+Settle. 
+ 
+ 
+Select Point of Sale / Credit Cards / Pre-Settlement List 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the EDC Transaction  
+table allows you to limit which  
+credit card transactions will  
+appear on the list. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-25 
+1/31/2011 
+Pre-Settlement List 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-26 
+1/31/2011 
+Price Exceptions 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Price Exceptions Report allows you to review price overrides on unposted 
+tickets before you post them. Sophisticated exception reporting allows a manager to 
+monitor danger zones without having to pore through voluminous reports. Exception 
+reports are also available for critical areas such as tax overrides, voids, and 
+merchandise returns.  
+ 
+Select Point of Sale / Reports / Price Exceptions 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Document Header and  
+Document Line tables allows you  
+to limit which tickets / items will  
+appear on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-27 
+1/31/2011 
+Price Exceptions 
+ 
+ 
+Price Overrides - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Prompted for Price - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-28 
+1/31/2011 
+Print Orders 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Print Orders Report allows you to preview or print a report for open orders. Use 
+the Parameters tab to specify whether to print a specific form group or to print all 
+forms assigned to a specified station. You can also specify whether to include line 
+items on the report. Click the Print Orders button to process the selected orders. 
+ 
+ 
+Select Point of Sale / Batch Processing / Print 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Order table allows  
+you to limit which orders are  
+included on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-29 
+1/31/2011 
+Print Orders 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-30 
+1/31/2011 
+Quotes 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Quotes Report lets you see either a detailed or summarized report of Quote 
+tickets for your company. Use the Parameters tab to decide how much detail should 
+print on the report. The report prints in order by Quote number. 
+ 
+ 
+Select Point of Sale / Reports / Quotes 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Document Header and  
+Document Line tables allows you to  
+limit which quote tickets / items  
+appear on the report. 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-31 
+1/31/2011 
+Quotes 
+ 
+ 
+Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-32 
+1/31/2011 
+Release Orders 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Release Orders Report allows you to preview or print a report of fully paid 
+orders or orders with a specified final payment. Use the Parameters tab to specify 
+where released orders should be created and whether to print a specific form group 
+or to print all forms assigned to a specified station. You can also specify whether to 
+include line items on the report. Click the Release Orders button to process the 
+selected orders. The Review Report options allow you to view the detail for failed 
+and successful releases. 
+ 
+ 
+Select Point of Sale / Batch Processing / Release 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering the Order and  
+Document Status tables allows  
+you to limit which orders are  
+included on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-33 
+1/31/2011 
+Release Orders 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-34 
+1/31/2011 
+Reprint Tickets 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+Reprint Tickets allows you to print a duplicate copy of a posted ticket.  
+ 
+Select Point of Sale / Reports / Reprint Tickets 
+ 
+• At Report, select the  type of ticket to print:  
+ 
+ 
+Pay In / Pay Out 
+ 
+Pay on Account 
+ 
+Receipt – Layaways 
+ 
+Receipt – Orders 
+ 
+Receipt – Tickets 
+ 
+Receipt – Voids 
+ 
+Sales Draft 
+ 
+Sales Draft (Signature capture) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Depending on the type of ticket  
+selected, you can filter on the  
+related tables to limit which tickets  
+will be reprinted. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Invoice (Letter size)
+ 
+Layaway (Letter size) 
+ 
+Order (Letter size) 
+ 
+Voids (Letter size) 
+ 
+Receipt – Tickets TM-T88
+ 
+Receipt – Layaways TM-T88 
+ 
+Receipt – Orders TM-T88 
+ 
+Receipt – Voids TM-T88 
+ 
+Pay In/Out TM-T88 
+ 
+Pay on Account TM-T88 
+ 
+Sales Draft TM-T88 
+ 
+Sales Draft (Signature Capture) TM-T88 
+ 
+
+Point of Sale Reports 
+1-35 
+1/31/2011 
+Reprint Tickets 
+ 
+ 
+Receipt – Tickets  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-36 
+1/31/2011 
+X-Tape 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The X-Tape Report can be generated for each drawer session at each store and run 
+at any time. The report's parameters are user-specified and provide end-of-day 
+balancing, summary sales and loyalty point reporting, and sales and profitability 
+analysis by department, user, and salesperson. The report provides Drawer Detail 
+and Store Summary information. 
+ 
+ 
+Select Point of Sale / Reports / X-Tape 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-37 
+1/31/2011 
+X-Tape 
+ 
+ 
+Drawer Detail 
+ 
+ 
+ 
+ 
+             Store Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-38 
+1/31/2011 
+Closed Layaway Journal 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Closed Layaway Journal allows you to retrieve information about “Closed” 
+layaways. Layaways remain open until completed layaways are posted using Point 
+of Sale / Tickets / Post. Supply the event number that moved the layaway to 
+Layaway History. The report prints in order by Layaway number. 
+ 
+ 
+Select Point of Sale / Reports / Journals / Closed Layaway Journal 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-39 
+1/31/2011 
+Closed Layaway Journal 
+ 
+ 
+Journal - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Journal - Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-40 
+1/31/2011 
+Closed Order Journal 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Closed Order Journal allows you to retrieve information about “Closed” orders. 
+Orders remain open until completed orders are posted using Point of Sale / 
+Tickets / Post. Supply the event number that moved the order to Order History. The 
+report prints in order by Order number. 
+ 
+ 
+Select Point of Sale / Reports / Journals / Closed Order Journal 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-41 
+1/31/2011 
+Closed Order Journal 
+ 
+ 
+Journal - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Journal - Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-42 
+1/31/2011 
+Drawer Summary 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Drawer Summary Journal allows you to reconcile payment entries with the 
+actual tender removed from the drawer at closing.  This report produces a summary 
+of sale, payment, tax, and tender information for tickets that have already been 
+posted.  
+ 
+ 
+Select Point of Sale / Reports / Journals / Drawer Summary  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-43 
+1/31/2011 
+Drawer Summary 
+ 
+ 
+Journal 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-44 
+1/31/2011 
+Settlement 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Settlement Journal allows you to view a report of settled credit card 
+transactions. Supply the event number for a specific settlement transaction. 
+ 
+ 
+Select Point of Sale / Reports / Journals / Settlement 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-45 
+1/31/2011 
+Settlement 
+ 
+ 
+ 
+Journal 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-46 
+1/31/2011 
+Ticket Journal 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Ticket Journal allows you to retrieve posted ticket information for a specific 
+posting event. The report prints in order by ticket number. 
+ 
+ 
+Select Point of Sale / Reports / Journals / Ticket Journal 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-47 
+1/31/2011 
+Ticket Journal 
+ 
+ 
+Journal - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Journal – Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-48 
+1/31/2011 
+Z-Tape 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Z-Tape Journal can be generated for each drawer after posting. The report's 
+parameters are user-specified and provide end-of-day balancing, summary sales 
+reporting, and sales and profitability analysis by department, user, and salesperson. 
+Additional analysis is available by tax code, sales rep, store, station, user, loyalty 
+points, and payment type.  
+ 
+Select Point of Sale / Reports / Journals / Z-Tape 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-49 
+1/31/2011 
+Z-Tape 
+ 
+ 
+Journal - Detail 
+ 
+ 
+ 
+                                                                                  
+
+Point of Sale Reports 
+1-50 
+1/31/2011 
+Closed Layaway History 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Closed Layaway History allows you to retrieve information about “Closed” 
+layaways from the Layaway History tables. Layaways remain open until completed 
+layaways are posted using Point of Sale / Tickets / Post. The report prints in order 
+by Layaway number. 
+ 
+ 
+Select Point of Sale / Reports / History / Closed Layaway History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-51 
+1/31/2011 
+Closed Layaway History 
+ 
+ 
+History - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+History - Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-52 
+1/31/2011 
+Closed Orders History 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Closed Orders History allows you to retrieve information about “Closed” orders. 
+Orders remain open until completed orders are posted using Point of Sale / 
+Tickets / Post. The report prints in order by Order number. 
+ 
+ 
+Select Point of Sale / Reports / History / Closed Orders History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-53 
+1/31/2011 
+Closed Order History 
+ 
+ 
+History - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+History - Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-54 
+1/31/2011 
+Drawer Summary History   
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Drawer Summary History allows you to reconcile payment entries with the 
+actual tender removed from the drawer at closing.  This report produces a summary 
+of sale, payment, tax, and tender information for tickets that have already been 
+posted.  
+ 
+ 
+Select Point of Sale / Reports / History / Drawer History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-55 
+1/31/2011 
+Drawer Summary History 
+ 
+ 
+History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-56 
+1/31/2011 
+Settlement History 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Settlement History allows you to retrieve settled credit card transaction 
+information.  
+ 
+ 
+Select Point of Sale / Reports / History / Settlement History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-57 
+1/31/2011 
+Settlement 
+ 
+ 
+ 
+History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-58 
+1/31/2011 
+Ticket History 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Ticket History allows you to retrieve posted ticket information. The report prints 
+in order by ticket number. 
+ 
+ 
+Select Point of Sale / Reports / History / Ticket History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-59 
+1/31/2011 
+Ticket History 
+ 
+ 
+History - Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+History – Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-60 
+1/31/2011 
+Z-Tape History 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Z-Tape History can be generated for each drawer after posting. The report's 
+parameters are user-specified and provide end-of-day balancing, summary sales 
+reporting, and sales and profitability analysis by department, user, and salesperson. 
+Additional analysis is available for several factors including: tax code, user, sales 
+rep, loyalty points, and more.  
+ 
+Select Point of Sale / Reports / History / Z-Tape History 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+Point of Sale Reports 
+1-61 
+1/31/2011 
+Z-Tape History 
+ 
+ 
+History - Detail 
+ 
+ 
+ 
+                                                                                  
+
+Point of Sale Reports 
+1-62 
+1/31/2011 
+   
+ 
+   
+ 
+ 
+ 
+ 
+ 
+
+ 
+SECTION 2: INVENTORY REPORTS 
+ 
+ 
+Reports  
+ 
+ 
+Assign Mix-and-Match Codes .................................................................................... 2
+Bill of Material Definitions * ........................................................................................ 4
+Committed Inventory ................................................................................................. 6
+Component Usage History * ...................................................................................... 8
+Consolidated Grid .................................................................................................... 10
+Create Inventory * .................................................................................................... 12
+Customer Price List ................................................................................................. 14
+Historical Valuation * ........................................................................................... 16
+Inventory Aging ........................................................................................................ 18
+Inventory Analysis ............................................................................................... 20
+Inventory Availability ................................................................................................ 22
+Inventory Grid Overview .......................................................................................... 24
+Inventory History ...................................................................................................... 26
+Inventory Snapshot ............................................................................................. 28
+Inventory Status ....................................................................................................... 30
+Item Price List .......................................................................................................... 32
+Item Price-1 List ....................................................................................................... 34
+Items ........................................................................................................................ 36
+Items on Sale........................................................................................................... 38
+Markdowns * ............................................................................................................ 40
+Merchandise Analysis * ....................................................................................... 42
+Merge Items Report (Rad) ....................................................................................... 46
+Mix-and-Match Codes ............................................................................................. 48
+Physical Count Worksheet....................................................................................... 50
+Planned Promotions ................................................................................................ 52
+Price Rules * ............................................................................................................ 54
+Prices ...................................................................................................................... 56
+Purge Inactive Items ................................................................................................ 58
+Quick Transfers Summary *..................................................................................... 60
+Recalculating Item Quantities .................................................................................. 62
+
+ 
+Retail Value .............................................................................................................. 64
+Sales Kits * ............................................................................................................... 66
+Sell-Through Rate .................................................................................................... 68
+Serial Numbers * ...................................................................................................... 70
+Six Week Item History ......................................................................................... 72
+Transfer Advice * ...................................................................................................... 74
+Transfer Status * ...................................................................................................... 76
+Twelve Month Item History .................................................................................. 78
+Valuation .................................................................................................................. 80
+Where Used * ........................................................................................................... 82 
+Journals 
+Inventory Adjustments .............................................................................................. 84
+Physical Count ......................................................................................................... 86
+Quick Assemblies * .................................................................................................. 88
+Quick Transfers *...................................................................................................... 90
+Reconcile * ............................................................................................................... 92
+Transfer In * ............................................................................................................. 94
+Transfer Out * ........................................................................................................... 96 
+History 
+Inventory Adjustments History .................................................................................. 98
+Physical Count History ........................................................................................... 100
+Quick Assemblies History * .................................................................................... 102
+Quick Transfers History * ....................................................................................... 104
+Reconcile History * ................................................................................................. 106
+Transfer In History * ............................................................................................... 108
+Transfer Out History* .............................................................................................. 110
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-2 
+1/31/2011 
+Assign Mix-and-Match Codes 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Assign Mix-and-Match Codes Report lets you see a list of items that you can 
+assign or remove a Mix-and-Match code from, for the purpose of Mix-and-Match 
+pricing. You can also automatically update items with the Mix-and-Match code from 
+the report. 
+ 
+ 
+Select Inventory / Utilities / Assign Mix-and-Match Codes 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-3 
+1/31/2011 
+Assign Mix-and-Match Codes 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-4 
+1/31/2011 
+Bill of Material Definitions * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Bill of Material Definitions Report lets you see information about the “parts list” 
+of components needed to produce a sellable item. Use the Parameters tab to 
+specify whether to view the parent item’s comment field or whether to print the 
+component allow change settings. 
+ 
+ 
+Select Inventory / Reports / Bill of Material Definitions  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Bill of Material  
+and Item tables allows you to  
+limit which items appear on the  
+report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-5 
+1/31/2011 
+Bill of Material Definitions * 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-6 
+1/31/2011 
+Committed Inventory 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Committed Inventory Report lets you see either a detailed or summarized 
+report of all unfinished transactions that affect the committed quantity for each item 
+for your company. Items can be committed to an unposted receiving, unposted 
+ticket, transfers, etc. 
+ 
+ 
+Select Inventory / Reports / Committed Inventory  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Inventory  
+Committed table allows you to  
+limit which items appear on the  
+report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-7 
+1/31/2011 
+Committed Inventory 
+ 
+ 
+Detail 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Summary 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-8 
+1/31/2011 
+Component Usage History * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Component Usage History Report lets you see a list of items and the detail of 
+how/where they were used in actual assembly of a finished good. Components are 
+listed in item number order.  
+ 
+ 
+Select Inventory / Reports / Component Usage History  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-9 
+1/31/2011 
+Component Usage History * 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-10 
+1/31/2011 
+Consolidated Grid 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Consolidated Grid Report lets you quickly summarize inventory and sales 
+history information for gridded items by cell dimension.  
+ 
+ 
+Select Inventory / Reports / Consolidated Grid  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Item table allows  
+you to limit which items appear  
+on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-11 
+1/31/2011 
+Consolidated Grid 
+ 
+ 
+ 
+Consolidated Grid (Category / Subcategory) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-12 
+1/31/2011 
+Create Inventory * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Create Inventory Report lets you quickly build inventory records for one or more 
+locations. Either generate inventory records from existing item records or copy 
+inventory records that have been created for another location. If you choose to copy 
+from another location, you can also copy the bin location and min/max stocking 
+levels to the new inventory records. 
+ 
+ 
+Select Inventory / Utilities / Create Inventory  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Item table allows  
+you to limit which items appear  
+on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(* Enterprise Edition Only) 
+
+ 
+Inventory Reports 
+2-13 
+1/31/2011 
+Create Inventory * 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(* Enterprise Edition Only) 
+
+ 
+Inventory Reports 
+2-14 
+1/31/2011 
+Customer Price List 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Customer Price List lets you see the selling prices for a specific customer for all 
+items, items from one vendor, or items in a specific category, that are stocked at 
+one particular store. Cell level detail is optional. 
+ 
+Select Inventory / Reports / Customer Price List 
+  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Item and Price  
+Group tables allows you to limit  
+which items and price groups  
+appear on the list. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-15 
+1/31/2011 
+Customer Price List 
+ 
+ 
+Customer Price List with Cell Detail (Ordered by Item number) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-16 
+1/31/2011 
+ Historical Valuation * 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Historical Valuation Report lets you see the value of your inventory as of a 
+specific date. The report indicates the Price-1 and Regular price values, as well as 
+the corresponding markup percentages, as of the Valuation date you specify. Use 
+filters to view the value of all items, items from one vendor, or items in a specific 
+category, that are stocked at one particular location or all locations.  
+ 
+Select Inventory / Reports / Historical Valuation 
+  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Item and  
+Inventory tables allows you to  
+limit which items and locations  
+appear on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(* Enterprise Edition Only) 
+
+ 
+Inventory Reports 
+2-17 
+1/31/2011 
+ Historical Valuation * 
+ 
+ 
+Historical Valuation by Categ/Subcat   (ranked by Quantity) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+(* Enterprise Edition Only) 
+
+ 
+Inventory Reports 
+2-18 
+1/31/2011 
+Inventory Aging 
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E  
+The Inventory Aging Report lets you see an overview of the length of time that items 
+in your current inventory have been in stock, based upon the date that the inventory 
+was received. This report calculates the age in days for each item in your inventory 
+by reviewing historical on hand quantities and also analyzes costs for the indicated 
+items for up to 5 aging periods. Inventory aging reports are frequently requested by 
+auditors to assist in valuing the inventory for financial statement purposes. 
+ 
+ 
+Select Inventory / Reports / Inventory Aging 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Inventory Aging  
+Group Work, Item, and Inventory  
+tables allows you to limit which  
+items appear on the report.  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-19 
+1/31/2011 
+Inventory Aging 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-20 
+1/31/2011 
+ Inventory Analysis  
+ 
+ 
+P
+PU
+UR
+RP
+PO
+OS
+SE
+E 
+The Inventory Analysis Report lets you see inventory activity like current quantity 
+(over- or under-stocked items), retail value, and on hand profit potential, plus sales 
+activity like performance information (good or bad) for your company over a 
+specified date range. Use this report to determine which items should be reordered, 
+marked down, or discontinued. Cell-level detail can be included, if Inventory 
+Analysis by Item is selected. 
+ 
+Select Inventory / Reports / Inventory Analysis  
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Filtering on the Item table  
+allows you to limit which  
+items appear on the report. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+Inventory Reports 
+2-21 
+1/31/2011 
+ Inventory Analysis  
+ 
+ 
+Inventory Analysis by Item   (in order by Quantity on Hand with Cell-level detail) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Inventory Analysis by Category (Summary) (ranked by inventory value) 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+

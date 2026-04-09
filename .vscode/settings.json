@@ -1,0 +1,8 @@
+{
+  "logicalProperties.ignoreLanguageIds": ["markdown"],
+  "logicalProperties.ignoreProperties": [
+    "width",
+    "height"
+  ],
+  "git.ignoreLimitWarning": true
+}

@@ -1,0 +1,5 @@
+node_modules/
+.env
+.counterpoint-bridge-state.json
+counterpoint-schema-report.txt
+*.zip

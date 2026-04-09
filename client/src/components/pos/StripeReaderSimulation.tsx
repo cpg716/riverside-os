@@ -1,0 +1,167 @@
+import { useState, useEffect } from "react";
+import { 
+  CreditCard, 
+  Wifi, 
+  CheckCircle2, 
+  Loader2, 
+  Smartphone,
+  ShieldCheck
+} from "lucide-react";
+import { centsToFixed2 } from "../../lib/money";
+
+export type ReaderStatus = "connecting" | "idle" | "insert_card" | "processing" | "success" | "error";
+
+/** POS mock terminal — display only; tender amount is integer cents (same path as Nexo / Stripe intent). */
+interface StripeReaderSimulationProps {
+  amountCents: number;
+  onSuccess: () => void;
+  onCancel: () => void;
+}
+
+export default function StripeReaderSimulation({
+  amountCents,
+  onSuccess,
+  onCancel
+}: StripeReaderSimulationProps) {
+  const [status, setStatus] = useState<ReaderStatus>("connecting");
+  const [dots, setDots] = useState("");
+
+  // Simulated Connection Handshake
+  useEffect(() => {
+    const timer = setTimeout(() => setStatus("insert_card"), 2000);
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Pulsing Dots for "Connecting" or "Processing"
+  useEffect(() => {
+    if (status === "connecting" || status === "processing") {
+      const interval = setInterval(() => {
+        setDots(prev => (prev.length >= 3 ? "" : prev + "."));
+      }, 400);
+      return () => clearInterval(interval);
+    }
+  }, [status]);
+
+  const simulatePayment = () => {
+    setStatus("processing");
+    setTimeout(() => {
+      setStatus("success");
+      setTimeout(() => {
+        onSuccess();
+      }, 1500);
+    }, 2500);
+  };
+
+  return (
+    <div className="mx-auto flex w-full max-w-sm flex-col items-center justify-center rounded-[40px] border-4 border-white/10 bg-app-text p-8 shadow-2xl animate-in zoom-in-95 duration-500">
+      {/* Handheld Terminal Header (LEDs) */}
+      <div className="flex gap-2 mb-8">
+        {[0, 1, 2, 3].map((i) => (
+          <div 
+            key={i} 
+            className={`h-2 w-8 rounded-full transition-all duration-300 ${
+              status === "success" ? "bg-emerald-500 shadow-[0_0_10px_#10b981]" : 
+              status === "processing" ? (dots.length > i ? "bg-blue-500 shadow-[0_0_10px_#3b82f6]" : "bg-white/15") :
+              status === "insert_card" ? "animate-pulse bg-white/25" : "bg-white/15"
+            }`} 
+          />
+        ))}
+      </div>
+
+      {/* Terminal Screen Container */}
+      <div className="relative flex aspect-[4/3] w-full flex-col items-center justify-between overflow-hidden rounded-2xl border-2 border-white/10 bg-[#1a1a1a] p-6 shadow-inner">
+        {/* Screen Glare */}
+        <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
+        
+        <div className="w-full flex justify-between items-center opacity-40">
+           <Wifi size={14} className="text-white/40" />
+           <div className="h-1.5 w-6 rounded-full bg-white/35" />
+        </div>
+
+        <div className="flex flex-col items-center text-center space-y-4 py-4">
+          {status === "connecting" && (
+            <>
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
+                 <Loader2 className="animate-spin text-white/45" size={24} />
+              </div>
+              <p className="text-sm font-black uppercase tracking-widest text-white/45">Connecting{dots}</p>
+            </>
+          )}
+
+          {status === "insert_card" && (
+            <>
+              <div className="h-16 w-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 animate-pulse">
+                 <CreditCard size={32} />
+              </div>
+              <div>
+                <p className="text-2xl font-black text-white italic tracking-tighter">${centsToFixed2(amountCents)}</p>
+                <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Insert / Tap Card</p>
+              </div>
+            </>
+          )}
+
+          {status === "processing" && (
+            <>
+              <div className="h-12 w-12 rounded-full border-2 border-blue-500/30 flex items-center justify-center">
+                 <Loader2 className="text-blue-500 animate-spin" size={24} />
+              </div>
+              <p className="text-lg font-black tabular-nums text-white/90">
+                ${centsToFixed2(amountCents)}
+              </p>
+              <p className="text-sm font-black uppercase tracking-widest text-blue-400">Authorizing{dots}</p>
+            </>
+          )}
+
+          {status === "success" && (
+            <>
+              <div className="h-16 w-16 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-[0_0_20px_rgba(16,185,129,0.4)] animate-bounce">
+                 <CheckCircle2 size={32} strokeWidth={3} />
+              </div>
+              <p className="text-xl font-black uppercase italic tracking-tighter text-emerald-400">Approved</p>
+            </>
+          )}
+        </div>
+
+        <div className="w-full text-center">
+           <p className="text-[9px] font-bold uppercase tracking-widest text-white/35">Powered by Stripe</p>
+        </div>
+      </div>
+
+      {/* Manual Hardware Triggers (Mocking physical actions) */}
+      {status === "insert_card" && (
+        <div className="mt-8 grid grid-cols-2 gap-3 w-full">
+          <button 
+            onClick={simulatePayment}
+            className="group flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 transition-all hover:bg-white/10 active:scale-95 text-white"
+          >
+            <Smartphone size={20} className="transition-colors group-hover:text-blue-400" />
+            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Simulate Tap</span>
+          </button>
+          <button 
+            onClick={simulatePayment}
+            className="group flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 transition-all hover:bg-white/10 active:scale-95 text-white"
+          >
+            <CreditCard size={20} className="transition-colors group-hover:text-blue-400" />
+            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Simulate Dip</span>
+          </button>
+        </div>
+      )}
+
+      {/* Security Footer */}
+      <div className="mt-8 flex items-center gap-2 opacity-30 group hover:opacity-100 transition-opacity">
+         <ShieldCheck size={12} className="text-white/40" />
+         <p className="text-[9px] font-bold uppercase tracking-widest text-white/40">Secure E2E Encryption</p>
+      </div>
+
+      {/* Cancel Action */}
+      {(status === "insert_card" || status === "error") && (
+        <button 
+          onClick={onCancel}
+          className="mt-6 text-[10px] font-black uppercase tracking-widest text-white/45 transition-colors hover:text-red-400"
+        >
+          Cancel Transaction
+        </button>
+      )}
+    </div>
+  );
+}

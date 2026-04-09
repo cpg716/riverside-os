@@ -1,0 +1,120 @@
+# Things before launch
+
+Running list of items to **check** or **enact** before a Riverside OS go-live (production cutover, new store launch, or major release). **Add new sections and bullets here** as decisions are made; link out to full specs where they live.
+
+Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
+
+---
+
+## Database and migrations
+
+- [ ] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
+- [ ] **All migrations applied** in numeric order through the latest **`migrations/NN_*.sql`** (repo tracks **00–107** as of 2026-04; includes **`106_reporting_order_recognition.sql`** (recognition dates + **`daily_order_totals_recognized`**) and **`107_reporting_order_lines_margin.sql`** (**`line_gross_margin_pre_tax`** / cost columns on **`reporting.order_lines`** for Metabase — parity with **`GET /api/insights/margin-pivot`**); full table **`DEVELOPER.md`**). **Docker dev:** `./scripts/apply-migrations-docker.sh` from repo root (ledger in **`ros_schema_migrations`**). **Drift / QA:** `./scripts/migration-status-docker.sh` vs **`scripts/ros_migration_build_probes.sql`**. **Prod:** run the same ordered DDL + ledger procedure your ops use; do not skip files.
+- [ ] **Staff RBAC schema (migration 97):** Confirm **`staff_permission`**, **`staff.max_discount_percent`**, employment / **`employee_customer_id`** columns exist or the server will fail startup / staff routes — **`docs/STAFF_PERMISSIONS.md`**.
+- [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
+
+---
+
+## Server environment and security
+
+- [ ] **Secrets** set on the server only (DB, Stripe if used, QBO if used, integration tokens). Nothing sensitive in client env except allowed **`VITE_*`** (see **`DEVELOPER.md`** env table).
+- [ ] **`RIVERSIDE_CORS_ORIGINS`** set to real browser origins when staff use HTTPS hostnames or multiple entry URLs (avoid accidental wide-open CORS in production).
+- [ ] **`RIVERSIDE_HTTP_BIND`** aligned with your TLS/reverse-proxy plan (**`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`REMOTE_ACCESS_GUIDE.md`**).
+- [ ] **Staff auth:** No dev bypasses; PINs and RBAC match store policy (**`docs/STAFF_PERMISSIONS.md`**).
+
+---
+
+## Store settings (in-app)
+
+- [ ] **Receipt settings:** Store name, **IANA timezone** (drives receipts, register “store day,” and **`reporting`** business dates — Settings → Receipt).
+- [ ] **Staff roster:** Roles and permissions; **change default/bootstrap credentials** if the DB still uses dev seeds (**`docs/STAFF_PERMISSIONS.md`**, migration **53** on greenfield). After migration **97**, effective Back Office keys live in **`staff_permission`**; role-wide templates are under **Settings → Staff access defaults**.
+
+---
+
+## Clients (Tauri + PWA)
+
+- [ ] **`VITE_API_BASE`** correct **per build** (LAN hostname, Tailscale name, or HTTPS origin) — **`client/.env.register`**, **`client/.env.pwa`**, not `127.0.0.1` unless the API is truly local to that device.
+- [ ] **Production artifacts:** Server serves **`client/dist`**; Register/Back Office PCs run **Tauri** build; iPad/phones use **PWA** build — **`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`**.
+- [ ] **Register 1 (Tauri):** Thermal printer path validated (**TCP** target as deployed).
+- [ ] **Shared devices:** Train staff: log out / close register when unattended on PWA (**`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`**).
+
+---
+
+## Network, TLS, and remote access
+
+- [ ] **HTTPS** (or store-approved private mesh) for staff-facing browser/Tailscale access; **no plain HTTP on the public internet** for the app — **`REMOTE_ACCESS_GUIDE.md`**.
+- [ ] **Tailscale / firewall** rules match who should reach the ROS origin and Metabase (if separate).
+
+---
+
+## Register operations (training)
+
+- [ ] **Multi-lane / till group:** If using Register #2+, staff understand **one drawer on #1** and combined **Z-close** — **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**.
+- [ ] **Parked sales / RMS charge lines** (if you use them): cashiers and Sales Support trained — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**.
+
+---
+
+## Metabase / Insights (reporting)
+
+**Policy (OSS baseline):** Prefer Metabase **Open Source** — **`RIVERSIDE_METABASE_JWT_SECRET`** unset and Metabase **Authentication → JWT** off unless you deliberately adopt **paid** Metabase for SSO. **Riverside `insights.view`** only opens the **Insights** shell; **margin and private data in Metabase** are controlled by **which Metabase user** logs in, not by staff PIN.
+
+**Pair with Riverside:** **`DEVELOPER.md`** — **Back Office → Reports** (curated **`/api/insights/*`** tiles; **Margin pivot** = **Riverside Admin role** API-enforced). **Insights** = Metabase iframe — enforce sensitivity with Metabase accounts below.
+
+- [ ] **Postgres:** **`reporting`** views require **`90`**, **`96`**, **`106`**, and **`107`** (margin / cost columns on **`reporting.order_lines`** for Metabase admin content); the live app needs **all** migrations through latest (**`DEVELOPER.md`**). Role **`metabase_ro`** exists with a **strong password** (`ALTER ROLE ... PASSWORD`).
+- [ ] **Metabase connection:** DB **`riverside_os`**, user **`metabase_ro`**, schema **`reporting`** only; sync schema after deploy.
+- [ ] **Booked vs completed (revenue / tax / commission alignment):** Use **`reporting.orders_core` / `reporting.order_lines`**: **`order_business_date`** = sale booked day; **`order_recognition_at`** / **`order_recognition_business_date`** = completed-revenue day (**pickup / in-store takeaway:** `fulfilled_at`; **ship:** first `label_purchased` or manual **in_transit** / **delivered** note on **`shipment_event`** — same rules as **`/api/insights`** NYS audit + commission finalize). For day totals: **`daily_order_totals`** = booked; **`daily_order_totals_recognized`** = completed. Replicate or filter in Metabase questions accordingly.
+- [ ] **Online store backlog:** Full “picked up vs shipped” product workflow (customer-visible states, optional dedicated **`shipped_at`**, carrier webhooks) is **not** fully built; recognition for ship rows depends on shipment hub events today — extend when **`/shop`** fulfillment is hardened (**`docs/ONLINE_STORE.md`**, **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**).
+- [ ] **Metabase logins — Staff vs Admin (required for margin / private cuts):**
+  - [ ] Create at least **two Metabase groups** (e.g. **Reporting – Staff** and **Reporting – Admin**, or use Metabase **Administrators** for the second).
+  - [ ] **Staff-class Metabase users** (per person or a small shared login per store policy): **View** only on a **Staff / Approved** (or similarly named) collection — dashboards and questions **without** margin / cost / exploratory drafts. **No access** (or minimal) to folders that hold questions on **`line_gross_margin_pre_tax`**, **`unit_cost`**, or other sensitive **`reporting.order_lines`** columns from **107**.
+  - [ ] **Admin-class Metabase users** (owners, finance, IT): access to **margin** dashboards, draft collections, and ad-hoc exploration as policy allows. **Do not** reuse the admin Metabase password as the “everyone” login for all staff who have **`insights.view`** in Riverside.
+  - [ ] **Collections:** Keep **Staff / Approved** curated; put margin-heavy and experimental content in **admin-only** collections with **No access** for **Reporting – Staff**.
+  - [ ] **Train:** On shared PCs, **log out** of Metabase when switching between staff and admin Metabase identities (or use separate browser profiles).
+  - [ ] **Document:** **Settings → Integrations → Insights** — optional Markdown **Staff note** + **Collections / groups** ops note so trainers know who gets which Metabase login (**`InsightsIntegrationSettings.tsx`** / **`GET/PATCH /api/settings/insights`**).
+- [ ] **SQL / data:** Restrict **native query** for **Reporting – Staff** if they must not ad-hoc query all **`reporting.*`** objects (OSS has no row-level sandboxes from paid tiers).
+- [ ] **Network:** Metabase not on a public URL; align with **LAN / Tailscale / VPN** (`REMOTE_ACCESS_GUIDE.md`, store ops).
+- [ ] **OSS JWT:** Leave **`RIVERSIDE_METABASE_JWT_SECRET`** unset unless you intentionally enable JWT handoff + paid Metabase JWT (**`docs/METABASE_REPORTING.md`**).
+
+**Full detail:** [`docs/METABASE_REPORTING.md`](docs/METABASE_REPORTING.md) — **Operational standard: Staff Metabase login vs Admin Metabase login**, Phase 2 views, and optional JWT. Staff guides: [`docs/staff/insights-back-office.md`](docs/staff/insights-back-office.md), [`docs/staff/reports-curated-admin.md`](docs/staff/reports-curated-admin.md).
+
+---
+
+## Integrations (only if you use them)
+
+- [ ] **QuickBooks Online:** OAuth, mappings, staging rules — ops runbook in **`DEVELOPER.md`** / QBO docs as you use them.
+- [ ] **Stripe:** **`STRIPE_SECRET_KEY`** and live vs test; terminal behavior — see server env docs.
+- [ ] **Podium SMS / storefront embed / CRM threads:** **`RIVERSIDE_PODIUM_*`**, webhook secret — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, completion matrix **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**.
+- [ ] **Shippo / shipments:** **`SHIPPO_API_TOKEN`**, rates and hub — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**.
+- [ ] **Meilisearch (optional):** **`RIVERSIDE_MEILISEARCH_*`**; **rebuild index** after major catalog deploy — **`docs/SEARCH_AND_PAGINATION.md`**.
+- [ ] **OpenTelemetry (optional):** When using a trace collector or APM, configure **`OTEL_*`** / **`RIVERSIDE_OTEL_ENABLED`** on the API host and confirm egress to the collector — **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`**, **`docs/STORE_DEPLOYMENT_GUIDE.md`** §4.
+- [ ] **Counterpoint bridge:** **`COUNTERPOINT_SYNC_TOKEN`**, bridge install, staging if enabled — **`docs/COUNTERPOINT_SYNC_GUIDE.md`**.
+- [ ] **Online store (`/shop`):** JWT secret, coupons, Studio license if used — **`docs/ONLINE_STORE.md`**.
+- [ ] **In-app bug reports (optional ops):** Floor staff know **Report a bug** (**`docs/staff/bug-reports-submit-manual.md`**). At least one **`settings.admin`** knows **Settings → Bug reports** triage (**`docs/staff/bug-reports-admin-manual.md`**, **`docs/staff/settings-back-office.md`**, **`docs/PLAN_BUG_REPORTS.md`**). Submissions include optional screenshot + client diagnostics + **server log snapshot** (recent API **`tracing`** only, not full host logs); **`correlation_id`** on submit; retention env **`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`** (migrations **101**–**103**).
+
+---
+
+## LLM / staff “AI” (implementation status)
+
+**At launch, treat this as a status check—not a feature flip** unless product has explicitly shipped a new LLM layer. **ROSIE** (**RiversideOS Intelligence Engine**) is the planned in-app assistant name; it is **not** implied by shipping Help Center alone.
+
+- [ ] **Retired in-app AI stack:** Database has applied migration **78** (no **`ai_doc_chunk`**, **`/api/ai`**, or **`ai_assist`** keys). Do **not** expect embeddings/RAG tables or a ros-gemma worker from older docs — current pointer: **`ROS_AI_INTEGRATION_PLAN.md`**.
+- [ ] **What staff use today:** **Help Center** + Markdown manuals + **`GET /api/help/search`** (optional **Meilisearch** on **`ros_help`**) — **`PLAN_HELP_CENTER.md`**, **`docs/MANUAL_CREATION.md`**. After deploy, run **`generate:help`** / reindex per your process if catalog changed.
+- [ ] **ROSIE / local LLM sidecar (future, optional):** If you are **not** shipping **Ask ROSIE** or a sidecar on cutover, note **N/A** and skip tooling. If you **are** piloting: follow **`docs/PLAN_LOCAL_LLM_HELP.md`** (Windows **11** + Tauri/server expectations, Help Center integration, Axum as trust boundary, **whitelisted** read tools only—**no** model-built SQL; align with **`docs/AI_REPORTING_DATA_CATALOG.md`**). Confirm store policy for screenshots/vision and localhost ports (AV/firewall).
+
+---
+
+## Inventory and velocity reporting
+
+- [x] **`GET /api/insights/best-sellers`** and **`GET /api/insights/dead-stock`** — implemented with **`basis`** (`booked` vs `completed` / recognition) aligned with sales pivots (**`server/src/logic/report_basis.rs`**, migration **106**).
+- [ ] **Metabase / ops:** Use stock-on-hand and receiving views as designed; pair “sold” metrics with **`reporting.order_lines.order_recognition_business_date`** for completed-units reporting where appropriate.
+
+---
+
+## Weather / misc
+
+- [ ] **Visual Crossing (optional):** API key / enabled flag if you rely on weather in app — **`docs/WEATHER_VISUAL_CROSSING.md`**.
+- [ ] **Morning digest (optional):** **`RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL`** if non-default — **`docs/PLAN_NOTIFICATION_CENTER.md`**.
+
+---
+
+<!-- Add new launch areas above this line or as new ## sections. -->

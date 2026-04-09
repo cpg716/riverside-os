@@ -1,0 +1,3 @@
+# Large GGUF files live here by default (see ../MODEL_PIN.json). Ignore keeps tooling from scanning huge binaries.
+*
+!.gitignore

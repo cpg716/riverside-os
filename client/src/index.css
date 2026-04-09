@@ -1,0 +1,577 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --app-bg: #f8f7f4;
+  --app-surface: #ffffff;
+  --app-surface-2: #fbfaf8;
+  /* Nudge lighter than surface-2 for grid corners / tertiary panels */
+  --app-surface-3: #f4f4f5;
+  --app-text: #09090b;
+  --app-text-muted: #52525b;
+  --app-border: #e4e4e7;
+  --app-accent: #d946ef; /* Pro-Fuchsia */
+  --app-accent-2: #0ea5e9; /* Sky-500 */
+  --app-success: #10b981; /* Emerald-500 */
+  --app-warning: #f59e0b; /* Amber-500 */
+  --app-danger: #ef4444; /* Red-500 */
+  --app-shell: #f8f7f4;
+  --app-rail: #ffffff;
+  /* Stronger than --app-border so form controls read clearly on white cards (light mode). */
+  --app-input-border: #a1a1aa;
+  --app-input-bg: var(--app-surface);
+  --app-input-inset: inset 0 1px 2px rgba(15, 23, 42, 0.07);
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --app-bg: #000000; /* True Black */
+  --app-surface: #09090b; /* Zinc-950 */
+  --app-surface-2: #18181b; /* Zinc-900 */
+  --app-surface-3: #27272a; /* Zinc-800 */
+  --app-text: #f4f4f5; /* Zinc-100 */
+  --app-text-muted: #a1a1aa; /* Zinc-400 */
+  --app-border: #27272a; /* Zinc-800 */
+  --app-accent: #e879f9; /* Bright Fuchsia */
+  --app-accent-2: #38bdf8; /* Sky-400 */
+  --app-success: #34d399; /* Emerald-400 */
+  --app-warning: #fbbf24; /* Amber-400 */
+  --app-danger: #f87171; /* Red-400 */
+  --app-shell: #000000;
+  --app-rail: #09090b;
+  --app-input-border: #3f3f46;
+  --app-input-bg: var(--app-surface);
+  --app-input-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Public `/shop` storefront tokens (shadcn-style HSL channels; used with Tailwind `storefront.*`). */
+[data-storefront="true"] {
+  --sf-background: 48 20% 97%;
+  --sf-foreground: 240 10% 4%;
+  --sf-card: 0 0% 100%;
+  --sf-card-foreground: 240 10% 4%;
+  --sf-muted: 240 5% 96%;
+  --sf-muted-foreground: 240 4% 46%;
+  --sf-border: 240 6% 90%;
+  --sf-input: 240 6% 90%;
+  --sf-primary: 292 91% 56%;
+  --sf-primary-foreground: 0 0% 100%;
+  --sf-secondary: 240 5% 96%;
+  --sf-secondary-foreground: 240 6% 10%;
+  --sf-accent: 240 5% 96%;
+  --sf-accent-foreground: 240 6% 10%;
+  --sf-destructive: 0 72% 51%;
+  --sf-ring: 292 91% 56%;
+  --sf-radius: 0.75rem;
+}
+
+/* Guest `/shop` dark palette (follows `<html data-theme="dark">` from `rosDocumentTheme`). */
+[data-theme="dark"][data-storefront="true"] {
+  --sf-background: 240 6% 10%;
+  --sf-foreground: 0 0% 98%;
+  --sf-card: 240 5% 14%;
+  --sf-card-foreground: 0 0% 98%;
+  --sf-muted: 240 4% 18%;
+  --sf-muted-foreground: 240 5% 64%;
+  --sf-border: 240 4% 22%;
+  --sf-input: 240 4% 22%;
+  --sf-primary: 292 85% 60%;
+  --sf-primary-foreground: 0 0% 100%;
+  --sf-secondary: 240 4% 18%;
+  --sf-secondary-foreground: 0 0% 96%;
+  --sf-accent: 240 4% 20%;
+  --sf-accent-foreground: 0 0% 96%;
+  --sf-destructive: 0 62% 45%;
+  --sf-ring: 292 85% 60%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background: var(--app-bg);
+  color: var(--app-text);
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+/*
+ * Light UI + OS dark (or mixed native theming): without this, WebKit/Chromium often paint
+ * selects/inputs with dark-field colors while the app surface stays light — selected value text
+ * can read as blank. Force control chrome to track `data-theme` on <html>.
+ */
+html[data-theme="light"] :where(
+  select,
+  textarea,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"])
+) {
+  color-scheme: light;
+}
+html[data-theme="dark"] :where(
+  select,
+  textarea,
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"])
+) {
+  color-scheme: dark;
+}
+
+/* selection:bg-* without selection:text-* left selected copy unreadable on several surfaces */
+::selection {
+  background-color: color-mix(in srgb, var(--app-accent) 22%, var(--app-surface-2));
+  color: var(--app-text);
+}
+::-moz-selection {
+  background-color: color-mix(in srgb, var(--app-accent) 22%, var(--app-surface-2));
+  color: var(--app-text);
+}
+
+@layer components {
+  /* Shared density tokens used by POS-Core vs BackOffice surfaces. */
+  .density-standard {
+    --density-pad: 1rem;
+    --density-gap: 1rem;
+    --density-radius: 0.875rem;
+    --density-font: 0.875rem;
+  }
+
+  .density-compact {
+    --density-pad: 0.625rem;
+    --density-gap: 0.625rem;
+    --density-radius: 0.625rem;
+    --density-font: 0.75rem;
+  }
+
+  /** PWA / tablet: minimum tap target; pair with flex + items-center + justify-center on icon buttons. */
+  .ui-touch-target {
+    min-height: 44px;
+    min-width: 44px;
+    touch-action: manipulation;
+  }
+
+  /**
+   * Typography roles — chrome vs reading copy (`docs/CLIENT_UI_CONVENTIONS.md`).
+   * Chrome: short labels, chips, dense table headers. Instruction: sentences, confirms, compliance.
+   */
+  .ui-type-chrome {
+    font-size: 0.625rem;
+    font-weight: 900;
+    letter-spacing: 0.12em;
+    line-height: 1.2;
+    text-transform: uppercase;
+  }
+
+  .ui-type-instruction {
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--app-text);
+  }
+
+  .ui-type-instruction-muted {
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.55;
+    color: var(--app-text-muted);
+  }
+
+  .ui-type-title {
+    font-size: 1.125rem;
+    font-weight: 900;
+    letter-spacing: -0.02em;
+    line-height: 1.25;
+    color: var(--app-text);
+  }
+
+  /** Semantic status tints — prefer over ad hoc amber/sky + dark: pairs in new code. */
+  .ui-caution-text {
+    @apply text-amber-800 dark:text-amber-200;
+  }
+
+  .ui-info-text {
+    @apply text-sky-900 dark:text-sky-200;
+  }
+
+  .ui-positive-text {
+    @apply text-emerald-800 dark:text-emerald-300;
+  }
+
+  /* Shared primitive classes to reduce one-off styling drift across surfaces. */
+  .ui-card {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    color: var(--app-text);
+    @apply rounded-2xl shadow-[0_10px_24px_-18px_rgba(20,20,20,0.45)];
+  }
+
+  .ui-input {
+    border: 1px solid var(--app-input-border);
+    background: var(--app-input-bg);
+    color: var(--app-text);
+    box-shadow: var(--app-input-inset);
+    @apply rounded-xl px-3 py-2 text-sm outline-none transition-colors;
+  }
+
+  .ui-input::placeholder {
+    color: var(--app-text-muted);
+  }
+
+  .ui-input:focus {
+    border-color: var(--app-accent);
+    box-shadow: var(--app-input-inset),
+      0 0 0 2px color-mix(in srgb, var(--app-accent) 20%, transparent);
+  }
+
+  .ui-input:is(select) option {
+    color: var(--app-text);
+    background-color: var(--app-surface);
+  }
+
+  .ui-btn-primary {
+    background: var(--app-accent);
+    color: #fff;
+    @apply min-h-11 touch-manipulation rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-[0.14em] transition-colors disabled:opacity-50;
+  }
+
+  .ui-btn-primary:hover {
+    filter: brightness(1.05);
+  }
+
+  .ui-btn-secondary {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    color: var(--app-text);
+    @apply min-h-11 touch-manipulation rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50;
+  }
+
+  .ui-btn-secondary:hover {
+    background: color-mix(in srgb, var(--app-surface-2) 95%, var(--app-text));
+    border-color: color-mix(in srgb, var(--app-border) 80%, var(--app-text));
+  }
+
+  .ui-pill {
+    @apply inline-flex rounded-full px-2 py-0.5 text-[9px] font-black uppercase tracking-wide;
+  }
+
+  .ui-table-shell {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    @apply overflow-hidden rounded-2xl shadow-sm;
+  }
+
+  .ui-filter-row {
+    border: 1px solid var(--app-border);
+    background: color-mix(in srgb, var(--app-surface) 85%, var(--app-bg));
+    @apply flex flex-wrap items-center gap-2 rounded-2xl p-3;
+  }
+
+  .ui-segment {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface-2);
+    @apply inline-flex items-center gap-1 rounded-xl p-1;
+  }
+
+  .ui-segment-btn {
+    @apply min-h-[44px] rounded-lg px-3 py-2 text-[11px] font-black uppercase tracking-widest transition-colors;
+  }
+
+  .ui-segment-btn-active {
+    background: var(--app-surface);
+    color: var(--app-text);
+    @apply shadow-sm;
+  }
+
+  .ui-toolbar {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface);
+    @apply flex flex-wrap items-center gap-2 rounded-2xl p-3;
+  }
+
+  .ui-page {
+    @apply flex min-h-0 flex-1 flex-col gap-4 overflow-hidden bg-transparent p-6;
+  }
+  .ui-shell-root {
+    background: var(--app-bg);
+    @apply h-screen w-screen p-5;
+  }
+  .ui-shell-board {
+    background: var(--app-shell);
+    border: 1px solid var(--app-border);
+    @apply flex h-full w-full overflow-hidden rounded-[30px] shadow-[0_30px_70px_-40px_rgba(30,26,24,0.45)];
+  }
+  .ui-rail {
+    background: var(--app-rail);
+  }
+  .ui-panel {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface-2);
+    @apply rounded-2xl;
+  }
+  .ui-kpi-card {
+    @apply rounded-2xl border p-4 text-left;
+  }
+  .ui-template-operational {
+    @apply grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-12;
+  }
+  .ui-template-backoffice {
+    @apply grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_320px];
+  }
+  .ui-template-pos {
+    @apply grid min-h-0 flex-1 grid-cols-1 gap-4 xl:grid-cols-[1fr_420px];
+  }
+  .ui-zone-primary {
+    @apply min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface-2;
+  }
+  .ui-zone-secondary {
+    @apply min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface;
+  }
+  .ui-section-stack {
+    @apply flex min-h-0 flex-col gap-4;
+  }
+  .ui-control-chip {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface-2);
+    color: var(--app-text-muted);
+    @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors;
+  }
+  .ui-control-chip-active {
+    border-color: color-mix(in srgb, var(--app-accent) 45%, var(--app-border));
+    background: color-mix(in srgb, var(--app-accent) 12%, var(--app-surface-2));
+    color: var(--app-text);
+  }
+  .ui-overlay-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px];
+  }
+  .ui-modal {
+    @apply ui-card w-full max-w-md overflow-hidden shadow-2xl;
+  }
+  .ui-modal-header {
+    @apply border-b border-app-border bg-app-surface px-5 py-4;
+  }
+  .ui-modal-body {
+    @apply bg-app-surface-2 px-5 py-4;
+  }
+  .ui-modal-footer {
+    @apply flex justify-end gap-2 border-t border-app-border bg-app-surface px-5 py-4;
+  }
+
+  .ui-page-header {
+    @apply flex flex-wrap items-start justify-between gap-4;
+  }
+
+  .ui-page-title {
+    @apply text-xl font-black tracking-tight text-app-text;
+  }
+
+  .ui-page-subtitle {
+    @apply mt-1 text-sm text-app-text-muted;
+  }
+
+  .ui-action-bar {
+    @apply ui-filter-row;
+  }
+
+  .ui-kbd {
+    border: 1px solid var(--app-border);
+    background: var(--app-surface-2);
+    color: var(--app-text-muted);
+    @apply rounded px-1.5 py-0.5 text-[10px] font-bold uppercase;
+  }
+
+  .ui-status-ok {
+    background: color-mix(in srgb, var(--app-success) 20%, transparent);
+    color: var(--app-success);
+  }
+
+  .ui-status-warn {
+    background: color-mix(in srgb, var(--app-warning) 20%, transparent);
+    color: var(--app-warning);
+  }
+
+  .ui-status-danger {
+    background: color-mix(in srgb, var(--app-danger) 18%, transparent);
+    color: var(--app-danger);
+  }
+
+  /* Pro-Grade Fulfillment & Brand Pops */
+  .bg-fulfillment-takeaway {
+    background: var(--app-success);
+    color: #ffffff;
+    @apply shadow-[0_4px_12px_-4px_rgba(16,185,129,0.45)];
+  }
+
+  .bg-fulfillment-special {
+    background: var(--app-warning);
+    color: #ffffff;
+    @apply shadow-[0_4px_12px_-4px_rgba(245,158,11,0.45)];
+  }
+
+  .bg-brand-accent {
+    background: var(--app-accent);
+    color: #ffffff;
+    @apply shadow-[0_4px_12px_-4px_rgba(217,70,239,0.45)];
+  }
+
+  /* Premium Depth Enhancements */
+  .ui-overlay-backdrop {
+    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-md;
+  }
+
+  .ui-modal {
+    @apply ui-card w-full max-w-md overflow-hidden shadow-2xl transition-all duration-300;
+    border-color: color-mix(in srgb, var(--app-border) 40%, transparent);
+  }
+}
+
+@layer utilities {
+  .bg-app-bg {
+    background: var(--app-bg);
+  }
+  .bg-app-surface {
+    background: var(--app-surface);
+  }
+  .bg-app-surface-2 {
+    background: var(--app-surface-2);
+  }
+  .bg-app-surface-3 {
+    background: var(--app-surface-3);
+  }
+  .text-app-text {
+    color: var(--app-text);
+  }
+  .text-app-text-muted {
+    color: var(--app-text-muted);
+  }
+  .border-app-border {
+    border-color: var(--app-border);
+  }
+  .border-app-input-border {
+    border-color: var(--app-input-border);
+  }
+
+  /* Pair with `shadow-lg` / `shadow-xl` (sets --tw-shadow-colored); fixes `shadow-app-accent/20` not emitted from theme alone. */
+  .shadow-app-accent\/20 {
+    --tw-shadow-color: color-mix(in srgb, var(--app-accent) 20%, transparent);
+    --tw-shadow: var(--tw-shadow-colored);
+  }
+  .shadow-app-accent\/30 {
+    --tw-shadow-color: color-mix(in srgb, var(--app-accent) 30%, transparent);
+    --tw-shadow: var(--tw-shadow-colored);
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  /* riverside-wedding-manager Dashboard uses `scrollbar-hide` */
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
+  }
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .density-pad {
+    padding: var(--density-pad, 1rem);
+  }
+
+  .density-gap {
+    gap: var(--density-gap, 1rem);
+  }
+
+  .density-radius {
+    border-radius: var(--density-radius, 0.875rem);
+  }
+
+  .density-text {
+    font-size: var(--density-font, 0.875rem);
+    line-height: 1.25;
+  }
+}
+
+/* Nexo-style workspace tab transition */
+@keyframes workspace-snap {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.workspace-snap {
+  animation: workspace-snap 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* In-app Help Center (markdown article) */
+.help-center-prose {
+  line-height: 1.55;
+}
+.help-center-prose-h1 {
+  font-size: 1.25rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.75rem;
+}
+.help-center-prose-h2 {
+  font-size: 1.05rem;
+  font-weight: 700;
+  margin-top: 1.25rem;
+  margin-bottom: 0.5rem;
+  scroll-margin-top: 0.75rem;
+}
+.help-center-prose-h3 {
+  font-size: 0.95rem;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.35rem;
+  scroll-margin-top: 0.75rem;
+}
+.help-center-prose-p {
+  margin-bottom: 0.65rem;
+}
+.help-center-prose-ul,
+.help-center-prose-ol {
+  margin: 0.5rem 0 0.75rem 1.1rem;
+}
+.help-center-prose-li {
+  margin-bottom: 0.25rem;
+}
+.help-center-prose-table {
+  border-collapse: collapse;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .workspace-snap {
+    animation: none;
+  }
+  * {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}
+
+@keyframes toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-slide-in {
+  animation: toast-slide-in 0.35s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}

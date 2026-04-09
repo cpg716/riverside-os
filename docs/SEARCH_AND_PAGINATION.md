@@ -1,0 +1,128 @@
+# Customer & inventory search / pagination
+
+Canonical reference for **large-directory behavior**: how ROS queries customers and variant-level inventory, and where the UI pages results.
+
+---
+
+## Meilisearch (optional lexical search)
+
+When **`RIVERSIDE_MEILISEARCH_URL`** is set (and **`RIVERSIDE_MEILISEARCH_API_KEY`** when the instance requires auth), the server can resolve **text** queries via **Meilisearch** and then **hydrate** rows in PostgreSQL so filters, money fields, and JSON shapes stay authoritative in SQL.
+
+- **Fallback:** If Meilisearch is unset, errors, or returns no hits, handlers fall back to the legacy **ILIKE** (or equivalent) paths — no user-visible failure.
+- **Indexes:** `ros_variants`, `ros_store_products`, `ros_customers`, `ros_wedding_parties`, `ros_orders`, and in-app help **`ros_help`** (markdown chunks from `client/src/assets/docs/*`; queried via staff-authenticated **`GET /api/help/search`**) — see `server/src/logic/meilisearch_client.rs`, `server/src/logic/help_corpus.rs`, `docs/MANUAL_CREATION.md`.
+- **Reindex:** After enabling or restoring Meilisearch, use **Back Office → Settings → Integrations → Meilisearch** (**Rebuild search index**; requires **`settings.admin`**), or **`POST /api/settings/meilisearch/reindex`**, or **`./scripts/ros-meilisearch-reindex-local.sh`** (defaults to staff code/PIN **`1234`**). Incremental updates run on product/customer/wedding/order write paths and after large imports where wired.
+- **Local dev:** `docker compose` includes a **`meilisearch`** service (port **7700**). From the host-run API use **`http://127.0.0.1:7700`**; from a containerized API use **`http://meilisearch:7700`**.
+
+**Customer browse:** When **`q`** is set together with **`wedding_party_q`**, Meilisearch is **not** used for the name leg (existing SQL wedding-party filter remains).
+
+---
+
+## Inventory — control board (`list_control_board`)
+
+**Endpoints** (same handler, same JSON shape):
+
+- `GET /api/inventory/control-board`
+- `GET /api/products/control-board`
+
+**Semantics:** Filters (`search`, `category_id`, `vendor_id`, `product_id`, `brand`, OOS/low, clothing-only, unlabeled, `min_line_value`, etc.) are applied **in SQL** (`WHERE` / `JOIN`), then **`LIMIT` / `OFFSET`**.
+
+- **Browse / no text `search`:** rows are ordered **`ORDER BY p.name ASC, pv.sku ASC`** (stable grid behavior).
+- **Text `search` non-empty:** rows are ordered by **parent-product popularity** first, then name/SKU:
+  - **`units_sold_trailing` DESC** — gross units sold in the trailing window (**45 days** of `orders.booked_at`), summed **`GROUP BY order_items.product_id`** (all variants of the product share one score). **Cancelled** orders (`status = cancelled`) are excluded. Constant: `CONTROL_BOARD_SEARCH_SALES_WINDOW_DAYS` in `server/src/api/products.rs`.
+  - Tie-break: **`p.name ASC, pv.sku ASC`**.
+- **Meilisearch:** when enabled and **`search`** is set, the server resolves matching **variant ids** in Meilisearch (with safe filter facets), then restricts SQL to **`pv.id = ANY(...)`** and applies the **same sort** as the SQL-only path (popularity when searching, so typo-tolerant matches still surface best-moving **styles** higher). The response JSON does not expose `units_sold_trailing` (`#[serde(skip_serializing)]`).
+
+The **`oos_low_only`** / low-stock **filter** here is independent of **notification** opt-in: admin morning low-stock alerts use **`products.track_low_stock`** and **`product_variants.track_low_stock`** (product hub) plus **`reorder_point`** — see **`docs/PLAN_NOTIFICATION_CENTER.md`**.  
+Older builds applied a fixed row cap **before** substring filtering, which hid most SKUs in very large catalogs from Back Office search and POS (**Register** cart) fuzzy search; that pattern is removed.
+
+**Indexes (migrations 81–82):** `idx_order_items_variant_id`, `idx_order_items_product_id` support efficient aggregates for popularity ranking.
+
+**Query parameters** (see `InventoryBoardQuery` in `server/src/api/products.rs`):
+
+| Param | Notes |
+|-------|--------|
+| `search` | **ILIKE** substring match when Meilisearch is off or on error; **Meilisearch** fuzzy/typo-tolerant match on the same fields when configured (see § Meilisearch above) |
+| `product_id` | Restrict to variants of a single **product** (used by POS **cart line** variant swap: load all SKUs for the line’s template) |
+| `limit` | Default **25_000** when `search` empty; **5_000** when `search` set; hard cap **50_000** |
+| `offset` | Pagination into the ordered variant list |
+| … | Same filter flags as the Inventory UI (`oos_low_only`, `clothing_only`, `category_id`, `vendor_id`, `brand`, …) |
+
+**Clients (non-exhaustive):**
+
+| Surface | Usage |
+|---------|--------|
+| **Inventory → list** | `InventoryControlBoard.tsx` — explicit `limit`/`offset=0` on refresh; **Load more SKUs** appends next page (stats stay from first response) |
+| **Register `Cart`** | `GET /inventory/scan/{code}` (exact) + `GET /products/control-board?search=&limit=200` for fuzzy; results **grouped by product** in the dropdown so multiple **distinct** parents appear; **`product_id`** filter when changing variant on an existing line |
+| **Header (⌘K)** | Scan + `control-board?search=` (product section capped in UI) |
+| **Procurement Hub** | `control-board` with `search` / paging — not `GET /api/products` (that route lists templates only, `LIMIT 200`, no SKU search) |
+| **Global search → product drawer** | `GET /inventory/scan/{sku}` |
+
+**Other inventory APIs** (unchanged by this doc): `GET /inventory/scan-resolve`, physical inventory sessions, `POST /batch-scan`, **`services/inventory.rs` `resolve_sku`** for POS (separate limits for ambiguous *name* matches).
+
+---
+
+## Customers — browse vs search
+
+### `GET /api/customers/browse`
+
+Segmented list with wedding/balance/VIP filters. **Filters are in SQL**; then **`LIMIT` / `OFFSET`**.  
+When **`q`** is set and **`wedding_party_q`** is **not**, optional **Meilisearch** resolves customer ids first (same SQL hydration + filters); with **`wedding_party_q`**, the **`q`** leg stays **ILIKE** in SQL.
+
+| Param | Notes |
+|-------|--------|
+| `q`, `vip_only`, `balance_due_only`, `wedding_soon_only`, `wedding_party_q`, `wedding_within_days` | See `CustomerBrowseQuery` in `server/src/api/customers.rs` |
+| `limit` | Default **300**, max **1000** |
+| `offset` | Default **0**, max **500_000** |
+
+**Clients:** `CustomersWorkspace.tsx` (**Load more customers**), `GlobalSearchDrawers.tsx` (wedding party customer list with paging).
+
+### `GET /api/customers/search`
+
+Quick directory search (POS, header, appointments, Wedding Manager, Register Lookup). **ILIKE** in SQL when Meilisearch is off; with Meilisearch, text resolution via **`ros_customers`** then **`WHERE c.id = ANY(...)`** and the same **`ORDER BY c.created_at DESC`**, **`LIMIT` / `OFFSET`**.
+
+| Param | Notes |
+|-------|--------|
+| `q` | Required meaningful input; **min 2 characters** (400 if shorter) |
+| `limit` | Default **25**, max **100** |
+| `offset` | Default **0**, max **500_000** |
+
+**Clients (non-exhaustive):** `CustomerSelector.tsx` (POS; **Load more**), `Header.tsx` (**More customers**), `RegisterLookupHub.tsx` (loyalty lookup; multi-match picker + optional **Load more**), `scheduler/AppointmentModal.tsx`, `wedding-manager/.../AppointmentModal.jsx`, `weddingApi.searchCustomers(q, opts?)`, `wedding-manager/lib/api.js` `searchCustomers(q, opts)`.
+
+### `GET /api/customers/{id}/order-history`
+
+Per-customer order list (not a directory search). **`WHERE customer_id = :id`**, excludes cancelled orders, **`ORDER BY booked_at DESC`**, window **`COUNT(*) OVER()`** for **`total_count`**.
+
+| Param | Notes |
+|-------|--------|
+| `from`, `to` | Optional **`YYYY-MM-DD`**; booked-at day bounds (UTC `T00:00:00Z` / `T23:59:59Z` server-side) |
+| `limit` | Default **50**, max **200** |
+| `offset` | Default **0** |
+
+**Clients:** `CustomerRelationshipHubDrawer.tsx` — **Orders** tab (**Apply range**, **Load more**). The tab is shown only when **`orders.view`** is in effective permissions; the API uses the same gate server-side (**[`docs/CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md)**).
+
+---
+
+## Implementation pointers
+
+| Area | Server | Client |
+|------|--------|--------|
+| Control board | `server/src/api/products.rs` — `list_control_board`; optional Meili: `logic/meilisearch_search.rs` | `InventoryControlBoard.tsx`, `Cart.tsx`, `ProcurementHub.tsx`, `Header.tsx` |
+| Store PLP search | `server/src/logic/store_catalog.rs` — `list_store_products`; `server/src/api/store.rs` | `PublicStorefront.tsx` — product list **`search`** + debounce |
+| Customer browse/search | `server/src/api/customers.rs` — `browse_customers`, `search_customers` | `CustomersWorkspace.tsx`, `CustomerSelector.tsx`, `Header.tsx`, appointment modals, `weddingApi.ts`, `api.js` |
+| Wedding party directory | `server/src/logic/wedding_queries.rs`, `server/src/api/weddings.rs` | Embedded Wedding Manager + APIs using party list **`search`** |
+| Orders list (BO) | `server/src/logic/order_list.rs`, `server/src/api/orders.rs` | `OrdersWorkspace.tsx` |
+| RMS charge list | `server/src/api/customers.rs` — RMS charge handler + optional **`q`** | `RmsChargeAdminSection.tsx` |
+| Meilisearch ops | `logic/meilisearch_sync.rs` — `reindex_all_meilisearch`; **`GET`/`POST /api/settings/meilisearch/*`** — `settings.rs` | **Settings → Integrations → Meilisearch**; **`scripts/ros-meilisearch-reindex-local.sh`** |
+| Customer order history | `server/src/logic/customer_order_history.rs`, `customers.rs` — `get_customer_order_history` (**`orders.view`** or POS session) | `CustomerRelationshipHubDrawer.tsx` (**Orders** tab) |
+
+---
+
+## Related
+
+- **`INVENTORY_GUIDE.md`** — Scanning, physical counts, receiving (not the control-board SQL).
+- **`docs/APPOINTMENTS_AND_CALENDAR.md`** — Appointment booking + customer search wiring.
+- **`docs/CATALOG_IMPORT.md`** — Bulk product CSV (`POST /api/products/import`), not control-board search; import completion triggers Meilisearch resync when configured.
+- **`docs/ONLINE_STORE.md`** — Public PLP **`search`** and storefront UX.
+- **`docs/STORE_DEPLOYMENT_GUIDE.md`** — Production env (**`RIVERSIDE_MEILISEARCH_*`**) and optional sidecar.
+- **`docs/INTEGRATIONS_SCOPE.md`** — Meilisearch posture in the integrations matrix.
+- **`DEVELOPER.md`** — Full API table and migration index.

@@ -1,0 +1,526 @@
+---
+name: docs-init
+description: Initialize documentation settings for your project. Analyzes codebase structure, asks user preferences, and creates a configuration file.
+---
+
+# Documentation Initialization Workflow
+
+**Goal:** Set up documentation generation for this project by understanding its structure and gathering user preferences.
+
+**Your Role:** You are a documentation setup assistant. You will analyze the project, ask clarifying questions, and create a configuration that ensures consistent, high-quality documentation.
+
+---
+
+## STEP 1: PROJECT ANALYSIS
+
+Silently analyze the project to understand its structure. Search for:
+
+### 1.1 Detect Framework & Stack
+
+**Frontend:**
+- `package.json` → Look for: vue, react, next, nuxt, angular, svelte
+- `composer.json` → Look for: laravel, symfony (Blade/Inertia)
+- File patterns: `*.vue`, `*.tsx`, `*.jsx`
+
+**Backend:**
+- `composer.json` → laravel, symfony, lumen
+- `package.json` → express, nestjs, fastify, hono
+- `requirements.txt` / `pyproject.toml` → django, fastapi, flask
+- `go.mod` → gin, echo, fiber
+
+**Database:**
+- Look for migrations, models, schemas
+- Identify ORM: Eloquent, Prisma, TypeORM, Sequelize
+
+### 1.2 Identify Project Structure
+
+- Where is frontend code? (`src/`, `resources/js/`, `app/`, `client/`)
+- Where is backend code? (`app/`, `src/`, `server/`, `api/`)
+- Where are routes defined?
+- Where are components?
+- Existing docs location? (`docs/`, `documentation/`, `wiki/`)
+
+### 1.3 Detect Existing Patterns
+
+- Existing README quality and style
+- Any existing documentation
+- Code comment style
+- API documentation (OpenAPI, etc.)
+
+### 1.4 Identify App Type
+
+- SaaS product (auth, dashboard, settings)
+- Marketing site (landing pages, blog)
+- API-only (no frontend)
+- Admin panel
+- E-commerce
+- Other
+
+---
+
+## STEP 2: GREET AND SUMMARIZE
+
+Present your findings to the user:
+
+```
+👋 Welcome to Docs Init!
+
+I've analyzed your project. Here's what I found:
+
+📦 Project Type: [SaaS / Marketing / API / etc.]
+🛠️  Tech Stack:
+   - Frontend: [Vue 3 / React / Next.js / etc.]
+   - Backend: [Laravel / Express / etc.]
+   - Database: [MySQL / PostgreSQL / etc.]
+
+📁 Structure:
+   - Frontend code: [path]
+   - Backend code: [path]
+   - Routes: [path]
+
+📄 Existing docs: [Found at ./docs | None found]
+
+Let me ask a few questions to set up your documentation preferences.
+```
+
+---
+
+## STEP 3: ASK USER PREFERENCES
+
+Ask these questions one at a time, waiting for response before proceeding:
+
+### Q1: Product Name
+```
+What's the name of your product/application?
+(This will be used in documentation headers)
+```
+
+### Q2: Target Audience
+```
+Who is the primary audience for this documentation?
+
+1. End users (customers using your product)
+2. Developers (API consumers, integrators)
+3. Internal team (onboarding, reference)
+4. Mixed (multiple audiences)
+```
+
+### Q3: Documentation Style
+```
+What tone should the documentation use?
+
+1. Friendly & conversational (like Stripe docs)
+2. Professional & formal (like enterprise software)
+3. Technical & precise (like API references)
+4. Simple & minimal (just the essentials)
+```
+
+### Q4: Base URL
+```
+What's the base URL for your application?
+(Used for generating documentation)
+
+Examples:
+- https://app.myproduct.com
+- http://localhost:3000
+- https://staging.myproduct.com
+```
+
+### Q5: Authentication
+```
+Does your app require authentication to access most pages?
+
+1. Yes - most pages need login
+2. No - mostly public pages
+3. Mixed - some public, some protected
+```
+
+### Q5b: Credentials (if auth required)
+**Only ask if Q5 answer was "Yes" or "Mixed"**
+
+```
+Would you like to store credentials for documentation generation?
+(These will be saved in docs/.auth which is automatically gitignored)
+
+1. Yes - I'll provide credentials now
+2. No - I'll pass credentials manually each time
+3. Use environment variables
+```
+
+**If "Yes":**
+```
+Enter the email/username for authentication:
+```
+```
+Enter the password:
+```
+
+**If "Use environment variables":**
+```
+Which environment variables should I use?
+
+Email/username variable (default: DOCS_AUTH_USER):
+Password variable (default: DOCS_AUTH_PASS):
+```
+
+### Q6: Documentation Root Directory
+```
+Where should generated documentation be saved?
+(This sets the docs_root in your config)
+
+1. ./docs (default, recommended)
+2. ./documentation
+3. Custom path: [let user specify]
+```
+
+### Q7: Screenshots
+```
+Should documentation include page screenshots?
+
+1. Yes - include at top of each doc (recommended)
+2. Yes - include in Overview section
+3. Yes - include at bottom
+4. No - text only (screenshots still saved separately)
+```
+
+### Q8: Additional Context (Optional)
+```
+Anything else I should know about your product?
+(e.g., special terminology, key features to highlight, pages to skip)
+
+Type your notes or press Enter to skip.
+```
+
+---
+
+## STEP 4: GENERATE PROJECT CONTEXT
+
+Based on analysis and answers, create a comprehensive project context file:
+
+Create file: `docs/aidocs-config.yml`
+
+```yaml
+# AI Docs Configuration
+# Generated by /docs:init on {date}
+# Edit this file to customize documentation generation
+
+# Documentation root directory (relative to project root)
+# All generated docs will be saved here
+docs_root: docs
+
+# Project Information
+project:
+  name: "{product_name}"
+  type: "{saas|marketing|api|admin|ecommerce}"
+  description: "{brief description from user or inferred}"
+
+# Target Audience
+audience:
+  primary: "{end-users|developers|internal|mixed}"
+
+# Documentation Style
+style:
+  tone: "{friendly|professional|technical|minimal}"
+  # Examples of each:
+  # friendly: "Click the big blue button to get started!"
+  # professional: "Select the Submit button to proceed."
+  # technical: "Invoke the submit handler via onClick event."
+  # minimal: "Click Submit."
+
+# Tech Stack (auto-detected)
+stack:
+  frontend:
+    framework: "{vue|react|next|nuxt|angular|svelte|blade}"
+    path: "{path to frontend code}"
+  backend:
+    framework: "{laravel|express|nestjs|django|fastapi}"
+    path: "{path to backend code}"
+  database: "{mysql|postgresql|mongodb|sqlite}"
+
+# URLs
+urls:
+  base: "{base_url}"
+  login: "{base_url}/login"  # Adjust if different
+
+# Authentication
+auth:
+  required: {true|false|mixed}
+  # How credentials are provided:
+  # - "file": Read from docs/.auth (gitignored)
+  # - "env": Read from environment variables
+  # - "manual": Pass via --auth flag each time
+  method: "{file|env|manual}"
+  # If method is "env", specify variable names:
+  env_user: "DOCS_AUTH_USER"
+  env_pass: "DOCS_AUTH_PASS"
+
+# Output Settings
+# Note: docs_root above determines the base output directory
+# These settings control subdirectory structure and naming
+output:
+  filename_style: kebab-case  # dashboard-settings.md
+
+# Content Settings
+content:
+  # Sections to include in generated docs
+  sections:
+    - overview        # What the page is for
+    - features        # What users can do
+    - key-actions     # Primary buttons/actions
+    - data-display    # Tables, lists, metrics
+    - related-pages   # Navigation links
+
+  # Screenshot settings
+  screenshots:
+    enabled: true
+    position: "{top|overview|bottom|none}"  # Where to place in markdown
+    format: png
+    directory: images  # Subdirectory within output folder
+
+  # What to exclude from docs
+  exclude:
+    - runtime_data    # Don't include "8 items" counts
+    - internal_ids    # Don't expose UUIDs, database IDs
+    - dev_tools       # Skip developer/debug elements
+
+# Pages to skip during batch generation
+skip_pages:
+  - "/login"
+  - "/logout"
+  - "/register"
+  - "/forgot-password"
+  - "/api/*"          # Skip API routes
+  - "/admin/*"        # Skip admin if documenting user-facing
+
+# Additional Context
+context: |
+  {user_provided_notes}
+
+# Framework-specific patterns (auto-detected)
+patterns:
+  routes_file: "{path to routes}"
+  components_dir: "{path to components}"
+  controllers_dir: "{path to controllers}"
+```
+
+---
+
+## STEP 5: CREATE SUPPORTING FILES
+
+### 5.1 Create docs/.auth (if credentials provided)
+
+**Only create if user chose to store credentials in file.**
+
+Create file: `docs/.auth`
+
+```yaml
+# Documentation Authentication Credentials
+# ⚠️  DO NOT COMMIT THIS FILE - it contains sensitive credentials
+# This file is automatically added to .gitignore
+
+username: "{provided_username}"
+password: "{provided_password}"
+```
+
+**Immediately add to .gitignore:**
+
+Check if `.gitignore` exists:
+- If yes: Append `docs/.auth` if not already present
+- If no: Create `.gitignore` with `docs/.auth`
+
+```
+# Documentation credentials (do not commit)
+docs/.auth
+```
+
+Display security reminder:
+```
+🔒 Credentials saved to docs/.auth (gitignored)
+   Never commit this file to version control!
+```
+
+### 5.2 Create docs/.ignore (optional patterns to skip)
+
+Create file: `docs/.ignore`
+
+```
+# Pages to skip during documentation generation
+# Similar to .gitignore syntax
+
+# Auth pages
+/login
+/logout
+/register
+/forgot-password
+/reset-password
+
+# API endpoints (document separately if needed)
+/api/*
+
+# Admin pages (if documenting user-facing only)
+# /admin/*
+
+# Development/debug pages
+/debug/*
+/test/*
+
+# Health checks
+/health
+/status
+```
+
+### 5.3 Create Documentation Index (docs/index.md)
+
+Create the output directory and generate an index file as the documentation homepage:
+
+**Create directory:** `{output_directory}/` (e.g., `./docs/`)
+
+**Create file:** `{output_directory}/index.md`
+
+```markdown
+# {product_name} Documentation
+
+Welcome to the {product_name} documentation. This guide covers all features and functionality of the application.
+
+## Overview
+
+{Brief description of the product based on project analysis and user input}
+
+## Tech Stack
+
+- **Frontend:** {frontend_framework}
+- **Backend:** {backend_framework}
+- **Database:** {database}
+
+## Pages
+
+| Page | Description | Status |
+|------|-------------|--------|
+| [Dashboard](./dashboard.md) | Main application dashboard | 🔜 Pending |
+| [Settings](./settings.md) | User and application settings | 🔜 Pending |
+
+*Pages will be added as you run `/docs:generate` on each page.*
+
+## Quick Links
+
+- **Getting Started:** Start with the Dashboard to understand the main interface
+- **Configuration:** See Settings for customization options
+
+## Generating Documentation
+
+```bash
+# Recommended workflow: Discover → Plan → Execute
+/docs:discover        # Scan codebase, find all modules
+/docs:plan            # Create documentation plan
+/docs:execute         # Generate all documentation
+
+# Or generate a single page
+/docs:generate {base_url}/dashboard
+
+# Update docs after code changes
+/docs:update --base main
+```
+
+## Documentation Info
+
+- **Generated by:** [aidocs-cli](https://github.com/binarcode/aidocs-cli)
+- **Last initialized:** {date}
+- **Audience:** {audience}
+- **Style:** {tone}
+
+---
+
+*This index is automatically generated by `/docs:init`. Update it as you add more documentation.*
+```
+
+**Also create images directory:** `{output_directory}/images/`
+
+This prepares the folder structure for screenshots.
+
+---
+
+### 5.4 Update README reminder
+
+Display to user:
+```
+💡 Tip: Add these to your README.md:
+
+## Documentation
+
+Generate documentation using Claude Code:
+
+\`\`\`bash
+# Initialize (first time only)
+/docs:init
+
+# Discover → Plan → Execute workflow
+/docs:discover        # Scan codebase, find all modules
+/docs:plan            # Create documentation plan
+/docs:execute         # Generate all documentation
+
+# Or generate a single page
+/docs:generate https://yourapp.com/dashboard
+\`\`\`
+```
+
+---
+
+## STEP 6: COMPLETION SUMMARY
+
+```
+✅ Documentation initialized successfully!
+
+📄 Created files:
+   - docs/aidocs-config.yml  (main configuration)
+   - docs/.ignore            (pages to skip)
+   - {output_dir}/index.md   (documentation homepage)
+   - {output_dir}/images/    (screenshots folder)
+   {if credentials saved}
+   - docs/.auth              (credentials - gitignored)
+   {/if}
+
+📋 Your settings:
+   - Product: {name}
+   - Audience: {audience}
+   - Style: {tone}
+   - Docs root: {docs_root}
+   - Auth: {method} {if file: "(credentials stored securely)"}
+
+🚀 Next steps:
+
+1. Review docs/aidocs-config.yml and adjust if needed
+
+2. Discover all modules in your codebase:
+   /docs:discover
+
+3. Create a documentation plan:
+   /docs:plan
+
+4. Generate all documentation:
+   /docs:execute
+
+Or for a quick single page:
+   /docs:generate {base_url}/dashboard
+
+Happy documenting! 📚
+```
+
+---
+
+## CONFIGURATION USAGE
+
+Other commands (`/docs:generate`, `/docs:flow`, `/docs:batch`) will automatically look for `aidocs-config.yml`:
+
+**Search order:**
+1. `docs/aidocs-config.yml` (default location)
+2. `./aidocs-config.yml` (project root)
+
+**Config values used:**
+- `docs_root` → Base directory for all documentation output
+- `project.name` → Used in documentation headers
+- `style.tone` → Applied to writing style
+- `urls.base` → Base URL for page navigation
+- `auth.method` → How to authenticate
+- `skip_pages` → Patterns to exclude in batch mode
+
+**IMPORTANT:** Config is required. If no config is found, workflows will prompt you to run `/docs:init` first.

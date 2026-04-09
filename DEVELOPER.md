@@ -1,0 +1,551 @@
+# Riverside OS — Developer Guide
+
+Riverside OS (ROS) is a **production retail ERM/POS** for a formalwear / wedding shop: **POS**, **inventory**, **weddings / parties**, **customers**, **register sessions**, **gift cards**, **loyalty**, and integrations (QBO mapping, Stripe). The shipping application is a **Tauri 2** desktop shell around a **React + Vite** UI that talks to a **Rust Axum** API backed by **PostgreSQL**.
+
+| Task | Module | Description |
+|------|--------|-------------|
+| **Task 1** | `SchedulerWorkspace.tsx` | Full 7-day scheduling capacity; day/week toggle. |
+| **Task 2** | `customers.rs` | Unified 360-degree customer timeline including appointments. |
+| **Task 3** | `messaging.rs` | Automated Messaging Engine for pickup pings. |
+| **Task 4** | `orders.rs` | Individual item Bag Tags (?mode=bag-tag) and pagination. |
+| **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
+
+Domain language and canonical requirements live in **`Riverside_OS_Master_Specification.md`**.
+Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**.
+
+Product planning (strengths, gaps, prioritization for men’s / wedding retail): **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`**.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+  subgraph desktop [Desktop]
+    Tauri[Tauri 2 shell]
+    React[React 19 + Vite]
+    Tauri --> React
+  end
+  subgraph backend [Backend (Axum)]
+    Axum[Axum 0.8 API]
+    PG[(PostgreSQL 16)]
+    Webhooks[Tokio Async Dispatch]
+    Axum --> PG
+    Axum --> Webhooks
+  end
+  React -->|HTTP JSON /api/*| Axum
+  React -->|Offline Queue (IDB)| React
+  React -->|native commands| Tauri
+  Tauri -->|Raw TCP (ESC/POS)| Epson[Thermal Printer]
+```
+
+- **UI**: `client/` — TypeScript, Tailwind, Lucide icons, `recharts`. Workspace tabs drive major surfaces (Operations home, **POS** [launchpad], Customers, Inventory, Weddings, Insights, Settings). Uses `localforage` for **POS offline checkout queuing** and for the **register draft cart** snapshot **`ros_pos_active_sale`** (`Cart.tsx`: lines, customer, wedding, shipping, primary salesperson, `checkoutOperator`, scoped to `sessionId`). Draft persistence waits until **hydration** from `localforage` completes before writing, so remounting the cart (other POS tabs, exit POS mode) does not clobber the saved sale with empty initial state. **`PosSaleCashierSignInOverlay`** blocks scan/search/pay until **`checkoutOperator`** is set; **`clearCart`** does **not** clear **`checkoutOperator`** (only a **register session** change resets it). **Post-checkout** **`ReceiptSummaryModal`** runs before the “next sale” idle state; **customer strip** can open **`CustomerRelationshipHubDrawer`** from POS. Distinct from **server parked** sales — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. All non-POS workspaces follow the **Zero-Browser-Dialog Architecture** (no browser native popups). **Theme**: semantic colors come from CSS variables on `:root` (`--app-accent`, etc.); `tailwind.config.js` extends `theme.colors.app` so utilities like `bg-app-accent` / `border-app-accent/20` are generated. Some shadow pairings (e.g. `shadow-lg` + `shadow-app-accent/20` on primary actions) rely on small helpers in `client/src/index.css` `@layer utilities` where the JIT does not emit colored shadow tokens alone.
+- **API**: `server/` — `riverside-server` library + `main` binary. Routers nested under `/api/...`. **`Router::with_state` is called once in `server/src/main.rs`** after `build_router()`. Implements async `tokio` + `reqwest` webhook dispatch queues.
+- **Data**: SQL migrations in **`migrations/`** (apply in numeric order through the latest `NN_*.sql`; ledger in `00_ros_migration_ledger.sql`). **Current repo ceiling:** **`113_*.sql`** (see [Migrations reference](#migrations-reference-selected-files-see-migrations-for-full-set); drift checks: **`scripts/ros_migration_build_probes.sql`**, **`./scripts/migration-status-docker.sh`**). **Local dev database** is the **`db` service** in [`docker-compose.yml`](docker-compose.yml); use [`scripts/apply-migrations-docker.sh`](scripts/apply-migrations-docker.sh) or `docker compose exec` as in [Running locally](#running-locally).
+- **Logging / traces**: `tracing` + `tracing-subscriber`; level controlled via **`RUST_LOG`**. Optional **OpenTelemetry OTLP** export and **`tower-http`** **`TraceLayer`** for HTTP request spans — **[`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**.
+- **Timezone**: `chrono-tz`; store timezone IANA string stored in `store_settings.receipt_config.timezone` (default `America/New_York`).
+- **Reference-only trees** (`NexoPOS-master`, `odoo-19.0`, `riverside-wedding-manager`) are **ignored / optional** — they are **not** dependencies of Riverside OS. Clone upstream if you need them for research or UX parity work; see root **`.gitignore`**.
+
+---
+
+## Repository layout
+
+| Path | Purpose |
+|------|--------|
+| `server/src/main.rs` | TCP listener, CORS, **`init_tracing_with_optional_otel`**, **`TraceLayer`**, `with_state`, env vars, OTLP shutdown. |
+| `server/src/observability/` | **`otel.rs`** (optional OTLP), **`server_log_ring.rs`** (bug-report snapshots). |
+| `server/src/api/` | HTTP handlers only — parse JSON, call DB/services, return status + JSON. |
+| `server/src/logic/` | Domain rules: tax, commission, procurement, wedding helpers, messaging. |
+| `server/src/services/` | SKU resolution, inventory, shared service layer. |
+| `server/src/models/` | SQLx-friendly types; PostgreSQL enums with `#[sqlx(rename_all = "snake_case")]`. |
+| `server/src/middleware/mod.rs` | `require_authenticated_staff_headers` / `require_staff_with_permission` — validates `x-riverside-staff-code` + optional PIN; checks effective permissions (see [`docs/STAFF_PERMISSIONS.md`](docs/STAFF_PERMISSIONS.md)). |
+| `server/src/auth/pins.rs` | PIN hashing (Argon2), `authenticate_pos_staff`, `authenticate_admin`, `log_staff_access`. |
+| `server/src/auth/permissions.rs` | Permission catalog (`ALL_PERMISSION_KEYS`), `effective_permissions_for_staff` (Admin = full set; else role defaults + per-user overrides). |
+| `client/src/App.tsx` | Tab shell, global search drawers, wedding deep-links, theme; mounts **`RegisterGateProvider`**, **`RegisterSessionBootstrap`** (under **`BackofficeAuthProvider`**) for register hydration and **Go to POS** from BO gates. |
+| `client/src/components/layout/RegisterSessionBootstrap.tsx` | **`GET /api/sessions/current`** on load and when staff credentials change: uses **`mergedPosStaffHeaders(backofficeHeaders)`** so polls match live **`BackofficeAuthContext`** (avoids **401** when the UI shows you signed in but **`sessionStorage`** was stale). Response includes **`receipt_timezone`** (IANA, from **`store_settings.receipt_config`**) for the POS register clock; receipt print time remains **server `booked_at`** at checkout. Exposes register meta refresh via ref for **`App`**. **`sessionPollAuthHeaders()`** remains for call sites **outside** the provider tree (see **`docs/STAFF_PERMISSIONS.md`**). |
+| `client/src/context/RegisterGateContext.tsx` + `client/src/components/layout/RegisterRequiredModal.tsx` | Shared **“open or attach to a register”** flow when Back Office actions need **`session_id`** / POS token (e.g. refunds); pairs with **`RegisterGateProvider`** in **`App.tsx`**. See **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**, **`docs/ORDERS_RETURNS_EXCHANGES.md`**. |
+| `client/src/components/layout/` | Sidebar (**`cashierName`** + **`isRegisterOpen`** + **`cashierAvatarKey`** from **`App.tsx`**; profile title falls back to **`staffDisplayName`**; portrait via **`staffAvatarUrl`** (**`staffAvatarKey`** / session cashier key; **`staff.avatar_key`**, migration **54**); **double-click** nav icon or collapsed avatar toggles expand/collapse), header, ShellBackdrop, DetailDrawer, global search. |
+| `client/src/components/pos/` | Cart, **`PosSaleCashierSignInOverlay`**, **`ReceiptSummaryModal`**, customer selector, **`RegisterOverlay`** (lanes, admin primary-drawer gate, satellite link), **`CloseRegisterModal`** / **`zReportPrint`** (group Z, by-lane tenders, txn register column), checkout, X-report. |
+| `client/src/components/inventory/` | Catalog workspace, **inventory list** control board (`InventoryControlBoard.tsx`, `InventoryWorkspace.tsx`), Product Hub, `labelPrint.ts`, receiving, bulk bar. |
+| `client/src/components/scheduler/` | **Appointments** tab (store calendar): `SchedulerWorkspace.tsx`, `AppointmentModal.tsx`; uses `client/src/lib/weddingApi.ts`. See **`docs/APPOINTMENTS_AND_CALENDAR.md`**. |
+| `client/src/components/customers/` | Customers workspace: browse table, filters, bulk bar, **relationship hub** drawer (**Relationship** / **Orders** / **Measurements** / **Profile** tabs; tabs and API calls gated by **`customers.*`** + **`orders.view`** — [`docs/CUSTOMER_HUB_AND_RBAC.md`](docs/CUSTOMER_HUB_AND_RBAC.md)), **Add customer** slideout (`DetailDrawer`). |
+| `client/src/components/reports/ReportsWorkspace.tsx` + `client/src/lib/reportsCatalog.ts` | Back Office **Reports**: curated **`/api/insights/*`** (and CRM RMS list) library; **`insights.view`** tab; **Margin pivot** **Admin** only — **`docs/AI_REPORTING_DATA_CATALOG.md`** (Curated Reports v1), staff **`docs/staff/reports-curated-manual.md`**, admin **`docs/staff/reports-curated-admin.md`**, in-app Help **`client/src/assets/docs/reports-manual.md`**. |
+| `client/src/components/layout/InsightsShell.tsx` | Back Office **Insights**: same-origin **Metabase** iframe (`/metabase/`); **`insights.view`**. Commission finalize UI lives in **`CommissionPayoutsPanel`** under **Staff** (not in this shell). Exploratory pivots/dashboards are authored in **Metabase**; **`GET /api/insights/*`** (sales pivot, staff momentum, register/RMS exports, commission ledger APIs, etc.) remains documented in **`docs/AI_REPORTING_DATA_CATALOG.md`**, **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**. See **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**, **`docs/METABASE_REPORTING.md`**. |
+| `client/src/components/weddings/` | Wedding workspace (parties, members, pipeline, appointments). |
+| `client/src/components/operations/` | Operational **Morning Dashboard** (wedding queues, weather, **Today’s floor team** from **`morning-compass.today_floor_staff`**, **My tasks**). |
+| `client/src-tauri/` | Tauri 2 config, Rust entry for desktop packaging, and `hardware.rs` containing async TCP ESC/POS thermal printer bindings. |
+| `migrations/` | Schema and incremental DDL (numbered `NN_*.sql`; current files **00–108** — see [Migrations reference](#migrations-reference-selected-files-see-migrations-for-full-set)). |
+| `counterpoint-bridge/` | Windows Node.js bridge: Counterpoint SQL → `POST /api/sync/counterpoint/*` (customers, inventory, catalog, gift cards, tickets, heartbeat); see [`docs/COUNTERPOINT_SYNC_GUIDE.md`](docs/COUNTERPOINT_SYNC_GUIDE.md). |
+
+### Customers workspace (Back Office)
+
+- **`CustomersWorkspace.tsx`**: The customer **list** lives in a `ui-card` that must be a **flex column** with `min-h-0 flex-1` so the inner `ui-table-shell` (with `overflow-auto`) gets a bounded height and **scrolls** inside `ui-page` (which uses `overflow-hidden` on the column).
+- **Add customer**: Implemented as **`DetailDrawer`** (portal to `#drawer-root`, right-hand slideout) with a sectioned form and a **pinned footer** (Cancel / Create). Not a centered full-width `ui-modal` (avoids clipping and keeps actions visible).
+- **Sidebar subsection `add`**: When the sidebar selects “Add Customer”, `activeSection === "add"` opens the slideout. **`onNavigateSubSection`** is passed from `App.tsx` through `AppMainColumn` into `CustomersWorkspace`; closing the slideout (cancel, backdrop, success) calls `onNavigateSubSection("all")` when appropriate so the sidebar returns to **All Customers** and repeat opens stay reliable.
+- **Lightspeed import confirm**: Uses `ConfirmationModal`; primary button styling depends on **`bg-app-accent`** (see theme note above).
+- **Hub Orders tab:** Paged **`GET /api/customers/{id}/order-history`** (`from` / `to` optional booked-date range, `limit`/`offset`); requires **`orders.view`** (or valid POS session via **`require_staff_perm_or_pos_session`**). **Open** jumps to Back Office **Orders** (all orders) with that order selected (`App.tsx` deep-link state).
+- **Hub RBAC:** **`GET …/hub`**, **`…/profile`**, **`…/weddings`**, **`GET /customers/{id}`**, **`GET …/store-credit`** → **`customers.hub_view`**; **`PATCH /customers/{id}`** → **`customers.hub_edit`**; timeline + notes → **`customers.timeline`**; measurement vault → **`customers.measurements`**. See **[`docs/CUSTOMER_HUB_AND_RBAC.md`](docs/CUSTOMER_HUB_AND_RBAC.md)** and migration **`63_customer_hub_rbac.sql`**.
+- **Retail CRM parity (reference):** Lightspeed-style **full round-trip export/re-import** and **delete/anonymize** patterns are summarized in **[`docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`](docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md)** for remaining gaps. **Shipped:** **`customer_code`**, hub/timeline/order history, **`POST /api/customers/merge`** (preview + transaction, **`customers.merge`**), **`customer_groups`** + **`GET /browse?group_code=`** + group-members APIs (**`customer_groups.manage`**), **store credit** summary/adjust + checkout tender **`store_credit`** (**`store_credit.manage`**), **`group_by=customer`** on the insights sales pivot (**`insights.view`**), and **`POST /api/customers/import/lightspeed`** (response **`issues`** + Back Office **CSV** download for problem rows).
+
+---
+
+## Environment variables
+
+| Variable | Used by | Notes |
+|----------|---------|--------|
+| `DATABASE_URL` | Server | PostgreSQL connection string. For local dev, use the Docker `db` service (see `server/.env.example`). |
+| `STRIPE_SECRET_KEY` | Server | Stripe client; dummy default in dev if unset. |
+| `RUST_LOG` | Server | `tracing` filter (e.g. `riverside_server=info,warn`). |
+| **`OTEL_*`**, **`RIVERSIDE_OTEL_ENABLED`** | Server | Optional **OpenTelemetry OTLP** trace export — **[`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**, **`server/.env.example`**. |
+| `RIVERSIDE_MAX_BODY_BYTES` | Server | Optional. Max HTTP request body size in bytes (min 1 MiB when set). Large **`POST /api/products/import`** JSON payloads may need this raised above the built-in default (see [`docs/CATALOG_IMPORT.md`](docs/CATALOG_IMPORT.md)). |
+| `RIVERSIDE_CORS_ORIGINS` | Server | Optional. Comma-separated browser origins allowed by CORS (e.g. `http://localhost:5173,https://ros.example.com`). When **unset or empty**, the server allows **any** origin (convenient for local dev and Tauri). Set in production when the API is exposed beyond a trusted network. |
+| `RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE` | Server | Optional. Global rolling-minute cap on **`POST /api/payments/intent`** (default **120**). Set **`0`** to disable (dev only). |
+| `VITE_POS_OFFLINE_CARD_SIM` | Client (Vite) | Optional. When **`true`**, register **Credit Card** tender can open **`StripeReaderSimulation`** if **`POST /api/payments/intent`** fails — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
+| `VITE_STOREFRONT_EMBEDS` | Client (Vite) | Optional. When **`true`**, **`StorefrontEmbedHost`** loads **`GET /api/public/storefront-embeds`** once and injects the Podium widget snippet if enabled — use on **public storefront** bundles only, not staff Back Office — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| `RIVERSIDE_VISUAL_CROSSING_API_KEY` | Server | Optional. When set, overrides **`store_settings.weather_config.api_key`** for Visual Crossing Timeline calls. Never log. See **`docs/WEATHER_VISUAL_CROSSING.md`**. |
+| `RIVERSIDE_VISUAL_CROSSING_ENABLED` | Server | Optional. **`1`/`true`/`yes`/`on`** or **`0`/`false`/`no`/`off`** forces live weather on or off regardless of DB `weather_config.enabled`. See **`docs/WEATHER_VISUAL_CROSSING.md`**. |
+| `RIVERSIDE_PODIUM_CLIENT_ID` | Server | Optional. Podium OAuth **client id** (developer app). With secret + refresh token, enables outbound operational SMS via **`POST /v4/messages`** when **`store_settings.podium_sms_config.sms_send_enabled`** and **`location_uid`** are set. Never log. See **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| `RIVERSIDE_PODIUM_CLIENT_SECRET` | Server | Optional. Podium OAuth **client secret**. Never log. |
+| `RIVERSIDE_PODIUM_REFRESH_TOKEN` | Server | Optional. Long-lived **refresh token** from org user authorization. Never log. |
+| `RIVERSIDE_PODIUM_OAUTH_TOKEN_URL` | Server | Optional. Default **`https://api.podium.com/oauth/token`**; override if Podium documents a different token host. |
+| `RIVERSIDE_PODIUM_API_BASE` | Server | Optional. Podium REST origin (no trailing slash); default **`https://api.podium.com`**. |
+| `RIVERSIDE_PODIUM_WEBHOOK_SECRET` | Server | Optional. When set, **`POST /api/webhooks/podium`** requires valid **`podium-signature`** / **`podium-timestamp`**. Never log. |
+| `RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED` | Server | Optional. Dev only: accept unsigned webhooks if secret is unset (**never** in production). |
+| `RIVERSIDE_PODIUM_INBOUND_DISABLED` | Server | Optional. When **`1`/`true`/`yes`/`on`**, verified webhook deliveries **skip** `podium_inbound` CRM ingest (no `podium_message` / inbox notifications); **`podium_webhook_delivery`** ledger still records new events. |
+| `RIVERSIDE_NOTIFICATION_ARCHIVE_HOURS` | Server | Optional. Age (hours) of canonical `app_notification.created_at` before inbox rows are **archived** (default **720** = 30 days). |
+| `RIVERSIDE_NOTIFICATION_PURGE_HOURS` | Server | Optional. Purge **archived** `staff_notification` rows older than this many hours (default **9600** ≈ 400 days). |
+| `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | Server | Optional. Local hour (0–23) after which the **admin morning digest** may run once per store-local day (default **7**). Uses **`ReceiptConfig.timezone`** from `store_settings`. See **`docs/PLAN_NOTIFICATION_CENTER.md`**. |
+| `RIVERSIDE_BACKUP_OVERDUE_HOURS` | Server | Optional. If **no local backup success** is recorded within this many hours (and the store is not in a **local failure** state), **admin** notification **`backup_admin_past_due`** may fire once per store-local day (default **30**; max **720**). See **`docs/PLAN_NOTIFICATION_CENTER.md`**, migration **`60_store_backup_health.sql`**. |
+| `RIVERSIDE_PIN_FAILURE_DIGEST_THRESHOLD` | Server | Optional. Minimum **failed PIN** rows in **`staff_auth_failure_event`** within the rolling past hour before **`pin_failure_digest`** fires for admins (default **5**; max **1000**). Migration **`61_notification_integration_extras.sql`**. |
+| `RIVERSIDE_MEILISEARCH_URL` | Server | Optional. Meilisearch HTTP origin (no trailing path). When set at startup, the API registers a client and uses **hybrid** search (Meilisearch → UUID ids → SQL hydrate + filters) for inventory control-board, customer browse/search, wedding party list, orders list, store PLP **`search`**, RMS charge **`q`**, etc. Unset → legacy **ILIKE** only. See **`docs/SEARCH_AND_PAGINATION.md`**, **`docs/STORE_DEPLOYMENT_GUIDE.md`**. |
+| `RIVERSIDE_MEILISEARCH_API_KEY` | Server | Optional. Master or API key when Meilisearch requires auth. Never log. |
+| `VITE_API_BASE` | Client | API origin (default `http://127.0.0.1:3000`). |
+| `VITE_PODIUM_OAUTH_REDIRECT_URI` | Client (Vite) | Optional. Podium OAuth callback override (must match Podium app); default **`${origin}/callback`**. See **`client/.env.example`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| `VITE_GRAPESJS_STUDIO_LICENSE_KEY` | Client (Vite) | Optional. **GrapesJS Studio SDK** license for **Settings → Online store** visual page editor in production (non-localhost). Local dev may use the SDK’s documented dev key. See **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
+| **`RIVERSIDE_LLAMA_UPSTREAM`** | Server | **Planned** (**ROSIE**): HTTP origin of **llama.cpp** `llama-server` (no trailing path), e.g. `http://127.0.0.1:8080`, for a future **`POST /api/help/rosie/v1/chat/completions`** Axum BFF (help-viewer auth; body forwarded). **Unset** when route is implemented → **503** (no silent fallback). See **`docs/PLAN_LOCAL_LLM_HELP.md`** ([Ship decision](docs/PLAN_LOCAL_LLM_HELP.md#ship-decision-parity-and-desktop-sidecar)). |
+| **`VITE_ROSIE_LLM_DIRECT`** | Client (Vite) | **Planned** (**ROSIE**): When **`1`**/`true` on **Tauri**, prefer **`POST …/v1/chat/completions`** on **loopback** against the embedded sidecar; **PWA** always uses the Axum path. Default Tauri behavior spelled out in the plan doc. |
+| **`VITE_ROSIE_LLM_HOST`** / **`VITE_ROSIE_LLM_PORT`** | Client (Vite) | **Planned** (**ROSIE**): Loopback host/port for direct calls (default port **8080**; align with Tauri **`RIVERSIDE_LLAMA_*`** in **`client/src-tauri/src/llama_server.rs`**). |
+| **`RIVERSIDE_LLAMA_MODEL_PATH`** / **`RIVERSIDE_LLAMA_MMPROJ_PATH`** / **`RIVERSIDE_LLAMA_HOST`** / **`RIVERSIDE_LLAMA_PORT`** | Tauri (desktop) | **Sidecar** env for **`rosie_llama_start`**: **`.gguf`** path (required to start), optional **LLaVA** projector, bind host (default **`127.0.0.1`**), port (default **`8080`**). See **`client/src-tauri/src/llama_server.rs`**, **`docs/PLAN_LOCAL_LLM_HELP.md`**. |
+| `BACKUP_S3_ACCESS_KEY` | Server | S3 access key for cloud backup sync. |
+| `BACKUP_S3_SECRET_KEY` | Server | S3 secret key for cloud backup sync. |
+
+---
+
+## Running locally
+
+### 1. Database (Docker — canonical)
+
+Compose **`db`** is **PostgreSQL**; optional service **`meilisearch`** (image **`getmeili/meilisearch`**, host **`localhost:7700`**) supports fuzzy search when **`RIVERSIDE_MEILISEARCH_URL`** / **`RIVERSIDE_MEILISEARCH_API_KEY`** match **`MEILI_MASTER_KEY`**. Neither service is the Axum API — the Rust server runs on the host via **`cargo run`** (or your own process manager).
+
+Use the Compose service **`db`** as the **only** local Postgres for ROS. It publishes **`localhost:5433`** → container **5432** so a native Postgres on **`localhost:5432`** (Homebrew, Postgres.app) does not steal connections — **`DATABASE_URL` must use port `5433`** (see `server/.env.example`). Migration scripts that use **`docker compose exec`** are unchanged.
+
+**Image:** [`docker-compose.yml`](docker-compose.yml) uses **`pgvector/pgvector:pg16`** so **`62_ai_platform.sql`** can **`CREATE EXTENSION vector`**. A stock **`postgres:16-*`** image without pgvector fails that migration; pull/recreate the **`db`** container after any image change.
+
+```bash
+# From repository root
+docker compose up -d
+
+# Apply all pending migrations in order (recommended)
+./scripts/apply-migrations-docker.sh
+
+# Or apply one file at a time:
+# docker compose exec -T db psql -U postgres -d riverside_os < migrations/01_initial_schema.sql
+# ... repeat in numeric order through the latest `NN_*.sql`
+```
+
+**`server/.env`**: `DATABASE_URL` must match the Docker `db` service (see [`server/.env.example`](server/.env.example)). If it still points at a local Homebrew user (e.g. `postgresql://YOU@localhost/...`), the API will not hit this container.
+
+### 2. API server
+
+```bash
+cd server
+cargo run
+# Listens on http://0.0.0.0:3000
+# Note: Serves static files from `../client/dist` by default.
+```
+
+### 3. Web UI (Development)
+
+```bash
+cd client
+npm install
+npm run dev
+# Vite: http://localhost:5173 — browser calls API via VITE_API_BASE (often http://127.0.0.1:3000)
+# Optional client env template: client/.env.example (incl. Podium OAuth HTTPS redirect for HTTP dev).
+```
+
+### 3b. API + Vite together (repository root)
+
+From the repo root, after `docker compose up -d`, client `npm install`, and once **`npm install`** at root:
+
+```bash
+npm run dev
+```
+
+Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.sh) — prepends **Rust 1.88** `bin` to **`PATH`** when needed) and **`cd client && npm run dev`** in parallel (requires [concurrently](https://www.npmjs.com/package/concurrently) from the root `package.json`). Stop with one Ctrl+C. Ensure Postgres is up first (**`npm run docker:db`**) so the API can connect.
+
+### 3c. Metabase (Insights)
+
+- **UI:** Sidebar **Insights** opens **`InsightsShell`** with a same-origin iframe to **`/metabase/`** (optional override **`VITE_METABASE_PUBLIC_PATH`**). Gated by **`insights.view`**.
+- **Commission payouts** live under **Staff → Commission payouts** (not Insights). Requires **`insights.view`** and **`insights.commission_finalize`**.
+- **Docker:** **`metabase`** and **`metabase-db`** are in root **`docker-compose.yml`** and start with **`docker compose up -d`** alongside **`db`** and **`meilisearch`**. Metabase listens on **host port 3001** (container **3000**). Metabase’s **application** metadata DB is **`metabase-db`** — not `riverside_os`.
+- **Axum proxy:** Routes under **`/metabase/*`** forward to **`RIVERSIDE_METABASE_UPSTREAM`** (see **`server/.env.example`**; **unset or empty** defaults to **`http://127.0.0.1:3001`**). Set to **`0`**, **`off`**, **`false`**, or **`disabled`** to turn the proxy off (503). The Rust proxy does not handle **WebSocket upgrades**; for full Metabase live behavior in production, terminate **`/metabase/`** at nginx/Caddy (or similar) with upgrade headers, as in **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**.
+- **Vite dev:** **`client/vite.config.ts`** proxies **`/metabase`** to the API host so the SPA and iframe share one origin on **:5173**.
+- **Metabase setup:** In Metabase admin, set **Site URL** to the URL browsers use (include **`/metabase`** when using this path). Add **`riverside_os`** as a PostgreSQL database: when Metabase runs in this Compose file, use host **`db`**, port **`5432`**, and the same **`POSTGRES_USER`** / **`POSTGRES_PASSWORD`** as the **`db`** service (internal Docker network — not host port **5433**). If Metabase runs on the host instead, use **`localhost:5433`**.
+
+### 4. Web UI (Production Build / PWA)
+
+```bash
+cd client
+npm run build
+# Then run backend to serve from http://<your-ip>:3000
+```
+
+### 5. Desktop (Tauri)
+
+```bash
+cd client
+npm run tauri:dev
+```
+
+**ROSIE / llama.cpp sidecar:** Tauri bundles optional **`llama-server`** (OpenAI-compatible HTTP API from [llama.cpp](https://github.com/ggml-org/llama.cpp)). Place the triple-suffixed binary under `client/src-tauri/binaries/` per [`client/src-tauri/binaries/README.md`](client/src-tauri/binaries/README.md). Invoke **`rosie_llama_start`** / **`rosie_llama_stop`** / **`rosie_llama_status`** from the shell after setting **`RIVERSIDE_LLAMA_MODEL_PATH`**. Optional **`RIVERSIDE_LLAMA_MMPROJ_PATH`** enables LLaVA for screenshot workflows. **`tauri build`** expects the sidecar for the **host** target triple (add a dummy or real binary before CI bundle).
+
+**Pre-deployment checklist (PWA + register desktop):** see [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md).
+
+---
+
+## Migrations reference (selected files; see `migrations/` for full set)
+
+| # | File | Key additions |
+|---|------|---------------|
+| 01 | `01_initial_schema.sql` | Core schema: orders, order_items, products, product_variants, sessions, staff, customers |
+| 02 | `02_z_report_register_sessions.sql` | Register sessions Z-report columns |
+| 03 | `03_qbo_ledger_mappings.sql` | QBO ledger mapping tables |
+| 04 | `04_category_audit_log.sql` | Category audit log |
+| 05 | `05_product_catalog_handle.sql` | `products.catalog_handle` |
+| 06–07 | Wedding manager tables, full parity | Wedding parties, members, appointments |
+| 08 | `08_customer_profile_marketing.sql` | Customer marketing columns |
+| 09 | `09_global_action_log.sql` | Global action log |
+| 10 | `10_category_matrix_axes.sql` | Matrix axes for category grid |
+| 11 | `11_customer_hub.sql` | Customer hub / timeline columns |
+| 12 | `12_shelf_label_tracking.sql` | `shelf_labeled_at` on variants |
+| 13 | `13_procurement_engine.sql` | `purchase_orders`, `purchase_order_lines`, `receiving_events`, `inventory_transactions` |
+| 14 | `14_commission_payout.sql` | `commission_payout_finalized_at`, `calculated_commission` |
+| 15 | `15_register_session_lifecycle.sql` | `lifecycle_status`, `is_open`, session reconciliation columns |
+| 16 | `16_order_attribution_audit.sql` | `order_attribution_audit` table |
+| 17 | `17_staff_authority.sql` | Staff roles, PIN hash, `category_commission_overrides` |
+| 18 | `18_qbo_financial_bridge.sql` | QBO staging, sync logs, mappings |
+| 19 | `19_checkout_ledger_signals.sql` | `sub_type`, `applied_deposit_amount` on payment metadata |
+| 20 | `20_compat_schema_backfill.sql` | Schema compatibility backfill |
+| 21 | `21_orders_audit_and_refund_queue.sql` | `order_activity_log`, `order_refund_queue` |
+| 22 | `22_product_variant_barcode.sql` | `product_variants.barcode` |
+| 23 | `23_gift_cards_and_loyalty.sql` | `gift_cards`, loyalty program tables and loyalty_points column |
+| **24** | **`24_performance_and_integrity.sql`** | **9 perf indexes, `session_ordinal BIGSERIAL`, `reserved_stock INTEGER`, stock floor constraint, refund-queue partial unique index** |
+| 25 | `25_backup_settings.sql` | `store_settings.backup_settings` JSONB (schedule, retention, S3-compatible cloud fields) |
+| 26 | `26_physical_inventory_and_scanning.sql` | **Part A**: `product_variants.vendor_upc`, `vendors.use_vendor_upc`, indexes. **Part B**: `physical_inventory_sessions`, snapshots, counts, audit |
+| 27 | `27_golden_rule_accounting.sql` | `weather_snapshot` JSONB on `register_sessions` and `orders`; `closing_comments` on `register_sessions`; index on `register_sessions.closed_at` |
+| 28 | `28_customer_profile_and_code.sql` | `customers.customer_code` (unique, NOT NULL, sequence-backed allocation), `company_name`, `date_of_birth`, `anniversary_date`, `custom_field_1..4`; backfill for existing rows |
+| 29 | `29_counterpoint_sync.sql` | `product_variants.counterpoint_item_key` (nullable unique), `counterpoint_sync_runs` bookkeeping for the CP bridge |
+| 30 | `30_fulfillment_wedding_order.sql` | `fulfillment_type` adds `wedding_order`; legacy `custom` → `special_order`; wedding-linked lines → `wedding_order` |
+| 31 | `31_customers_is_active.sql` | `customers.is_active BOOLEAN NOT NULL DEFAULT TRUE` |
+| 32 | `32_customers_phone_width.sql` | Widen `customers.phone` for E.164-style values |
+| **33** | **`33_wedding_appointments_walk_in.sql`** | **`wedding_appointments`**: nullable `wedding_party_id` / `wedding_member_id`; optional **`customer_id`** → `customers` for general store appointments |
+| **34** | **`34_staff_contacts_and_permissions.sql`** | **`staff.phone`**, **`staff.email`**; **`staff_role_permission`**, **`staff_permission_override`**; seeded role defaults (admin = all permissions; other roles denied until granted) |
+| **35** | **`35_vendors_vendor_code.sql`** | **`vendors.vendor_code`** — optional external / POS supplier code (e.g. Lightspeed `supplier_code` on catalog import) |
+| **36** | **`36_orders_rbac_permissions.sql`** | Seeds **`staff_role_permission`** for **`orders.view`**, **`orders.modify`**, **`orders.cancel`**, **`orders.refund_process`** (per role) |
+| **37** | **`37_order_returns_and_exchange.sql`** | **`order_return_lines`** (append-only returns); **`orders.exchange_group_id`** for linked exchange orders |
+| **38** | **`38_register_pos_token_and_checkout_idempotency.sql`** | **`register_sessions.pos_api_token`** (POS checkout API secret); **`orders.checkout_client_id`** + partial unique index for idempotent checkout replays |
+| **39** | **`39_extended_rbac_catalog.sql`** | Seeds **`staff_role_permission`** for **`catalog.*`**, **`procurement.*`**, **`settings.admin`**, **`gift_cards.manage`**, **`loyalty.program_settings`**, **`weddings.*`**, **`register.reports`** (per role; see **`docs/STAFF_PERMISSIONS.md`**) |
+| **40** | **`40_staff_role_pricing_limits.sql`** | **`staff_role_pricing_limits`** |
+| **41** | **`41_discount_events.sql`** | **`discount_events`**, **`discount_event_variants`** |
+| **42** | **`42_roadmap_features.sql`** | **`alteration_orders`**, customer groups, **`product_bundle_components`**, store credit |
+| **43** | **`43_measurement_retail_and_rbac.sql`** | **`customer_measurements`** retail columns, **`products.is_bundle`**, RBAC seeds |
+| **44** | **`44_discount_usage_wedding_views_alteration_audit.sql`** | **`discount_event_usage`**, **`wedding_insight_saved_views`**, **`alteration_activity`** |
+| **45** | **`45_remove_staff_mfa.sql`** | Drop **`staff_mfa_sessions`**, staff **`mfa_*`** columns |
+| **46** | **`46_weather_config.sql`** | **`store_settings.weather_config`** JSONB — Visual Crossing integration (location, units, timezone, API key) |
+| **47** | **`47_weather_snapshot_finalize_ledger.sql`** | **`weather_snapshot_finalize_ledger`** — nightly EOD refresh of stored weather snapshots |
+| **48** | **`48_weather_vc_daily_usage.sql`** | **`weather_vc_daily_usage`** — daily Visual Crossing Timeline pull counter (UTC); see **`docs/WEATHER_VISUAL_CROSSING.md`** |
+| **49** | **`49_orders_void_sale_permission.sql`** | Seeds **`orders.void_sale`** — cancel orders with **no** payment allocations without **`orders.cancel`** |
+| **50** | **`50_suit_component_swap_register_open_drawer.sql`** | **`suit_component_swap_events`** audit table; seeds **`orders.suit_component_swap`**, **`register.open_drawer`** |
+| **51** | **`51_app_notifications.sql`** | **`app_notification`**, **`staff_notification`**, **`staff_notification_action`**, dedupe + retention; seeds **`notifications.view`**, **`notifications.broadcast`** — see **`docs/PLAN_NOTIFICATION_CENTER.md`** |
+| **52** | **`52_track_low_stock_morning_digest.sql`** | **`products.track_low_stock`**, **`product_variants.track_low_stock`** (default false); **`morning_digest_ledger`**; admin morning digest + catalog opt-in — **`docs/PLAN_NOTIFICATION_CENTER.md`** |
+| **53** | **`53_default_admin_chris_g_pin.sql`** | Dev/bootstrap seed: default admin display name **Chris G**, **`cashier_code` 1234**, Argon2 **`pin_hash`** for PIN **1234** (aligns with Playwright / local keypad defaults — not a feature schema change). |
+| **54** | **`54_staff_avatar_key.sql`** | **`staff.avatar_key`** — bundled profile portrait slug (`client/public/staff-avatars/{key}.svg`); validated server-side; **`PATCH /api/staff/self/avatar`**. |
+| **55** | **`55_register_shift_primary.sql`** | **`register_sessions.shift_primary_staff_id`** (nullable); **`register.shift_handoff`** in **`staff_role_permission`** — see **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
+| **56** | **`56_staff_tasks.sql`** | **`task_*` tables** + enums; seeds **`tasks.manage`**, **`tasks.view_team`**, **`tasks.complete`**; hourly reminders use **`task_due_soon_bundle`** (bundled inbox row per assignee + day) — **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`**. |
+| **57** | **`57_staff_schedule.sql`** | **`staff_weekly_availability`**, **`staff_day_exception`**, enum **`staff_schedule_exception_kind`**, function **`staff_effective_working_day(uuid, date)`** — **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**. |
+| **58** | **`58_staff_schedule_comments.sql`** | **`COMMENT ON`** schedule function/tables (catalog docs only) — **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**. |
+| **59** | **`59_store_staff_sop_markdown.sql`** | **`store_settings.staff_sop_markdown`** — per-store staff playbook; Settings API + **`GET /api/staff/store-sop`**. |
+| **60** | **`60_store_backup_health.sql`** | **`store_backup_health`** singleton — last local/cloud backup success/failure for **admin** notifications (**`backup_admin_*`**) — **`docs/PLAN_NOTIFICATION_CENTER.md`**. |
+| **61** | **`61_notification_integration_extras.sql`** | **`integration_alert_state`** (QBO token refresh, weather finalize) + **`staff_auth_failure_event`** (PIN mismatch audit) — hourly admin/security generators — **`docs/PLAN_NOTIFICATION_CENTER.md`**. |
+| **62** | **`62_ai_platform.sql`** | **pgvector**, **`ai_doc_chunk`** (incl. **`embedding vector(384)`** for help RAG), **`ai_saved_report`**, **`customer_duplicate_review_queue`**, RBAC **`ai_assist`**, **`ai_reports`**, **`customers_duplicate_review`** — **`ROS_AI_INTEGRATION_PLAN.md`**, **`docs/ROS_AI_HELP_CORPUS.md`**. Vectors are filled at **`POST /api/ai/admin/reindex-docs`** by **`server/src/logic/ai_embed.rs`** unless **`AI_EMBEDDINGS_ENABLED`** is off. |
+| **63** | **`63_customer_hub_rbac.sql`** | Seeds **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`** per role — **`docs/CUSTOMER_HUB_AND_RBAC.md`**, **`docs/STAFF_PERMISSIONS.md`**. |
+| **64** | **`64_cashier_customer_duplicate_merge_rbac.sql`** | **`salesperson`** / **`sales_support`**: **`customers_duplicate_review`**, **`customers.merge`** — duplicate queue + merge for floor/cashier roles. |
+| **65** | **`65_ai_doc_trgm.sql`** | **`pg_trgm`** extension + GIN index on **`ai_doc_chunk.content`** — lexical leg of ROS-AI help retrieval (FTS + trigram + dense **`embedding`** when populated) — **`docs/API_AI.md`**, **`docs/ROS_AI_HELP_CORPUS.md`**. |
+| **66** | **`66_register_session_lanes.sql`** | **`register_sessions.register_lane`** (1–99), unique open lane constraint; seeds **`register.session_attach`** — multi-terminal open sessions. |
+| **67** | **`67_register_till_close_group.sql`** | **`register_sessions.till_close_group_id`** — combined Z-close, satellite open rules — **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**. |
+| **68** | **`68_pos_parked_and_rms_charge_audit.sql`** | **`pos_parked_sale`**, **`pos_parked_sale_audit`**, **`pos_rms_charge_record`** — server-backed register parked cart + audit; RMS/RMS90 checkout ledger; Sales Support **`rms_r2s_charge`** notifications — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
+| **69** | **`69_rms_charge_payment_line.sql`** | **`products.pos_line_kind`** (**`rms_charge_payment`**), internal **RMS CHARGE PAYMENT** product/SKU, **`pos_rms_charge_record.record_kind`** (**`charge`** \| **`payment`**), nullable **`task_instance.assignment_id`**, **`customers.rms_charge`**, ledger seed **`RMS_R2S_PAYMENT_CLEARING`** — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**, **`docs/STAFF_PERMISSIONS.md`**. |
+| **70** | **`70_podium_sms_config.sql`** | **`store_settings.podium_sms_config`** JSONB — Podium operational SMS toggles, **`location_uid`**, SMS templates, storefront widget snippet; secrets only in env — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| **71** | **`71_podium_webhook_transactional_sms.sql`** | **`customers.transactional_sms_opt_in`** (operational SMS vs marketing; pickup/alteration SMS allowed when this **or** **`marketing_sms_opt_in`** is true); **`podium_webhook_delivery`** idempotency for **`POST /api/webhooks/podium`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| **72** | **`72_podium_email_transactional_loyalty.sql`** | **`customers.transactional_email_opt_in`**, **`podium_conversation_url`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| **73** | **`73_online_store_module.sql`** | **`orders.sale_channel`**, **`store_pages`**, **`store_coupons`**, **`store_tax_state_rate`**, **`online_store.manage`** — **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
+| **74** | **`74_shippo_shipping_foundation.sql`** | **`orders.fulfillment_method`**, **`ship_to`**, shipping + tracking columns, **`store_settings.shippo_config`**, **`store_shipping_rate_quote`** — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**. |
+| **75** | **`75_unified_shipments_hub.sql`** | **`shipment`**, **`shipment_event`**, **`shipments.view`** / **`shipments.manage`**, backfill — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**. |
+| **76** | **`76_store_guest_cart_and_media_assets.sql`** | **`store_guest_cart`**, **`store_guest_cart_line`**, **`store_media_asset`** — server-backed guest cart + Studio image uploads — **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
+| **77** | **`77_customer_online_account.sql`** | **`customers.customer_created_source`**, **`customer_online_credential`** — public storefront customer JWT (**`/api/store/account/*`**) + same-row CRM — **`docs/ONLINE_STORE.md`**. |
+| **78** | **`78_retire_ros_ai_tables.sql`** | Drops **`ai_saved_report`**, **`ai_doc_chunk`**, **`vector`** extension; removes **`ai_assist`** / **`ai_reports`** from **`staff_role_permission`** and **`staff_permission_override`**. Historical **62**/**65** still run on fresh DBs before **78** removes the AI artifacts. |
+| **79** | **`79_help_manual_policy.sql`** | **`help_manual_policy`** table + **`help.manage`** RBAC — Help Center manual visibility/override — **`docs/MANUAL_CREATION.md`**, **`PLAN_HELP_CENTER.md`**. |
+| **80** | **`80_pos_gift_card_load_line.sql`** | Internal **`pos_gift_card_load`** product/SKU for register gift-card loads — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
+| **81** | **`81_order_items_variant_search_rank.sql`** | **`idx_order_items_variant_id`** on **`order_items(variant_id)`** — supports variant-level aggregates (control-board / insights paths). |
+| **82** | **`82_order_items_product_id_search_rank.sql`** | **`idx_order_items_product_id`** on **`order_items(product_id)`** — speeds **parent-product** units aggregate used to rank **`control-board`** text search — **`docs/SEARCH_AND_PAGINATION.md`**. |
+| **83** | **`83_customer_open_deposit.sql`** | **`customer_open_deposit_accounts`**, **`customer_open_deposit_ledger`** — party-split deposits when no beneficiary order; checkout tender **`open_deposit`** — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**, **`docs/WEDDING_GROUP_PAY_AND_RETURNS.md`**. |
+| **84** | **`84_counterpoint_sync_extended.sql`** | **`counterpoint_bridge_heartbeat`** singleton, **`orders.counterpoint_ticket_ref`** (unique), **`orders.is_counterpoint_import`**, **`counterpoint_sync_request`** (admin → bridge queue), **`counterpoint_sync_issue`** (row-level errors), **`counterpoint_category_map`**, **`counterpoint_payment_method_map`** (seeded), **`counterpoint_gift_reason_map`** — **`docs/PLAN_COUNTERPOINT_ROS_SYNC.md`**, **`docs/COUNTERPOINT_SYNC_GUIDE.md`**. |
+| **85** | **`85_counterpoint_provenance.sql`** | Widen **`customers.customer_created_source`** CHECK to accept **`'counterpoint'`**; **`products.data_source`** (`NULL` = ROS-native, `'counterpoint'` = Counterpoint import) — **`docs/COUNTERPOINT_SYNC_GUIDE.md`**. |
+| **86** | **`86_counterpoint_staff_sync.sql`** | **`counterpoint_staff_map`**; staff **`data_source`** / **`counterpoint_*`** columns; **`customers.preferred_salesperson_id`**; **`orders.processed_by_staff_id`** — **`docs/COUNTERPOINT_SYNC_GUIDE.md`**. |
+| **87** | **`87_products_tax_category.sql`** | **`products.tax_category`**. |
+| **88** | **`88_vendors_payment_terms.sql`** | **`vendors.payment_terms`**. |
+| **89** | **`89_counterpoint_vendor_item_loyalty.sql`** | **`vendor_supplier_item`**; idempotent index for loyalty history ingest — **`docs/COUNTERPOINT_SYNC_GUIDE.md`**. |
+| **90** | **`90_reporting_insights.sql`** | **`reporting`** schema + **`orders_core`** (and related) views for Metabase — **`docs/METABASE_REPORTING.md`**. |
+| **91** | **`91_counterpoint_open_docs.sql`** | **`orders.counterpoint_doc_ref`** (partial unique) — open Counterpoint documents — **`docs/COUNTERPOINT_ONE_TIME_IMPORT.md`**. |
+| **92** | **`92_counterpoint_category_masters_prc_tiers.sql`** | **`product_variants.counterpoint_prc_2`** / **`counterpoint_prc_3`**. |
+| **93** | **`93_employee_pricing_per_product_promo_scope.sql`** | **`products.employee_markup_percent`** / **`employee_extra_amount`**; **`discount_events`** **`scope_type`** + category/vendor scope. |
+| **94** | **`94_store_settings_employee_markup_default_15.sql`** | Default **`store_settings.employee_markup_percent`** **15%** (legacy **25%** store nudged). |
+| **95** | **`95_counterpoint_staging_gui.sql`** | **`store_settings.counterpoint_config`**, **`counterpoint_staging_batch`** — staging ingest + Settings hub — **`docs/COUNTERPOINT_SYNC_GUIDE.md`**. |
+| **96** | **`96_reporting_business_day_geo_loyalty.sql`** | **`reporting.effective_store_timezone()`**, **`daily_order_totals`**, enriched **`orders_core`** / **`order_lines`**, loyalty reporting tables — **`docs/METABASE_REPORTING.md`**. |
+| **97** | **`97_staff_profile_permissions_and_employment.sql`** | **`staff_permission`**; per-staff **`max_discount_percent`** + employment dates + **`employee_customer_id`**; backfill from **`staff_role_permission`** / overrides; comments on template vs runtime tables — **`docs/STAFF_PERMISSIONS.md`**. |
+| **98** | **`98_shipment_shippo_rate_ref.sql`** | **`shipment.shippo_rate_object_id`** — persists Shippo Rate `object_id` for label purchase after quotes are consumed — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**, **`docs/PLAN_SHIPPO_SHIPPING.md`**. |
+| **99** | **`99_podium_messaging_reviews.sql`** | **`podium_conversation`**, **`podium_message`**; **`customers.customer_created_source`** **`podium`**; review invite columns on **`orders`**; RBAC **`reviews.view`** / **`reviews.manage`** — Podium CRM + reviews baseline — **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`docs/PLAN_PODIUM_REVIEWS.md`**. |
+| **100** | **`100_store_review_policy.sql`** | **`store_settings.review_policy`** JSONB — org defaults for post-sale review invites (`review_invites_enabled`, `send_review_invite_by_default`) — **`docs/PLAN_PODIUM_REVIEWS.md`**. |
+| **101** | **`101_staff_bug_reports.sql`** | **`staff_bug_report`**, **`bug_report_status`** — in-app bug submissions (screenshot + client diagnostics); triage under Settings — **`docs/PLAN_BUG_REPORTS.md`**. |
+| **102** | **`102_bug_report_server_log_snapshot.sql`** | **`staff_bug_report.server_log_snapshot`** — in-process **`tracing`** ring buffer text captured when a report is submitted — **`docs/PLAN_BUG_REPORTS.md`**, **`server/src/observability/server_log_ring.rs`**. |
+| **103** | **`103_staff_bug_report_triage.sql`** | **`bug_report_status.dismissed`**, **`correlation_id`**, **`resolver_notes`**, **`external_url`**; daily retention purge (**`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`**, scheduler in **`main.rs`**) — **`docs/PLAN_BUG_REPORTS.md`**. |
+| **104** | **`104_podium_message_sender_name.sql`** | **`podium_message.podium_sender_name`** — display name from Podium web/app when staff reply outside ROS (**`podium_inbound.rs`**, hub **Messages** labels) — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**. |
+| **105** | **`105_store_register_eod_snapshot.sql`** | **`store_register_eod_snapshot`** — frozen full-store register day summary JSON at Z-close (`RegisterDaySummary`, booked basis) — register historical single-day reports. |
+| **106** | **`106_reporting_order_recognition.sql`** | **`reporting.order_recognition_at`**; **`orders_core`** / **`order_lines`** recognition columns + **`fulfillment_method`**; **`daily_order_totals_recognized`** — **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**, **`docs/METABASE_REPORTING.md`**. |
+| **107** | **`107_reporting_order_lines_margin.sql`** | **`reporting.order_lines`**: **`unit_cost`**, **`line_extended_cost`**, **`line_gross_margin_pre_tax`** for Metabase (parity with **`/api/insights/margin-pivot`**) — **`docs/METABASE_REPORTING.md`**. |
+| **108** | **`108_nuorder_integration_foundation.sql`** | **`store_settings.nuorder_config`**, **`vendors.nuorder_brand_id`**, **`products.nuorder_product_id`**, **`nuorder.manage`** / **`nuorder.sync`** RBAC — **`docs/NUORDER_INTEGRATION.md`**. |
+
+---
+
+## Build / quality checks
+
+The **API server** uses **`server/rust-toolchain.toml`** (**Rust 1.88+**). If **Homebrew** installs **`cargo`/`rustc` 1.86** and they appear **before** **`~/.cargo/bin`** on **`PATH`**, plain **`cargo`** in **`server/`** may ignore the toolchain file and fail. Prefer **`npm run check:server`** (runs **`scripts/cargo-server.sh`**, same PATH fix as **`dev-server.sh`**), or put **`~/.cargo/bin`** first, or run **`rustup run 1.88 cargo …`** explicitly.
+
+To **avoid that class of issues entirely**, uninstall Homebrew’s compiler and rely on **rustup** only: **`brew uninstall rust`** (and **`brew uninstall rustup`** only if you installed the **`rustup`** formula). Then ensure **`which -a rustc`** lists **`~/.cargo/bin/rustc`** first and remove any **`PATH`** entries pointing at **`/opt/homebrew/opt/rust`** (or Intel **`/usr/local/opt/rust`**) from **`~/.zshrc`** / **`~/.zprofile`**. This does **not** remove toolchains managed by **`rustup`** from **`~/.rustup`**.
+
+```bash
+npm run check:server          # cargo check with Rust 1.88 on PATH (from repo root)
+cd server && rustup run 1.88 cargo test
+cd client && npm run build    # tsc --noEmit + vite build
+```
+
+E2E / visual QA (Playwright):
+
+```bash
+cd client
+npm run test:e2e -- --list
+E2E_BASE_URL="http://localhost:5173" npm run test:e2e
+E2E_BASE_URL="http://localhost:5173" npx playwright test --workers=1
+E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
+```
+
+Optional: set **`E2E_STAFF_CODE`** and **`E2E_STAFF_PIN`** (use the **same four digits** when that staff has `pin_hash`) so every Playwright navigation sends **`x-riverside-staff-code`** / **`x-riverside-staff-pin`** (Back Office gated routes in tests).
+
+**Back Office UI sign-in:** The app shows **Sign in to Back Office** until credentials succeed (`BackofficeSignInGate`). After a successful **`GET /api/staff/effective-permissions`** check, the gate calls **`adoptPermissionsFromServer`** so permissions are applied immediately; a follow-up refresh in **`BackofficeAuthContext`** only clears permissions on **401/403** (not on transient network/5xx errors). Specs that need the shell call **`signInToBackOffice`** from **`client/e2e/helpers/backofficeSignIn.ts`**. Override the keypad default with **`E2E_BO_STAFF_CODE`** (default **`1234`**); the seeded admin from **`53_default_admin_chris_g_pin.sql`** uses code **`1234`** with PIN hash of **`1234`**.
+
+**API RBAC smoke:** **`client/e2e/api-gates.spec.ts`** asserts **401/403** on anonymous calls to gated endpoints when the API is reachable, and probes **`GET /api/staff/effective-permissions`** with the E2E staff code/PIN when configured. Set **`E2E_API_BASE`** (default **`http://127.0.0.1:3000`**) to match the server; tests **skip** if the API does not respond.
+
+**Canonical E2E inventory:** **`docs/E2E_REGRESSION_MATRIX.md`** maps **`client/e2e/*.spec.ts`** to product areas, documents **`api-gates`** route coverage, and lists **known gaps** (workspaces without automation, CI).
+
+**Non-Admin API gate seed:** **`scripts/seed_e2e_non_admin_staff.sql`** inserts salesperson **`5678`** so **`api-gates`** can assert **403** on **`GET /api/insights/margin-pivot`** (Admin-only). Applied automatically in **`playwright-e2e.yml`**; run locally after migrations when testing **`api-gates`**.
+
+**Register session + Back Office navigation:** **`client/src/components/layout/RegisterSessionBootstrap.tsx`** hydrates **`GET /api/sessions/current`**. With an **open till**, **`applyShellForLoggedInRole`** (e.g. admin → Operations) runs **only when the register `session_id` changes** (attach / pick). With **no till**, repeated **`runBootstrap`** calls **do not** re-apply that routing for unchanged staff code, PIN, and role (deduped key), so **`activeTab`** stays put in Reports, Staff, QBO, etc. Transient fetch errors do not reset routing via the bootstrap **`catch`** path. See **`docs/ROS_UI_CONSISTENCY_PLAN.md`** (Phase 5).
+
+---
+
+## HTTP API surface (overview)
+
+Routers are composed in `server/src/api/mod.rs`:
+
+| Prefix | Module | Key endpoints |
+|--------|--------|---------------|
+| `/api/inventory` | `inventory` | **`GET /scan/{sku}`**, **`GET /intelligence/{variant_id}`**, **`GET /control-board`**: staff **or** POS session. **`GET /scan-resolve`**: **`catalog.view`** (or POS session). **`POST /batch-scan`**: **`catalog.edit`** (or POS session). |
+| `/api/inventory/physical`| `physical_inventory` | Session CRUD, counting, review, reconciliation, publish |
+| `/api/orders` | `orders` | **RBAC:** most routes require staff headers + `orders.*` keys (see **`docs/STAFF_PERMISSIONS.md`**). **`POST /checkout`** requires the **same register session** as `session_id` in the JSON body: POS headers above must match that session (see `middleware::require_pos_register_session_for_checkout`). Optional idempotency: **`checkout_client_id`** (unique per order when set; migration **38**). List/detail/audit/receipt support optional **`register_session_id`** when the session has a positive payment allocation to the order. **Receipt delivery:** **`GET …/receipt.html`**, **`GET …/receipt.zpl`**, **`POST …/receipt/send-email`**, **`POST …/receipt/send-sms`** (Podium); optional **`gift`** + **`order_item_ids`** (query or JSON body) — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**. |
+| `/api/orders/checkout` | `orders` | Server validates lines vs catalog + tax (`logic::checkout_validate`). **`total_price`** = cart lines + shipping (±$0.02); **`wedding_disbursements`** are **excluded** from **`total_price`** and settled from **`amount_paid`** separately (`amount_toward_order` = `amount_paid` − sum(disbursements); takeaway must be covered by non-**`deposit_ledger`** / non-**`open_deposit`** tenders — see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**). **Takeaway** lines decrement **`stock_on_hand`** in one aggregated UPDATE per variant (can go **negative** when policy allows oversell); **special_order** / non-takeaway paths skip checkout-time decrement. Variant resolution prefers **`variant_id`** (`logic::order_checkout` / `services::inventory::resolve_variant_by_id`). Disbursements with no beneficiary **open** order credit **`customer_open_deposit_*`**. Tender **`open_deposit`** redeems that balance. Post-sale **receipt** UI: **`ReceiptSummaryModal`** — thermal per **`receipt_thermal_mode`** (ZPL, ESC/POS raster, or browser print), **Email** / **Text** standard or **gift** (line subset) via Podium (**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**); **`OrderCustomerSummary`** includes **`phone`** / **`email`**. |
+| `/api/orders/{id}/pickup` | `orders` | Decrements `reserved_stock` + `stock_on_hand` for special/custom items at delivery; optional body **`register_session_id`** for till without BO headers |
+| `/api/orders/refunds/due` | `orders` | Open **`order_refund_queue`** rows — requires **`orders.refund_process`** |
+| `/api/orders/{id}/refunds/process` | `orders` | Money-out refund — **`orders.refund_process`**, open register session; Stripe/gift-card paths documented in **`docs/ORDERS_RETURNS_EXCHANGES.md`** |
+| `/api/orders/{id}/returns` | `orders` | Line returns + restock rules + queue bump — **`orders.modify`** (or register session path) |
+| `/api/orders/{id}/exchange-link` | `orders` | Set shared **`exchange_group_id`** on two orders — **`orders.modify`** |
+| `/api/insights/sales-pivot` | `insights` | **`insights.view`**. Query: **`group_by`** = `brand` \| `salesperson` \| `category` \| **`customer`** \| `date`; **`basis`** = `sale` \| `pickup`; optional **`from`/`to`** (UTC dates). Returns `{ rows, truncated }`; pivot rows include optional **`customer_id`** when `group_by=customer`. |
+| `/api/insights/margin-pivot` | `insights` | **Admin role only** — same query shape as **`sales-pivot`**; rows add **`cost_of_goods`**, **`gross_margin`**, **`margin_percent`** from **`order_items.unit_cost`** × **`quantity`**. See **`server/src/logic/margin_pivot.rs`**. |
+| `/api/insights/staff-performance` | `insights` | Batch momentum query (O(1)) instead of N+1 loop |
+| `/api/insights/commission-ledger` | `insights` | Admin-gated (`x-riverside-staff-code` + PIN, Admin role required) |
+| `/api/insights/register-sessions` | `insights` | Uses `session_ordinal` column (no correlated subquery) |
+| `/api/insights/rms-charges` | `insights` | **`insights.view`** — Rows from **`pos_rms_charge_record`** (**`record_kind`** **`charge`** or **`payment`**) with order/customer context; optional **`from`/`to`** (UTC dates). See **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
+| `/api/insights/wedding-health` | `insights` | **`insights.view`** — parties with **event_date** in next 30 days, wedding members **without** `order_id`, members linked to a non-cancelled order with **`balance_due` > 0** |
+| `/api/insights/best-sellers` | `insights` | **`insights.view`**. **`from`/`to`**, **`basis`** (booked vs recognition), **`limit`**. Variant-level **units** and pre-tax **line revenue** aggregates. |
+| `/api/insights/dead-stock` | `insights` | **`insights.view`**. Same date window + **`basis`**; optional **`max_units_sold`** (default 0). On-hand / reserved variants with low sales in window + **retail value on hand**. |
+| `/api/sessions` | `sessions` | Register open/close (`session_ordinal` returned); `begin_reconcile` requires cashier auth. **`GET /current`** uses **`require_staff_or_pos_register_session`**: with **valid staff headers** you are authenticated even if **no till is open** — response is **404** `{ "error": "No active session found" }` in that case; **401** means neither staff nor POS session headers were accepted. JSON includes **`shift_primary_staff_id`**, **`register_primary_staff_id`**, **`register_lane`**, **`till_close_group_id`** (migration **67**), and matching **`*_name` / `*_avatar_key`**. **`POST /open`**: lane **1** allocates a new **`till_close_group_id`**; lane **2+** requires **`primary_session_id`** of an open **lane 1** session and **`opening_float` = 0**. **`GET /list-open`** (**`register.session_attach`**) lists open sessions for attach / satellite linking. **Z** reconciliation and **`close_session`** are **group-scoped** from the primary session (lane 1): one blind count closes every open row in the group; **`close_session`** also marks any still-**parked** **`pos_parked_sale`** rows for lanes in that till group as **deleted** (migration **68**). **`POST /{session_id}/shift-primary`** — valid POS token for that session **or** **`register.shift_handoff`**; access log **`register_shift_handoff`** (migration **55**). **Parked sales (merged routes, migration 68):** **`GET/POST /api/sessions/{session_id}/parked-sales`**, **`POST …/parked-sales/{id}/recall`**, **`POST …/parked-sales/{id}/delete`** — same gate as checkout (**`require_pos_register_session_for_checkout`**). **Client:** **`RegisterSessionBootstrap`** (child of **`BackofficeAuthProvider`**) calls **`GET /current`** with **`mergedPosStaffHeaders(backofficeHeaders)`** plus POS tokens from **`sessionStorage`**; **`writePersistedBackofficeSession`** / **`clearPersistedBackofficeSession`** dispatch **`ros-backoffice-session-changed`** to re-poll after sign-in/out. See **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
+| `/api/products` | `products` | Catalog, variants, stock adjust, shelf-label mark, bulk ops, **`POST /import`** (JSON catalog CSV import — large bodies; see [`docs/CATALOG_IMPORT.md`](docs/CATALOG_IMPORT.md)). **`GET /`** lists up to **200** active product templates (no SKU-level search). **Variant search / filters:** **`GET /control-board`** (also under **`/api/inventory/control-board`**) — SQL-side filters, optional **`product_id`**, optional **Meilisearch** for **`search`**, **`limit`/`offset`**; **text `search`** results ordered by **trailing parent-product unit sales** (see doc); see [**`docs/SEARCH_AND_PAGINATION.md`**](docs/SEARCH_AND_PAGINATION.md). **Product hub** **`GET /{id}/hub`** returns template **`track_low_stock`** and per-variant **`track_low_stock`** / **`reorder_point`**. **`PATCH /{id}/model`** accepts **`track_low_stock`**. **`PATCH /variants/{id}/pricing`** accepts **`track_low_stock`** (optional alone or with price fields). **Create product** JSON optional **`track_low_stock`** (variants default false per SKU). |
+| `/api/customers` | `customers` | **Base:** browse/search/create and many routes use **`require_customer_access`** (staff **or** POS session). **Hub-aligned routes** use **`require_staff_perm_or_pos_session`** with **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`**, and **`orders.view`** for **`GET …/order-history`** — **[`docs/CUSTOMER_HUB_AND_RBAC.md`](docs/CUSTOMER_HUB_AND_RBAC.md)**. **`GET …/open-deposit`** — open party-deposit balance + ledger (migration **83**). **`GET /rms-charge/records`** — **`customers.rms_charge`**; date range + optional **`kind`**, **`customer_id`**, **`q`**, **`limit`/`offset`** — R2S **charge** vs **payment** audit list — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. Also: **`GET /search?q=`** (min 2 chars; optional **`limit`** default 25 max 100, **`offset`**) — party fields on row; **`GET /browse`** (filters + optional **`group_code`**, **`limit`** default 300 max 1000, **`offset`**); text **`q`** may use **Meilisearch** when configured (browse: not when **`wedding_party_q`** is set); **`POST /import/lightspeed`**; **`POST /merge`** (**`customers.merge`**); **`GET /groups`**, **`POST`/`DELETE /group-members`** (**`customer_groups.manage`**); **`POST …/store-credit/adjust`** (**`store_credit.manage`**). See [**`docs/SEARCH_AND_PAGINATION.md`**](docs/SEARCH_AND_PAGINATION.md). |
+| `/api/weddings` | `weddings` | Parties, members, **`GET /actions`** (pipeline rows for embedded WM Action Dashboard; each row includes optional **`party_balance_due`** — sum of **`orders.balance_due`** for the party; see **`docs/AI_REPORTING_DATA_CATALOG.md`** §0), **`/appointments`** (shared store + WM calendar; see **`docs/APPOINTMENTS_AND_CALENDAR.md`**), ledger activity. **`GET /morning-compass`** and **`GET /activity-feed`** require **staff headers + `weddings.view`** (no anonymous reads). **`GET /morning-compass`** includes **`today_floor_staff`** (salesperson / sales_support working **today**, store-local; uses **`staff_effective_working_day`** — migration **57**, **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**). See **`docs/REGISTER_DASHBOARD.md`**. |
+| `/api/purchase-orders` | `purchase_orders` | PO CRUD, submit, receive (auto-allocates to `reserved_stock` for open special orders) |
+| `/api/payments/intent` | `payments` | Stripe `PaymentIntent` for terminal — **staff or POS session**; global rate limit **`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`** (default 120; **429** when exceeded). Register UI may fall back to **`StripeReaderSimulation`** in **dev** or when **`VITE_POS_OFFLINE_CARD_SIM=true`** if intent fails — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
+| `/api/pos` | `pos` | **`GET /rms-payment-line-meta`** — **staff or open register session**; returns **`product_id`**, **`variant_id`**, **`sku`**, **`name`** for the internal **RMS CHARGE PAYMENT** line (register search **`PAYMENT`**) — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**, **`server/src/api/pos.rs`**. **`POST /shipping/rates`** — same gate; Shippo quotes for POS (migration **74**) — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**. |
+| `/api/shipments` | `shipments` | **`shipments.view`** list/detail/events; **`shipments.manage`** create manual, PATCH, rates, apply-quote, notes — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`** (migration **75**). |
+| `/api/store` | `store` | **Public** guest storefront: **`GET /products`** (optional **`search`** — Meilisearch + SQL when configured, else **ILIKE**), **`GET /products/{slug}`**, **`GET /pages`**, **`GET /pages/{slug}`** (sanitized HTML), **`POST /cart/coupon`**, **`POST /cart/lines`**, **`POST/GET/PUT/DELETE /cart/session`**, **`GET /media/{id}`**, **`GET /tax/preview`**, **`POST /shipping/rates`**. **Customer accounts (JWT, migration 77):** **`POST /account/register`**, **`POST /account/login`**, **`POST /account/activate`**, **`GET/PATCH /account/me`**, **`POST /account/password`**, **`GET /account/orders`**, **`GET /account/orders/{id}`** — **`Bearer`** + env **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**; rolling limits **`RIVERSIDE_STORE_ACCOUNT_UNAUTH_POST_PER_MINUTE_IP`**, **`RIVERSIDE_STORE_ACCOUNT_AUTH_PER_MINUTE`** (see **`docs/ONLINE_STORE.md`**). No staff auth on public routes. **`/api/admin/store`** (nested in `store.rs`): pages + coupons + assets — **`online_store.manage`** or **`settings.admin`**. **Client:** **`/shop`** → **`PublicStorefront.tsx`** (**TanStack Query**, **`ui-shadcn`**, **`/shop/account/*`**). **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**, **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**. |
+| `/api/categories`, `/api/vendors` | … | Merchandising; **`vendors`** list/create include **`vendor_code`** (migration **35**) |
+| `/api/qbo` | `qbo` | QuickBooks mapping / ledger hooks / token refresh |
+| `/api/settings` | `settings` | Receipt config, **Backups (CRUD/Restore/Download)**, DB stats, Optimize, weather, **`GET`/`PATCH /podium-sms`**, **`GET /podium-sms/readiness`** (Podium SMS + widget UI + ops checklist; **`podium_sms_config`** migration **70**), **`GET`/`PATCH /shippo`** (**`shippo_config`**, migration **74** — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**), **`GET`/`PUT /staff-sop`** (store playbook markdown, max ~128 KiB UTF-8), **`GET /meilisearch/status`**, **`POST /meilisearch/reindex`** (full Meilisearch rebuild from PostgreSQL when **`RIVERSIDE_MEILISEARCH_URL`** is set — **`docs/SEARCH_AND_PAGINATION.md`**) — **`settings.admin`** |
+| `/api/settings/receipt` | `settings` | `GET`/`PATCH` `ReceiptConfig` including `timezone` IANA string |
+| `/api/gift-cards` | `gift_cards` | Gift card inventory, issue, redeem |
+| `/api/loyalty` | `loyalty` | Loyalty points, program settings |
+| `/api/staff` | `staff` | Roster, PINs, commission config, audit log. **`GET /store-sop`** — `staff_sop_markdown` from `store_settings` (any **authenticated** staff headers). **`GET /self/register-metrics`** — authenticated staff only; attributed line counts / gross for **store-local today** (receipt timezone); access log **`register_metrics_view`** — **`docs/REGISTER_DASHBOARD.md`**. **`/schedule/*`** — weekly pattern, day exceptions, mark-absence, validate booking (**`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**, migrations **57–58**). |
+| `/api/notifications` | `notifications` | Inbox (**`notifications.view`**): staff headers **or** open register session (viewer staff = **`COALESCE(shift_primary_staff_id, opened_by)`**). **`GET /`** optional **`include_archived`**, **`kinds`** (comma-separated), **`limit`**. **`GET /unread-count`**, **`POST /{staff_notification_id}/read`**, **`POST /.../complete`**, **`POST /.../archive`** (user dismiss → **`staff_notification_action`** **`archived`**). **`POST /broadcast`** (**`notifications.broadcast`**, admin-seeded). **Checkout-driven (non-hourly):** after successful sale, **`on_account_rms`** / **`on_account_rms90`** splits fan out **`rms_r2s_charge`** (**Submit R2S charge**) to active **`sales_support`** staff (migration **68**). R2S **payment** checkouts (**migration 69**) create ad-hoc **tasks** instead — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. **Hourly job:** archive/purge + **bundled** operational generators (`*_bundle` **`app_notification`** rows with **`notification_bundle`** payloads; **`upsert_app_notification_by_dedupe`** in **`notifications.rs`**) + QBO failed sweep + **`run_task_due_reminders`** (**`task_due_soon_bundle`**, migration **56**) + **`run_backup_admin_notifications`** (migration **60**). **Admin morning digest** (once per store-local day): **`morning_*_bundle`** rows (low stock / weddings / POs / alterations) + **`morning_refund_queue`** — **`role = admin`** only. Client: compact list + expand — **`docs/PLAN_NOTIFICATION_CENTER.md`**, **`docs/REGISTER_DASHBOARD.md`**. |
+| `/api/tasks` | `tasks` | Staff recurring checklists: **`GET /me`** (materialize + list), instance detail / item PATCH / complete; admin templates, assignments, team-open, history — **`tasks.manage`**, **`tasks.view_team`**, **`tasks.complete`** per route. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`** (migration **56**). |
+| `/api/weather` | `weather` | **`GET /history?from&to`**, **`GET /forecast`** — public; Visual Crossing when enabled and a key is present (**`store_settings.weather_config`**, migration **46**, optional env **`RIVERSIDE_VISUAL_CROSSING_*`**), else mock; forecast returns `{ days, current }`. See **`docs/WEATHER_VISUAL_CROSSING.md`**. |
+| `/api/hardware` | `hardware` | **`POST /print`** — server-side TCP dispatch to thermal printer IP/port (browser / PWA path). **`POST /escpos-from-png`** — PNG (base64) → ESC/POS raster for **Receipt Builder** → Epson-class printers — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**. |
+| `/api/sync/counterpoint` | `counterpoint_sync` | M2M ingest (**`x-ros-sync-token`** or **`Bearer`** = env **`COUNTERPOINT_SYNC_TOKEN`**): **`GET /health`**, **`POST /customers`**, **`POST /inventory`**, **`POST /catalog`**, **`POST /gift-cards`**, **`POST /tickets`**, **`POST /heartbeat`**, **`POST /ack-request`**, **`POST /complete-request`** — **`docs/COUNTERPOINT_SYNC_GUIDE.md`** |
+| `/api/settings/counterpoint-sync` | `counterpoint_sync` | Staff-gated (**`settings.admin`**): **`GET /status`**, **`POST /request-run`**, **`PATCH /issues/{id}/resolve`** — **`docs/COUNTERPOINT_SYNC_GUIDE.md`** |
+| `/api/public` | `public_api` | **`GET /storefront-embeds`** — unauthenticated JSON for **public storefront** builds (e.g. Podium widget snippet when enabled in **`podium_sms_config`**); client inject gated by **`VITE_STOREFRONT_EMBEDS`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
+| `/api/webhooks` | `webhooks` | **`POST /podium`** — **no staff auth**; verifies Podium **`podium-timestamp`** / **`podium-signature`** when **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** is set (optional dev unsigned: **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`**). Idempotent ledger migration **71**. When CRM ingest is **not** disabled (**`RIVERSIDE_PODIUM_INBOUND_DISABLED`** unset/false), accepted deliveries spawn **`podium_inbound::ingest_from_webhook`** → **`podium_message`** + **`app_notification`** (**`podium_sms_inbound`** / **`podium_email_inbound`**) — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**. |
+
+**Golden Rule / EOD context (migration 27)**: Checkout persists `weather_snapshot` on `orders`. Close register persists `weather_snapshot` on `register_sessions` (see `sessions` close path). **Metabase** dashboards and **`/api/insights/*`** consumers can join session/order weather context where modeled. **Migrations 47–48** plus background jobs refresh snapshots with finalized daily VC data and enforce a configurable daily Timeline pull cap; details in **`docs/WEATHER_VISUAL_CROSSING.md`**.
+
+**Customers (migration 28)**: Every customer has a **`customer_code`** (unique). New inserts allocate the next code server-side via `customer_code_seq` (formatted `ROS-########` in `logic::customers::next_customer_code`). POS and Back Office must not require the client to invent a code. Lightspeed exports store their retailer code in the same column; `POST /api/customers/import/lightspeed` upserts on that key. The UI treats the code as read-only. **Relationship Hub** and aligned routes use **`require_staff_perm_or_pos_session`** + **`customers.*`** / **`orders.view`** — **[`docs/CUSTOMER_HUB_AND_RBAC.md`](docs/CUSTOMER_HUB_AND_RBAC.md)** (migrations **63**–**64**).
+
+**Counterpoint bridge (migrations 29, 84–85)**: One-way **Counterpoint → ROS**. Set `COUNTERPOINT_SYNC_TOKEN` on the server, run [`counterpoint-bridge/`](counterpoint-bridge/) on the Windows SQL host, point `ROS_BASE_URL` at the shop server (LAN or Tailscale). **Entities:** customers (`cust_no` → `customer_code`, `customer_created_source = 'counterpoint'`), inventory (`stock_on_hand` + `cost_override` by `counterpoint_item_key` or SKU), **catalog** (`IM_ITEM` + `IM_INV_CELL` → `products` / `product_variants` with `data_source = 'counterpoint'`), **gift cards** (`SY_GFT_CERT` → `gift_cards` + events; `REASON_COD` via `counterpoint_gift_reason_map`), **tickets** (`PS_TKT_HIST` → `orders` + items + payments; idempotent on `counterpoint_ticket_ref`; `is_counterpoint_import = true`). **Bridge heartbeat** (`POST .../heartbeat`) reports `idle`/`syncing`; admin status: `GET /api/settings/counterpoint-sync/status`, `POST .../request-run`, `PATCH .../issues/:id/resolve` (**`settings.admin`**). Settings UI: **Integrations → Counterpoint bridge** panel. Full guide: **[`docs/COUNTERPOINT_SYNC_GUIDE.md`](docs/COUNTERPOINT_SYNC_GUIDE.md)**; roadmap: **[`docs/PLAN_COUNTERPOINT_ROS_SYNC.md`](docs/PLAN_COUNTERPOINT_ROS_SYNC.md)**.
+
+---
+
+## Auth model
+
+Back Office routes that need staff identity require HTTP headers:
+
+- `x-riverside-staff-code` — cashier code (required)
+- `x-riverside-staff-pin` — PIN (required when a PIN hash is stored for that staff member)
+
+`middleware::require_staff_with_permission(...)` authenticates via `authenticate_pos_staff`, loads **effective permissions** (**`staff_permission`** rows per non-admin staff — populated from **`staff_role_permission`** templates + legacy **`staff_permission_override`** at migration **97**; **`DbStaffRole::Admin`** has all catalog keys), and returns 403 if the route’s key is missing.  
+POS register routes use `authenticate_pos_staff()` only.  
+**No development bypasses exist in any code path.**
+
+**Staff RBAC (keys, schema, APIs, client wiring, how to add a permission, QA):** see **[`docs/STAFF_PERMISSIONS.md`](docs/STAFF_PERMISSIONS.md)**.
+
+### API authentication matrix (quick reference)
+
+| Pattern | Middleware / helper | Typical routes |
+|--------|------------------------|----------------|
+| **Staff + permission** | `require_staff_with_permission` | Most `/api/orders/*` mutations, QBO writes, insights commission, staff admin, etc. |
+| **Staff only (POS PIN rules)** | `require_authenticated_staff_headers` / `authenticate_pos_staff` | Some staff endpoints without a specific permission key |
+| **Staff *or* open register session** | `require_staff_or_pos_register_session` | **Subset of** **`/api/customers/*`** (browse, search, create, merge, etc. — not hub-aligned reads); **`GET /api/inventory/scan/{sku}`**, **`GET /api/inventory/intelligence/{id}`**, **`GET /api/inventory/control-board`** and **`GET /api/products/control-board`**, **`GET /api/sessions/current`** |
+| **Staff permission *or* open register session** | `require_staff_perm_or_pos_session` | **Hub-aligned** **`/api/customers/{id}/hub`**, **`…/profile`**, **`…/timeline`**, **`…/notes`**, **`…/measurements`**, **`PATCH /customers/{id}`**, **`…/order-history`**, **`…/store-credit`** (summary), **`…/weddings`** for customer; also receiving-style inventory routes — see **`docs/CUSTOMER_HUB_AND_RBAC.md`**, **`docs/STAFF_PERMISSIONS.md`** |
+| **Staff + catalog / procurement permission *or* POS** | `require_staff_perm_or_pos_session` | **`GET /api/inventory/scan-resolve`** (`catalog.view`), **`POST /api/inventory/batch-scan`** (`catalog.edit`) |
+| **Register session secret *or* `register.reports`** | `require_pos_session_secret_or_permission` | Sensitive register routes: reconciliation, X-report, cash adjustments, begin-reconcile, close |
+| **Register session bound to checkout body** | `require_pos_register_session_for_checkout` | **`POST /api/orders/checkout`** — headers must match `payload.session_id`; **`GET/POST /api/sessions/{session_id}/parked-sales`** and parked **recall** / **delete** (migration **68**) |
+| **Token / secret** | Env + headers | **`/api/sync/counterpoint/*`** (`COUNTERPOINT_SYNC_TOKEN`) |
+| **Unauthenticated (intentional)** | — | **`GET /api/weather/history`**, **`GET /api/weather/forecast`**, **`GET /api/public/storefront-embeds`**, **`GET /api/staff/list-for-pos`**, **`POST /api/staff/verify-cashier-code`** (POS bootstrap), **`GET /api/auth/qbo/callback`**; **do not** expand without review |
+
+**Client:** Back Office sends `x-riverside-staff-code` / `x-riverside-staff-pin` via `BackofficeAuthContext`. POS sends **merged** staff + **`mergedPosStaffHeaders(backofficeHeaders)`** (`client/src/lib/posRegisterAuth.ts`) so register token and staff credentials can both be present; the server checks POS session headers first where applicable. **Root shell register hydration** uses **`RegisterSessionBootstrap`** (`client/src/components/layout/RegisterSessionBootstrap.tsx`) under **`BackofficeAuthProvider`**, so **`GET /api/sessions/current`** tracks **live** context credentials (not **`sessionStorage`** alone). **`sessionPollAuthHeaders()`** is still for code paths **outside** the provider (same merge shape: persisted BO session + POS token). Do not call **`GET /current`** with **no** staff and **no** POS headers — expect **401**. Workspaces that call **`/api/sessions/current`** (e.g. **Orders**, **Category** manager, customer hub) should pass **`mergedPosStaffHeaders(backofficeHeaders)`** when under the provider.
+
+---
+
+### Stability audit — Back Office financial & data paths (checklist)
+
+Use these docs when changing behavior; keep transactions, access logs, and idempotency consistent:
+
+- **Orders / refunds / returns / exchanges:** [`docs/ORDERS_RETURNS_EXCHANGES.md`](docs/ORDERS_RETURNS_EXCHANGES.md) — refund queue, `orders.*` RBAC, register session read paths, migrations **36–37**; checkout idempotency column/index in **38**.
+- **Extended RBAC seeds:** [`docs/STAFF_PERMISSIONS.md`](docs/STAFF_PERMISSIONS.md) — migration **39** (`catalog.*`, `procurement.*`, `settings.admin`, etc.).
+- **QBO:** `server/src/api/qbo.rs` — preserve access-log events for writes (`qbo_mapping_save`, staging approve, sync success/fail per project rules).
+- **Catalog import:** [`docs/CATALOG_IMPORT.md`](docs/CATALOG_IMPORT.md) — body limits, Lightspeed column map, migration **35** vendor code.
+- **Physical inventory:** `server/src/api/physical_inventory.rs` + [`INVENTORY_GUIDE.md`](INVENTORY_GUIDE.md) — session lifecycle vs live sales; use staff headers on all mutations from the BO UI.
+- **Staff tasks / register shift:** [`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](docs/STAFF_TASKS_AND_REGISTER_SHIFT.md) — migrations **55–56**, lazy task materialization, **`/api/tasks/*`**, POS shift handoff.
+
+---
+
+## Special / custom order inventory model
+
+```
+Checkout          →  NO stock_on_hand change
+PO received       →  stock_on_hand +qty  AND  reserved_stock += min(qty, open_special_qty)
+Customer pickup   →  stock_on_hand -qty  AND  reserved_stock -qty
+```
+
+`available_stock = stock_on_hand − reserved_stock` is computed in the service layer and returned in all SKU resolution responses.
+
+---
+
+## Frontend concepts
+
+- **Surface mode**: each workspace tagged `POS-Core` (speed, density) or `BackOffice` (clarity, reviewability).
+- **Unified Shell Integration**: Register and Weddings are embedded directly in the core Back Office shell by default. Clicking these tabs renders native ROS workspaces in the `AppMainColumn`.
+- **POS launchpad**: The Back Office **POS** tab shows **Enter POS** / **Return to POS** and copy that **Register** (POS rail) is the selling screen inside **`PosShell`**.
+- **Wedding Shell Restoration**: Legacy iframe bridges have been removed; the Weddings module now always renders the native 'True Dark' Action Board and Pipeline. Rules for member transitions are managed in `weddingPipelineLogic.ts`.
+- **Zero-Browser-Dialog Architecture**: Mandatory. Replaced all `alert`, `confirm`, and `prompt` with `useToast`, `ConfirmationModal`, and `PromptModal` across all non-POS workspaces. See **`UI_STANDARDS.md`** for patterns; full client layout, lazy tabs, modal focus trap, and Wedding Manager embed rules in **`docs/CLIENT_UI_CONVENTIONS.md`** (tab→component map: **`client/UI_WORKSPACE_INVENTORY.md`**). 
+- **POS Architecture**:
+  - **Intelligent Search**: Multi-threaded strategy (SKU scan → **`/api/inventory/scan`** → fuzzy **`/api/products/control-board?search=`** with a sufficient **`limit`** for grouped dropdown rows → **VariantSelectionModal**). Text **`search`** is sorted by **45-day parent-product sales** then name/SKU; with **Meilisearch**, ids come from Meilisearch then PostgreSQL applies the same ordering (**`docs/SEARCH_AND_PAGINATION.md`**). POS customer picker uses **`/customers/search`** + **`/customers/browse`** with **Load more** where applicable.
+  - **Zero-Scroll Layout**: Condensed headers (remaining price in pills) to keep the Emerald Green footer visible at 1080p.
+  - **Wedding Group Pay**: Multi-select mode in the Wedding Drawer aggregates balances and generates the `wedding_disbursements` payload. Register **Pay** total includes party amounts, but **`total_price` in checkout JSON** is **cart + shipping only**; disbursements settle from **`amount_paid`** separately (**`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**).
+  - **Hardware Simulation**: Interactive `StripeReaderSimulation` overlay for card-present tests without physical reader.
+- **Shared primitives**: `ui-card`, **`ui-input`** (uses `--app-input-border` / `--app-input-bg` in `client/src/index.css` for readable fields in light and dark mode), `ui-btn-primary`, `ui-btn-secondary`, `ui-pill`, `density-compact` / `density-standard`. Native ROS feedback components: `ConfirmationModal`, `PromptModal`, `ToastProvider` (`useToast`). **Modal/drawer focus**: `useDialogAccessibility` in `client/src/hooks/useDialogAccessibility.ts` — see **`docs/CLIENT_UI_CONVENTIONS.md`**.
+- **Appointments**: Sidebar **Appointments** workspace is the **store** schedule; optional wedding-member link in `scheduler/AppointmentModal.tsx`. Wedding Manager uses the same `wedding_appointments` API with party-oriented copy.
+- **HTTP client**: `axios` and `socket.io-client` are present in `client/package.json` for legacy paths. For **new** API calls, prefer native `fetch` (see `AGENTS.md`); do not add new axios-based integrations without a deliberate reason.
+
+---
+
+## Engineering rules (summary)
+
+Full strict list: **`.cursorrules`**. Non-negotiables:
+
+1. **Money**: `rust_decimal::Decimal` only on the server — never `f32`/`f64`.
+2. **Axum state**: `with_state()` only in `main.rs`; never inside nested routers.
+3. **Handlers**: thin — no tax tables or employee pricing math inside route handlers.
+4. **Errors**: `thiserror` for API errors; map `sqlx::Error::RowNotFound` to 404 explicitly.
+5. **PG enums**: `#[sqlx(rename_all = "snake_case")]` to match database labels.
+6. **Logging**: `tracing::error!` / `tracing::warn!` — no `eprintln!` anywhere. Optional **OTLP** export: **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`**.
+7. **Transactions**: multi-step writes (checkout, update_order_item, refund) must use `db.begin()` before any mutation.
+
+---
+
+## Agent / IDE helpers
+
+- **Documentation catalog** — [`README.md`](README.md) § **Documentation catalog** (every first-party doc: path, role, audience).
+- **Client UI conventions** — [`docs/CLIENT_UI_CONVENTIONS.md`](docs/CLIENT_UI_CONVENTIONS.md) (primitives, lazy `App.tsx`, a11y hook, Wedding Manager embed); [`client/UI_WORKSPACE_INVENTORY.md`](client/UI_WORKSPACE_INVENTORY.md) (tab map).
+- **`docs/RETIRED_DOCUMENT_SUMMARIES.md`** — Summaries of removed Markdown files (append-only when retiring a doc).
+- **`AGENTS.md`** — Short guide for automated agents (where to edit, invariants, commands).
+- **`docs/STAFF_PERMISSIONS.md`** — Staff RBAC: permission catalog, migration 34, middleware, Staff API, BackofficeAuth / sidebar gating.
+- **`docs/CUSTOMER_HUB_AND_RBAC.md`** — Relationship Hub API ↔ **`customers.*`** / **`orders.view`** (migrations **63**–**64**).
+- **`docs/ORDERS_RETURNS_EXCHANGES.md`** — Refunds, return lines, exchanges, register session read path, migrations 36–37.
+- **`docs/SEARCH_AND_PAGINATION.md`** — Customer browse/search and inventory control-board query semantics, optional **Meilisearch**, limits, UI paging, and admin reindex.
+- **`docs/APPOINTMENTS_AND_CALENDAR.md`** — Store vs Wedding Manager calendars, `weddingApi`, migration 33.
+- **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`** — Recurring staff tasks, register shift primary, **`/api/tasks`**, RBAC **55–56**.
+- **`docs/AI_INTEGRATION_OUTLOOK.md`** — Product-grounded AI use cases, principles (money/RBAC/POS latency), rollout order; references Gemma-class edge models as one option.
+- **`docs/staff/README.md`** + **`docs/staff/CORPUS.manifest.json`** — Staff task corpus for doc-grounded help (**`ROS_AI_INTEGRATION_PLAN.md`** Pillar 1).
+- **`docs/AI_REPORTING_DATA_CATALOG.md`** — Read API inventory for NL reporting (**Pillar 4**); never arbitrary SQL from the model.
+- **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** — How prompts/gateways should route among corpus, reporting catalog, **`docs/STAFF_PERMISSIONS.md`**, and **`GET /api/staff/store-sop`**.
+- **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** — Server parked cart API, Z-close purge, **`pos_rms_charge_record`** (**charge** vs **payment**), **`rms_r2s_charge`** notifications, R2S **payment** line (**`PAYMENT`** search), **`GET /api/customers/rms-charge/records`**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, insights **`rms-charges`**, card simulation env.
+- **`.cursor/cursorinfo.md`** — Cursor-oriented index into this repo.
+- **`.cursorrules`** — Mandatory coding constraints.
+
+---
+
+## Troubleshooting
+
+| Symptom | Check |
+|---------|-------|
+| `UNAUTHORIZED` / `403` on gated routes | Valid staff code + PIN when required; user must have the route’s permission (or `admin` role for full catalog). Apply **34** if RBAC tables are missing; **36** for **`orders.*`**; **39** for **catalog / procurement / settings / gift cards / loyalty program / weddings / register.reports** defaults — see **`docs/STAFF_PERMISSIONS.md`**. Pass **`backofficeHeaders`** from BO (or POS session headers / **`register_session_id`** where documented). |
+| CORS errors | Server enables permissive CORS for dev; tighten for production Tauri origin. |
+| POS stuck on overlay | Ensure `/api/sessions/current` returns **200** when a shift is open (POS token or staff headers). **404** with “No active session” is normal for Back Office when the till is closed — not an auth failure. |
+| Migration errors | Apply `migrations/*.sql` in numeric order (`./scripts/apply-migrations-docker.sh`); **`./scripts/migration-status-docker.sh`** compares ledger vs schema probes defined in **`scripts/ros_migration_build_probes.sql`** (kept in sync through the latest numbered migration). Ensure **33**–**37** as in prior runbooks; **38** for POS token + **checkout idempotency**; **39** for extended **RBAC** seeds; see the [migrations table](#migrations-reference-selected-files-see-migrations-for-full-set) for **40–108** (**55–56** = shift primary + staff tasks — **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**; **59** = staff SOP markdown; **60–61** = backup health + integration/PIN notification tables — **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`**; **62** = AI platform; **63** = customer hub RBAC — **`docs/CUSTOMER_HUB_AND_RBAC.md`**; **66–67** = register lanes + till close group — **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**; **68** = parked sales + **`pos_rms_charge_record`** + **`rms_r2s_charge`** — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **69** = R2S **payment** line + **`customers.rms_charge`** + QBO clearing seed — same doc; **70** = **`podium_sms_config`**; **71** = **`transactional_sms_opt_in`** + **`podium_webhook_delivery`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**; **72** = transactional email + Podium URL on customer; **73** = online store module; **74**–**75** = Shippo + **`shipment`** hub — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**; **76**–**77** = guest cart + media + storefront customer JWT — **`docs/ONLINE_STORE.md`**; **78** = retire AI tables/extension; **79** = Help Center **`help_manual_policy`**; **80** = POS **`pos_gift_card_load`** line; **81**–**82** = **`order_items`** indexes for control-board popularity ranking — **`docs/SEARCH_AND_PAGINATION.md`**; **83** = **`customer_open_deposit_*`** — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **84**–**96** Counterpoint extensions, reporting schema, employee-pricing scopes — **`docs/COUNTERPOINT_SYNC_GUIDE.md`**, **`docs/METABASE_REPORTING.md`**; **97** = **`staff_permission`** + per-staff discount cap / employment — **`docs/STAFF_PERMISSIONS.md`**; **98**–**106** = Shippo rate ref, Podium CRM/reviews, bug reports, sender name, EOD snapshot, **recognition reporting** — **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**; **108** = NuORDER integration — **`docs/NUORDER_INTEGRATION.md`**). |
+| **`429` on `/api/payments/intent`** | Rolling-minute rate limit — raise **`RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE`** or wait; **`0`** disables (dev only). |
+| **`413` on `/api/products/import`** | JSON body larger than the configured limit; raise **`RIVERSIDE_MAX_BODY_BYTES`** or reduce payload. See [`docs/CATALOG_IMPORT.md`](docs/CATALOG_IMPORT.md). |
+| Cannot connect to Postgres / wrong database | Ensure `docker compose up -d`; **`DATABASE_URL` uses `localhost:5433`** (Compose maps **5433→5432**). If the API logs **relation/column does not exist** but **`./scripts/migration-status-docker.sh`** is all **ok**, the server was almost certainly hitting a **different** Postgres (e.g. native **`localhost:5432`**) — fix the URL port or stop the other instance. |
+| Weather / “relation does not exist” while migrations show applied | Often **`search_path`** for the DB role omits **`public`**, so unqualified names fail even though **`public.weather_*`** exists. Weather SQL is qualified with **`public.`**; check startup **`PostgreSQL startup context`** (`db_startup_diag`) for `current_database`, `search_path`, and `to_regclass` of the weather tables. Also confirm **`DATABASE_URL`** matches the instance you migrated. |
+| `session_ordinal` NULL | Migration 24 adds `BIGSERIAL` — existing rows get auto-populated on first write. |
+| `reserved_stock` unexpected | Inspect `inventory_transactions` for `po_receipt` entries and open `order_items` with **`special_order`** fulfillment (legacy DB may still label **`custom`**; behavior matches **`special_order`**). |
+| Backup fails | Ensure `pg_dump` is in the PATH and `DATABASE_URL` uses the internal Docker network or reachable IP. |
+| Physical inventory off | Check `physical_inventory_audit` to see if sales reconciliation deducted items correctly during count. |
+| Decimal JSON | `rust_decimal` serializes as string by default; TypeScript should parse consistently. |
+| ZPL shows UTC time | Check `store_settings.receipt_config.timezone` — must be a valid IANA string (e.g. `America/New_York`). |

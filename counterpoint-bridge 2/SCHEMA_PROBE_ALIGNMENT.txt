@@ -1,0 +1,23 @@
+Alignment notes for the sample probe in repo-root counterpoint-schema-report.txt
+(Bridge 0.5.3 in that file — re-run discover after upgrading the bridge; behavior matches 0.6.x.)
+
+Finding (report)                          →  Shipped .env.example / behavior
+────────────────────────────────────────────────────────────────────────────
+PS_SLS_REP, PO_BUYER not visible          →  CP_SALES_REPS_QUERY= and CP_BUYERS_QUERY= empty; SY_USR only via CP_USERS_QUERY.
+                                            Bridge 0.6.2+: distinct SLS_REP from AR_CUST + PS_TKT_HIST POSTs to /sales-rep-stubs (after staff).
+PS_TKT_HIST_CELL / PS_TKT_HIST_LIN_CELL  →  Either satisfies “ticket matrix cells” in discover 0.6.10+. v8-style builds often have PS_TKT_HIST_LIN_CELL only.
+                                            CP_TICKET_CELLS_QUERY empty is OK. Server ingest (current): ticket/open-doc lines may still resolve matrix SKUs
+                                            when the line has parent ITEM_NO only and unit price matches one matrix variant’s retail.
+PS_TKT_HIST_GFT not visible              →  CP_TICKET_GIFT_QUERY empty
+SY_GFT_CERT missing but SY_GFC present   →  SYNC_GIFT_CARDS=0 unless CP_GIFT_CARDS_QUERY targets SY_GFC (default queries use SY_GFT_CERT).
+SY_GFT_CERT / SY_GFT_CERT_HIST missing   →  SYNC_GIFT_CARDS=0 (default)
+PS_LOY_PTS_HIST missing                  →  SYNC_LOYALTY_HIST=0 (default). If AR_LOY_PT_ADJ_TRX/HIST exists instead, keep OFF unless
+                                          CP_LOYALTY_HIST_QUERY is rewritten for those tables.
+IM_INV LST_COST present                  →  CP_INVENTORY_QUERY / catalog use LST_COST. Default inventory query filters to ticket-active + non-zero QTY (see .env).
+AR_CUST + PS_TKT_HIST / AR_CUST_NOTE       → CP_CUSTOMERS_QUERY + store credit OR EXISTS when enabled (MERCH_CR_BAL template — verify). Loyalty default OFF (0.6.7); PS_LOY_PTS_HIST is NCR CP name if present.
+IM_ITEM / IM_INV / IM_INV_CELL / tickets    →  Default catalog + vendors + vend_item + cells = “active” only (sale since cutover OR non-zero MAIN qty OR non-zero cell qty); not IM_HST_TRX (Bridge 0.6.5).
+LOY_PTS_BAL on AR_CUST                   →  CP_CUSTOMERS_QUERY uses LOY_PTS_BAL AS pts_bal (maps to loyalty_points in bridge)
+TOT_EXTD_PRC and TOT_AMT_DUE absent      →  CP_TICKETS_QUERY uses TOT AS total_price, TOT AS amount_paid (fully-paid assumption)
+PO_VEND_ITEM UNIT_COST present           →  CP_VEND_ITEM_QUERY uses UNIT_COST AS vend_cost
+
+If your live .env was copied from an older template, diff it against .env.example — these lines are the ones the probe called out.
