@@ -8,7 +8,7 @@ End-to-end reference for setting up and operating the one-way data ingest from *
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — full `.env` reference with example SQL
 
-**Optional SQL objects:** Gift and loyalty tables (e.g. **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are **NCR Counterpoint** names from product/schema docs and typical deployments — Riverside did not invent them. Many company databases have **no** gift-cert or loyalty module, so **`discover`** / SSMS must confirm an object exists before you set **`SYNC_GIFT_CARDS=1`** or **`SYNC_LOYALTY_HIST=1**. The loyalty table is spelled **`PS_LOY_…`** (LOY), not “LOT”.
+**Optional SQL objects:** Gift and loyalty tables (Standard: **`SY_GFT_CERT`**, **`PS_LOY_PTS_HIST`**) are **NCR Counterpoint** names from product/schema docs — Riverside did not invent them. However, many v8.2 installations (including yours) use custom naming: **`SY_GFC`** (Gift Cards) and **`AR_LOY_PT_ADJ_HIST`** (Loyalty). Always run **`node index.mjs discover`** to confirm your local schema before enabling these modules.
 
 **Migrations:** 29 (base `counterpoint_item_key` + `counterpoint_sync_runs`), 84 (heartbeat, ticket idempotency, sync requests/issues, mapping tables), 85 (provenance: `customer_created_source = 'counterpoint'`, `products.data_source`), 86 (staff sync: `counterpoint_staff_map`, `staff.data_source` / `counterpoint_user_id` / `counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `orders.processed_by_staff_id`), 89 (`vendor_supplier_item` for `PO_VEND_ITEM`, idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST` imports), 95 (`counterpoint_staging_batch` + `store_settings.counterpoint_config` for optional **staging** ingest controlled in Back Office).
 
@@ -121,8 +121,11 @@ Each data entity has a flag. Enable what you need. **Recommended enable order:**
 | `SYNC_CUSTOMER_NOTES=1` | Customer timeline memos | Disabled | `AR_CUST_NOTE` |
 | `SYNC_INVENTORY=1` | Stock quantities for existing variants | Disabled | `IM_INV` |
 | `SYNC_CATALOG=1` | Products + matrix variants (creates items in ROS) | Disabled | `IM_ITEM`, `IM_INV_CELL`, `IM_PRC`, `IM_BARCOD` |
-| `SYNC_GIFT_CARDS=1` | Gift certificates + lifecycle events | Disabled | `SY_GFT_CERT`, `SY_GFT_CERT_HIST` |
-| `SYNC_TICKETS=1` | Historical sales tickets → orders (with staff attribution) | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
+| `SYNC_GIFT_CARDS=1` | Gift certificates + lifecycle events | Disabled | `SY_GFT_CERT` (Standard) or `SY_GFC` (Custom) |
+| `SYNC_TICKETS=1` | Historical sales tickets → orders | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
+| `SYNC_TICKET_NOTES=1` | Associated ticket notes | Disabled | `PS_TKT_HIST_NOTE` |
+| `SYNC_RECEIVING_HISTORY=1` | Historical cost logs (1/2021+) | Disabled | `PO_RECVR_HIST` |
+| `SYNC_STORE_CREDIT_OPENING=1` | **Enabled** (April 9 Update) | 0 | `SY_STC` (Found) |
 
 ### 3d. Start
 
@@ -424,6 +427,26 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 | **ONLINE** | Token configured, heartbeat fresh, phase = `idle` |
 | **SYNCING** | Token configured, heartbeat fresh, phase = `syncing` (shows current entity) |
 | **OFFLINE** | Token not configured **or** no heartbeat in the last 2 minutes |
++
++---
++
++## 13. Performance & Parallelization (v0.7.3+)
++
++The bridge now utilizes a high-concurrency "Hyper-Speed" engine to maximize throughput, especially during large matrix-catalog or historical-ticket imports.
++
++### Concurrency Tuning
++The bridge maintains a dedicated concurrency pool for each entity. You can tune performance in `.env`:
++
++- **`BATCH_SIZE`** (Default: 200): The number of rows processed in a single SQL operation and sent in one HTTP POST. Larger batches reduce HTTP overhead but increase memory usage per request.
++- **Max Concurrency** (Internal: 5): The bridge allows up to 5 parallel batches to be "in flight" at once. This ensures that your SQL Server and ROS API are kept busy without being overwhelmed.
++
++### Matrix Mapping Duplicate Squelcher
++For stores with heavy matrix use (v8.2 Matrix Mapping Loops), the bridge includes a built-in filter to discard redundant variation rows:
++1. **Parent Tracking:** Ensures each Matrix Parent is only processed once per catalog pass.
++2. **Dummy Filtering:** variations with blank/NULL SKUs or Item Numbers are discarded before transmission to minimize stream clutter.
++
++---
++
 
 ---
 

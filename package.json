@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Root scripts only; app code lives in server/ and client/",
   "scripts": {
+    "bump": "node scripts/bump-version.mjs",
     "generate:help": "cd client && npm run generate:help",
     "generate:help:components": "cd client && npm run generate:help:components",
     "generate:help:components:rescan": "cd client && npm run generate:help:components:rescan",

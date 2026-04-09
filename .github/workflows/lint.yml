@@ -27,6 +27,9 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
+      - name: Run TypeScript Check
+        run: npm run typecheck
+
   server-lint:
     name: Server (Rust) Clippy
     runs-on: ubuntu-latest
@@ -59,6 +62,11 @@ jobs:
         working-directory: client/src-tauri
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev patchelf
 
       - uses: dtolnay/rust-toolchain@master
         with:

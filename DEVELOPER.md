@@ -17,19 +17,30 @@ Product planning (strengths, gaps, prioritization for men’s / wedding retail):
 
 ---
 
-## Versioning
-
-Riverside OS follows [Semantic Versioning](https://semver.org) (SemVer).
+Version bumps should be synchronized across the entire repository to ensure client, server, and Tauri modules remain in lockstep.
 
 - **Root Source of Truth**: The `version` field in the root `package.json` is the authoritative version for the entire repository.
-- **Synchronized Modules**: Versions in `client/package.json`, `server/Cargo.toml`, and `client/src-tauri/tauri.conf.json` should always be kept in sync with the root version.
+- **Synchronized Modules**: Versions in `client/package.json`, `server/Cargo.toml`, `client/src-tauri/tauri.conf.json`, and `client/src-tauri/Cargo.toml` must match.
 - **Git Tags**: Official releases are marked with Git tags in the format `vMAJOR.MINOR.PATCH` (e.g., `v0.1.0`). 
 - **Changelog**: All changes are documented in `CHANGELOG.md` under the corresponding version header.
 
-To bump the version:
-1. Update `package.json` (root), `client/package.json`, `server/Cargo.toml`, and `client/src-tauri/tauri.conf.json`.
-2. Add entries to `CHANGELOG.md`.
-3. Commit and tag: `git tag -a v0.1.x -m "Release v0.1.x"`
+### Automated Bumping
+Use the cross-platform Node.js script to update all version strings in one command:
+```bash
+npm run bump 0.2.0
+```
+This script updates all required JSON and TOML files, as well as the `README.md` version badge.
+
+### Manual Release Steps
+1. Run `npm run bump <new_version>`.
+2. Update `CHANGELOG.md` with release notes.
+3. Commit and tag: 
+   ```bash
+   git add .
+   git commit -m "chore: bump version to v0.2.x"
+   git tag -a v0.2.x -m "Release v0.2.x"
+   ```
+4. Push: `git push origin main && git push origin --tags`
 
 ---
 

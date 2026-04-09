@@ -1,6 +1,13 @@
 # Counterpoint → Riverside import bridge
 
 Node.js utility for **Windows** (or any OS with Node 18+) on or next to **Counterpoint SQL Server**. It runs SQL you configure in `.env` and POSTs batches to Riverside OS at `/api/sync/counterpoint/*`.
++
++### ⚡ Hyper-Speed API (v0.7.3+)
++Since v0.7.3, the bridge uses a high-concurrency parallel engine:
++- **Concurrent Batches:** Each entity syncs using multiple parallel HTTP requests (default 5) to saturate the API and minimize SQL wait times.
++- **Matrix Duplicate Squelcher:** Automatically filters and deduplicates v8.2 Matrix Parent rows during the catalog pass, preventing redundant data transmission.
++- **Self-Cleaning Pool:** Optimized memory management for large historical imports (100k+ tickets/customers).
+
 
 ## What you set in `.env` first
 

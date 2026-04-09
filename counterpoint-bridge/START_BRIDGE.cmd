@@ -44,7 +44,7 @@ if not exist ".env" (
 )
 
 echo Starting Counterpoint - Riverside OS sync ^(Ctrl+C to stop; RUN_ONCE=1 + WAIT_AFTER_RUN_ONCE=1 waits for Enter before exit — see .env^)...
-node index.mjs
+node --max-old-space-size=8192 index.mjs
 if errorlevel 1 (
   echo.
   echo Bridge exited with an error.

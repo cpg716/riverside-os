@@ -18,6 +18,7 @@ Single reference for **React/Vite** layout, tokens, modal accessibility, lazy lo
 
 - **Logic Separation:** To maintain **Fast Refresh** compliance and "Thin Components," complex transformation logic, shared interfaces, and pure helpers must reside in dedicated logic files (e.g., `ComponentLogic.ts`) rather than the component file.
 - **Hook Stability:** All asynchronous functions consumed by `useEffect` must be wrapped in **`useCallback`**. External constants (e.g., `baseUrl`) must be excluded from dependency arrays.
+- **Unauthenticated Fetches:** Never eagerly fetch authenticated backend metadata (e.g. from `/api/pos/*` or `/api/staff/*`) on component load without first asserting `apiAuth()` yields valid auth headers (like `x-riverside-pos-session-token` or `x-riverside-staff-pin`). If missing, early return `useEffect` logic to prevent 401 Unauthorized console spam.
 
 ## Theme (light / dark / system)
 

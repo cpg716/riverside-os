@@ -1,0 +1,24 @@
+-- Counterpoint v8.2 FINAL SCHEMA AUDIT
+-- Paste this entire script into SQL Server Management Studio (SSMS)
+-- and run against your company database.
+
+PRINT '--- 1. TICKET NOTES (Check for DOC_ID or TKT_NO) ---'
+SELECT TOP 1 * FROM PS_TKT_HIST_NOTE;
+
+PRINT '--- 2. TICKET HEADERS (Check for DOC_ID, TKT_DT, BUS_DAT) ---'
+SELECT TOP 1 * FROM PS_TKT_HIST;
+
+PRINT '--- 3. TICKET PAYMENTS (Check for PAY_COD or PMT_TYP) ---'
+SELECT TOP 1 * FROM PS_TKT_HIST_PMT;
+
+PRINT '--- 4. OPEN DOCUMENTS (Check for BUS_DAT or TKT_DT) ---'
+SELECT TOP 1 * FROM PS_DOC_HDR;
+
+PRINT '--- 5. OPEN DOCUMENT TOTALS (Verify join on DOC_ID) ---'
+SELECT TOP 1 * FROM PS_DOC_HDR_TOT;
+
+PRINT '--- 6. LOYALTY HISTORY (Check for TRX_DAT, NO_OF_PTS) ---'
+SELECT TOP 1 * FROM AR_LOY_PT_ADJ_HIST;
+
+PRINT '--- 7. RECEIVING HISTORY (Check for RECVR_DAT) ---'
+SELECT TOP 1 * FROM PO_RECVR_HIST;

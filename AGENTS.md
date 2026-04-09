@@ -6,14 +6,17 @@ Instructions for coding agents (Cursor Agent, Codex, etc.) working in this repos
 
 1. **`.cursorrules`** — Non-negotiable project rules (Rust/Axum/sqlx/money/handler thinness).
 2. **`README.md`** — Documentation catalog (all first-party Markdown paths and roles).
-3. **`DEVELOPER.md`** — Full architecture, folder map, runbooks, API overview.
-4. **`docs/STAFF_PERMISSIONS.md`** — Staff RBAC: keys, `staff_role_permission` / overrides, middleware, client `backofficeHeaders` + sidebar maps.
+3. **`CHANGELOG.md`** — Detailed version history and baseline (v0.1.0).
+4. **`DEVELOPER.md`** — Full architecture, folder map, runbooks, API overview.
+5. **`docs/STAFF_PERMISSIONS.md`** — Staff RBAC: keys, `staff_role_permission` / overrides, middleware, client `backofficeHeaders` + sidebar maps.
 5. **`REMOTE_ACCESS_GUIDE.md`** — Setup and security for PWA/Tailscale access.
 6. **`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`** — Checklist for shipping PWA (primary) + Tauri register (desktop).
 7. **`INVENTORY_GUIDE.md`** — Detailed scanning engine & physical inventory logic.
 8. **`docs/APPOINTMENTS_AND_CALENDAR.md`** — ROS Appointments vs Wedding Manager, shared `wedding_appointments` API, migration 33, customer search when booking.
 9. **`BACKUP_RESTORE_GUIDE.md`** — DB maintenance, pg_dump, and cloud sync setup.
-10. **`docs/CATALOG_IMPORT.md`** — `POST /api/products/import`, Lightspeed preset vs universal map, body limits, `supplier` / `supplier_code` → vendor + `vendor_code`, migration **35**.
+10. **`docs/SPECIAL_AND_WEDDING_ORDERS.md`** — Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival.
+10. **`docs/DEPOSIT_OPERATIONS.md`** — Complete deposit lifecycle: layaway / special / wedding / split / open deposit types, POS register keypad flow, deposit-only completion, mixed carts, interim payments, fulfillment release, forfeiture, QBO journal mappings (`liability_deposit`, `income_forfeited_deposit`).
+11. **`docs/CATALOG_IMPORT.md`** — `POST /api/products/import`, Lightspeed preset vs universal map, body limits, `supplier` / `supplier_code` → vendor + `vendor_code`, migration **35**.
 11. **`docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`** — Customer CRM vs Lightspeed (merge, groups, bulk import/export, delete rules); ROS `customer_code` and import paths.
 12. **`docs/CUSTOMER_HUB_AND_RBAC.md`** — Relationship Hub API ↔ **`customers.hub_view`**, **`hub_edit`**, **`timeline`**, **`measurements`**, **`orders.view`** (migrations **63**–**64** for hub keys + cashier **`customers_duplicate_review`** / **`customers.merge`** defaults); client gating in **`CustomerRelationshipHubDrawer`**.
 13. **`docs/ORDERS_RETURNS_EXCHANGES.md`** — Refund queue, `orders.*` RBAC, line returns, exchange link, register `register_session_id` read path.
@@ -40,6 +43,7 @@ Instructions for coding agents (Cursor Agent, Codex, etc.) working in this repos
 32. **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`** — Settings **Receipt Builder** persistence, **`receipt.html`** merge, thermal modes (**ZPL** / **escpos_raster** / **studio_html**), Podium **email** (inline HTML) + **SMS/MMS** (PNG attachment vs plain text); pair with **`PLAN_GRAPESJS_RECEIPT_BUILDER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**.
 33. **`docs/PLAN_BUG_REPORTS.md`** — **Shipped:** in-app staff bug reports (**`staff_bug_report`**, migrations **101**–**103**; correlation id, **`dismissed`**, triage fields, admin notifications, retention, optional **`VITE_SENTRY_DSN`**): **`POST /api/bug-reports`**, Settings → **Bug reports** (**`settings.admin`**), Header + POS bug trigger — see plan for API + file map. **Staff-facing:** **`docs/staff/bug-reports-submit-manual.md`**, **`docs/staff/bug-reports-admin-manual.md`**.
 34. **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`** — Server **`tracing`** subscriber (**`RUST_LOG`**), optional **OpenTelemetry OTLP** traces (**`OTEL_*`**, **`RIVERSIDE_OTEL_ENABLED`**), **`ServerLogRing`** + **`TraceLayer`**, shutdown; independent of client Sentry.
+35. **`docs/WISEPOS_E_SETUP_STRIPE.md`** — Stripe Terminal WisePOS E reset and server-driven flow.
 
 ## What this repo is
 
@@ -103,6 +107,7 @@ Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP E
 - **Hook Stability**: All async functions in `useEffect` MUST be wrapped in `useCallback`.
 - **Zero-Error Baseline**: Code must pass `npm run lint` with 0 Errors.
 - **Fast Refresh / Logic Separation**: Files containing React components should strictly only export the component(s). Move shared logic, types, and constants to dedicated `.ts` logic files (e.g., `ComponentLogic.ts`). **Context providers** must be split from their context/hooks into a `*Logic.ts` sibling to maintain zero lint warnings.
+- **Versioning**: All modules (`client`, `server`, `tauri`) must stay synchronized with the version in the root `package.json`. Follow [SemVer](https://semver.org) for all tags and releases.
 - **No dev bypasses**: Auth middleware and PIN verification are production-enforced. Do not re-add `let _ = pin;` or similar shortcuts.
 
 ## Auth model (do not modify without understanding)
@@ -188,6 +193,7 @@ The system supports multiple thermal print modes via `orders::build_receipt_zpl`
 
 ```bash
 npm run check:server   # or: cd server && rustup run 1.88 cargo check (requires clippy/rustfmt components)
+npm run bump           # node scripts/bump-version.mjs <new_version> (updates all modules)
 cd client && npm run build
 # Local dev (Postgres must be up: docker compose up -d): from repo root, after `npm install` once at root:
 npm run dev

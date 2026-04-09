@@ -1,36 +1,36 @@
 # 🏁 Counterpoint Bridge: Final Completion Checklist
+**Updated:** 2026-04-09
+**Status:** Verification & "Hyper-Speed" Tuning (Active)
 
-We have successfully mapped your **Catalog (3D Matrix)**, **Customers**, **Ticket History**, and **Open Orders (Layaways)**. To complete the 100% "Gold Master" sync, we just need to map your custom Gift Card and Loyalty tables.
-
----
-
-### 1. Run the Final Schema Probe (SSMS)
-Paste the following code into a **New Query** window in SQL Server Management Studio (SSMS) against your company database. 
-
-```sql
-SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE 
-FROM INFORMATION_SCHEMA.COLUMNS 
-WHERE TABLE_NAME IN ('SY_GFC', 'SY_GFC_HIST', 'AR_LOY_PT_ADJ_HIST')
-ORDER BY TABLE_NAME, COLUMN_NAME;
-```
-
-### 2. Provide the Results
-Copy the grid results (or take a screenshot/save to text) and provide them here. I am specifically looking for:
-- The **Balance** and **Gift Card Number** column names in `SY_GFC`.
-- The **Points Earned/Adjusted** column names in `AR_LOY_PT_ADJ_HIST`.
-
-### 3. The Final Build (My Task)
-Once you provide those columns, I will:
-- Update the `.env.example` with perfect column mappings for all modules.
-- Disable the broken Store Credit columns (`SYNC_STORE_CREDIT_OPENING=0`).
-- Re-package the **Final Windows Bridge Zip**.
-
-### 4. Deployment on Windows Server
-- Copy the new `counterpoint-bridge-for-windows.zip` to the server.
-- Update the `.env` with your SQL password and Riverside API Key.
-- Double-click `START_BRIDGE.cmd` to initiate the full data migration.
+We have finalized the sync for Counterpoint v8.2. Based on SQL-OUTPUT and performance tuning, the bridge is now in a "Gold Master" state.
 
 ---
 
-> [!TIP]
-> Once this sync completes, Riverside OS will have a mirror image of your Counterpoint data, allowing you to begin processing transactions and managing your wedding parties immediately.
+### ✅ 1. Discovery & Verification (COMPLETED)
+We have verified and mapped the following v8.2 specific tables:
+- [x] **Store Credit:** Mapped to `SY_STC` (Verified columns: `ORIG_CUST_NO`, `CURR_AMT`)
+- [x] **Gift Cards:** Mapped to `SY_GFC` / `SY_GFC_HIST` (Verified columns: `GFC_NO`, `CURR_AMT`)
+- [x] **Loyalty:** Mapped to `PS_LOY_PTS_HIST` (Confirmed in SQL Output)
+- [x] **Receiving History:** Mapped and batching enabled (Verified `PO_RECVR_HIST`)
+
+### ⚡ 2. Bridge "Hyper-Speed" Performance (v0.7.3)
+- [x] **Parallel Ingest:** All modules (Catalog, Customers, Tickets, etc.) now process up to 5 batches simultaneously.
+- [x] **Matrix Loop Protection:** Built-in "Duplicate Squelcher" filters out redundant v8.2 Matrix rows, drastically reducing sync time for large catalogs.
+- [x] **Memory Stability:** Switched to a self-cleaning Promise pool to prevent "Out of Memory" crashes on large history imports.
+
+### 🛠️ 3. Bridge & Server Configuration
+- [x] **Apply Migration 114:** (Adds Ticket Notes, Reason Codes, and Receiving History support to ROS)
+- [x] **Update Bridge index.mjs:** (Added `receiving_history` and `ticket_notes` logic + parallelization)
+- [x] **Finalize .env:** Updated local `.env` with verified v8.2 SQL fragments.
+- [x] **Sync Guide Update:** Updated `docs/COUNTERPOINT_SYNC_GUIDE.md` with Hyper-Speed & Schema details.
+
+### 🚀 4. Final Deployment on Windows Server
+1. **Download New ZIP:** Use `counterpoint-bridge-for-windows.zip` generated on 2026-04-09.
+2. **Keep Existing .env:** Your fixed `.env` is already configured with the correct `SY_STC` / `SY_GFC` tables.
+3. **Run the Sync:** Double-click **`START_BRIDGE.cmd`**.
+
+---
+
+> [!IMPORTANT]
+> The bridge is now optimized for speed and reliability. If any entity shows `Invalid column name`, do not turn it off—verify the column name in SSMS and update your `.env` to match.
+
