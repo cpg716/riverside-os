@@ -77,7 +77,14 @@ curl -H "x-ros-sync-token: your-long-random-secret-here" \
      http://127.0.0.1:3000/api/sync/counterpoint/health
 ```
 
-Should return `200` with JSON including `"ok": true`, `"service": "counterpoint_sync"`, and `"counterpoint_staging_enabled": true|false`. When staging is enabled in **Settings → Integrations → Counterpoint**, the Windows bridge (0.7.0+) POSTs each entity to `/api/sync/counterpoint/staging` instead of the direct ingest routes; operators **Apply** or **Discard** batches from the **Inbound queue** tab. Direct ingest is used when staging is off.
+Should return `200` with JSON including `"ok": true`, `"service": "counterpoint_sync"`, and `"counterpoint_staging_enabled": true|false`.
+
+### 2d. Bridge Command Center
+The bridge includes a local dashboard for manual triggers and log monitoring. It listens on port **3002** (to avoid collision with Metabase on 3001).
+- **URL**: `http://localhost:3002`
+- **Auth**: The dashboard uses an internal proxy to communicate with the ROS API using the `COUNTERPOINT_SYNC_TOKEN`. This allows manual synchronization without requiring a valid staff PIN on the bridge host. 
+
+When staging is enabled in **Settings → Integrations → Counterpoint**, the Windows bridge (0.7.0+) POSTs each entity to `/api/sync/counterpoint/staging` instead of the direct ingest routes; operators **Apply** or **Discard** batches from the **Inbound queue** tab. Direct ingest is used when staging is off.
 
 ---
 

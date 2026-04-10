@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2026-04-10
+
+### Added
+- **CI/CD Stabilization**: Resolved persistent GitHub Actions "Lint Checks" failures by enforcing `cargo fmt` standards across the server and resolving SQLx query caching issues (`cargo sqlx prepare`).
+- **Client Lint Integrity**: Fixed 7+ ESLint errors and warnings across the client codebase (types, hook dependencies), achieving a zero-warning baseline for production builds.
+- **Bridge Auth Proxying**: Implemented an authenticated API proxy strategy in the Counterpoint Bridge, allowing the dashboard to communicate with Riverside OS using internal tokens without a live staff PIN.
+
+### Fixed
+- **Bridge Dashboard Stabilization**: Moved the Bridge Commander dashboard to port **3002** (eliminating port collisions with Metabase on 3001) and refactored manual sync triggers to use valid JSON payloads.
+- **Schema Mapping Integrity**: Corrected SQL mapping in the Bridge for Counterpoint v8.2 (`UNIT_COST` and `CURR_AMT` parity).
+
 ## [0.1.6] - 2026-04-10
 
 ### Added
