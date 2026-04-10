@@ -1,0 +1,80 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            wp.id, wp.is_deleted, wp.party_name, wp.groom_name, wp.notes,\n            wp.groom_email, wp.bride_name, wp.bride_email, wp.groom_phone, wp.bride_phone,\n            (\n                SELECT string_agg(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ' ')\n                FROM wedding_members wm\n                JOIN customers c ON c.id = wm.customer_id\n                WHERE wm.wedding_party_id = wp.id\n            ) AS member_blob\n        FROM wedding_parties wp\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "is_deleted",
+        "type_info": "Bool"
+      },
+      {
+        "ordinal": 2,
+        "name": "party_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "groom_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "notes",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "groom_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "bride_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "bride_email",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "groom_phone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "bride_phone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "member_blob",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "8f66629115193e4704d0aa5ae7d76744a0bb0a04a8c0489049057a0fd5578072"
+}

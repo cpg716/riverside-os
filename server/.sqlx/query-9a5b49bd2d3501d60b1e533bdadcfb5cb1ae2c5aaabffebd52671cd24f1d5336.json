@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            id, customer_code, first_name, last_name, company_name, email, phone,\n            city, state, postal_code, address_line1,\n            (\n                SELECT string_agg(DISTINCT COALESCE(wp.party_name, '') || ' ' || COALESCE(wp.groom_name, ''), ' ')\n                FROM wedding_members wm\n                JOIN wedding_parties wp ON wp.id = wm.wedding_party_id\n                WHERE wm.customer_id = customers.id\n                  AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)\n                  AND wp.event_date >= CURRENT_DATE\n            ) AS wedding_names\n        FROM customers\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "customer_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "first_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "last_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "company_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "email",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 6,
+        "name": "phone",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 7,
+        "name": "city",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "state",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "postal_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "address_line1",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "wedding_names",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "9a5b49bd2d3501d60b1e533bdadcfb5cb1ae2c5aaabffebd52671cd24f1d5336"
+}

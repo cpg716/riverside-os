@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            o.id, o.status::text AS status,\n            c.first_name AS customer_first, c.last_name AS customer_last,\n            NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,\n            ps.full_name AS salesperson\n        FROM orders o\n        LEFT JOIN customers c ON c.id = o.customer_id\n        LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id\n        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id\n        LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "customer_first",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 3,
+        "name": "customer_last",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 4,
+        "name": "party_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "salesperson",
+        "type_info": "Varchar"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true,
+      null,
+      true
+    ]
+  },
+  "hash": "204244798188132c51e3875f91e3f6de79283fd510f3728a8bbb680ad6d83605"
+}
