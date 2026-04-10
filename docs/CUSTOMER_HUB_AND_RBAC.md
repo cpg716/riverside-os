@@ -83,4 +83,4 @@ Missing permission returns **403** with `{ "error": "missing permission", "permi
 - [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md) — browse / order-history paging  
 - [`AGENTS.md`](../AGENTS.md) — migrations **63**–**64** summary (hub keys + cashier duplicate/merge defaults)  
 
-**Last reviewed:** 2026-04-06 (migration **83** — **`customer_open_deposit_*`**, **`GET …/open-deposit`**)
+**Last reviewed:** 2026-04-09 (migration **110** — **Joint Couple Accounts**, **`customers.couple_manage`**)

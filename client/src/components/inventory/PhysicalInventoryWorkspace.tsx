@@ -41,7 +41,7 @@ import {
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import VariantSearchInput from "../inventory/VariantSearchInput";
+import VariantSearchInput from "../ui/VariantSearchInput";
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 

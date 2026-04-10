@@ -42,6 +42,8 @@ pub fn control_board_meili_filter_parts(
     web_published_only: bool,
     clothing_only: bool,
     filter_flag: Option<&str>,
+    _oos_only: Option<bool>,
+    _negative_stock_only: Option<bool>,
 ) -> Option<String> {
     let mut parts: Vec<String> = Vec::new();
     if let Some(cid) = category_id {
@@ -56,6 +58,9 @@ pub fn control_board_meili_filter_parts(
     if clothing_only || filter_flag == Some("clothing") {
         parts.push("is_clothing_footwear = true".to_string());
     }
+    // Note: VariantDoc currently doesn't index stock_on_hand. 
+    // If it did, we'd add oos/negative filters here.
+    // For now, Postgres handles these during hydration.
     if parts.is_empty() {
         None
     } else {
@@ -72,6 +77,8 @@ pub async fn control_board_search_variant_ids(
     web_published_only: bool,
     clothing_only: bool,
     filter_flag: Option<&str>,
+    _oos_only: Option<bool>,
+    _negative_stock_only: Option<bool>,
 ) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
     let index = client.index(INDEX_VARIANTS);
     let filter = control_board_meili_filter_parts(
@@ -80,6 +87,8 @@ pub async fn control_board_search_variant_ids(
         web_published_only,
         clothing_only,
         filter_flag,
+        _oos_only,
+        _negative_stock_only,
     );
     let mut sq = index.search();
     sq.with_query(query_text)

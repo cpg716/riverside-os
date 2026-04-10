@@ -163,6 +163,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `settings.admin` | Settings, backups, database maintenance. |
 | `help.manage` | **Settings → Help center**: edit manual visibility, markdown overrides, and permission gates (`help_manual_policy`); migration **79**. |
 | `gift_cards.manage` | Gift card management. |
+| `customers.couple_manage` | Link/unlink Joint Couple partners and create Joint accounts. |
 | `weddings.view` | Weddings workspace read APIs. |
 | `weddings.mutate` | Weddings workspace writes. |
 | `register.reports` | Register reconciliation / X-Z style reports from BO without POS token. |

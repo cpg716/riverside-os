@@ -270,6 +270,99 @@ pub async fn propose_daily_journal(
         }
     }
 
+    #[derive(sqlx::FromRow)]
+    struct InvTxAgg {
+        category_id: Option<Uuid>,
+        category_name: Option<String>,
+        tx_type: String,
+        total_value: Option<Decimal>,
+    }
+
+    let inv_tx_rows: Vec<InvTxAgg> = sqlx::query_as(
+        r#"
+        SELECT
+            p.category_id,
+            c.name AS category_name,
+            it.tx_type::text,
+            SUM((it.unit_cost * it.quantity_delta)::numeric(14, 2)) AS total_value
+        FROM inventory_transactions it
+        INNER JOIN product_variants pv ON pv.id = it.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        WHERE (it.created_at AT TIME ZONE 'UTC')::date = $1::date
+          AND it.tx_type::text IN ('adjustment', 'damaged', 'return_to_vendor', 'physical_inventory')
+        GROUP BY p.category_id, c.name, it.tx_type::text
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_all(pool)
+    .await?;
+
+    for itx in &inv_tx_rows {
+        let val = itx.total_value.unwrap_or(Decimal::ZERO);
+        if val.is_zero() {
+            continue;
+        }
+        let cat_label = itx
+            .category_id
+            .map(|u| u.to_string())
+            .unwrap_or_else(|| "_uncategorized".to_string());
+        
+        let (fallback_key, debit_internal, memo_prefix) = match itx.tx_type.as_str() {
+            "damaged" => (Some("INV_SHRINKAGE"), "INV_SHRINKAGE", "Inventory Damage"),
+            "return_to_vendor" => (Some("INV_RTV_CLEARING"), "INV_RTV_CLEARING", "Return to Vendor"),
+            _ => {
+                // Adjustment or Physical Inventory
+                if val < Decimal::ZERO {
+                    (Some("INV_SHRINKAGE"), "INV_SHRINKAGE", "Inventory Adjustment (Shrinkage)")
+                } else {
+                    // This is "found" inventory. Usually debit asset, credit a fallback income/cogs-reversal.
+                    (None, "REVENUE_FALLBACK", "Inventory Adjustment (Found)")
+                }
+            }
+        };
+
+        let inv_asset = qbo_map_with_misc_fallback(pool, "category_inventory", &cat_label, Some("INV_ASSET")).await?;
+        let offset = if let Some(fb) = fallback_key {
+             ledger_fallback(pool, fb).await?
+        } else {
+             ledger_fallback(pool, debit_internal).await?
+        };
+
+        if let (Some((inv_id, inv_name)), Some((off_id, off_name))) = (inv_asset, offset) {
+            let abs_val = val.abs().round_dp(2);
+            let (d_acc, c_acc, d_inv, c_inv) = if val < Decimal::ZERO {
+                // Shrinking/Leaving: Credit Inventory, Debit Expense/Clearing
+                (abs_val, Decimal::ZERO, Decimal::ZERO, abs_val)
+            } else {
+                // Found/Entering: Debit Inventory, Credit Income
+                (Decimal::ZERO, abs_val, abs_val, Decimal::ZERO)
+            };
+
+            lines.push(JournalLine {
+                qbo_account_id: inv_id,
+                qbo_account_name: inv_name,
+                debit: d_inv,
+                credit: c_inv,
+                memo: format!("{}: {}", memo_prefix, itx.category_name.as_deref().unwrap_or("Uncategorized")),
+                detail: vec![serde_json::json!({"kind": itx.tx_type, "category_id": itx.category_id})],
+            });
+            lines.push(JournalLine {
+                qbo_account_id: off_id,
+                qbo_account_name: off_name,
+                debit: d_acc,
+                credit: c_acc,
+                memo: format!("{} Offset: {}", memo_prefix, itx.category_name.as_deref().unwrap_or("Uncategorized")),
+                detail: vec![],
+            });
+        } else {
+            warnings.push(format!(
+                "Inventory {} transaction for category `{}` skipped — set mappings for INV_ASSET and {}.",
+                itx.tx_type, cat_label, fallback_key.unwrap_or("REVENUE_FALLBACK")
+            ));
+        }
+    }
+
     for t in &tender_rows {
         let amt = t.total.unwrap_or(Decimal::ZERO);
         if amt.is_zero() {

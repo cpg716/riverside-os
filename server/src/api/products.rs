@@ -205,10 +205,11 @@ pub struct InventoryBoardQuery {
     pub offset: Option<i64>,
     /// Only variants marked `web_published` (online storefront).
     pub web_published_only: Option<bool>,
+    /// Only variants with stock_on_hand <= 0.
+    pub oos_only: Option<bool>,
+    /// Only variants with stock_on_hand < 0.
+    pub negative_stock_only: Option<bool>,
     /// Text search only: rank rows where the **product** (name / brand / handle) matches the query
-    /// before rows where only SKU / barcode / variation label matches. Preserves Meilisearch hit order
-    /// within each tier when Meilisearch is enabled.
-    #[serde(default)]
     pub parent_rank_first: Option<bool>,
 }
 
@@ -334,6 +335,8 @@ pub struct BulkWebPublishRequest {
 #[derive(Debug, Deserialize)]
 pub struct AdjustVariantStockRequest {
     pub quantity_delta: i32,
+    pub tx_type: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -782,6 +785,8 @@ pub async fn list_control_board(
                 query.web_published_only.unwrap_or(false),
                 query.clothing_only.unwrap_or(false),
                 query.filter.as_deref(),
+                query.oos_only,
+                query.negative_stock_only,
             )
             .await
             {
@@ -936,6 +941,12 @@ pub async fn list_control_board(
     }
     if query.web_published_only.unwrap_or(false) {
         qb.push(" AND COALESCE(pv.web_published, false) = true");
+    }
+    if query.oos_only.unwrap_or(false) || filter == "oos" {
+        qb.push(" AND pv.stock_on_hand <= 0");
+    }
+    if query.negative_stock_only.unwrap_or(false) || filter == "negative" {
+        qb.push(" AND pv.stock_on_hand < 0");
     }
 
     if has_search {
@@ -2026,27 +2037,48 @@ async fn adjust_variant_stock(
     Json(body): Json<AdjustVariantStockRequest>,
 ) -> Result<Json<Value>, ProductError> {
     require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
-    let new_stock = match sqlx::query_scalar::<_, i32>(
+
+    let mut tx = state.db.begin().await?;
+
+    let row = sqlx::query!(
         r#"
         UPDATE product_variants
         SET stock_on_hand = stock_on_hand + $1
         WHERE id = $2
-        RETURNING stock_on_hand
+        RETURNING stock_on_hand, cost_override, (SELECT base_cost FROM products p WHERE p.id = product_id) as base_cost
         "#,
+        body.quantity_delta,
+        variant_id
     )
-    .bind(body.quantity_delta)
-    .bind(variant_id)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(v) => v,
-        Err(e) => return Err(ProductError::Database(e)),
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let (new_stock, unit_cost) = match row {
+        Some(r) => (r.stock_on_hand, r.cost_override.or(r.base_cost).unwrap_or_default()),
+        None => return Err(ProductError::VariantNotFound),
     };
 
-    match new_stock {
-        Some(stock) => Ok(Json(json!({ "stock_on_hand": stock }))),
-        None => Err(ProductError::VariantNotFound),
-    }
+    let tx_type_str = body.tx_type.unwrap_or_else(|| "adjustment".to_string());
+
+    sqlx::query(
+        r#"
+        INSERT INTO inventory_transactions
+            (variant_id, tx_type, quantity_delta, unit_cost, notes)
+        VALUES ($1, $2::inventory_tx_type, $3, $4, $5)
+        "#,
+    )
+    .bind(variant_id)
+    .bind(tx_type_str)
+    .bind(body.quantity_delta)
+    .bind(unit_cost)
+    .bind(body.notes)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    spawn_meilisearch_variant_resync(&state, variant_id);
+    Ok(Json(json!({ "stock_on_hand": new_stock })))
 }
 
 async fn list_variants(

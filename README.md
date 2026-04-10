@@ -135,6 +135,7 @@ First-party Markdown only. **Role:** runbook, agent guide, spec, future plan, au
 | `BACKUP_RESTORE_GUIDE.md` | Maintenance, backups, cloud sync | Ops |
 | `Riverside_OS_Master_Specification.md` | Product requirements and vocabulary | Product / devs |
 | `docs/RETIRED_DOCUMENT_SUMMARIES.md` | Ledger of removed docs | Maintainers |
+| `docs/PLAN_POST_V0.1.2_EVOLUTION.md` | Strategic growth (Health Heatmap, MTM Center, Alteration Forecast) | Product / Devs |
 
 ## Command Summary
 

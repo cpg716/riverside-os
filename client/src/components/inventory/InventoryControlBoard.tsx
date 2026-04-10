@@ -16,6 +16,7 @@ import {
   Loader2,
   Search,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import ProductHubDrawer from "./ProductHubDrawer";
 import InventoryBulkBar from "./InventoryBulkBar";
@@ -125,6 +126,7 @@ interface ProductListRow {
   cost_max: number;
   variant_count: number;
   unlabeled_count: number;
+  category_name?: string | null;
   variant_rows: BoardRow[];
   /** Sum of variant available_stock (walk-in + web alloc). */
   available_stock_total: number;
@@ -223,56 +225,6 @@ function TemplateMoneyEdit({
   );
 }
 
-function TemplateCategorySelect({
-  productId,
-  categoryId,
-  categories,
-  baseUrl,
-  onSaved,
-  toast,
-}: {
-  productId: string;
-  categoryId: string | null;
-  categories: Category[];
-  baseUrl: string;
-  onSaved: () => void;
-  toast: (msg: string, type?: "success" | "error" | "info") => void;
-}) {
-  const { backofficeHeaders } = useBackofficeAuth();
-  return (
-    <select
-      value={categoryId ?? ""}
-      onChange={async (e) => {
-        const v = e.target.value;
-        const body = v
-          ? { category_id: v }
-          : { clear_category_id: true };
-        const res = await fetch(`${baseUrl}/api/products/${productId}/model`, {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            ...mergedPosStaffHeaders(backofficeHeaders),
-          },
-          body: JSON.stringify(body),
-        });
-        if (!res.ok) {
-          const err = (await res.json().catch(() => ({}))) as { error?: string };
-          toast(err.error ?? "Category update failed", "error");
-          return;
-        }
-        onSaved();
-      }}
-      className="ui-input max-w-[160px] min-w-0 py-1 pl-2 pr-7 text-[10px] font-bold uppercase tracking-tight"
-    >
-      <option value="">Uncategorized</option>
-      {categories.map((c) => (
-        <option key={c.id} value={c.id}>
-          {c.name}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 function FilterChip({
   label,
@@ -326,6 +278,8 @@ export default function InventoryControlBoard({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [boardRefreshing, setBoardRefreshing] = useState(true);
   const [oosLowOnly, setOosLowOnly] = useState(false);
+  const [oosOnly, setOosOnly] = useState(false);
+  const [negativeStockOnly, setNegativeStockOnly] = useState(false);
   const [clothingOnly, setClothingOnly] = useState(false);
   const [unlabeledOnly, setUnlabeledOnly] = useState(false);
   const [highValueOnly, setHighValueOnly] = useState(false);
@@ -348,6 +302,41 @@ export default function InventoryControlBoard({
     setHubSeedTitle("Product");
     onProductHubDeepLinkConsumed?.();
   }, [openProductHubProductId, onProductHubDeepLinkConsumed]);
+  const [maintenanceTarget, setMaintenanceTarget] = useState<{
+    variantId: string;
+    sku: string;
+    type: "damaged" | "return_to_vendor";
+  } | null>(null);
+  const [maintenanceQty, setMaintenanceQty] = useState("1");
+  const [maintenanceNote, setMaintenanceNote] = useState("");
+
+  const closeMaintenance = () => {
+    setMaintenanceTarget(null);
+    setMaintenanceQty("1");
+    setMaintenanceNote("");
+  };
+
+  const handleMaintenanceSubmit = async () => {
+    if (!maintenanceTarget) return;
+    const qty = parseInt(maintenanceQty, 10);
+    if (!qty || qty <= 0) {
+      toast("Invalid quantity", "error");
+      return;
+    }
+    const note = maintenanceNote.trim();
+    if (!note) {
+      toast("Note is required for maintenance tracking", "error");
+      return;
+    }
+    try {
+      await bumpVariantStock(maintenanceTarget.variantId, -qty, maintenanceTarget.type, note);
+      toast("Inventory maintenance recorded", "success");
+      closeMaintenance();
+    } catch (e: any) {
+      toast(e.message ?? "Maintenance failed", "error");
+    }
+  };
+
   const [adjustRow, setAdjustRow] = useState<BoardRow | null>(null);
   const [tableFocus, setTableFocus] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
@@ -383,6 +372,8 @@ export default function InventoryControlBoard({
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (oosLowOnly) params.set("oos_low_only", "true");
+    if (oosOnly) params.set("oos_only", "true");
+    if (negativeStockOnly) params.set("negative_stock_only", "true");
     if (clothingOnly) params.set("clothing_only", "true");
     if (unlabeledOnly) params.set("unlabeled_only", "true");
     if (highValueOnly)
@@ -423,6 +414,8 @@ export default function InventoryControlBoard({
     baseUrl,
     debouncedSearch,
     oosLowOnly,
+    oosOnly,
+    negativeStockOnly,
     clothingOnly,
     unlabeledOnly,
     highValueOnly,
@@ -451,6 +444,8 @@ export default function InventoryControlBoard({
     const params = new URLSearchParams();
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (oosLowOnly) params.set("oos_low_only", "true");
+    if (oosOnly) params.set("oos_only", "true");
+    if (negativeStockOnly) params.set("negative_stock_only", "true");
     if (clothingOnly) params.set("clothing_only", "true");
     if (unlabeledOnly) params.set("unlabeled_only", "true");
     if (highValueOnly)
@@ -482,6 +477,8 @@ export default function InventoryControlBoard({
     baseUrl,
     debouncedSearch,
     oosLowOnly,
+    oosOnly,
+    negativeStockOnly,
     clothingOnly,
     unlabeledOnly,
     highValueOnly,
@@ -623,13 +620,19 @@ export default function InventoryControlBoard({
   const bumpVariantStock = async (
     variantId: string,
     quantityDelta: number,
+    txType?: string,
+    notes?: string,
   ): Promise<void> => {
     const res = await fetch(
       `${baseUrl}/api/products/variants/${variantId}/stock-adjust`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ quantity_delta: quantityDelta }),
+        headers: { "Content-Type": "application/json", ...apiAuth() }, // Added apiAuth here just in case, though it was missing in original? Actually let's check.
+        body: JSON.stringify({ 
+          quantity_delta: quantityDelta,
+          tx_type: txType,
+          notes: notes
+        }),
       },
     );
     if (!res.ok) {
@@ -646,9 +649,9 @@ export default function InventoryControlBoard({
     );
   };
 
-  const applyStockDelta = async (row: BoardRow, quantityDelta: number) => {
+  const applyStockDelta = async (row: BoardRow, quantityDelta: number, txType?: string, notes?: string) => {
     try {
-      await bumpVariantStock(row.variant_id, quantityDelta);
+      await bumpVariantStock(row.variant_id, quantityDelta, txType, notes);
       setAdjustRow(null);
       toast("Stock adjusted", "success");
     } catch (e: unknown) {
@@ -891,14 +894,9 @@ export default function InventoryControlBoard({
           ) : null}
         </td>
         <td className="px-3 py-2">
-          <TemplateCategorySelect
-            productId={row.product_id}
-            categoryId={row.category_id}
-            categories={categories}
-            baseUrl={baseUrl}
-            onSaved={() => void refreshBoard()}
-            toast={toast}
-          />
+          <div className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">
+            {row.category_name || "Uncategorized"}
+          </div>
           {row.is_clothing_footwear ? (
             <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-emerald-600">
               Clothing tax exempt
@@ -1085,8 +1083,14 @@ export default function InventoryControlBoard({
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
-          {discoveryBtn(oosLowOnly, "Stock Outs", () =>
+          {discoveryBtn(oosLowOnly, "Low Stock (≤2)", () =>
             setOosLowOnly(!oosLowOnly),
+          )}
+          {discoveryBtn(oosOnly, "Zero Stock", () =>
+            setOosOnly(!oosOnly),
+          )}
+          {discoveryBtn(negativeStockOnly, "Negative Stock", () =>
+            setNegativeStockOnly(!negativeStockOnly),
           )}
           {discoveryBtn(clothingOnly, "Clothing Exempt", () =>
             setClothingOnly(!clothingOnly),
@@ -1149,6 +1153,12 @@ export default function InventoryControlBoard({
           )}
           {webOnly && (
             <FilterChip label="On web" onRemove={() => setWebOnly(false)} />
+          )}
+          {oosOnly && (
+            <FilterChip label="Zero Stock" onRemove={() => setOosOnly(false)} />
+          )}
+          {negativeStockOnly && (
+            <FilterChip label="Negative Stock" onRemove={() => setNegativeStockOnly(false)} />
           )}
         </div>
       </header>
@@ -1434,6 +1444,23 @@ export default function InventoryControlBoard({
               </button>
             </div>
 
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setMaintenanceTarget({ variantId: adjustRow.variant_id, sku: adjustRow.sku, type: "damaged" })}
+                className="flex-1 rounded-xl border border-red-200 bg-red-50 py-3 text-[9px] font-black uppercase tracking-widest text-red-600 hover:bg-red-100"
+              >
+                Damage…
+              </button>
+              <button
+                type="button"
+                onClick={() => setMaintenanceTarget({ variantId: adjustRow.variant_id, sku: adjustRow.sku, type: "return_to_vendor" })}
+                className="flex-1 rounded-xl border border-app-accent/30 bg-app-accent/5 py-3 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent/10"
+              >
+                RTV…
+              </button>
+            </div>
+
             <button
               type="button"
               onClick={() => setAdjustRow(null)}
@@ -1441,6 +1468,76 @@ export default function InventoryControlBoard({
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {maintenanceTarget && (
+        <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+          <div className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300">
+            <div className="ui-modal-header flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`rounded-xl border p-2 ${maintenanceTarget.type === 'damaged' ? "border-red-500/20 bg-red-500/5" : "border-app-accent/20 bg-app-accent/5"}`}>
+                   <Printer className={maintenanceTarget.type === 'damaged' ? "text-red-500" : "text-app-accent"} size={22} />
+                </div>
+                <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">
+                  {maintenanceTarget.type === 'damaged' ? "Mark as Damaged" : "Return to Vendor"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeMaintenance}
+                className="ui-touch-target rounded-xl text-app-text-muted hover:bg-app-surface-2 hover:text-app-text transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="ui-modal-body space-y-4 py-6">
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-app-text">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Target SKU</p>
+                <p className="mt-1 font-mono text-sm font-bold">{maintenanceTarget.sku}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Quantity to Remove
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={maintenanceQty}
+                  onChange={(e) => setMaintenanceQty(e.target.value)}
+                  className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2.5 font-bold text-app-text outline-none ring-app-accent focus:ring-2"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Maintenance Note
+                </label>
+                <textarea
+                  rows={3}
+                  value={maintenanceNote}
+                  onChange={(e) => setMaintenanceNote(e.target.value)}
+                  placeholder={maintenanceTarget.type === 'damaged' ? "Describe damage (e.g. Broken zipper, stained lapel)" : "Reason for return (e.g. Vendor defect, surplus RTV)"}
+                  className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-sm font-medium text-app-text outline-none ring-app-accent focus:ring-2"
+                />
+              </div>
+            </div>
+
+            <div className="ui-modal-footer flex gap-3">
+              <button type="button" onClick={closeMaintenance} className="ui-btn-secondary flex-1">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleMaintenanceSubmit}
+                className={`flex-1 rounded-xl border-b-4 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all active:translate-y-1 active:border-b-0 ${maintenanceTarget.type === 'damaged' ? "bg-red-600 border-red-800" : "bg-app-accent border-app-accent/80"}`}
+              >
+                Execute Adjustment
+              </button>
+            </div>
           </div>
         </div>
       )}

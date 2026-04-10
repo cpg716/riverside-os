@@ -338,7 +338,7 @@ async fn admin_history(
         .await
         .map_err(map_gate_err)?;
     let lim = q.limit.clamp(1, 200);
-    let rows = tasks::list_task_history(&state.db, state.meili.as_ref(), q.assignee_staff_id, q.q, lim, q.offset.max(0))
+    let rows = tasks::list_task_history(&state.db, state.meilisearch.as_ref(), q.assignee_staff_id, q.q, lim, q.offset.max(0))
         .await
         .map_err(map_task_err)?;
     Ok(Json(rows))

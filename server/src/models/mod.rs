@@ -135,6 +135,19 @@ pub enum DbStaffScheduleExceptionKind {
     ExtraShift,
 }
 
+#[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]
+#[sqlx(type_name = "inventory_tx_type", rename_all = "snake_case")]
+pub enum DbInventoryTxType {
+    PoReceipt,
+    Sale,
+    Adjustment,
+    ReturnIn,
+    ReturnOut,
+    Damaged,
+    ReturnToVendor,
+    PhysicalInventory,
+}
+
 // --- Mapping: granular DB categories → NYS tax engine (accessory & service → full rate) ---
 
 impl From<DbTaxCategory> for crate::logic::tax::TaxCategory {

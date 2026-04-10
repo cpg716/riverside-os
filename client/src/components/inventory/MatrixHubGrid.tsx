@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { Printer } from "lucide-react";
+import { Printer, X } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
@@ -188,6 +188,38 @@ export default function MatrixHubGrid({
   const [rowRetailTarget, setRowRetailTarget] = useState<string | null>(null);
   const [showBulkSetPrompt, setShowBulkSetPrompt] = useState(false);
 
+  const [maintenanceTarget, setMaintenanceTarget] = useState<{
+    variantId: string;
+    sku: string;
+    type: "damaged" | "return_to_vendor";
+  } | null>(null);
+  const [maintenanceQty, setMaintenanceQty] = useState("1");
+  const [maintenanceNote, setMaintenanceNote] = useState("");
+
+  const closeMaintenance = () => {
+    setMaintenanceTarget(null);
+    setMaintenanceQty("1");
+    setMaintenanceNote("");
+  };
+
+  const handleMaintenanceSubmit = async () => {
+    if (!maintenanceTarget) return;
+    const qty = parseInt(maintenanceQty, 10);
+    if (!qty || qty <= 0) {
+      toast("Invalid quantity", "error");
+      return;
+    }
+    const note = maintenanceNote.trim();
+    if (!note) {
+      toast("Note is required for maintenance tracking", "error");
+      return;
+    }
+
+    // Delta is negative because we are removing from inventory
+    await applyStockDelta(maintenanceTarget.variantId, -qty, maintenanceTarget.type, note);
+    closeMaintenance();
+  };
+
   const attributeOptions = useMemo(() => {
     const m: Record<string, string[]> = {};
     for (const k of filterKeys) {
@@ -243,14 +275,18 @@ export default function MatrixHubGrid({
   }, [filteredVariants, rowAxis, colAxis]);
 
   const applyStockDelta = useCallback(
-    async (variantId: string, delta: number) => {
+    async (variantId: string, delta: number, txType?: string, notes?: string) => {
       if (!delta) return;
       const res = await fetch(
         `${baseUrl}/api/products/variants/${variantId}/stock-adjust`,
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json", ...apiAuth() },
-          body: JSON.stringify({ quantity_delta: delta }),
+          body: JSON.stringify({ 
+            quantity_delta: delta,
+            tx_type: txType,
+            notes: notes
+          }),
         },
       );
       if (!res.ok) {
@@ -709,6 +745,22 @@ export default function MatrixHubGrid({
                               (e.target as HTMLInputElement).value = "";
                             }}
                           />
+                          <div className="mt-1 flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "damaged" })}
+                              className="text-[9px] font-black uppercase tracking-tight text-red-600 hover:underline"
+                            >
+                              Damage…
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setMaintenanceTarget({ variantId: v.id, sku: v.sku, type: "return_to_vendor" })}
+                              className="text-[9px] font-black uppercase tracking-tight text-app-accent hover:underline"
+                            >
+                              RTV…
+                            </button>
+                          </div>
                           <label
                             className={`mt-1 flex cursor-pointer items-center gap-1.5 text-[9px] font-bold uppercase tracking-tight ${
                               productTrackLowStock
@@ -899,6 +951,76 @@ export default function MatrixHubGrid({
         message={`Set price for all ${filteredVariants.length} visible variants.`}
         type="numeric"
       />
+
+      {maintenanceTarget && (
+        <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+          <div className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300">
+            <div className="ui-modal-header flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className={`rounded-xl border p-2 ${maintenanceTarget.type === 'damaged' ? "border-red-500/20 bg-red-500/5" : "border-app-accent/20 bg-app-accent/5"}`}>
+                   <Printer className={maintenanceTarget.type === 'damaged' ? "text-red-500" : "text-app-accent"} size={22} />
+                </div>
+                <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">
+                  {maintenanceTarget.type === 'damaged' ? "Mark as Damaged" : "Return to Vendor"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={closeMaintenance}
+                className="ui-touch-target rounded-xl text-app-text-muted hover:bg-app-surface-2 hover:text-app-text transition-all"
+              >
+                <X size={20} />
+              </button>
+            </div>
+
+            <div className="ui-modal-body space-y-4 py-6">
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-app-text">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Target SKU</p>
+                <p className="mt-1 font-mono text-sm font-bold">{maintenanceTarget.sku}</p>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Quantity to Remove
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  value={maintenanceQty}
+                  onChange={(e) => setMaintenanceQty(e.target.value)}
+                  className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2.5 font-bold text-app-text outline-none ring-app-accent focus:ring-2"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Maintenance Note
+                </label>
+                <textarea
+                  rows={3}
+                  value={maintenanceNote}
+                  onChange={(e) => setMaintenanceNote(e.target.value)}
+                  placeholder={maintenanceTarget.type === 'damaged' ? "Describe damage (e.g. Broken zipper, stained lapel)" : "Reason for return (e.g. Vendor defect, surplus RTV)"}
+                  className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2.5 text-sm font-medium text-app-text outline-none ring-app-accent focus:ring-2"
+                />
+              </div>
+            </div>
+
+            <div className="ui-modal-footer flex gap-3">
+              <button type="button" onClick={closeMaintenance} className="ui-btn-secondary flex-1">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleMaintenanceSubmit}
+                className={`flex-1 rounded-xl border-b-4 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all active:translate-y-1 active:border-b-0 ${maintenanceTarget.type === 'damaged' ? "bg-red-600 border-red-800" : "bg-app-accent border-app-accent/80"}`}
+              >
+                Execute Adjustment
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -101,3 +101,21 @@ List data comes from **`GET /api/inventory/control-board`** (same handler as **`
 ## Suit / 3-piece component swaps (planned)
 
 Swapping **vest** or **pants** (or jacket) for another **SKU** on **one customer’s sale** (not editing the **product** in the catalog) — with correct **stock**, **line cost/retail**, and **QuickBooks inventory adjustments** — is a **separate** workflow from scanning, receiving, and physical counts. Requirements and QBO notes: **`docs/SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`** (see also **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`** §3.2).
+
+## Inventory Maintenance (Damage & RTV)
+
+The system provides robust tracking for damaged goods and returns to vendors (RTV).
+
+### 1. Damaged Goods
+- **Action**: Mark a SKU as damaged in the **Inventory Hub** (Matrix tab) or **Control Board** (Adjust modal).
+- **Requirement**: Staff must specify the quantity and a descriptive note (e.g., "Torn seam in transit").
+- **Effect**: `stock_on_hand` is decremented. An `inventory_transaction` of type `damaged` is logged with the unit cost and note.
+- **Financial Mapping**: Generates a daily journal entry debiting `INV_SHRINKAGE` and crediting `INV_ASSET`.
+
+### 2. Return to Vendor (RTV)
+- **Action**: Remove a SKU from stock for vendor return via the hub or control board.
+- **Requirement**: Quantity and reason for return.
+- **Effect**: `stock_on_hand` is decremented. An `inventory_transaction` of type `return_to_vendor` is logged.
+- **Financial Mapping**: Generates a daily journal entry debiting `INV_RTV_CLEARING` (asset clearing) and crediting `INV_ASSET`.
+
+Related: **`qbo_journal.rs`** daily aggregation, migration **117** ledger defaults.

@@ -76,4 +76,4 @@
 - [../CUSTOMERS_LIGHTSPEED_REFERENCE.md](../CUSTOMERS_LIGHTSPEED_REFERENCE.md)
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 
-**Last reviewed:** 2026-04-05
+**Last reviewed:** 2026-04-09 (Joint accounts added)

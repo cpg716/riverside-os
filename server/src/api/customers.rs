@@ -358,7 +358,7 @@ pub struct CustomerHubStats {
     pub loyalty_points: i32,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, FromRow)]
 pub struct CoupleMemberPreview {
     pub id: Uuid,
     pub first_name: String,
@@ -2310,6 +2310,7 @@ async fn get_customer_hub(
             last_activity_at: hub.last_activity_at,
             days_since_last_visit: days_since_last_visit(hub.last_activity_at),
             marketing_needs_attention,
+            loyalty_points: hub.loyalty_points,
         },
         customer: row,
         profile_complete,
@@ -2393,8 +2394,8 @@ async fn post_couple_create(
             marketing_email_opt_in: m_email,
             marketing_sms_opt_in: m_sms,
             transactional_sms_opt_in: t_sms,
-            transactional_email_opt_in: Some(t_email),
-            podium_conversation_url: None,
+            transactional_email_opt_in: t_email,
+            customer_created_source: crate::logic::customers::CustomerCreatedSource::Store,
         },
     )
     .await

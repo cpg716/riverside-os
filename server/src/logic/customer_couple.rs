@@ -45,7 +45,7 @@ pub async fn link_couple(
     .bind(primary_id)
     .fetch_optional(&mut *tx)
     .await?
-    .map(|r: (Option<Uuid>,)| (r.0, None))
+    .map(|r: (Option<Uuid>,)| (r.0, None::<Uuid>))
     .zip(
         sqlx::query_as("SELECT couple_id FROM customers WHERE id = $1")
             .bind(secondary_id)
