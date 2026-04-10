@@ -95,7 +95,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
     } catch (err) {
       console.error("Failed to fetch podium settings", err);
     }
-  }, [baseUrl]);
+  }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
     void fetchPodiumSmsSettings();
@@ -207,13 +207,13 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                 { key: 'email_send_enabled', label: "Email Active" },
               ].map(toggle => (
                 <label key={toggle.key} className="flex items-center gap-2 cursor-pointer group">
-                   <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${(podiumSms as any)[toggle.key] ? 'bg-violet-600 border-violet-600 text-white' : 'border-app-border group-hover:border-violet-600'}`}>
-                      {(podiumSms as any)[toggle.key] && <CheckCircle2 size={10} />}
+                   <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms[toggle.key as keyof PodiumSmsConfig] ? 'bg-violet-600 border-violet-600 text-white' : 'border-app-border group-hover:border-violet-600'}`}>
+                      {podiumSms[toggle.key as keyof PodiumSmsConfig] && <CheckCircle2 size={10} />}
                    </div>
                    <input 
                      type="checkbox" 
                      className="sr-only" 
-                     checked={(podiumSms as any)[toggle.key]} 
+                     checked={!!podiumSms[toggle.key as keyof PodiumSmsConfig]} 
                      onChange={e => setPodiumSms({...podiumSms, [toggle.key]: e.target.checked})} 
                    />
                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text">{toggle.label}</span>
@@ -264,12 +264,12 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                               ...podiumSms, 
                               email_templates: {
                                 ...podiumSms.email_templates, 
-                                [block.subjectKey]: (PODIUM_EMAIL_TEMPLATE_DEFAULTS as any)[block.subjectKey],
-                                [block.htmlKey]: (PODIUM_EMAIL_TEMPLATE_DEFAULTS as any)[block.htmlKey]
+                                [block.subjectKey]: PODIUM_EMAIL_TEMPLATE_DEFAULTS[block.subjectKey as keyof typeof PODIUM_EMAIL_TEMPLATE_DEFAULTS],
+                                [block.htmlKey]: PODIUM_EMAIL_TEMPLATE_DEFAULTS[block.htmlKey as keyof typeof PODIUM_EMAIL_TEMPLATE_DEFAULTS]
                               }
-                            })}
-                            className="text-[8px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
-                         >
+                             })}
+                           className="text-[8px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text"
+                        >
                            Reset Block
                          </button>
                       </div>

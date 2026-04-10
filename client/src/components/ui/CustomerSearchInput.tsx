@@ -59,7 +59,7 @@ export default function CustomerSearchInput({
     } finally {
       setLoading(false);
     }
-  }, [baseUrl, backofficeHeaders]);
+  }, [baseUrl, backofficeHeaders, excludeCustomerId]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);

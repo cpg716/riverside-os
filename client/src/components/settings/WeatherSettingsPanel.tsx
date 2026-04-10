@@ -34,7 +34,7 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
     } catch (err) {
       console.error("Failed to fetch weather config", err);
     }
-  }, [baseUrl]);
+  }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
     void fetchWeatherConfig();

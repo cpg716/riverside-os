@@ -169,8 +169,8 @@ export default function SettingsWorkspace({
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (res.ok) setBackupCfg((await res.json()) as BackupSettings);
-    } catch (e) {
-      console.error("Failed to fetch backup settings", e);
+    } catch (err) {
+      console.error("Failed to fetch backup settings", err);
     }
   }, [baseUrl, backofficeHeaders]);
 
@@ -476,8 +476,8 @@ export default function SettingsWorkspace({
     setTimeout(() => setSaved(false), 2000);
   };
 
-    const groups = useMemo(() => {
-    const base: { title: string; id: string; items: { id: string; label: string; icon: any; permission?: string }[] }[] = [
+  const groups = useMemo(() => {
+    const base: { title: string; id: string; items: { id: string; label: string; icon: React.ElementType; permission?: string }[] }[] = [
       {
         title: "User",
         id: "user",
@@ -521,7 +521,7 @@ export default function SettingsWorkspace({
 
     return base.map(group => ({
       ...group,
-      items: group.items.filter(item => !item.permission || hasPermission(item.permission as any))
+      items: group.items.filter(item => !item.permission || hasPermission(item.permission))
     })).filter(group => group.items.length > 0);
   }, [hasPermission]);
 
