@@ -17,7 +17,6 @@ export interface Appointment {
   datetime: string;
   status: string;
   type?: string;
-  customer_name?: string | null; // Align with back-end if possible, or mapping
   customerName?: string | null;
   phone?: string | null;
   salesperson?: string | null;
@@ -25,6 +24,8 @@ export interface Appointment {
   partyId?: string | null;
   memberId?: string | null;
   customerId?: string | null;
+  customer_display_name?: string | null;
+  appointment_type?: string | null;
 }
 
 interface SchedulerWorkspaceProps {

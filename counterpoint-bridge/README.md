@@ -36,6 +36,8 @@ npm install
 npm start
 ```
 
+The **Bridge Command Center** UI is available at `http://localhost:3002` during development.
+
 ## Windows folder (operators)
 
 1. From repo root: `./scripts/package-counterpoint-bridge.sh` → **`counterpoint-bridge-for-windows.zip`** (no `node_modules` inside; includes **`env.example`** as a Windows-friendly duplicate of **`.env.example`** plus **`PACKAGE_README.txt`**).

@@ -43,6 +43,7 @@ export interface CoupleMemberPreview {
   first_name: string;
   last_name: string;
   email: string | null;
+  phone: string | null;
 }
 
 export interface CustomerHubData extends CustomerProfile {
@@ -280,6 +281,7 @@ export default function CustomerRelationshipHubDrawer({
     email: "",
     phone: "",
   });
+  const [duplicateEnqueueBusy, setDuplicateEnqueueBusy] = useState(false);
 
   useEffect(() => {
     if (!hub) return;
@@ -342,7 +344,12 @@ export default function CustomerRelationshipHubDrawer({
               !profile.marketing_email_opt_in &&
               !profile.marketing_sms_opt_in &&
               !(profile.transactional_sms_opt_in ?? false),
+            loyalty_points: 0,
           },
+          partner: null,
+          couple_id: null,
+          couple_primary_id: null,
+          couple_linked_at: null,
         });
       }
     } catch (e: unknown) {
@@ -1353,7 +1360,8 @@ export default function CustomerRelationshipHubDrawer({
                             id: p.id,
                             first_name: p.first_name,
                             last_name: p.last_name,
-                            email: p.email ?? undefined,
+                            email: p.email,
+                            phone: p.phone,
                             customer_code: "",
                             wedding_active: false,
                           };
@@ -1419,8 +1427,6 @@ export default function CustomerRelationshipHubDrawer({
                       ) : showCouplePicker ? (
                         <div className="space-y-3">
                           <CustomerSearchInput
-                            baseUrl={baseUrl}
-                            headers={apiAuth()}
                             onSelect={linkCouple}
                             placeholder="Type name or email..."
                             autoFocus
@@ -2032,6 +2038,7 @@ export default function CustomerRelationshipHubDrawer({
                       onSelect={enqueueDuplicateReviewPair}
                       placeholder="Search for twin record by name or code…"
                       className="w-full"
+                      disabled={duplicateEnqueueBusy}
                     />
                   </div>
                 </section>

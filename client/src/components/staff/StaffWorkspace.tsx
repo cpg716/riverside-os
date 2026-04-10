@@ -354,38 +354,7 @@ export default function StaffWorkspace({
     }
   };
 
-  const linkCustomerByCode = async () => {
-    const code = editCustomerCodeLookup.trim();
-    if (!code) {
-      setLoadErr("Enter a customer code to link.");
-      return;
-    }
-    setBusy(true);
-    setLoadErr(null);
-    try {
-      const u = new URL(`${baseUrl}/api/customers/browse`);
-      u.searchParams.set("q", code);
-      u.searchParams.set("limit", "20");
-      u.searchParams.set("offset", "0");
-      const res = await fetch(u.toString(), { headers: backofficeHeaders() });
-      if (!res.ok) throw new Error("Customer search failed");
-      const rows = (await res.json()) as { customer_code?: string; id?: string }[];
-      if (!Array.isArray(rows) || rows.length === 0) {
-        throw new Error("No customer matched that search.");
-      }
-      const exact =
-        rows.find((r) => String(r.customer_code ?? "").trim().toUpperCase() === code.toUpperCase()) ??
-        rows[0];
-      if (!exact?.id) throw new Error("Could not resolve customer.");
-      setEditEmployeeCustomerId(exact.id);
-      setEditDetachEmployeeCustomer(false);
-      setEditCustomerCodeLookup(String(exact.customer_code ?? code));
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : "Link failed");
-    } finally {
-      setBusy(false);
-    }
-  };
+
 
   const openEdit = (r: HubRow) => {
     setEditRow(r);
@@ -1018,7 +987,7 @@ export default function StaffWorkspace({
                     onSelect={(c) => {
                       setEditEmployeeCustomerId(c.id);
                       setEditDetachEmployeeCustomer(false);
-                      setEditCustomerCodeLookup(c.customer_code);
+                      setEditCustomerCodeLookup(c.customer_code ?? "");
                     }}
                     placeholder="Search customer to link…"
                     className="w-full"

@@ -170,10 +170,6 @@ Compose **`db`** is **PostgreSQL**; optional service **`meilisearch`** supports 
 
 See [**`docs/ORBSTACK_GUIDE.md`**](docs/ORBSTACK_GUIDE.md) for full context sync and locking.
 
-### Initial Setup
-
-```bash
-# From repository root
 docker compose up -d
 
 # Apply all pending migrations in order (recommended)

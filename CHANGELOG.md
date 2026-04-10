@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2026-04-10
+
+### Added
+- **Unified Startup Script**: Created root-level **`START_ON_MAC.sh`** to orchestrate Docker context switching, container checks, and simultaneous launch of API, UI, and Counterpoint Bridge.
+- **Bridge Integrated Into Dev Loop**: Added `dev:bridge` script to root `package.json`, allowing the sync engine to run concurrently with the API and UI in a single terminal session.
+
+### Fixed
+- **Bridge ↔ Metabase Port Conflict**: Resolved a critical port collision where both Metabase (Docker) and the Bridge Engine defaults conflicted on port 3001. Moved Bridge Command Center to port **3002**.
+- **Bridge Commander CORS/Security**: Reconfigured the dashboard to open via HTTP (`http://localhost:3002`) instead of `file://` to resolve browser-enforced security blocks on synchronization requests.
+- **Process Hygiene**: Implemented automatic cleanup of hanging server/Vite processes in the startup script to prevent `PoolTimedOut` and `EADDRINUSE` errors.
+
 ## [0.1.5] - 2026-04-10
 
 ### Added

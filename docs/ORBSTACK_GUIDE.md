@@ -58,12 +58,31 @@ When switching engines, it is best practice to treat it as a fresh install rathe
    ./scripts/apply-migrations-docker.sh
    ```
 
-## 4. Performance Benefits for ROS
+## 4. Unified Startup (`START_ON_MAC.sh`)
+To streamline the developer experience on Mac, use the root startup script. It handles the context check, container health, and launches the API, UI, and Bridge simultaneously.
+
+```bash
+./START_ON_MAC.sh
+```
+
+This script also opens the **Bridge Command Center** at `http://localhost:3002`.
+
+## 5. Port Mapping Reference
+| Service | Port | Notes |
+| --- | --- | --- |
+| Riverside API | `3000` | Main Axum server |
+| Riverside UI | `5173` | Vite dev server |
+| Metabase | `3001` | Reporting dashboard |
+| **Bridge Engine** | **`3002`** | Counterpoint Bridge (Moved from 3001 to avoid Metabase conflict) |
+| PostgreSQL | `5433` | Database (Mapped from 5432) |
+| Meilisearch | `7700` | Search engine |
+
+## 6. Performance Benefits for ROS
 - **VirtioFS**: File syncing between your Mac and containers (like `riverside_pgdata`) is significantly faster, reducing latency in the POS and CRM.
 - **M3 Pro Optimization**: Native support for Apple Silicon instructions.
 - **Network Efficiency**: Faster container startup and image pulls.
 
-## 5. Cleaning Up
+## 7. Cleaning Up
 Once you are confident in the switch:
 - Quit Docker Desktop.
 - Disable "Start Docker Desktop when you log in".

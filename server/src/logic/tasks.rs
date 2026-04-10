@@ -497,7 +497,7 @@ pub async fn list_task_history(
     offset: i64,
 ) -> Result<Vec<TaskHistoryRow>, TaskError> {
     let mut search_ids: Option<Vec<Uuid>> = None;
-    if let (Some(m), Some(ref q)) = (meili, search_text.as_ref()) {
+    if let (Some(m), Some(q)) = (meili, search_text.as_ref()) {
         if let Ok(ids) = crate::logic::meilisearch_search::task_search_ids(m, q).await {
             search_ids = Some(ids);
         }

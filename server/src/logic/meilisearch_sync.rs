@@ -924,15 +924,15 @@ pub async fn reindex_all_meilisearch(
             let s = row.status.as_deref().unwrap_or_default().to_lowercase();
             let status_open = s == "open" || s == "pending_measurement";
             let search_text = format!(
-                "{:?} {} {} {} {}",
+                "{} {} {} {} {}",
                 row.id,
                 row.customer_first.as_deref().unwrap_or(""),
                 row.customer_last.as_deref().unwrap_or(""),
                 row.party_name.as_deref().unwrap_or(""),
-                row.salesperson
+                row.salesperson.as_deref().unwrap_or("")
             );
             o_batch.push(OrderDoc {
-                id: row.id.map(|u| u.to_string()).unwrap_or_default(),
+                id: row.id.to_string(),
                 status_open,
                 search_text,
             });
@@ -1072,11 +1072,11 @@ pub async fn reindex_all_meilisearch(
         if let Ok(row) = res {
             let search_text = format!(
                 "{} {}",
-                row.title.as_deref().unwrap_or(""),
-                row.assignee_name
+                row.title,
+                row.assignee_name.as_deref().unwrap_or("")
             );
             task_batch.push(TaskDoc {
-                id: row.id.map(|u| u.to_string()).unwrap_or_default(),
+                id: row.id.to_string(),
                 status: row.status.clone().unwrap_or_else(|| "open".to_string()),
                 assignee_id: None,
                 search_text,

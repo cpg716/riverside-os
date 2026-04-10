@@ -8,7 +8,8 @@ import {
   loyaltyEligibleDisplayName,
   type LoyaltySettings,
 } from "./LoyaltyLogic";
-import CustomerSearchInput from "../customers/CustomerSearchInput";
+import type { Customer } from "../pos/CustomerSelector";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -159,7 +160,7 @@ function AdjustPanel() {
       <div className="space-y-1">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Select Customer</span>
         <CustomerSearchInput 
-          onSelect={(c) => {
+          onSelect={(c: Customer) => {
             setCustomerId(c.id);
             setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
           }}

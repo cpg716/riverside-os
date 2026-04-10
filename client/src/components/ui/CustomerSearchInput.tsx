@@ -9,6 +9,10 @@ interface CustomerSearchInputProps {
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
+  excludeCustomerId?: string;
+  initialValue?: string;
+  defaultValue?: string;
+  disabled?: boolean;
 }
 
 export default function CustomerSearchInput({
@@ -16,11 +20,16 @@ export default function CustomerSearchInput({
   placeholder = "Search customers by name, phone, email…",
   className = "",
   autoFocus = false,
+  excludeCustomerId,
+  initialValue = "",
+  defaultValue,
+  disabled,
 }: CustomerSearchInputProps) {
+  const effectiveInitial = defaultValue ?? initialValue;
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
   
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(effectiveInitial);
   const [results, setResults] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
@@ -40,7 +49,10 @@ export default function CustomerSearchInput({
       );
       if (res.ok) {
         const data = await res.json() as Customer[];
-        setResults(Array.isArray(data) ? data : []);
+        const filtered = Array.isArray(data) 
+          ? (excludeCustomerId ? data.filter(c => c.id !== excludeCustomerId) : data)
+          : [];
+        setResults(filtered);
       }
     } catch (err) {
       console.error("Customer search failed", err);
@@ -88,7 +100,8 @@ export default function CustomerSearchInput({
           placeholder={placeholder}
           autoFocus={autoFocus}
           onFocus={() => query.trim() && setIsOpen(true)}
-          className="ui-input w-full pl-10 pr-4 py-2 text-sm"
+          disabled={disabled}
+          className="ui-input w-full pl-10 pr-4 py-2 text-sm disabled:opacity-50"
         />
       </div>
 

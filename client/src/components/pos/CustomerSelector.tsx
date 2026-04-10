@@ -19,6 +19,7 @@ export interface Customer {
   wedding_party_name?: string | null;
   wedding_party_id?: string | null;
   couple_id?: string | null;
+  wedding_member_id?: string | null;
 }
 
 interface CustomerSelectorProps {

@@ -69,6 +69,7 @@ pub fn control_board_meili_filter_parts(
 }
 
 /// Returns variant IDs matching the text query and Meilisearch-expressible filters (cap applied server-side).
+#[allow(clippy::too_many_arguments)]
 pub async fn control_board_search_variant_ids(
     client: &Client,
     query_text: &str,

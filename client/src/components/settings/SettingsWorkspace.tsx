@@ -1,13 +1,8 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
-import { Database, Save, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Link, Info, User, ClipboardList, MessageSquare, BarChart3, CreditCard, ArrowUpRight, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug } from "lucide-react";
+import { Database, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Info, User, ClipboardList, MessageSquare, BarChart3, CreditCard, ArrowUpRight, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug, Save } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { readPersistedBackofficeSession } from "../../lib/backofficeSessionPersistence";
-import {
-  getPodiumOAuthRedirectUri,
-  PODIUM_OAUTH_REDIRECT_STORAGE_KEY,
-  PODIUM_OAUTH_STATE_STORAGE_KEY,
-} from "../../lib/podiumOAuth";
+
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import StaffAvatarPicker from "../staff/StaffAvatarPicker";
@@ -58,139 +53,18 @@ interface BackupFile {
   created_at: string;
 }
 
+
+
+
+
+type ThemeMode = "light" | "dark" | "system";
+
 interface DbStats {
   database_size: string;
   table_count: number;
 }
 
-interface WeatherSettings {
-  enabled: boolean;
-  location: string;
-  unit_group: string;
-  timezone: string;
-  api_key_configured: boolean;
-  provider: string;
-}
 
-/** Matches `GET /api/settings/podium-sms` (flattened `settings` + meta). */
-interface PodiumEmailTemplatesApi {
-  ready_for_pickup_subject: string;
-  ready_for_pickup_html: string;
-  alteration_ready_subject: string;
-  alteration_ready_html: string;
-  appointment_confirmation_subject: string;
-  appointment_confirmation_html: string;
-  loyalty_reward_redeemed_subject: string;
-  loyalty_reward_redeemed_html: string;
-}
-
-/** Flattened with `settings` from `GET /api/settings/podium-sms`. */
-interface PodiumSmsSettingsApi {
-  sms_send_enabled: boolean;
-  email_send_enabled: boolean;
-  location_uid: string;
-  widget_embed_enabled: boolean;
-  widget_snippet_html: string;
-  templates: {
-    ready_for_pickup: string;
-    alteration_ready: string;
-    unknown_sender_welcome: string;
-    loyalty_reward_redeemed: string;
-  };
-  email_templates: PodiumEmailTemplatesApi;
-  templates_effective: {
-    ready_for_pickup: string;
-    alteration_ready: string;
-    unknown_sender_welcome: string;
-    loyalty_reward_redeemed: string;
-  };
-  email_templates_effective: PodiumEmailTemplatesApi;
-  credentials_configured: boolean;
-  oauth_authorize_url: string;
-  oauth_token_url_hint: string;
-}
-
-/** `GET /api/settings/podium-sms/readiness` — no live Podium calls. */
-interface PodiumSmsReadinessApi {
-  credentials_configured: boolean;
-  webhook_secret_configured: boolean;
-  allow_unsigned_webhook: boolean;
-  inbound_inbox_preview_enabled: boolean;
-  api_base: string;
-  sms_send_enabled: boolean;
-  email_send_enabled: boolean;
-  location_uid_configured: boolean;
-  widget_embed_enabled: boolean;
-}
-
-const PODIUM_TEMPLATE_DEFAULTS = {
-  ready_for_pickup:
-    "Hi {first_name}, your Riverside order ({order_ref}) is ready for pickup! See you soon.",
-  alteration_ready:
-    "Hi {first_name}, your alteration ({alteration_ref}) is ready at Riverside. See you soon.",
-  unknown_sender_welcome:
-    "Thank you for contacting Riverside Men's Shop. Please reply with your first and last name and someone will be with you as soon as possible during regular business hours. Thank you.",
-  loyalty_reward_redeemed:
-    "Hi {first_name}, your ${reward_amount} Riverside loyalty reward is processed. {reward_breakdown} Your balance is now {new_balance} points. We may also mail a physical card. Thank you!",
-} as const;
-
-const PODIUM_EMAIL_TEMPLATE_DEFAULTS: PodiumEmailTemplatesApi = {
-  ready_for_pickup_subject: "Your Riverside order is ready",
-  ready_for_pickup_html:
-    "<p>Hi {first_name},</p><p>Your Riverside order <b>{order_ref}</b> is ready for pickup. See you soon.</p>",
-  alteration_ready_subject: "Your alteration is ready",
-  alteration_ready_html:
-    "<p>Hi {first_name},</p><p>Your alteration <b>{alteration_ref}</b> is ready at Riverside. See you soon.</p>",
-  appointment_confirmation_subject: "Appointment confirmed — Riverside",
-  appointment_confirmation_html:
-    "<p>Hi {first_name},</p><p>Your <b>{appointment_type}</b> appointment is scheduled for <b>{starts_at}</b>.</p>{notes_block}",
-  loyalty_reward_redeemed_subject: "Your Riverside loyalty reward",
-  loyalty_reward_redeemed_html:
-    "<p>Hi {first_name},</p><p>We have processed your <b>${reward_amount}</b> loyalty reward.</p>{reward_breakdown_html}<p>Your loyalty balance is now <b>{new_balance}</b> points.</p><p>We may also mail a physical gift card when applicable.</p><p>Thank you for shopping with us.</p>",
-};
-
-const PODIUM_EMAIL_UI_BLOCKS: {
-  label: string;
-  subjectKey: keyof PodiumEmailTemplatesApi;
-  htmlKey: keyof PodiumEmailTemplatesApi;
-}[] = [
-  {
-    label: "Ready for pickup",
-    subjectKey: "ready_for_pickup_subject",
-    htmlKey: "ready_for_pickup_html",
-  },
-  {
-    label: "Alteration ready",
-    subjectKey: "alteration_ready_subject",
-    htmlKey: "alteration_ready_html",
-  },
-  {
-    label: "Appointment confirmation",
-    subjectKey: "appointment_confirmation_subject",
-    htmlKey: "appointment_confirmation_html",
-  },
-  {
-    label: "Loyalty reward (at redemption)",
-    subjectKey: "loyalty_reward_redeemed_subject",
-    htmlKey: "loyalty_reward_redeemed_html",
-  },
-];
-
-type ThemeMode = "light" | "dark" | "system";
-
-interface MeilisearchSyncRow {
-  index_name: string;
-  last_success_at: string | null;
-  last_attempt_at: string;
-  is_success: boolean;
-  row_count: number;
-  error_message: string | null;
-}
-
-interface MeilisearchStatusResponse {
-  configured: boolean;
-  indices: MeilisearchSyncRow[];
-}
 
 interface SettingsWorkspaceProps {
   themeMode: ThemeMode;
@@ -252,12 +126,6 @@ export default function SettingsWorkspace({
     else if (s === "receipt-builder") setActiveTab("receipt-builder");
     else if (s === "nuorder") setActiveTab("nuorder");
   }, [settingsActiveSection]);
-  const [weatherCfg, setWeatherCfg] = useState<WeatherSettings | null>(null);
-  const [weatherApiKeyDraft, setWeatherApiKeyDraft] = useState("");
-  const [podiumSms, setPodiumSms] = useState<PodiumSmsSettingsApi | null>(null);
-  const [podiumReadiness, setPodiumReadiness] = useState<PodiumSmsReadinessApi | null>(
-    null,
-  );
   const [staffSopMarkdown, setStaffSopMarkdown] = useState("");
   const [staffSopLoaded, setStaffSopLoaded] = useState(false);
   const [staffSopBusy, setStaffSopBusy] = useState(false);
@@ -306,105 +174,7 @@ export default function SettingsWorkspace({
     }
   }, [baseUrl, backofficeHeaders]);
 
-  const fetchWeatherSettings = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/weather`, {
-        headers: backofficeHeaders(),
-      });
-      if (res.ok) {
-        setWeatherCfg((await res.json()) as WeatherSettings);
-        setWeatherApiKeyDraft("");
-      }
-    } catch (e) {
-      console.error("Failed to fetch weather settings", e);
-    }
-  }, [baseUrl, backofficeHeaders]);
 
-  const fetchPodiumSmsSettings = useCallback(async () => {
-    try {
-      const [smsRes, readyRes] = await Promise.all([
-        fetch(`${baseUrl}/api/settings/podium-sms`, {
-          headers: backofficeHeaders() as Record<string, string>,
-        }),
-        fetch(`${baseUrl}/api/settings/podium-sms/readiness`, {
-          headers: backofficeHeaders() as Record<string, string>,
-        }),
-      ]);
-      if (smsRes.ok) {
-        const j = (await smsRes.json()) as Partial<PodiumSmsSettingsApi>;
-        setPodiumSms({
-          ...j,
-          sms_send_enabled: j.sms_send_enabled ?? false,
-          email_send_enabled: j.email_send_enabled ?? false,
-          location_uid: j.location_uid ?? "",
-          widget_embed_enabled: j.widget_embed_enabled ?? false,
-          widget_snippet_html: j.widget_snippet_html ?? "",
-          templates: {
-            ready_for_pickup:
-              j.templates?.ready_for_pickup ??
-              PODIUM_TEMPLATE_DEFAULTS.ready_for_pickup,
-            alteration_ready:
-              j.templates?.alteration_ready ??
-              PODIUM_TEMPLATE_DEFAULTS.alteration_ready,
-            unknown_sender_welcome:
-              j.templates?.unknown_sender_welcome ??
-              PODIUM_TEMPLATE_DEFAULTS.unknown_sender_welcome,
-            loyalty_reward_redeemed:
-              j.templates?.loyalty_reward_redeemed ??
-              PODIUM_TEMPLATE_DEFAULTS.loyalty_reward_redeemed,
-          },
-          email_templates: {
-            ...PODIUM_EMAIL_TEMPLATE_DEFAULTS,
-            ...(j.email_templates ?? {}),
-          },
-          templates_effective: {
-            ready_for_pickup:
-              j.templates_effective?.ready_for_pickup ??
-              PODIUM_TEMPLATE_DEFAULTS.ready_for_pickup,
-            alteration_ready:
-              j.templates_effective?.alteration_ready ??
-              PODIUM_TEMPLATE_DEFAULTS.alteration_ready,
-            unknown_sender_welcome:
-              j.templates_effective?.unknown_sender_welcome ??
-              PODIUM_TEMPLATE_DEFAULTS.unknown_sender_welcome,
-            loyalty_reward_redeemed:
-              j.templates_effective?.loyalty_reward_redeemed ??
-              PODIUM_TEMPLATE_DEFAULTS.loyalty_reward_redeemed,
-          },
-          email_templates_effective: {
-            ...PODIUM_EMAIL_TEMPLATE_DEFAULTS,
-            ...(j.email_templates_effective ?? {}),
-          },
-          credentials_configured: j.credentials_configured ?? false,
-          oauth_authorize_url: j.oauth_authorize_url ?? "",
-          oauth_token_url_hint: j.oauth_token_url_hint ?? "",
-        });
-      } else {
-        setPodiumSms(null);
-      }
-      if (readyRes.ok) {
-        const r = (await readyRes.json()) as Partial<PodiumSmsReadinessApi>;
-        setPodiumReadiness({
-          ...r,
-          credentials_configured: r.credentials_configured ?? false,
-          webhook_secret_configured: r.webhook_secret_configured ?? false,
-          allow_unsigned_webhook: r.allow_unsigned_webhook ?? false,
-          inbound_inbox_preview_enabled: r.inbound_inbox_preview_enabled ?? false,
-          api_base: r.api_base ?? "",
-          sms_send_enabled: r.sms_send_enabled ?? false,
-          email_send_enabled: r.email_send_enabled ?? false,
-          location_uid_configured: r.location_uid_configured ?? false,
-          widget_embed_enabled: r.widget_embed_enabled ?? false,
-        });
-      } else {
-        setPodiumReadiness(null);
-      }
-    } catch (e) {
-      console.error("Failed to fetch Podium SMS settings", e);
-      setPodiumSms(null);
-      setPodiumReadiness(null);
-    }
-  }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
     void (async () => {
@@ -418,9 +188,7 @@ export default function SettingsWorkspace({
     void fetchBackups();
     void fetchStats();
     void fetchBackupSettings();
-    void fetchWeatherSettings();
-    void fetchPodiumSmsSettings();
-  }, [baseUrl, backofficeHeaders, fetchBackups, fetchStats, fetchBackupSettings, fetchWeatherSettings, fetchPodiumSmsSettings]);
+  }, [baseUrl, backofficeHeaders, fetchBackups, fetchStats, fetchBackupSettings]);
 
   useEffect(() => {
     if (activeTab !== "general") return;
@@ -556,142 +324,7 @@ export default function SettingsWorkspace({
     }
   };
 
-  const saveWeatherSettings = async () => {
-    if (!weatherCfg) return;
-    setBusy(true);
-    setSaved(false);
-    try {
-      const body: Record<string, unknown> = {
-        enabled: weatherCfg.enabled,
-        location: weatherCfg.location.trim(),
-        unit_group: weatherCfg.unit_group,
-        timezone: weatherCfg.timezone.trim(),
-      };
-      if (weatherApiKeyDraft.trim()) {
-        body.api_key = weatherApiKeyDraft.trim();
-      }
-      const res = await fetch(`${baseUrl}/api/settings/weather`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) {
-        setWeatherCfg((await res.json()) as WeatherSettings);
-        setWeatherApiKeyDraft("");
-        setSaved(true);
-        toast("Weather integration saved", "success");
-      } else {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Could not save weather settings", "error");
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
 
-  const startPodiumOAuthConnect = async () => {
-    const sess = readPersistedBackofficeSession();
-    if (!sess?.staffCode) {
-      toast("Sign in to Back Office in this browser tab, then try again.", "error");
-      return;
-    }
-    const state = crypto.randomUUID();
-    try {
-      sessionStorage.setItem(PODIUM_OAUTH_STATE_STORAGE_KEY, state);
-    } catch {
-      toast("Could not store OAuth state. Check browser storage permissions.", "error");
-      return;
-    }
-    const redirectUri = getPodiumOAuthRedirectUri();
-    if (!redirectUri) {
-      toast("Could not build callback URL.", "error");
-      return;
-    }
-    try {
-      sessionStorage.setItem(PODIUM_OAUTH_REDIRECT_STORAGE_KEY, redirectUri);
-    } catch {
-      toast("Could not store OAuth redirect URI.", "error");
-      return;
-    }
-    const params = new URLSearchParams({ redirect_uri: redirectUri, state });
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/settings/podium-oauth/authorize-url?${params}`,
-        { headers: backofficeHeaders() as Record<string, string> },
-      );
-      const j = (await res.json()) as { authorize_url?: string; error?: string };
-      if (!res.ok) {
-        toast(j.error ?? "Could not start Podium OAuth", "error");
-        return;
-      }
-      if (!j.authorize_url) {
-        toast("Invalid response from server", "error");
-        return;
-      }
-      window.location.href = j.authorize_url;
-    } catch (e) {
-      console.error(e);
-      toast("Network error starting Podium OAuth", "error");
-    }
-  };
-
-  const savePodiumSmsSettings = async () => {
-    if (!podiumSms) return;
-    setBusy(true);
-    setSaved(false);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/podium-sms`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({
-          sms_send_enabled: podiumSms.sms_send_enabled,
-          email_send_enabled: podiumSms.email_send_enabled,
-          location_uid: podiumSms.location_uid.trim(),
-          widget_embed_enabled: podiumSms.widget_embed_enabled,
-          widget_snippet_html: podiumSms.widget_snippet_html,
-          templates: podiumSms.templates,
-          email_templates: podiumSms.email_templates,
-        }),
-      });
-      if (res.ok) {
-        await fetchPodiumSmsSettings();
-        setSaved(true);
-        toast("Podium / SMS settings saved", "success");
-      } else {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Could not save Podium settings", "error");
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const clearWeatherApiKey = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/weather`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({ api_key: null }),
-      });
-      if (res.ok) {
-        setWeatherCfg((await res.json()) as WeatherSettings);
-        setWeatherApiKeyDraft("");
-        toast("API key cleared", "success");
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const handleCreateBackup = async () => {
     setBackupBusy(true);

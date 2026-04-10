@@ -1,7 +1,7 @@
 {
   "name": "riverside-os",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Root scripts only; app code lives in server/ and client/",
   "scripts": {
     "bump": "node scripts/bump-version.mjs",
@@ -9,10 +9,11 @@
     "generate:help:components": "cd client && npm run generate:help:components",
     "generate:help:components:rescan": "cd client && npm run generate:help:components:rescan",
     "check:server": "bash scripts/cargo-server.sh check",
-    "dev": "concurrently -k -n api,ui -c blue,magenta \"npm run dev:server\" \"npm run dev:client:wait\"",
+    "dev": "concurrently -k -n api,ui,bridge -c blue,magenta,green \"npm run dev:server\" \"npm run dev:client:wait\" \"npm run dev:bridge\"",
     "dev:server": "bash scripts/dev-server.sh",
     "dev:client:wait": "wait-on -t 600000 tcp:127.0.0.1:3000 && npm run dev:client",
     "dev:client": "cd client && npm run dev",
+    "dev:bridge": "cd counterpoint-bridge && node index.mjs",
     "lint": "cd client && npm run lint",
     "docker:db": "docker compose up -d"
   },

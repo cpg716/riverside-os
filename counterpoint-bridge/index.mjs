@@ -127,8 +127,8 @@ const startLocalServer = () => {
             res.writeHead(404);
             res.end();
         }
-    }).listen(3001, '0.0.0.0', () => {
-        console.log("🌐 Bridge Command UI available at: http://localhost:3001");
+    }).listen(3002, '0.0.0.0', () => {
+        console.log("🌐 Bridge Command UI available at: http://localhost:3002");
     });
 };
 

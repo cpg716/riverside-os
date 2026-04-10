@@ -1,5 +1,5 @@
 import React from "react";
-import { RefreshCw, CheckCircle2, Info, ArrowUpRight } from "lucide-react";
+import { CheckCircle2, Info, ArrowUpRight } from "lucide-react";
 
 interface QuickBooksSettingsPanelProps {
   onOpenQbo: () => void;
