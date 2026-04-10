@@ -145,7 +145,9 @@ pub async fn try_accrue_for_order(
     }
 
     // Atomically bump customer balance and record ledger entry.
-    let effective_id = crate::logic::customer_couple::resolve_effective_customer_id_tx(&mut tx, customer_id).await?;
+    let effective_id =
+        crate::logic::customer_couple::resolve_effective_customer_id_tx(&mut tx, customer_id)
+            .await?;
 
     let balance_after: i32 = sqlx::query_scalar(
         r#"
@@ -241,7 +243,8 @@ pub async fn reverse_order_accrual_in_tx(
         return Ok(());
     }
 
-    let effective_id = crate::logic::customer_couple::resolve_effective_customer_id_tx(tx, customer_id).await?;
+    let effective_id =
+        crate::logic::customer_couple::resolve_effective_customer_id_tx(tx, customer_id).await?;
 
     let balance_after: i32 = sqlx::query_scalar(
         r#"
@@ -293,7 +296,8 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
         return Ok(());
     }
 
-    let effective_id = crate::logic::customer_couple::resolve_effective_customer_id_tx(tx, customer_id).await?;
+    let effective_id =
+        crate::logic::customer_couple::resolve_effective_customer_id_tx(tx, customer_id).await?;
 
     let balance_after: i32 = sqlx::query_scalar(
         r#"

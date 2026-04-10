@@ -13,7 +13,7 @@
     "dev:server": "bash scripts/dev-server.sh",
     "dev:client:wait": "wait-on -t 600000 tcp:127.0.0.1:3000 && npm run dev:client",
     "dev:client": "cd client && npm run dev",
-    "dev:bridge": "cd counterpoint-bridge && node index.mjs",
+    "dev:bridge": "wait-on -t 600000 tcp:127.0.0.1:3000 && cd counterpoint-bridge && node index.mjs",
     "lint": "cd client && npm run lint",
     "docker:db": "docker compose up -d"
   },

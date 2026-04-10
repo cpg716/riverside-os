@@ -15,9 +15,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    CUSTOMERS_DUPLICATE_REVIEW, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, CUSTOMERS_MEASUREMENTS,
-    CUSTOMERS_MERGE, CUSTOMERS_RMS_CHARGE, CUSTOMERS_TIMELINE, CUSTOMER_GROUPS_MANAGE, ORDERS_VIEW,
-    STORE_CREDIT_MANAGE, CUSTOMERS_COUPLE_MANAGE,
+    CUSTOMERS_COUPLE_MANAGE, CUSTOMERS_DUPLICATE_REVIEW, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW,
+    CUSTOMERS_MEASUREMENTS, CUSTOMERS_MERGE, CUSTOMERS_RMS_CHARGE, CUSTOMERS_TIMELINE,
+    CUSTOMER_GROUPS_MANAGE, ORDERS_VIEW, STORE_CREDIT_MANAGE,
 };
 use crate::logic::customer_duplicate_candidates::find_duplicate_candidates;
 use crate::logic::customer_hub::{days_since_last_visit, fetch_hub_stats};
@@ -2319,8 +2319,6 @@ async fn get_customer_hub(
     }))
 }
 
-
-
 #[derive(Debug, Deserialize)]
 pub struct CoupleLinkRequest {
     pub partner_id: Uuid,
@@ -2479,10 +2477,11 @@ async fn build_customer_timeline(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
 ) -> Result<Vec<CustomerTimelineEvent>, sqlx::Error> {
-    let couple_id: Option<Uuid> = sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
-        .bind(customer_id)
-        .fetch_one(pool)
-        .await?;
+    let couple_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_one(pool)
+            .await?;
 
     let orders = if let Some(cid) = couple_id {
         sqlx::query_as::<_, OrderTimelineRow>(

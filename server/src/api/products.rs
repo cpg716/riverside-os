@@ -2054,7 +2054,10 @@ async fn adjust_variant_stock(
     .await?;
 
     let (new_stock, unit_cost) = match row {
-        Some(r) => (r.stock_on_hand, r.cost_override.or(r.base_cost).unwrap_or_default()),
+        Some(r) => (
+            r.stock_on_hand,
+            r.cost_override.or(r.base_cost).unwrap_or_default(),
+        ),
         None => return Err(ProductError::VariantNotFound),
     };
 

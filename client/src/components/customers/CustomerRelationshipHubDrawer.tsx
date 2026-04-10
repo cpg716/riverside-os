@@ -1157,7 +1157,7 @@ export default function CustomerRelationshipHubDrawer({
           ) : null}
         </div>
       ) : tab === "shipments" ? (
-        <div className="flex min-h-0 min-h-[320px] flex-1 flex-col">
+        <div className="flex min-h-[320px] flex-1 flex-col">
           <ShipmentsHubSection
             baseUrl={baseUrl}
             customerIdFilter={customer.id}

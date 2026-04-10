@@ -1057,8 +1057,6 @@ async fn post_podium_oauth_exchange(
     })))
 }
 
-
-
 #[derive(Debug, Serialize, sqlx::FromRow)]
 pub struct MeilisearchSyncRow {
     pub index_name: String,

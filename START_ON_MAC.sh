@@ -29,9 +29,8 @@ echo "🧹 Cleaning up previous processes..."
 lsof -ti:3000,5173 | xargs kill -9 2>/dev/null || true
 
 # 5. Open Bridge Commander dashboard
-echo "📊 Opening Bridge Commander..."
-# Wait for bridge to start before opening
-(sleep 5 && open http://localhost:3002) &
+echo "📊 Waiting for Bridge Commander UI..."
+(npx wait-on -t 30000 tcp:127.0.0.1:3002 && open http://127.0.0.1:3002) &
 
 # 6. Start the app
 echo "🌟 Launching dev environment (API + UI + Bridge)..."

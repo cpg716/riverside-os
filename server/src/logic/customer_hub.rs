@@ -16,14 +16,15 @@ pub struct HubStats {
 
 pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStats, sqlx::Error> {
     // If the customer is in a couple, we sum the history for BOTH.
-    // However, if the user requested "Only 1 account keeps history as counted", 
+    // However, if the user requested "Only 1 account keeps history as counted",
     // it usually means we report from the primary's perspective.
     // If we're loading the secondary's profile, we still show the combined data.
-    
-    let couple_id: Option<Uuid> = sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
-        .bind(customer_id)
-        .fetch_one(pool)
-        .await?;
+
+    let couple_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_one(pool)
+            .await?;
 
     let lifetime_spend_usd: Decimal = if let Some(cid) = couple_id {
         sqlx::query_scalar(
@@ -108,7 +109,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
     };
 
     let last_activity_at: Option<DateTime<Utc>> = if let Some(cid) = couple_id {
-         sqlx::query_scalar(
+        sqlx::query_scalar(
             r#"
             SELECT MAX(ts) FROM (
                 SELECT MAX(booked_at) AS ts FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
@@ -173,18 +174,16 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
 
     let loyalty_points: i32 = if let Some(cid) = couple_id {
         sqlx::query_scalar(
-            "SELECT COALESCE(SUM(loyalty_points), 0)::INT FROM customers WHERE couple_id = $1"
+            "SELECT COALESCE(SUM(loyalty_points), 0)::INT FROM customers WHERE couple_id = $1",
         )
         .bind(cid)
         .fetch_one(pool)
         .await?
     } else {
-        sqlx::query_scalar(
-            "SELECT loyalty_points FROM customers WHERE id = $1"
-        )
-        .bind(customer_id)
-        .fetch_one(pool)
-        .await?
+        sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_one(pool)
+            .await?
     };
 
     Ok(HubStats {

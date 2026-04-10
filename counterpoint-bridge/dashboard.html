@@ -117,18 +117,15 @@
                     setBridgeStatus({ error: "Bridge disconnected" });
                 }
 
-                if (syncToken) {
-                    try {
-                        const res = await fetch(`${ROS_API}/api/settings/counterpoint-sync/status`, {
-                            headers: { 'x-ros-sync-token': syncToken }
-                        });
-                        if (res.ok) {
-                            const data = await res.json();
-                            setRosStatus(data);
-                        }
-                    } catch (err) { }
-                }
-            }, [syncToken]);
+                try {
+                    // Use Bridge Proxy to check Riverside status
+                    const res = await fetch(`${BRIDGE_API}/api/proxy/ros?path=/api/settings/counterpoint-sync/status`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        setRosStatus(data);
+                    }
+                } catch (err) { }
+            }, []);
 
             useEffect(() => {
                 fetchData();
@@ -175,12 +172,11 @@
 
             const triggerSyncAll = async () => {
                 try {
-                    const res = await fetch(`${ROS_API}/api/settings/counterpoint-sync/request-run`, {
+                    // Use Bridge Proxy to trigger full sync
+                    const res = await fetch(`${BRIDGE_API}/api/proxy/ros?path=/api/settings/counterpoint-sync/request-run&method=POST`, {
                         method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'x-ros-sync-token': syncToken
-                        }
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({})
                     });
                     if (res.ok) fetchData();
                 } catch (err) {
@@ -188,14 +184,7 @@
                 }
             };
 
-            const saveConfig = (e) => {
-                e.preventDefault();
-                localStorage.setItem('ros_sync_token', syncToken);
-                setIsConfigMode(false);
-                fetchData();
-            };
-
-            if (isConfigMode) {
+            if (false) { // Skip token screen, Bridge has its own token
                 return (
                     <div className="flex-1 flex items-center justify-center bg-[#0c0e12]">
                         <div className="glass-card rounded-3xl p-8 w-full max-w-sm border-orange-500/20">

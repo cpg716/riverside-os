@@ -307,14 +307,22 @@ pub async fn propose_daily_journal(
             .category_id
             .map(|u| u.to_string())
             .unwrap_or_else(|| "_uncategorized".to_string());
-        
+
         let (fallback_key, debit_internal, memo_prefix) = match itx.tx_type.as_str() {
             "damaged" => (Some("INV_SHRINKAGE"), "INV_SHRINKAGE", "Inventory Damage"),
-            "return_to_vendor" => (Some("INV_RTV_CLEARING"), "INV_RTV_CLEARING", "Return to Vendor"),
+            "return_to_vendor" => (
+                Some("INV_RTV_CLEARING"),
+                "INV_RTV_CLEARING",
+                "Return to Vendor",
+            ),
             _ => {
                 // Adjustment or Physical Inventory
                 if val < Decimal::ZERO {
-                    (Some("INV_SHRINKAGE"), "INV_SHRINKAGE", "Inventory Adjustment (Shrinkage)")
+                    (
+                        Some("INV_SHRINKAGE"),
+                        "INV_SHRINKAGE",
+                        "Inventory Adjustment (Shrinkage)",
+                    )
                 } else {
                     // This is "found" inventory. Usually debit asset, credit a fallback income/cogs-reversal.
                     (None, "REVENUE_FALLBACK", "Inventory Adjustment (Found)")
@@ -322,11 +330,13 @@ pub async fn propose_daily_journal(
             }
         };
 
-        let inv_asset = qbo_map_with_misc_fallback(pool, "category_inventory", &cat_label, Some("INV_ASSET")).await?;
+        let inv_asset =
+            qbo_map_with_misc_fallback(pool, "category_inventory", &cat_label, Some("INV_ASSET"))
+                .await?;
         let offset = if let Some(fb) = fallback_key {
-             ledger_fallback(pool, fb).await?
+            ledger_fallback(pool, fb).await?
         } else {
-             ledger_fallback(pool, debit_internal).await?
+            ledger_fallback(pool, debit_internal).await?
         };
 
         if let (Some((inv_id, inv_name)), Some((off_id, off_name))) = (inv_asset, offset) {
@@ -344,15 +354,25 @@ pub async fn propose_daily_journal(
                 qbo_account_name: inv_name,
                 debit: d_inv,
                 credit: c_inv,
-                memo: format!("{}: {}", memo_prefix, itx.category_name.as_deref().unwrap_or("Uncategorized")),
-                detail: vec![serde_json::json!({"kind": itx.tx_type, "category_id": itx.category_id})],
+                memo: format!(
+                    "{}: {}",
+                    memo_prefix,
+                    itx.category_name.as_deref().unwrap_or("Uncategorized")
+                ),
+                detail: vec![
+                    serde_json::json!({"kind": itx.tx_type, "category_id": itx.category_id}),
+                ],
             });
             lines.push(JournalLine {
                 qbo_account_id: off_id,
                 qbo_account_name: off_name,
                 debit: d_acc,
                 credit: c_acc,
-                memo: format!("{} Offset: {}", memo_prefix, itx.category_name.as_deref().unwrap_or("Uncategorized")),
+                memo: format!(
+                    "{} Offset: {}",
+                    memo_prefix,
+                    itx.category_name.as_deref().unwrap_or("Uncategorized")
+                ),
                 detail: vec![],
             });
         } else {

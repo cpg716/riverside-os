@@ -82,6 +82,47 @@ const startLocalServer = () => {
                     res.end(e.message);
                 }
             });
+        } else if (req.url.startsWith('/api/proxy/ros')) {
+            // Proxy request to Riverside OS using the bridge's internal token
+            const url = new URL(req.url, `http://${req.headers.host}`);
+            const rosPath = url.searchParams.get('path');
+            const method = url.searchParams.get('method') || 'GET';
+            
+            if (!rosPath) {
+                res.writeHead(400);
+                res.end("Missing 'path' parameter");
+                return;
+            }
+
+            const fullUrl = `${ROS_BASE_URL}${rosPath}`;
+            logToDashboard(`[proxy] Forwarding ${method} to Riverside: ${rosPath}`);
+
+            const options = {
+                method,
+                headers: {
+                    'Content-Type': 'application/json',
+                    'x-ros-sync-token': SYNC_TOKEN
+                }
+            };
+
+            const proxyReq = http.request(fullUrl, options, (proxyRes) => {
+                res.writeHead(proxyRes.statusCode, proxyRes.headers);
+                proxyRes.pipe(res);
+            });
+
+            proxyReq.on('error', (err) => {
+                logToDashboard(`[proxy] Request failed: ${err.message}`);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: err.message }));
+            });
+
+            if (method === 'POST') {
+                let body = '';
+                req.on('data', chunk => { body += chunk; });
+                req.on('end', () => { proxyReq.end(body); });
+            } else {
+                proxyReq.end();
+            }
         } else if (req.url.startsWith('/api/trigger-entity')) {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const entity = url.searchParams.get('name');
@@ -95,8 +136,9 @@ const startLocalServer = () => {
             
             (async () => {
                 BRIDGE_STATE.isSyncing = true;
+                const steps = getOrderedSyncSteps();
                 for (const target of toRun) {
-                    const step = orderedSyncSteps.find(s => s.label === target);
+                    const step = steps.find(s => s.label === target);
                     if (step) {
                         logToDashboard(`[${target}] starting targeted sync...`);
                         await sendHeartbeat("syncing", step.hb);
@@ -127,7 +169,7 @@ const startLocalServer = () => {
             res.writeHead(404);
             res.end();
         }
-    }).listen(3002, '0.0.0.0', () => {
+    }).listen(3002, () => {
         console.log("🌐 Bridge Command UI available at: http://localhost:3002");
     });
 };
@@ -2684,6 +2726,49 @@ async function runSyncEntity(entityLabel, fn) {
   }
 }
 
+  }
+}
+
+/** Global pool reference for manual trigger hydration */
+let ACTIVE_POOL = null;
+
+function getOrderedSyncSteps(poolOverride) {
+  const pool = poolOverride || ACTIVE_POOL;
+  if (!pool) return [];
+  return [
+    { on: SYNC_STAFF, label: "staff", hb: "staff", run: () => syncStaff(pool) },
+    {
+      on: SYNC_SLS_REP_STUBS,
+      label: "sales_rep_stubs",
+      hb: "sales_rep_stubs",
+      run: () => syncSalesRepStubs(pool),
+    },
+    { on: SYNC_VENDORS, label: "vendors", hb: "vendors", run: () => syncVendors(pool) },
+    { on: SYNC_CUSTOMERS, label: "customers", hb: "customers", run: () => syncCustomers(pool) },
+    {
+      on: SYNC_STORE_CREDIT_OPENING,
+      label: "store_credit_opening",
+      hb: "store_credit_opening",
+      run: () => syncStoreCreditOpening(pool),
+    },
+    { on: SYNC_CUSTOMER_NOTES, label: "customer_notes", hb: "customer_notes", run: () => syncCustomerNotes(pool) },
+    {
+      on: SYNC_CATEGORY_MASTERS,
+      label: "category_masters",
+      hb: "category_masters",
+      run: () => syncCategoryMasters(pool),
+    },
+    { on: SYNC_CATALOG, label: "catalog", hb: "catalog", run: () => syncCatalog(pool) },
+    { on: SYNC_INVENTORY, label: "inventory", hb: "inventory", run: () => syncInventory(pool) },
+    { on: SYNC_VENDOR_ITEMS, label: "vendor_items", hb: "vendor_items", run: () => syncVendorItems(pool) },
+    { on: SYNC_GIFT_CARDS, label: "gift_cards", hb: "gift_cards", run: () => syncGiftCards(pool) },
+    { on: SYNC_TICKETS, label: "tickets", hb: "tickets", run: () => syncTickets(pool) },
+    { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
+    { on: SYNC_LOYALTY_HIST, label: "loyalty_hist", hb: "loyalty_hist", run: () => syncLoyaltyHist(pool) },
+    { on: SYNC_RECEIVING_HISTORY, label: "receiving_history", hb: "receiving_history", run: () => syncReceivingHistory(pool) },
+  ];
+}
+
 async function main() {
   if (DISCOVER_MODE) {
     if (!CONN.trim()) {
@@ -2730,6 +2815,7 @@ async function main() {
   logCanonicalSyncOrder();
 
   const pool = createSqlPool();
+  ACTIVE_POOL = pool;
   pool.on("error", (err) => console.error("SQL pool error", err));
   await pool.connect();
   console.info(
@@ -2761,38 +2847,8 @@ async function main() {
   }
 
   /** Single canonical pipeline — order is fixed here so ROS seeding stays consistent. */
-  const orderedSyncSteps = [
-    { on: SYNC_STAFF, label: "staff", hb: "staff", run: () => syncStaff(pool) },
-    {
-      on: SYNC_SLS_REP_STUBS,
-      label: "sales_rep_stubs",
-      hb: "sales_rep_stubs",
-      run: () => syncSalesRepStubs(pool),
-    },
-    { on: SYNC_VENDORS, label: "vendors", hb: "vendors", run: () => syncVendors(pool) },
-    { on: SYNC_CUSTOMERS, label: "customers", hb: "customers", run: () => syncCustomers(pool) },
-    {
-      on: SYNC_STORE_CREDIT_OPENING,
-      label: "store_credit_opening",
-      hb: "store_credit_opening",
-      run: () => syncStoreCreditOpening(pool),
-    },
-    { on: SYNC_CUSTOMER_NOTES, label: "customer_notes", hb: "customer_notes", run: () => syncCustomerNotes(pool) },
-    {
-      on: SYNC_CATEGORY_MASTERS,
-      label: "category_masters",
-      hb: "category_masters",
-      run: () => syncCategoryMasters(pool),
-    },
-    { on: SYNC_CATALOG, label: "catalog", hb: "catalog", run: () => syncCatalog(pool) },
-    { on: SYNC_INVENTORY, label: "inventory", hb: "inventory", run: () => syncInventory(pool) },
-    { on: SYNC_VENDOR_ITEMS, label: "vendor_items", hb: "vendor_items", run: () => syncVendorItems(pool) },
-    { on: SYNC_GIFT_CARDS, label: "gift_cards", hb: "gift_cards", run: () => syncGiftCards(pool) },
-    { on: SYNC_TICKETS, label: "tickets", hb: "tickets", run: () => syncTickets(pool) },
-    { on: SYNC_OPEN_DOCS, label: "open_docs", hb: "open_docs", run: () => syncOpenDocs(pool) },
-    { on: SYNC_LOYALTY_HIST, label: "loyalty_hist", hb: "loyalty_hist", run: () => syncLoyaltyHist(pool) },
-    { on: SYNC_RECEIVING_HISTORY, label: "receiving_history", hb: "receiving_history", run: () => syncReceivingHistory(pool) },
-  ];
+  const orderedSyncSteps = getOrderedSyncSteps(pool);
+
   const tick = async () => {
     let hbResp = null;
     try {
@@ -2829,15 +2885,19 @@ async function main() {
     await sendHeartbeat("idle", null);
   };
 
-  await tick();
+  // Only autostart if RUN_ONCE is enabled. Otherwise, stay IDLE until manual trigger or timer.
   if (RUN_ONCE) {
+    await tick();
     console.info(
-      "RUN_ONCE=1 — one full pass finished. Run START_BRIDGE.cmd again when you want another import (or set RUN_ONCE=0 for timed repeats).",
+      "RUN_ONCE=1 — one full pass finished. Run START_BRIDGE.cmd again when you want another import (or set RUN_ONCE=0 for timed repeats)."
     );
     await pool.close();
     await waitForEnterBeforeClose();
     process.exit(0);
+  } else {
+    logToDashboard("Bridge started in IDLE mode. Use dashboard or wait for timer.");
   }
+
   console.info(`Repeating full sync every ${POLL_MS} ms (set RUN_ONCE=1 for a single pass, then exit).`);
   setInterval(tick, POLL_MS);
 }

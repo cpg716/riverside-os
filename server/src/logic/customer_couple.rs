@@ -33,31 +33,34 @@ pub async fn link_couple(
     secondary_id: Uuid,
 ) -> Result<(), CoupleError> {
     if primary_id == secondary_id {
-        return Err(CoupleError::BadRequest("Cannot link a customer to themselves".to_string()));
+        return Err(CoupleError::BadRequest(
+            "Cannot link a customer to themselves".to_string(),
+        ));
     }
 
     let mut tx = pool.begin().await?;
 
     // Verify both exist and aren't already coupled
-    let (p_c_id, s_c_id): (Option<Uuid>, Option<Uuid>) = sqlx::query_as(
-        "SELECT couple_id FROM customers WHERE id = $1"
-    )
-    .bind(primary_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .map(|r: (Option<Uuid>,)| (r.0, None::<Uuid>))
-    .zip(
+    let (p_c_id, s_c_id): (Option<Uuid>, Option<Uuid>) =
         sqlx::query_as("SELECT couple_id FROM customers WHERE id = $1")
-            .bind(secondary_id)
+            .bind(primary_id)
             .fetch_optional(&mut *tx)
             .await?
-            .map(|r: (Option<Uuid>,)| r.0)
-    )
-    .map(|((p, _), s)| (p, s))
-    .unwrap_or((None, None));
+            .map(|r: (Option<Uuid>,)| (r.0, None::<Uuid>))
+            .zip(
+                sqlx::query_as("SELECT couple_id FROM customers WHERE id = $1")
+                    .bind(secondary_id)
+                    .fetch_optional(&mut *tx)
+                    .await?
+                    .map(|r: (Option<Uuid>,)| r.0),
+            )
+            .map(|((p, _), s)| (p, s))
+            .unwrap_or((None, None));
 
     if p_c_id.is_some() || s_c_id.is_some() {
-        return Err(CoupleError::BadRequest("One or both customers are already part of a couple. Unlink them first.".to_string()));
+        return Err(CoupleError::BadRequest(
+            "One or both customers are already part of a couple. Unlink them first.".to_string(),
+        ));
     }
 
     let couple_id = Uuid::new_v4();
@@ -81,14 +84,15 @@ pub async fn link_couple(
     .execute(&mut *tx)
     .await?;
 
-    // Implementation Detail: Loyalty and Balance. 
+    // Implementation Detail: Loyalty and Balance.
     // The user said "Only 1 account keeps that history as counted... the other just gets an archived view... but does not duplicate sales revenue/inventory/finance/loyalty".
     // This implies we should MOVE the loyalty points from secondary to primary?
-    
-    let secondary_points: i32 = sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
-        .bind(secondary_id)
-        .fetch_one(&mut *tx)
-        .await?;
+
+    let secondary_points: i32 =
+        sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
+            .bind(secondary_id)
+            .fetch_one(&mut *tx)
+            .await?;
 
     if secondary_points > 0 {
         sqlx::query("UPDATE customers SET loyalty_points = loyalty_points + $1 WHERE id = $2")
@@ -96,7 +100,7 @@ pub async fn link_couple(
             .bind(primary_id)
             .execute(&mut *tx)
             .await?;
-        
+
         sqlx::query("UPDATE customers SET loyalty_points = 0 WHERE id = $1")
             .bind(secondary_id)
             .execute(&mut *tx)
@@ -108,17 +112,15 @@ pub async fn link_couple(
 }
 
 /// Unlinks a customer from their couple.
-pub async fn unlink_couple(
-    pool: &PgPool,
-    customer_id: Uuid,
-) -> Result<(), CoupleError> {
+pub async fn unlink_couple(pool: &PgPool, customer_id: Uuid) -> Result<(), CoupleError> {
     let mut tx = pool.begin().await?;
 
-    let couple_id: Option<Uuid> = sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
-        .bind(customer_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .flatten();
+    let couple_id: Option<Uuid> =
+        sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .flatten();
 
     if let Some(cid) = couple_id {
         sqlx::query(
@@ -144,24 +146,28 @@ pub async fn get_partner_id(pool: &PgPool, customer_id: Uuid) -> Result<Option<U
 }
 
 /// Resolves the primary ID for a customer if they are in a couple.
-pub async fn resolve_effective_customer_id(pool: &PgPool, customer_id: Uuid) -> Result<Uuid, sqlx::Error> {
-    let primary: Option<Uuid> = sqlx::query_scalar(
-        "SELECT couple_primary_id FROM customers WHERE id = $1"
-    )
-    .bind(customer_id)
-    .fetch_one(pool)
-    .await?;
+pub async fn resolve_effective_customer_id(
+    pool: &PgPool,
+    customer_id: Uuid,
+) -> Result<Uuid, sqlx::Error> {
+    let primary: Option<Uuid> =
+        sqlx::query_scalar("SELECT couple_primary_id FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_one(pool)
+            .await?;
 
     Ok(primary.unwrap_or(customer_id))
 }
 
-pub async fn resolve_effective_customer_id_tx(tx: &mut Transaction<'_, Postgres>, customer_id: Uuid) -> Result<Uuid, sqlx::Error> {
-    let primary: Option<Uuid> = sqlx::query_scalar(
-        "SELECT couple_primary_id FROM customers WHERE id = $1"
-    )
-    .bind(customer_id)
-    .fetch_one(&mut **tx)
-    .await?;
+pub async fn resolve_effective_customer_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    customer_id: Uuid,
+) -> Result<Uuid, sqlx::Error> {
+    let primary: Option<Uuid> =
+        sqlx::query_scalar("SELECT couple_primary_id FROM customers WHERE id = $1")
+            .bind(customer_id)
+            .fetch_one(&mut **tx)
+            .await?;
 
     Ok(primary.unwrap_or(customer_id))
 }

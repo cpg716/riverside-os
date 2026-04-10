@@ -5,8 +5,8 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_CUSTOMERS, INDEX_HELP, INDEX_ORDERS, INDEX_STORE_PRODUCTS, INDEX_VARIANTS,
-    INDEX_WEDDING_PARTIES, INDEX_STAFF, INDEX_TASKS, INDEX_VENDORS, INDEX_APPOINTMENTS,
+    INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_ORDERS, INDEX_STAFF,
+    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
 };
 
 const CONTROL_BOARD_MEILI_HIT_CAP: usize = 50_000;
@@ -58,7 +58,7 @@ pub fn control_board_meili_filter_parts(
     if clothing_only || filter_flag == Some("clothing") {
         parts.push("is_clothing_footwear = true".to_string());
     }
-    // Note: VariantDoc currently doesn't index stock_on_hand. 
+    // Note: VariantDoc currently doesn't index stock_on_hand.
     // If it did, we'd add oos/negative filters here.
     // For now, Postgres handles these during hydration.
     if parts.is_empty() {

@@ -898,7 +898,14 @@ pub async fn reindex_all_meilisearch(
     if !w_batch.is_empty() {
         index_w.add_documents(&w_batch, Some("id")).await?;
     }
-    record_sync_status(pool, INDEX_WEDDING_PARTIES, true, w_batch.len() as i64, None).await;
+    record_sync_status(
+        pool,
+        INDEX_WEDDING_PARTIES,
+        true,
+        w_batch.len() as i64,
+        None,
+    )
+    .await;
 
     // 5. Orders
     let index_o = client.index(INDEX_ORDERS);
@@ -1018,7 +1025,14 @@ pub async fn reindex_all_meilisearch(
             .add_documents(&category_batch, Some("id"))
             .await?;
     }
-    record_sync_status(pool, INDEX_CATEGORIES, true, category_batch.len() as i64, None).await;
+    record_sync_status(
+        pool,
+        INDEX_CATEGORIES,
+        true,
+        category_batch.len() as i64,
+        None,
+    )
+    .await;
 
     // 10. Appointments
     let index_appointments = client.index(INDEX_APPOINTMENTS);
@@ -1055,7 +1069,14 @@ pub async fn reindex_all_meilisearch(
             .add_documents(&appt_batch, Some("id"))
             .await?;
     }
-    record_sync_status(pool, INDEX_APPOINTMENTS, true, appt_batch.len() as i64, None).await;
+    record_sync_status(
+        pool,
+        INDEX_APPOINTMENTS,
+        true,
+        appt_batch.len() as i64,
+        None,
+    )
+    .await;
 
     // 11. Tasks
     let index_tasks = client.index(INDEX_TASKS);

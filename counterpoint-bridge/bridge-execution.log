@@ -1,1 +1,46 @@
 [2026-04-10T17:48:05.353Z] Mode changed: IMPORT (Once)
+[2026-04-10T19:17:41.047Z] [sync] Starting pass (Request: None)
+[2026-04-10T19:17:41.048Z] [vendors] starting sync...
+[2026-04-10T19:17:41.215Z] [vendors] ok
+[2026-04-10T19:17:41.215Z] [customers] starting sync...
+[2026-04-10T19:17:41.228Z] [customers] ok
+[2026-04-10T19:17:41.228Z] [store_credit_opening] starting sync...
+[2026-04-10T19:17:41.254Z] [store_credit_opening] ok
+[2026-04-10T19:17:41.254Z] [category_masters] starting sync...
+[2026-04-10T19:17:41.270Z] [category_masters] ok
+[2026-04-10T19:17:41.270Z] [catalog] starting sync...
+[2026-04-10T19:17:41.319Z] [catalog] ok
+[2026-04-10T19:17:41.319Z] [inventory] starting sync...
+[2026-04-10T19:17:41.795Z] [inventory] ok
+[2026-04-10T19:17:41.795Z] [vendor_items] starting sync...
+[2026-04-10T19:17:41.809Z] [vendor_items] ok
+[2026-04-10T19:17:41.810Z] [gift_cards] starting sync...
+[2026-04-10T19:17:41.845Z] [gift_cards] ok
+[2026-04-10T19:17:41.846Z] [tickets] starting sync...
+[2026-04-10T19:20:59.187Z] Bridge started in IDLE mode. Use dashboard or wait for timer.
+[2026-04-10T19:21:35.357Z] Mode changed: IMPORT (Once)
+[2026-04-10T19:21:42.081Z] Manual trigger: Targeted pull for [customers] requested
+[2026-04-10T19:21:42.081Z] [dependency-check] To complete [customers], we will run: customers
+[2026-04-10T19:21:42.083Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:44.888Z] Manual trigger: Targeted pull for [vendors] requested
+[2026-04-10T19:21:44.888Z] [dependency-check] To complete [vendors], we will run: vendors
+[2026-04-10T19:21:44.889Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:52.675Z] Manual trigger: Targeted pull for [receiving_history] requested
+[2026-04-10T19:21:52.676Z] [dependency-check] To complete [receiving_history], we will run: vendors -> catalog -> receiving_history
+[2026-04-10T19:21:52.676Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:53.220Z] Manual trigger: Targeted pull for [tickets] requested
+[2026-04-10T19:21:53.221Z] [dependency-check] To complete [tickets], we will run: customers -> catalog -> tickets
+[2026-04-10T19:21:53.222Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:53.812Z] Manual trigger: Targeted pull for [catalog] requested
+[2026-04-10T19:21:53.812Z] [dependency-check] To complete [catalog], we will run: catalog
+[2026-04-10T19:21:53.813Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:54.295Z] Manual trigger: Targeted pull for [inventory] requested
+[2026-04-10T19:21:54.296Z] [dependency-check] To complete [inventory], we will run: catalog -> inventory
+[2026-04-10T19:21:54.297Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:54.820Z] Manual trigger: Targeted pull for [vendors] requested
+[2026-04-10T19:21:54.821Z] [dependency-check] To complete [vendors], we will run: vendors
+[2026-04-10T19:21:54.822Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:55.330Z] Manual trigger: Targeted pull for [customers] requested
+[2026-04-10T19:21:55.330Z] [dependency-check] To complete [customers], we will run: customers
+[2026-04-10T19:21:55.331Z] Sync error: orderedSyncSteps is not defined
+[2026-04-10T19:21:56.398Z] Mode changed: SYNC (Continuous 15m)
