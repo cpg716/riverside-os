@@ -4,13 +4,26 @@ Canonical reference for **large-directory behavior**: how ROS queries customers 
 
 ---
 
-## Meilisearch (optional lexical search)
+## Meilisearch (lexical search & sync health)
 
-When **`RIVERSIDE_MEILISEARCH_URL`** is set (and **`RIVERSIDE_MEILISEARCH_API_KEY`** when the instance requires auth), the server can resolve **text** queries via **Meilisearch** and then **hydrate** rows in PostgreSQL so filters, money fields, and JSON shapes stay authoritative in SQL.
+When **`RIVERSIDE_MEILISEARCH_URL`** is set (and **`RIVERSIDE_MEILISEARCH_API_KEY`** when the instance requires auth), the server resolves **text** queries via **Meilisearch** and then **hydrates** rows in PostgreSQL.
 
-- **Fallback:** If Meilisearch is unset, errors, or returns no hits, handlers fall back to the legacy **ILIKE** (or equivalent) paths — no user-visible failure.
-- **Indexes:** `ros_variants`, `ros_store_products`, `ros_customers`, `ros_wedding_parties`, `ros_orders`, and in-app help **`ros_help`** (markdown chunks from `client/src/assets/docs/*`; queried via staff-authenticated **`GET /api/help/search`**) — see `server/src/logic/meilisearch_client.rs`, `server/src/logic/help_corpus.rs`, `docs/MANUAL_CREATION.md`.
-- **Reindex:** After enabling or restoring Meilisearch, use **Back Office → Settings → Integrations → Meilisearch** (**Rebuild search index**; requires **`settings.admin`**), or **`POST /api/settings/meilisearch/reindex`**, or **`./scripts/ros-meilisearch-reindex-local.sh`** (defaults to staff code/PIN **`1234`**). Incremental updates run on product/customer/wedding/order write paths and after large imports where wired.
+### Search-First Administrative Mandate
+As of v0.1.1, the Riverside OS administrative interface utilizes a **search-first architecture**. All manual UUID or SKU entry fields (e.g., Task assignments, Gift Card issuance, Loyalty adjustments, Physical Inventory) have been replaced with fuzzy-search-powered components (`CustomerSearchInput`, `VariantSearchInput`). This eliminates human error associated with raw ID handling.
+
+- **Fallback:** If Meilisearch is unavailable, handlers fall back to PostgreSQL **ILIKE** paths.
+- **Indices:** 
+  - `ros_products`, `ros_variants`, `ros_store_products`
+  - `ros_customers`, `ros_wedding_parties`
+  - `ros_orders`
+  - `ros_staff`, `ros_vendors`
+  - `ros_tasks`, `ros_appointments`
+  - `ros_help` (Staff Help Center)
+- **Sync Health Dashboard:** Located at **Settings → Integrations → Meilisearch**.
+  - **Tracked Categories:** Shows real-time sync status for all primary indices.
+  - **Health Metrics:** Displays Row Counts, Last Sync timestamps, and Success/Failure state.
+  - **Stale Protection:** System triggers a **Warning** if an index has not successfully synced within 24 hours.
+- **Reindex:** Use the **Rebuild search index** button in Settings to trigger a full background reindex of all categories. Incremental updates run automatically on write paths.
 - **Local dev:** `docker compose` includes a **`meilisearch`** service (port **7700**). From the host-run API use **`http://127.0.0.1:7700`**; from a containerized API use **`http://meilisearch:7700`**.
 
 **Customer browse:** When **`q`** is set together with **`wedding_party_q`**, Meilisearch is **not** used for the name leg (existing SQL wedding-party filter remains).

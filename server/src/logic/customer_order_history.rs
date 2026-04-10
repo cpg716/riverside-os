@@ -72,9 +72,12 @@ pub async fn query_customer_order_history(
         FROM orders o
         LEFT JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
-        WHERE o.customer_id = "#,
+        WHERE (o.customer_id = "#,
     );
     qb.push_bind(customer_id);
+    qb.push(" OR o.customer_id IN (SELECT id FROM customers WHERE couple_id = (SELECT couple_id FROM customers WHERE id = ");
+    qb.push_bind(customer_id);
+    qb.push(") AND couple_id IS NOT NULL)) ");
     qb.push(" AND o.status != 'cancelled'::order_status ");
     if let Some(from) = &q.from {
         if !from.trim().is_empty() {

@@ -4,7 +4,7 @@
 
 **Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **RMS charge** (R2S **charge** vs **payment** ledger; needs **`customers.rms_charge`**), **Duplicate review** (queue inbox; needs **`customers_duplicate_review`**).
 
-**Related permissions:** Browse/search/create use general customer access. The **Relationship hub** and aligned APIs use **fine-grained keys** (migration **63**): **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`**, plus **`orders.view`** for the **Orders** tab. An **open register** session can satisfy the same checks as staff with those keys for many calls — see **[`../CUSTOMER_HUB_AND_RBAC.md`](../CUSTOMER_HUB_AND_RBAC.md)** and **[`../STAFF_PERMISSIONS.md`](../STAFF_PERMISSIONS.md)**. **Duplicate review queue** and **Merge** (two customers selected) need **`customers_duplicate_review`** and **`customers.merge`** respectively; migration **64** grants both to default **`salesperson`** and **`sales_support`** roles. **403** on a specific hub action usually means a **missing key**, not a bug.
+**Related permissions:** Browse/search/create use general customer access. The **Relationship hub** and aligned APIs use **fine-grained keys** (migration **63**): **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`**, plus **`orders.view`** for the **Orders** tab. An **open register** session can satisfy the same checks as staff with those keys for many calls — see **[`../CUSTOMER_HUB_AND_RBAC.md`](../CUSTOMER_HUB_AND_RBAC.md)** and **[`../STAFF_PERMISSIONS.md`](../STAFF_PERMISSIONS.md)**. **Joint Couple Accounts** (link/unlink partners) require **`customers.couple_manage`**. **Duplicate review queue** and **Merge** (two customers selected) need **`customers_duplicate_review`** and **`customers.merge`** respectively; migration **64** grants both to default **`salesperson`** and **`sales_support`** roles. **403** on a specific hub action usually means a **missing key**, not a bug.
 
 ---
 
@@ -21,7 +21,7 @@
 
 ### Relationship hub tabs (typical)
 
-- **Relationship** — marketing opt-ins (needs **`customers.hub_edit`** to toggle), **interaction timeline** and **add note** (**`customers.timeline`**; timeline also lists **shipping** updates from the shipment log when that customer has shipments — with **`shipments.view`**, click a shipping line to open that shipment on the **Shipments** tab), past weddings shortcuts.
+- **Relationship** — marketing opt-ins (needs **`customers.hub_edit`** to toggle), **interaction timeline** and **add note** (**`customers.timeline`**; timeline also lists **shipping** updates from the shipment log when that customer has shipments — with **`shipments.view`**, click a shipping line to open that shipment on the **Shipments** tab), past weddings shortcuts. **Joint Couple Accounts:** Use the **Relationship** tab to link a partner (existing or new) for combined spend/loyalty views.
 - **Measurements** — sizing vault (**`customers.measurements`**); **PII** — verify identity before reading aloud.
 - **Profile** — customer code (read-only), optional duplicate-review queue (**`customers_duplicate_review`**), VIP flag and profile details (**`customers.hub_edit`** to save), contact/address display.
 - **Orders** — paged order history (**`orders.view`**); **Open** jumps to Back Office **Orders** when wired.

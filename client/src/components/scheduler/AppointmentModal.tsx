@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { X, Calendar, Check, AlertTriangle, Trash, CheckCircle, Loader2 } from 'lucide-react';
+import CustomerSearchInput from '../ui/CustomerSearchInput';
 import { weddingApi, type RosCustomerSearchHit } from '../../lib/weddingApi';
 import { type Appointment } from './SchedulerWorkspace';
 import { useToast } from '../ui/ToastProviderLogic';
@@ -34,9 +35,6 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
 
   const [salespeople, setSalespeople] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [searchResults, setSearchResults] = useState<RosCustomerSearchHit[]>([]);
-  const [searchHasMore, setSearchHasMore] = useState(false);
-  const [searchLoadMoreBusy, setSearchLoadMoreBusy] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
   /** Offer optional wedding-member link after picking a customer who is on an active party (most ROS bookings stay general). */
   const [weddingLinkOffer, setWeddingLinkOffer] = useState<{
@@ -141,94 +139,6 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
       setSearchTerm('');
     }
   }, [initialData, isOpen]);
-
-  function rosCustomerLabel(c: RosCustomerSearchHit): string {
-    const n = `${c.first_name ?? ''} ${c.last_name ?? ''}`.trim();
-    if (n) return n;
-    if (c.company_name?.trim()) return c.company_name.trim();
-    return c.customer_code;
-  }
-
-  // Search ROS customers (same directory as POS / CRM)
-  useEffect(() => {
-    if (searchTerm.length < 2 || formData.memberId) {
-      setSearchResults([]);
-      setSearchHasMore(false);
-      return;
-    }
-
-    const run = async () => {
-      setIsSearching(true);
-      try {
-        const rows = await weddingApi.searchCustomers(searchTerm, {
-          limit: APPT_CUSTOMER_SEARCH_PAGE,
-          offset: 0,
-          headers: wmHeaders,
-        });
-        setSearchResults(rows);
-        setSearchHasMore(rows.length === APPT_CUSTOMER_SEARCH_PAGE);
-      } catch (err) {
-        console.error("Customer search failed:", err);
-        setSearchResults([]);
-        setSearchHasMore(false);
-      } finally {
-        setIsSearching(false);
-      }
-    };
-
-    const timer = setTimeout(() => void run(), 300);
-    return () => clearTimeout(timer);
-  }, [searchTerm, formData.memberId, wmHeaders]);
-
-  const loadMoreAppointmentCustomers = useCallback(async () => {
-    if (!searchHasMore || searchLoadMoreBusy || isSearching) return;
-    if (searchTerm.length < 2) return;
-    setSearchLoadMoreBusy(true);
-    try {
-      const rows = await weddingApi.searchCustomers(searchTerm, {
-        limit: APPT_CUSTOMER_SEARCH_PAGE,
-        offset: searchResults.length,
-        headers: wmHeaders,
-      });
-      setSearchResults((prev) => [...prev, ...rows]);
-      setSearchHasMore(rows.length === APPT_CUSTOMER_SEARCH_PAGE);
-    } catch (err) {
-      console.error("Customer search failed:", err);
-    } finally {
-      setSearchLoadMoreBusy(false);
-    }
-  }, [
-    searchHasMore,
-    searchLoadMoreBusy,
-    isSearching,
-    searchTerm,
-    searchResults.length,
-    wmHeaders,
-  ]);
-
-  const handleSelectRosCustomer = (c: RosCustomerSearchHit) => {
-    const label = rosCustomerLabel(c);
-    // Default: general store appointment (customer on file only). Wedding link is explicit opt-in.
-    setFormData({
-      ...formData,
-      customerName: label,
-      phone: c.phone ?? '',
-      partyId: '',
-      memberId: '',
-      customerId: c.id,
-    });
-    if (c.wedding_member_id && c.wedding_party_id) {
-      setWeddingLinkOffer({
-        memberId: c.wedding_member_id,
-        partyId: c.wedding_party_id,
-        partyLabel: c.wedding_party_name ?? undefined,
-      });
-    } else {
-      setWeddingLinkOffer(null);
-    }
-    setSearchTerm(label);
-    setSearchResults([]);
-  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -452,22 +362,32 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
               Search your customer list, or type a name for a one-off visit.
             </p>
             <div className="relative group">
-              <input
-                type="text"
-                className="ui-input w-full px-4 py-3.5 pr-12 text-sm font-bold"
-                placeholder="Name, phone, email, or customer code…"
-                value={searchTerm}
-                onChange={(e) => {
-                  setSearchTerm(e.target.value);
-                  if (formData.memberId || formData.customerId) {
-                    setFormData({ ...formData, memberId: '', partyId: '', customerId: '' });
+              <CustomerSearchInput 
+                onSelect={(c) => {
+                  setFormData({
+                    ...formData,
+                    customerName: `${c.first_name} ${c.last_name}`.trim(),
+                    phone: c.phone ?? '',
+                    partyId: '',
+                    memberId: '',
+                    customerId: c.id,
+                  });
+                  setSearchTerm(`${c.first_name} ${c.last_name}`.trim());
+                  if (c.wedding_member_id && c.wedding_party_id) {
+                    setWeddingLinkOffer({
+                      memberId: c.wedding_member_id,
+                      partyId: c.wedding_party_id,
+                      partyLabel: c.wedding_party_name ?? undefined,
+                    });
+                  } else {
                     setWeddingLinkOffer(null);
                   }
                 }}
-                required
+                placeholder="Search customers…"
+                className="w-full"
+                defaultValue={searchTerm}
               />
-              <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
-                {isSearching && <Loader2 size={18} className="animate-spin text-app-accent" />}
+              <div className="absolute right-10 top-1/2 -translate-y-1/2 flex items-center gap-2">
                 {(formData.memberId || formData.customerId) && (
                   <span
                     className="inline-flex"
@@ -490,9 +410,6 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
                   {weddingLinkOffer.partyLabel
                     ? `Link to wedding party “${weddingLinkOffer.partyLabel}”`
                     : "Link to their wedding party record"}
-                </p>
-                <p className="mt-1 opacity-90">
-                  Most appointments here are general store visits. Use this only if you want this booking tied to Wedding Manager (e.g. party measurement workflow).
                 </p>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
@@ -517,41 +434,6 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
                     Not needed
                   </button>
                 </div>
-              </div>
-            )}
-            
-            {/* Search Results Display */}
-            {searchResults.length > 0 && (
-              <div className="absolute z-10 w-full mt-2 max-h-80 overflow-y-auto rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/40 p-2 space-y-1">
-                {searchResults.map((c) => (
-                  <button
-                    key={c.id}
-                    type="button"
-                    onClick={() => handleSelectRosCustomer(c)}
-                    className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-app-accent hover:text-white transition-all text-left"
-                  >
-                    <div>
-                      <div className="text-xs font-black uppercase italic tracking-tight">{rosCustomerLabel(c)}</div>
-                      <div className="text-[10px] opacity-70 font-bold uppercase tracking-widest">
-                        {[c.phone, c.customer_code].filter(Boolean).join(" · ") || "On file"}
-                        {c.wedding_party_name
-                          ? ` · Upcoming event: ${c.wedding_party_name}`
-                          : ""}
-                      </div>
-                    </div>
-                    <Check size={14} className="opacity-40" />
-                  </button>
-                ))}
-                {searchHasMore ? (
-                  <button
-                    type="button"
-                    disabled={searchLoadMoreBusy || isSearching}
-                    onClick={() => void loadMoreAppointmentCustomers()}
-                    className="w-full rounded-xl border border-app-border py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-2 disabled:opacity-50"
-                  >
-                    {searchLoadMoreBusy ? "Loading…" : "Load more"}
-                  </button>
-                ) : null}
               </div>
             )}
           </div>

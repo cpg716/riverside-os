@@ -96,6 +96,10 @@ impl IntoResponse for SettingsError {
     }
 }
 
+pub struct MeilisearchStatusResponseBasic {
+    pub configured: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ReceiptConfig {
     #[serde(default = "default_store_name")]
@@ -1053,10 +1057,22 @@ async fn post_podium_oauth_exchange(
     })))
 }
 
-#[derive(Serialize)]
-struct MeilisearchStatusResponse {
-    /// True when `RIVERSIDE_MEILISEARCH_URL` loaded a client at startup.
-    configured: bool,
+
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct MeilisearchSyncRow {
+    pub index_name: String,
+    pub last_success_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub last_attempt_at: chrono::DateTime<chrono::Utc>,
+    pub is_success: bool,
+    pub row_count: i64,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MeilisearchStatusResponse {
+    pub configured: bool,
+    pub indices: Vec<MeilisearchSyncRow>,
 }
 
 async fn get_meilisearch_status(
@@ -1064,8 +1080,15 @@ async fn get_meilisearch_status(
     headers: HeaderMap,
 ) -> Result<Json<MeilisearchStatusResponse>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
+    let indices = sqlx::query_as::<_, MeilisearchSyncRow>(
+        "SELECT index_name, last_success_at, last_attempt_at, is_success, row_count, error_message FROM meilisearch_sync_status ORDER BY index_name"
+    )
+    .fetch_all(&state.db)
+    .await?;
+
     Ok(Json(MeilisearchStatusResponse {
         configured: state.meilisearch.is_some(),
+        indices,
     }))
 }
 

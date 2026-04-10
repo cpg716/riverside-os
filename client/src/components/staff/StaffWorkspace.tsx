@@ -6,6 +6,7 @@ import {
   LayoutGrid,
   ListChecks,
   Percent,
+  Search,
   Shield,
 } from "lucide-react";
 import CommissionPayoutsPanel from "./CommissionPayoutsPanel";
@@ -19,6 +20,7 @@ import StaffAvatarPicker from "./StaffAvatarPicker";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -160,6 +162,8 @@ export default function StaffWorkspace({
   const [categories, setCategories] = useState<CategoryCommissionRow[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [searchInput, setSearchInput] = useState("");
+  const [auditSearchInput, setAuditSearchInput] = useState("");
 
   const [editRow, setEditRow] = useState<HubRow | null>(null);
   const [editName, setEditName] = useState("");
@@ -675,9 +679,36 @@ export default function StaffWorkspace({
       {tab === "schedule" ? <StaffSchedulePanel /> : null}
 
       {tab === "team" ? (
-        <section className="ui-card min-h-0 flex-1 overflow-y-auto p-4">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-            {roster.map((r) => (
+        <section className="ui-card min-h-0 flex-1 flex flex-col overflow-hidden p-4 gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="relative w-full max-w-sm">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
+              <input
+                type="text"
+                placeholder="Search staff by name, code or role…"
+                className="ui-input w-full pl-10"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+              />
+            </div>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+              {roster.length} Total · {roster.filter(r => r.is_active).length} Active
+            </p>
+          </div>
+
+          <div className="flex-1 overflow-y-auto pt-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {roster
+                .filter((r) => {
+                  if (!searchInput.trim()) return true;
+                  const q = searchInput.toLowerCase();
+                  return (
+                    r.full_name.toLowerCase().includes(q) ||
+                    r.cashier_code.toLowerCase().includes(q) ||
+                    r.role.toLowerCase().includes(q)
+                  );
+                })
+                .map((r) => (
               <div
                 key={r.id}
                 className="ui-card p-4"
@@ -772,14 +803,25 @@ export default function StaffWorkspace({
               Chronological PIN and high-authority events (checkout, overrides,
               register, payouts, attribution edits).
             </p>
-            <button
-              type="button"
-              disabled={accessLogLoading}
-              onClick={() => void refreshAccessLog()}
-              className="ui-btn-secondary"
-            >
-              Refresh
-            </button>
+            <div className="flex gap-4 items-center">
+              <div className="relative w-64">
+                <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-app-text-muted" />
+                <input
+                  className="ui-input w-full pl-8 py-1.5 text-xs"
+                  placeholder="Search events or staff…"
+                  value={auditSearchInput}
+                  onChange={(e) => setAuditSearchInput(e.target.value)}
+                />
+              </div>
+              <button
+                type="button"
+                disabled={accessLogLoading}
+                onClick={() => void refreshAccessLog()}
+                className="ui-btn-secondary px-3 py-1.5"
+              >
+                Refresh
+              </button>
+            </div>
           </div>
           <div className="ui-card min-h-0 flex-1 overflow-auto">
             <table className="w-full text-left text-xs">
@@ -799,29 +841,39 @@ export default function StaffWorkspace({
                     </td>
                   </tr>
                 ) : null}
-                {accessLog.map((row) => (
-                  <tr key={row.id} className="align-top hover:bg-app-surface-2">
-                    <td className="whitespace-nowrap px-3 py-2 text-app-text-muted">
-                      {new Date(row.created_at).toISOString().replace("T", " ").slice(0, 19)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={staffAvatarUrl(row.staff_avatar_key)}
-                          alt=""
-                          className="h-7 w-7 shrink-0 rounded-full border border-app-border object-cover"
-                        />
-                        <span className="font-semibold text-app-text">{row.staff_name}</span>
-                      </div>
-                    </td>
-                    <td className="whitespace-nowrap px-3 py-2 text-[var(--app-accent)]">
-                      {row.event_kind}
-                    </td>
-                    <td className="max-w-md break-all px-3 py-2 text-app-text-muted">
-                      {JSON.stringify(row.metadata)}
-                    </td>
-                  </tr>
-                ))}
+                {accessLog
+                  .filter((row) => {
+                    if (!auditSearchInput.trim()) return true;
+                    const q = auditSearchInput.toLowerCase();
+                    return (
+                      row.staff_name.toLowerCase().includes(q) ||
+                      row.event_kind.toLowerCase().includes(q) ||
+                      JSON.stringify(row.metadata).toLowerCase().includes(q)
+                    );
+                  })
+                  .map((row) => (
+                    <tr key={row.id} className="align-top hover:bg-app-surface-2 transition-colors">
+                      <td className="whitespace-nowrap px-3 py-2 text-app-text-muted">
+                        {new Date(row.created_at).toISOString().replace("T", " ").slice(0, 19)}
+                      </td>
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <img
+                            src={staffAvatarUrl(row.staff_avatar_key)}
+                            alt=""
+                            className="h-7 w-7 shrink-0 rounded-full border border-app-border object-cover"
+                          />
+                          <span className="font-semibold text-app-text">{row.staff_name}</span>
+                        </div>
+                      </td>
+                      <td className="whitespace-nowrap px-3 py-2 text-[var(--app-accent)]">
+                        {row.event_kind}
+                      </td>
+                      <td className="max-w-md break-all px-3 py-2 text-app-text-muted">
+                        {JSON.stringify(row.metadata)}
+                      </td>
+                    </tr>
+                  ))}
                 {!accessLogLoading && accessLog.length === 0 ? (
                   <tr>
                     <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">
@@ -960,43 +1012,36 @@ export default function StaffWorkspace({
                 <p className="text-[10px] font-black uppercase text-app-text-muted">
                   Employee CRM (employee pricing, no commission on those sales)
                 </p>
-                <div className="mt-2 flex flex-wrap items-end gap-2">
-                  <label className="min-w-0 flex-1 text-[10px] font-black uppercase text-app-text-muted">
-                    Customer code
-                    <input
-                      value={editCustomerCodeLookup}
-                      onChange={(e) => setEditCustomerCodeLookup(e.target.value)}
-                      className="ui-input mt-1 w-full text-sm"
-                      placeholder="ROS-…"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    className="ui-btn-secondary px-3 py-2 text-xs"
-                    disabled={busy}
-                    onClick={() => void linkCustomerByCode()}
-                  >
-                    Link
-                  </button>
-                  <button
-                    type="button"
-                    className="ui-btn-secondary px-3 py-2 text-xs"
-                    disabled={busy || !editRow.employee_customer_id}
-                    onClick={() => {
-                      setEditEmployeeCustomerId(null);
-                      setEditDetachEmployeeCustomer(true);
-                      setEditCustomerCodeLookup("");
+                <div className="mt-2">
+                  <CustomerSearchInput 
+                    onSelect={(c) => {
+                      setEditEmployeeCustomerId(c.id);
+                      setEditDetachEmployeeCustomer(false);
+                      setEditCustomerCodeLookup(c.customer_code);
                     }}
-                  >
-                    Clear link
-                  </button>
+                    placeholder="Search customer to link…"
+                    className="w-full"
+                  />
+                  {editRow.employee_customer_id && !editDetachEmployeeCustomer ? (
+                    <button
+                      type="button"
+                      className="mt-2 text-[10px] font-black uppercase text-red-600 hover:text-red-800"
+                      onClick={() => {
+                        setEditEmployeeCustomerId(null);
+                        setEditDetachEmployeeCustomer(true);
+                        setEditCustomerCodeLookup("");
+                      }}
+                    >
+                      Clear link
+                    </button>
+                  ) : null}
                 </div>
                 {editDetachEmployeeCustomer ? (
                   <p className="mt-2 text-xs text-amber-700">Link will clear when you save.</p>
                 ) : editEmployeeCustomerId ? (
                   <p className="mt-2 text-xs text-app-text-muted">
-                    Linked customer id:{" "}
-                    <span className="font-mono text-app-text">{editEmployeeCustomerId}</span>
+                    Linked customer:{" "}
+                    <span className="font-bold text-app-text">{editCustomerCodeLookup}</span>
                   </p>
                 ) : null}
               </div>

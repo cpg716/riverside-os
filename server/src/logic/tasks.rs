@@ -490,11 +490,20 @@ pub struct TaskHistoryRow {
 
 pub async fn list_task_history(
     pool: &PgPool,
+    meili: Option<&meilisearch_sdk::client::Client>,
     assignee_filter: Option<Uuid>,
+    search_text: Option<String>,
     limit: i64,
     offset: i64,
 ) -> Result<Vec<TaskHistoryRow>, TaskError> {
-    let rows = if let Some(aid) = assignee_filter {
+    let mut search_ids: Option<Vec<Uuid>> = None;
+    if let (Some(m), Some(ref q)) = (meili, search_text.as_ref()) {
+        if let Ok(ids) = crate::logic::meilisearch_search::task_search_ids(m, q).await {
+            search_ids = Some(ids);
+        }
+    }
+
+    let rows = if let Some(ids) = search_ids {
         sqlx::query_as::<_, TaskHistoryRow>(
             r#"
             SELECT
@@ -506,19 +515,22 @@ pub async fn list_task_history(
                 ti.assignee_staff_id,
                 s.full_name AS assignee_name,
                 s.avatar_key AS assignee_avatar_key
-            FROM task_instance ti
+            FROM UNNEST($1::uuid[]) WITH ORDINALITY AS t(id, ord)
+            JOIN task_instance ti ON ti.id = t.id
             JOIN staff s ON s.id = ti.assignee_staff_id
-            WHERE ti.assignee_staff_id = $1
-            ORDER BY ti.completed_at DESC NULLS LAST, ti.materialized_at DESC
-            LIMIT $2 OFFSET $3
+            WHERE ($2::uuid IS NULL OR ti.assignee_staff_id = $2)
+            ORDER BY t.ord
+            LIMIT $3 OFFSET $4
             "#,
         )
-        .bind(aid)
+        .bind(&ids)
+        .bind(assignee_filter)
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)
         .await?
     } else {
+        let q = search_text.map(|s| format!("%{}%", s.to_lowercase()));
         sqlx::query_as::<_, TaskHistoryRow>(
             r#"
             SELECT
@@ -532,10 +544,18 @@ pub async fn list_task_history(
                 s.avatar_key AS assignee_avatar_key
             FROM task_instance ti
             JOIN staff s ON s.id = ti.assignee_staff_id
+            WHERE ($1::uuid IS NULL OR ti.assignee_staff_id = $1)
+              AND ($2::text IS NULL OR (
+                LOWER(ti.title_snapshot) LIKE $2
+                OR LOWER(ti.period_key) LIKE $2
+                OR LOWER(s.full_name) LIKE $2
+              ))
             ORDER BY ti.completed_at DESC NULLS LAST, ti.materialized_at DESC
-            LIMIT $1 OFFSET $2
+            LIMIT $3 OFFSET $4
             "#,
         )
+        .bind(assignee_filter)
+        .bind(q)
         .bind(limit)
         .bind(offset)
         .fetch_all(pool)

@@ -438,6 +438,7 @@ pub fn router() -> Router<AppState> {
             "/appointments",
             get(list_appointments).post(create_appointment),
         )
+        .route("/appointments/search", get(search_appointments))
         .route(
             "/appointments/{appointment_id}",
             patch(update_appointment).delete(delete_appointment),
@@ -1467,6 +1468,27 @@ async fn delete_appointment(
         .wedding_events
         .appointments_updated(wedding_client_sender(&headers).as_deref());
     Ok(StatusCode::NO_CONTENT)
+}
+
+pub async fn search_appointments(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SearchQuery>,
+) -> Result<Json<Vec<AppointmentRow>>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let rows = crate::logic::wedding_queries::search_appointments_hybrid(
+        &state.db,
+        state.meilisearch.as_ref(),
+        q.q.as_deref().unwrap_or(""),
+        40,
+    )
+    .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SearchQuery {
+    pub q: Option<String>,
 }
 
 async fn get_morning_compass(

@@ -130,6 +130,7 @@ First-party Markdown only. **Role:** runbook, agent guide, spec, future plan, au
 | `docs/SHIPPING_AND_SHIPMENTS_HUB.md` | Shippo, Registry, and Hub operations | Devs / ops |
 | `docs/WISEPOS_E_SETUP_STRIPE.md` | Stripe Terminal WisePOS E reset and server-driven flow | Ops / devs |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |
+| `docs/CUSTOMER_HUB_AND_RBAC.md` | Joint accounts, financial redirection, CRM RBAC | Devs / ops |
 | `INVENTORY_GUIDE.md` | Scanning engine, physical inventory sessions | Ops / devs |
 | `BACKUP_RESTORE_GUIDE.md` | Maintenance, backups, cloud sync | Ops |
 | `Riverside_OS_Master_Specification.md` | Product requirements and vocabulary | Product / devs |

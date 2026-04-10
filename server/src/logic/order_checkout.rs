@@ -497,6 +497,11 @@ pub async fn execute_checkout(
         ));
     }
 
+    let customer_id_orig = payload.customer_id;
+    if let Some(cid) = payload.customer_id {
+        payload.customer_id = Some(crate::logic::customer_couple::resolve_effective_customer_id(pool, cid).await?);
+    }
+
     for item in &payload.items {
         if item.quantity <= 0 {
             return Err(CheckoutError::InvalidPayload(format!(
@@ -1135,7 +1140,7 @@ pub async fn execute_checkout(
         .map(|j| j.0.clone())
         .unwrap_or_else(|| json!({}));
 
-    let is_employee_purchase_order: bool = if let Some(cid) = payload.customer_id {
+    let is_employee_purchase_order: bool = if let Some(cid) = customer_id_orig {
         sqlx::query_scalar::<_, bool>(
             r#"SELECT EXISTS(SELECT 1 FROM staff WHERE employee_customer_id = $1)"#,
         )

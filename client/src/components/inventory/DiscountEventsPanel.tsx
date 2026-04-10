@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -45,7 +46,6 @@ export default function DiscountEventsPanel() {
   const [rows, setRows] = useState<EventRow[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [vars, setVars] = useState<VarRow[]>([]);
-  const [skuAdd, setSkuAdd] = useState("");
   const [name, setName] = useState("");
   const [receiptLabel, setReceiptLabel] = useState("");
   const [starts, setStarts] = useState("");
@@ -242,29 +242,18 @@ export default function DiscountEventsPanel() {
     void loadVars(sel);
   };
 
-  const addVariantBySku = async () => {
+  const addVariant = async (v: VariantSearchResult) => {
     if (!canEdit || !sel) return;
-    const q = skuAdd.trim();
-    if (!q) return;
-    const scan = await fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(q)}`, {
-      headers: backofficeHeaders(),
-    });
-    if (!scan.ok) {
-      toast("SKU not found", "error");
-      return;
-    }
-    const s = (await scan.json()) as { variant_id: string };
     const res = await fetch(`${baseUrl}/api/discount-events/${sel}/variants`, {
       method: "POST",
       headers: jsonHeaders(backofficeHeaders),
-      body: JSON.stringify({ variant_id: s.variant_id }),
+      body: JSON.stringify({ variant_id: v.variant_id }),
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
       toast(b.error ?? "Add failed", "error");
       return;
     }
-    setSkuAdd("");
     toast("Variant added", "success");
     void loadVars(sel);
   };
@@ -532,20 +521,12 @@ export default function DiscountEventsPanel() {
             SKUs in promotion
           </h3>
           {sel && rows.find((x) => x.id === sel)?.scope_type === "variants" && canEdit ? (
-            <div className="mt-2 flex gap-2">
-              <input
-                className="ui-input flex-1 font-mono text-sm"
-                placeholder="Scan or type SKU"
-                value={skuAdd}
-                onChange={(e) => setSkuAdd(e.target.value)}
+            <div className="mt-2">
+              <VariantSearchInput
+                onSelect={addVariant}
+                placeholder="Search products to add to promotion…"
+                className="w-full"
               />
-              <button
-                type="button"
-                onClick={() => void addVariantBySku()}
-                className="ui-btn-secondary px-4 text-xs font-black uppercase"
-              >
-                Add
-              </button>
             </div>
           ) : sel && rows.find((x) => x.id === sel)?.scope_type !== "variants" ? (
             <p className="mt-2 text-xs text-app-text-muted">

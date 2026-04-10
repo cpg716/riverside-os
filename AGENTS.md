@@ -258,4 +258,14 @@ Database: **Local dev** uses Docker Compose **`db`** ([`docker-compose.yml`](doc
 
 ## User-visible copy
 
-Avoid the `§` character in UI strings. Prefer concise, professional retail language consistent with existing screens.
+## Joint Couple Account Pattern (migration **110**)
+
+```
+Linking     →  Two customers join via `couple_id`. Loyalty is merged to `couple_primary_id`.
+Checkout    →  Redirect `orders.customer_id` to the Primary's ID for centralized revenue/debt/loyalty.
+Hub Stats   →  Sum(Spend, Balance, Points, Parties) for both partners.
+Timeline    →  Union of joint orders and payments; individual notes and measurements stay separate.
+UI          →  Switch partners via the Relationship tab to access individual fitting context.
+```
+
+When adding customer-facing features, always check for `couple_id`. If present, financial activity must use `resolve_effective_customer_id()`, while "fitting" or "personal" data (measurements, phone, email) stays per-person.

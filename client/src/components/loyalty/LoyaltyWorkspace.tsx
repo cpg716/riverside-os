@@ -8,6 +8,7 @@ import {
   loyaltyEligibleDisplayName,
   type LoyaltySettings,
 } from "./LoyaltyLogic";
+import CustomerSearchInput from "../customers/CustomerSearchInput";
 
 const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -105,6 +106,7 @@ function SettingsPanel() {
 
 function AdjustPanel() {
   const [customerId, setCustomerId] = useState("");
+  const [customerLabel, setCustomerLabel] = useState("");
   const [delta, setDelta] = useState("");
   const [reason, setReason] = useState("");
   const [badge, setBadge] = useState("");
@@ -153,10 +155,22 @@ function AdjustPanel() {
       <p className="text-xs text-app-text-muted">Requires admin badge. Positive delta = add points; negative = deduct.</p>
       {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
       {result && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{result}</p>}
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Customer ID (UUID)</span>
-        <input value={customerId} onChange={e => setCustomerId(e.target.value)} className="ui-input mt-1 w-full font-mono text-xs" placeholder="Paste customer ID…" />
-      </label>
+      
+      <div className="space-y-1">
+        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Select Customer</span>
+        <CustomerSearchInput 
+          onSelect={(c) => {
+            setCustomerId(c.id);
+            setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
+          }}
+          placeholder="Search customer (Name, Code, Phone)…"
+          className="w-full"
+        />
+        {customerId && (
+          <p className="text-[10px] text-emerald-600 font-bold">Selected: {customerLabel}</p>
+        )}
+      </div>
+
       <label className="block">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Delta points (± integer)</span>
         <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input mt-1 w-full" />

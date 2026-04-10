@@ -172,6 +172,20 @@ const PODIUM_EMAIL_UI_BLOCKS: {
 
 type ThemeMode = "light" | "dark" | "system";
 
+interface MeilisearchSyncRow {
+  index_name: string;
+  last_success_at: string | null;
+  last_attempt_at: string;
+  is_success: boolean;
+  row_count: number;
+  error_message: string | null;
+}
+
+interface MeilisearchStatusResponse {
+  configured: boolean;
+  indices: MeilisearchSyncRow[];
+}
+
 interface SettingsWorkspaceProps {
   themeMode: ThemeMode;
   onThemeChange: (t: ThemeMode) => void;
@@ -252,6 +266,7 @@ export default function SettingsWorkspace({
   const STAFF_SOP_MAX_BYTES = 131_072;
 
   const [meiliConfigured, setMeiliConfigured] = useState<boolean | null>(null);
+  const [meiliIndices, setMeiliIndices] = useState<MeilisearchSyncRow[]>([]);
   const [meiliReindexBusy, setMeiliReindexBusy] = useState(false);
   const [meiliReindexConfirmOpen, setMeiliReindexConfirmOpen] = useState(false);
 
@@ -262,13 +277,16 @@ export default function SettingsWorkspace({
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (res.ok) {
-        const j = (await res.json()) as { configured?: boolean };
+        const j = (await res.json()) as MeilisearchStatusResponse;
         setMeiliConfigured(j.configured === true);
+        setMeiliIndices(j.indices || []);
       } else {
         setMeiliConfigured(null);
+        setMeiliIndices([]);
       }
     } catch {
       setMeiliConfigured(null);
+      setMeiliIndices([]);
     }
   }, [baseUrl, backofficeHeaders, hasPermission]);
 
@@ -1323,11 +1341,10 @@ export default function SettingsWorkspace({
                              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
                                Meilisearch (fuzzy search)
                              </h3>
-                             <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
-                               Rebuilds all search indexes from PostgreSQL (inventory variants, store catalog,
-                               customers, weddings, orders). Use after enabling Meilisearch, restoring its data
-                               volume, or if search results look stale. Large catalogs can take several minutes;
-                               the app keeps working and falls back to SQL search if Meilisearch is unavailable.
+                             <p className="text-xs text-app-text-muted mt-1 max-w-2xl leading-relaxed">
+                               Real-time synchronization for all primary modules (Products, Customers, Weddings, Orders, Staff, Vendors, Tasks, 
+                               Appointments). Use after enabling Meilisearch, restoring its data from a separate host, or if search results 
+                               drift from the operational database.
                              </p>
                            </div>
                          </div>
@@ -1351,31 +1368,122 @@ export default function SettingsWorkspace({
                              </code>{" "}
                              (and{" "}
                              <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                               RIVERSIDE_MEILISEARCH_API_KEY
-                             </code>{" "}
-                             when the instance requires it) on the API host, then restart the server.
-                           </span>
-                         </p>
                        ) : null}
-                       <div className="flex flex-wrap items-center gap-3">
-                         <button
-                           type="button"
-                           disabled={meiliReindexBusy || meiliConfigured !== true}
-                           onClick={() => setMeiliReindexConfirmOpen(true)}
-                           className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest"
-                         >
-                           {meiliReindexBusy ? "Rebuilding…" : "Rebuild search index"}
-                         </button>
-                         <button
-                           type="button"
-                           disabled={meiliReindexBusy}
-                           onClick={() => void fetchMeilisearchStatus()}
-                           className="ui-btn-secondary px-4 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
-                         >
-                           <RefreshCw className="h-3.5 w-3.5" aria-hidden />
-                           Refresh status
-                         </button>
-                       </div>
+                       {meiliConfigured && (
+                            <div className="mb-6 space-y-6">
+                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Index Health</p>
+                                  <div className="flex items-center gap-2">
+                                    <div className={`h-2 w-2 rounded-full ${meiliIndices.every(i => i.is_success) ? 'bg-emerald-500' : 'bg-rose-500'} shadow-[0_0_8px_rgba(16,185,129,0.5)]`} />
+                                    <span className="text-sm font-black text-app-text">
+                                      {meiliIndices.every(i => i.is_success) ? 'All Healthy' : 'Action Required'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Total Indexed</p>
+                                  <span className="text-sm font-black text-app-text">
+                                    {meiliIndices.reduce((acc, i) => acc + i.row_count, 0).toLocaleString()} <span className="text-[10px] opacity-60">Rows</span>
+                                  </span>
+                                </div>
+                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Stale Warning</p>
+                                  <span className="text-sm font-black text-app-text">
+                                    {meiliIndices.filter(i => i.last_success_at && (new Date().getTime() - new Date(i.last_success_at).getTime() > 86400000)).length} <span className="text-[10px] opacity-60">Indices</span>
+                                  </span>
+                                </div>
+                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Last Reindex</p>
+                                  <span className="text-xs font-black text-app-text truncate">
+                                    {meiliIndices.length > 0 ? (
+                                      meiliIndices.reduce((prev, curr) => (
+                                        new Date(curr.last_attempt_at) > new Date(prev.last_attempt_at) ? curr : prev
+                                      )).last_attempt_at.split('T')[0]
+                                    ) : 'Never'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+                                {([
+                                  'ros_products', 'ros_customers', 'ros_weddings', 'ros_orders', 
+                                  'ros_staff', 'ros_vendors', 'ros_tasks', 'ros_appointments'
+                                ]).map(catName => {
+                                  const idx = meiliIndices.find(i => i.index_name === catName) || {
+                                    index_name: catName,
+                                    row_count: 0,
+                                    is_success: false,
+                                    last_success_at: null,
+                                    error_message: "Index not yet created or tracked."
+                                  };
+                                  
+                                  const isStale = idx.last_success_at && (new Date().getTime() - new Date(idx.last_success_at).getTime() > 86400000);
+                                  const hasRun = idx.last_success_at !== null;
+
+                                  return (
+                                    <div key={idx.index_name} className={`p-4 rounded-xl border ${idx.is_success ? (isStale ? 'border-amber-500/20 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5') : 'border-rose-500/20 bg-rose-500/5'} transition-all group`}>
+                                      <div className="flex items-center justify-between gap-3 mb-2">
+                                        <div className="flex flex-col min-w-0">
+                                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text truncate" title={idx.index_name}>
+                                            {idx.index_name.replace('ros_', '').replace('_', ' ')}
+                                          </span>
+                                          {!hasRun && <span className="text-[8px] font-black text-rose-500 uppercase tracking-tighter">Sync Required</span>}
+                                        </div>
+                                        {idx.is_success ? (
+                                          isStale ? <History className="h-4 w-4 text-amber-500 animate-pulse" /> : <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                                        ) : (
+                                          <div className="h-4 w-4 flex items-center justify-center rounded-full bg-rose-500/10">
+                                            <Info className="h-3 w-3 text-rose-500" />
+                                          </div>
+                                        )}
+                                      </div>
+                                      <div className="flex flex-col gap-1.5 mt-3">
+                                        <div className="flex justify-between items-center text-[11px]">
+                                          <span className="text-app-text-muted font-bold">Rows</span>
+                                          <span className="text-app-text font-black">{idx.row_count.toLocaleString()}</span>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[9px]">
+                                          <span className="text-app-text-muted font-bold">Last Sync</span>
+                                          <span className="text-app-text font-black opacity-80">{idx.last_success_at ? new Date(idx.last_success_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}</span>
+                                        </div>
+                                        {!idx.is_success && idx.error_message && (
+                                          <div className="mt-2 text-[8px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 p-2 rounded-lg border border-rose-500/10 break-words leading-tight">
+                                            {idx.error_message}
+                                          </div>
+                                        )}
+                                        {idx.is_success && isStale && (
+                                          <div className="mt-2 text-[8px] font-black uppercase tracking-[0.05em] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/10">
+                                            Warning: Data stale (24h+)
+                                          </div>
+                                        )}
+                                      </div>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
+
+                        <div className="flex flex-wrap items-center gap-3">
+                          <button
+                            type="button"
+                            disabled={meiliReindexBusy || meiliConfigured !== true}
+                            onClick={() => setMeiliReindexConfirmOpen(true)}
+                            className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest"
+                          >
+                            {meiliReindexBusy ? "Rebuilding…" : "Rebuild search index"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={meiliReindexBusy}
+                            onClick={() => void fetchMeilisearchStatus()}
+                            className="ui-btn-secondary px-4 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
+                          >
+                            <RefreshCw className={`h-3.5 w-3.5 ${meiliReindexBusy ? 'animate-spin' : ''}`} aria-hidden />
+                            Refresh status
+                          </button>
+                        </div>
                      </section>
                    ) : null}
 
@@ -2224,9 +2332,9 @@ export default function SettingsWorkspace({
       {meiliReindexConfirmOpen && (
         <ConfirmationModal
           isOpen={true}
-          title="Rebuild search index?"
-          message="This reloads Meilisearch from PostgreSQL (all indexes). It can take a while on large catalogs. Staff can keep working; search uses SQL fallback if Meilisearch is busy or down."
-          confirmLabel="Rebuild index"
+          title="Rebuild all search indices?"
+          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Staff, Vendors, Tasks, and Appointments). It can take several minutes on large catalogs. Staff can keep working during the process."
+          confirmLabel="Execute Rebuild"
           onConfirm={() => void runMeilisearchReindex()}
           onClose={() => setMeiliReindexConfirmOpen(false)}
           variant="info"

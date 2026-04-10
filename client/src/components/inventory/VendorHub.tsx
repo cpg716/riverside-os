@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Building2, Clock3, Package, Plus, Trash2, Wallet, ShieldCheck } from "lucide-react";
+import { Building2, Clock3, Package, Plus, Search, Trash2, Wallet, ShieldCheck } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -51,6 +51,7 @@ export default function VendorHub() {
   const [brands, setBrands] = useState<VendorBrandRow[]>([]);
   const [brandInput, setBrandInput] = useState("");
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [vendorSearch, setVendorSearch] = useState("");
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingBrandId, setDeletingBrandId] = useState<string | null>(null);
@@ -161,21 +162,42 @@ export default function VendorHub() {
             Vendor hub
           </h3>
         </div>
-        <select
-          value={vendorId}
-          onChange={(e) => setVendorId(e.target.value)}
-          className="ui-input text-sm font-bold"
-        >
-          {vendors.length === 0 ? (
-            <option value="">No vendors</option>
-          ) : (
-            vendors.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))
-          )}
-        </select>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
+            <input
+              type="text"
+              placeholder="Filter vendors…"
+              className="ui-input h-9 w-40 pl-8 text-xs font-bold"
+              value={vendorSearch}
+              onChange={(e) => setVendorSearch(e.target.value)}
+            />
+          </div>
+          <select
+            value={vendorId}
+            onChange={(e) => setVendorId(e.target.value)}
+            className="ui-input h-9 text-sm font-bold"
+          >
+            {vendors.length === 0 ? (
+              <option value="">No vendors</option>
+            ) : (
+              vendors
+                .filter((v) => {
+                  if (!vendorSearch.trim()) return true;
+                  const q = vendorSearch.toLowerCase();
+                  return (
+                    v.name.toLowerCase().includes(q) ||
+                    v.vendor_code?.toLowerCase().includes(q)
+                  );
+                })
+                .map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))
+            )}
+          </select>
+        </div>
       </header>
 
       {loadErr && (

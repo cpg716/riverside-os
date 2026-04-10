@@ -6,6 +6,7 @@ pub mod checkout_validate;
 pub mod commission_payout;
 pub mod counterpoint_staging;
 pub mod counterpoint_sync;
+pub mod customer_couple;
 pub mod customer_duplicate_candidates;
 pub mod customer_hub;
 pub mod customer_measurements;

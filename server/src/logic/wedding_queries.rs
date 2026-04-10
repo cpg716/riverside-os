@@ -651,3 +651,65 @@ pub async fn list_appointments_filtered(
 
     qb.build_query_as::<AppointmentRow>().fetch_all(pool).await
 }
+
+pub async fn search_appointments_hybrid(
+    pool: &PgPool,
+    meili: Option<&MeilisearchClient>,
+    q: &str,
+    limit: i64,
+) -> Result<Vec<AppointmentRow>, sqlx::Error> {
+    let q = q.trim();
+    if q.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let mut search_ids: Option<Vec<Uuid>> = None;
+    if let Some(c) = meili {
+        if let Ok(ids) = crate::logic::meilisearch_search::appointment_search_ids(c, q).await {
+            search_ids = Some(ids);
+        }
+    }
+
+    if let Some(ids) = search_ids {
+        if ids.is_empty() {
+            return Ok(vec![]);
+        }
+        let rows = sqlx::query_as::<_, AppointmentRow>(
+            r#"
+            SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
+                   appointment_type, starts_at, notes, status, salesperson
+            FROM UNNEST($1::uuid[]) WITH ORDINALITY AS t(id, ord)
+            JOIN wedding_appointments wa ON wa.id = t.id
+            ORDER BY t.ord
+            LIMIT $2
+            "#,
+        )
+        .bind(&ids)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    } else {
+        let pat = format!("%{}%", q.to_lowercase());
+        let rows = sqlx::query_as::<_, AppointmentRow>(
+            r#"
+            SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
+                   appointment_type, starts_at, notes, status, salesperson
+            FROM wedding_appointments
+            WHERE (
+                LOWER(customer_display_name) LIKE $1
+                OR LOWER(notes) LIKE $1
+                OR LOWER(salesperson) LIKE $1
+                OR phone LIKE $1
+            )
+            ORDER BY starts_at DESC
+            LIMIT $2
+            "#,
+        )
+        .bind(pat)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+        Ok(rows)
+    }
+}

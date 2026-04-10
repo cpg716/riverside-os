@@ -14,28 +14,16 @@ Single reference for **React/Vite** layout, tokens, modal accessibility, lazy lo
 | [`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`](CI_CD_AND_CODE_HYGIENE_STANDARDS.md) | **Zero-Error Baseline** requirements, `exhaustive-deps` stabilization, and Logic Separation rules. |
 | [`docs/ONLINE_STORE.md`](ONLINE_STORE.md) | Guest **`/shop`** shell (**`PublicStorefront.tsx`**, incl. **`/shop/account/*`**): **TanStack Query**, **`client/src/components/ui-shadcn/`** + **`[data-storefront]`** tokens (separate from BO **`ui-*`**). |
 
-## Architectural Hygiene
+## Search and Lookup Components
 
-- **Logic Separation:** To maintain **Fast Refresh** compliance and "Thin Components," complex transformation logic, shared interfaces, and pure helpers must reside in dedicated logic files (e.g., `ComponentLogic.ts`) rather than the component file.
-- **Hook Stability:** All asynchronous functions consumed by `useEffect` must be wrapped in **`useCallback`**. External constants (e.g., `baseUrl`) must be excluded from dependency arrays.
-- **Unauthenticated Fetches:** Never eagerly fetch authenticated backend metadata (e.g. from `/api/pos/*` or `/api/staff/*`) on component load without first asserting `apiAuth()` yields valid auth headers (like `x-riverside-pos-session-token` or `x-riverside-staff-pin`). If missing, early return `useEffect` logic to prevent 401 Unauthorized console spam.
+Riverside OS follows a **search-first administrative mandate**. Direct entry of UUIDs or SKUs is discouraged in favor of fuzzy-search components that provide immediate visual feedback.
 
-## Theme (light / dark / system)
-
-- **Source of truth:** `<html data-theme="light">` or `data-theme="dark"`, driven by **`ros.theme.mode`** in `localStorage` (`light` | `dark` | `system`) and **`prefers-color-scheme`** when mode is `system`.
-- **Staff app:** [`client/src/App.tsx`](../client/src/App.tsx) persists the user’s choice and applies the resolved theme.
-- **Public `/shop`:** [`client/src/main.tsx`](../client/src/main.tsx) calls **`syncDocumentThemeFromStorage`** on load and **`installDocumentThemeListeners`** so guest shop tracks the same keys (including system theme changes and cross-tab storage updates).
-- **Tailwind `dark:` variants:** [`client/tailwind.config.js`](../client/tailwind.config.js) uses **`darkMode: ["selector", '[data-theme="dark"]']`** so `dark:*` utilities match `data-theme` (not a separate `.dark` class).
-- **CSS variables:** App surfaces use **`--app-*`** from [`client/src/index.css`](../client/src/index.css) (`:root` vs `[data-theme="dark"]`). Prefer **`var(--app-*)`** / primitives over hardcoded **`bg-white`** / **`text-zinc-*`** where semantics should follow theme.
-- **Storefront tokens:** `[data-storefront="true"]` defines `--sf-*`; **`[data-theme="dark"][data-storefront="true"]`** darkens the guest palette so `/shop` is not light-only when staff theme is dark.
-
-## Typography roles (`ui-type-*`)
-
-- **`ui-type-chrome`** — Very short UI chrome: chips, 1–3 word labels, dense table headers, keypad hints. Uppercase / tight tracking is appropriate.
-- **`ui-type-instruction`** / **`ui-type-instruction-muted`** — **Reading copy**: modal/drawer paragraphs, multi-line hints, compliance notes, any full sentence. **Do not** apply uppercase + widest tracking to instructional blocks.
-- **`ui-type-title`** — Drawer/modal titles; use **sentence case** for names (e.g. customer names); reserve heavy uppercase for intentional product voice.
-
-**Status tints:** prefer **`ui-caution-text`**, **`ui-info-text`**, **`ui-positive-text`** over one-off `amber-*` / `sky-*` + `dark:` pairs when adding new callouts.
+- **`CustomerSearchInput`**: The canonical component for customer lookups. Supports searching by Name, Customer Code, Phone, or Email. Used in Tasks, Appointments, Gift Cards, and Loyalty adjustments.
+- **`VariantSearchInput`**: The canonical component for product/variant lookups. Supports fuzzy SKU and Name matching. Used in Physical Inventory and Catalog management.
+- **Implementation Pattern**:
+  - Components should generally be "optional-link" or "required-search" depending on the business logic.
+  - Alway display a "Selected: [Name]" or similar label below the search input when an ID is resolved to provide the operator with visual confirmation.
+  - For long lists, ensure the component handles "Load more" semantics if provided by the underlying API.
 
 ## Primitives and density
 

@@ -73,6 +73,8 @@ pub const CUSTOMERS_TIMELINE: &str = "customers.timeline";
 pub const CUSTOMERS_MEASUREMENTS: &str = "customers.measurements";
 /// R2S RMS charge/payment admin list under Customers.
 pub const CUSTOMERS_RMS_CHARGE: &str = "customers.rms_charge";
+/// Create/unlink customer couples (Pillar 6).
+pub const CUSTOMERS_COUPLE_MANAGE: &str = "customers.couple_manage";
 
 /// Shipments hub: list/read unified shipments (POS, web, manual) and timeline.
 pub const SHIPMENTS_VIEW: &str = "shipments.view";
@@ -162,6 +164,7 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     CUSTOMERS_RMS_CHARGE,
     SHIPMENTS_VIEW,
     SHIPMENTS_MANAGE,
+    CUSTOMERS_COUPLE_MANAGE,
     NUORDER_MANAGE,
     NUORDER_SYNC,
 ];

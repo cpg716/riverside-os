@@ -21,7 +21,7 @@ Version bumps should be synchronized across the entire repository to ensure clie
 
 - **Root Source of Truth**: The `version` field in the root `package.json` is the authoritative version for the entire repository.
 - **Synchronized Modules**: Versions in `client/package.json`, `server/Cargo.toml`, `client/src-tauri/tauri.conf.json`, and `client/src-tauri/Cargo.toml` must match.
-- **Git Tags**: Official releases are marked with Git tags in the format `vMAJOR.MINOR.PATCH` (e.g., `v0.1.0`). 
+- **Git Tags**: Official releases are marked with Git tags in the format `vMAJOR.MINOR.PATCH` (e.g., `v0.1.1`). 
 - **Changelog**: All changes are documented in `CHANGELOG.md` under the corresponding version header.
 
 ### Automated Bumping
@@ -507,6 +507,7 @@ Customer pickup   →  stock_on_hand -qty  AND  reserved_stock -qty
 ## Frontend concepts
 
 - **Surface mode**: each workspace tagged `POS-Core` (speed, density) or `BackOffice` (clarity, reviewability).
+- **Search-First Administrative Mandate**: As of v0.1.1, Riverside OS administrative workflows (Tasks, Appointments, Loyalty, Physical Inventory) utilize a **search-first architecture**. Manual UUID/SKU entry is replaced by `CustomerSearchInput` and `VariantSearchInput` fuzzy-search components to eliminate handling of raw IDs and improve operational speed.
 - **Unified Shell Integration**: Register and Weddings are embedded directly in the core Back Office shell by default. Clicking these tabs renders native ROS workspaces in the `AppMainColumn`.
 - **POS launchpad**: The Back Office **POS** tab shows **Enter POS** / **Return to POS** and copy that **Register** (POS rail) is the selling screen inside **`PosShell`**.
 - **Wedding Shell Restoration**: Legacy iframe bridges have been removed; the Weddings module now always renders the native 'True Dark' Action Board and Pipeline. Rules for member transitions are managed in `weddingPipelineLogic.ts`.

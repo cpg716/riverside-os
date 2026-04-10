@@ -17,7 +17,7 @@ use crate::api::AppState;
 use crate::auth::permissions::{
     CUSTOMERS_DUPLICATE_REVIEW, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, CUSTOMERS_MEASUREMENTS,
     CUSTOMERS_MERGE, CUSTOMERS_RMS_CHARGE, CUSTOMERS_TIMELINE, CUSTOMER_GROUPS_MANAGE, ORDERS_VIEW,
-    STORE_CREDIT_MANAGE,
+    STORE_CREDIT_MANAGE, CUSTOMERS_COUPLE_MANAGE,
 };
 use crate::logic::customer_duplicate_candidates::find_duplicate_candidates;
 use crate::logic::customer_hub::{days_since_last_visit, fetch_hub_stats};
@@ -62,6 +62,8 @@ pub enum CustomerError {
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+    #[error("{0}")]
+    Logic(String),
 }
 
 impl IntoResponse for CustomerError {
@@ -81,6 +83,7 @@ impl IntoResponse for CustomerError {
             CustomerError::PodiumUnavailable(m) => (StatusCode::BAD_GATEWAY, m),
             CustomerError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             CustomerError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
+            CustomerError::Logic(m) => (StatusCode::BAD_REQUEST, m),
             CustomerError::Database(e) => {
                 tracing::error!(error = %e, "Database error in customers");
                 let msg = e.to_string();
@@ -205,8 +208,8 @@ pub struct Customer {
     pub wedding_active: bool,
     pub wedding_party_name: Option<String>,
     pub wedding_party_id: Option<Uuid>,
-    /// Wedding member row for the active upcoming party, when `wedding_party_id` is set.
     pub wedding_member_id: Option<Uuid>,
+    pub couple_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -291,6 +294,9 @@ pub struct CustomerProfileRow {
     pub loyalty_points: i32,
     /// `store` or `online_store` (migration 77+).
     pub customer_created_source: String,
+    pub couple_id: Option<Uuid>,
+    pub couple_primary_id: Option<Uuid>,
+    pub couple_linked_at: Option<DateTime<Utc>>,
 }
 
 async fn load_customer_profile_row(
@@ -309,7 +315,8 @@ async fn load_customer_profile_row(
             custom_field_1, custom_field_2, custom_field_3, custom_field_4,
             marketing_email_opt_in, marketing_sms_opt_in, transactional_sms_opt_in,
             transactional_email_opt_in, podium_conversation_url,
-            is_vip, loyalty_points, customer_created_source
+            is_vip, loyalty_points, customer_created_source,
+            couple_id, couple_primary_id, couple_linked_at
         FROM customers WHERE id = $1
         "#,
     )
@@ -341,14 +348,22 @@ pub struct CustomerProfileResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct CustomerHubStatsJson {
+pub struct CustomerHubStats {
     pub lifetime_spend_usd: Decimal,
     pub balance_due_usd: Decimal,
     pub wedding_party_count: i64,
     pub last_activity_at: Option<DateTime<Utc>>,
     pub days_since_last_visit: Option<i64>,
-    /// True when neither email nor SMS marketing is opted in — highlight in UI.
     pub marketing_needs_attention: bool,
+    pub loyalty_points: i32,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CoupleMemberPreview {
+    pub id: Uuid,
+    pub first_name: String,
+    pub last_name: String,
+    pub email: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -357,7 +372,8 @@ pub struct CustomerHubResponse {
     pub customer: CustomerProfileRow,
     pub profile_complete: bool,
     pub weddings: Vec<WeddingMembershipRow>,
-    pub stats: CustomerHubStatsJson,
+    pub stats: CustomerHubStats,
+    pub partner: Option<CoupleMemberPreview>,
 }
 
 #[derive(Debug, Serialize)]
@@ -447,6 +463,8 @@ pub struct CustomerBrowseRow {
     pub wedding_active: bool,
     pub wedding_party_name: Option<String>,
     pub wedding_party_id: Option<Uuid>,
+    pub couple_id: Option<Uuid>,
+    pub couple_primary_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1021,6 +1039,11 @@ pub fn router() -> Router<AppState> {
             get(get_customer_podium_messages).post(post_customer_podium_reply),
         )
         .route("/{customer_id}/weddings", get(list_customer_weddings))
+        .route(
+            "/{customer_id}/couple-link",
+            post(post_couple_link).delete(delete_couple_link),
+        )
+        .route("/{customer_id}/couple-link-new", post(post_couple_create))
         .route("/{customer_id}", get(get_customer).patch(update_customer))
 }
 
@@ -1139,6 +1162,8 @@ async fn browse_customers(
                 c.email,
                 c.phone,
                 c.is_vip,
+                c.couple_id,
+                c.couple_primary_id,
                 COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
                 EXISTS (
                     SELECT 1
@@ -1256,6 +1281,8 @@ async fn browse_customers(
                 c.email,
                 c.phone,
                 c.is_vip,
+                c.couple_id,
+                c.couple_primary_id,
                 COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
                 EXISTS (
                     SELECT 1
@@ -1467,6 +1494,7 @@ async fn search_customers(
                       AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
                       AND wp.event_date >= CURRENT_DATE
                 ) AS wedding_active,
+                c.couple_id,
                 (
                     SELECT {SQL_PARTY_TRACKING_LABEL_WP}
                     FROM wedding_members wm
@@ -1529,6 +1557,7 @@ async fn search_customers(
                       AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
                       AND wp.event_date >= CURRENT_DATE
                 ) AS wedding_active,
+                c.couple_id,
                 (
                     SELECT {SQL_PARTY_TRACKING_LABEL_WP}
                     FROM wedding_members wm
@@ -2261,8 +2290,20 @@ async fn get_customer_hub(
     let marketing_needs_attention =
         !row.marketing_email_opt_in && !row.marketing_sms_opt_in && !row.transactional_sms_opt_in;
 
+    let partner = if let Some(cid) = row.couple_id {
+        sqlx::query_as::<_, CoupleMemberPreview>(
+            "SELECT id, first_name, last_name, email FROM customers WHERE couple_id = $1 AND id != $2"
+        )
+        .bind(cid)
+        .bind(customer_id)
+        .fetch_optional(&state.db)
+        .await?
+    } else {
+        None
+    };
+
     Ok(Json(CustomerHubResponse {
-        stats: CustomerHubStatsJson {
+        stats: CustomerHubStats {
             lifetime_spend_usd: hub.lifetime_spend_usd,
             balance_due_usd: hub.balance_due_usd,
             wedding_party_count: hub.wedding_party_count,
@@ -2273,7 +2314,110 @@ async fn get_customer_hub(
         customer: row,
         profile_complete,
         weddings,
+        partner,
     }))
+}
+
+
+
+#[derive(Debug, Deserialize)]
+pub struct CoupleLinkRequest {
+    pub partner_id: Uuid,
+}
+
+async fn post_couple_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+    Json(body): Json<CoupleLinkRequest>,
+) -> Result<Json<CustomerHubResponse>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_COUPLE_MANAGE).await?;
+    crate::logic::customer_couple::link_couple(&state.db, customer_id, body.partner_id)
+        .await
+        .map_err(|e| CustomerError::Logic(e.to_string()))?;
+
+    get_customer_hub(State(state), headers, Path(customer_id)).await
+}
+
+async fn post_couple_create(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+    Json(payload): Json<CreateCustomerRequest>,
+) -> Result<Json<CustomerHubResponse>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_COUPLE_MANAGE).await?;
+
+    let (
+        first,
+        last,
+        email,
+        phone,
+        line1,
+        line2,
+        city,
+        state_st,
+        postal,
+        m_email,
+        m_sms,
+        t_sms,
+        t_email,
+    ) = normalize_customer_input(&payload)?;
+
+    let trim_opt = |o: &Option<String>| {
+        o.as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+    };
+
+    let partner_id = insert_customer(
+        &state.db,
+        InsertCustomerParams {
+            customer_code: None,
+            first_name: first,
+            last_name: last,
+            company_name: trim_opt(&payload.company_name),
+            email,
+            phone,
+            address_line1: line1,
+            address_line2: line2,
+            city,
+            state: state_st,
+            postal_code: postal,
+            date_of_birth: payload.date_of_birth,
+            anniversary_date: payload.anniversary_date,
+            custom_field_1: trim_opt(&payload.custom_field_1),
+            custom_field_2: trim_opt(&payload.custom_field_2),
+            custom_field_3: trim_opt(&payload.custom_field_3),
+            custom_field_4: trim_opt(&payload.custom_field_4),
+            marketing_email_opt_in: m_email,
+            marketing_sms_opt_in: m_sms,
+            transactional_sms_opt_in: t_sms,
+            transactional_email_opt_in: Some(t_email),
+            podium_conversation_url: None,
+        },
+    )
+    .await
+    .map_err(CustomerError::Database)?;
+
+    crate::logic::customer_couple::link_couple(&state.db, customer_id, partner_id)
+        .await
+        .map_err(|e| CustomerError::Logic(e.to_string()))?;
+
+    get_customer_hub(State(state), headers, Path(customer_id)).await
+}
+
+async fn delete_couple_link(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    require_customer_perm_or_pos(&state, &headers, CUSTOMERS_COUPLE_MANAGE).await?;
+    crate::logic::customer_couple::unlink_couple(&state.db, customer_id)
+        .await
+        .map_err(|e| CustomerError::BadRequest(e.to_string()))?;
+
+    Ok(Json(json!({ "status": "unlinked" })))
 }
 
 #[derive(Debug, FromRow)]
@@ -2334,41 +2478,86 @@ async fn build_customer_timeline(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
 ) -> Result<Vec<CustomerTimelineEvent>, sqlx::Error> {
-    let orders = sqlx::query_as::<_, OrderTimelineRow>(
-        r#"
-        SELECT
-            o.id,
-            o.booked_at,
-            STRING_AGG(
-                (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
-                ', ' ORDER BY COALESCE(p.name, '')
-            ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
-        FROM orders o
-        LEFT JOIN order_items oi ON oi.order_id = o.id
-        LEFT JOIN products p ON p.id = oi.product_id
-        WHERE o.customer_id = $1
-          AND o.status != 'cancelled'::order_status
-        GROUP BY o.id, o.booked_at
-        ORDER BY o.booked_at DESC
-        LIMIT 25
-        "#,
-    )
-    .bind(customer_id)
-    .fetch_all(pool)
-    .await?;
+    let couple_id: Option<Uuid> = sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
+        .bind(customer_id)
+        .fetch_one(pool)
+        .await?;
 
-    let payments = sqlx::query_as::<_, PaymentTimelineRow>(
-        r#"
-        SELECT id, created_at, payment_method, amount, category::text AS category
-        FROM payment_transactions
-        WHERE payer_id = $1
-        ORDER BY created_at DESC
-        LIMIT 28
-        "#,
-    )
-    .bind(customer_id)
-    .fetch_all(pool)
-    .await?;
+    let orders = if let Some(cid) = couple_id {
+        sqlx::query_as::<_, OrderTimelineRow>(
+            r#"
+            SELECT
+                o.id,
+                o.booked_at,
+                STRING_AGG(
+                    (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
+                    ', ' ORDER BY COALESCE(p.name, '')
+                ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
+            FROM orders o
+            LEFT JOIN order_items oi ON oi.order_id = o.id
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE o.customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+              AND o.status != 'cancelled'::order_status
+            GROUP BY o.id, o.booked_at
+            ORDER BY o.booked_at DESC
+            LIMIT 25
+            "#,
+        )
+        .bind(cid)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, OrderTimelineRow>(
+            r#"
+            SELECT
+                o.id,
+                o.booked_at,
+                STRING_AGG(
+                    (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
+                    ', ' ORDER BY COALESCE(p.name, '')
+                ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
+            FROM orders o
+            LEFT JOIN order_items oi ON oi.order_id = o.id
+            LEFT JOIN products p ON p.id = oi.product_id
+            WHERE o.customer_id = $1
+              AND o.status != 'cancelled'::order_status
+            GROUP BY o.id, o.booked_at
+            ORDER BY o.booked_at DESC
+            LIMIT 25
+            "#,
+        )
+        .bind(customer_id)
+        .fetch_all(pool)
+        .await?
+    };
+
+    let payments = if let Some(cid) = couple_id {
+        sqlx::query_as::<_, PaymentTimelineRow>(
+            r#"
+            SELECT id, created_at, payment_method, amount, category::text AS category
+            FROM payment_transactions
+            WHERE payer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+            ORDER BY created_at DESC
+            LIMIT 28
+            "#,
+        )
+        .bind(cid)
+        .fetch_all(pool)
+        .await?
+    } else {
+        sqlx::query_as::<_, PaymentTimelineRow>(
+            r#"
+            SELECT id, created_at, payment_method, amount, category::text AS category
+            FROM payment_transactions
+            WHERE payer_id = $1
+            ORDER BY created_at DESC
+            LIMIT 28
+            "#,
+        )
+        .bind(customer_id)
+        .fetch_all(pool)
+        .await?
+    };
 
     let wedding_logs = sqlx::query_as::<_, WeddingLogTimelineRow>(&format!(
         r#"

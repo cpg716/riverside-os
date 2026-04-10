@@ -23,6 +23,7 @@ import {
   serializeMeasurementPatch,
 } from "./CustomerMeasurementLogic";
 import ShipmentsHubSection from "./ShipmentsHubSection";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
 
 const defaultBase =
   import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
@@ -34,11 +35,23 @@ export interface CustomerHubStats {
   last_activity_at: string | null;
   days_since_last_visit: number | null;
   marketing_needs_attention: boolean;
+  loyalty_points: number;
+}
+
+export interface CoupleMemberPreview {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email: string | null;
 }
 
 export interface CustomerHubData extends CustomerProfile {
   is_vip: boolean;
   stats: CustomerHubStats;
+  partner: CoupleMemberPreview | null;
+  couple_id: string | null;
+  couple_primary_id: string | null;
+  couple_linked_at: string | null;
 }
 
 export interface CustomerTimelineEvent {
@@ -154,6 +167,7 @@ export interface CustomerRelationshipHubDrawerProps {
   onAddToWedding?: () => void;
   onBookAppointment?: () => void;
   onOpenOrderInBackoffice?: (orderId: string) => void;
+  onSwitchCustomer?: (c: Customer) => void;
   baseUrl?: string;
   panelMaxClassName?: string;
 }
@@ -170,6 +184,7 @@ export default function CustomerRelationshipHubDrawer({
   onAddToWedding,
   onBookAppointment,
   onOpenOrderInBackoffice,
+  onSwitchCustomer,
   baseUrl = defaultBase,
   panelMaxClassName = "max-w-3xl",
 }: CustomerRelationshipHubDrawerProps) {
@@ -257,6 +272,16 @@ export default function CustomerRelationshipHubDrawer({
   const [smsReplyBusy, setSmsReplyBusy] = useState(false);
   const appliedInitialHubTab = useRef<string | null>(null);
   const [podiumUrlSaving, setPodiumUrlSaving] = useState(false);
+  const [coupleLinkingBusy, setCoupleLinkingBusy] = useState(false);
+  /** When true, shows the couple partner selection popover/modal. */
+  const [showCouplePicker, setShowCouplePicker] = useState(false);
+  const [showCreatePartner, setShowCreatePartner] = useState(false);
+  const [partnerDraft, setPartnerDraft] = useState({
+    first_name: "",
+    last_name: "",
+    email: "",
+    phone: "",
+  });
 
   useEffect(() => {
     if (!hub) return;
@@ -750,46 +775,90 @@ export default function CustomerRelationshipHubDrawer({
     }
   };
 
-  const enqueueDuplicateReviewPair = async () => {
-    const code = duplicateEnqueueCode.trim();
-    if (!code) {
-      toast("Enter the other customer code.", "error");
+  const linkCouple = async (partner: Customer) => {
+    if (!hasPermission("customers.couple_manage")) return;
+    setCoupleLinkingBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/couple-link`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify({ partner_id: partner.id }),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        toast((b as { error?: string }).error ?? "Linking failed", "error");
+        return;
+      }
+      toast("Joint couple account created", "success");
+      setShowCouplePicker(false);
+      await loadHub();
+    } catch {
+      toast("Error linking accounts", "error");
+    } finally {
+      setCoupleLinkingBusy(false);
+    }
+  };
+
+  const unlinkCouple = async () => {
+    if (!hasPermission("customers.couple_manage")) return;
+    if (!confirm("Unlink these accounts? Sales history will remain with the primary account.")) return;
+    setCoupleLinkingBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/couple-link`, {
+        method: "DELETE",
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        toast((b as { error?: string }).error ?? "Unlinking failed", "error");
+        return;
+      }
+      toast("Accounts unlinked", "success");
+      await loadHub();
+    } catch {
+      toast("Error unlinking accounts", "error");
+    } finally {
+      setCoupleLinkingBusy(false);
+    }
+  };
+
+  const createAndLinkPartner = async () => {
+    if (!hasPermission("customers.couple_manage")) return;
+    const { first_name, last_name } = partnerDraft;
+    if (!first_name.trim() || !last_name.trim()) {
+      toast("Partner first and last name are required.", "error");
       return;
     }
-    if (
-      hub &&
-      code.toLowerCase() === hub.customer_code.trim().toLowerCase()
-    ) {
-      toast("Enter a different customer than this profile.", "error");
+    setCoupleLinkingBusy(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/couple-link-new`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiAuth() },
+        body: JSON.stringify(partnerDraft),
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        toast((b as { error?: string }).error ?? "Creation and linking failed", "error");
+        return;
+      }
+      toast("New partner created and linked", "success");
+      setShowCreatePartner(false);
+      setPartnerDraft({ first_name: "", last_name: "", email: "", phone: "" });
+      await loadHub();
+    } catch {
+      toast("Error creating partner", "error");
+    } finally {
+      setCoupleLinkingBusy(false);
+    }
+  };
+
+  const enqueueDuplicateReviewPair = async (other: Customer) => {
+    if (other.id === customer.id) {
+      toast("Select a different customer than this profile.", "error");
       return;
     }
     setDuplicateEnqueueBusy(true);
     try {
-      type BrowseRow = { id: string; customer_code: string };
-      const browseRes = await fetch(
-        `${baseUrl}/api/customers/browse?q=${encodeURIComponent(code)}&limit=25&offset=0`,
-        { headers: apiAuth() },
-      );
-      if (!browseRes.ok) {
-        const b = await browseRes.json().catch(() => ({}));
-        toast(
-          (b as { error?: string }).error ?? "Could not look up customer",
-          "error",
-        );
-        return;
-      }
-      const rows = (await browseRes.json()) as BrowseRow[];
-      const match = rows.find(
-        (r) => r.customer_code.trim().toLowerCase() === code.toLowerCase(),
-      );
-      if (!match) {
-        toast(`No customer with code "${code}".`, "error");
-        return;
-      }
-      if (match.id === customer.id) {
-        toast("That code is this customer.", "error");
-        return;
-      }
       const res = await fetch(
         `${baseUrl}/api/customers/duplicate-review-queue/enqueue`,
         {
@@ -797,25 +866,18 @@ export default function CustomerRelationshipHubDrawer({
           headers: { "Content-Type": "application/json", ...apiAuth() },
           body: JSON.stringify({
             customer_a_id: customer.id,
-            customer_b_id: match.id,
-            reason: "manual_from_hub",
+            customer_b_id: other.id,
           }),
         },
       );
-      const body = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        status?: string;
-      };
       if (!res.ok) {
-        toast(body.error ?? "Could not queue pair", "error");
+        const b = await res.json().catch(() => ({}));
+        toast((b as { error?: string }).error ?? "Enqueue failed", "error");
         return;
       }
-      if (body.status === "already_queued") {
-        toast("This pair is already in the duplicate review queue.", "success");
-      } else {
-        toast("Queued for duplicate review.", "success");
-      }
-      setDuplicateEnqueueCode("");
+      toast("Duplicates enqueued for staff review", "success");
+    } catch {
+      toast("Error enqueuing duplicates", "error");
     } finally {
       setDuplicateEnqueueBusy(false);
     }
@@ -1122,9 +1184,9 @@ export default function CustomerRelationshipHubDrawer({
                 Online signup
               </span>
             ) : null}
-            {(hub.loyalty_points ?? 0) > 0 ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-violet-800">
-                ★ {(hub.loyalty_points ?? 0).toLocaleString()} pts
+            {(hub.stats.loyalty_points ?? 0) > 0 ? (
+              <span className="flex items-center gap-1 rounded-full bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                ★ {(hub.stats.loyalty_points ?? 0).toLocaleString()} pts
               </span>
             ) : null}
             {balanceDue ? (
@@ -1161,7 +1223,7 @@ export default function CustomerRelationshipHubDrawer({
 
           <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {[
-              ["Lifetime", fmtLifetimeCompact(hub.stats.lifetime_spend_usd)],
+              [`Lifetime${hub.couple_id ? " (Joint)" : ""}`, fmtLifetimeCompact(hub.stats.lifetime_spend_usd)],
               [
                 "Weddings",
                 String(hub.stats.wedding_party_count),
@@ -1171,7 +1233,7 @@ export default function CustomerRelationshipHubDrawer({
                 hub.profile_complete ? "OK" : "Incomplete",
               ],
               ["Last visit", lastVisitLabel(hub.stats.days_since_last_visit)],
-              ["Loyalty pts", ((hub.loyalty_points ?? 0)).toLocaleString()],
+              [`Loyalty pts${hub.couple_id ? " (Joint)" : ""}`, ((hub.stats.loyalty_points ?? 0)).toLocaleString()],
               ...(storeCreditBal != null
                 ? ([["Store credit", fmtMoney(storeCreditBal)]] as [string, string][])
                 : []),
@@ -1264,6 +1326,178 @@ export default function CustomerRelationshipHubDrawer({
 
           {tab === "relationship" && (
             <div className="space-y-6">
+              {hub.couple_id ? (
+                <section className="rounded-2xl border-2 border-app-accent/30 bg-app-accent/5 p-4 relative overflow-hidden">
+                  <Heart className="absolute -right-4 -bottom-4 h-24 w-24 text-app-accent/10 -rotate-12" />
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-accent">
+                      Joint Couple Account
+                    </h3>
+                    <button
+                      type="button"
+                      disabled={coupleLinkingBusy || !hasPermission("customers.couple_manage")}
+                      onClick={unlinkCouple}
+                      className="text-[10px] font-bold text-app-error hover:underline disabled:opacity-50"
+                    >
+                      Unlink accounts
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <div className="h-10 w-10 flex items-center justify-center rounded-full bg-app-accent/20 text-app-accent font-black">
+                      <Heart size={20} fill="currentColor" />
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const p = hub.partner!;
+                          const mockPartner: Customer = {
+                            id: p.id,
+                            first_name: p.first_name,
+                            last_name: p.last_name,
+                            email: p.email ?? undefined,
+                            customer_code: "",
+                            wedding_active: false,
+                          };
+                          if (onSwitchCustomer) {
+                             onSwitchCustomer(mockPartner);
+                          } else {
+                             toast("Switching not available in this context", "info");
+                          }
+                        }}
+                        className="font-bold text-app-text hover:underline text-left block"
+                      >
+                        Linked with {hub.partner?.first_name} {hub.partner?.last_name}
+                      </button>
+                      <p className="text-xs text-app-text-muted">
+                        Joint sales history, loyalty, and orders active.
+                      </p>
+                    </div>
+                    {hub.id !== hub.couple_primary_id && (
+                      <div className="ml-auto flex flex-col items-end gap-1">
+                        <span className="px-2 py-0.5 rounded-full bg-app-surface-active text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Archived Profile
+                        </span>
+                        <div className="group relative">
+                          <span className="cursor-help underline decoration-dotted text-app-text-muted text-[10px]">What is this?</span>
+                          <div className="absolute right-0 bottom-full mb-2 w-48 scale-0 group-hover:scale-100 origin-bottom-right transition-transform bg-app-surface border border-app-border p-3 text-xs text-app-text shadow-xl rounded-xl z-50">
+                            This profile acts as an alias for the joint account. Sales history is stored on the primary profile balance.
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </section>
+              ) : (
+                hasPermission("customers.couple_manage") && (
+                  <section className="rounded-2xl border border-dashed border-app-border bg-app-surface/50 p-6 flex flex-col items-center justify-center text-center gap-4">
+                    <div className="h-12 w-12 flex items-center justify-center rounded-full bg-app-surface-active text-app-text-muted">
+                      <Heart size={24} />
+                    </div>
+                    <div>
+                      <h3 className="font-bold text-app-text">Link a Partner</h3>
+                      <p className="text-sm text-app-text-muted max-w-sm mt-1">
+                        Combine profiles specifically for couples. One joint history, 
+                        individual contact/fitting details.
+                      </p>
+                      <div className="w-full max-w-sm">
+                      {(!showCouplePicker && !showCreatePartner) ? (
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setShowCouplePicker(true)}
+                            className="ui-button-secondary flex-1"
+                          >
+                            Find existing profile...
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setShowCreatePartner(true)}
+                            className="ui-button-primary bg-emerald-600 border-emerald-700 flex-1"
+                          >
+                            Add as new customer
+                          </button>
+                        </div>
+                      ) : showCouplePicker ? (
+                        <div className="space-y-3">
+                          <CustomerSearchInput
+                            baseUrl={baseUrl}
+                            headers={apiAuth()}
+                            onSelect={linkCouple}
+                            placeholder="Type name or email..."
+                            autoFocus
+                            excludeCustomerId={customer.id}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setShowCouplePicker(false)}
+                            className="text-xs font-semibold text-app-text-muted hover:text-app-text w-full text-center"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="space-y-4 text-left bg-app-surface border border-app-border p-4 rounded-xl">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                               <label className="text-[10px] font-black uppercase text-app-text-muted">First Name</label>
+                               <input 
+                                 className="ui-input w-full"
+                                 value={partnerDraft.first_name}
+                                 onChange={e => setPartnerDraft({...partnerDraft, first_name: e.target.value})}
+                                 placeholder="Required"
+                               />
+                            </div>
+                            <div className="space-y-1">
+                               <label className="text-[10px] font-black uppercase text-app-text-muted">Last Name</label>
+                               <input 
+                                 className="ui-input w-full"
+                                 value={partnerDraft.last_name}
+                                 onChange={e => setPartnerDraft({...partnerDraft, last_name: e.target.value})}
+                                 placeholder="Required"
+                               />
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                             <label className="text-[10px] font-black uppercase text-app-text-muted">Email</label>
+                             <input 
+                               className="ui-input w-full"
+                               value={partnerDraft.email}
+                               onChange={e => setPartnerDraft({...partnerDraft, email: e.target.value})}
+                             />
+                          </div>
+                          <div className="space-y-1">
+                             <label className="text-[10px] font-black uppercase text-app-text-muted">Phone</label>
+                             <input 
+                               className="ui-input w-full"
+                               value={partnerDraft.phone}
+                               onChange={e => setPartnerDraft({...partnerDraft, phone: e.target.value})}
+                             />
+                          </div>
+                          <div className="flex gap-2 pt-2">
+                             <button
+                               type="button"
+                               disabled={coupleLinkingBusy}
+                               onClick={createAndLinkPartner}
+                               className="ui-button-primary flex-1"
+                             >
+                               {coupleLinkingBusy ? "Creating..." : "Create & Link"}
+                             </button>
+                             <button
+                               type="button"
+                               onClick={() => setShowCreatePartner(false)}
+                               className="ui-button-secondary"
+                             >
+                               Cancel
+                             </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  </section>
+                )
+              )}
               <section
                 className={`rounded-2xl border p-4 ${
                   hub.stats.marketing_needs_attention
@@ -1793,26 +2027,14 @@ export default function CustomerRelationshipHubDrawer({
                     Duplicate review queue
                   </h3>
                   <p className="mb-3 text-xs text-violet-950/90">
-                    Pair this customer with another by customer code for staff
-                    duplicate review (merge stays a separate step).
+                    Search for the twin record to mark them as a potential duplicate pair for management review (merge stays a separate step).
                   </p>
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <input
-                      type="text"
-                      value={duplicateEnqueueCode}
-                      onChange={(e) => setDuplicateEnqueueCode(e.target.value)}
-                      placeholder="Other customer code"
-                      className="ui-input min-w-0 flex-1 p-2.5 font-mono text-sm"
-                      autoComplete="off"
+                  <div className="mt-2">
+                    <CustomerSearchInput
+                      onSelect={enqueueDuplicateReviewPair}
+                      placeholder="Search for twin record by name or code…"
+                      className="w-full"
                     />
-                    <button
-                      type="button"
-                      disabled={duplicateEnqueueBusy || !hub}
-                      onClick={() => void enqueueDuplicateReviewPair()}
-                      className="shrink-0 rounded-xl bg-violet-700 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm disabled:opacity-40"
-                    >
-                      {duplicateEnqueueBusy ? "Queueing…" : "Queue pair"}
-                    </button>
                   </div>
                 </section>
               ) : null}

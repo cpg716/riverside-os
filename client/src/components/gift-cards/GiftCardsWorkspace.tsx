@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { CreditCard, Gift, RefreshCw, X } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
@@ -48,6 +49,8 @@ function IssueForm({ kind, onDone }: IssueFormProps) {
   const [code, setCode] = useState("");
   const [amount, setAmount] = useState("");
   const [notes, setNotes] = useState("");
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerLabel, setCustomerLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const { toast } = useToast();
@@ -67,6 +70,7 @@ function IssueForm({ kind, onDone }: IssueFormProps) {
           code: code.trim(),
           amount: centsToFixed2(amtCents),
           notes: notes.trim() || undefined,
+          customer_id: customerId,
         }),
       });
       if (!res.ok) {
@@ -96,6 +100,20 @@ function IssueForm({ kind, onDone }: IssueFormProps) {
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Amount ($)</span>
         <input type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)} className="ui-input mt-1 w-full" />
       </label>
+      <div className="space-y-1">
+        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Link Customer (optional)</span>
+        <CustomerSearchInput 
+          onSelect={(c) => {
+            setCustomerId(c.id);
+            setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
+          }}
+          placeholder="Search customer…"
+          className="w-full"
+        />
+        {customerId && (
+          <p className="text-[10px] text-emerald-600 font-bold">Linked: {customerLabel}</p>
+        )}
+      </div>
       <label className="block">
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Notes (optional)</span>
         <input value={notes} onChange={e => setNotes(e.target.value)} className="ui-input mt-1 w-full" />

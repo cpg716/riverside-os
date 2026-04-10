@@ -637,6 +637,40 @@ where
     tokio::spawn(fut);
 }
 
+pub async fn record_sync_status(
+    pool: &PgPool,
+    index_name: &str,
+    is_success: bool,
+    row_count: i64,
+    error_message: Option<&str>,
+) {
+    let now = chrono::Utc::now();
+    let res = sqlx::query(
+        r#"
+        INSERT INTO meilisearch_sync_status (index_name, last_success_at, last_attempt_at, is_success, row_count, error_message, updated_at)
+        VALUES ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, $4, $5, $3)
+        ON CONFLICT (index_name) DO UPDATE SET
+            last_success_at = CASE WHEN $2 THEN EXCLUDED.last_success_at ELSE meilisearch_sync_status.last_success_at END,
+            last_attempt_at = EXCLUDED.last_attempt_at,
+            is_success = EXCLUDED.is_success,
+            row_count = EXCLUDED.row_count,
+            error_message = EXCLUDED.error_message,
+            updated_at = EXCLUDED.updated_at
+        "#
+    )
+    .bind(index_name)
+    .bind(is_success)
+    .bind(now)
+    .bind(row_count)
+    .bind(error_message)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = res {
+        tracing::error!(error = %e, index = index_name, "Failed to record meilisearch sync status");
+    }
+}
+
 /// Full rebuild: settings + all documents (admin / script).
 /// Optimized with bulk additions to avoid 500k sequential HTTP calls.
 pub async fn reindex_all_meilisearch(
@@ -704,6 +738,7 @@ pub async fn reindex_all_meilisearch(
         n_variants += v_batch.len();
         index_v.add_documents(&v_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_VARIANTS, true, n_variants as i64, None).await;
 
     // 2. Store Products
     let index_p = client.index(INDEX_STORE_PRODUCTS);
@@ -754,6 +789,7 @@ pub async fn reindex_all_meilisearch(
     if !p_batch.is_empty() {
         index_p.add_documents(&p_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_STORE_PRODUCTS, true, p_batch.len() as i64, None).await;
 
     // 3. Customers
     let index_c = client.index(INDEX_CUSTOMERS);
@@ -805,6 +841,7 @@ pub async fn reindex_all_meilisearch(
     if !c_batch.is_empty() {
         index_c.add_documents(&c_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_CUSTOMERS, true, c_batch.len() as i64, None).await;
 
     // 4. Wedding Parties
     let index_w = client.index(INDEX_WEDDING_PARTIES);
@@ -861,6 +898,7 @@ pub async fn reindex_all_meilisearch(
     if !w_batch.is_empty() {
         index_w.add_documents(&w_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_WEDDING_PARTIES, true, w_batch.len() as i64, None).await;
 
     // 5. Orders
     let index_o = client.index(INDEX_ORDERS);
@@ -907,10 +945,14 @@ pub async fn reindex_all_meilisearch(
     if !o_batch.is_empty() {
         index_o.add_documents(&o_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_ORDERS, true, o_batch.len() as i64, None).await;
 
     // 6. Help
     if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {
         tracing::warn!(error = %e, "Meilisearch help reindex failed (other indexes succeeded)");
+        record_sync_status(pool, INDEX_HELP, false, 0, Some(&e.to_string())).await;
+    } else {
+        record_sync_status(pool, INDEX_HELP, true, 0, None).await;
     }
 
     // 7. Staff
@@ -934,6 +976,7 @@ pub async fn reindex_all_meilisearch(
     if !staff_batch.is_empty() {
         index_staff.add_documents(&staff_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_STAFF, true, staff_batch.len() as i64, None).await;
 
     // 8. Vendors
     let index_vendors = client.index(INDEX_VENDORS);
@@ -955,6 +998,7 @@ pub async fn reindex_all_meilisearch(
             .add_documents(&vendor_batch, Some("id"))
             .await?;
     }
+    record_sync_status(pool, INDEX_VENDORS, true, vendor_batch.len() as i64, None).await;
 
     // 9. Categories
     let index_categories = client.index(INDEX_CATEGORIES);
@@ -974,6 +1018,7 @@ pub async fn reindex_all_meilisearch(
             .add_documents(&category_batch, Some("id"))
             .await?;
     }
+    record_sync_status(pool, INDEX_CATEGORIES, true, category_batch.len() as i64, None).await;
 
     // 10. Appointments
     let index_appointments = client.index(INDEX_APPOINTMENTS);
@@ -1010,6 +1055,7 @@ pub async fn reindex_all_meilisearch(
             .add_documents(&appt_batch, Some("id"))
             .await?;
     }
+    record_sync_status(pool, INDEX_APPOINTMENTS, true, appt_batch.len() as i64, None).await;
 
     // 11. Tasks
     let index_tasks = client.index(INDEX_TASKS);
@@ -1040,6 +1086,7 @@ pub async fn reindex_all_meilisearch(
     if !task_batch.is_empty() {
         index_tasks.add_documents(&task_batch, Some("id")).await?;
     }
+    record_sync_status(pool, INDEX_TASKS, true, task_batch.len() as i64, None).await;
 
     tracing::info!(variants = n_variants, "Meilisearch reindex completed");
     Ok(())

@@ -4,6 +4,7 @@ import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
 
 interface PurchaseOrder {
   id: string;
@@ -263,11 +264,10 @@ export default function PurchaseOrderPanel({
           Add PO line / Quick receive
         </h3>
         <div className="grid gap-2 md:grid-cols-4">
-          <input
-            value={variantId}
-            onChange={(e) => setVariantId(e.target.value)}
-            placeholder="Variant UUID"
-            className="ui-input py-2 text-xs md:col-span-2"
+          <VariantSearchInput
+            onSelect={(v: VariantSearchResult) => setVariantId(v.variant_id)}
+            placeholder="Search products by name or SKU…"
+            className="md:col-span-2"
           />
           <input
             type="number"

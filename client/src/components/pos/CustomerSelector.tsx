@@ -18,6 +18,7 @@ export interface Customer {
   wedding_active?: boolean;
   wedding_party_name?: string | null;
   wedding_party_id?: string | null;
+  couple_id?: string | null;
 }
 
 interface CustomerSelectorProps {
@@ -649,6 +650,12 @@ export default function CustomerSelector({
                         <div className="mt-1 inline-flex items-center gap-1 rounded-full border border-app-accent/35 bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
                           <Gem size={11} aria-hidden />
                           {customer.wedding_party_name ?? "Wedding active"}
+                        </div>
+                      ) : null}
+                      {customer.couple_id ? (
+                        <div className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full border border-pink-500/35 bg-pink-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-pink-600">
+                          <Search size={11} aria-hidden className="opacity-70" />
+                          Joint Account
                         </div>
                       ) : null}
                     </button>

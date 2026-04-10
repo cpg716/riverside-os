@@ -45,6 +45,7 @@ const AppointmentList = ({ memberId, partyId }) => {
 import { useModal } from '../hooks/useModal';
 import { dispatchOpenRegisterFromWeddingManager } from '../../../lib/weddingPosBridge';
 import { WEDDING_MEMBER_RETAIL_SIZE_FIELDS } from '../../customers/retailMeasurementLabels';
+import CustomerSearchInput from '../../ui/CustomerSearchInput';
 
 const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, onRefresh }) => {
 
@@ -364,6 +365,25 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                         <div className="space-y-6">
                             {/* Contact Info */}
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="md:col-span-2 bg-app-surface-2 p-4 rounded-xl border border-app-border">
+                                    <label className="block text-xs font-bold text-app-text-muted uppercase mb-2">Link Existing Customer (Search by name or code)</label>
+                                    <CustomerSearchInput 
+                                        onSelect={(c) => {
+                                            setLocalMember(prev => ({
+                                                ...prev,
+                                                name: `${c.first_name} ${c.last_name}`.trim(),
+                                                firstName: c.first_name,
+                                                lastName: c.last_name,
+                                                phone: c.phone || '',
+                                                customerEmail: c.email || '',
+                                                customerId: c.id
+                                            }));
+                                        }}
+                                        placeholder="Search customers to link…"
+                                        className="w-full"
+                                    />
+                                    <p className="text-[10px] text-app-text-muted mt-2 italic">Linking a customer auto-fills name and contact details.</p>
+                                </div>
                                 <div>
                                     <label className="block text-xs font-bold text-app-text-muted uppercase mb-1">Name</label>
                                     <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none transition-colors"

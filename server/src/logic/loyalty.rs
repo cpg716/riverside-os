@@ -145,6 +145,8 @@ pub async fn try_accrue_for_order(
     }
 
     // Atomically bump customer balance and record ledger entry.
+    let effective_id = crate::logic::customer_couple::resolve_effective_customer_id_tx(&mut tx, customer_id).await?;
+
     let balance_after: i32 = sqlx::query_scalar(
         r#"
         UPDATE customers
@@ -154,7 +156,7 @@ pub async fn try_accrue_for_order(
         "#,
     )
     .bind(points)
-    .bind(customer_id)
+    .bind(effective_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -165,12 +167,12 @@ pub async fn try_accrue_for_order(
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
-    .bind(customer_id)
+    .bind(effective_id)
     .bind(points)
     .bind(balance_after)
     .bind("order_earn")
     .bind(order_id)
-    .bind(json!({ "product_subtotal": subtotal }))
+    .bind(json!({ "product_subtotal": subtotal, "original_customer_id": customer_id }))
     .execute(&mut *tx)
     .await?;
 
@@ -239,6 +241,8 @@ pub async fn reverse_order_accrual_in_tx(
         return Ok(());
     }
 
+    let effective_id = crate::logic::customer_couple::resolve_effective_customer_id_tx(tx, customer_id).await?;
+
     let balance_after: i32 = sqlx::query_scalar(
         r#"
         UPDATE customers
@@ -248,7 +252,7 @@ pub async fn reverse_order_accrual_in_tx(
         "#,
     )
     .bind(points_earned)
-    .bind(customer_id)
+    .bind(effective_id)
     .fetch_one(&mut **tx)
     .await?;
 
@@ -259,7 +263,7 @@ pub async fn reverse_order_accrual_in_tx(
         VALUES ($1, $2, $3, 'order_refund_clawback', $4, '{}'::jsonb)
         "#,
     )
-    .bind(customer_id)
+    .bind(effective_id)
     .bind(-points_earned)
     .bind(balance_after)
     .bind(order_id)
@@ -289,6 +293,8 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
         return Ok(());
     }
 
+    let effective_id = crate::logic::customer_couple::resolve_effective_customer_id_tx(tx, customer_id).await?;
+
     let balance_after: i32 = sqlx::query_scalar(
         r#"
         UPDATE customers
@@ -298,7 +304,7 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
         "#,
     )
     .bind(pts)
-    .bind(customer_id)
+    .bind(effective_id)
     .fetch_one(&mut **tx)
     .await?;
 
@@ -309,7 +315,7 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
         VALUES ($1, $2, $3, 'order_return_clawback', $4, $5)
         "#,
     )
-    .bind(customer_id)
+    .bind(effective_id)
     .bind(-pts)
     .bind(balance_after)
     .bind(order_id)

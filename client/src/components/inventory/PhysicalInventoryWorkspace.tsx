@@ -41,6 +41,7 @@ import {
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import VariantSearchInput from "../inventory/VariantSearchInput";
 
 const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -840,15 +841,32 @@ export default function PhysicalInventoryWorkspace() {
         )}
 
         {/* Search + count list */}
-        <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2">
-          <Search size={15} className="text-app-text-muted" />
-          <input
-            type="text"
-            value={scanSearch}
-            onChange={(e) => setScanSearch(e.target.value)}
-            placeholder="Filter scanned items…"
-            className="flex-1 text-sm outline-none placeholder:text-app-text-muted"
-          />
+        <div className="flex flex-col gap-3 rounded-2xl border border-app-border bg-app-surface p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-4">
+            <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Inventory Lookup & Manual Entry</h3>
+            <div className="flex-1 max-w-sm">
+              <VariantSearchInput 
+                onSelect={(v) => {
+                  void handleScan(v.sku); // Re-use handleScan for standardized logic
+                }}
+                placeholder="Search to add product (Fuzzy lookup)…"
+                className="w-full"
+              />
+            </div>
+          </div>
+
+          <div className="h-px bg-app-border" />
+
+          <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-app-surface-2 border border-app-border/50">
+            <Search size={15} className="text-app-text-muted" />
+            <input
+              type="text"
+              value={scanSearch}
+              onChange={(e) => setScanSearch(e.target.value)}
+              placeholder="Filter current counting list…"
+              className="flex-1 text-sm bg-transparent outline-none placeholder:text-app-text-muted"
+            />
+          </div>
         </div>
 
         <div className="overflow-hidden rounded-2xl border border-app-border bg-app-surface">

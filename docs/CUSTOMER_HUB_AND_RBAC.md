@@ -25,14 +25,25 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
 | **`customers.hub_edit`** | `PATCH /api/customers/{id}` (includes **`marketing_*_opt_in`**, **`transactional_sms_opt_in`** for operational pickup/alteration texts — migration **71**) |
 | **`customers.timeline`** | `GET …/timeline` (includes **shipping** activity from **`shipment_event`** for this customer), `POST …/notes` |
 | **`customers.measurements`** | `GET …/measurements`, `PATCH …/measurements` |
-| **`orders.view`** | `GET …/order-history` (hub **Orders** tab) |
-| **`shipments.view`** | Hub **Shipments** tab (list/detail scoped to customer; same key for **Customers → Shipments** workspace) — migration **75**, **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** |
+| **`orders.view`** | `GET …/order-history` (hub **Orders** tab - includes joint partner history if linked) |
+| **`customers.couple_manage`** | `POST …/couple-link`, `DELETE …/couple-link`, `POST …/couple-link-new` (link/unlink/create-joint partners — migration **110**) |
+| **`shipments.view`** | Hub **Shipments** tab (list/detail scoped to customer; includes joint partner shipments — migration **75**) |
 
 **Related (unchanged):** **`customers.merge`**, **`customer_groups.manage`**, **`store_credit.manage`** (**`POST …/store-credit/adjust`** remains staff + key only), **`customers_duplicate_review`** for duplicate queue tools.
 
 **Shipments (hub + workspace):** **`shipments.manage`** is required for manual create, rates, apply-quote, PATCH, and staff notes on **`/api/shipments/*`** — see **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)**.
 
 **R2S ledger (not hub drawer):** **`customers.rms_charge`** gates **`GET /api/customers/rms-charge/records`** and the **Customers → RMS charge** workspace — **[`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`](POS_PARKED_SALES_AND_RMS_CHARGES.md)** (migration **69**, **[`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md)**).
+
+---
+
+## Joint Couple Accounts (migration **110**)
+
+- **Linking Strategy**: Two customers can be linked to form a **Couple Account**. One member is designated as the `couple_primary_id` (effectively the root financial record).
+- **Financial Redirection**: At POS checkout, if the selected customer is linked, the order's `customer_id` is automatically set to the **primary partner's ID**. This ensures that sales revenue, loyalty points, and liability (RMS charge) are centralized to one account.
+- **Combined Views**: Returns for stats (lifetime spend, balance due, wedding parties), **Orders history**, and the **Timeline** aggregate data from both partners.
+- **Individual Data**: **Measurements**, **Contact secondary details**, and **Timeline Notes** remain individual unless explicitly shared, preserving "archived" individual fitting context.
+- **Profile Switching**: The Hub UI allows immediate switching between linked partners to access their individual fitting/measurement data without leaving the joint sales context.
 
 ---
 

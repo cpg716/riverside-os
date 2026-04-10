@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Calendar, ChevronLeft, ChevronRight, Printer, Plus, Clock, User, Trash, Scissors, Ruler, ShoppingBag } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Printer, Plus, Clock, User, Trash, Scissors, Ruler, ShoppingBag, Search, X } from 'lucide-react';
 import { weddingApi } from '../../lib/weddingApi';
 import AppointmentModal from './AppointmentModal';
 import ConfirmationModal from '../ui/ConfirmationModal';
@@ -40,6 +40,9 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedAppt, setSelectedAppt] = useState<Partial<Appointment> | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [searchResults, setSearchResults] = useState<Appointment[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
 
   const fetchAppointments = useCallback(async () => {
     try {
@@ -71,6 +74,29 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
       console.error("Failed to fetch appointments:", err);
     }
   }, [selectedDate, viewMode, wmHeaders]);
+
+  const runSearch = useCallback(async (q: string) => {
+    if (!q.trim()) {
+      setSearchResults([]);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/weddings/appointments/search?q=${encodeURIComponent(q.trim())}`, {
+        headers: wmHeaders,
+      });
+      if (res.ok) {
+        setSearchResults(await res.json());
+      }
+    } catch { /* ignore */ }
+  }, [wmHeaders]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (searchQuery) void runSearch(searchQuery);
+      else setSearchResults([]);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [searchQuery, runSearch]);
 
   useEffect(() => {
     fetchAppointments();
@@ -231,6 +257,64 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
           >
             Today
           </button>
+
+          <div className="relative group/search ml-4">
+            <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
+            <input
+              type="text"
+              placeholder="Fuzzy search appointments…"
+              className="ui-input h-10 w-64 pl-10 pr-10 text-[11px] font-bold"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setIsSearching(true)}
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => { setSearchQuery(""); setSearchResults([]); }}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-muted hover:text-app-text"
+              >
+                <X size={14} />
+              </button>
+            )}
+
+            {isSearching && searchQuery.trim() && (
+              <div className="absolute top-full left-0 mt-2 w-[400px] max-h-[500px] overflow-y-auto rounded-2xl border border-app-border bg-app-surface shadow-2xl z-[100] p-4 text-left">
+                <div className="flex items-center justify-between mb-3 px-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Search Results</span>
+                  <button onClick={() => setIsSearching(false)} className="text-app-text-muted hover:text-app-text"><X size={14}/></button>
+                </div>
+                {searchResults.length === 0 ? (
+                  <p className="p-4 text-center text-xs text-app-text-muted italic">No matching appointments found.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {searchResults.map(a => (
+                      <div 
+                        key={a.id} 
+                        className="group/res p-3 rounded-xl border border-app-border hover:border-app-accent hover:bg-app-accent/5 transition-all cursor-pointer"
+                        onClick={() => {
+                          const date = new Date(a.datetime);
+                          setSelectedDate(date);
+                          setViewMode('day');
+                          setIsSearching(false);
+                        }}
+                      >
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <div className="text-xs font-black uppercase text-app-text">{a.customerName || a.customer_display_name || 'Anonymous'}</div>
+                            <div className="text-[9px] font-bold text-app-text-muted mt-0.5">
+                              {new Date(a.datetime).toLocaleDateString()} @ {new Date(a.datetime).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • {a.appointment_type}
+                            </div>
+                          </div>
+                          <div className="text-[9px] font-black uppercase text-app-accent opacity-0 group-hover/res:opacity-100 transition-opacity">Jump to Day →</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex gap-2">

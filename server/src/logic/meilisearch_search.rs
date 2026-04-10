@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
     INDEX_CUSTOMERS, INDEX_HELP, INDEX_ORDERS, INDEX_STORE_PRODUCTS, INDEX_VARIANTS,
-    INDEX_WEDDING_PARTIES,
+    INDEX_WEDDING_PARTIES, INDEX_STAFF, INDEX_TASKS, INDEX_VENDORS, INDEX_APPOINTMENTS,
 };
 
 const CONTROL_BOARD_MEILI_HIT_CAP: usize = 50_000;
@@ -15,6 +15,10 @@ const CUSTOMER_MEILI_HIT_CAP: usize = 5_000;
 const WEDDING_MEILI_HIT_CAP: usize = 10_000;
 const ORDER_MEILI_HIT_CAP: usize = 10_000;
 const HELP_MEILI_HIT_CAP: usize = 40;
+const STAFF_MEILI_HIT_CAP: usize = 1_000;
+const VENDOR_MEILI_HIT_CAP: usize = 2_000;
+const TASK_MEILI_HIT_CAP: usize = 20_000;
+const APPOINTMENT_MEILI_HIT_CAP: usize = 10_000;
 
 #[derive(Debug, Deserialize)]
 struct IdHit {
@@ -176,4 +180,60 @@ pub async fn help_search_hits(
         .execute::<HelpSearchHit>()
         .await?;
     Ok(res.hits.into_iter().map(|h| h.result).collect())
+}
+
+pub async fn staff_search_ids(
+    client: &Client,
+    query_text: &str,
+) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
+    let index = client.index(INDEX_STAFF);
+    let res = index
+        .search()
+        .with_query(query_text)
+        .with_limit(STAFF_MEILI_HIT_CAP)
+        .execute::<IdHit>()
+        .await?;
+    Ok(parse_hit_ids(&res.hits))
+}
+
+pub async fn vendor_search_ids(
+    client: &Client,
+    query_text: &str,
+) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
+    let index = client.index(INDEX_VENDORS);
+    let res = index
+        .search()
+        .with_query(query_text)
+        .with_limit(VENDOR_MEILI_HIT_CAP)
+        .execute::<IdHit>()
+        .await?;
+    Ok(parse_hit_ids(&res.hits))
+}
+
+pub async fn task_search_ids(
+    client: &Client,
+    query_text: &str,
+) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
+    let index = client.index(INDEX_TASKS);
+    let res = index
+        .search()
+        .with_query(query_text)
+        .with_limit(TASK_MEILI_HIT_CAP)
+        .execute::<IdHit>()
+        .await?;
+    Ok(parse_hit_ids(&res.hits))
+}
+
+pub async fn appointment_search_ids(
+    client: &Client,
+    query_text: &str,
+) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
+    let index = client.index(INDEX_APPOINTMENTS);
+    let res = index
+        .search()
+        .with_query(query_text)
+        .with_limit(APPOINTMENT_MEILI_HIT_CAP)
+        .execute::<IdHit>()
+        .await?;
+    Ok(parse_hit_ids(&res.hits))
 }

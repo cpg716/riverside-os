@@ -5,12 +5,14 @@ import {
   Users,
   History,
   Plus,
+  Search,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import { useToast } from "../ui/ToastProviderLogic";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -112,6 +114,8 @@ export default function StaffTasksPanel({
   const [asgStaff, setAsgStaff] = useState("");
   const [asgRole, setAsgRole] = useState("salesperson");
   const [asgCustomerId, setAsgCustomerId] = useState("");
+  const [historySearch, setHistorySearch] = useState("");
+  const [teamSearch, setTeamSearch] = useState("");
 
   const refreshMe = useCallback(async () => {
     try {
@@ -138,7 +142,24 @@ export default function StaffTasksPanel({
     } catch {
       /* ignore */
     }
-  }, [canManage, backofficeHeaders]);
+  }, [canManage, backofficeHeaders, historySearch]);
+
+  const refreshHistoryOnly = useCallback(async () => {
+    if (!canManage) return;
+    try {
+      let url = `${baseUrl}/api/tasks/admin/history?limit=40`;
+      if (historySearch.trim()) url += `&q=${encodeURIComponent(historySearch.trim())}`;
+      const res = await fetch(url, { headers: backofficeHeaders() });
+      if (res.ok) setHistory((await res.json()) as HistRow[]);
+    } catch { /* ignore */ }
+  }, [canManage, backofficeHeaders, historySearch]);
+
+  useEffect(() => {
+    const t = setTimeout(() => {
+      if (sub === "admin") void refreshHistoryOnly();
+    }, 300);
+    return () => clearTimeout(t);
+  }, [historySearch, sub, refreshHistoryOnly]);
 
   const refreshTeam = useCallback(async () => {
     if (!canTeam) return;
@@ -163,6 +184,16 @@ export default function StaffTasksPanel({
   useEffect(() => {
     if (sub === "team") void refreshTeam();
   }, [sub, refreshTeam]);
+ 
+  const filteredTeam = useMemo(() => {
+    if (!teamSearch.trim()) return team;
+    const q = teamSearch.toLowerCase();
+    return team.filter(
+      (r) =>
+        r.title_snapshot.toLowerCase().includes(q) ||
+        r.assignee_name.toLowerCase().includes(q),
+    );
+  }, [team, teamSearch]);
 
   const createTemplate = async () => {
     const title = tplTitle.trim();
@@ -324,11 +355,22 @@ export default function StaffTasksPanel({
         ) : null}
 
         {sub === "team" ? (
-          <ul className="space-y-2">
+          <div className="flex flex-col gap-3 min-h-0 flex-1">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
+              <input
+                type="text"
+                placeholder="Search team tasks…"
+                className="ui-input h-9 w-full pl-8 text-xs font-bold"
+                value={teamSearch}
+                onChange={(e) => setTeamSearch(e.target.value)}
+              />
+            </div>
+            <ul className="space-y-2 overflow-y-auto">
             {team.length === 0 ? (
               <p className="text-sm text-app-text-muted">No open team tasks.</p>
             ) : (
-              team.map((r) => (
+              filteredTeam.map((r) => (
                 <li key={r.instance_id}>
                   <button
                     type="button"
@@ -351,7 +393,8 @@ export default function StaffTasksPanel({
                 </li>
               ))
             )}
-          </ul>
+            </ul>
+          </div>
         ) : null}
 
         {sub === "admin" ? (
@@ -466,15 +509,21 @@ export default function StaffTasksPanel({
                   ))}
                 </select>
               )}
-              <label className="mt-3 block text-[10px] font-black uppercase text-app-text-muted">
-                Customer ID (optional)
-                <input
-                  className="ui-input mt-1 w-full max-w-md font-mono text-xs"
-                  placeholder="UUID from CRM"
-                  value={asgCustomerId}
-                  onChange={(e) => setAsgCustomerId(e.target.value)}
+              <div className="mt-3">
+                <label className="block text-[10px] font-black uppercase text-app-text-muted mb-1">
+                  Link Customer (optional)
+                </label>
+                <CustomerSearchInput 
+                  onSelect={(c) => setAsgCustomerId(c.id)}
+                  placeholder="Search customer to link…"
+                  className="w-full"
                 />
-              </label>
+                {asgCustomerId && (
+                  <p className="mt-1 text-[10px] text-emerald-600 font-bold">
+                    Linked: {asgCustomerId}
+                  </p>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={() => void createAssignment()}
@@ -518,6 +567,16 @@ export default function StaffTasksPanel({
                 <History size={16} />
                 History
               </h3>
+              <div className="relative mb-3">
+                <Search className="absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-app-text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search history…"
+                  className="ui-input h-9 w-full pl-8 text-xs font-bold"
+                  value={historySearch}
+                  onChange={(e) => setHistorySearch(e.target.value)}
+                />
+              </div>
               <ul className="space-y-2">
                 {history.map((h) => (
                   <li
