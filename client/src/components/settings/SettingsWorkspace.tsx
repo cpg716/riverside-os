@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
-import { Database, Save, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Link, Info, User, ClipboardList, MessageSquare, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug } from "lucide-react";
+import { Database, Save, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Link, Info, User, ClipboardList, MessageSquare, BarChart3, CreditCard, ArrowUpRight, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { readPersistedBackofficeSession } from "../../lib/backofficeSessionPersistence";
@@ -16,9 +16,15 @@ import HelpCenterSettingsPanel from "./HelpCenterSettingsPanel";
 import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
 import { StaffRoleAccessPanel } from "../staff/StaffAccessPanels";
 import StaffDiscountCapsPanel from "../staff/StaffDiscountCapsPanel";
-import InsightsIntegrationSettings from "./InsightsIntegrationSettings";
+import InsightsSettingsPanel from "./InsightsSettingsPanel";
 import BugReportsSettingsPanel from "./BugReportsSettingsPanel";
 import NuorderSettingsPanel from "./NuorderSettingsPanel";
+import WeatherSettingsPanel from "./WeatherSettingsPanel";
+import PodiumSettingsPanel from "./PodiumSettingsPanel";
+import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
+import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
+import StripeSettingsPanel from "./StripeSettingsPanel";
+
 const ReceiptBuilderPanel = lazy(() => import("./ReceiptBuilderPanel"));
 
 export interface ReceiptConfig {
@@ -265,56 +271,7 @@ export default function SettingsWorkspace({
 
   const STAFF_SOP_MAX_BYTES = 131_072;
 
-  const [meiliConfigured, setMeiliConfigured] = useState<boolean | null>(null);
-  const [meiliIndices, setMeiliIndices] = useState<MeilisearchSyncRow[]>([]);
-  const [meiliReindexBusy, setMeiliReindexBusy] = useState(false);
-  const [meiliReindexConfirmOpen, setMeiliReindexConfirmOpen] = useState(false);
-
-  const fetchMeilisearchStatus = useCallback(async () => {
-    if (!hasPermission("settings.admin")) return;
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/meilisearch/status`, {
-        headers: backofficeHeaders() as Record<string, string>,
-      });
-      if (res.ok) {
-        const j = (await res.json()) as MeilisearchStatusResponse;
-        setMeiliConfigured(j.configured === true);
-        setMeiliIndices(j.indices || []);
-      } else {
-        setMeiliConfigured(null);
-        setMeiliIndices([]);
-      }
-    } catch {
-      setMeiliConfigured(null);
-      setMeiliIndices([]);
-    }
-  }, [baseUrl, backofficeHeaders, hasPermission]);
-
-  useEffect(() => {
-    if (activeTab !== "integrations" || !hasPermission("settings.admin")) return;
-    void fetchMeilisearchStatus();
-  }, [activeTab, fetchMeilisearchStatus, hasPermission]);
-
-  const runMeilisearchReindex = async () => {
-    setMeiliReindexConfirmOpen(false);
-    setMeiliReindexBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/meilisearch/reindex`, {
-        method: "POST",
-        headers: backofficeHeaders() as Record<string, string>,
-      });
-      if (res.ok) {
-        toast("Search index rebuild completed", "success");
-      } else {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Search index rebuild failed", "error");
-      }
-    } catch {
-      toast("Search index rebuild failed", "error");
-    } finally {
-      setMeiliReindexBusy(false);
-    }
-  };
+  
 
   const fetchBackups = useCallback(async () => {
     try {
@@ -886,37 +843,53 @@ export default function SettingsWorkspace({
     setTimeout(() => setSaved(false), 2000);
   };
 
-  const tabs = useMemo(() => {
-    const base: {
-      id: string;
-      label: string;
-      icon: typeof User;
-    }[] = [
-      { id: "profile", label: "Profile", icon: User },
-      { id: "backups", label: "Data & Backups", icon: Database },
-      { id: "printing", label: "Printing Hub", icon: Printer },
-      { id: "receipt-builder", label: "Receipt Builder", icon: FileText },
-      { id: "integrations", label: "Integrations", icon: Link },
+    const groups = useMemo(() => {
+    const base: { title: string; id: string; items: { id: string; label: string; icon: any; permission?: string }[] }[] = [
+      {
+        title: "User",
+        id: "user",
+        items: [{ id: "profile", label: "Profile", icon: User }],
+      },
+      {
+        title: "Configuration",
+        id: "configuration",
+        items: [
+          { id: "general", label: "Store Info", icon: SettingsIcon },
+          { id: "printing", label: "Hardware & Printing", icon: Printer },
+          { id: "receipt-builder", label: "Receipt Studio", icon: FileText },
+          { id: "online-store", label: "Online Store", icon: ShoppingBag },
+          { id: "staff-access-defaults", label: "Role Permissions", icon: Shield, permission: "settings.admin" },
+        ],
+      },
+      {
+        title: "Integrations & Bridges",
+        id: "integrations",
+        items: [
+          { id: "meilisearch", label: "Meilisearch", icon: Search, permission: "settings.admin" },
+          { id: "insights", label: "Metabase Insights", icon: BarChart3, permission: "settings.admin" },
+          { id: "weather", label: "Live Weather", icon: Cloud, permission: "settings.admin" },
+          { id: "podium", label: "Podium SMS/Email", icon: MessageSquare, permission: "settings.admin" },
+          { id: "nuorder", label: "NuORDER Retail", icon: Monitor, permission: "settings.admin" },
+          { id: "counterpoint", label: "Counterpoint Bridge", icon: RefreshCw, permission: "counterpoint.sync" },
+          { id: "quickbooks", label: "QuickBooks Ledger", icon: ArrowUpRight, permission: "settings.admin" },
+          { id: "stripe", label: "Stripe Terminal", icon: CreditCard, permission: "settings.admin" },
+        ],
+      },
+      {
+        title: "System & Health",
+        id: "system",
+        items: [
+          { id: "backups", label: "Cloud Backups", icon: Database, permission: "settings.admin" },
+          { id: "bug-reports", label: "Bug Reports", icon: Bug, permission: "settings.admin" },
+          { id: "help-center", label: "Reference Docs", icon: BookOpen, permission: "help.manage" },
+        ],
+      },
     ];
-    if (hasPermission("settings.admin") || hasPermission("staff.manage_access")) {
-      base.push({
-        id: "staff-access-defaults",
-        label: "Staff access defaults",
-        icon: Shield,
-      });
-    }
-    if (hasPermission("settings.admin")) {
-      base.push({ id: "counterpoint", label: "Counterpoint", icon: Monitor });
-    }
-    base.push({ id: "online-store", label: "Online store", icon: ShoppingBag });
-    if (hasPermission("help.manage")) {
-      base.push({ id: "help-center", label: "Help center", icon: BookOpen });
-    }
-    if (hasPermission("settings.admin")) {
-      base.push({ id: "bug-reports", label: "Bug reports", icon: Bug });
-    }
-    base.push({ id: "general", label: "General", icon: SettingsIcon });
-    return base;
+
+    return base.map(group => ({
+      ...group,
+      items: group.items.filter(item => !item.permission || hasPermission(item.permission as any))
+    })).filter(group => group.items.length > 0);
   }, [hasPermission]);
 
   const saveStaffSop = async () => {
@@ -979,25 +952,32 @@ export default function SettingsWorkspace({
     <div className="flex h-full flex-col overflow-hidden bg-app-bg">
       <div className="flex h-full overflow-hidden">
         {/* Settings Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-app-border bg-app-surface/50 p-6 flex flex-col gap-8">
+        <aside className="w-64 shrink-0 border-r border-app-border bg-app-surface/50 p-6 flex flex-col gap-8 overflow-y-auto no-scrollbar">
            <div>
               <h1 className="text-xl font-black uppercase tracking-tight text-app-text italic">System Control</h1>
               <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] mt-1">Environment Overrides</p>
            </div>
            
-           <nav className="flex flex-col gap-1">
-              {tabs.map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => {
-                    setActiveTab(tab.id);
-                    onSettingsSectionNavigate?.(tab.id);
-                  }}
-                  className={`flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-black/20 translate-x-2' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/30'}`}
-                >
-                  <tab.icon size={18} className={activeTab === tab.id ? '' : 'text-app-accent group-hover:scale-110 transition-transform'} />
-                  <span className="uppercase tracking-widest text-[11px]">{tab.label}</span>
-                </button>
+           <nav className="flex flex-col gap-8">
+              {groups.map(group => (
+                <div key={group.id} className="flex flex-col gap-1">
+                  <h3 className="px-4 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted mb-2 opacity-60">
+                    {group.title}
+                  </h3>
+                  {group.items.map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        onSettingsSectionNavigate?.(tab.id);
+                      }}
+                      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-black/20 translate-x-1' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/30'}`}
+                    >
+                      <tab.icon size={16} className={activeTab === tab.id ? '' : 'text-app-accent group-hover:scale-110 transition-transform'} />
+                      <span className="uppercase tracking-widest text-[10px]">{tab.label}</span>
+                    </button>
+                  ))}
+                </div>
               ))}
            </nav>
 
@@ -1318,720 +1298,39 @@ export default function SettingsWorkspace({
               )}
 
               {activeTab === 'integrations' && (
-                <div className="space-y-12">
+                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
                    <header className="mb-10">
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Integrations & Bridges</h2>
+                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Integrations & Hub</h2>
                       <p className="text-sm text-app-text-muted mt-2 font-medium leading-relaxed">
-                        Connect external ledgers and enterprise services.
-                        <span className="mt-2 block text-xs font-medium">
-                          NCR Counterpoint (Windows SQL bridge) lives in its own{" "}
-                          <strong className="text-app-text">Counterpoint</strong> area in System Control — not here.
-                        </span>
+                        Each integration is now managed via its own dedicated sub-page for better control.
                       </p>
                    </header>
 
-                   {hasPermission("settings.admin") ? (
-                     <section className="ui-card p-8 max-w-3xl border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-transparent">
-                       <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
-                         <div className="flex items-center gap-3">
-                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
-                             <Search className="h-6 w-6" aria-hidden />
+                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                      {[
+                        { id: 'meilisearch', label: 'Meilisearch', icon: Search, desc: 'Meilisearch index health', color: 'bg-emerald-500' },
+                        { id: 'insights', label: 'Metabase Insights', icon: BarChart3, desc: 'Enterprise reporting & SSO', color: 'bg-violet-500' },
+                        { id: 'weather', label: 'Live Weather', icon: Cloud, desc: 'Visual Crossing snapshots', color: 'bg-sky-500' },
+                        { id: 'podium', label: 'Podium Comms', icon: MessageSquare, desc: 'Lifecycle SMS & HTML Email', color: 'bg-indigo-500' },
+                        { id: 'nuorder', label: 'NuORDER', icon: Monitor, desc: 'Retail catalog & sync', color: 'bg-slate-800' },
+                        { id: 'quickbooks', label: 'QuickBooks Online', icon: ArrowUpRight, desc: 'Launch QBO Data Bridge', color: 'bg-emerald-700' },
+                        { id: 'stripe', label: 'Stripe Terminal', icon: CreditCard, desc: 'Card Processing Hub', color: 'bg-indigo-600 focus:ring-indigo-500' },
+                      ].map(item => (
+                        <button 
+                          key={item.id}
+                          onClick={() => setActiveTab(item.id)}
+                          className="ui-card p-8 flex flex-col items-center text-center group hover:border-app-text transition-all"
+                        >
+                           <div className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform`}>
+                              <item.icon size={28} />
                            </div>
-                           <div>
-                             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                               Meilisearch (fuzzy search)
-                             </h3>
-                             <p className="text-xs text-app-text-muted mt-1 max-w-2xl leading-relaxed">
-                               Real-time synchronization for all primary modules (Products, Customers, Weddings, Orders, Staff, Vendors, Tasks, 
-                               Appointments). Use after enabling Meilisearch, restoring its data from a separate host, or if search results 
-                               drift from the operational database.
-                             </p>
-                           </div>
-                         </div>
-                         <span className="ui-pill bg-app-surface-2 text-app-text-muted text-[9px]">
-                           {meiliConfigured === null
-                             ? "Status unknown"
-                             : meiliConfigured
-                               ? "Configured on server"
-                               : "Not configured"}
-                         </span>
-                       </div>
-                       {!meiliConfigured && meiliConfigured !== null ? (
-                         <p className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-app-text leading-relaxed">
-                           <span className="font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
-                             Server env required
-                           </span>
-                           <span className="block mt-2 text-app-text-muted">
-                             Set{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                               RIVERSIDE_MEILISEARCH_URL
-                             </code>{" "}
-                             (and{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                       ) : null}
-                       {meiliConfigured && (
-                            <div className="mb-6 space-y-6">
-                              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Index Health</p>
-                                  <div className="flex items-center gap-2">
-                                    <div className={`h-2 w-2 rounded-full ${meiliIndices.every(i => i.is_success) ? 'bg-emerald-500' : 'bg-rose-500'} shadow-[0_0_8px_rgba(16,185,129,0.5)]`} />
-                                    <span className="text-sm font-black text-app-text">
-                                      {meiliIndices.every(i => i.is_success) ? 'All Healthy' : 'Action Required'}
-                                    </span>
-                                  </div>
-                                </div>
-                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Total Indexed</p>
-                                  <span className="text-sm font-black text-app-text">
-                                    {meiliIndices.reduce((acc, i) => acc + i.row_count, 0).toLocaleString()} <span className="text-[10px] opacity-60">Rows</span>
-                                  </span>
-                                </div>
-                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Stale Warning</p>
-                                  <span className="text-sm font-black text-app-text">
-                                    {meiliIndices.filter(i => i.last_success_at && (new Date().getTime() - new Date(i.last_success_at).getTime() > 86400000)).length} <span className="text-[10px] opacity-60">Indices</span>
-                                  </span>
-                                </div>
-                                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Last Reindex</p>
-                                  <span className="text-xs font-black text-app-text truncate">
-                                    {meiliIndices.length > 0 ? (
-                                      meiliIndices.reduce((prev, curr) => (
-                                        new Date(curr.last_attempt_at) > new Date(prev.last_attempt_at) ? curr : prev
-                                      )).last_attempt_at.split('T')[0]
-                                    ) : 'Never'}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                                {([
-                                  'ros_products', 'ros_customers', 'ros_weddings', 'ros_orders', 
-                                  'ros_staff', 'ros_vendors', 'ros_tasks', 'ros_appointments'
-                                ]).map(catName => {
-                                  const idx = meiliIndices.find(i => i.index_name === catName) || {
-                                    index_name: catName,
-                                    row_count: 0,
-                                    is_success: false,
-                                    last_success_at: null,
-                                    error_message: "Index not yet created or tracked."
-                                  };
-                                  
-                                  const isStale = idx.last_success_at && (new Date().getTime() - new Date(idx.last_success_at).getTime() > 86400000);
-                                  const hasRun = idx.last_success_at !== null;
-
-                                  return (
-                                    <div key={idx.index_name} className={`p-4 rounded-xl border ${idx.is_success ? (isStale ? 'border-amber-500/20 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5') : 'border-rose-500/20 bg-rose-500/5'} transition-all group`}>
-                                      <div className="flex items-center justify-between gap-3 mb-2">
-                                        <div className="flex flex-col min-w-0">
-                                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text truncate" title={idx.index_name}>
-                                            {idx.index_name.replace('ros_', '').replace('_', ' ')}
-                                          </span>
-                                          {!hasRun && <span className="text-[8px] font-black text-rose-500 uppercase tracking-tighter">Sync Required</span>}
-                                        </div>
-                                        {idx.is_success ? (
-                                          isStale ? <History className="h-4 w-4 text-amber-500 animate-pulse" /> : <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                                        ) : (
-                                          <div className="h-4 w-4 flex items-center justify-center rounded-full bg-rose-500/10">
-                                            <Info className="h-3 w-3 text-rose-500" />
-                                          </div>
-                                        )}
-                                      </div>
-                                      <div className="flex flex-col gap-1.5 mt-3">
-                                        <div className="flex justify-between items-center text-[11px]">
-                                          <span className="text-app-text-muted font-bold">Rows</span>
-                                          <span className="text-app-text font-black">{idx.row_count.toLocaleString()}</span>
-                                        </div>
-                                        <div className="flex justify-between items-center text-[9px]">
-                                          <span className="text-app-text-muted font-bold">Last Sync</span>
-                                          <span className="text-app-text font-black opacity-80">{idx.last_success_at ? new Date(idx.last_success_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Never'}</span>
-                                        </div>
-                                        {!idx.is_success && idx.error_message && (
-                                          <div className="mt-2 text-[8px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 p-2 rounded-lg border border-rose-500/10 break-words leading-tight">
-                                            {idx.error_message}
-                                          </div>
-                                        )}
-                                        {idx.is_success && isStale && (
-                                          <div className="mt-2 text-[8px] font-black uppercase tracking-[0.05em] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/10">
-                                            Warning: Data stale (24h+)
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          )}
-
-                        <div className="flex flex-wrap items-center gap-3">
-                          <button
-                            type="button"
-                            disabled={meiliReindexBusy || meiliConfigured !== true}
-                            onClick={() => setMeiliReindexConfirmOpen(true)}
-                            className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest"
-                          >
-                            {meiliReindexBusy ? "Rebuilding…" : "Rebuild search index"}
-                          </button>
-                          <button
-                            type="button"
-                            disabled={meiliReindexBusy}
-                            onClick={() => void fetchMeilisearchStatus()}
-                            className="ui-btn-secondary px-4 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
-                          >
-                            <RefreshCw className={`h-3.5 w-3.5 ${meiliReindexBusy ? 'animate-spin' : ''}`} aria-hidden />
-                            Refresh status
-                          </button>
-                        </div>
-                     </section>
-                   ) : null}
-
-                   <InsightsIntegrationSettings />
-
-                   {weatherCfg ? (
-                     <section className="ui-card p-8 max-w-3xl border-sky-500/20 bg-gradient-to-br from-sky-500/5 to-transparent">
-                       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                         <div className="flex items-center gap-3">
-                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-600">
-                             <Cloud className="h-6 w-6" aria-hidden />
-                           </div>
-                           <div>
-                             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Visual Crossing Weather</h3>
-                             <p className="text-xs text-app-text-muted mt-1 max-w-xl">
-                               Dashboard and Golden Rule snapshots use the{" "}
-                               <a
-                                 href="https://www.visualcrossing.com/resources/documentation/weather-api/timeline-weather-api/"
-                                 target="_blank"
-                                 rel="noreferrer"
-                                 className="font-bold text-sky-600 underline decoration-sky-500/40 hover:decoration-sky-600"
-                               >
-                                 Timeline Weather API
-                               </a>
-                               . Without a key, the server uses deterministic mock data (Buffalo-style). The API key is stored only on the server.
-                             </p>
-                           </div>
-                         </div>
-                         <span className="ui-pill bg-app-surface-2 text-app-text-muted text-[9px]">
-                           {weatherCfg.api_key_configured ? "Key on file" : "Mock mode"}
-                         </span>
-                       </div>
-                       <div className="grid gap-4 sm:grid-cols-2">
-                         <label className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface-2/80 px-4 py-3">
-                           <input
-                             type="checkbox"
-                             className="h-4 w-4 rounded border-app-border"
-                             checked={weatherCfg.enabled}
-                             onChange={(e) =>
-                               setWeatherCfg({ ...weatherCfg, enabled: e.target.checked })
-                             }
-                           />
-                           <span className="text-xs font-bold text-app-text">Use Visual Crossing for live weather</span>
-                         </label>
-                         <div className="sm:col-span-2">
-                           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                             Location (address, city, or lat,lon)
-                           </label>
-                           <input
-                             className="ui-input w-full px-3 py-2 text-sm"
-                             value={weatherCfg.location}
-                             onChange={(e) =>
-                               setWeatherCfg({ ...weatherCfg, location: e.target.value })
-                             }
-                             placeholder="Buffalo,NY,US"
-                           />
-                         </div>
-                         <div>
-                           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                             Units
-                           </label>
-                           <select
-                             className="ui-input w-full px-3 py-2 text-sm"
-                             value={weatherCfg.unit_group}
-                             onChange={(e) =>
-                               setWeatherCfg({ ...weatherCfg, unit_group: e.target.value })
-                             }
-                           >
-                             <option value="us">US (°F, inches)</option>
-                             <option value="metric">Metric (converted to °F / in for ROS)</option>
-                           </select>
-                         </div>
-                         <div>
-                           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                             Store timezone (IANA)
-                           </label>
-                           <input
-                             className="ui-input w-full px-3 py-2 font-mono text-xs"
-                             value={weatherCfg.timezone}
-                             onChange={(e) =>
-                               setWeatherCfg({ ...weatherCfg, timezone: e.target.value })
-                             }
-                             placeholder="America/New_York"
-                           />
-                         </div>
-                         <div className="sm:col-span-2">
-                           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                             API key {weatherCfg.api_key_configured ? "(leave blank to keep existing)" : ""}
-                           </label>
-                           <input
-                             type="password"
-                             className="ui-input w-full px-3 py-2 text-sm font-mono"
-                             value={weatherApiKeyDraft}
-                             onChange={(e) => setWeatherApiKeyDraft(e.target.value)}
-                             placeholder={weatherCfg.api_key_configured ? "••••••••" : "Paste key from Visual Crossing account"}
-                             autoComplete="off"
-                           />
-                         </div>
-                       </div>
-                       <div className="mt-6 flex flex-wrap items-center gap-3">
-                         <button
-                           type="button"
-                           disabled={busy}
-                           onClick={() => void saveWeatherSettings()}
-                           className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest"
-                         >
-                           Save weather settings
-                         </button>
-                         {weatherCfg.api_key_configured ? (
-                           <button
-                             type="button"
-                             disabled={busy}
-                             onClick={() => void clearWeatherApiKey()}
-                             className="ui-btn-secondary px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-red-600 border-red-200"
-                           >
-                             Remove API key
-                           </button>
-                         ) : null}
-                       </div>
-                     </section>
-                   ) : null}
-
-                   {podiumSms ? (
-                     <section
-                       data-testid="podium-sms-settings-section"
-                       className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent"
-                     >
-                       {!podiumSms.credentials_configured ? (
-                         <div
-                           className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-app-text"
-                           role="status"
-                         >
-                           <p className="font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
-                             Podium API credentials missing
-                           </p>
-                           <p className="mt-2 leading-relaxed text-app-text-muted">
-                             Outbound SMS stays disabled until{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                               RIVERSIDE_PODIUM_CLIENT_ID
-                             </code>
-                             ,{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                               RIVERSIDE_PODIUM_CLIENT_SECRET
-                             </code>
-                             , and{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                               RIVERSIDE_PODIUM_REFRESH_TOKEN
-                             </code>{" "}
-                             are set on the API host. You can still save templates and the storefront snippet below.
-                           </p>
-                           <p className="mt-3 text-[10px] text-app-text-muted leading-relaxed">
-                             In the Podium developer app, register this redirect URI (must match exactly):{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono">
-                               {typeof window !== "undefined"
-                                 ? getPodiumOAuthRedirectUri() ?? "/callback"
-                                 : "/callback"}
-                             </code>
-                             . Local dev often uses{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[9px]">
-                               http://localhost:5173/callback
-                             </code>
-                             ; if Podium’s portal only accepts HTTPS, set{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[9px]">
-                               VITE_PODIUM_OAUTH_REDIRECT_URI
-                             </code>{" "}
-                             and use Vite{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono text-[9px]">
-                               server.https
-                             </code>{" "}
-                             or a tunnel. Then use Connect Podium to obtain{" "}
-                             <code className="rounded bg-app-surface-2 px-1 font-mono">
-                               RIVERSIDE_PODIUM_REFRESH_TOKEN
-                             </code>{" "}
-                             without putting the client secret in the browser.
-                           </p>
-                           <div className="mt-4">
-                             <button
-                               type="button"
-                               data-testid="podium-oauth-connect"
-                               onClick={() => void startPodiumOAuthConnect()}
-                               className="ui-btn-secondary px-4 py-2.5 text-[10px] font-black uppercase tracking-widest border-violet-300 text-violet-800"
-                             >
-                               Connect Podium (get refresh token)
-                             </button>
-                           </div>
-                         </div>
-                       ) : null}
-                       {podiumReadiness ? (
-                         <div className="mb-6 rounded-xl border border-app-border bg-app-surface-2/50 px-4 py-3 text-[10px] font-mono text-app-text-muted leading-relaxed">
-                           <span className="font-black uppercase tracking-widest text-app-text">
-                             Readiness
-                           </span>
-                           <span className="mx-2 text-app-border">|</span>
-                           API base: {podiumReadiness.api_base}
-                           <span className="mx-2 text-app-border">|</span>
-                           Webhook secret:{" "}
-                           {podiumReadiness.webhook_secret_configured ? "set" : "unset"}
-                           {podiumReadiness.allow_unsigned_webhook ? (
-                             <span className="text-amber-600"> (unsigned allowed)</span>
-                           ) : null}
-                           <span className="mx-2 text-app-border">|</span>
-                           Inbox preview:{" "}
-                           {podiumReadiness.inbound_inbox_preview_enabled ? "on" : "off"}
-                           <span className="mx-2 text-app-border">|</span>
-                           Email send:{" "}
-                           {podiumReadiness.email_send_enabled ? "on" : "off"}
-                         </div>
-                       ) : null}
-                       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                         <div className="flex items-center gap-3">
-                           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-500/15 text-violet-600">
-                             <MessageSquare className="h-6 w-6" aria-hidden />
-                           </div>
-                           <div>
-                             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                               Podium (SMS + email + web chat)
-                             </h3>
-                             <p className="text-xs text-app-text-muted mt-1 max-w-2xl leading-relaxed">
-                               Operational SMS and HTML email (pickup, alteration ready, appointment confirmations, loyalty threshold) send through Podium when enabled. Follow{" "}
-                               <a
-                                 href="https://docs.podium.com/docs/getting-started"
-                                 target="_blank"
-                                 rel="noreferrer"
-                                 className="font-bold text-violet-600 underline decoration-violet-500/40 hover:decoration-violet-600"
-                               >
-                                 Podium — Get Started
-                               </a>
-                               : developer app, OAuth (
-                               <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                                 {podiumSms.oauth_authorize_url}
-                               </code>
-                               ), then{" "}
-                               <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                                 GET /v4/locations
-                               </code>{" "}
-                               for your{" "}
-                               <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                                 locationUid
-                               </code>
-                               . OAuth client id, secret, and refresh token are server environment variables only (never stored in the database).
-                             </p>
-                           </div>
-                         </div>
-                         <span
-                           className={`ui-pill text-[9px] ${podiumSms.credentials_configured ? "bg-emerald-500/15 text-emerald-700" : "bg-app-surface-2 text-app-text-muted"}`}
-                         >
-                           {podiumSms.credentials_configured ? "Env credentials present" : "Env credentials missing"}
-                         </span>
-                       </div>
-
-                       <p className="text-[10px] font-mono text-app-text-muted mb-4 leading-relaxed break-all">
-                         Token URL: {podiumSms.oauth_token_url_hint}
-                       </p>
-
-                       <div className="rounded-xl border border-app-border bg-app-surface-2/60 p-4 mb-6">
-                         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2">
-                           Server environment (set on API host)
-                         </p>
-                         <ul className="text-xs font-mono text-app-text space-y-1 list-disc list-inside">
-                           <li>RIVERSIDE_PODIUM_CLIENT_ID</li>
-                           <li>RIVERSIDE_PODIUM_CLIENT_SECRET</li>
-                           <li>RIVERSIDE_PODIUM_REFRESH_TOKEN</li>
-                           <li className="text-app-text-muted">Optional: RIVERSIDE_PODIUM_OAUTH_TOKEN_URL</li>
-                         </ul>
-                       </div>
-
-                       <div className="grid gap-4 sm:grid-cols-2 mb-6">
-                         <label className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface-2/80 px-4 py-3 sm:col-span-2">
-                           <input
-                             type="checkbox"
-                             className="h-4 w-4 rounded border-app-border"
-                             checked={podiumSms.sms_send_enabled}
-                             onChange={(e) =>
-                               setPodiumSms({ ...podiumSms, sms_send_enabled: e.target.checked })
-                             }
-                           />
-                           <span className="text-xs font-bold text-app-text">
-                             Send operational SMS via Podium (pickup / alteration ready)
-                           </span>
-                         </label>
-                         <label className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface-2/80 px-4 py-3 sm:col-span-2">
-                           <input
-                             type="checkbox"
-                             className="h-4 w-4 rounded border-app-border"
-                             checked={podiumSms.email_send_enabled}
-                             onChange={(e) =>
-                               setPodiumSms({
-                                 ...podiumSms,
-                                 email_send_enabled: e.target.checked,
-                               })
-                             }
-                           />
-                           <span className="text-xs font-bold text-app-text">
-                             Send operational email via Podium (pickup, alterations, appointments, loyalty)
-                           </span>
-                         </label>
-                         <div className="sm:col-span-2">
-                           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                             Podium location UID
-                           </label>
-                           <input
-                             className="ui-input w-full px-3 py-2 font-mono text-xs"
-                             value={podiumSms.location_uid}
-                             onChange={(e) =>
-                               setPodiumSms({ ...podiumSms, location_uid: e.target.value })
-                             }
-                             placeholder="From GET https://api.podium.com/v4/locations"
-                           />
-                         </div>
-                       </div>
-
-                       <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
-                         Automated SMS copy
-                       </h4>
-                       <p className="text-[10px] text-app-text-muted mb-4">
-                         Placeholders:{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{first_name}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{order_ref}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{alteration_ref}"}</code>.
-                         Unknown-sender welcome is stored for a future inbound flow; it is not sent yet.
-                         Loyalty SMS sends only when staff checks SMS at redemption.
-                       </p>
-                       <div className="space-y-4 mb-6">
-                         {(
-                           [
-                             ["ready_for_pickup", "Ready for pickup"],
-                             ["alteration_ready", "Alteration ready"],
-                             ["unknown_sender_welcome", "Unknown-sender welcome (future)"],
-                             ["loyalty_reward_redeemed", "Loyalty reward (at redemption)"],
-                           ] as const
-                         ).map(([key, label]) => (
-                           <div key={key}>
-                             <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
-                               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                 {label}
-                               </span>
-                               <button
-                                 type="button"
-                                 className="text-[10px] font-bold uppercase tracking-wider text-violet-600 hover:underline"
-                                 onClick={() =>
-                                   setPodiumSms({
-                                     ...podiumSms,
-                                     templates: {
-                                       ...podiumSms.templates,
-                                       [key]: PODIUM_TEMPLATE_DEFAULTS[key],
-                                     },
-                                   })
-                                 }
-                               >
-                                 Reset to default
-                               </button>
-                             </div>
-                             <textarea
-                               className="ui-input min-h-[88px] w-full resize-y text-sm"
-                               value={podiumSms.templates[key]}
-                               onChange={(e) =>
-                                 setPodiumSms({
-                                   ...podiumSms,
-                                   templates: { ...podiumSms.templates, [key]: e.target.value },
-                                 })
-                               }
-                               spellCheck
-                             />
-                           </div>
-                         ))}
-                       </div>
-
-                       <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
-                         Automated email (subject + HTML)
-                       </h4>
-                       <p className="text-[10px] text-app-text-muted mb-4">
-                         Placeholders include{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{first_name}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{order_ref}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{alteration_ref}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{starts_at}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{appointment_type}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{notes_block}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{reward_amount}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{new_balance}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{points_redeemed}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{reward_breakdown}"}</code>,{" "}
-                         <code className="rounded bg-app-surface-2 px-1">{"{reward_breakdown_html}"}</code>.
-                       </p>
-                       <div className="space-y-6 mb-6">
-                         {PODIUM_EMAIL_UI_BLOCKS.map(({ label, subjectKey, htmlKey }) => (
-                           <div
-                             key={subjectKey}
-                             className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 space-y-3"
-                           >
-                             <div className="flex flex-wrap items-center justify-between gap-2">
-                               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                                 {label}
-                               </span>
-                               <button
-                                 type="button"
-                                 className="text-[10px] font-bold uppercase tracking-wider text-violet-600 hover:underline"
-                                 onClick={() =>
-                                   setPodiumSms({
-                                     ...podiumSms,
-                                     email_templates: {
-                                       ...podiumSms.email_templates,
-                                       [subjectKey]: PODIUM_EMAIL_TEMPLATE_DEFAULTS[subjectKey],
-                                       [htmlKey]: PODIUM_EMAIL_TEMPLATE_DEFAULTS[htmlKey],
-                                     },
-                                   })
-                                 }
-                               >
-                                 Reset to default
-                               </button>
-                             </div>
-                             <div>
-                               <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                                 Subject
-                               </label>
-                               <input
-                                 className="ui-input w-full px-3 py-2 text-sm"
-                                 value={podiumSms.email_templates[subjectKey]}
-                                 onChange={(e) =>
-                                   setPodiumSms({
-                                     ...podiumSms,
-                                     email_templates: {
-                                       ...podiumSms.email_templates,
-                                       [subjectKey]: e.target.value,
-                                     },
-                                   })
-                                 }
-                                 spellCheck
-                               />
-                             </div>
-                             <div>
-                               <label className="block text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
-                                 HTML body
-                               </label>
-                               <textarea
-                                 className="ui-input min-h-[100px] w-full resize-y font-mono text-xs"
-                                 value={podiumSms.email_templates[htmlKey]}
-                                 onChange={(e) =>
-                                   setPodiumSms({
-                                     ...podiumSms,
-                                     email_templates: {
-                                       ...podiumSms.email_templates,
-                                       [htmlKey]: e.target.value,
-                                     },
-                                   })
-                                 }
-                                 spellCheck={false}
-                               />
-                             </div>
-                           </div>
-                         ))}
-                       </div>
-
-                       <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
-                         Storefront web chat widget
-                       </h4>
-                       <p className="text-xs text-app-text-muted mb-3 leading-relaxed">
-                         Paste the embed snippet from the Podium dashboard. Public sites should set{" "}
-                         <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                           VITE_STOREFRONT_EMBEDS=true
-                         </code>{" "}
-                         so the shell loads{" "}
-                         <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                           GET /api/public/storefront-embeds
-                         </code>{" "}
-                         once and injects this HTML (keep staff builds without that flag so the widget does not load in Back Office).
-                       </p>
-                       <label className="flex items-center gap-3 rounded-xl border border-app-border bg-app-surface-2/80 px-4 py-3 mb-3">
-                         <input
-                           type="checkbox"
-                           className="h-4 w-4 rounded border-app-border"
-                           checked={podiumSms.widget_embed_enabled}
-                           onChange={(e) =>
-                             setPodiumSms({ ...podiumSms, widget_embed_enabled: e.target.checked })
-                           }
-                         />
-                         <span className="text-xs font-bold text-app-text">Enable snippet for public storefront embed API</span>
-                       </label>
-                       <textarea
-                         className="ui-input min-h-[120px] w-full resize-y font-mono text-xs"
-                         value={podiumSms.widget_snippet_html}
-                         onChange={(e) =>
-                           setPodiumSms({ ...podiumSms, widget_snippet_html: e.target.value })
-                         }
-                         placeholder="Paste Podium script / HTML embed…"
-                         spellCheck={false}
-                       />
-
-                       <div className="mt-6 flex flex-wrap gap-3">
-                         <button
-                           type="button"
-                           disabled={busy}
-                           onClick={() => void savePodiumSmsSettings()}
-                           className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest"
-                         >
-                           Save Podium / messaging settings
-                         </button>
-                         {podiumSms.credentials_configured ? (
-                           <button
-                             type="button"
-                             disabled={busy}
-                             data-testid="podium-oauth-connect-again"
-                             onClick={() => void startPodiumOAuthConnect()}
-                             className="ui-btn-secondary px-4 py-2.5 text-[10px] font-black uppercase tracking-widest"
-                           >
-                             Connect Podium (refresh token)
-                           </button>
-                         ) : null}
-                       </div>
-                     </section>
-                   ) : (
-                     <section className="ui-card p-8 max-w-4xl border-app-border">
-                       <p className="text-sm font-bold text-app-text">
-                         Could not load Podium settings (check permissions or network).
-                       </p>
-                       <button
-                         type="button"
-                         disabled={busy}
-                         onClick={() => void fetchPodiumSmsSettings()}
-                         className="mt-4 ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-                       >
-                         Retry
-                       </button>
-                     </section>
-                   )}
-
-                   <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                      <section className="ui-card p-10 flex flex-col items-center text-center">
-                         <div className="w-20 h-20 bg-[#2ca01c]/10 text-[#2ca01c] rounded-[2rem] flex items-center justify-center mb-6">
-                            <span className="font-black text-4xl italic tracking-tighter">qb</span>
-                         </div>
-                         <h3 className="text-xl font-black italic tracking-tight uppercase mb-2">QuickBooks Online</h3>
-                         <p className="text-xs font-bold text-app-text-muted uppercase tracking-widest mb-8 leading-relaxed">Financial Ledger & Inventory Sync</p>
-                         <button onClick={onOpenQbo} className="w-full h-14 rounded-2xl bg-[#2ca01c] text-white font-black uppercase tracking-[0.2em] shadow-xl shadow-[#2ca01c]/20 hover:scale-[1.02] transition-all">Launch Bridge</button>
-                      </section>
-
-                      <section className="ui-card p-10 flex flex-col items-center text-center opacity-40">
-                         <div className="w-20 h-20 bg-indigo-500/10 text-indigo-500 rounded-[2rem] flex items-center justify-center mb-6">
-                            <span className="font-black text-4xl italic tracking-tighter">sk</span>
-                         </div>
-                         <h3 className="text-xl font-black italic tracking-tight uppercase mb-2">Stripe Terminal</h3>
-                         <p className="text-xs font-bold text-app-text-muted uppercase tracking-widest mb-8 leading-relaxed">Integrated Payments</p>
-                         <button disabled className="w-full h-14 rounded-2xl bg-app-surface-2 text-app-text-muted font-black uppercase tracking-[0.2em] cursor-not-allowed">Coming Soon</button>
-                      </section>
+                           <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-2">{item.label}</h3>
+                           <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider">{item.desc}</p>
+                        </button>
+                      ))}
                    </div>
                 </div>
               )}
-
               {activeTab === "staff-access-defaults" &&
                 (hasPermission("settings.admin") || hasPermission("staff.manage_access")) && (
                   <div className="space-y-10">
@@ -2095,9 +1394,35 @@ export default function SettingsWorkspace({
                 <BugReportsSettingsPanel />
               )}
               
-              {activeTab === "nuorder" && hasPermission("settings.admin") && (
-                <NuorderSettingsPanel />
-              )}
+              
+               {activeTab === "meilisearch" && hasPermission("settings.admin") && (
+                 <MeilisearchSettingsPanel />
+               )}
+
+               {activeTab === "nuorder" && hasPermission("settings.admin") && (
+                 <NuorderSettingsPanel />
+               )}
+
+               {activeTab === "insights" && hasPermission("settings.admin") && (
+                 <InsightsSettingsPanel />
+               )}
+
+               {activeTab === "weather" && hasPermission("settings.admin") && (
+                 <WeatherSettingsPanel baseUrl={baseUrl} />
+               )}
+
+               {activeTab === "podium" && hasPermission("settings.admin") && (
+                 <PodiumSettingsPanel baseUrl={baseUrl} />
+               )}
+
+               {activeTab === "quickbooks" && hasPermission("settings.admin") && (
+                 <QuickBooksSettingsPanel onOpenQbo={onOpenQbo} />
+               )}
+
+               {activeTab === "stripe" && hasPermission("settings.admin") && (
+                 <StripeSettingsPanel />
+               )}
+
 
               {activeTab === "receipt-builder" && (
                 <Suspense
@@ -2326,18 +1651,6 @@ export default function SettingsWorkspace({
           onConfirm={() => handleRestoreBackup(restoreConfirmFile)}
           onClose={() => setRestoreConfirmFile(null)}
           variant="danger"
-        />
-      )}
-
-      {meiliReindexConfirmOpen && (
-        <ConfirmationModal
-          isOpen={true}
-          title="Rebuild all search indices?"
-          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Staff, Vendors, Tasks, and Appointments). It can take several minutes on large catalogs. Staff can keep working during the process."
-          confirmLabel="Execute Rebuild"
-          onConfirm={() => void runMeilisearchReindex()}
-          onClose={() => setMeiliReindexConfirmOpen(false)}
-          variant="info"
         />
       )}
     </div>

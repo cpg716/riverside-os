@@ -231,8 +231,6 @@ export default function CustomerRelationshipHubDrawer({
     custom_field_4: "",
   });
   const [profileSaving, setProfileSaving] = useState(false);
-  const [duplicateEnqueueCode, setDuplicateEnqueueCode] = useState("");
-  const [duplicateEnqueueBusy, setDuplicateEnqueueBusy] = useState(false);
   const [measDraft, setMeasDraft] = useState<Record<string, string>>({});
   const [measSaving, setMeasSaving] = useState(false);
   const profileDraftInit = useRef(false);

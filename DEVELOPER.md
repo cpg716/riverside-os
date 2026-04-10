@@ -11,7 +11,7 @@ Riverside OS (ROS) is a **production retail ERM/POS** for a formalwear / wedding
 | **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
 
 Domain language and canonical requirements live in **`Riverside_OS_Master_Specification.md`**.
-Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**, **`CHANGELOG.md`** (version history), **`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`** (**Zero-Error / Fast Refresh** mandate).
+Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`docs/ORBSTACK_GUIDE.md`** (Mac setup), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**, **`CHANGELOG.md`** (version history), **`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`** (**Zero-Error / Fast Refresh** mandate).
 
 Product planning (strengths, gaps, prioritization for men’s / wedding retail): **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`**.
 
@@ -160,13 +160,17 @@ flowchart LR
 
 ## Running locally
 
-### 1. Database (Docker — canonical)
+Compose **`db`** is **PostgreSQL**; optional service **`meilisearch`** supports fuzzy search. Riverside OS recommends **OrbStack** for Mac development to leverage **VirtioFS** performance on Apple Silicon.
 
-Compose **`db`** is **PostgreSQL**; optional service **`meilisearch`** (image **`getmeili/meilisearch`**, host **`localhost:7700`**) supports fuzzy search when **`RIVERSIDE_MEILISEARCH_URL`** / **`RIVERSIDE_MEILISEARCH_API_KEY`** match **`MEILI_MASTER_KEY`**. Neither service is the Axum API — the Rust server runs on the host via **`cargo run`** (or your own process manager).
+### Docker Environment (OrbStack)
 
-Use the Compose service **`db`** as the **only** local Postgres for ROS. It publishes **`localhost:5433`** → container **5432** so a native Postgres on **`localhost:5432`** (Homebrew, Postgres.app) does not steal connections — **`DATABASE_URL` must use port `5433`** (see `server/.env.example`). Migration scripts that use **`docker compose exec`** are unchanged.
+1. **Context Switch**: Ensure the CLI points to OrbStack: `docker context use orbstack`.
+2. **Fresh Build**: Treat engine changes as a fresh install: `docker compose up -d --build`.
+3. **Database Port**: The container publishes **`localhost:5433`** → **5432** to avoid conflict with native Postgres on **5432**.
 
-**Image:** [`docker-compose.yml`](docker-compose.yml) uses **`pgvector/pgvector:pg16`** so **`62_ai_platform.sql`** can **`CREATE EXTENSION vector`**. A stock **`postgres:16-*`** image without pgvector fails that migration; pull/recreate the **`db`** container after any image change.
+See [**`docs/ORBSTACK_GUIDE.md`**](docs/ORBSTACK_GUIDE.md) for full context sync and locking.
+
+### Initial Setup
 
 ```bash
 # From repository root

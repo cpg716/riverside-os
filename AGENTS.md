@@ -8,9 +8,10 @@ Instructions for coding agents (Cursor Agent, Codex, etc.) working in this repos
 2. **`README.md`** — Documentation catalog (all first-party Markdown paths and roles).
 3. **`CHANGELOG.md`** — Detailed version history and baseline (v0.1.0).
 4. **`DEVELOPER.md`** — Full architecture, folder map, runbooks, API overview.
-5. **`docs/STAFF_PERMISSIONS.md`** — Staff RBAC: keys, `staff_role_permission` / overrides, middleware, client `backofficeHeaders` + sidebar maps.
-5. **`REMOTE_ACCESS_GUIDE.md`** — Setup and security for PWA/Tailscale access.
-6. **`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`** — Checklist for shipping PWA (primary) + Tauri register (desktop).
+5. **`docs/ORBSTACK_GUIDE.md`** — Local Docker management: OrbStack context, setup, and performance.
+6. **`docs/STAFF_PERMISSIONS.md`** — Staff RBAC: keys, `staff_role_permission` / overrides, middleware, client `backofficeHeaders` + sidebar maps.
+7. **`REMOTE_ACCESS_GUIDE.md`** — Setup and security for PWA/Tailscale access.
+8. **`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`** — Checklist for shipping PWA (primary) + Tauri register (desktop).
 7. **`INVENTORY_GUIDE.md`** — Detailed scanning engine & physical inventory logic.
 8. **`docs/APPOINTMENTS_AND_CALENDAR.md`** — ROS Appointments vs Wedding Manager, shared `wedding_appointments` API, migration 33, customer search when booking.
 9. **`BACKUP_RESTORE_GUIDE.md`** — DB maintenance, pg_dump, and cloud sync setup.
@@ -91,7 +92,7 @@ Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP E
 | **Reporting data catalog** | [`docs/AI_REPORTING_DATA_CATALOG.md`](docs/AI_REPORTING_DATA_CATALOG.md) — document new **`/api/insights/*`** query params and analytics-related routes when shipping report features. Metabase + Insights: [`docs/PLAN_METABASE_INSIGHTS_EMBED.md`](docs/PLAN_METABASE_INSIGHTS_EMBED.md), [`docs/METABASE_REPORTING.md`](docs/METABASE_REPORTING.md). |
 | **Staff bug reports** | `server/src/api/bug_reports.rs`, `server/src/logic/bug_reports.rs`; **`server/src/observability/server_log_ring.rs`**; retention cron in **`main.rs`** (`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`); **`POST /api/bug-reports`**, **`GET`/`PATCH /api/settings/bug-reports*`**; notifications to **`settings.admin`**; client **`BugReportFlow`** (+ optional **`@sentry/react`**), **`BugReportsSettingsPanel`**; migrations **101**–**103** — **`docs/PLAN_BUG_REPORTS.md`**. |
 | **Tracing + optional OTLP** | **`server/src/observability/otel.rs`**, **`server/src/observability/server_log_ring.rs`**, **`init_tracing_with_optional_otel`** + **`TraceLayer`** + OTLP shutdown in **`server/src/main.rs`** — **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`**. |
-| Schema change (ceiling) | **Migration 113** — See `migrations/` for full set; use probes in `scripts/ros_migration_build_probes.sql` |
+| Schema change (ceiling) | **Migration 117** — See `migrations/` for full set; use probes in `scripts/ros_migration_build_probes.sql` |
 
 ## Invariants (enforceable — never break these)
 

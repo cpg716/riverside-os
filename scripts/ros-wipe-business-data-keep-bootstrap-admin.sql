@@ -56,6 +56,10 @@ DELETE FROM counterpoint_sync_issue;
 DELETE FROM counterpoint_sync_request;
 DELETE FROM counterpoint_sync_runs;
 DELETE FROM counterpoint_staff_map;
+DELETE FROM counterpoint_category_map;
+DELETE FROM counterpoint_payment_method_map;
+DELETE FROM counterpoint_gift_reason_map;
+DELETE FROM counterpoint_staging_batch;
 
 -- POS parked / RMS charge
 DELETE FROM pos_parked_sale_audit;

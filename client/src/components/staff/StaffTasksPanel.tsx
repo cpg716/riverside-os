@@ -142,7 +142,7 @@ export default function StaffTasksPanel({
     } catch {
       /* ignore */
     }
-  }, [canManage, backofficeHeaders, historySearch]);
+  }, [canManage, backofficeHeaders]);
 
   const refreshHistoryOnly = useCallback(async () => {
     if (!canManage) return;

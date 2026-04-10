@@ -1,4 +1,4 @@
-# Customer & inventory search / pagination
+# Customer & inventory search / Meilisearch pagination
 
 Canonical reference for **large-directory behavior**: how ROS queries customers and variant-level inventory, and where the UI pages results.
 
@@ -8,8 +8,8 @@ Canonical reference for **large-directory behavior**: how ROS queries customers 
 
 When **`RIVERSIDE_MEILISEARCH_URL`** is set (and **`RIVERSIDE_MEILISEARCH_API_KEY`** when the instance requires auth), the server resolves **text** queries via **Meilisearch** and then **hydrates** rows in PostgreSQL.
 
-### Search-First Administrative Mandate
-As of v0.1.1, the Riverside OS administrative interface utilizes a **search-first architecture**. All manual UUID or SKU entry fields (e.g., Task assignments, Gift Card issuance, Loyalty adjustments, Physical Inventory) have been replaced with fuzzy-search-powered components (`CustomerSearchInput`, `VariantSearchInput`). This eliminates human error associated with raw ID handling.
+### Meilisearch Administrative Mandate
+As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch architecture**. All manual UUID or SKU entry fields (e.g., Task assignments, Gift Card issuance, Loyalty adjustments, Physical Inventory) have been replaced with Meilisearch-powered components (`CustomerSearchInput`, `VariantSearchInput`). This eliminates human error associated with raw ID handling.
 
 - **Fallback:** If Meilisearch is unavailable, handlers fall back to PostgreSQL **ILIKE** paths.
 - **Indices:** 
@@ -46,7 +46,7 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **search-firs
 - **Meilisearch:** when enabled and **`search`** is set, the server resolves matching **variant ids** in Meilisearch (with safe filter facets), then restricts SQL to **`pv.id = ANY(...)`** and applies the **same sort** as the SQL-only path (popularity when searching, so typo-tolerant matches still surface best-moving **styles** higher). The response JSON does not expose `units_sold_trailing` (`#[serde(skip_serializing)]`).
 
 The **`oos_low_only`** / low-stock **filter** here is independent of **notification** opt-in: admin morning low-stock alerts use **`products.track_low_stock`** and **`product_variants.track_low_stock`** (product hub) plus **`reorder_point`** — see **`docs/PLAN_NOTIFICATION_CENTER.md`**.  
-Older builds applied a fixed row cap **before** substring filtering, which hid most SKUs in very large catalogs from Back Office search and POS (**Register** cart) fuzzy search; that pattern is removed.
+Older builds applied a fixed row cap **before** substring filtering, which hid most SKUs in very large catalogs from Back Office search and POS (**Register** cart) Meilisearch; that pattern is removed.
 
 **Indexes (migrations 81–82):** `idx_order_items_variant_id`, `idx_order_items_product_id` support efficient aggregates for popularity ranking.
 
@@ -54,7 +54,7 @@ Older builds applied a fixed row cap **before** substring filtering, which hid m
 
 | Param | Notes |
 |-------|--------|
-| `search` | **ILIKE** substring match when Meilisearch is off or on error; **Meilisearch** fuzzy/typo-tolerant match on the same fields when configured (see § Meilisearch above) |
+| `search` | **ILIKE** substring match when Meilisearch is off or on error; **Meilisearch** typo-tolerant match on the same fields when configured (see § Meilisearch above) |
 | `product_id` | Restrict to variants of a single **product** (used by POS **cart line** variant swap: load all SKUs for the line’s template) |
 | `limit` | Default **25_000** when `search` empty; **5_000** when `search` set; hard cap **50_000** |
 | `offset` | Pagination into the ordered variant list |

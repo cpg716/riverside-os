@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Countersync | Bridge Command Center</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- React & ReactDOM (UMD) -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- Babel for JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #0c0e12;
+            color: #e2e8f0;
+            overflow: hidden;
+        }
+
+        .glass-card {
+            background: rgba(23, 25, 35, 0.7);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .status-pulse {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: .5; }
+        }
+
+        .terminal-box {
+            background-color: #000;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+        }
+
+        ::-webkit-scrollbar {
+            width: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: #1a1c23;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #2d3748;
+            border-radius: 3px;
+        }
+    </style>
+</head>
+<body class="h-screen flex flex-col p-4 gap-4">
+    <div id="root" class="flex-1 flex flex-col overflow-hidden"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+        const BRIDGE_API = "http://localhost:3001";
+        const ROS_API = "http://localhost:3000";
+
+        const Icon = ({ name, className = "w-4 h-4" }) => {
+            useEffect(() => {
+                if (window.lucide) window.lucide.createIcons();
+            }, [name]);
+            return <i data-lucide={name} className={className}></i>;
+        };
+
+        const EntityButton = ({ name, icon, label, lastSync, onPull, disabled, isSyncing }) => {
+            const timeAgo = lastSync ? new Date(lastSync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Never';
+            const isActive = isSyncing === name;
+            
+            return (
+                <button 
+                    onClick={() => onPull(name)}
+                    disabled={disabled}
+                    className={`glass-card p-3 rounded-xl flex flex-col gap-2 text-left border-l-2 transition-all active:scale-[0.98] disabled:opacity-50 group ${
+                        isActive ? 'border-l-orange-500 bg-orange-600/5' : 'border-l-transparent hover:border-l-orange-500/50 hover:bg-white/5'
+                    }`}
+                >
+                    <div className="flex items-center justify-between">
+                        <div className={`p-1.5 rounded-lg ${isActive ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400 group-hover:text-orange-400'} transition-colors`}>
+                            <Icon name={icon} className="w-3.5 h-3.5" />
+                        </div>
+                        {isActive && <div className="w-1 h-1 bg-orange-500 rounded-full status-pulse"></div>}
+                    </div>
+                    <div>
+                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">{label}</div>
+                        <div className="text-[8px] text-slate-600 font-mono mt-0.5">Last: {timeAgo}</div>
+                    </div>
+                </button>
+            );
+        };
+
+        const App = () => {
+            const [bridgeStatus, setBridgeStatus] = useState(null);
+            const [rosStatus, setRosStatus] = useState(null);
+            const [syncToken, setSyncToken] = useState(localStorage.getItem('ros_sync_token') || '');
+            const [isConfigMode, setIsConfigMode] = useState(!localStorage.getItem('ros_sync_token'));
+            const [polling, setPolling] = useState(true);
+            const scrollRef = useRef(null);
+
+            const fetchData = useCallback(async () => {
+                try {
+                    const res = await fetch(`${BRIDGE_API}/api/status`);
+                    if (res.ok) {
+                        const data = await res.json();
+                        setBridgeStatus(data);
+                    }
+                } catch (err) {
+                    setBridgeStatus({ error: "Bridge disconnected" });
+                }
+
+                if (syncToken) {
+                    try {
+                        const res = await fetch(`${ROS_API}/api/settings/counterpoint-sync/status`, {
+                            headers: { 'x-ros-sync-token': syncToken }
+                        });
+                        if (res.ok) {
+                            const data = await res.json();
+                            setRosStatus(data);
+                        }
+                    } catch (err) { }
+                }
+            }, [syncToken]);
+
+            useEffect(() => {
+                fetchData();
+                let interval;
+                if (polling) interval = setInterval(fetchData, 2000);
+                return () => clearInterval(interval);
+            }, [fetchData, polling]);
+
+            useEffect(() => {
+                if (scrollRef.current) {
+                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+                }
+            }, [bridgeStatus?.logs]);
+
+            const copyLogs = () => {
+                const text = bridgeStatus?.logs?.map(l => `[${l.time}] ${l.msg}`).join('\n');
+                if (text) {
+                    navigator.clipboard.writeText(text);
+                    alert("Logs copied to clipboard!");
+                }
+            };
+
+            const updateSettings = async (settings) => {
+                try {
+                    await fetch(`${BRIDGE_API}/api/settings`, {
+                        method: 'POST',
+                        body: JSON.stringify(settings)
+                    });
+                    fetchData();
+                } catch (err) {
+                    alert("Settings update failed: " + err.message);
+                }
+            };
+
+            const triggerPull = async (entity) => {
+                try {
+                    const url = `${BRIDGE_API}/api/trigger-entity?name=${entity}`;
+                    const res = await fetch(url);
+                    if (res.ok) fetchData();
+                } catch (err) {
+                    alert("Pull failed: " + err.message);
+                }
+            };
+
+            const triggerSyncAll = async () => {
+                try {
+                    const res = await fetch(`${ROS_API}/api/settings/counterpoint-sync/request-run`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'x-ros-sync-token': syncToken
+                        }
+                    });
+                    if (res.ok) fetchData();
+                } catch (err) {
+                    alert("Full sync failed: " + err.message);
+                }
+            };
+
+            const saveConfig = (e) => {
+                e.preventDefault();
+                localStorage.setItem('ros_sync_token', syncToken);
+                setIsConfigMode(false);
+                fetchData();
+            };
+
+            if (isConfigMode) {
+                return (
+                    <div className="flex-1 flex items-center justify-center bg-[#0c0e12]">
+                        <div className="glass-card rounded-3xl p-8 w-full max-w-sm border-orange-500/20">
+                            <form onSubmit={saveConfig} className="flex flex-col gap-6">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center text-orange-500">
+                                        <Icon name="terminal" className="w-6 h-6" />
+                                    </div>
+                                    <h2 className="text-lg font-black uppercase tracking-tighter">Bridge Authority</h2>
+                                </div>
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Security Access Token</label>
+                                    <input 
+                                        type="password" 
+                                        value={syncToken}
+                                        onChange={(e) => setSyncToken(e.target.value)}
+                                        className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 text-white font-mono"
+                                        placeholder="Enter Token"
+                                        required
+                                    />
+                                </div>
+                                <button type="submit" className="bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl py-3 px-6 transition-all shadow-lg shadow-orange-600/20 uppercase tracking-widest">
+                                    Unlock Command Center
+                                </button>
+                            </form>
+                        </div>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="flex-1 flex flex-col gap-4 min-h-0">
+                    {/* Header */}
+                    <header className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center text-white shadow-lg shadow-orange-600/30">
+                                <Icon name="zap" className="w-6 h-6 fill-current" />
+                            </div>
+                            <div>
+                                <h1 className="text-lg font-black uppercase tracking-tighter text-white">Bridge Command</h1>
+                                <p className="text-[10px] text-slate-500 font-medium">Data Sync Orchestration</p>
+                            </div>
+                        </div>
+                        
+                        <div className="flex items-center gap-3">
+                            <div className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all flex items-center gap-2 ${bridgeStatus?.error ? 'bg-rose-400/10 border-rose-400/20 text-rose-400' : 'bg-emerald-400/10 border-emerald-400/20 text-emerald-400'}`}>
+                                <div className={`w-2 h-2 rounded-full ${bridgeStatus?.error ? 'bg-rose-400' : 'bg-emerald-400 status-pulse'}`}></div>
+                                {bridgeStatus?.error ? 'Bridge Offline' : 'Engine Ready'}
+                                {bridgeStatus?.isSyncing && <span className="ml-2 px-1.5 py-0.5 rounded bg-white/10 text-[8px]">SYNCING {bridgeStatus.currentEntity?.toUpperCase()}</span>}
+                            </div>
+                            <button onClick={() => setIsConfigMode(true)} className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-slate-400 transition-all">
+                                <Icon name="settings" className="w-4 h-4" />
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* Main Layout */}
+                    <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 flex-1 min-h-0">
+                        
+                        {/* Section Controls */}
+                        <div className="xl:col-span-1 flex flex-col gap-4 min-h-0">
+                            <div className="glass-card rounded-2xl p-5 flex flex-col gap-5">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Operation Mode</h3>
+                                <div className="flex flex-col gap-3">
+                                    <div className="flex items-center justify-between px-2">
+                                        <div className="flex flex-col gap-0.5">
+                                            <span className="text-[11px] font-bold text-slate-300">Continuous Sync</span>
+                                            <span className="text-[8px] text-slate-500 uppercase tracking-tighter">Every 15 Minutes</span>
+                                        </div>
+                                        <button 
+                                            onClick={() => updateSettings({ run_once: bridgeStatus?.runOnce ? 0 : 1 })}
+                                            className={`w-9 h-5 rounded-full relative transition-colors ${!bridgeStatus?.runOnce ? 'bg-orange-600' : 'bg-slate-700'}`}
+                                        >
+                                            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${!bridgeStatus?.runOnce ? 'right-1' : 'left-1'}`}></div>
+                                        </button>
+                                    </div>
+                                    <p className="px-2 text-[9px] text-slate-600 italic leading-tight">
+                                        {!bridgeStatus?.runOnce 
+                                            ? "Bridge is active and listening for changes." 
+                                            : "Manual Mode: Import once and then pause."}
+                                    </p>
+                                </div>
+                            </div>
+
+                            <div className="glass-card rounded-2xl p-5 flex flex-col gap-5">
+                                <div>
+                                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">On-Demand Pulls</h3>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <EntityButton name="customers" icon="users" label="Customers" lastSync={bridgeStatus?.syncSummary?.customers} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
+                                        <EntityButton name="vendors" icon="truck" label="Vendors" lastSync={bridgeStatus?.syncSummary?.vendors} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
+                                        <EntityButton name="catalog" icon="database" label="Catalog" lastSync={bridgeStatus?.syncSummary?.catalog} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
+                                        <EntityButton name="inventory" icon="package" label="Inventory" lastSync={bridgeStatus?.syncSummary?.inventory} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
+                                        <EntityButton name="tickets" icon="file-text" label="Tickets" lastSync={bridgeStatus?.syncSummary?.tickets} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
+                                        <EntityButton name="receiving_history" icon="history" label="Receiving" lastSync={bridgeStatus?.syncSummary?.receiving_history} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
+                                    </div>
+                                </div>
+
+                                <div className="border-t border-white/5 pt-5">
+                                    <button 
+                                        onClick={triggerSyncAll}
+                                        className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-orange-600/20"
+                                    >
+                                        <Icon name="play" className="w-4 h-4 fill-current" />
+                                        FULL DATABASE SYNC
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="glass-card rounded-2xl p-5 flex flex-col gap-4">
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dependency Map</h3>
+                                <div className="flex flex-col gap-2">
+                                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-900/50 border border-white/5">
+                                        <div className="w-1 h-1 rounded-full bg-sky-400"></div>
+                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Inventory ➔ requires Catalog</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-900/50 border border-white/5">
+                                        <div className="w-1 h-1 rounded-full bg-sky-400"></div>
+                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Tickets ➔ requires Customers + Catalog</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Live Activity Feed */}
+                        <div className="xl:col-span-3 flex flex-col min-h-0">
+                            <div className="glass-card rounded-2xl p-1 flex-1 flex flex-col min-h-0">
+                                <div className="p-4 flex items-center justify-between border-b border-white/5">
+                                    <div className="flex items-center gap-2">
+                                        <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
+                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-200">Execution History & Logs</h3>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                        <button 
+                                            onClick={copyLogs}
+                                            className="text-[9px] font-bold uppercase tracking-widest text-slate-500 hover:text-orange-400 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-white/5"
+                                        >
+                                            <Icon name="copy" className="w-3 h-3" />
+                                            Copy Logs
+                                        </button>
+                                        <span className="text-[9px] text-slate-500 font-mono uppercase bg-black/40 px-2 py-0.5 rounded-full border border-white/5">
+                                            {bridgeStatus?.logs?.length || 0} active log lines
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div 
+                                    ref={scrollRef}
+                                    className="terminal-box rounded-xl m-2 flex-1 overflow-y-auto p-4 flex flex-col gap-1 shadow-inner border border-white/5"
+                                >
+                                    {bridgeStatus?.logs?.length === 0 && (
+                                        <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-800 opacity-50 select-none">
+                                            <Icon name="terminal" className="w-12 h-12" />
+                                            <p className="text-[10px] font-mono tracking-widest">WAKING ENGINE...</p>
+                                        </div>
+                                    )}
+                                    {bridgeStatus?.logs?.map((log, i) => (
+                                        <div key={i} className="flex gap-3 group">
+                                            <span className="text-slate-700 font-mono text-[9px] shrink-0">{log.time}</span>
+                                            <span className={`font-mono text-[10px] break-all leading-normal ${
+                                                log.msg.includes('error') || log.msg.includes('failure') ? 'text-rose-400' : 
+                                                log.msg.includes('syncing') || log.msg.includes('To complete') ? 'text-sky-400' : 
+                                                log.msg.includes('ok') ? 'text-emerald-400 font-bold' : 'text-slate-300'
+                                            }`}>
+                                                {log.msg}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer */}
+                    <footer className="flex justify-between items-center text-[9px] text-slate-600 uppercase font-black tracking-widest border-t border-white/5 pt-3">
+                        <div className="flex items-center gap-4">
+                            <span className="text-slate-500">Bridge Orchestrator v0.7.3</span>
+                            <span className="w-1 h-1 bg-slate-800 rounded-full"></span>
+                            <span>Node Environment (Production)</span>
+                        </div>
+                        <div className="flex gap-6">
+                            <span>Local: 3001</span>
+                            <span>Service: 3000</span>
+                        </div>
+                    </footer>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>

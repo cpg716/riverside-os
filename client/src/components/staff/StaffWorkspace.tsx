@@ -793,6 +793,7 @@ export default function StaffWorkspace({
               </div>
             ))}
           </div>
+          </div>
         </section>
       ) : null}
 

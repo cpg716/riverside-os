@@ -32,7 +32,7 @@
 | Topic | Document |
 |-------|----------|
 | NuORDER (wholesale catalog, media, and order sync) | [`NUORDER_INTEGRATION.md`](./NUORDER_INTEGRATION.md) |
-| Optional Meilisearch (fuzzy search, reindex) | [`SEARCH_AND_PAGINATION.md`](./SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](./STORE_DEPLOYMENT_GUIDE.md) |
+| Optional Meilisearch (reindex) | [`SEARCH_AND_PAGINATION.md`](./SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](./STORE_DEPLOYMENT_GUIDE.md) |
 | Podium SMS, widget, webhook, transactional paths | [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md) |
 | Shippo rates, shipments hub, POS/store shipping | [`SHIPPING_AND_SHIPMENTS_HUB.md`](./SHIPPING_AND_SHIPMENTS_HUB.md) (shipped baseline), [`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md) (roadmap) |
 | E-commerce module (catalog, checkout, phases) | [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md); shipped APIs + `/shop`: [`ONLINE_STORE.md`](./ONLINE_STORE.md) |

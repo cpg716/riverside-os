@@ -100,5 +100,6 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "nuorder", label: "NuORDER" },
     { id: "help-center", label: "Help center" },
     { id: "bug-reports", label: "Bug reports" },
+    { id: "meilisearch", label: "Meilisearch" },
   ],
 };

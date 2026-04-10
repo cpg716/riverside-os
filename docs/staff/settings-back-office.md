@@ -2,7 +2,7 @@
 
 **Audience:** Store admins.
 
-**Where in ROS:** Back Office → **Settings**. Subsections: **Profile**, **Data & Backups**, **Printing Hub**, **Integrations**, **General**, **Staff access defaults** (when your role includes access), **Online store** (when your role includes access), **Bug reports** ( **`settings.admin`** only — triage screenshots + diagnostics staff sent from the **bug** icon in the header or POS).
+**Where in ROS:** Back Office → **Settings**. The settings are now organized into distinct groups: **User** (Profile), **Configuration** (General, Printing, Backups, Database), **Integrations** (Podium, Weather, etc.), and **System** (Bug Reports, Online Store).
 
 **Related permissions:** **settings.admin** for most store-wide configuration. **Staff access defaults** is visible with **settings.admin** **or** **staff.manage_access** (role permission templates + template discount caps). **Online store** uses **online_store.manage** (admins also have access via **settings.admin** on the same APIs). **Profile** / **avatar** may be self-service for any signed-in staff.
 
@@ -10,7 +10,7 @@
 
 ## How to use this area
 
-**Profile** changes **you**. **Integrations** holds **third-party bridges** (e.g. Visual Crossing weather, **Podium** SMS / web-chat widget). **General** changes **the store** (theme, **store staff playbook**, build info). **Online store** covers **marketing pages** for the public **`/shop`** site and **web coupons** — see **§ Online store** below and [ONLINE_STORE.md](../ONLINE_STORE.md). Other tabs cover receipt/timezone, backups, DB maintenance, and printing — labels may vary slightly by build.
+**Profile** changes **you**. **Integrations** holds **third-party bridges** (e.g. Visual Crossing weather, **Podium** SMS / web-chat widget). Browsing the sidebar is now easier with **Section Headers** (User, Integrations, etc.) ensuring quick access to large lists of modules. **General** changes **the store** (theme, **store staff playbook**, build info). **Online store** covers **marketing pages** for the public **`/shop`** site and **web coupons** — see **§ Online store** below.
 
 ## Staff access defaults
 

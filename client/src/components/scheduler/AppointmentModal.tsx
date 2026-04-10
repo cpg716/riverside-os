@@ -1,14 +1,13 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Calendar, Check, AlertTriangle, Trash, CheckCircle, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Calendar, AlertTriangle, Trash, CheckCircle } from 'lucide-react';
 import CustomerSearchInput from '../ui/CustomerSearchInput';
-import { weddingApi, type RosCustomerSearchHit } from '../../lib/weddingApi';
+import { weddingApi } from '../../lib/weddingApi';
 import { type Appointment } from './SchedulerWorkspace';
 import { useToast } from '../ui/ToastProviderLogic';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import ConfirmationModal from '../ui/ConfirmationModal';
 
-const APPT_CUSTOMER_SEARCH_PAGE = 40;
 const apiBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
 interface AppointmentModalProps {
@@ -35,7 +34,6 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
 
   const [salespeople, setSalespeople] = useState<string[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
   /** Offer optional wedding-member link after picking a customer who is on an active party (most ROS bookings stay general). */
   const [weddingLinkOffer, setWeddingLinkOffer] = useState<{
     memberId: string;

@@ -1072,11 +1072,11 @@ pub async fn reindex_all_meilisearch(
         if let Ok(row) = res {
             let search_text = format!(
                 "{} {}",
-                row.title,
-                row.assignee_name.as_deref().unwrap_or("")
+                row.title.as_deref().unwrap_or(""),
+                row.assignee_name
             );
             task_batch.push(TaskDoc {
-                id: row.id.to_string(),
+                id: row.id.map(|u| u.to_string()).unwrap_or_default(),
                 status: row.status.clone().unwrap_or_else(|| "open".to_string()),
                 assignee_id: None,
                 search_text,

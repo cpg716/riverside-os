@@ -12,6 +12,125 @@ import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
 import sql from "mssql";
+import http from 'node:http';
+
+// --- Global State for Dashboard ---
+const LOG_BACKLOG = [];
+const logToDashboard = (msg) => {
+    const entry = { time: new Date().toLocaleTimeString(), msg };
+    LOG_BACKLOG.push(entry);
+    if (LOG_BACKLOG.length > 200) LOG_BACKLOG.shift();
+    console.log(`[${entry.time}] ${msg}`);
+    
+    // Write to persistent log file
+    try {
+        const logFile = path.join(__dirname, 'bridge-execution.log');
+        fs.appendFileSync(logFile, `[${new Date().toISOString()}] ${msg}\n`);
+    } catch (e) {
+        // Silently fail if file write fails (e.g. permissions)
+    }
+};
+
+const BRIDGE_STATE = {
+    isContinuous: false,
+    isSyncing: false,
+    currentEntity: null,
+    lastRun: null,
+    error: null,
+    syncSummary: {} // Track which entities have completed successfully
+};
+
+const ENTITY_DEPENDENCIES = {
+    'inventory': ['catalog'],
+    'tickets': ['customers', 'catalog'],
+    'vendor_items': ['vendors', 'catalog'],
+    'open_docs': ['customers', 'catalog'],
+    'customer_notes': ['customers'],
+    'receiving_history': ['vendors', 'catalog']
+};
+
+
+// --- Local Bridge Control Server ---
+const startLocalServer = () => {
+    http.createServer((req, res) => {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', '*');
+        if (req.method === 'OPTIONS') { res.end(); return; }
+
+        if (req.url === '/api/status') {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ 
+                ...BRIDGE_STATE, 
+                logs: LOG_BACKLOG,
+                runOnce: process.env.RUN_ONCE === "1"
+            }));
+        } else if (req.url === '/api/settings') {
+            let body = '';
+            req.on('data', chunk => { body += chunk; });
+            req.on('end', () => {
+                try {
+                    const data = JSON.parse(body);
+                    if (data.run_once !== undefined) {
+                      process.env.RUN_ONCE = data.run_once ? "1" : "0";
+                      logToDashboard(`Mode changed: ${data.run_once ? "IMPORT (Once)" : "SYNC (Continuous 15m)"}`);
+                    }
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    res.end(JSON.stringify({ ok: true }));
+                } catch (e) {
+                    res.writeHead(400);
+                    res.end(e.message);
+                }
+            });
+        } else if (req.url.startsWith('/api/trigger-entity')) {
+            const url = new URL(req.url, `http://${req.headers.host}`);
+            const entity = url.searchParams.get('name');
+            logToDashboard(`Manual trigger: Targeted pull for [${entity}] requested`);
+            
+            // Resolve dependencies
+            const deps = ENTITY_DEPENDENCIES[entity] || [];
+            const toRun = [...deps, entity];
+            
+            logToDashboard(`[dependency-check] To complete [${entity}], we will run: ${toRun.join(' -> ')}`);
+            
+            (async () => {
+                BRIDGE_STATE.isSyncing = true;
+                for (const target of toRun) {
+                    const step = orderedSyncSteps.find(s => s.label === target);
+                    if (step) {
+                        logToDashboard(`[${target}] starting targeted sync...`);
+                        await sendHeartbeat("syncing", step.hb);
+                        await runSyncEntity(step.label, step.run);
+                        BRIDGE_STATE.syncSummary[target] = new Date().toISOString();
+                        logToDashboard(`[${target}] ok`);
+                    }
+                }
+                BRIDGE_STATE.isSyncing = false;
+                logToDashboard(`[sync] Targeted pull for ${entity} finished.`);
+            })().catch(err => {
+                BRIDGE_STATE.isSyncing = false;
+                logToDashboard(`Sync error: ${err.message}`);
+            });
+
+            res.end(JSON.stringify({ status: 'triggered', queue: toRun }));
+        } else if (req.url === '/') {
+            const htmlPath = path.join(__dirname, 'dashboard.html');
+            if (fs.existsSync(htmlPath)) {
+                const html = fs.readFileSync(htmlPath, 'utf8');
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.end(html);
+            } else {
+                res.writeHead(404);
+                res.end('Dashboard file not found');
+            }
+        } else {
+            res.writeHead(404);
+            res.end();
+        }
+    }).listen(3001, '0.0.0.0', () => {
+        console.log("🌐 Bridge Command UI available at: http://localhost:3001");
+    });
+};
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -35,20 +154,24 @@ function loadDotEnv() {
 
 loadDotEnv();
 
-/** Counterpoint → ROS history start date for ticket/note/loyalty templates (`__CP_IMPORT_SINCE__` in .env). */
+const STATE_FILE = process.env.CURSOR_STATE_FILE ?? path.join(__dirname, ".counterpoint-bridge-state.json");
 const CP_IMPORT_SINCE = (process.env.CP_IMPORT_SINCE ?? "2021-01-01").trim();
 
-/** Replaces `__CP_IMPORT_SINCE__` in SQL query strings from .env. */
-function expandImportSince(sqlText) {
+// Helper to get the starting date for queries (either .env default or last success)
+function getSyncAnchorDate(entityKey) {
+  const state = readState();
+  const lastDate = state[`${entityKey}_last_date`];
+  return lastDate || CP_IMPORT_SINCE;
+}
+
+/** Replaces __CP_IMPORT_SINCE__ with anchor date */
+function expandImportSince(sqlText, anchorDate = CP_IMPORT_SINCE) {
   if (sqlText == null) return "";
-  return String(sqlText).replace(/__CP_IMPORT_SINCE__/g, CP_IMPORT_SINCE);
+  return String(sqlText).replace(/__CP_IMPORT_SINCE__/g, anchorDate);
 }
 
 /**
- * Counterpoint schema drift: many DBs lack `DOC_TYP` on PS_TKT_HIST (or use `DOC_TYPE`, etc.).
- * - Default: omit those filters (unset or CP_OMIT_PS_TKT_DOC_TYP_FILTER=1).
- * - CP_OMIT_PS_TKT_DOC_TYP_FILTER=0 — keep DOC_TYP filters (column must exist, or set CP_TKT_DOC_TYP_COLUMN).
- * - CP_TKT_DOC_TYP_COLUMN=DOC_TYPE — rename when not omitting.
+ * Counterpoint schema drift filters
  */
 function omitPsTktDocTypFilterEnabled() {
   const v = (process.env.CP_OMIT_PS_TKT_DOC_TYP_FILTER ?? "1").trim().toLowerCase();
@@ -165,15 +288,14 @@ function createSqlPool() {
     return new sql.ConnectionPool(conn);
   }
 }
-const POLL_MS = Number.parseInt(process.env.POLL_INTERVAL_MS ?? "15000", 10);
+const POLL_MS = Number.parseInt(process.env.POLL_INTERVAL_MS ?? "900000", 10);
 const RUN_ONCE =
   process.env.RUN_ONCE === "1" || String(process.env.COUNTERPOINT_SYNC_ONCE ?? "").toLowerCase() === "true";
 /** When RUN_ONCE=1, wait for Enter before exiting so the console window stays open (Windows-friendly). Set to 0 to exit immediately. */
 const WAIT_AFTER_RUN_ONCE =
   process.env.WAIT_AFTER_RUN_ONCE !== "0" && String(process.env.WAIT_AFTER_RUN_ONCE ?? "").toLowerCase() !== "false";
 const BATCH = Math.max(1, Number.parseInt(process.env.BATCH_SIZE ?? "200", 10));
-const STATE_FILE = process.env.CURSOR_STATE_FILE ?? path.join(__dirname, ".counterpoint-bridge-state.json");
-const SYNC_CUSTOMERS = process.env.SYNC_CUSTOMERS !== "0";
+const SYNC_CUSTOMERS = process.env.SYNC_CUSTOMERS === "1";
 const SYNC_INVENTORY = process.env.SYNC_INVENTORY === "1";
 const SYNC_CATALOG = process.env.SYNC_CATALOG === "1";
 const SYNC_GIFT_CARDS = process.env.SYNC_GIFT_CARDS === "1";
@@ -208,7 +330,7 @@ const CP_CATALOG_CELLS_QUERY = applyCounterpointSqlCompat(
 const CP_GIFT_CARDS_QUERY = expandImportSince(process.env.CP_GIFT_CARDS_QUERY ?? "");
 const CP_GFT_CERT_HIST_QUERY = expandImportSince(process.env.CP_GFT_CERT_HIST_QUERY ?? "");
 const CP_TICKETS_QUERY = applyCounterpointSqlCompat(
-  expandImportSince(process.env.CP_TICKETS_QUERY ?? ""),
+  expandImportSince(process.env.CP_TICKETS_QUERY ?? "").replace(/ORDER\s+BY\s+.*$/i, ""),
 );
 const CP_TICKET_LINES_QUERY = applyCounterpointSqlCompat(
   expandImportSince(process.env.CP_TICKET_LINES_QUERY ?? ""),
@@ -2595,6 +2717,10 @@ async function main() {
     process.exit(1);
   }
   bridgeHostnameCached = (await import("node:os")).hostname();
+  
+  // Start the Bridge Command Dashboard (Port 3001)
+  startLocalServer();
+
   await refreshRosStagingFromHealth();
   console.info(
     "ROS sync health OK",
@@ -2667,27 +2793,30 @@ async function main() {
     { on: SYNC_LOYALTY_HIST, label: "loyalty_hist", hb: "loyalty_hist", run: () => syncLoyaltyHist(pool) },
     { on: SYNC_RECEIVING_HISTORY, label: "receiving_history", hb: "receiving_history", run: () => syncReceivingHistory(pool) },
   ];
-
   const tick = async () => {
-    await refreshRosStagingFromHealthSilent();
-    const hbResp = await sendHeartbeat("syncing", null);
-
-    if (hbResp?.pending_request_id) {
-      console.info("[sync-request] acking request", hbResp.pending_request_id, hbResp.pending_request_entity ?? "all");
-      try {
-        await rosFetch("/api/sync/counterpoint/request/ack", { request_id: hbResp.pending_request_id });
-      } catch (e) {
-        console.error("[sync-request] ack failed", e.message);
-      }
+    let hbResp = null;
+    try {
+      hbResp = await sendHeartbeat("idle", null);
+    } catch (e) {
+      console.warn("[heartbeat] failed", e.message);
     }
+
+    logToDashboard(`[sync] Starting pass (Request: ${hbResp?.pending_request_id ?? "None"})`);
+    BRIDGE_STATE.isSyncing = true;
+    BRIDGE_STATE.lastRun = new Date().toISOString();
 
     for (const step of orderedSyncSteps) {
-      if (!step.on) {
-        continue;
-      }
+      if (!step.on) continue;
+      BRIDGE_STATE.currentEntity = step.label;
+      logToDashboard(`[${step.label}] starting sync...`);
       await sendHeartbeat("syncing", step.hb);
       await runSyncEntity(step.label, step.run);
+      logToDashboard(`[${step.label}] ok`);
     }
+
+    BRIDGE_STATE.isSyncing = false;
+    BRIDGE_STATE.currentEntity = null;
+    logToDashboard("[sync] pass completed");
 
     if (hbResp?.pending_request_id) {
       try {

@@ -1,7 +1,7 @@
 {
   "name": "riverside-os",
   "private": true,
-  "version": "0.1.2",
+  "version": "0.1.5",
   "description": "Root scripts only; app code lives in server/ and client/",
   "scripts": {
     "bump": "node scripts/bump-version.mjs",

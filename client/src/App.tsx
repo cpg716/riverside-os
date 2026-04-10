@@ -361,6 +361,7 @@ function App() {
         "online-store",
         "help-center",
         "bug-reports",
+        "meilisearch",
       ]);
       setActiveSubSection(allowed.has(sec) ? sec : "general");
       return;

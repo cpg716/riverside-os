@@ -332,8 +332,8 @@ export default function InventoryControlBoard({
       await bumpVariantStock(maintenanceTarget.variantId, -qty, maintenanceTarget.type, note);
       toast("Inventory maintenance recorded", "success");
       closeMaintenance();
-    } catch (e: any) {
-      toast(e.message ?? "Maintenance failed", "error");
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : "Maintenance failed", "error");
     }
   };
 

@@ -598,6 +598,9 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 - Always `RTRIM(LTRIM(...))` string columns — Counterpoint uses fixed-width `CHAR` fields
 - Use column **aliases** that match the expected payload keys (see `.env.example`)
 - The `ORDER BY` clause determines cursor position for incremental syncs
+- **Mandatory for `CP_CUSTOMERS_QUERY`**: If `SYNC_STORE_CREDIT_OPENING=1` is enabled, the bridge validator enforces a strict structure:
+    - You MUST include a `WHERE` clause (e.g., `WHERE c.CUST_NO IS NOT NULL`).
+    - You MUST end the query with `ORDER BY c.CUST_NO` (the bridge appends an `OR EXISTS` filter immediately before the order clause during store credit discovery).
 - `WHERE STAT = 'A'` filters to active items in `IM_ITEM`
 
 ---

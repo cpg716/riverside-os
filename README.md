@@ -2,7 +2,7 @@
 
 **Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. It bundles a full-feature POS, inventory management, wedding-party workflow, CRM, commission accounting, and QuickBooks Online bridge into a single Tauri 2 desktop application.
 
-Current Version: **v0.1.0** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.1.5** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 
@@ -17,9 +17,9 @@ Current Version: **v0.1.0** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Quick start
 
-Local PostgreSQL is only the **Docker Compose `db` service** ([`docker-compose.yml`](docker-compose.yml)), published on **`localhost:5433`** so it does not fight a system Postgres on **5432**. `server/.env` must set `DATABASE_URL` with **port 5433** like [`server/.env.example`](server/.env.example).
+Local PostgreSQL is managed via **OrbStack** (recommended) or Docker Desktop. The **`db` service** in [`docker-compose.yml`](docker-compose.yml) is published on **`localhost:5433`** so it does not conflict with a system Postgres on **5432**. See [**`docs/ORBSTACK_GUIDE.md`**](docs/ORBSTACK_GUIDE.md) for setup and performance tuning.
 
-The **`db` image** is **`pgvector/pgvector:pg16`** (PostgreSQL 16; image includes **pgvector** for environments that applied older migrations). Migration **62** historically added **`vector`** for ROS-AI; migration **`78_retire_ros_ai_tables.sql`** drops **`ai_doc_chunk`** and **`DROP EXTENSION IF EXISTS vector`** when applied — see **`ROS_AI_INTEGRATION_PLAN.md`**. If you upgrade from plain **`postgres:16`**, run **`docker compose pull`** then **`docker compose up -d`** before **`./scripts/apply-migrations-docker.sh`**.
+The **`db` image** is **`pgvector/pgvector:pg16`** (PostgreSQL 16; image includes **pgvector**). If switching engines, run **`docker compose up -d --build`** to ensure a fresh build on the new optimization layer.
 
 ```bash
 # 1. Start Postgres (and optional Meilisearch sidecar on :7700) and apply migrations (from repo root; skips files already in ros_schema_migrations)
@@ -94,7 +94,7 @@ E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
 
 ## Migrations
 
-Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files: **`00`–`113`** (see `migrations/`). Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**.
+Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files: **`00`–`117`** (see `migrations/`). Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**.
 
 | # | Highlights |
 |---|------------|
@@ -119,6 +119,7 @@ First-party Markdown only. **Role:** runbook, agent guide, spec, future plan, au
 | `CHANGELOG.md` | Detailed version history and release notes | Everyone |
 | `DEVELOPER.md` | Architecture, API overview, migrations table, runbooks | Developers |
 | `AGENTS.md` | Invariants, edit map, commands, migration cheat sheet | Agents / devs |
+| `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |

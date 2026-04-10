@@ -262,7 +262,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
             <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
             <input
               type="text"
-              placeholder="Fuzzy search appointments…"
+              placeholder="Meilisearch appointments…"
               className="ui-input h-10 w-64 pl-10 pr-10 text-[11px] font-bold"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
