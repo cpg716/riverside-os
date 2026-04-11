@@ -373,8 +373,8 @@ pub async fn fetch_register_day_summary(
             COUNT(DISTINCT o.id) FILTER (WHERE o.sale_channel = 'web')::bigint AS web_count
         FROM orders o
         INNER JOIN (
-            SELECT 
-                order_id, 
+            SELECT
+                order_id,
                 SUM((quantity::numeric) * oi.unit_price)::numeric(14,2) AS line_subtotal,
                 SUM(oi.state_tax + oi.local_tax)::numeric(14,2) AS line_tax
             FROM order_items oi
@@ -446,15 +446,14 @@ pub async fn fetch_register_day_summary(
     let special_order_sale_count = special_row.0;
 
     // --- Merchant Fees (Stripe) aggregation ---
-    let fee_sql = format!(
-        r#"
+    let fee_sql = r#"
         SELECT COALESCE(SUM(pt.merchant_fee), 0)::numeric(14,2)
         FROM payment_transactions pt
         WHERE pt.occurred_at >= $1 AND pt.occurred_at < $2
           AND pt.status = 'success'
           AND ($3::uuid IS NULL OR pt.session_id = $3)
         "#
-    );
+    .to_string();
     let stripe_fees_total: (Decimal,) = sqlx::query_as(&fee_sql)
         .bind(start_utc)
         .bind(end_utc)
@@ -760,8 +759,8 @@ pub async fn fetch_register_day_summary(
             channel: Some(s.channel),
             wedding_party_name: s.party_name,
             items,
-            stripe_fees_total: s.stripe_fees.map(|v| money_label(v)),
-            net_amount: s.net_amount.map(|v| money_label(v)),
+            stripe_fees_total: s.stripe_fees.map(money_label),
+            net_amount: s.net_amount.map(money_label),
         });
     }
 

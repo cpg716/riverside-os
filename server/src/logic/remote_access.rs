@@ -26,6 +26,12 @@ pub struct RemoteAccessManager {
     binary_path: String,
 }
 
+impl Default for RemoteAccessManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl RemoteAccessManager {
     pub fn new() -> Self {
         let path = std::env::var("RIVERSIDE_TAILSCALE_BINARY_PATH")
@@ -43,7 +49,7 @@ impl RemoteAccessManager {
 
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Tailscale error: {}", err));
+            return Err(anyhow::anyhow!("Tailscale error: {err}"));
         }
 
         let status: TailscaleStatus = serde_json::from_slice(&output.stdout)
@@ -54,14 +60,14 @@ impl RemoteAccessManager {
     pub async fn connect(&self, auth_key: &str) -> Result<()> {
         let output = TokioCommand::new(&self.binary_path)
             .arg("up")
-            .arg(format!("--authkey={}", auth_key))
+            .arg(format!("--authkey={auth_key}"))
             .output()
             .await
             .context("Failed to execute tailscale up")?;
 
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Tailscale connect failed: {}", err));
+            return Err(anyhow::anyhow!("Tailscale connect failed: {err}"));
         }
 
         Ok(())
@@ -76,7 +82,7 @@ impl RemoteAccessManager {
 
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            return Err(anyhow::anyhow!("Tailscale disconnect failed: {}", err));
+            return Err(anyhow::anyhow!("Tailscale disconnect failed: {err}"));
         }
 
         Ok(())

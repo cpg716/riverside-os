@@ -107,4 +107,17 @@ Timezone in **Settings → General**. [settings-back-office.md](settings-back-of
 
 ---
 
-**Last reviewed:** 2026-04-04
+## Release & stability notes
+
+**Did anything in checkout or POS steps change in the post-v0.1.9 hotfix?**  
+No day-to-day cashier workflow changed. The hotfix focused on backend/CI stability (server compile checks, SQL query metadata sync, lint gate hardening), not new POS steps.
+
+**Why did we ship this if staff behavior did not change?**  
+To reduce deployment failures and prevent hidden backend regressions before code reaches the floor. This improves release reliability without changing your normal actions in Register, Orders, or Customers.
+
+**Should I retrain staff for this hotfix?**  
+No retraining needed. Continue using existing SOPs. If you see unusual behavior, submit an in-app bug report with the screen, time, and what you expected to happen.
+
+---
+
+**Last reviewed:** 2026-04-11

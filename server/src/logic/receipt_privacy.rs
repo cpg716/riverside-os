@@ -21,7 +21,7 @@ pub fn staff_name_for_customer_receipt(full_name: Option<&str>) -> Option<String
         .find(|c| c.is_alphabetic())
         .map(|c| c.to_uppercase().collect::<String>())
         .unwrap_or_else(|| "?".to_string());
-    Some(format!("{} {}.", first, last))
+    Some(format!("{first} {last}."))
 }
 
 #[cfg(test)]

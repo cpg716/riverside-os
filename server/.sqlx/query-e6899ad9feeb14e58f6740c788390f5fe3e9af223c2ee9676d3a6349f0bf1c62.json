@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            COUNT(*)::bigint AS total_customers,\n            COUNT(*) FILTER (WHERE is_vip = TRUE)::bigint AS vip_customers,\n            (\n                SELECT COUNT(DISTINCT customer_id)::bigint\n                FROM orders\n                WHERE status = 'open' AND balance_due > 0\n            ) AS with_balance,\n            (\n                SELECT COUNT(DISTINCT wm.customer_id)::bigint\n                FROM wedding_members wm\n                JOIN wedding_parties wp ON wp.id = wm.wedding_party_id\n                WHERE (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)\n                  AND wp.event_date >= CURRENT_DATE\n                  AND wp.event_date <= CURRENT_DATE + INTERVAL '30 days'\n            ) AS upcoming_weddings\n        FROM customers\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total_customers",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "vip_customers",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 2,
+        "name": "with_balance",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "upcoming_weddings",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "e6899ad9feeb14e58f6740c788390f5fe3e9af223c2ee9676d3a6349f0bf1c62"
+}

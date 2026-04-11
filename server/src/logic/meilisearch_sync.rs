@@ -937,7 +937,8 @@ pub async fn reindex_all_meilisearch(
     let mut order_stream = sqlx::query!(
         r#"
         SELECT
-            o.id, o.status::text AS status,
+            o.id AS "id!",
+            o.status::text AS status,
             c.first_name AS customer_first, c.last_name AS customer_last,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
             ps.full_name AS salesperson
@@ -955,7 +956,7 @@ pub async fn reindex_all_meilisearch(
         if let Ok(row) = res {
             let s = row.status.as_deref().unwrap_or_default().to_lowercase();
             let status_open = s == "open" || s == "pending_measurement";
-            let order_id_str = row.id.map(|u| u.to_string()).unwrap_or_default();
+            let order_id_str = row.id.to_string();
             let search_text = format!(
                 "{} {} {} {} {}",
                 order_id_str,

@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Visual Suite Policy**: Standardized visual baseline tests as opt-in (`E2E_RUN_VISUAL=1`) and non-blocking by default to avoid release failures caused by cross-machine font/render snapshot drift.
 - **Visual Determinism Defaults**: Hardened Playwright runtime defaults for visual consistency by setting deterministic context controls (animations disabled, UTC timezone, en-US locale) and richer failure artifacts in visual mode.
 - **E2E Coverage Depth**: Expanded release-focused Playwright inventory to include additional Phase 2 finance/help lifecycle regression checks for stronger release confidence on tax, reporting basis, admin policy persistence, RBAC boundaries, and tender contract safety.
+- **CI Stabilization Hotfix (post-0.1.9 cut)**: Corrected server-side SQLx query typing for Meilisearch order sync, refreshed SQLx prepared query metadata under `server/.sqlx`, and resolved strict Clippy blockers that were preventing `Lint Checks` and `Playwright E2E` from progressing past server build.
 
 ## [0.1.8] — 2026-04-11
 ### Added

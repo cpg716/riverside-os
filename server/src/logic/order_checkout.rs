@@ -523,7 +523,7 @@ pub async fn execute_checkout(
         && payload
             .wedding_disbursements
             .as_ref()
-            .map_or(true, |v| v.is_empty())
+            .is_none_or(|v| v.is_empty())
     {
         return Err(CheckoutError::InvalidPayload(
             "Cart cannot be empty (must have items or wedding payouts)".to_string(),
