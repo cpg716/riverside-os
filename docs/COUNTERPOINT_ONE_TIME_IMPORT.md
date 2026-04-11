@@ -6,7 +6,12 @@ Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS Post
 
 The Windows bridge runs entities in a **single fixed pipeline** (`counterpoint-bridge/index.mjs`). Startup **validates** flag combinations (for example, `SYNC_TICKETS` requires `SYNC_CUSTOMERS` and `SYNC_CATALOG`, and `SYNC_INVENTORY` requires `SYNC_CATALOG`). For incremental expert runs against an already-seeded ROS database, set **`SYNC_RELAXED_DEPENDENCIES=1`** in `.env` to skip those exits.
 
-When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bridge calls **`POST /api/sync/counterpoint/sales-rep-stubs`** with distinct `SLS_REP` values from **`AR_CUST`** and **`PS_TKT_HIST`** so `preferred_salesperson_id` and ticket **`SLS_REP`** resolve. When **`PS_TKT_HIST_CELL`** is missing, ROS still tries to match **parent `ITEM_NO` + line unit price** to a single matrix variant under that parent.
+When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bridge calls **`POST /api/sync/counterpoint/sales-rep-stubs`** with distinct `SLS_REP` values from **`AR_CUST`** and **`PS_TKT_HIST`** so `preferred_salesperson_id` and ticket **`SLS_REP`** resolve. 
+
+### **V0.1.8 Ingest Resilience (April 2026)**
+- **Historical Fallback**: When **`PS_TKT_HIST`** contains unknown SKUs (legacy/deleted), ROS now automatically assigns them to a **`HIST-CP-FALLBACK`** system item instead of rejecting the ticket. This ensures **Total Lifetime Spend** is always accurate.
+- **Smart Identity Resolution**: Ticket customers are matched using a dual-lookup (exact `114420` vs. prefixed `C-114420`). This prevents fragmented history for legacy numeric accounts.
+- **SKU Hierarchy**: The bridge now strictly maps **`ITEM_NO` (I-XXXX)** as the ROS Product Handle/Parent and **`BARCODE` (B-XXXX)** as the variant SKU. This matches the target state for Go-Live.
 
 ## Preconditions
 

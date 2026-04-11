@@ -1,0 +1,44 @@
+Probing Counterpoint schema (read-only). Report: counterpoint-schema-report.txt (unless CP_DISCOVER_OUTPUT=0).
+SQL Server connected.
+
+══════════════════════════════════════════════════════════════════════
+  Counterpoint schema probe (read-only — no Riverside sync)
+  Bridge 0.6.14
+══════════════════════════════════════════════════════════════════════
+
+  Tables matched in INFORMATION_SCHEMA: 16 / 26 names checked
+  Not visible to this login (wrong Database= in connection string, typo, or no rights):
+    PS_SLS_REP, PO_BUYER, IM_CATEG, IM_SUBCAT, PS_TKT_HIST_GFT, SY_GFT_CERT, SY_GFT_CERT_HIST, PS_LOY_PTS_HIST, PS_DOC
+
+  [ok ] IM_INV cost column
+       Template already uses LST_COST — no change needed for inventory/catalog cost.
+  [—  ] IM_ITEM vendor column
+       No VEND_NO / PUR_VND / VND_NO / PRIMARY_VND / VND_ID — inspect IM_ITEM in SSMS; set CP_IM_ITEM_VENDOR_COLUMN or edit catalog/vendors EXISTS.
+  [—  ] IM_ITEM SUBCATEG_COD
+       Absent — defaults use CATEG_COD only.
+  [ok ] AR_CUST points column
+       Found LOY_PTS_BAL — use "LOY_PTS_BAL AS pts_bal" in CP_CUSTOMERS_QUERY (replace CAST(NULL AS INT) AS pts_bal).
+  [—  ] SY_USR USR_GRP_ID
+       Column absent — template NULL usr_grp_id is correct.
+  [—  ] SY_USR EMAIL_ADRS
+       Use CAST(NULL AS NVARCHAR(255)) AS email_adrs in CP_USERS_QUERY if sync fails on email column.
+  [—  ] PS_TKT_HIST TOT_AMT_DUE
+       Absent — keep TOT_EXTD_PRC AS amount_paid (fully-paid assumption for closed tickets).
+  [—  ] PS_TKT_HIST totals
+       TOT_EXTD_PRC missing — try TOT AS total_price and TOT AS amount_paid in CP_TICKETS_QUERY.
+  [—  ] PS_TKT_HIST DOC_TYP
+       DOC_TYP / DOC_TYPE not in metadata — bridge omits doc-type filters by default.
+  [ok ] PO_VEND_ITEM vendor cost
+       Use UNIT_COST AS vend_cost in CP_VEND_ITEM_QUERY (replace CAST(NULL...) AS vend_cost).
+  [—  ] Gift cards (SY_GFT_CERT template)
+       No SY_GFT_CERT — keep SYNC_GIFT_CARDS=0.
+  [—  ] Loyalty history (PS_LOY_PTS_HIST template)
+       No PS_LOY_PTS_HIST — keep SYNC_LOYALTY_HIST=0.
+  [ok ] Ticket matrix cells (PS_TKT_HIST_*CELL)
+       Use PS_TKT_HIST_LIN_CELL in CP_TICKET_CELLS_QUERY (v8-style); PS_TKT_HIST_CELL is absent.
+
+  Edit .env as indicated, then run START_BRIDGE.cmd
+
+Report saved: C:\counterpoint-bridge\counterpoint-schema-report.txt
+
+=== Schema probe finished. Press Enter to close ===

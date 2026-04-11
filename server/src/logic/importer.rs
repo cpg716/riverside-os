@@ -445,7 +445,7 @@ pub async fn execute_import(
 
     for row in &payload.rows {
         let identity_val = match cell(row, &identity_key)
-            .or_else(|| cell_by_candidates(row, &["handle", "product_handle", "style_handle"]))
+            .or_else(|| cell_by_candidates(row, &["handle", "product_handle", "style_handle", "tags", "item_no"]))
             .or_else(|| {
                 cell_by_candidates(
                     row,
@@ -461,8 +461,7 @@ pub async fn execute_import(
 
         let sku = match cell(row, &sku_key)
             .or_else(|| cell(row, &barcode_key))
-            .or_else(|| cell_by_candidates(row, &["sku", "system_sku", "item_sku"]))
-            .or_else(|| cell_by_candidates(row, &["barcode", "upc", "ean", "scan_code"]))
+            .or_else(|| cell_by_candidates(row, &["barcode", "upc", "ean", "scan_code", "sku", "system_sku", "item_sku"]))
             .or_else(|| fuzzy_cell(row, &["sku", "barcode", "upc", "ean"]))
         {
             Some(s) => s,

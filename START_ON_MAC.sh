@@ -30,8 +30,9 @@ lsof -ti:3000,5173 | xargs kill -9 2>/dev/null || true
 
 # 5. Open Bridge Commander dashboard
 echo "📊 Waiting for Bridge Commander UI..."
-(npx wait-on -t 30000 tcp:127.0.0.1:3002 && open http://127.0.0.1:3002) &
+(until nc -z 127.0.0.1 3002; do sleep 1; done && open http://127.0.0.1:3002) &
 
 # 6. Start the app
 echo "🌟 Launching dev environment (API + UI + Bridge)..."
 npm run dev
+

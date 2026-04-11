@@ -5,12 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.7] - 2026-04-10
-
+## [0.1.8] — 2026-04-11
 ### Added
-- **CI/CD Stabilization**: Resolved persistent GitHub Actions "Lint Checks" failures by enforcing `cargo fmt` standards across the server and resolving SQLx query caching issues (`cargo sqlx prepare`).
-- **Client Lint Integrity**: Fixed 7+ ESLint errors and warnings across the client codebase (types, hook dependencies), achieving a zero-warning baseline for production builds.
-- **Bridge Auth Proxying**: Implemented an authenticated API proxy strategy in the Counterpoint Bridge, allowing the dashboard to communicate with Riverside OS using internal tokens without a live staff PIN.
+- **Morning Compass Evolution**: Formalized `RushOrderRow` and `needsOrder` tracking in the dashboard queue.
+- **Custom Work Manual**: New in-app help for tailored services and rush fulfillment workflows.
+- **Backup Resiliency Manual**: Documented "Universal Docker Fallback" for database operations.
+- **Production-Ready Indexing**: Automatically generated help manifest to sync new manuals with the UI.
+
+### Fixed
+- **Phase 5 Build QA Sweep**: Resolved 18+ TypeScript/ESLint errors blocking `npm run build`.
+- **Cart Stability**: Corrected `commissionStaff` deconstruction and missing `Gift` icon imports.
+- **UI Restoration**: Repaired broken JSX tags and ternary logic in `OperationalHome.tsx`.
+- **Toast Signatures**: Standardized `toast()` calls to use the validated `(msg, type)` signature.
+- **Type Mismatches**: Aligned `LoyaltyEligibleCustomer` and `MorningCompassBundle` with API schemas.
+
+## [v0.1.8-alpha] - 2026-04-10 (Baseline)
+### Added
+- **Lightspeed Asset Recovery**: Integrated the Universal Importer with specific support for Lightspeed CSV headers, enabling bulk restoration of stock levels and asset valuation ($321k+ recovery case).
+- **Live Indexing Visibility**: Refactored Meilisearch monitoring to show real-time "Indexing..." pulses and row count polling, eliminating "black box" behavior during mass data ingestion (114k+ records).
+- **Counterpoint Staff Sync**: Formally enabled `SYNC_STAFF` with optimized queries for Users (`SY_USR`), Sales Reps (`PS_SLS_REP`), and Buyers (`PO_BUYER`). Implemented server-side consolidation to merge duplicate identities across tables.
+- **Inventory Visibility**: Verified 114,000+ variants are fully indexed in Meilisearch.
+- **System Stability**: Decoupled Bridge from main dev process to prevent network-related API crashes.
+- **Bridge Operation Modes**: Implemented "Manual Mode" (default) for the Counterpoint Bridge. Continuous 15-minute polling is now disabled on startup and must be explicitly toggled ON via the Bridge Commander dashboard.
+- **On-Demand Pulls**: Refined the Bridge Command UI to support targeted entity pulls (e.g., just Customers or just Inventory) while maintaining dependency order.
+- **Custom Work Order Flow**: Implemented "MTM Light" SKU detection (`CUSTOM` prefix) and configuration modal for SUITS, SHIRTS, and more with variable pricing.
+- **Rush Order & Urgency**: Added backend persistence and dashboard visibility for urgent orders with mandatory "Need By" dates.
+- **Bridge (Tickets)**: Recovered **98,511 pending tickets** by implementing an item fallback mechanism. Sales history will now sync even if a legacy SKU is missing, ensuring accurate "Lifetime Spend" for all customers.
+- **Catalog Architecture**: Fixed SKU hierarchy to match Counterpoint standards: `ITEM_NO` (I-XXXX) is the Parent/Handle, and `BARCODE` (B-XXXX) is the variant SKU. This resolves the synchronization blockages for historical sales.
+- **Customer Identity**: Enhanced ticket linking to handle mixed ID formats (`114420` vs `C-114420`). Gary Garcia and others will now correctly see their historical spend attached to their primary loyalty profiles.
+- **Meilisearch**: Fixed sync status reporting bug; totals now reflect the millions of records processed instead of only the last batch size.
+- **Loyalty History**: Activated point-by-point history tracking for Counterpoint migrations.
+- **Sales History Verification**: Confirmed historical ticket ingestion from `PS_TKT_HIST` is mapping correctly to `orders` and attributing spend to customer lifetime statistics (verified with customer Gary Bichler @ $1,695.34).
+
+### Fixed
+- **Meilisearch Sync Visibility**: Fixed a critical reporting bug where the server only recorded the size of the final processing batch for row counts. All indices (Customers, Products, Orders, etc.) now correctly report their total record volume instead of partial batch snapshots (e.g., 17,170 rows vs 170).
+- **Counterpoint Identity Mapping**: Patched `counterpoint-bridge` to correctly map `ITEM_NO` to `product_identity`. This resolves a critical bug that caused 7,000+ duplicate "ghost" products to be created during synchronization.
+- **Data Integrity Safety**: Implemented `catalog_handle` as the primary deduplication key for inventory recovery workflows.
+- **System Tooling PATH**: Resolved "command not found" errors for `psql` and `docker` by correctly configuring `~/.zshenv` to include Homebrew and OrbStack paths for non-interactive shells.
+- **Bridge Startup Regression**: Patched a critical syntax error in `counterpoint-bridge/index.mjs` (missing `tick` function declaration) that blocked system launch.
+- **Gift Card History Sync**: Resolved a SQL error in `CP_GFT_CERT_HIST_QUERY` by replacing the invalid `RS_UTC_DT` column with the standard `DAT` column.
+- **Launch Checklist Audit**: Updated `ThingsBeforeLaunch.md` with operational requirements for Custom/MTM flows, Rush Orders, and confirmed existing Gift Receipt functionality.
+- **Bridge ↔ Metabase Port Conflict**: Resolved a critical port collision where both Metabase (Docker) and the Bridge Engine defaults conflicted on port 3001. Moved Bridge Command Center to port **3002**.
+- **Bridge Commander CORS/Security**: Reconfigured the dashboard to open via HTTP (`http://localhost:3002`) instead of `file://` to resolve browser-enforced security blocks on synchronization requests.
+- **Process Hygiene**: Implemented automatic cleanup of hanging server/Vite processes in the startup script to prevent `PoolTimedOut` and `EADDRINUSE` errors.
+
+## [0.1.7] - 2026-04-10
 
 ### Fixed
 - **Bridge Dashboard Stabilization**: Moved the Bridge Commander dashboard to port **3002** (eliminating port collisions with Metabase on 3001) and refactored manual sync triggers to use valid JSON payloads.

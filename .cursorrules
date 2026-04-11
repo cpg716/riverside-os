@@ -40,3 +40,4 @@
 4. **UX**: Preserve `POS-Core` (speed) vs `BackOffice` (detail) surface intent.
 5. **Zero-Dialog**: No `alert()`/`confirm()`/`prompt()`. Use `Toast` or `ConfirmationModal`.
 6. **SQLx**: Run `cargo sqlx prepare` whenever changing `query!` macros to keep CI green.
+7. **NYS Tax (718-C)**: Clothing/Footwear < $110 = 4.75% (State Exempt); Else 8.75%. Calculated at line-item level.

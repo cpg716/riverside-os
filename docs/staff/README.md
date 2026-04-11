@@ -36,6 +36,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Abstract: special orders & stock | [abstracts/special-orders-and-stock.md](abstracts/special-orders-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |
+| Custom Work Orders (MTM) & Rush Tracking | [custom-work-orders-manual.md](custom-work-orders-manual.md) |
 | Permissions (plain language) | [permissions-and-access.md](permissions-and-access.md) |
 | RBAC keys & technical detail (also in corpus) | [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md) |
 | Offline summary | [working-offline.md](working-offline.md) |

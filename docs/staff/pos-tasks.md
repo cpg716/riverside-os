@@ -12,6 +12,8 @@
 
 **Tasks** lists **open checklist instances** assigned to **you** (from recurring templates). It is not a general memo pad — each row should map to a **defined** SOP step.
 
+**Rush Order Priority:** Specific fulfillment or payment processing tasks triggered by **Rush Orders** will appear with a priority indicator. **Complete these items first** to ensure customer "Need By" dates are met.
+
 ## Common tasks
 
 ### Start of shift

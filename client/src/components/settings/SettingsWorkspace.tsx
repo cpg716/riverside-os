@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
-import { Database, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Info, User, ClipboardList, MessageSquare, BarChart3, CreditCard, ArrowUpRight, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug, Save } from "lucide-react";
+import { Database, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Info, User, ClipboardList, MessageSquare, BarChart3, CreditCard, ArrowUpRight, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug, Save, Link } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
@@ -19,6 +19,7 @@ import PodiumSettingsPanel from "./PodiumSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import StripeSettingsPanel from "./StripeSettingsPanel";
+import RemoteAccessPanel from "./RemoteAccessPanel";
 
 const ReceiptBuilderPanel = lazy(() => import("./ReceiptBuilderPanel"));
 
@@ -120,6 +121,7 @@ export default function SettingsWorkspace({
     else if (s === "integrations") setActiveTab("integrations");
     else if (s === "staff-access-defaults") setActiveTab("staff-access-defaults");
     else if (s === "counterpoint") setActiveTab("counterpoint");
+    else if (s === "remote-access") setActiveTab("remote-access");
     else if (s === "online-store") setActiveTab("online-store");
     else if (s === "help-center") setActiveTab("help-center");
     else if (s === "bug-reports") setActiveTab("bug-reports");
@@ -504,6 +506,7 @@ export default function SettingsWorkspace({
           { id: "podium", label: "Podium SMS/Email", icon: MessageSquare, permission: "settings.admin" },
           { id: "nuorder", label: "NuORDER Retail", icon: Monitor, permission: "settings.admin" },
           { id: "counterpoint", label: "Counterpoint Bridge", icon: RefreshCw, permission: "counterpoint.sync" },
+          { id: "remote-access", label: "Remote Access", icon: Link },
           { id: "quickbooks", label: "QuickBooks Ledger", icon: ArrowUpRight, permission: "settings.admin" },
           { id: "stripe", label: "Stripe Terminal", icon: CreditCard, permission: "settings.admin" },
         ],
@@ -1015,6 +1018,22 @@ export default function SettingsWorkspace({
                   </header>
 
                   <CounterpointSyncSettingsPanel variant="workspace" />
+                </div>
+              )}
+
+              {activeTab === "remote-access" && (
+                <div className="space-y-10">
+                  <header className="mb-2">
+                    <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                      Remote Access
+                    </h2>
+                    <p className="mt-2 text-sm font-medium text-app-text-muted">
+                      Configure Tailscale to connect to your store network securely.
+                    </p>
+                  </header>
+                  <section className="ui-card p-10">
+                    <RemoteAccessPanel />
+                  </section>
                 </div>
               )}
 

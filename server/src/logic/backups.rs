@@ -101,14 +101,12 @@ impl BackupManager {
         //
         // Never use `.stderr(piped())` with `.status()` — nothing reads the pipe, the read end
         // can close, and pg_dump gets SIGPIPE while writing warnings/progress to stderr.
-        let out = Command::new("pg_dump")
-            .arg("-d")
-            .arg(&self.database_url)
-            .arg("-F")
-            .arg("c") // custom format (compressed)
-            .arg("-f")
-            .arg(&output_path)
-            .stdout(Stdio::null())
+        let mut cmd = Command::new("pg_dump");
+        cmd.arg("-d").arg(&self.database_url)
+           .arg("-F").arg("c")
+           .arg("-f").arg(&output_path);
+
+        let out = cmd.stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
             .await
@@ -116,6 +114,41 @@ impl BackupManager {
 
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
+            
+            // Check for version mismatch error
+            if err.contains("server version mismatch") {
+                info!("pg_dump version mismatch detected; attempting fallback via Docker...");
+                
+                // Fallback attempt: use docker exec to run pg_dump inside the container
+                // We assume the standard container name 'riverside-os-db' from the manifests.
+                // Note: We use shell redirection-like behavior by capturing stdout if -f inside docker is tricky.
+                // But simpler is to try: docker exec riverside-os-db pg_dump -U postgres -F c riverside_os
+                let docker_out = Command::new("docker")
+                    .arg("exec")
+                    .arg("riverside-os-db")
+                    .arg("pg_dump")
+                    .arg("-U").arg("postgres")
+                    .arg("-F").arg("c")
+                    .arg("riverside_os")
+                    .output()
+                    .await;
+
+                match docker_out {
+                    Ok(d_out) if d_out.status.success() => {
+                        fs::write(&output_path, d_out.stdout)?;
+                        info!("Backup successful via Docker fallback: {}", filename);
+                        return Ok(filename);
+                    }
+                    Ok(d_out) => {
+                        let d_err = String::from_utf8_lossy(&d_out.stderr);
+                        error!(stderr = %d_err, "Docker fallback pg_dump failed");
+                    }
+                    Err(e) => {
+                        error!(error = %e, "Failed to initiate Docker fallback");
+                    }
+                }
+            }
+
             error!(stderr = %err, status = %out.status, "pg_dump failed");
             let detail = err.trim();
             if detail.is_empty() {
@@ -142,14 +175,14 @@ impl BackupManager {
         // -d: Connect to database.
         // --if-exists: Use IF EXISTS when dropping objects.
         // --no-owner: Skip restoration of object ownership.
-        let out = Command::new("pg_restore")
-            .arg("-d")
-            .arg(&self.database_url)
-            .arg("--clean")
-            .arg("--if-exists")
-            .arg("--no-owner")
-            .arg(&input_path)
-            .stdout(Stdio::null())
+        let mut cmd = Command::new("pg_restore");
+        cmd.arg("-d").arg(&self.database_url)
+           .arg("--clean")
+           .arg("--if-exists")
+           .arg("--no-owner")
+           .arg(&input_path);
+
+        let out = cmd.stdout(Stdio::null())
             .stderr(Stdio::piped())
             .output()
             .await
@@ -157,12 +190,47 @@ impl BackupManager {
 
         if !out.status.success() {
             let err = String::from_utf8_lossy(&out.stderr);
-            error!(stderr = %err, status = %out.status, "pg_restore failed");
-            let detail = err.trim();
-            if detail.is_empty() {
-                return Err(anyhow::anyhow!("pg_restore failed ({})", out.status));
+            error!(stderr = %err, status = %out.status, "Host pg_restore failed - attempting universal Docker fallback...");
+
+            // Read the local file into memory or stream it. 
+            // For a 5MB-20MB dump, reading to memory is safe for this context.
+            let dump_data = fs::read(&input_path)?;
+
+            // Fallback attempt: docker exec -i riverside-os-db pg_restore -U postgres -d riverside_os ...
+            let mut d_cmd = Command::new("docker");
+            d_cmd.arg("exec")
+                .arg("-i") // Interactive / use stdin
+                .arg("riverside-os-db")
+                .arg("pg_restore")
+                .arg("-U").arg("postgres")
+                .arg("-d").arg("riverside_os")
+                .arg("--clean")
+                .arg("--if-exists")
+                .arg("--no-owner");
+
+            d_cmd.stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+
+            let mut child = d_cmd.spawn()
+                .context("Failed to spawn docker exec for pg_restore")?;
+
+            use tokio::io::AsyncWriteExt;
+            if let Some(mut stdin) = child.stdin.take() {
+                stdin.write_all(&dump_data).await?;
+                stdin.flush().await?;
             }
-            return Err(anyhow::anyhow!("pg_restore failed: {detail}"));
+
+            let d_out = child.wait_with_output().await?;
+
+            if d_out.status.success() {
+                info!("Database restoration successful via Docker fallback");
+                return Ok(());
+            } else {
+                let d_err = String::from_utf8_lossy(&d_out.stderr);
+                error!(stderr = %d_err, "Docker fallback pg_restore also failed");
+                return Err(anyhow::anyhow!("pg_restore failed (host and docker fallback). Host error: {}", err.trim()));
+            }
         }
 
         info!("Database restoration completed successfully");

@@ -66,9 +66,23 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
 6. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
 
+6. **`node index.mjs discover`** (or **`DISCOVER_SCHEMA.cmd`**) — read-only schema probe; no ROS token strictly required for discover-only; use to align `CP_*_QUERY` with your CP/Counterpoint build.
+
 ---
 
-## 4. Direct import vs staging (read this for bulk migration)
+## 4. Operation Modes (v0.7.3+)
+
+| Mode | Trigger | Behavior |
+|------|---------|----------|
+| **Manual / IDLE** (Default) | Dashboard / Sync Request | Bridge sits idle. Only executes syncs when a staff member clicks "Run" in ROS or the Dashboard. |
+| **Continuous** | Dashboard Toggle | Syncs all enabled entities every 15 minutes (configurable via `POLL_INTERVAL_MS`). |
+| **Run Once** | `RUN_ONCE=1` / `import` | Executes a full sync pass and exits immediately. Used for automation scripts. |
+
+### The "Sync-on-Demand" Posture
+By default, the bridge starts in **IDLE** mode. This prevents background noise and overlapping syncs during targeted data cleanup. To start a sync while in IDLE:
+1.  Visit the **Bridge Command UI** at `http://localhost:3002`.
+2.  In the Back Office, go to **Settings → Integrations → Counterpoint bridge** and click **Request sync run**.
+3.  The bridge will pick up the request within 10-30 seconds (based on heartbeat) and execute it.
 
 | Mode | Bridge behavior | When to use |
 |------|-----------------|-------------|
@@ -211,4 +225,4 @@ Entity keys for staging match apply logic: `customers`, `catalog`, `tickets`, `s
 
 ---
 
-*Last aligned with bridge **0.7.2** (schema-flex maximal catalog/inventory + `LOC_ID` env) and migration **95** (staging batch table + `counterpoint_config`).*
+*Last aligned with bridge **0.7.3** (manual/IDLE mode + targeted entity requests) and migration **120**.*

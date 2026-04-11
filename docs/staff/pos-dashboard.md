@@ -30,6 +30,7 @@ You see a message to **open the register**. Dashboard metrics tied to the sessio
 | **Session tenders / X-report** | Mid-shift tender check (**X** is per lane; **Z** is on **Register #1** when using a till group) | Needs **register.reports** + session rules — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)** |
 | **Wedding pulse** | See today’s wedding pressure | Needs **weddings.view** |
 | **Tasks** | Open **My tasks** checklist | Needs **tasks.complete** |
+| **Rush Orders** | See how many orders require immediate fulfillment | Priority tracking for "Need By" dates |
 | **Notifications** | Short preview; **open bell** for the full inbox. **Bundled** alerts (many SKUs, tasks, etc.) show **one compact row**—tap it in the drawer to **expand** the list, then tap a line to open that item | Needs **notifications.view** |
 
 ## Common tasks

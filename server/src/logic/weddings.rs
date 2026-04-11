@@ -11,6 +11,7 @@ pub struct CompassStats {
     pub needs_measure: i64,
     pub needs_order: i64,
     pub overdue_pickups: i64,
+    pub rush_orders: i64,
 }
 
 /// Same shape as API `ActionRow` for dashboard lists.
@@ -31,9 +32,20 @@ pub struct MorningCompassBundle {
     pub needs_measure: Vec<CompassActionRow>,
     pub needs_order: Vec<CompassActionRow>,
     pub overdue_pickups: Vec<CompassActionRow>,
+    pub rush_orders: Vec<RushOrderActionRow>,
     /// Salesperson / sales_support roster members scheduled to work **today** (store-local date); uses `staff_effective_working_day`. Empty if schema not migrated or on error.
     #[serde(default)]
     pub today_floor_staff: Vec<staff_schedule::FloorStaffTodayRow>,
+}
+
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct RushOrderActionRow {
+    pub order_id: Uuid,
+    pub customer_name: String,
+    pub total_price: String,
+    pub booked_at: chrono::DateTime<chrono::Utc>,
+    pub need_by_date: Option<chrono::NaiveDate>,
+    pub is_rush: bool,
 }
 
 /// High-level counts for Morning Compass cards (90-day window for measure; active parties only).
@@ -55,9 +67,13 @@ pub async fn get_morning_compass_stats(pool: &PgPool) -> Result<CompassStats, sq
                 WHERE wp.event_date < CURRENT_DATE
                   AND (wm.pickup_status IS NULL OR wm.pickup_status <> 'complete')
                   AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-            ) AS overdue_pickups
+            ) AS overdue_pickups,
+            COUNT(*) FILTER (
+                WHERE o.is_rush = TRUE OR (o.need_by_date IS NOT NULL AND o.need_by_date <= (CURRENT_DATE + INTERVAL '3 days'))
+            ) AS rush_orders
         FROM wedding_members wm
         JOIN wedding_parties wp ON wm.wedding_party_id = wp.id
+        FULL OUTER JOIN orders o ON o.customer_id = wp.id -- Just for the count, though orders can be standalone
         "#,
     )
     .fetch_one(pool)
@@ -136,14 +152,38 @@ async fn list_overdue_pickups(pool: &PgPool) -> Result<Vec<CompassActionRow>, sq
     .await
 }
 
+async fn list_rush_orders(pool: &PgPool) -> Result<Vec<RushOrderActionRow>, sqlx::Error> {
+    sqlx::query_as::<_, RushOrderActionRow>(
+        r#"
+        SELECT 
+            o.id AS order_id,
+            COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Customer') AS customer_name,
+            total_price::text AS total_price,
+            booked_at,
+            need_by_date,
+            is_rush
+        FROM orders o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        WHERE (o.is_rush = TRUE OR (o.need_by_date IS NOT NULL AND o.need_by_date <= (CURRENT_DATE + INTERVAL '3 days')))
+          AND o.status <> 'fulfilled'
+          AND o.status <> 'cancelled'
+        ORDER BY o.need_by_date ASC, o.booked_at DESC
+        LIMIT 20
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
 pub async fn get_morning_compass_bundle(
     pool: &PgPool,
 ) -> Result<MorningCompassBundle, sqlx::Error> {
     let stats = get_morning_compass_stats(pool).await?;
-    let (needs_measure, needs_order, overdue_pickups) = tokio::try_join!(
+    let (needs_measure, needs_order, overdue_pickups, rush_orders) = tokio::try_join!(
         list_needs_measure(pool),
         list_needs_order(pool),
         list_overdue_pickups(pool),
+        list_rush_orders(pool),
     )?;
     let today_floor_staff = staff_schedule::list_working_floor_staff_for_local_today(pool)
         .await
@@ -159,6 +199,7 @@ pub async fn get_morning_compass_bundle(
         needs_measure,
         needs_order,
         overdue_pickups,
+        rush_orders,
         today_floor_staff,
     })
 }

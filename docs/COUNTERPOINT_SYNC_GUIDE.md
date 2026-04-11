@@ -82,9 +82,9 @@ Should return `200` with JSON including `"ok": true`, `"service": "counterpoint_
 ### 2d. Bridge Command Center
 The bridge includes a local dashboard for manual triggers and log monitoring. It listens on port **3002** (to avoid collision with Metabase on 3001).
 - **URL**: `http://localhost:3002`
+- **Manual Mode (Default)**: By default, the bridge starts in manual mode. It will poll the ROS health endpoint and respond to targeted triggers or full sync requests, but it will **not** auto-sync on a timer.
+- **Continuous Sync**: Toggle "Continuous Sync" in the dashboard to enable automatic 15-minute polling. 
 - **Auth**: The dashboard uses an internal proxy to communicate with the ROS API using the `COUNTERPOINT_SYNC_TOKEN`. This allows manual synchronization without requiring a valid staff PIN on the bridge host. 
-
-When staging is enabled in **Settings → Integrations → Counterpoint**, the Windows bridge (0.7.0+) POSTs each entity to `/api/sync/counterpoint/staging` instead of the direct ingest routes; operators **Apply** or **Discard** batches from the **Inbound queue** tab. Direct ingest is used when staging is off.
 
 ---
 
@@ -452,6 +452,17 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 +1. **Parent Tracking:** Ensures each Matrix Parent is only processed once per catalog pass.
 +2. **Dummy Filtering:** variations with blank/NULL SKUs or Item Numbers are discarded before transmission to minimize stream clutter.
 +
++### Targeted Entity Sync (v0.7.3+)
++The bridge now supports manual requests for specific entities. This is useful for refreshing just `customers` or `inventory` without running a full multi-entity pass.
++- **UI Trigger:** Dashboard "Run" buttons for individual entities.
++- **Dependency resolution:** If an entity is requested that has dependencies (e.g., `tickets` requiring `customers`), the bridge automatically enqueues the dependencies first.
++
++### Ack/Complete Handshake Protocol
++To prevent overlapping sync cycles and improve reliability, the bridge now uses a strict handshake:
++1. **Ack (`ack-request`):** The bridge acknowledges receipt of a sync request from the Riverside API.
++2. **Concurrency Lock:** The bridge sets an internal `isTickRunning` flag to prevent a scheduled poll from starting while a manual request is active.
++3. **Complete (`complete-request`):** Upon successful transmission of all batches, the bridge notifies the Riverside API to update the final sync timestamp and clear the request status.
++
 +---
 +
 
@@ -652,7 +663,16 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 
 ## 12. Security notes
 
-- **Token transport:** The sync token is sent via HTTP header. Use HTTPS (or Tailscale) when the bridge and ROS server are on different machines or any untrusted network segment.
-- **Never log the token** — the server and bridge both treat it as a secret.
-- **SQL credentials:** The bridge SQL login should have **read-only** access to the Counterpoint company database. Do not grant write permissions.
 - **RBAC:** The Settings monitoring endpoints require `settings.admin` staff permission. M2M ingest endpoints require only the sync token (no staff headers).
+
+---
+
+## 14. Operation Modes
+
+| Mode | Trigger | Behavior |
+|------|---------|----------|
+| **Manual (Default)** | Dashboard trigger / Sync Request | One-off targeted entity or full pass. |
+| **Continuous** | Dashboard Toggle | Syncs every 15 minutes (configurable via `POLL_INTERVAL_MS`). |
+| **Run Once** | `RUN_ONCE=1` / `import` | Executes a full sync pass and exits immediately. |
+
+To switch a running bridge to Continuous sync, visit `http://localhost:3002` and flip the toggle in the "Operation Mode" card.

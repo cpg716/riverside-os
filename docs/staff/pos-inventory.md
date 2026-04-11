@@ -19,6 +19,7 @@ The same tab implements **browse-and-add** to the cart (control-board search):
 3. Tap **Add to sale** (emerald) on the correct variant.
 4. Use **Load more products** for the next page — the list is paged, not all-at-once.
 5. **Out of stock** rows may show an extra control (clipboard icon) for **special order** follow-up — use **manager SOP**; do not promise dates the system has not confirmed.
+6. **Virtual / Custom Items:** Items booked via the **`CUSTOM`** keyword (MTM flows) are virtual and do not appear in the standard POS Inventory list or Back Office Inventory tracking until they are received and converted. To initiate a custom order, switch to the **Register** tab and type **`CUSTOM`**.
 
 Receiving and PO posting remain in **Back Office → Inventory → Receiving** — [inventory-back-office.md](inventory-back-office.md).
 

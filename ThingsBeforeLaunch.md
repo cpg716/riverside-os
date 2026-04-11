@@ -42,7 +42,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ## Network, TLS, and remote access
 
-- [ ] **HTTPS** (or store-approved private mesh) for staff-facing browser/Tailscale access; **no plain HTTP on the public internet** for the app — **`REMOTE_ACCESS_GUIDE.md`**.
+- [x] **HTTPS** (or store-approved private mesh) for staff-facing browser/Tailscale access; **no plain HTTP on the public internet** for the app — **`REMOTE_ACCESS_GUIDE.md`**, **`docs/REMOTE_ACCESS_USER_GUIDE.md`**.
 - [ ] **Tailscale / firewall** rules match who should reach the ROS origin and Metabase (if separate).
 
 ---
@@ -114,6 +114,66 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 - [ ] **Visual Crossing (optional):** API key / enabled flag if you rely on weather in app — **`docs/WEATHER_VISUAL_CROSSING.md`**.
 - [ ] **Morning digest (optional):** **`RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL`** if non-default — **`docs/PLAN_NOTIFICATION_CENTER.md`**.
+
+---
+
+<!-- Add new launch areas above this line or as new ## sections. -->
+
+---
+
+## Special & Custom Orders
+
+- [x] **Custom Work Order Flow (MTM Light):**
+  - [x] **SKU Trigger:** POS detects SKU starting with `CUSTOM`.
+  - [x] **Selector:** Popup to pick item type (SUITS, SPORT COAT, SLACKS, INDIVIDUALIZED SHIRTS).
+  - [x] **Variable Pricing:** Cashier enters `SALE` price at the time of order.
+  - [x] **Deposit:** Flow must handle taking a deposit (partial payment) for these custom lines.
+  - [x] **Persistence:** Backend logic updated to persist `custom_item_type`, `is_rush`, and `need_by_date` in checkout items.
+  - [ ] **Cost Linkage:** Upon receiving the physical item, connect vendor `COST` to the specific order line for margin tracking.
+- [x] **Rush Order & Urgency:**
+  - [x] **Urgent Flag:** Ability to mark an order as "RUSH".
+  - [x] **Deadline:** Mandatory `NEED BY DATE` for rush items.
+  - [x] **Visibility:** Dashboard indicator for items due within 48-72 hours.
+
+---
+
+## Inventory & Data Integrity
+
+- [x] **Counterpoint Bridge Sync:**
+  - [x] **Concurrency Guard:** Implemented `isTickRunning` lock to prevent overlapping sync cycles.
+  - [x] **Targeted Sync:** Added support for manual requests to sync specific entities (e.g., just `customers` or `vendors`).
+  - [x] **Ack/Complete Handshake:** Added `ack-request` and `complete-request` callbacks for improved orchestration.
+- [ ] **Opening Balance Audit:** Confirm migrated customer deposits and store credits match Counterpoint exactly.
+- [ ] **Tax Rate Verification:** Final audit of NYS/NYC clothing tax rules vs Riverside logic.
+- [ ] **Hardware Stress Test:** Validate thermal printing from multiple registers simultaneously.
+- [ ] **Offline Drill:** Staff training on manual overrides and credit card procedures if internet/Tailscale is down.
+- [ ] **Final DB Scrub:** Purge all "Test" records (customers, tickets) before the first day of real operations.
+---
+
+## Pre-Launch Polish & Possible Features
+
+- [ ] **Gift & Packaging options:**
+  - [x] **Gift Receipt:** Toggle in checkout to print price-less receipt (Implemented in ReceiptSummaryModal).
+  - [ ] **Gift Wrap:** Add "Needs Gift Wrap" flag to order lines for fulfillment team.
+- [ ] **Customer Measurements Alert:**
+  - [ ] Trigger warning in CRM/MTM if `last_measured_at` is older than 12 months.
+- [ ] **Wedding Health Heatmap:**
+  - [ ] Visual color-coding in Wedding Manager (Red/Yellow/Green) based on payment status and measurement completion.
+- [ ] **Staff Commission Verification:**
+  - [ ] Audit Sales Rep commission percentages before the first official sale.
+- [ ] **Inventory Labeling:**
+  - [ ] Validate 2x1 inventory barcode printing for all SUIT/COAT units.
+
+---
+
+## Remote Access & Host Security (v0.1.8)
+
+- [x] **Native Tailscale Integration:** ROS directly manages connection/disconnection on the host machine (**`server/src/logic/remote_access.rs`**).
+- [x] **Remote Safety Guards:** UI detects remote sessions and prevents accidental lockouts via confirmation dialogs (**`RemoteAccessPanel.tsx`**).
+- [x] **User Guidance:** Built-in "Setup Manual" in Settings and indexable help documentation (**`docs/REMOTE_ACCESS_USER_GUIDE.md`**).
+- [x] **Security Hardening Doc:** Formal security architectural review completed (**`docs/SECURITY_ARCHITECTURE.md`**).
+- [ ] **Remote-Sync Verification:** Verify Counterpoint Bridge sync performance over the Tailscale tunnel from an off-site laptop.
+- [ ] **Auth Key Lifecycle:** Set clear expiration/rotation policy for Tailscale Join Keys in shop SOP.
 
 ---
 

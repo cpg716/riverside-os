@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from "react";
 import { Printer, RefreshCw, Star } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
@@ -82,25 +83,46 @@ function SettingsPanel() {
   };
 
   return (
-    <div className="ui-card p-6 max-w-sm space-y-4">
-      <h3 className="text-sm font-black uppercase tracking-wide text-app-text">Program Settings</h3>
-      {settings && (
-        <p className="text-xs text-app-text-muted">
-          Current: {settings.loyalty_point_threshold.toLocaleString()} pts = ${settings.loyalty_reward_amount} reward
-          · {settings.points_per_dollar} pts / $1
-        </p>
-      )}
-      {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
-      {saved && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">Saved.</p>}
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Points threshold</span>
-        <input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input mt-1 w-full" />
-      </label>
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Reward amount ($)</span>
-        <input type="number" min="0.01" step="0.01" value={reward} onChange={e => setReward(e.target.value)} className="ui-input mt-1 w-full" />
-      </label>
-      <button onClick={save} className="ui-btn-primary w-full">Save</button>
+    <div className="ui-card flex flex-col overflow-hidden bg-app-surface/50 backdrop-blur-xl border-app-border/30 shadow-2xl animate-workspace-snap">
+      <div className="bg-gradient-to-br from-amber-500/10 to-transparent p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600">
+            <Star className="h-5 w-5" />
+          </div>
+          <h3 className="text-base font-black uppercase tracking-widest text-app-text">Program Settings</h3>
+        </div>
+        
+        {settings && (
+          <div className="p-3 rounded-xl bg-app-surface border border-app-border/50 shadow-sm">
+            <p className="text-xs font-medium text-app-text-muted">
+              Current: <span className="text-amber-600 font-bold">{settings.loyalty_point_threshold.toLocaleString()} pts</span> = <span className="text-emerald-600 font-bold">${settings.loyalty_reward_amount}</span> reward
+              <br/>
+              <span className="opacity-70">Rate: {settings.points_per_dollar} pts / $1</span>
+            </p>
+          </div>
+        )}
+        
+        {err && <p className="rounded-xl bg-red-500/10 px-4 py-3 text-xs font-bold text-red-600 border border-red-500/20">{err}</p>}
+        {saved && <p className="rounded-xl bg-emerald-500/10 px-4 py-3 text-xs font-bold text-emerald-600 border border-emerald-500/20">Changes applied successfully.</p>}
+
+        <div className="grid gap-4">
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Points threshold</span>
+            <input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input w-full bg-app-surface/80" />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Reward amount ($)</span>
+            <input type="number" min="0.01" step="0.01" value={reward} onChange={e => setReward(e.target.value)} className="ui-input w-full bg-app-surface/80" />
+          </label>
+        </div>
+        
+        <button 
+          onClick={save} 
+          className="ui-btn-primary w-full shadow-lg shadow-amber-500/20 hover:shadow-amber-500/40 transition-all duration-300 transform active:scale-[0.98]"
+        >
+          Update Program
+        </button>
+      </div>
     </div>
   );
 }
@@ -151,46 +173,68 @@ function AdjustPanel() {
   };
 
   return (
-    <div className="ui-card p-6 max-w-sm space-y-4">
-      <h3 className="text-sm font-black uppercase tracking-wide text-app-text">Adjust Points</h3>
-      <p className="text-xs text-app-text-muted">Requires admin badge. Positive delta = add points; negative = deduct.</p>
-      {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
-      {result && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{result}</p>}
-      
-      <div className="space-y-1">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Select Customer</span>
-        <CustomerSearchInput 
-          onSelect={(c: Customer) => {
-            setCustomerId(c.id);
-            setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
-          }}
-          placeholder="Search customer (Name, Code, Phone)…"
-          className="w-full"
-        />
-        {customerId && (
-          <p className="text-[10px] text-emerald-600 font-bold">Selected: {customerLabel}</p>
-        )}
-      </div>
+    <div className="ui-card flex flex-col overflow-hidden bg-app-surface/50 backdrop-blur-xl border-app-border/30 shadow-2xl animate-workspace-snap">
+      <div className="bg-gradient-to-br from-sky-500/10 to-transparent p-6 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="p-2 rounded-xl bg-sky-500/10 text-sky-600">
+            <RefreshCw className="h-5 w-5" />
+          </div>
+          <h3 className="text-base font-black uppercase tracking-widest text-app-text">Adjust Balance</h3>
+        </div>
+        <p className="text-xs font-medium text-app-text-muted px-1 leading-relaxed">Modify customer points manually. Positive builds balance; negative deducts.</p>
+        
+        {err && <p className="rounded-xl bg-red-500/10 px-4 py-3 text-xs font-bold text-red-600 border border-red-500/20">{err}</p>}
+        {result && <p className="rounded-xl bg-emerald-500/10 px-4 py-3 text-xs font-bold text-emerald-600 border border-emerald-500/20">{result}</p>}
 
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Delta points (± integer)</span>
-        <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input mt-1 w-full" />
-      </label>
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Reason</span>
-        <input value={reason} onChange={e => setReason(e.target.value)} className="ui-input mt-1 w-full" />
-      </label>
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Manager badge</span>
-        <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input mt-1 w-full" />
-      </label>
-      <label className="block">
-        <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">PIN (if required)</span>
-        <input type="password" value={pin} onChange={e => setPin(e.target.value)} className="ui-input mt-1 w-full" />
-      </label>
-      <button onClick={submit} disabled={busy} className="ui-btn-primary w-full">
-        {busy ? "Processing…" : "Apply adjustment"}
-      </button>
+        <div className="space-y-4">
+          <div className="space-y-1.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Customer Search</span>
+            <CustomerSearchInput
+              onSelect={(c: Customer) => {
+                setCustomerId(c.id);
+                setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
+              }}
+              placeholder="Name, code, or phone…"
+              className="w-full bg-app-surface/80 shadow-inner"
+            />
+            {customerId && (
+              <div className="mt-2 p-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10 flex items-center justify-between">
+                <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-tight">Focusing: {customerLabel}</p>
+                <button onClick={() => setCustomerId("")} className="text-[10px] text-app-text-muted hover:text-red-500 transition-colors">Clear</button>
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Delta (±)</span>
+              <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input w-full bg-app-surface/80" />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Auth Badge</span>
+              <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input w-full bg-app-surface/80" />
+            </label>
+          </div>
+
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Reason for change</span>
+            <input value={reason} onChange={e => setReason(e.target.value)} placeholder="e.g. CSR goodwill" className="ui-input w-full bg-app-surface/80" />
+          </label>
+
+          <label className="block space-y-1.5">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Manager PIN</span>
+            <input type="password" value={pin} onChange={e => setPin(e.target.value)} className="ui-input w-full bg-app-surface/80" />
+          </label>
+        </div>
+
+        <button 
+          onClick={submit} 
+          disabled={busy} 
+          className="ui-btn-primary w-full shadow-lg shadow-sky-500/20 hover:shadow-sky-500/40 transition-all duration-300 transform active:scale-[0.98] disabled:scale-100"
+        >
+          {busy ? "Applying Changes…" : "Commit Adjustment"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -263,37 +307,54 @@ function EligibleList() {
             <p className="text-sm text-app-text-muted">No customers have reached the threshold yet.</p>
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm border-separate border-spacing-0">
             <thead>
-              <tr className="border-b border-app-border text-left">
-                <th className="pb-2 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Name</th>
-                <th className="pb-2 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Points</th>
-                <th className="pb-2 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Email</th>
-                <th className="pb-2 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Phone</th>
-                <th className="pb-2 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Address</th>
-                <th className="pb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Actions</th>
+              <tr className="text-left">
+                <th className="pb-4 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border px-4 py-3 bg-app-surface-2/50">Customer</th>
+                <th className="pb-4 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border px-4 py-3 bg-app-surface-2/50">Loyalty Level</th>
+                <th className="pb-4 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border px-4 py-3 bg-app-surface-2/50">Contact Info</th>
+                <th className="pb-4 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border px-4 py-3 bg-app-surface-2/50">Location</th>
+                <th className="pb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border px-4 py-3 bg-app-surface-2/50 text-right">Operations</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody className="divide-y divide-app-border/30">
               {customers.map(c => (
-                <tr key={c.id} className="border-b border-app-border/50 hover:bg-app-surface-2/50">
-                  <td className="py-2 pr-4 font-semibold text-app-text">{loyaltyEligibleDisplayName(c)}</td>
-                  <td className="py-2 pr-4">
-                    <span className="font-mono font-black text-amber-700">{c.loyalty_points.toLocaleString()}</span>
+                <tr key={c.id} className="group hover:bg-amber-500/5 transition-colors duration-200">
+                  <td className="py-4 px-4 font-bold text-app-text">
+                    <div className="flex flex-col">
+                      <span>{loyaltyEligibleDisplayName(c)}</span>
+                      <span className="text-[10px] text-app-text-muted font-black tracking-widest uppercase mt-0.5 opacity-60">#{c.customer_code}</span>
+                    </div>
                   </td>
-                  <td className="py-2 pr-4 text-xs text-app-text-muted">{c.email ?? "—"}</td>
-                  <td className="py-2 pr-4 text-xs text-app-text-muted">{c.phone ?? "—"}</td>
-                  <td className="py-2 pr-4 text-xs text-app-text-muted">
-                    {[c.address_line1, c.city, c.state, c.zip].filter(Boolean).join(", ") || "—"}
+                  <td className="py-4 px-4">
+                    <div className="flex items-center gap-2">
+                      <div className="px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-700 text-xs font-black tracking-wide shadow-sm">
+                        {c.loyalty_points.toLocaleString()} PTS
+                      </div>
+                      {c.loyalty_points >= (settings?.loyalty_point_threshold || 1000) * 2 && (
+                        <div className="p-1 rounded bg-amber-500 text-white shadow-sm">
+                          <Star className="h-3 w-3 fill-current" />
+                        </div>
+                      )}
+                    </div>
                   </td>
-                  <td className="py-2">
+                  <td className="py-4 px-4">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs text-app-text font-medium">{c.email ?? "—"}</span>
+                      <span className="text-[11px] text-app-text-muted">{c.phone ?? "—"}</span>
+                    </div>
+                  </td>
+                  <td className="py-4 px-4 text-xs text-app-text-muted font-medium italic">
+                    {[c.city, c.state].filter(Boolean).join(", ") || "No address on file"}
+                  </td>
+                  <td className="py-4 px-4 text-right">
                     <button
                       type="button"
                       onClick={() => setRedeemCustomer(c)}
                       disabled={!settings}
-                      className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold uppercase tracking-wide text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
+                      className="inline-flex items-center gap-2 bg-app-surface border border-amber-500/30 px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-amber-700 hover:bg-amber-500 hover:text-white hover:border-amber-600 transition-all duration-300 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
                     >
-                      Redeem
+                      Redeem Reward
                     </button>
                   </td>
                 </tr>

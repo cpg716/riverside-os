@@ -762,6 +762,7 @@ pub async fn reindex_all_meilisearch(
     .fetch(pool);
 
     let mut p_batch = Vec::with_capacity(500);
+    let mut n_products = 0usize;
     while let Some(res) = product_stream.next().await {
         if let Ok(row) = res {
             let slug = row.slug.unwrap_or_default();
@@ -781,15 +782,17 @@ pub async fn reindex_all_meilisearch(
                 });
             }
             if p_batch.len() >= 500 {
+                n_products += p_batch.len();
                 index_p.add_documents(&p_batch, Some("id")).await?;
                 p_batch.clear();
             }
         }
     }
     if !p_batch.is_empty() {
+        n_products += p_batch.len();
         index_p.add_documents(&p_batch, Some("id")).await?;
     }
-    record_sync_status(pool, INDEX_STORE_PRODUCTS, true, p_batch.len() as i64, None).await;
+    record_sync_status(pool, INDEX_STORE_PRODUCTS, true, n_products as i64, None).await;
 
     // 3. Customers
     let index_c = client.index(INDEX_CUSTOMERS);
@@ -812,6 +815,7 @@ pub async fn reindex_all_meilisearch(
     ).fetch(pool);
 
     let mut c_batch = Vec::with_capacity(1000);
+    let mut n_customers = 0usize;
     while let Some(res) = customer_stream.next().await {
         if let Ok(row) = res {
             let search_text = build_customer_search_text(
@@ -833,15 +837,17 @@ pub async fn reindex_all_meilisearch(
                 customer_code: Some(row.customer_code),
             });
             if c_batch.len() >= 1000 {
+                n_customers += c_batch.len();
                 index_c.add_documents(&c_batch, Some("id")).await?;
                 c_batch.clear();
             }
         }
     }
     if !c_batch.is_empty() {
+        n_customers += c_batch.len();
         index_c.add_documents(&c_batch, Some("id")).await?;
     }
-    record_sync_status(pool, INDEX_CUSTOMERS, true, c_batch.len() as i64, None).await;
+    record_sync_status(pool, INDEX_CUSTOMERS, true, n_customers as i64, None).await;
 
     // 4. Wedding Parties
     let index_w = client.index(INDEX_WEDDING_PARTIES);
@@ -861,6 +867,7 @@ pub async fn reindex_all_meilisearch(
         "#
     ).fetch(pool);
     let mut w_batch = Vec::with_capacity(500);
+    let mut n_weddings = 0usize;
     while let Some(res) = party_stream.next().await {
         if let Ok(row) = res {
             let mut base = String::new();
@@ -890,19 +897,21 @@ pub async fn reindex_all_meilisearch(
                 search_text,
             });
             if w_batch.len() >= 500 {
+                n_weddings += w_batch.len();
                 index_w.add_documents(&w_batch, Some("id")).await?;
                 w_batch.clear();
             }
         }
     }
     if !w_batch.is_empty() {
+        n_weddings += w_batch.len();
         index_w.add_documents(&w_batch, Some("id")).await?;
     }
     record_sync_status(
         pool,
         INDEX_WEDDING_PARTIES,
         true,
-        w_batch.len() as i64,
+        n_weddings as i64,
         None,
     )
     .await;
@@ -926,33 +935,37 @@ pub async fn reindex_all_meilisearch(
     )
     .fetch(pool);
     let mut o_batch = Vec::with_capacity(1000);
+    let mut n_orders = 0usize;
     while let Some(res) = order_stream.next().await {
         if let Ok(row) = res {
             let s = row.status.as_deref().unwrap_or_default().to_lowercase();
             let status_open = s == "open" || s == "pending_measurement";
+            let order_id_str = row.id.map(|u| u.to_string()).unwrap_or_default();
             let search_text = format!(
                 "{} {} {} {} {}",
-                row.id,
+                order_id_str,
                 row.customer_first.as_deref().unwrap_or(""),
                 row.customer_last.as_deref().unwrap_or(""),
                 row.party_name.as_deref().unwrap_or(""),
-                row.salesperson.as_deref().unwrap_or("")
+                &row.salesperson
             );
             o_batch.push(OrderDoc {
-                id: row.id.to_string(),
+                id: order_id_str,
                 status_open,
                 search_text,
             });
             if o_batch.len() >= 1000 {
+                n_orders += o_batch.len();
                 index_o.add_documents(&o_batch, Some("id")).await?;
                 o_batch.clear();
             }
         }
     }
     if !o_batch.is_empty() {
+        n_orders += o_batch.len();
         index_o.add_documents(&o_batch, Some("id")).await?;
     }
-    record_sync_status(pool, INDEX_ORDERS, true, o_batch.len() as i64, None).await;
+    record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
 
     // 6. Help
     if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {

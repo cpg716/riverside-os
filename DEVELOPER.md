@@ -11,7 +11,7 @@ Riverside OS (ROS) is a **production retail ERM/POS** for a formalwear / wedding
 | **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
 
 Domain language and canonical requirements live in **`Riverside_OS_Master_Specification.md`**.
-Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`docs/ORBSTACK_GUIDE.md`** (Mac setup), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**, **`CHANGELOG.md`** (version history), **`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`** (**Zero-Error / Fast Refresh** mandate).
+Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`docs/ORBSTACK_GUIDE.md`** (Mac setup), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**, **`docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`** (No-rot strategy), **`CHANGELOG.md`** (version history), **`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`** (**Zero-Error / Fast Refresh** mandate).
 
 Product planning (strengths, gaps, prioritization for men’s / wedding retail): **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`**.
 
@@ -438,7 +438,7 @@ Routers are composed in `server/src/api/mod.rs`:
 | `/api/weather` | `weather` | **`GET /history?from&to`**, **`GET /forecast`** — public; Visual Crossing when enabled and a key is present (**`store_settings.weather_config`**, migration **46**, optional env **`RIVERSIDE_VISUAL_CROSSING_*`**), else mock; forecast returns `{ days, current }`. See **`docs/WEATHER_VISUAL_CROSSING.md`**. |
 | `/api/hardware` | `hardware` | **`POST /print`** — server-side TCP dispatch to thermal printer IP/port (browser / PWA path). **`POST /escpos-from-png`** — PNG (base64) → ESC/POS raster for **Receipt Builder** → Epson-class printers — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**. |
 | `/api/sync/counterpoint` | `counterpoint_sync` | M2M ingest (**`x-ros-sync-token`** or **`Bearer`** = env **`COUNTERPOINT_SYNC_TOKEN`**): **`GET /health`**, **`POST /customers`**, **`POST /inventory`**, **`POST /catalog`**, **`POST /gift-cards`**, **`POST /tickets`**, **`POST /heartbeat`**, **`POST /ack-request`**, **`POST /complete-request`** — **`docs/COUNTERPOINT_SYNC_GUIDE.md`** |
-| `/api/settings/counterpoint-sync` | `counterpoint_sync` | Staff-gated (**`settings.admin`**): **`GET /status`**, **`POST /request-run`**, **`PATCH /issues/{id}/resolve`**. Dashboard opens locally at **`http://localhost:3002`**. |
+| `/api/settings/counterpoint-sync` | `counterpoint_sync` | Staff-gated (**`settings.admin`**): **`GET /status`**, **`POST /request-run`**, **`PATCH /issues/{id}/resolve`**. Dashboard opens locally at **`http://localhost:3002`**; defaults to **Manual Mode** on startup. |
 | `/api/public` | `public_api` | **`GET /storefront-embeds`** — unauthenticated JSON for **public storefront** builds (e.g. Podium widget snippet when enabled in **`podium_sms_config`**); client inject gated by **`VITE_STOREFRONT_EMBEDS`** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**. |
 | `/api/webhooks` | `webhooks` | **`POST /podium`** — **no staff auth**; verifies Podium **`podium-timestamp`** / **`podium-signature`** when **`RIVERSIDE_PODIUM_WEBHOOK_SECRET`** is set (optional dev unsigned: **`RIVERSIDE_PODIUM_WEBHOOK_ALLOW_UNSIGNED`**). Idempotent ledger migration **71**. When CRM ingest is **not** disabled (**`RIVERSIDE_PODIUM_INBOUND_DISABLED`** unset/false), accepted deliveries spawn **`podium_inbound::ingest_from_webhook`** → **`podium_message`** + **`app_notification`** (**`podium_sms_inbound`** / **`podium_email_inbound`**) — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**. |
 
@@ -446,7 +446,7 @@ Routers are composed in `server/src/api/mod.rs`:
 
 **Customers (migration 28)**: Every customer has a **`customer_code`** (unique). New inserts allocate the next code server-side via `customer_code_seq` (formatted `ROS-########` in `logic::customers::next_customer_code`). POS and Back Office must not require the client to invent a code. Lightspeed exports store their retailer code in the same column; `POST /api/customers/import/lightspeed` upserts on that key. The UI treats the code as read-only. **Relationship Hub** and aligned routes use **`require_staff_perm_or_pos_session`** + **`customers.*`** / **`orders.view`** — **[`docs/CUSTOMER_HUB_AND_RBAC.md`](docs/CUSTOMER_HUB_AND_RBAC.md)** (migrations **63**–**64**).
 
-**Counterpoint bridge (migrations 29, 84–85)**: One-way **Counterpoint → ROS**. Set `COUNTERPOINT_SYNC_TOKEN` on the server, run [`counterpoint-bridge/`](counterpoint-bridge/) on the Windows SQL host, point `ROS_BASE_URL` at the shop server (LAN or Tailscale). **Entities:** customers (`cust_no` → `customer_code`, `customer_created_source = 'counterpoint'`), inventory (`stock_on_hand` + `cost_override` by `counterpoint_item_key` or SKU), **catalog** (`IM_ITEM` + `IM_INV_CELL` → `products` / `product_variants` with `data_source = 'counterpoint'`), **gift cards** (`SY_GFT_CERT` → `gift_cards` + events; `REASON_COD` via `counterpoint_gift_reason_map`), **tickets** (`PS_TKT_HIST` → `orders` + items + payments; idempotent on `counterpoint_ticket_ref`; `is_counterpoint_import = true`). **Bridge heartbeat** (`POST .../heartbeat`) reports `idle`/`syncing`; admin status: `GET /api/settings/counterpoint-sync/status`, `POST .../request-run`, `PATCH .../issues/:id/resolve` (**`settings.admin`**). Settings UI: **Integrations → Counterpoint bridge** panel. Full guide: **[`docs/COUNTERPOINT_SYNC_GUIDE.md`](docs/COUNTERPOINT_SYNC_GUIDE.md)**; roadmap: **[`docs/PLAN_COUNTERPOINT_ROS_SYNC.md`](docs/PLAN_COUNTERPOINT_ROS_SYNC.md)**.
+**Counterpoint bridge (migrations 29, 84–85)**: One-way **Counterpoint → ROS**. Set `COUNTERPOINT_SYNC_TOKEN` on the server, run [`counterpoint-bridge/`](counterpoint-bridge/) on the Windows SQL host, point `ROS_BASE_URL` at the shop server (LAN or Tailscale). **Entities:** customers (`cust_no` → `customer_code`, `customer_created_source = 'counterpoint'`), inventory (`stock_on_hand` + `cost_override` by `counterpoint_item_key` or SKU), **catalog** (`IM_ITEM` + `IM_INV_CELL` → `products` / `product_variants` with `data_source = 'counterpoint'`), **gift cards** (`SY_GFT_CERT` → `gift_cards` + events; `REASON_COD` via `counterpoint_gift_reason_map`), **tickets** (`PS_TKT_HIST` → `orders` + items + payments; idempotent on `counterpoint_ticket_ref`; `is_counterpoint_import = true`). **Bridge heartbeat** (`POST .../heartbeat`) reports `idle`/`syncing`; admin status: `GET /api/settings/counterpoint-sync/status`, `POST .../request-run`, `PATCH .../issues/:id/resolve` (**`settings.admin`**). Settings UI: **Integrations → Counterpoint bridge** panel. **Manual Mode (Default)**: The bridge starts in manual mode; continuous 15-minute polling is disabled until toggled ON in the dashboard at `http://localhost:3002`. Full guide: **[`docs/COUNTERPOINT_SYNC_GUIDE.md`](docs/COUNTERPOINT_SYNC_GUIDE.md)**; roadmap: **[`docs/PLAN_COUNTERPOINT_ROS_SYNC.md`](docs/PLAN_COUNTERPOINT_ROS_SYNC.md)**.
 
 ---
 
@@ -491,6 +491,29 @@ Use these docs when changing behavior; keep transactions, access logs, and idemp
 - **Catalog import:** [`docs/CATALOG_IMPORT.md`](docs/CATALOG_IMPORT.md) — body limits, Lightspeed column map, migration **35** vendor code.
 - **Physical inventory:** `server/src/api/physical_inventory.rs` + [`INVENTORY_GUIDE.md`](INVENTORY_GUIDE.md) — session lifecycle vs live sales; use staff headers on all mutations from the BO UI.
 - **Staff tasks / register shift:** [`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](docs/STAFF_TASKS_AND_REGISTER_SHIFT.md) — migrations **55–56**, lazy task materialization, **`/api/tasks/*`**, POS shift handoff.
+
+---
+
+## Inventory Recovery Runbooks
+
+In the event of synchronization failures or mass duplication (e.g., from the Counterpoint Bridge), use these established procedures.
+
+### 1. Catalog Deduplication (Ghost Records)
+If the Bridge creates "ghost" products (rows missing `catalog_handle` or pricing while valid ones exist), use the `catalog_handle` deduplication script.
+- **Goal**: Re-link `order_items` and `fulfillment` to the "clean" master record and purge the orphans.
+- **Identity**: Clean records MUST have a valid `catalog_handle` (their Counterpoint `ITEM#`).
+- **Safety**: Primary keys of orphaned `products` are moved to their respective master records in `order_items` and `wedding_member_fulfillment` before deletion.
+
+### 2. Asset Recovery (Lightspeed Importer)
+If stock levels or asset valuations are lost but a Lightspeed CSV is available ($321k+ recovery case):
+- **Access**: Go to **Inventory → Universal Importer**.
+- **Mode**: Use **Lightspeed Retail** preset.
+- **Logic**: The importer matches by **`product_identity`** (Maps to Counterpoint `ITEM#` / ROS `catalog_handle`) and **`SKU`**.
+- **Effect**: Updates `stock_on_hand` and `unit_cost` for existing variants without creating duplicates.
+
+### 3. Bridge Resilience & Monitoring
+- **Decoupled Startup**: The `-k` flag has been removed from the root `npm run dev`. The API and UI will now remain alive even if the Bridge crashes.
+- **Live Monitoring**: Go to **Settings → Meilisearch** to see real-time indexing progress and row counts.
 
 ---
 

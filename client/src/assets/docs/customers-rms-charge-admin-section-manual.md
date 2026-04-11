@@ -1,0 +1,35 @@
+---
+id: customers-rms-charge-admin-section
+title: "Rms Charge Admin Section (customers)"
+order: 1008
+summary: "Auto-generated stub for client/src/components/customers/RmsChargeAdminSection.tsx — replace with staff-facing help."
+source: client/src/components/customers/RmsChargeAdminSection.tsx
+last_scanned: 2026-04-11
+tags: customers-rms-charge-admin-section, component, auto-scaffold
+---
+
+# Rms Charge Admin Section (customers)
+
+<!-- help:component-source -->
+_Linked component: `client/src/components/customers/RmsChargeAdminSection.tsx`._
+<!-- /help:component-source -->
+
+## What this is
+
+Briefly describe what staff use this screen for.
+
+## How to use it
+
+1. 
+2. 
+
+## Tips
+
+- 
+
+## Screenshots
+
+Add PNGs under `../images/help/customers-rms-charge-admin-section/` and embed them, for example:
+
+![Example](../images/help/customers-rms-charge-admin-section/example.png)
+

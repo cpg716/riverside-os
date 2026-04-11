@@ -96,6 +96,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "integrations", label: "Integrations" },
     { id: "staff-access-defaults", label: "Staff access defaults" },
     { id: "counterpoint", label: "Counterpoint" },
+    { id: "remote-access", label: "Remote Access" },
     { id: "online-store", label: "Online store" },
     { id: "nuorder", label: "NuORDER" },
     { id: "help-center", label: "Help center" },

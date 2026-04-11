@@ -2940,7 +2940,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-pos-tauri"
-version = "0.1.0"
+version = "0.1.6"
 dependencies = [
  "base64 0.22.1",
  "log",

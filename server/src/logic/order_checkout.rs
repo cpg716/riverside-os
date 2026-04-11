@@ -55,6 +55,13 @@ pub struct CheckoutItem {
     /// Purchased-card code for `pos_gift_card_load` internal lines (credit on fully paid checkout).
     #[serde(default)]
     pub gift_card_load_code: Option<String>,
+    #[serde(default)]
+    pub custom_item_type: Option<String>,
+    #[serde(default)]
+    pub is_rush: bool,
+    pub need_by_date: Option<chrono::NaiveDate>,
+    #[serde(default)]
+    pub needs_gift_wrap: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -89,6 +96,10 @@ pub struct CheckoutRequest {
     /// If set, the checkout is (at least partially) a payment against this existing order.
     #[serde(default)]
     pub target_order_id: Option<Uuid>,
+    #[serde(default)]
+    pub is_rush: bool,
+    #[serde(default)]
+    pub need_by_date: Option<chrono::NaiveDate>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -327,6 +338,10 @@ async fn expand_bundle_checkout_items(
                 salesperson_id: item.salesperson_id,
                 discount_event_id: None,
                 gift_card_load_code: None,
+                custom_item_type: item.custom_item_type.clone(),
+                is_rush: item.is_rush,
+                need_by_date: item.need_by_date,
+                needs_gift_wrap: item.needs_gift_wrap,
             });
         }
     }
@@ -1159,7 +1174,7 @@ pub async fn execute_checkout(
             total_price, amount_paid, balance_due, status, booked_at, fulfilled_at,
             weather_snapshot, checkout_client_id,
             fulfillment_method, ship_to, shipping_amount_usd,
-            is_employee_purchase
+            is_employee_purchase, is_rush, need_by_date
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7, $8,
@@ -1167,7 +1182,7 @@ pub async fn execute_checkout(
             CASE WHEN $9 THEN CURRENT_TIMESTAMP ELSE NULL END,
             $10, $11,
             $12, $13, $14,
-            $15
+            $15, $16, $17
         )
         RETURNING id
         "#,
@@ -1187,6 +1202,8 @@ pub async fn execute_checkout(
     .bind(order_ship_to)
     .bind(order_shipping_amt)
     .bind(is_employee_purchase_order)
+    .bind(payload.is_rush)
+    .bind(payload.need_by_date)
     .fetch_one(&mut *tx)
     .await;
 
@@ -1307,9 +1324,10 @@ pub async fn execute_checkout(
             INSERT INTO order_items (
                 order_id, product_id, variant_id, fulfillment, quantity,
                 unit_price, unit_cost, state_tax, local_tax, size_specs, is_fulfilled,
-                salesperson_id, calculated_commission
+                salesperson_id, calculated_commission,
+                custom_item_type, is_rush, need_by_date, needs_gift_wrap
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
             RETURNING id
             "#,
         )
@@ -1326,6 +1344,10 @@ pub async fn execute_checkout(
         .bind(line_fulfilled)
         .bind(line_salesperson_id)
         .bind(commission)
+        .bind(item.custom_item_type)
+        .bind(item.is_rush)
+        .bind(item.need_by_date)
+        .bind(item.needs_gift_wrap)
         .fetch_one(&mut *tx)
         .await?;
 

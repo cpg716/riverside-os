@@ -11,6 +11,11 @@
     *   **Deployment**: Strictly **Windows** (Tauri 2 Desktop App).
     *   **Invariant**: All code, file paths, and execution commands must remain Windows-compatible.
 
+*   **NY State Tax Invariant (Publication 718-C)**: 
+    *   **Clothing & Footwear < $110.00**: 4.00% State Tax is **EXEMPT** ($0); 4.75% Local (Erie County) remains active (Effective Total: **4.75%**).
+    *   **Items ≥ $110.00** (or non-clothing/footwear): Full **8.75%** applies (4.00% State + 4.75% Local).
+    *   **Logic**: This must be calculated at the line-item level based on the **net taxable price** after discounts.
+
 ---
 
 ## Pillar 1: Version Control & Validation (Gatekeeper Protocol)

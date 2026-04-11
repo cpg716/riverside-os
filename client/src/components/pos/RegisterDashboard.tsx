@@ -19,6 +19,7 @@ import {
   buildMorningCompassQueue,
   compassBandLabel,
   type CompassActionRow,
+  type RushOrderRow,
 } from "../../lib/morningCompassQueue";
 import { parseNotificationBundle } from "../../lib/notificationBundle";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -32,6 +33,7 @@ interface CompassStats {
   needs_measure: number;
   needs_order: number;
   overdue_pickups: number;
+  rush_orders: number;
 }
 
 interface TodayFloorStaffRow {
@@ -46,8 +48,10 @@ interface MorningCompassBundle {
   needs_measure: CompassActionRow[];
   needs_order: CompassActionRow[];
   overdue_pickups: CompassActionRow[];
+  rush_orders: RushOrderRow[];
   today_floor_staff?: TodayFloorStaffRow[];
 }
+
 
 interface ForecastDay {
   temp_high: number;
@@ -181,10 +185,12 @@ export default function RegisterDashboard({
           needs_measure: Number(data.stats?.needs_measure ?? 0),
           needs_order: Number(data.stats?.needs_order ?? 0),
           overdue_pickups: Number(data.stats?.overdue_pickups ?? 0),
+          rush_orders: Number(data.stats?.rush_orders ?? 0),
         },
         needs_measure: Array.isArray(data.needs_measure) ? data.needs_measure : [],
         needs_order: Array.isArray(data.needs_order) ? data.needs_order : [],
         overdue_pickups: Array.isArray(data.overdue_pickups) ? data.overdue_pickups : [],
+        rush_orders: Array.isArray(data.rush_orders) ? data.rush_orders : [],
         today_floor_staff: Array.isArray(data.today_floor_staff) ? data.today_floor_staff : [],
       });
     } catch {
@@ -294,8 +300,9 @@ export default function RegisterDashboard({
     () =>
       buildMorningCompassQueue({
         overduePickups: compass?.overdue_pickups ?? [],
-        needsOrder: compass?.needs_order ?? [],
+        needsOrder: (compass as any)?.needs_order ?? [],
         needsMeasure: compass?.needs_measure ?? [],
+        rushOrders: compass?.rush_orders ?? [],
         openTasks: taskOpen,
         notifications,
         limit: 7,
@@ -372,6 +379,9 @@ export default function RegisterDashboard({
                     onClick={() => {
                       if (item.kind === "wedding") setCompassDrawerRow(item.row);
                       else if (item.kind === "task") setTaskDrawerId(item.taskId);
+                      else if (item.kind === "rush_order") {
+                        // TODO: Open order detail or navigate to Order Workspace
+                      }
                       else openDrawer();
                     }}
                     className="flex w-full items-start gap-2 rounded-xl border border-app-border/70 bg-app-surface/90 px-3 py-2 text-left transition hover:border-app-accent/40"
@@ -393,7 +403,9 @@ export default function RegisterDashboard({
                           ? `${item.row.customer_name} · ${compassBandLabel(item.band)}`
                           : item.kind === "task"
                             ? item.title
-                            : item.row.title}
+                            : item.kind === "rush_order"
+                              ? `${item.row.customer_name} · URGENT`
+                              : item.row.title}
                       </span>
                       <span className="mt-0.5 block text-[11px] font-semibold text-app-text-muted">
                         {item.kind === "wedding"
@@ -402,7 +414,9 @@ export default function RegisterDashboard({
                             ? item.dueDate
                               ? `Due ${item.dueDate}`
                               : "Task"
-                            : "Open inbox"}
+                            : item.kind === "rush_order"
+                              ? `Need by ${item.row.need_by_date || 'ASAP'} · $${item.row.total_price}`
+                              : "Open inbox"}
                       </span>
                     </span>
                     {item.kind === "notification" ? (
@@ -489,7 +503,7 @@ export default function RegisterDashboard({
               Weddings
             </button>
           </div>
-          <div className="mt-2 grid grid-cols-3 gap-2 text-center">
+          <div className="mt-2 grid grid-cols-4 gap-2 text-center">
             <div className="rounded-xl bg-app-surface-2 p-2">
               <p className="text-lg font-black text-app-text">{stats.needs_measure}</p>
               <p className="text-[9px] font-bold uppercase text-app-text-muted">Measure</p>
@@ -501,6 +515,10 @@ export default function RegisterDashboard({
             <div className="rounded-xl bg-app-surface-2 p-2">
               <p className="text-lg font-black text-amber-600">{stats.overdue_pickups}</p>
               <p className="text-[9px] font-bold uppercase text-app-text-muted">Overdue</p>
+            </div>
+            <div className="rounded-xl bg-app-surface-2 p-2">
+              <p className="text-lg font-black text-red-600">{stats.rush_orders}</p>
+              <p className="text-[9px] font-bold uppercase text-app-text-muted">Rush</p>
             </div>
           </div>
         </div>

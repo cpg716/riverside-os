@@ -11,6 +11,15 @@ export interface CompassActionRow {
   event_date: string;
 }
 
+export interface RushOrderRow {
+  order_id: string;
+  customer_name: string;
+  total_price: string;
+  booked_at: string;
+  need_by_date: string | null;
+  is_rush: boolean;
+}
+
 export type CompassQueueBand = "overdue" | "needs_order" | "needs_measure";
 
 export type MorningCompassQueueItem =
@@ -31,13 +40,20 @@ export type MorningCompassQueueItem =
       title: string;
       dueDate: string | null;
     }
-  | {
-      kind: "notification";
-      id: string;
-      sortKey: number;
-      tier: "urgent" | "soon" | "normal";
-      row: NotificationRow;
-    };
+    | {
+        kind: "notification";
+        id: string;
+        sortKey: number;
+        tier: "urgent" | "soon" | "normal";
+        row: NotificationRow;
+      }
+    | {
+        kind: "rush_order";
+        id: string;
+        sortKey: number;
+        tier: "urgent" | "soon" | "normal";
+        row: RushOrderRow;
+      };
 
 function parseLocalYmd(ymd: string): Date | null {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd.trim());
@@ -94,14 +110,36 @@ function notificationSortKey(row: NotificationRow): { sortKey: number; tier: Mor
   return { sortKey: 900, tier: "normal" };
 }
 
+function rushOrderSortKey(row: RushOrderRow, now = new Date()): { sortKey: number; tier: MorningCompassQueueItem["tier"] } {
+  let base = 150;
+  let tier: MorningCompassQueueItem["tier"] = "soon";
+
+  if (row.is_rush) {
+    base = 50;
+    tier = "urgent";
+  }
+
+  if (row.need_by_date) {
+    const days = daysUntilWeddingEvent(row.need_by_date, now) ?? 99;
+    if (days < 0) return { sortKey: 40, tier: "urgent" };
+    if (days <= 2) return { sortKey: 60 + days * 5, tier: "urgent" };
+    if (days <= 5) return { sortKey: 150 + days * 10, tier: "soon" };
+    base = 400 + Math.min(days, 50);
+    tier = "normal";
+  }
+
+  return { sortKey: base, tier };
+}
+
 /**
  * Ranked “do this first” queue from existing dashboard signals (no ML).
  * Lower `sortKey` = earlier in the list.
  */
 export function buildMorningCompassQueue(input: {
   overduePickups: CompassActionRow[];
-  needsOrder: CompassActionRow[];
   needsMeasure: CompassActionRow[];
+  needsOrder: CompassActionRow[];
+  rushOrders: RushOrderRow[];
   openTasks: { id: string; title_snapshot: string; due_date: string | null }[];
   notifications: NotificationRow[];
   /** Max items returned (POS uses ~7, Operations ~12). */
@@ -110,7 +148,15 @@ export function buildMorningCompassQueue(input: {
   const items: MorningCompassQueueItem[] = [];
   const now = new Date();
 
-  input.overduePickups.forEach((row, i) => {
+  const overduePickups = input.overduePickups ?? [];
+  const needsMeasure = input.needsMeasure ?? [];
+  const needsOrder = input.needsOrder ?? [];
+  const rushOrders = input.rushOrders ?? [];
+  const openTasks = input.openTasks ?? [];
+  const notifications = input.notifications ?? [];
+  const limit = input.limit ?? 10;
+
+  overduePickups.forEach((row, i) => {
     const late = daysUntilWeddingEvent(row.event_date, now);
     const bump = late != null && late < 0 ? Math.min(-late, 30) : 0;
     items.push({
@@ -123,7 +169,7 @@ export function buildMorningCompassQueue(input: {
     });
   });
 
-  input.needsOrder.forEach((row, i) => {
+  needsOrder.forEach((row, i) => {
     const du = daysUntilWeddingEvent(row.event_date, now);
     const urgency = du != null && du >= 0 && du <= 14 ? (14 - du) * 3 : 0;
     items.push({
@@ -136,7 +182,7 @@ export function buildMorningCompassQueue(input: {
     });
   });
 
-  input.needsMeasure.forEach((row, i) => {
+  needsMeasure.forEach((row, i) => {
     const du = daysUntilWeddingEvent(row.event_date, now);
     const urgency = du != null && du >= 0 && du <= 30 ? (30 - du) : 0;
     items.push({
@@ -149,7 +195,7 @@ export function buildMorningCompassQueue(input: {
     });
   });
 
-  for (const t of input.openTasks) {
+  for (const t of openTasks) {
     const { sortKey, tier } = taskDueSortKey(t.due_date, now);
     items.push({
       kind: "task",
@@ -162,7 +208,7 @@ export function buildMorningCompassQueue(input: {
     });
   }
 
-  for (const n of input.notifications) {
+  for (const n of notifications) {
     if (n.archived_at) continue;
     const { sortKey, tier } = notificationSortKey(n);
     items.push({
@@ -174,8 +220,19 @@ export function buildMorningCompassQueue(input: {
     });
   }
 
+  for (const r of rushOrders) {
+    const { sortKey, tier } = rushOrderSortKey(r, now);
+    items.push({
+      kind: "rush_order",
+      id: `ro-${r.order_id}`,
+      sortKey,
+      tier,
+      row: r,
+    });
+  }
+
   items.sort((a, b) => a.sortKey - b.sortKey || a.id.localeCompare(b.id));
-  return items.slice(0, Math.max(1, input.limit));
+  return items.slice(0, Math.max(1, limit));
 }
 
 export function compassBandLabel(band: CompassQueueBand): string {

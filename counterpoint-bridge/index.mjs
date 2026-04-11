@@ -32,7 +32,7 @@ const logToDashboard = (msg) => {
 };
 
 const BRIDGE_STATE = {
-    isContinuous: false,
+    isContinuous: false, // Default to OFF as requested by user
     isSyncing: false,
     currentEntity: null,
     lastRun: null,
@@ -71,12 +71,16 @@ const startLocalServer = () => {
             req.on('end', () => {
                 try {
                     const data = JSON.parse(body);
+                    if (data.is_continuous !== undefined) {
+                        BRIDGE_STATE.isContinuous = !!data.is_continuous;
+                        logToDashboard(`Continuous Sync: ${BRIDGE_STATE.isContinuous ? "ENABLED" : "DISABLED"}`);
+                    }
                     if (data.run_once !== undefined) {
                       process.env.RUN_ONCE = data.run_once ? "1" : "0";
                       logToDashboard(`Mode changed: ${data.run_once ? "IMPORT (Once)" : "SYNC (Continuous 15m)"}`);
                     }
                     res.writeHead(200, { 'Content-Type': 'application/json' });
-                    res.end(JSON.stringify({ ok: true }));
+                    res.end(JSON.stringify({ ok: true, isContinuous: BRIDGE_STATE.isContinuous }));
                 } catch (e) {
                     res.writeHead(400);
                     res.end(e.message);
@@ -128,6 +132,31 @@ const startLocalServer = () => {
             const entity = url.searchParams.get('name');
             logToDashboard(`Manual trigger: Targeted pull for [${entity}] requested`);
             
+            if (entity === 'full') {
+                (async () => {
+                    BRIDGE_STATE.isSyncing = true;
+                    logToDashboard("[sync] Starting full sync sequence...");
+                    const steps = getOrderedSyncSteps();
+                    for (const step of steps) {
+                        if (!step.on) continue;
+                        BRIDGE_STATE.currentEntity = step.label;
+                        logToDashboard(`[${step.label}] starting sync...`);
+                        await sendHeartbeat("syncing", step.hb);
+                        await runSyncEntity(step.label, step.run);
+                        BRIDGE_STATE.syncSummary[step.label] = new Date().toISOString();
+                        logToDashboard(`[${step.label}] ok`);
+                    }
+                    BRIDGE_STATE.isSyncing = false;
+                    BRIDGE_STATE.currentEntity = null;
+                    logToDashboard("[sync] Full sync sequence completed.");
+                })().catch(err => {
+                    BRIDGE_STATE.isSyncing = false;
+                    logToDashboard(`Sync error: ${err.message}`);
+                });
+                res.end(JSON.stringify({ status: 'triggered', queue: 'all' }));
+                return;
+            }
+
             // Resolve dependencies
             const deps = ENTITY_DEPENDENCIES[entity] || [];
             const toRun = [...deps, entity];
@@ -140,6 +169,7 @@ const startLocalServer = () => {
                 for (const target of toRun) {
                     const step = steps.find(s => s.label === target);
                     if (step) {
+                        BRIDGE_STATE.currentEntity = step.label;
                         logToDashboard(`[${target}] starting targeted sync...`);
                         await sendHeartbeat("syncing", step.hb);
                         await runSyncEntity(step.label, step.run);
@@ -148,6 +178,7 @@ const startLocalServer = () => {
                     }
                 }
                 BRIDGE_STATE.isSyncing = false;
+                BRIDGE_STATE.currentEntity = null;
                 logToDashboard(`[sync] Targeted pull for ${entity} finished.`);
             })().catch(err => {
                 BRIDGE_STATE.isSyncing = false;
@@ -330,13 +361,15 @@ function createSqlPool() {
     return new sql.ConnectionPool(conn);
   }
 }
-const POLL_MS = Number.parseInt(process.env.POLL_INTERVAL_MS ?? "900000", 10);
+const POLL_MS = 10000; // Fast poll for triggers (10s)
+const AUTO_SYNC_INTERVAL_MS = Number.parseInt(process.env.POLL_INTERVAL_MS ?? "900000", 10); // Auto-sync (15m default)
+let lastAutoRunTime = 0;
 const RUN_ONCE =
   process.env.RUN_ONCE === "1" || String(process.env.COUNTERPOINT_SYNC_ONCE ?? "").toLowerCase() === "true";
 /** When RUN_ONCE=1, wait for Enter before exiting so the console window stays open (Windows-friendly). Set to 0 to exit immediately. */
 const WAIT_AFTER_RUN_ONCE =
   process.env.WAIT_AFTER_RUN_ONCE !== "0" && String(process.env.WAIT_AFTER_RUN_ONCE ?? "").toLowerCase() !== "false";
-const BATCH = Math.max(1, Number.parseInt(process.env.BATCH_SIZE ?? "200", 10));
+const BATCH = Math.max(1, Number.parseInt(process.env.BATCH_SIZE ?? "100", 10));
 const SYNC_CUSTOMERS = process.env.SYNC_CUSTOMERS === "1";
 const SYNC_INVENTORY = process.env.SYNC_INVENTORY === "1";
 const SYNC_CATALOG = process.env.SYNC_CATALOG === "1";
@@ -370,7 +403,7 @@ const CP_CATALOG_CELLS_QUERY = applyCounterpointSqlCompat(
   expandImportSince(process.env.CP_CATALOG_CELLS_QUERY ?? ""),
 );
 const CP_GIFT_CARDS_QUERY = expandImportSince(process.env.CP_GIFT_CARDS_QUERY ?? "");
-const CP_GFT_CERT_HIST_QUERY = expandImportSince(process.env.CP_GFT_CERT_HIST_QUERY ?? "");
+const CP_GFC_HIST_QUERY = expandImportSince(process.env.CP_GFC_HIST_QUERY ?? "");
 const CP_TICKETS_QUERY = applyCounterpointSqlCompat(
   expandImportSince(process.env.CP_TICKETS_QUERY ?? "").replace(/ORDER\s+BY\s+.*$/i, ""),
 );
@@ -441,7 +474,7 @@ function initEffectiveSqlFromConstants() {
     ticket_cells: CP_TICKET_CELLS_QUERY,
     ticket_gift: CP_TICKET_GIFT_QUERY,
     gift_cards: CP_GIFT_CARDS_QUERY,
-    gft_hist: CP_GFT_CERT_HIST_QUERY,
+    gfc_hist: CP_GFC_HIST_QUERY,
     loyalty: CP_LOYALTY_HIST_QUERY,
     vend_item: CP_VEND_ITEM_QUERY,
     vendors_filtered: CP_VENDORS_QUERY,
@@ -966,8 +999,8 @@ const DISCOVER_TABLES = [
   "PS_TKT_HIST_CELL",
   "PS_TKT_HIST_LIN_CELL",
   "PS_TKT_HIST_GFT",
-  "SY_GFT_CERT",
-  "SY_GFT_CERT_HIST",
+  "SY_GFC",
+  "SY_GFC_HIST",
   "PS_LOY_PTS_HIST",
   "PS_DOC",
   "PS_DOC_LIN",
@@ -1141,6 +1174,14 @@ async function sendHeartbeat(phase, currentEntity) {
       version: BRIDGE_VERSION,
       hostname: (await import("node:os")).hostname(),
     });
+    if (resp?.pending_request_id) {
+        logToDashboard(`[heartbeat] Pending request found: ${resp.pending_request_id} (${resp.pending_request_entity ?? "Full"})`);
+    } else {
+        // Log a subtle heartbeat to show life
+        if (Math.random() < 0.1) { // 10% of heartbeats to avoid spam
+            logToDashboard(`[heartbeat] online (bridge ${BRIDGE_VERSION})`);
+        }
+    }
     return resp;
   } catch (e) {
     console.error("[heartbeat]", e.message ?? e);
@@ -1183,7 +1224,7 @@ async function syncReceivingHistory(pool) {
     }
 
     const RECV_BATCH = 50;
-    const CONCURRENCY = 5;
+    const CONCURRENCY = 2;
     const pendingRequests = [];
     
     console.info(`[receiving_history] sending ${rows.length} rows (batch=${RECV_BATCH}, parallel=${CONCURRENCY})...`);
@@ -1231,7 +1272,7 @@ async function syncReceivingHistory(pool) {
 
 function mapCustomerRow(r) {
   return {
-    cust_no: String(r.cust_no ?? "").trim(),
+    cust_no: String(r.cust_no ?? r.customer_code ?? "").trim(),
     first_name: r.first_name ?? r.fst_nam ?? undefined,
     last_name: r.last_name ?? r.lst_nam ?? undefined,
     full_name: r.full_name ?? r.nam ?? undefined,
@@ -1272,7 +1313,7 @@ function mapInventoryRow(r) {
 }
 
 function mapCatalogRow(r, cellRows) {
-  const itemNo = String(r.item_no ?? "").trim();
+  const itemNo = String(r.item_no ?? r.sku ?? "").trim();
   
   // Filter out redundant "dummy" or "parent-only" variations that lack real dimension data
   const validCells = (cellRows ?? []).filter(c => {
@@ -1288,22 +1329,25 @@ function mapCatalogRow(r, cellRows) {
   
   return {
     item_no: itemNo,
+    product_identity: itemNo,
     description: r.description ?? r.descr ?? undefined,
     long_description: r.long_description ?? r.long_descr ?? undefined,
     brand: r.brand ?? undefined,
-    category: r.category ?? r.categ_cod ?? undefined,
-    vendor_no: r.vendor_no ?? r.vend_no ?? undefined,
+    category: r.category ?? r.categ_cod ?? r.category_name ?? undefined,
+    vendor_no: r.vendor_no ?? r.vend_no ?? r.vendor_code ?? undefined,
     retail_price: r.retail_price != null ? String(r.retail_price) : (r.prc_1 != null ? String(r.prc_1) : undefined),
     prc_2: r.prc_2 != null ? String(r.prc_2) : undefined,
     prc_3: r.prc_3 != null ? String(r.prc_3) : undefined,
     unit_cost:
       r.unit_cost != null
         ? String(r.unit_cost)
-        : r.lst_cost != null
-          ? String(r.lst_cost)
-          : r.last_cost != null
-            ? String(r.last_cost)
-            : undefined,
+        : r.cost_price != null
+          ? String(r.cost_price)
+          : r.lst_cost != null
+            ? String(r.lst_cost)
+            : r.last_cost != null
+              ? String(r.last_cost)
+              : undefined,
     is_grid: isGrid,
     barcode: r.barcode ?? undefined,
     cells: validCells.map((c) => ({
@@ -1424,7 +1468,8 @@ async function syncCustomers(pool) {
 
   const CUSTOMER_BATCH = Math.max(1, Number.parseInt(process.env.BATCH_SIZE ?? "200", 10));
   const MAX_CONCURRENCY = 5;
-  console.info("[customers] SQL returned", rows.length, "row(s); sending with parallel-concurrency=5");
+  logToDashboard(`[customers] SQL returned ${rows.length} customer(s)`);
+  console.info("[customers] SQL returned", rows.length, "customer(s); sending with parallel-concurrency=2");
   
   const mapped = rows.map((row) => mapCustomerRow(normalizeRowKeys(row))).filter((r) => r.cust_no);
   const pendingRequests = [];
@@ -1469,6 +1514,7 @@ async function syncInventory(pool) {
   const state = readState();
   const result = await pool.request().query(effectiveSql.inventory);
   const rows = result.recordset ?? [];
+  logToDashboard(`[inventory] SQL returned ${rows.length} item(s)`);
   const mapped = rows.map((row) => mapInventoryRow(normalizeRowKeys(row))).filter((r) => r.sku);
   
   const INV_BATCH = 50; 
@@ -1524,6 +1570,7 @@ async function syncCategoryMasters(pool) {
     console.info("[category_masters] no rows");
     return;
   }
+  logToDashboard(`[category_masters] SQL returned ${rows.length} category(s)`);
   console.info("[category_masters] SQL returned", rows.length, "row(s); sending in batches of", BATCH);
   for (let i = 0; i < rows.length; i += BATCH) {
     const chunk = rows.slice(i, i + BATCH);
@@ -1580,14 +1627,15 @@ async function syncCatalog(pool) {
     return true;
   }
 
-  const CATALOG_BATCH_SIZE = 50; // High-speed batch size for v8.2
-  const MAX_CONCURRENCY = 5; // Parallel processing limit
-  console.info(`[catalog] Starting Hyper-Speed ingest (batch=${CATALOG_BATCH_SIZE}, parallel=${MAX_CONCURRENCY})...`);
+  const CATALOG_BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "50");
+  const MAX_CONCURRENCY = parseInt(process.env.CONCURRENCY || "2");
+  console.info(`[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY})...`);
   
   const state = readState();
-  const processedItemNos = new Set(); // SPU (Squelcher): tracks parents to avoid multiplication loops
+  const processedItemNos = new Set();
   let batchBuffer = [];
   let totalProcessed = 0;
+  let totalRowsReceived = 0;
   let skippedDuplicates = 0;
   let inFlight = 0;
   const pendingRequests = [];
@@ -1595,16 +1643,16 @@ async function syncCatalog(pool) {
   return new Promise((resolve, reject) => {
     const request = pool.request();
     request.stream = true;
+    console.log(`[catalog] executing query...`);
     request.query(effectiveSql.catalog);
 
     request.on("row", (row) => {
+      totalRowsReceived++;
       const normalized = normalizeRowKeys(row);
-      const itemNo = String(normalized.item_no ?? "").trim();
+      const itemNo = String(normalized.item_no ?? normalized.sku ?? "").trim();
 
-      // DUPLICATE SQUELCHER: 
-      // If we've already seen this itemNo in THE SAME PASS, skip it.
       if (!itemNo || processedItemNos.has(itemNo)) {
-        if (itemNo) skippedDuplicates++;
+        if (itemNo && processedItemNos.has(itemNo)) skippedDuplicates++;
         return;
       }
       processedItemNos.add(itemNo);
@@ -1618,10 +1666,16 @@ async function syncCatalog(pool) {
           batchBuffer = [];
           
           const last = chunk[chunk.length - 1].item_no;
+          inFlight++;
+          if (inFlight >= MAX_CONCURRENCY) request.pause();
+
           const promise = rosPost("catalog", { rows: chunk, sync: { entity: "catalog", cursor: last } })
             .then((summary) => {
               totalProcessed += chunk.length;
-              console.info(`[catalog] processed ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`, summary);
+              if (totalProcessed % 500 === 0) {
+                logToDashboard(`[catalog] ingest: ${totalProcessed} items processed...`);
+                console.info(`[catalog] progress: ${totalProcessed} items (skipped ${skippedDuplicates} duplicates)...`);
+              }
               if (last) {
                 state.catalog_cursor = last;
                 writeState(state);
@@ -1632,14 +1686,9 @@ async function syncCatalog(pool) {
             .catch((err) => {
               console.error("[catalog] batch failed:", err.message);
               inFlight--;
-              request.resume();
+              if (inFlight < MAX_CONCURRENCY) request.resume();
             });
-
           pendingRequests.push(promise);
-          inFlight++;
-          if (inFlight >= MAX_CONCURRENCY) {
-            request.pause();
-          }
         }
       }
     });
@@ -1654,15 +1703,14 @@ async function syncCatalog(pool) {
         if (batchBuffer.length > 0) {
           const last = batchBuffer[batchBuffer.length - 1].item_no;
           pendingRequests.push(rosPost("catalog", { rows: batchBuffer, sync: { entity: "catalog", cursor: last } }));
-          totalProcessed += batchBuffer.length;
           if (last) {
             state.catalog_cursor = last;
             writeState(state);
           }
         }
-        
         await Promise.all(pendingRequests);
-        console.info(`[catalog] finished. ${totalProcessed} total items synced (${skippedDuplicates} duplicates filtered).`);
+        logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
+        console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
         resolve();
       } catch (e) {
         reject(e);
@@ -1701,7 +1749,8 @@ async function syncGiftCards(pool) {
     })
     .filter((r) => r.cert_no);
 
-  const CONCURRENCY = 5;
+  logToDashboard(`[gift_cards] SQL returned ${mapped.length} card(s)`);
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   let inFlight = 0;
   console.info("[gift_cards] SQL returned", mapped.length, "card(s); sending with parallel-concurrency=5");
@@ -1862,9 +1911,10 @@ async function syncTickets(pool) {
     return tkt;
   }).filter((r) => r.ticket_ref);
 
+  logToDashboard(`[tickets] SQL returned ${mapped.length} ticket(s)`);
   console.info("[tickets] Processing mapped headers (parallel-concurrency=5)...");
   const state = readState();
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   let inFlight = 0;
 
@@ -1924,9 +1974,10 @@ async function syncStoreCreditOpening(pool) {
     return;
   }
 
+  logToDashboard(`[store_credit_opening] SQL returned ${mapped.length} record(s)`);
   console.info("[store_credit_opening] Sending opening balances (parallel-concurrency=5)...");
   const state = readState();
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   let inFlight = 0;
 
@@ -2020,9 +2071,10 @@ async function syncOpenDocs(pool) {
     })
     .filter((r) => r.doc_ref);
 
+  logToDashboard(`[open_docs] SQL returned ${mapped.length} doc(s)`);
   console.info("[open_docs] Sending items (parallel-concurrency=5)...");
   const state = readState();
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   let inFlight = 0;
 
@@ -2091,9 +2143,10 @@ async function syncLoyaltyHist(pool) {
     return;
   }
 
+  logToDashboard(`[loyalty_hist] SQL returned ${mapped.length} record(s)`);
   console.info("[loyalty_hist] SQL returned", mapped.length, "row(s); sending with parallel-concurrency=5");
 
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
 
   for (let i = 0; i < mapped.length; i += BATCH) {
@@ -2147,9 +2200,10 @@ async function syncVendorItems(pool) {
     return;
   }
 
+  logToDashboard(`[vendor_items] SQL returned ${mapped.length} record(s)`);
   console.info("[vendor_items] SQL returned", mapped.length, "row(s); sending with parallel-concurrency=5");
 
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
 
@@ -2206,9 +2260,10 @@ async function syncVendors(pool) {
     }))
     .filter((r) => r.vend_no);
 
-  console.info("[vendors] SQL returned", mapped.length, "vendor(s); sending with parallel-concurrency=5");
+  logToDashboard(`[vendors] SQL returned ${rows.length} vendor(s)`);
+  console.info("[vendors] SQL returned", mapped.length, "vendor(s); sending with parallel-concurrency=2");
 
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
 
@@ -2255,7 +2310,7 @@ async function syncCustomerNotes(pool) {
     
   console.info("[customer_notes] SQL returned", mapped.length, "note(s); sending with parallel-concurrency=5");
 
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
 
@@ -2345,7 +2400,7 @@ async function syncStaff(pool) {
 
   console.info("[staff] SQL returned", allRows.length, "total staff; sending with parallel-concurrency=5");
 
-  const CONCURRENCY = 5;
+  const CONCURRENCY = 2;
   const pendingRequests = [];
   const state = readState();
 
@@ -2651,16 +2706,13 @@ async function runDiscover(pool) {
     }
   }
 
-  const hasGftCert = pickTableEntry(entries, "SY_GFT_CERT");
   const hasGfc = pickTableEntry(entries, "SY_GFC");
-  const giftTemplateOk = !!hasGftCert;
-  dline("Gift cards (SY_GFT_CERT template)", giftTemplateOk);
-  if (hasGfc && !hasGftCert) {
-    note("This DB uses SY_GFC / SY_GFC_HIST — bridge default queries target SY_GFT_CERT; keep SYNC_GIFT_CARDS=0 unless CP_GIFT_CARDS_QUERY is rewritten for SY_GFC.");
-  } else if (giftTemplateOk) {
+  const giftTemplateOk = !!hasGfc;
+  dline("Gift cards (SY_GFC template)", giftTemplateOk);
+  if (giftTemplateOk) {
     note("Set SYNC_GIFT_CARDS=1 in .env to import.");
   } else {
-    note("No SY_GFT_CERT — keep SYNC_GIFT_CARDS=0.");
+    note("No SY_GFC — keep SYNC_GIFT_CARDS=0.");
   }
 
   const hasLoyPs = pickTableEntry(entries, "PS_LOY_PTS_HIST");
@@ -2723,9 +2775,6 @@ async function runSyncEntity(entityLabel, fn) {
   } catch (e) {
     const msg = e?.message ?? String(e);
     console.error(`[${entityLabel}] sync failed:`, msg);
-  }
-}
-
   }
 }
 
@@ -2817,10 +2866,36 @@ async function main() {
   const pool = createSqlPool();
   ACTIVE_POOL = pool;
   pool.on("error", (err) => console.error("SQL pool error", err));
-  await pool.connect();
-  console.info(
-    `SQL Server connected. SQL requestTimeout=${SQL_REQUEST_TIMEOUT_MS}ms, ROS fetch timeout=${ROS_FETCH_TIMEOUT_MS}ms (raise SQL_REQUEST_TIMEOUT_MS / ROS_FETCH_TIMEOUT_MS in .env if needed).`,
-  );
+  
+  let connected = false;
+  let attempts = 0;
+  const MAX_ATTEMPTS = 20;
+  const RETRY_DELAY_MS = 5000;
+
+  while (attempts < MAX_ATTEMPTS && !connected) {
+    try {
+      attempts++;
+      if (attempts > 1) console.info(`Retrying SQL connection (attempt ${attempts}/${MAX_ATTEMPTS})...`);
+      await pool.connect();
+      connected = true;
+    } catch (err) {
+      console.error(`SQL connection failed (attempt ${attempts}): ${err.message}`);
+      if (err.message.includes("ETIMEOUT") || err.message.includes("Connection lost")) {
+          console.warn("Hint: Ensure you are connected to the Tailscale tunnel or the shop's LAN.");
+      }
+      if (attempts < MAX_ATTEMPTS) {
+        await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+      } else {
+        console.error("Critical: Maximum SQL connection attempts reached. The bridge will continue running the local dashboard, but sync will be disabled.");
+      }
+    }
+  }
+
+  if (connected) {
+    console.info(
+      `SQL Server connected. SQL requestTimeout=${SQL_REQUEST_TIMEOUT_MS}ms, ROS fetch timeout=${ROS_FETCH_TIMEOUT_MS}ms.`,
+    );
+  }
 
   await rebuildEffectiveSql(pool);
   validateCounterpointSyncDependencyPlan();
@@ -2849,7 +2924,12 @@ async function main() {
   /** Single canonical pipeline — order is fixed here so ROS seeding stays consistent. */
   const orderedSyncSteps = getOrderedSyncSteps(pool);
 
+  let isTickRunning = false;
   const tick = async () => {
+    if (isTickRunning) return;
+    isTickRunning = true;
+
+    const now = Date.now();
     let hbResp = null;
     try {
       hbResp = await sendHeartbeat("idle", null);
@@ -2857,39 +2937,83 @@ async function main() {
       console.warn("[heartbeat] failed", e.message);
     }
 
-    logToDashboard(`[sync] Starting pass (Request: ${hbResp?.pending_request_id ?? "None"})`);
+    const hasPendingRequest = !!hbResp?.pending_request_id;
+    // Only auto-run if Continuous Sync is enabled, or if we are in RUN_ONCE mode
+    const isTimeToAutoRun = (BRIDGE_STATE.isContinuous || RUN_ONCE) && (now - lastAutoRunTime) >= AUTO_SYNC_INTERVAL_MS;
+
+    if (!hasPendingRequest && !isTimeToAutoRun) {
+      isTickRunning = false;
+      return;
+    }
+
+    if (hasPendingRequest) {
+      logToDashboard(
+        `[sync] Starting manual request (Request ID: ${hbResp.pending_request_id}, Entity: ${hbResp.pending_request_entity ?? "Full"})`,
+      );
+      try {
+        await rosFetch("/api/sync/counterpoint/ack-request", {
+          request_id: hbResp.pending_request_id,
+        });
+      } catch (e) {
+        console.warn("[sync-request] ack failed", e.message);
+      }
+    } else {
+      logToDashboard("[sync] Starting scheduled auto-sync");
+      lastAutoRunTime = now;
+    }
+
     BRIDGE_STATE.isSyncing = true;
     BRIDGE_STATE.lastRun = new Date().toISOString();
 
-    for (const step of orderedSyncSteps) {
-      if (!step.on) continue;
-      BRIDGE_STATE.currentEntity = step.label;
-      logToDashboard(`[${step.label}] starting sync...`);
-      await sendHeartbeat("syncing", step.hb);
-      await runSyncEntity(step.label, step.run);
-      logToDashboard(`[${step.label}] ok`);
-    }
+    try {
+      for (const step of orderedSyncSteps) {
+        if (!step.on) continue;
+        
+        // If it's a manual request for a specific entity, skip others
+        if (hasPendingRequest && hbResp.pending_request_entity && hbResp.pending_request_entity !== step.label) {
+            continue;
+        }
 
-    BRIDGE_STATE.isSyncing = false;
-    BRIDGE_STATE.currentEntity = null;
-    logToDashboard("[sync] pass completed");
-
-    if (hbResp?.pending_request_id) {
-      try {
-        await rosFetch("/api/sync/counterpoint/request/complete", { request_id: hbResp.pending_request_id });
-      } catch (e) {
-        console.error("[sync-request] complete failed", e.message);
+        BRIDGE_STATE.currentEntity = step.label;
+        logToDashboard(`[${step.label}] starting sync...`);
+        await sendHeartbeat("syncing", step.hb);
+        await runSyncEntity(step.label, step.run);
+        logToDashboard(`[${step.label}] ok`);
       }
-    }
 
-    await sendHeartbeat("idle", null);
+      if (hasPendingRequest) {
+        try {
+          await rosFetch("/api/sync/counterpoint/complete-request", {
+            request_id: hbResp.pending_request_id,
+          });
+        } catch (e) {
+          console.error("[sync-request] complete failed", e.message);
+        }
+      }
+    } catch (err) {
+      console.error("[sync] Loop failed:", err.message);
+      if (hasPendingRequest) {
+          try {
+            await rosFetch("/api/sync/counterpoint/complete-request", {
+              request_id: hbResp.pending_request_id,
+              error: err.message
+            });
+          } catch (e) { /* ignore secondary error */ }
+      }
+    } finally {
+      BRIDGE_STATE.isSyncing = false;
+      BRIDGE_STATE.currentEntity = null;
+      isTickRunning = false;
+      logToDashboard("[sync] pass completed");
+      await sendHeartbeat("idle", null);
+    }
   };
 
   // Only autostart if RUN_ONCE is enabled. Otherwise, stay IDLE until manual trigger or timer.
   if (RUN_ONCE) {
     await tick();
     console.info(
-      "RUN_ONCE=1 — one full pass finished. Run START_BRIDGE.cmd again when you want another import (or set RUN_ONCE=0 for timed repeats)."
+      "RUN_ONCE=1 - one full pass finished. Run START_BRIDGE.cmd again when you want another import (or set RUN_ONCE=0 for timed repeats).",
     );
     await pool.close();
     await waitForEnterBeforeClose();
@@ -2909,3 +3033,4 @@ main().catch(async (e) => {
   }
   process.exit(1);
 });
+

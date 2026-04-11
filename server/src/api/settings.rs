@@ -3,6 +3,7 @@
 //! Persists receipt configuration in `store_settings.receipt_config` (JSONB).
 
 use crate::logic::backups::{BackupFile, BackupManager, BackupSettings};
+use crate::logic::remote_access::{RemoteAccessManager, TailscaleStatus};
 use crate::logic::insights_config::StoreInsightsConfig;
 use axum::{
     extract::{Path, Query, State},
@@ -1071,6 +1072,7 @@ pub struct MeilisearchSyncRow {
 pub struct MeilisearchStatusResponse {
     pub configured: bool,
     pub indices: Vec<MeilisearchSyncRow>,
+    pub is_indexing: bool,
 }
 
 async fn get_meilisearch_status(
@@ -1084,9 +1086,16 @@ async fn get_meilisearch_status(
     .fetch_all(&state.db)
     .await?;
 
+    let is_indexing = if let Some(c) = &state.meilisearch {
+        crate::logic::meilisearch_client::is_indexing(c).await
+    } else {
+        false
+    };
+
     Ok(Json(MeilisearchStatusResponse {
         configured: state.meilisearch.is_some(),
         indices,
+        is_indexing,
     }))
 }
 
@@ -1247,6 +1256,9 @@ pub fn router() -> Router<AppState> {
             "/review-policy",
             get(get_review_policy).patch(patch_review_policy),
         )
+        .route("/remote-access/status", get(get_remote_access_status))
+        .route("/remote-access/connect", post(post_remote_access_connect))
+        .route("/remote-access/disconnect", post(post_remote_access_disconnect))
         .nest("/nuorder", build_nuorder_router())
 }
 
@@ -1288,4 +1300,48 @@ async fn patch_review_policy(
         .await
         .map_err(SettingsError::Database)?;
     Ok(Json(cur))
+}
+
+async fn get_remote_access_status(
+    State(_state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<TailscaleStatus>, SettingsError> {
+    let manager = RemoteAccessManager::new();
+    let status = manager
+        .get_status()
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
+    Ok(Json(status))
+}
+
+#[derive(Deserialize)]
+struct ConnectBody {
+    auth_key: String,
+}
+
+async fn post_remote_access_connect(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ConnectBody>,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let manager = RemoteAccessManager::new();
+    manager
+        .connect(&body.auth_key)
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
+    Ok(Json(json!({ "status": "ok" })))
+}
+
+async fn post_remote_access_disconnect(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Value>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let manager = RemoteAccessManager::new();
+    manager
+        .disconnect()
+        .await
+        .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
+    Ok(Json(json!({ "status": "ok" })))
 }

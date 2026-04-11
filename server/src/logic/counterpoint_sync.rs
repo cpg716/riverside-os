@@ -15,6 +15,9 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::logic::store_credit;
+ 
+const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
+const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
 
 #[derive(Debug, Error)]
 pub enum CounterpointSyncError {
@@ -1250,7 +1253,7 @@ async fn upsert_catalog_item(
         .copied();
 
     let existing_product: Option<Uuid> = sqlx::query_scalar(
-        "SELECT p.id FROM products p JOIN product_variants pv ON pv.product_id = p.id WHERE pv.counterpoint_item_key = $1 LIMIT 1",
+        "SELECT id FROM products WHERE catalog_handle = $1 LIMIT 1",
     )
     .bind(item_no)
     .fetch_optional(&mut **tx)
@@ -1283,11 +1286,15 @@ async fn upsert_catalog_item(
     } else {
         let pid: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO products (name, description, brand, base_retail_price, base_cost, category_id, primary_vendor_id, spiff_amount, data_source)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'counterpoint')
+            INSERT INTO products (
+                catalog_handle, name, description, brand, base_retail_price,
+                base_cost, category_id, primary_vendor_id, spiff_amount, data_source
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 0, 'counterpoint')
             RETURNING id
             "#,
         )
+        .bind(item_no)
         .bind(&name)
         .bind(&long_desc)
         .bind(&brand)
@@ -1302,8 +1309,9 @@ async fn upsert_catalog_item(
     };
 
     if !is_grid || row.cells.is_empty() {
+        // PER USER RULES: B-XXXXXX is the Barcode (SKU), I-XXXXXX is the Item # (Parent)
         let sku = trim_opt(&row.barcode).unwrap_or_else(|| item_no.to_string());
-        let key = item_no.to_string();
+        let key = item_no.to_string(); // Internal Counterpoint key for upserts
         upsert_variant(
             tx,
             product_id,
@@ -1422,6 +1430,18 @@ async fn upsert_variant(
                 stock_on_hand, reorder_point, reserved_stock
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11, 0), COALESCE($12, 0), 0)
+            ON CONFLICT (sku) DO UPDATE SET
+                product_id = EXCLUDED.product_id,
+                barcode = COALESCE(EXCLUDED.barcode, product_variants.barcode),
+                counterpoint_item_key = COALESCE(EXCLUDED.counterpoint_item_key, product_variants.counterpoint_item_key),
+                variation_values = EXCLUDED.variation_values,
+                variation_label = COALESCE(EXCLUDED.variation_label, product_variants.variation_label),
+                retail_price_override = COALESCE(EXCLUDED.retail_price_override, product_variants.retail_price_override),
+                cost_override = COALESCE(EXCLUDED.cost_override, product_variants.cost_override),
+                counterpoint_prc_2 = COALESCE(EXCLUDED.counterpoint_prc_2, product_variants.counterpoint_prc_2),
+                counterpoint_prc_3 = COALESCE(EXCLUDED.counterpoint_prc_3, product_variants.counterpoint_prc_3),
+                stock_on_hand = EXCLUDED.stock_on_hand,
+                reorder_point = EXCLUDED.reorder_point
             "#,
         )
         .bind(product_id)
@@ -1984,15 +2004,25 @@ pub async fn execute_counterpoint_ticket_batch(
     let customer_id_map: HashMap<String, Uuid> = if cust_codes.is_empty() {
         HashMap::new()
     } else {
+        let mut map = HashMap::new();
         let codes: Vec<String> = cust_codes.into_iter().collect();
-        sqlx::query_as::<_, (String, Uuid)>(
-            "SELECT customer_code, id FROM customers WHERE customer_code = ANY($1)",
+        // Match either exact or with C- prefix (PER USER RULES: C- is newer Counterpoint format, tickets might use either)
+        let rows: Vec<(String, Uuid)> = sqlx::query_as(
+            "SELECT customer_code, id FROM customers WHERE customer_code = ANY($1) OR customer_code = ANY(SELECT 'C-' || unnest($1::text[]))"
         )
         .bind(&codes)
         .fetch_all(pool)
-        .await?
-        .into_iter()
-        .collect()
+        .await?;
+        
+        for (code, id) in rows {
+            // Priority 1: Exact match
+            map.insert(code.clone(), id);
+            // Priority 2: If code starts with C-, also map the clean version to it so tickets find it
+            if let Some(clean) = code.strip_prefix("C-") {
+                map.entry(clean.to_string()).or_insert(id);
+            }
+        }
+        map
     };
 
     let existing_ticket_refs: HashSet<String> = if ticket_refs.is_empty() {
@@ -2087,9 +2117,51 @@ pub async fn execute_counterpoint_ticket_batch(
         }
 
         if let Some(msg) = resolve_err {
-            record_sync_issue(pool, "tickets", Some(ticket_ref), "error", &msg).await;
-            summary.skipped += 1;
-            continue;
+            let fallback = ensure_historical_fallback_variant(&mut tx).await?;
+            record_sync_issue(
+                pool,
+                "tickets",
+                Some(ticket_ref),
+                "warning",
+                &format!("Item unresolved, using historical fallback: {msg}"),
+            )
+            .await;
+
+            // Reset lines for order insertion (use fallback for all lines if ANY failed in this order
+            // to maintain consistency, or we could selectively fallback. For simplicity, if any fail, 
+            // we'll keep the resolved ones and use fallback for the rest).
+            
+            // Re-run resolution with fallback mode
+            resolved_lines.clear();
+            for line in &tkt.lines {
+                let mut resolved = None;
+                if let Some(ref k) = line.counterpoint_item_key {
+                    resolved = variant_cache.get(k.trim()).copied();
+                }
+                if resolved.is_none() {
+                    if let Some(ref s) = line.sku {
+                        resolved = variant_cache.get(&s.trim().to_lowercase()).copied();
+                    }
+                }
+                if resolved.is_none() {
+                     let parent_only = line
+                        .counterpoint_item_key
+                        .as_deref()
+                        .or(line.sku.as_deref())
+                        .map(str::trim)
+                        .filter(|s| !s.is_empty() && !s.contains('|'));
+                    if let Some(parent) = parent_only {
+                        resolved = resolve_variant_matrix_parent_price_fallback(
+                            &mut tx,
+                            parent,
+                            line.unit_price,
+                        )
+                        .await?;
+                    }
+                }
+                
+                resolved_lines.push(resolved.unwrap_or(fallback));
+            }
         }
 
         let customer_id: Option<Uuid> = tkt
@@ -3683,4 +3755,64 @@ pub async fn resolve_staff_id(pool: &PgPool, cp_code: Option<&str>) -> Option<Uu
         .await
         .ok()
         .flatten()
+}
+async fn ensure_historical_fallback_variant(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<(Uuid, Uuid), sqlx::Error> {
+    let existing: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT id, product_id FROM product_variants WHERE sku = $1"
+    )
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    if let Some(ids) = existing {
+        return Ok(ids);
+    }
+
+    // Create a special category for fallbacks
+    let category_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO categories (name, is_clothing_footwear)
+        VALUES ('Historical Fallbacks', false)
+        ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let product_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO products (
+            catalog_handle, name, brand, category_id,
+            base_retail_price, base_cost, spiff_amount, is_active
+        )
+        VALUES ($1, $2, 'Counterpoint History', $3, 0, 0, 0, true)
+        ON CONFLICT (catalog_handle) DO UPDATE SET name = EXCLUDED.name
+        RETURNING id
+        "#,
+    )
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .bind(HISTORICAL_FALLBACK_NAME)
+    .bind(category_id)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    let variant_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO product_variants (
+            product_id, sku, variation_label, stock_on_hand
+        )
+        VALUES ($1, $2, 'Standard', 0)
+        ON CONFLICT (sku) DO UPDATE SET sku = EXCLUDED.sku
+        RETURNING id
+        "#,
+    )
+    .bind(product_id)
+    .bind(HISTORICAL_FALLBACK_SKU)
+    .fetch_one(&mut **tx)
+    .await?;
+
+    Ok((variant_id, product_id))
 }

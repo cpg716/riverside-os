@@ -32,6 +32,7 @@ import {
   buildMorningCompassQueue,
   compassBandLabel,
   type CompassActionRow,
+  type RushOrderRow,
 } from "../../lib/morningCompassQueue";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
@@ -56,6 +57,7 @@ interface MorningCompassBundle {
   needs_measure: CompassActionRow[];
   needs_order: CompassActionRow[];
   overdue_pickups: CompassActionRow[];
+  rush_orders: RushOrderRow[];
   today_floor_staff?: TodayFloorStaffRow[];
 }
 
@@ -369,8 +371,9 @@ export default function OperationalHome({
     () =>
       buildMorningCompassQueue({
         overduePickups: compass?.overdue_pickups ?? [],
-        needsOrder: compass?.needs_order ?? [],
+        needsOrder: (compass as any)?.needs_order ?? [],
         needsMeasure: compass?.needs_measure ?? [],
+        rushOrders: compass?.rush_orders ?? [],
         openTasks: taskMeOpen,
         notifications: notifPreview,
         limit: 12,
@@ -567,7 +570,7 @@ export default function OperationalHome({
                             ? `${item.row.customer_name} · ${compassBandLabel(item.band)}`
                             : item.kind === "task"
                               ? item.title
-                              : item.row.title}
+                              : (item as any).row.title}
                         </span>
                         <span className="mt-1 block text-xs font-semibold text-app-text-muted">
                           {item.kind === "wedding"

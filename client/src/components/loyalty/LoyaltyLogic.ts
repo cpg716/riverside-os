@@ -9,6 +9,7 @@ export interface LoyaltyEligibleCustomer {
   state: string | null;
   zip: string | null;
   loyalty_points: number;
+  customer_code?: string;
 }
 
 export function loyaltyEligibleDisplayName(c: LoyaltyEligibleCustomer): string {

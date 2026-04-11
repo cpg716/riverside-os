@@ -10,6 +10,7 @@ import { useScanner } from "../../hooks/useScanner";
 import {
   Search,
   Trash2,
+  Gift,
   Package,
   ArrowRight,
   Info,
@@ -66,6 +67,8 @@ import {
 } from "../../lib/posParkedSales";
 
 // --- Types ---
+import CustomItemPromptModal from "./CustomItemPromptModal";
+
 export interface ResolvedSkuItem {
   product_id: string;
   variant_id: string;
@@ -83,6 +86,11 @@ export interface ResolvedSkuItem {
   /** Present when API includes it (promotions, prompts). */
   category_id?: string | null;
   primary_vendor_id?: string | null;
+  /** Custom Work Order fields */
+  custom_item_type?: string;
+  is_rush?: boolean;
+  need_by_date?: string | null;
+  needs_gift_wrap?: boolean;
 }
 
 export type FulfillmentKind = "takeaway" | "special_order" | "wedding_order" | "layaway";
@@ -158,6 +166,9 @@ export interface CheckoutPayload {
   checkout_client_id?: string;
   /** Binds server `store_shipping_rate_quote` into checkout totals. */
   shipping_rate_quote_id?: string | null;
+  /** Binds Order Urgency */
+  is_rush?: boolean;
+  need_by_date?: string | null;
 }
 
 interface CartProps {
@@ -499,6 +510,9 @@ export default function Cart({
   /** When set, VariantSelectionModal updates this cart line instead of adding a new row. */
   const [variantSwapCartRowId, setVariantSwapCartRowId] = useState<string | null>(null);
   
+  const [customPromptOpen, setCustomPromptOpen] = useState(false);
+  const [pendingCustomItem, setPendingCustomItem] = useState<ResolvedSkuItem | null>(null);
+
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [showVoidAllConfirm, setShowVoidAllConfirm] = useState(false);
   const [discountPrompt, setDiscountPrompt] = useState<{
@@ -1201,6 +1215,13 @@ export default function Cart({
       );
       return;
     }
+
+    if (item.sku.toUpperCase().startsWith("CUSTOM") && !item.custom_item_type) {
+      setPendingCustomItem(item);
+      setCustomPromptOpen(true);
+      return;
+    }
+
     if (giftCardLoadMeta && item.sku === giftCardLoadMeta.sku) {
       toast(
         "Use the Gift card button to add a load amount and card code.",
@@ -1502,6 +1523,16 @@ export default function Cart({
     );
     setSelectedLineKey(rowId);
   };
+
+  const updateLineGiftWrapStatus = useCallback((rowId: string, status: boolean) => {
+    setLines((prev) =>
+      prev.map((l) =>
+        l.cart_row_id === rowId ? { ...l, needs_gift_wrap: status } : l,
+      ),
+    );
+    if (!status) toast("Gift wrap removed", "info");
+    else toast("Gift wrap added", "success");
+  }, [setLines, toast]);
 
   const updateLineSalesperson = useCallback((rowId: string, salespersonId: string) => {
     const v = salespersonId.trim();
@@ -2134,6 +2165,8 @@ export default function Cart({
       total_price: centsToFixed2(totals.orderTotalCents),
       amount_paid: centsToFixed2(sumPaidCents),
       checkout_client_id: checkoutClientId,
+      is_rush: lines.some(l => l.is_rush),
+      need_by_date: lines.find(l => l.need_by_date)?.need_by_date || null,
       actor_name: op.fullName.trim() || cashierName?.trim() || null,
       payment_splits,
       applied_deposit_amount:
@@ -2167,6 +2200,10 @@ export default function Cart({
           state_tax: centsToFixed2(parseMoneyToCents(l.state_tax)), 
           local_tax: centsToFixed2(parseMoneyToCents(l.local_tax)),
           salesperson_id: l.salesperson_id?.trim() || null,
+          custom_item_type: l.custom_item_type,
+          is_rush: l.is_rush,
+          need_by_date: l.need_by_date,
+          needs_gift_wrap: l.needs_gift_wrap,
           ...(l.discount_event_id
             ? { discount_event_id: l.discount_event_id }
             : {}),
@@ -2599,6 +2636,7 @@ export default function Cart({
                   setKeypadBuffer={setKeypadBuffer}
                   updateLineFulfillment={updateLineFulfillment}
                   updateLineSalesperson={updateLineSalesperson}
+                  updateLineGiftWrapStatus={updateLineGiftWrapStatus}
                   removeLine={removeLine}
                   onLineProductTitleClick={openLineProductBrowser}
                   commissionStaff={commissionStaff}
@@ -3233,6 +3271,10 @@ export default function Cart({
                       fulfillment: l.fulfillment,
                       cart_row_id: l.cart_row_id,
                       salesperson_id: l.salesperson_id,
+                      custom_item_type: l.custom_item_type,
+                      is_rush: l.is_rush,
+                      need_by_date: l.need_by_date,
+                      needs_gift_wrap: l.needs_gift_wrap,
                     };
                     if (priceOverride) {
                       next.standard_retail_price = priceOverride;
@@ -3459,6 +3501,29 @@ export default function Cart({
         />
       )}
 
+      <CustomItemPromptModal
+        isOpen={customPromptOpen}
+        onClose={() => {
+          setCustomPromptOpen(false);
+          setPendingCustomItem(null);
+        }}
+        onConfirm={(data) => {
+          if (!pendingCustomItem) return;
+          const updated = {
+            ...pendingCustomItem,
+            name: `${data.itemType} (CUSTOM)`,
+            standard_retail_price: data.price,
+            custom_item_type: data.itemType,
+            is_rush: data.isRush,
+            need_by_date: data.needByDate,
+            needs_gift_wrap: data.needsGiftWrap,
+          };
+          setCustomPromptOpen(false);
+          setPendingCustomItem(null);
+          addItem(updated);
+        }}
+      />
+
       {lastOrderId && (
         <ReceiptSummaryModal
           orderId={lastOrderId}
@@ -3501,9 +3566,10 @@ interface CartItemRowProps {
   updateLineSalesperson: (rowId: string, salespersonId: string) => void;
   removeLine: (rowId: string) => void;
   onLineProductTitleClick: (line: CartLineItem) => void;
-  commissionStaff: PosStaffRow[];
   orderSalespersonLabel: string;
   hideLineSalesperson?: boolean;
+  updateLineGiftWrapStatus: (rowId: string, status: boolean) => void;
+  commissionStaff: any[];
 }
 
 function CartItemRow({
@@ -3521,6 +3587,7 @@ function CartItemRow({
   commissionStaff,
   orderSalespersonLabel,
   hideLineSalesperson = false,
+  updateLineGiftWrapStatus,
 }: CartItemRowProps) {
   const lk = cartLineKey(line);
   const isSelected = selectedLineKey === lk;
@@ -3661,6 +3728,34 @@ function CartItemRow({
             {laterLabel}
           </button>
         </div>
+
+        {/* Gift Wrap Toggle */}
+        <button
+          type="button"
+          onClick={() => updateLineGiftWrapStatus(line.cart_row_id, !line.needs_gift_wrap)}
+          className={`group flex items-center justify-between rounded-lg border-2 px-2 py-1.5 transition-all active:scale-[0.97] ${
+            line.needs_gift_wrap
+              ? "border-emerald-500 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+              : "border-app-border bg-app-surface text-app-text-muted hover:border-app-accent/30 hover:bg-app-accent/5 hover:text-app-text"
+          }`}
+        >
+          <div className="flex items-center gap-1.5 overflow-hidden">
+            <Gift
+              size={13}
+              className={`shrink-0 transition-transform ${
+                line.needs_gift_wrap ? "scale-110" : "opacity-60 group-hover:scale-110 group-hover:opacity-100"
+              }`}
+            />
+            <span className="truncate text-[9px] font-black uppercase tracking-widest">
+              Gift Wrap
+            </span>
+          </div>
+          <div
+            className={`h-2 w-2 shrink-0 rounded-full transition-colors ${
+              line.needs_gift_wrap ? "bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" : "bg-zinc-300 dark:bg-zinc-700"
+            }`}
+          />
+        </button>
 
         {/* Qty / Price tap targets */}
         <div className="flex items-stretch gap-1.5">

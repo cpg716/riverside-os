@@ -12,6 +12,8 @@
 
 POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside the cart so you do not jump to Back Office during a busy Saturday. It uses the same **native** wedding UI as the main module (no external iframe).
 
+**Rush Tracking:** If any member has a **Rush Order** (priority "Need By" date), it will be flagged on the **POS Dashboard** and the **Morning Compass** queue. Use these shortcuts to prioritize fittings or pickups for that party.
+
 ## Common tasks
 
 ### Open the correct party
