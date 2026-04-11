@@ -14,8 +14,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import { CheckCircle2 } from "lucide-react";
 
-const defaultBase =
-  import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const defaultBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
 interface ShipmentListItem {
   id: string;
@@ -99,7 +98,12 @@ export default function ShipmentsHubSection({
   } | null>(null);
   const [detailBusy, setDetailBusy] = useState(false);
   const [rates, setRates] = useState<
-    { rate_quote_id: string; amount_usd: unknown; carrier: string; service_name: string }[]
+    {
+      rate_quote_id: string;
+      amount_usd: unknown;
+      carrier: string;
+      service_name: string;
+    }[]
   >([]);
   const [ratesBusy, setRatesBusy] = useState(false);
   const [labelPurchaseBusy, setLabelPurchaseBusy] = useState(false);
@@ -243,7 +247,8 @@ export default function ShipmentsHubSection({
         return;
       }
       setRates(j.rates ?? []);
-      if (j.stub) toast("Using demo rates (configure Shippo for live pricing).", "info");
+      if (j.stub)
+        toast("Using demo rates (configure Shippo for live pricing).", "info");
       else toast("Rates updated", "success");
       void openDetail(detailId);
     } catch {
@@ -425,7 +430,16 @@ export default function ShipmentsHubSection({
     } catch {
       toast("Network error", "error");
     }
-  }, [apiAuth, baseUrl, canManage, loadList, newCustomerId, newForm, openDetail, toast]);
+  }, [
+    apiAuth,
+    baseUrl,
+    canManage,
+    loadList,
+    newCustomerId,
+    newForm,
+    openDetail,
+    toast,
+  ]);
 
   const sourceLabel = useMemo(
     () =>
@@ -439,7 +453,9 @@ export default function ShipmentsHubSection({
 
   if (!permissionsLoaded) {
     return (
-      <div className="p-6 text-sm text-app-text-muted">Loading permissions…</div>
+      <div className="p-6 text-sm text-app-text-muted">
+        Loading permissions…
+      </div>
     );
   }
   if (!canView) {
@@ -463,8 +479,9 @@ export default function ShipmentsHubSection({
             {customerIdFilter ? "Customer shipments" : "All shipments"}
           </h2>
           <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
-            POS and online store orders with shipping create rows here. Manual entries are
-            for shipments without a sale. Timeline shows history and staff notes.
+            POS and online store orders with shipping create rows here. Manual
+            entries are for shipments without a sale. Timeline shows history and
+            staff notes.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -503,7 +520,9 @@ export default function ShipmentsHubSection({
           {loading ? (
             <p className="p-6 text-sm text-app-text-muted">Loading…</p>
           ) : items.length === 0 ? (
-            <p className="p-6 text-sm text-app-text-muted">No shipments found.</p>
+            <p className="p-6 text-sm text-app-text-muted">
+              No shipments found.
+            </p>
           ) : (
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="sticky top-0 border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -576,7 +595,9 @@ export default function ShipmentsHubSection({
               <div className="space-y-1 text-xs">
                 <p>
                   <span className="font-black text-app-text-muted">ID</span>{" "}
-                  <span className="font-mono">{String(detail.shipment.id)}</span>
+                  <span className="font-mono">
+                    {String(detail.shipment.id)}
+                  </span>
                 </p>
                 <p>
                   <span className="font-black text-app-text-muted">Source</span>{" "}
@@ -584,12 +605,16 @@ export default function ShipmentsHubSection({
                     String(detail.shipment.source)}
                 </p>
                 <p>
-                  <span className="font-black text-app-text-muted">Destination</span>{" "}
+                  <span className="font-black text-app-text-muted">
+                    Destination
+                  </span>{" "}
                   {fmtAddr(detail.shipment.ship_to)}
                 </p>
                 {detail.shipment.order_id ? (
                   <p className="flex flex-wrap items-center gap-2">
-                    <span className="font-black text-app-text-muted">Order</span>
+                    <span className="font-black text-app-text-muted">
+                      Order
+                    </span>
                     <span className="font-mono">
                       {String(detail.shipment.order_id).slice(0, 8)}…
                     </span>
@@ -597,7 +622,9 @@ export default function ShipmentsHubSection({
                       <button
                         type="button"
                         onClick={() =>
-                          onOpenOrderInBackoffice(String(detail.shipment.order_id))
+                          onOpenOrderInBackoffice(
+                            String(detail.shipment.order_id),
+                          )
                         }
                         className="rounded-lg border border-app-accent/40 bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase text-app-accent"
                       >
@@ -678,7 +705,9 @@ export default function ShipmentsHubSection({
                     const rateRef =
                       typeof sh.shippo_rate_object_id === "string" &&
                       sh.shippo_rate_object_id.trim().length > 0;
-                    const txId = String(sh.shippo_transaction_object_id ?? "").trim();
+                    const txId = String(
+                      sh.shippo_transaction_object_id ?? "",
+                    ).trim();
                     const labelUrl = String(sh.shipping_label_url ?? "").trim();
                     if (!rateRef && !labelUrl && !txId) return null;
                     return (
@@ -703,7 +732,9 @@ export default function ShipmentsHubSection({
                             onClick={() => void purchaseShippoLabel()}
                             className="w-full rounded-xl border-b-8 border-emerald-800 bg-emerald-600 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg disabled:opacity-50"
                           >
-                            {labelPurchaseBusy ? "Purchasing…" : "Buy Shippo label"}
+                            {labelPurchaseBusy
+                              ? "Purchasing…"
+                              : "Buy Shippo label"}
                           </button>
                         ) : null}
                         {!rateRef && !txId ? (
@@ -739,7 +770,9 @@ export default function ShipmentsHubSection({
                 </p>
                 <ul className="space-y-2">
                   {detail.events.length === 0 ? (
-                    <li className="text-xs text-app-text-muted">No events yet.</li>
+                    <li className="text-xs text-app-text-muted">
+                      No events yet.
+                    </li>
                   ) : (
                     detail.events.map((ev) => (
                       <li
@@ -760,7 +793,9 @@ export default function ShipmentsHubSection({
               </div>
             </div>
           ) : (
-            <p className="text-sm text-app-text-muted">Could not load detail.</p>
+            <p className="text-sm text-app-text-muted">
+              Could not load detail.
+            </p>
           )}
         </div>
       </div>
@@ -796,14 +831,22 @@ export default function ShipmentsHubSection({
                   className="mt-1"
                   onSelect={(c) => {
                     setNewCustomerId(c.id);
-                    setNewForm((f) => ({
-                      ...f,
-                      name: f.name || `${c.first_name} ${c.last_name}`.trim(),
-                      street1: f.street1 || (c as any).street1 || "", // attempt prefill if data exists
-                      city: f.city || (c as any).city || "",
-                      state: f.state || (c as any).state || "",
-                      zip: f.zip || (c as any).zip || "",
-                    }));
+                    setNewForm((f) => {
+                      const cAddr = c as unknown as {
+                        street1?: string | null;
+                        city?: string | null;
+                        state?: string | null;
+                        zip?: string | null;
+                      };
+                      return {
+                        ...f,
+                        name: f.name || `${c.first_name} ${c.last_name}`.trim(),
+                        street1: f.street1 || cAddr.street1 || "",
+                        city: f.city || cAddr.city || "",
+                        state: f.state || cAddr.state || "",
+                        zip: f.zip || cAddr.zip || "",
+                      };
+                    });
                   }}
                   placeholder="Search by name or phone…"
                 />
@@ -811,7 +854,9 @@ export default function ShipmentsHubSection({
               {newCustomerId && (
                 <div className="flex items-center gap-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10 px-2 py-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
                   <CheckCircle2 size={12} className="text-emerald-600" />
-                  <span className="text-[10px] font-black uppercase text-emerald-700">Linked to CRM Profile</span>
+                  <span className="text-[10px] font-black uppercase text-emerald-700">
+                    Linked to CRM Profile
+                  </span>
                 </div>
               )}
             </div>

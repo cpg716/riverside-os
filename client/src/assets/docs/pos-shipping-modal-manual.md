@@ -1,35 +1,27 @@
 ---
 id: pos-shipping-modal
-title: "Pos Shipping Modal (pos)"
+title: "Shipping Quote Modal"
 order: 1061
-summary: "Auto-generated stub for client/src/components/pos/PosShippingModal.tsx — replace with staff-facing help."
+summary: "Component for capturing delivery addresses and fetching live carrier rates at the Register."
 source: client/src/components/pos/PosShippingModal.tsx
 last_scanned: 2026-04-11
-tags: pos-shipping-modal, component, auto-scaffold
+tags: pos, shipping, shippo, rates
 ---
 
-# Pos Shipping Modal (pos)
+# Shipping Quote Modal
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/PosShippingModal.tsx`._
-<!-- /help:component-source -->
+The **Shipping Quote Modal** is triggered when you tap the **Truck Icon** in the POS Cart. It allows you to select how a customer's order will be delivered.
 
-## What this is
+## Features
+- **Address Integration**: Pulls the primary address directly from the linked customer profile.
+- **Auto-Fulfillment**: Once a rate is applied, the cart will automatically switch relevant items to "Special Order" (non-takeaway).
+- **Live Carrier Rates**: Fetches real-time pricing from USPS, UPS, and FedEx (requires active internet connection).
 
-Briefly describe what staff use this screen for.
+## Workflow
+1. Tap the **Truck Icon** in the cart.
+2. Select **Use customer address** or enter a manual destination.
+3. Tap **Get shipping rates**.
+4. Pick the preferred carrier and service level.
+5. Tap **Apply shipping** to add the fee to the transaction.
 
-## How to use it
-
-1. 
-2. 
-
-## Tips
-
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/pos-shipping-modal/` and embed them, for example:
-
-![Example](../images/help/pos-shipping-modal/example.png)
-
+_For more details on managing shipments after the sale, see the [Shipping & Fulfillment Guide](pos-shipping-manual)._

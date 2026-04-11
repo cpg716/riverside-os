@@ -51,7 +51,6 @@ interface MorningCompassBundle {
   today_floor_staff?: TodayFloorStaffRow[];
 }
 
-
 interface ForecastDay {
   temp_high: number;
   temp_low: number;
@@ -130,7 +129,8 @@ export default function RegisterDashboard({
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
   const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
-  const [compassDrawerRow, setCompassDrawerRow] = useState<CompassActionRow | null>(null);
+  const [compassDrawerRow, setCompassDrawerRow] =
+    useState<CompassActionRow | null>(null);
   const [forecast, setForecast] = useState<WeatherForecastPayload | null>(null);
   const [xReport, setXReport] = useState<XReportShape | null>(null);
   const [metrics, setMetrics] = useState<{
@@ -142,10 +142,16 @@ export default function RegisterDashboard({
   const loadTasks = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
     try {
-      const res = await fetch(`${baseUrl}/api/tasks/me`, { headers: apiAuth() });
+      const res = await fetch(`${baseUrl}/api/tasks/me`, {
+        headers: apiAuth(),
+      });
       if (!res.ok) return;
       const data = (await res.json()) as {
-        open?: { id: string; title_snapshot: string; due_date: string | null }[];
+        open?: {
+          id: string;
+          title_snapshot: string;
+          due_date: string | null;
+        }[];
         completed_recent?: unknown[];
       };
       setTaskOpen(Array.isArray(data.open) ? data.open : []);
@@ -185,11 +191,17 @@ export default function RegisterDashboard({
           overdue_pickups: Number(data.stats?.overdue_pickups ?? 0),
           rush_orders: Number(data.stats?.rush_orders ?? 0),
         },
-        needs_measure: Array.isArray(data.needs_measure) ? data.needs_measure : [],
+        needs_measure: Array.isArray(data.needs_measure)
+          ? data.needs_measure
+          : [],
         needs_order: Array.isArray(data.needs_order) ? data.needs_order : [],
-        overdue_pickups: Array.isArray(data.overdue_pickups) ? data.overdue_pickups : [],
+        overdue_pickups: Array.isArray(data.overdue_pickups)
+          ? data.overdue_pickups
+          : [],
         rush_orders: Array.isArray(data.rush_orders) ? data.rush_orders : [],
-        today_floor_staff: Array.isArray(data.today_floor_staff) ? data.today_floor_staff : [],
+        today_floor_staff: Array.isArray(data.today_floor_staff)
+          ? data.today_floor_staff
+          : [],
       });
     } catch {
       /* ignore */
@@ -284,16 +296,13 @@ export default function RegisterDashboard({
     }
   };
 
-  const headline = useMemo(
-    () => roleHeadline(staffRole),
-    [staffRole],
-  );
+  const headline = useMemo(() => roleHeadline(staffRole), [staffRole]);
 
   const suggestedQueue = useMemo(
     () =>
       buildMorningCompassQueue({
         overduePickups: compass?.overdue_pickups ?? [],
-        needsOrder: (compass as any)?.needs_order ?? [],
+        needsOrder: compass?.needs_order ?? [],
         needsMeasure: compass?.needs_measure ?? [],
         rushOrders: compass?.rush_orders ?? [],
         openTasks: taskOpen,
@@ -311,9 +320,18 @@ export default function RegisterDashboard({
 
   const todayWeather = forecast?.days?.[0];
   const current = forecast?.current;
-  const cond = (current?.condition ?? todayWeather?.condition ?? "").toLowerCase();
-  const WxIcon =
-    cond.includes("snow") ? Snowflake : cond.includes("rain") ? CloudRain : cond.includes("cloud") ? Cloud : Sun;
+  const cond = (
+    current?.condition ??
+    todayWeather?.condition ??
+    ""
+  ).toLowerCase();
+  const WxIcon = cond.includes("snow")
+    ? Snowflake
+    : cond.includes("rain")
+      ? CloudRain
+      : cond.includes("cloud")
+        ? Cloud
+        : Sun;
 
   const stats = compass?.stats;
   return (
@@ -358,23 +376,30 @@ export default function RegisterDashboard({
             Suggested next
           </p>
           {suggestedQueue.length === 0 ? (
-            <p data-testid="register-morning-compass-coach-empty" className="text-xs font-semibold text-app-text-muted">
+            <p
+              data-testid="register-morning-compass-coach-empty"
+              className="text-xs font-semibold text-app-text-muted"
+            >
               No prioritized actions right now.
             </p>
           ) : (
-            <ul className="space-y-1.5" data-testid="register-morning-compass-coach-list">
+            <ul
+              className="space-y-1.5"
+              data-testid="register-morning-compass-coach-list"
+            >
               {suggestedQueue.map((item) => (
                 <li key={item.id}>
                   <button
                     type="button"
                     data-testid={`register-morning-compass-coach-item-${item.kind}`}
                     onClick={() => {
-                      if (item.kind === "wedding") setCompassDrawerRow(item.row);
-                      else if (item.kind === "task") setTaskDrawerId(item.taskId);
+                      if (item.kind === "wedding")
+                        setCompassDrawerRow(item.row);
+                      else if (item.kind === "task")
+                        setTaskDrawerId(item.taskId);
                       else if (item.kind === "rush_order") {
                         // TODO: Open order detail or navigate to Order Workspace
-                      }
-                      else openDrawer();
+                      } else openDrawer();
                     }}
                     className="flex w-full items-start gap-2 rounded-xl border border-app-border/70 bg-app-surface/90 px-3 py-2 text-left transition hover:border-app-accent/40"
                   >
@@ -387,7 +412,11 @@ export default function RegisterDashboard({
                             : "bg-app-surface-2 text-app-text-muted"
                       }`}
                     >
-                      {item.tier === "urgent" ? "Now" : item.tier === "soon" ? "Soon" : "FYI"}
+                      {item.tier === "urgent"
+                        ? "Now"
+                        : item.tier === "soon"
+                          ? "Soon"
+                          : "FYI"}
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block text-sm font-bold leading-snug text-app-text">
@@ -407,12 +436,15 @@ export default function RegisterDashboard({
                               ? `Due ${item.dueDate}`
                               : "Task"
                             : item.kind === "rush_order"
-                              ? `Need by ${item.row.need_by_date || 'ASAP'} · $${item.row.total_price}`
+                              ? `Need by ${item.row.need_by_date || "ASAP"} · $${item.row.total_price}`
                               : "Open inbox"}
                       </span>
                     </span>
                     {item.kind === "notification" ? (
-                      <Bell className="mt-1 h-4 w-4 shrink-0 text-app-text-muted" aria-hidden />
+                      <Bell
+                        className="mt-1 h-4 w-4 shrink-0 text-app-text-muted"
+                        aria-hidden
+                      />
                     ) : null}
                   </button>
                 </li>
@@ -438,14 +470,19 @@ export default function RegisterDashboard({
         </div>
       ) : null}
 
-      {metrics && (staffRole === "salesperson" || staffRole === "sales_support") ? (
+      {metrics &&
+      (staffRole === "salesperson" || staffRole === "sales_support") ? (
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="rounded-2xl border border-app-border bg-app-surface p-4">
             <p className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
               Your attributed lines · {metrics.store_date}
             </p>
-            <p className="mt-1 text-2xl font-black text-app-text">{metrics.line_count}</p>
-            <p className="text-xs text-app-text-muted">Lines on orders paid today</p>
+            <p className="mt-1 text-2xl font-black text-app-text">
+              {metrics.line_count}
+            </p>
+            <p className="text-xs text-app-text-muted">
+              Lines on orders paid today
+            </p>
           </div>
           <div className="rounded-2xl border border-app-border bg-app-surface p-4">
             <p className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
@@ -459,7 +496,9 @@ export default function RegisterDashboard({
         </div>
       ) : null}
 
-      {permissionsLoaded && hasPermission("register.reports") && xReport?.tenders?.length ? (
+      {permissionsLoaded &&
+      hasPermission("register.reports") &&
+      xReport?.tenders?.length ? (
         <div className="rounded-2xl border border-app-border bg-app-surface p-4">
           <p className="text-[10px] font-black uppercase tracking-wider text-app-text-muted">
             Session tenders (X report)
@@ -470,7 +509,9 @@ export default function RegisterDashboard({
                 key={t.payment_method}
                 className="flex justify-between gap-2 border-b border-app-border/40 py-1 last:border-0"
               >
-                <span className="font-semibold text-app-text">{t.payment_method}</span>
+                <span className="font-semibold text-app-text">
+                  {t.payment_method}
+                </span>
                 <span className="text-app-text-muted">
                   ${t.total_amount} · {t.tx_count} tx
                 </span>
@@ -497,20 +538,36 @@ export default function RegisterDashboard({
           </div>
           <div className="mt-2 grid grid-cols-4 gap-2 text-center">
             <div className="rounded-xl bg-app-surface-2 p-2">
-              <p className="text-lg font-black text-app-text">{stats.needs_measure}</p>
-              <p className="text-[9px] font-bold uppercase text-app-text-muted">Measure</p>
+              <p className="text-lg font-black text-app-text">
+                {stats.needs_measure}
+              </p>
+              <p className="text-[9px] font-bold uppercase text-app-text-muted">
+                Measure
+              </p>
             </div>
             <div className="rounded-xl bg-app-surface-2 p-2">
-              <p className="text-lg font-black text-app-text">{stats.needs_order}</p>
-              <p className="text-[9px] font-bold uppercase text-app-text-muted">Order</p>
+              <p className="text-lg font-black text-app-text">
+                {stats.needs_order}
+              </p>
+              <p className="text-[9px] font-bold uppercase text-app-text-muted">
+                Order
+              </p>
             </div>
             <div className="rounded-xl bg-app-surface-2 p-2">
-              <p className="text-lg font-black text-amber-600">{stats.overdue_pickups}</p>
-              <p className="text-[9px] font-bold uppercase text-app-text-muted">Overdue</p>
+              <p className="text-lg font-black text-amber-600">
+                {stats.overdue_pickups}
+              </p>
+              <p className="text-[9px] font-bold uppercase text-app-text-muted">
+                Overdue
+              </p>
             </div>
             <div className="rounded-xl bg-app-surface-2 p-2">
-              <p className="text-lg font-black text-red-600">{stats.rush_orders}</p>
-              <p className="text-[9px] font-bold uppercase text-app-text-muted">Rush</p>
+              <p className="text-lg font-black text-red-600">
+                {stats.rush_orders}
+              </p>
+              <p className="text-[9px] font-bold uppercase text-app-text-muted">
+                Rush
+              </p>
             </div>
           </div>
         </div>
@@ -532,7 +589,9 @@ export default function RegisterDashboard({
             </button>
           </div>
           {taskOpen.length === 0 ? (
-            <p className="mt-2 text-sm text-app-text-muted">No open checklist items.</p>
+            <p className="mt-2 text-sm text-app-text-muted">
+              No open checklist items.
+            </p>
           ) : (
             <ul className="mt-2 space-y-1">
               {taskOpen.slice(0, 5).map((t) => (
@@ -566,55 +625,66 @@ export default function RegisterDashboard({
             </button>
           </div>
           {notifications.length === 0 ? (
-            <p className="mt-2 text-sm text-app-text-muted">No unread items in preview.</p>
+            <p className="mt-2 text-sm text-app-text-muted">
+              No unread items in preview.
+            </p>
           ) : (
             <ul className="mt-2 space-y-2">
               {notifications.map((r) => {
                 const bundle = parseNotificationBundle(r.deep_link);
                 return (
-                <li
-                  key={r.staff_notification_id}
-                  className="rounded-xl border border-app-border bg-app-surface-2 p-2"
-                >
-                  <p className="line-clamp-2 text-xs font-bold text-app-text">
-                    {r.title}
-                  </p>
-                  {bundle ? (
-                    <p className="mt-1 text-[10px] text-app-text-muted">
-                      {bundle.length} items — open inbox to expand
+                  <li
+                    key={r.staff_notification_id}
+                    className="rounded-xl border border-app-border bg-app-surface-2 p-2"
+                  >
+                    <p className="line-clamp-2 text-xs font-bold text-app-text">
+                      {r.title}
                     </p>
-                  ) : null}
-                  <div className="mt-2 flex flex-wrap gap-1">
-                    {!r.read_at ? (
-                      <button
-                        type="button"
-                        className="ui-btn-secondary px-2 py-0.5 text-[10px]"
-                        onClick={() => void notifAction(r.staff_notification_id, "read")}
-                      >
-                        Read
-                      </button>
+                    {bundle ? (
+                      <p className="mt-1 text-[10px] text-app-text-muted">
+                        {bundle.length} items — open inbox to expand
+                      </p>
                     ) : null}
-                    {!r.completed_at ? (
-                      <button
-                        type="button"
-                        className="ui-btn-secondary px-2 py-0.5 text-[10px]"
-                        onClick={() => void notifAction(r.staff_notification_id, "complete")}
-                      >
-                        Complete
-                      </button>
-                    ) : null}
-                    {!r.archived_at ? (
-                      <button
-                        type="button"
-                        className="ui-btn-secondary px-2 py-0.5 text-[10px]"
-                        onClick={() => void notifAction(r.staff_notification_id, "archive")}
-                      >
-                        Dismiss
-                      </button>
-                    ) : null}
-                  </div>
-                </li>
-              );
+                    <div className="mt-2 flex flex-wrap gap-1">
+                      {!r.read_at ? (
+                        <button
+                          type="button"
+                          className="ui-btn-secondary px-2 py-0.5 text-[10px]"
+                          onClick={() =>
+                            void notifAction(r.staff_notification_id, "read")
+                          }
+                        >
+                          Read
+                        </button>
+                      ) : null}
+                      {!r.completed_at ? (
+                        <button
+                          type="button"
+                          className="ui-btn-secondary px-2 py-0.5 text-[10px]"
+                          onClick={() =>
+                            void notifAction(
+                              r.staff_notification_id,
+                              "complete",
+                            )
+                          }
+                        >
+                          Complete
+                        </button>
+                      ) : null}
+                      {!r.archived_at ? (
+                        <button
+                          type="button"
+                          className="ui-btn-secondary px-2 py-0.5 text-[10px]"
+                          onClick={() =>
+                            void notifAction(r.staff_notification_id, "archive")
+                          }
+                        >
+                          Dismiss
+                        </button>
+                      ) : null}
+                    </div>
+                  </li>
+                );
               })}
             </ul>
           )}

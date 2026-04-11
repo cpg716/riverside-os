@@ -2100,7 +2100,8 @@ export default function Cart({
       taxCents,
       orderTotalCents,
       collectTotalCents,
-      takeawayDueCents: res.takeawayDueCents,
+      shippingCents: shipCents,
+      takeawayDueCents: res.takeawayDueCents + shipCents,
       /** Amount to collect (cart + party disbursements); Pay button + payment drawer. */
       totalCents: collectTotalCents,
     };
@@ -2118,7 +2119,7 @@ export default function Cart({
       );
       return;
     }
-    if (lines.length === 0) return toast("Cart is empty", "error");
+    if (lines.length === 0 && disbursementMembers.length === 0) return toast("Cart is empty", "error");
     if (!navigator.onLine && posShipping) {
       toast(
         "Shipping requires an online connection. Clear shipping or try again when online.",
@@ -2132,6 +2133,11 @@ export default function Cart({
         "This device is missing the till session token. From POS, open or join the till (managers: join lane), or re-enter staff sign-in so the app can request a token.",
         "error",
       );
+      return;
+    }
+    if (posShipping && lines.some(l => l.fulfillment === "takeaway")) {
+      toast("Items marked as 'Takeaway' cannot be shipped. Switch fulfillment to Special Order.", "error");
+      setCheckoutBusy(false);
       return;
     }
 
@@ -2976,7 +2982,16 @@ export default function Cart({
         getHeaders={apiAuth}
         selectedCustomer={selectedCustomer}
         current={posShipping}
-        onApply={setPosShipping}
+        onApply={(next) => {
+          setPosShipping(next);
+          if (next && lines.some(l => l.fulfillment === "takeaway")) {
+            setLines(prev => prev.map(l => ({
+              ...l,
+              fulfillment: l.fulfillment === "takeaway" ? "special_order" as const : l.fulfillment
+            })));
+            toast("Switched takeaway items to Special Order for shipping.", "info");
+          }
+        }}
       />
 
       <NexoCheckoutDrawer
@@ -2986,6 +3001,8 @@ export default function Cart({
         stateTaxCents={totals.stateTaxCents}
         localTaxCents={totals.localTaxCents}
         weddingLinked={!!activeWeddingMember}
+        customerId={selectedCustomer?.id}
+        customerName={selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name}` : undefined}
         authoritativeDepositCents={0}
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
@@ -3001,6 +3018,7 @@ export default function Cart({
         rmsPaymentCollectionMode={isRmsPaymentCart}
         allowDepositOnlyComplete={allowDepositOnlyCompleteSale}
         takeawayDueCents={totals.takeawayDueCents}
+        shippingCents={totals.shippingCents}
         hasLaterItems={lines.some(l => l.fulfillment && l.fulfillment !== "takeaway")}
         pickupConfirmed={pickupConfirmed}
         onPickupConfirmedChange={setPickupConfirmed}
@@ -3600,6 +3618,7 @@ export default function Cart({
           orderId={lastOrderId}
           onClose={() => {
             setLastOrderId(null);
+            setCheckoutOperator(null);
             onSaleCompleted?.();
           }}
           baseUrl={baseUrl}
@@ -3640,7 +3659,7 @@ interface CartItemRowProps {
   orderSalespersonLabel: string;
   hideLineSalesperson?: boolean;
   updateLineGiftWrapStatus: (rowId: string, status: boolean) => void;
-  commissionStaff: any[];
+  commissionStaff: PosStaffRow[];
 }
 
 function CartItemRow({

@@ -9,6 +9,11 @@ import {
   ShoppingBag,
   Sparkles,
   UserPlus,
+  CreditCard,
+  Shield,
+  Trash2,
+  RefreshCw,
+  Plus,
 } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -16,7 +21,10 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
-import type { CustomerProfile, WeddingMembership } from "../pos/customerProfileTypes";
+import type {
+  CustomerProfile,
+  WeddingMembership,
+} from "../pos/customerProfileTypes";
 import CustomerMeasurementVaultForm from "./CustomerMeasurementVaultForm";
 import {
   measurementDraftFromLatest,
@@ -24,9 +32,9 @@ import {
 } from "./CustomerMeasurementLogic";
 import ShipmentsHubSection from "./ShipmentsHubSection";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
+import StripeVaultCardModal from "./StripeVaultCardModal";
 
-const defaultBase =
-  import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const defaultBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
 export interface CustomerHubStats {
   lifetime_spend_usd: string;
@@ -92,10 +100,8 @@ function fmtLifetimeCompact(s: string): string {
   const cents = parseMoneyToCents(s);
   const n = cents / 100;
   if (!Number.isFinite(n)) return "—";
-  if (n >= 100_000)
-    return `$${(n / 1000).toFixed(0)}k`;
-  if (n >= 1000)
-    return `$${(n / 1000).toFixed(1)}k`;
+  if (n >= 100_000) return `$${(n / 1000).toFixed(0)}k`;
+  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   return formatUsdFromCents(cents);
 }
 
@@ -108,7 +114,10 @@ function lastVisitLabel(days: number | null): string {
 
 function formatMessagePreview(body: string, channel: string): string {
   if (channel === "email" && body.includes("<")) {
-    return body.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+    return body
+      .replace(/<[^>]+>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
   }
   return body.trim();
 }
@@ -138,7 +147,8 @@ type HubTab =
   | "measurements"
   | "profile"
   | "orders"
-  | "shipments";
+  | "shipments"
+  | "payments";
 
 const ORDER_HISTORY_PAGE = 50;
 
@@ -366,9 +376,12 @@ export default function CustomerRelationshipHubDrawer({
   const loadTimeline = useCallback(async () => {
     setTimelineLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/timeline`, {
-        headers: apiAuth(),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/timeline`,
+        {
+          headers: apiAuth(),
+        },
+      );
       if (!res.ok) throw new Error("timeline");
       const data = (await res.json()) as { events: CustomerTimelineEvent[] };
       setTimeline(data.events ?? []);
@@ -387,10 +400,12 @@ export default function CustomerRelationshipHubDrawer({
         { headers: apiAuth() },
       );
       if (!res.ok) throw new Error("vault");
-      setVault((await res.json()) as {
-        latest: MeasurementRecord | null;
-        history: MeasurementRecord[];
-      });
+      setVault(
+        (await res.json()) as {
+          latest: MeasurementRecord | null;
+          history: MeasurementRecord[];
+        },
+      );
     } catch {
       setVault({ latest: null, history: [] });
     } finally {
@@ -787,11 +802,14 @@ export default function CustomerRelationshipHubDrawer({
     if (!hasPermission("customers.couple_manage")) return;
     setCoupleLinkingBusy(true);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/couple-link`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({ partner_id: partner.id }),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/couple-link`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify({ partner_id: partner.id }),
+        },
+      );
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         toast((b as { error?: string }).error ?? "Linking failed", "error");
@@ -809,13 +827,21 @@ export default function CustomerRelationshipHubDrawer({
 
   const unlinkCouple = async () => {
     if (!hasPermission("customers.couple_manage")) return;
-    if (!confirm("Unlink these accounts? Sales history will remain with the primary account.")) return;
+    if (
+      !confirm(
+        "Unlink these accounts? Sales history will remain with the primary account.",
+      )
+    )
+      return;
     setCoupleLinkingBusy(true);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/couple-link`, {
-        method: "DELETE",
-        headers: apiAuth(),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/couple-link`,
+        {
+          method: "DELETE",
+          headers: apiAuth(),
+        },
+      );
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
         toast((b as { error?: string }).error ?? "Unlinking failed", "error");
@@ -839,14 +865,20 @@ export default function CustomerRelationshipHubDrawer({
     }
     setCoupleLinkingBusy(true);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/${customer.id}/couple-link-new`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify(partnerDraft),
-      });
+      const res = await fetch(
+        `${baseUrl}/api/customers/${customer.id}/couple-link-new`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...apiAuth() },
+          body: JSON.stringify(partnerDraft),
+        },
+      );
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Creation and linking failed", "error");
+        toast(
+          (b as { error?: string }).error ?? "Creation and linking failed",
+          "error",
+        );
         return;
       }
       toast("New partner created and linked", "success");
@@ -907,7 +939,10 @@ export default function CustomerRelationshipHubDrawer({
       });
       if (!res.ok) {
         const b = await res.json().catch(() => ({}));
-        toast((b as { error?: string }).error ?? "Could not save note", "error");
+        toast(
+          (b as { error?: string }).error ?? "Could not save note",
+          "error",
+        );
         return;
       }
       toast("Note added to timeline", "success");
@@ -1015,6 +1050,7 @@ export default function CustomerRelationshipHubDrawer({
           {canShipmentsView ? tabBtn("shipments", "Shipments") : null}
           {canMeasurements ? tabBtn("measurements", "Measurements") : null}
           {tabBtn("profile", "Profile")}
+          {tabBtn("payments", "Payments")}
         </div>
       }
     >
@@ -1026,9 +1062,8 @@ export default function CustomerRelationshipHubDrawer({
               Order history
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
-              Filter by booked date (optional). Showing{" "}
-              {customer.first_name} {customer.last_name} ·{" "}
-              {customer.customer_code}
+              Filter by booked date (optional). Showing {customer.first_name}{" "}
+              {customer.last_name} · {customer.customer_code}
             </p>
             <div className="flex flex-wrap items-end gap-3">
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1088,7 +1123,10 @@ export default function CustomerRelationshipHubDrawer({
                 </thead>
                 <tbody className="divide-y divide-app-border/60">
                   {orderHistoryRows.map((row) => (
-                    <tr key={row.order_id} className="hover:bg-app-surface-2/50">
+                    <tr
+                      key={row.order_id}
+                      className="hover:bg-app-surface-2/50"
+                    >
                       <td className="px-3 py-2 text-xs text-app-text-muted">
                         {new Date(row.booked_at).toLocaleString()}
                       </td>
@@ -1100,7 +1138,7 @@ export default function CustomerRelationshipHubDrawer({
                           ? "Web"
                           : row.sale_channel === "register"
                             ? "Store"
-                            : row.sale_channel ?? "—"}
+                            : (row.sale_channel ?? "—")}
                       </td>
                       <td className="px-3 py-2 text-xs font-semibold">
                         {row.status}
@@ -1122,16 +1160,16 @@ export default function CustomerRelationshipHubDrawer({
                       </td>
                       <td className="px-3 py-2">
                         {row.is_fulfillment_order === false ? (
-                           <button
-                             type="button"
-                             onClick={() => {
-                               onNavigateRegisterReports?.(row.order_id);
-                               onClose();
-                             }}
-                             className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-emerald-700 dark:text-emerald-400"
-                           >
-                             Receipt
-                           </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              onNavigateRegisterReports?.(row.order_id);
+                              onClose();
+                            }}
+                            className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-emerald-700 dark:text-emerald-400"
+                          >
+                            Receipt
+                          </button>
                         ) : onOpenOrderInBackoffice ? (
                           <button
                             type="button"
@@ -1181,13 +1219,21 @@ export default function CustomerRelationshipHubDrawer({
             onOpenShipmentIdConsumed={onHubShipmentFocusConsumed}
           />
         </div>
+      ) : tab === "payments" ? (
+        <div className="flex flex-1 flex-col space-y-6">
+          <CustomerPaymentVaultSection
+            customer={customer}
+            baseUrl={baseUrl}
+            headers={backofficeHeaders}
+          />
+        </div>
       ) : !permissionsLoaded || loading || !hub ? (
         <p className="text-sm text-app-text-muted">
           {!permissionsLoaded
             ? "Checking access…"
             : loading
               ? "Loading relationship hub…"
-              : err ?? "No data."}
+              : (err ?? "No data.")}
         </p>
       ) : (
         <div className="space-y-6">
@@ -1213,14 +1259,12 @@ export default function CustomerRelationshipHubDrawer({
                 Balance due {fmtMoney(hub.stats.balance_due_usd)}
               </span>
             ) : null}
-            {storeCreditBal != null &&
-            parseMoneyToCents(storeCreditBal) > 0 ? (
+            {storeCreditBal != null && parseMoneyToCents(storeCreditBal) > 0 ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-100/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-violet-900">
                 Store credit {fmtMoney(storeCreditBal)}
               </span>
             ) : null}
-            {openDepositBal != null &&
-            parseMoneyToCents(openDepositBal) > 0 ? (
+            {openDepositBal != null && parseMoneyToCents(openDepositBal) > 0 ? (
               <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-100/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-900">
                 Deposit waiting {fmtMoney(openDepositBal)}
               </span>
@@ -1242,22 +1286,28 @@ export default function CustomerRelationshipHubDrawer({
 
           <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-5">
             {[
-              [`Lifetime${hub.couple_id ? " (Joint)" : ""}`, fmtLifetimeCompact(hub.stats.lifetime_spend_usd)],
               [
-                "Weddings",
-                String(hub.stats.wedding_party_count),
+                `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
+                fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
               ],
-              [
-                "Profile",
-                hub.profile_complete ? "OK" : "Incomplete",
-              ],
+              ["Weddings", String(hub.stats.wedding_party_count)],
+              ["Profile", hub.profile_complete ? "OK" : "Incomplete"],
               ["Last visit", lastVisitLabel(hub.stats.days_since_last_visit)],
-              [`Loyalty pts${hub.couple_id ? " (Joint)" : ""}`, ((hub.stats.loyalty_points ?? 0)).toLocaleString()],
+              [
+                `Loyalty pts${hub.couple_id ? " (Joint)" : ""}`,
+                (hub.stats.loyalty_points ?? 0).toLocaleString(),
+              ],
               ...(storeCreditBal != null
-                ? ([["Store credit", fmtMoney(storeCreditBal)]] as [string, string][])
+                ? ([["Store credit", fmtMoney(storeCreditBal)]] as [
+                    string,
+                    string,
+                  ][])
                 : []),
               ...(openDepositBal != null
-                ? ([["Deposit waiting", fmtMoney(openDepositBal)]] as [string, string][])
+                ? ([["Deposit waiting", fmtMoney(openDepositBal)]] as [
+                    string,
+                    string,
+                  ][])
                 : []),
             ].map(([k, v]) => (
               <div
@@ -1354,7 +1404,10 @@ export default function CustomerRelationshipHubDrawer({
                     </h3>
                     <button
                       type="button"
-                      disabled={coupleLinkingBusy || !hasPermission("customers.couple_manage")}
+                      disabled={
+                        coupleLinkingBusy ||
+                        !hasPermission("customers.couple_manage")
+                      }
                       onClick={unlinkCouple}
                       className="text-[10px] font-bold text-app-error hover:underline disabled:opacity-50"
                     >
@@ -1380,14 +1433,18 @@ export default function CustomerRelationshipHubDrawer({
                             wedding_active: false,
                           };
                           if (onSwitchCustomer) {
-                             onSwitchCustomer(mockPartner);
+                            onSwitchCustomer(mockPartner);
                           } else {
-                             toast("Switching not available in this context", "info");
+                            toast(
+                              "Switching not available in this context",
+                              "info",
+                            );
                           }
                         }}
                         className="font-bold text-app-text hover:underline text-left block"
                       >
-                        Linked with {hub.partner?.first_name} {hub.partner?.last_name}
+                        Linked with {hub.partner?.first_name}{" "}
+                        {hub.partner?.last_name}
                       </button>
                       <p className="text-xs text-app-text-muted">
                         Joint sales history, loyalty, and orders active.
@@ -1399,9 +1456,13 @@ export default function CustomerRelationshipHubDrawer({
                           Archived Profile
                         </span>
                         <div className="group relative">
-                          <span className="cursor-help underline decoration-dotted text-app-text-muted text-[10px]">What is this?</span>
+                          <span className="cursor-help underline decoration-dotted text-app-text-muted text-[10px]">
+                            What is this?
+                          </span>
                           <div className="absolute right-0 bottom-full mb-2 w-48 scale-0 group-hover:scale-100 origin-bottom-right transition-transform bg-app-surface border border-app-border p-3 text-xs text-app-text shadow-xl rounded-xl z-50">
-                            This profile acts as an alias for the joint account. Sales history is stored on the primary profile balance.
+                            This profile acts as an alias for the joint account.
+                            Sales history is stored on the primary profile
+                            balance.
                           </div>
                         </div>
                       </div>
@@ -1415,104 +1476,136 @@ export default function CustomerRelationshipHubDrawer({
                       <Heart size={24} />
                     </div>
                     <div>
-                      <h3 className="font-bold text-app-text">Link a Partner</h3>
+                      <h3 className="font-bold text-app-text">
+                        Link a Partner
+                      </h3>
                       <p className="text-sm text-app-text-muted max-w-sm mt-1">
-                        Combine profiles specifically for couples. One joint history, 
-                        individual contact/fitting details.
+                        Combine profiles specifically for couples. One joint
+                        history, individual contact/fitting details.
                       </p>
                       <div className="w-full max-w-sm">
-                      {(!showCouplePicker && !showCreatePartner) ? (
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => setShowCouplePicker(true)}
-                            className="ui-button-secondary flex-1"
-                          >
-                            Find existing profile...
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setShowCreatePartner(true)}
-                            className="ui-button-primary bg-emerald-600 border-emerald-700 flex-1"
-                          >
-                            Add as new customer
-                          </button>
-                        </div>
-                      ) : showCouplePicker ? (
-                        <div className="space-y-3">
-                          <CustomerSearchInput
-                            onSelect={linkCouple}
-                            placeholder="Type name or email..."
-                            autoFocus
-                            excludeCustomerId={customer.id}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => setShowCouplePicker(false)}
-                            className="text-xs font-semibold text-app-text-muted hover:text-app-text w-full text-center"
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : (
-                        <div className="space-y-4 text-left bg-app-surface border border-app-border p-4 rounded-xl">
-                          <div className="grid grid-cols-2 gap-3">
-                            <div className="space-y-1">
-                               <label className="text-[10px] font-black uppercase text-app-text-muted">First Name</label>
-                               <input 
-                                 className="ui-input w-full"
-                                 value={partnerDraft.first_name}
-                                 onChange={e => setPartnerDraft({...partnerDraft, first_name: e.target.value})}
-                                 placeholder="Required"
-                               />
+                        {!showCouplePicker && !showCreatePartner ? (
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setShowCouplePicker(true)}
+                              className="ui-button-secondary flex-1"
+                            >
+                              Find existing profile...
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setShowCreatePartner(true)}
+                              className="ui-button-primary bg-emerald-600 border-emerald-700 flex-1"
+                            >
+                              Add as new customer
+                            </button>
+                          </div>
+                        ) : showCouplePicker ? (
+                          <div className="space-y-3">
+                            <CustomerSearchInput
+                              onSelect={linkCouple}
+                              placeholder="Type name or email..."
+                              autoFocus
+                              excludeCustomerId={customer.id}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowCouplePicker(false)}
+                              className="text-xs font-semibold text-app-text-muted hover:text-app-text w-full text-center"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="space-y-4 text-left bg-app-surface border border-app-border p-4 rounded-xl">
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-app-text-muted">
+                                  First Name
+                                </label>
+                                <input
+                                  className="ui-input w-full"
+                                  value={partnerDraft.first_name}
+                                  onChange={(e) =>
+                                    setPartnerDraft({
+                                      ...partnerDraft,
+                                      first_name: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Required"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <label className="text-[10px] font-black uppercase text-app-text-muted">
+                                  Last Name
+                                </label>
+                                <input
+                                  className="ui-input w-full"
+                                  value={partnerDraft.last_name}
+                                  onChange={(e) =>
+                                    setPartnerDraft({
+                                      ...partnerDraft,
+                                      last_name: e.target.value,
+                                    })
+                                  }
+                                  placeholder="Required"
+                                />
+                              </div>
                             </div>
                             <div className="space-y-1">
-                               <label className="text-[10px] font-black uppercase text-app-text-muted">Last Name</label>
-                               <input 
-                                 className="ui-input w-full"
-                                 value={partnerDraft.last_name}
-                                 onChange={e => setPartnerDraft({...partnerDraft, last_name: e.target.value})}
-                                 placeholder="Required"
-                               />
+                              <label className="text-[10px] font-black uppercase text-app-text-muted">
+                                Email
+                              </label>
+                              <input
+                                className="ui-input w-full"
+                                value={partnerDraft.email}
+                                onChange={(e) =>
+                                  setPartnerDraft({
+                                    ...partnerDraft,
+                                    email: e.target.value,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-black uppercase text-app-text-muted">
+                                Phone
+                              </label>
+                              <input
+                                className="ui-input w-full"
+                                value={partnerDraft.phone}
+                                onChange={(e) =>
+                                  setPartnerDraft({
+                                    ...partnerDraft,
+                                    phone: e.target.value,
+                                  })
+                                }
+                              />
+                            </div>
+                            <div className="flex gap-2 pt-2">
+                              <button
+                                type="button"
+                                disabled={coupleLinkingBusy}
+                                onClick={createAndLinkPartner}
+                                className="ui-button-primary flex-1"
+                              >
+                                {coupleLinkingBusy
+                                  ? "Creating..."
+                                  : "Create & Link"}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setShowCreatePartner(false)}
+                                className="ui-button-secondary"
+                              >
+                                Cancel
+                              </button>
                             </div>
                           </div>
-                          <div className="space-y-1">
-                             <label className="text-[10px] font-black uppercase text-app-text-muted">Email</label>
-                             <input 
-                               className="ui-input w-full"
-                               value={partnerDraft.email}
-                               onChange={e => setPartnerDraft({...partnerDraft, email: e.target.value})}
-                             />
-                          </div>
-                          <div className="space-y-1">
-                             <label className="text-[10px] font-black uppercase text-app-text-muted">Phone</label>
-                             <input 
-                               className="ui-input w-full"
-                               value={partnerDraft.phone}
-                               onChange={e => setPartnerDraft({...partnerDraft, phone: e.target.value})}
-                             />
-                          </div>
-                          <div className="flex gap-2 pt-2">
-                             <button
-                               type="button"
-                               disabled={coupleLinkingBusy}
-                               onClick={createAndLinkPartner}
-                               className="ui-button-primary flex-1"
-                             >
-                               {coupleLinkingBusy ? "Creating..." : "Create & Link"}
-                             </button>
-                             <button
-                               type="button"
-                               onClick={() => setShowCreatePartner(false)}
-                               className="ui-button-secondary"
-                             >
-                               Cancel
-                             </button>
-                          </div>
-                        </div>
-                      )}
+                        )}
+                      </div>
                     </div>
-                  </div>
                   </section>
                 )
               )}
@@ -1585,7 +1678,8 @@ export default function CustomerRelationshipHubDrawer({
                         })
                       }
                     />
-                    Operational email (pickup / alterations / appointments / loyalty)
+                    Operational email (pickup / alterations / appointments /
+                    loyalty)
                   </label>
                 </div>
                 {!canHubEdit ? (
@@ -1606,10 +1700,13 @@ export default function CustomerRelationshipHubDrawer({
                 </h3>
                 {!canTimeline ? (
                   <p className="text-sm text-app-text-muted">
-                    You do not have permission to view the timeline (customers.timeline).
+                    You do not have permission to view the timeline
+                    (customers.timeline).
                   </p>
                 ) : timelineLoading ? (
-                  <p className="text-sm text-app-text-muted">Loading timeline…</p>
+                  <p className="text-sm text-app-text-muted">
+                    Loading timeline…
+                  </p>
                 ) : timeline.length === 0 ? (
                   <p className="text-sm text-app-text-muted">
                     No interactions recorded yet.
@@ -1692,7 +1789,9 @@ export default function CustomerRelationshipHubDrawer({
                   Past weddings
                 </h3>
                 {pastWeddings.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">No past weddings on record.</p>
+                  <p className="text-sm text-app-text-muted">
+                    No past weddings on record.
+                  </p>
                 ) : (
                   <ul className="space-y-2">
                     {pastWeddings.map((w) => (
@@ -1743,11 +1842,13 @@ export default function CustomerRelationshipHubDrawer({
                   </button>
                 </div>
                 {podiumThreadLoading ? (
-                  <p className="text-xs text-app-text-muted">Loading messages…</p>
+                  <p className="text-xs text-app-text-muted">
+                    Loading messages…
+                  </p>
                 ) : podiumThread.length === 0 ? (
                   <p className="text-xs text-app-text-muted">
-                    No messages yet. Inbound SMS/email appears here after the Podium webhook
-                    is configured.
+                    No messages yet. Inbound SMS/email appears here after the
+                    Podium webhook is configured.
                   </p>
                 ) : (
                   <ul className="max-h-[280px] space-y-2 overflow-y-auto pr-1">
@@ -1779,7 +1880,9 @@ export default function CustomerRelationshipHubDrawer({
                                 {new Date(m.created_at).toLocaleString()}
                               </span>
                             </div>
-                            <p className="whitespace-pre-wrap break-words">{preview}</p>
+                            <p className="whitespace-pre-wrap break-words">
+                              {preview}
+                            </p>
                           </div>
                         </li>
                       );
@@ -1807,7 +1910,10 @@ export default function CustomerRelationshipHubDrawer({
                 <button
                   type="button"
                   disabled={
-                    smsReplyBusy || !canHubEdit || !hub.phone || !smsReplyDraft.trim()
+                    smsReplyBusy ||
+                    !canHubEdit ||
+                    !hub.phone ||
+                    !smsReplyDraft.trim()
                   }
                   onClick={() => void sendPodiumSmsReply()}
                   className="rounded-xl bg-emerald-600 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white border-b-8 border-emerald-800 disabled:opacity-40"
@@ -1821,12 +1927,13 @@ export default function CustomerRelationshipHubDrawer({
                   Send email (Podium)
                 </h3>
                 <p className="mb-3 text-xs text-app-text-muted leading-relaxed">
-                  Delivers to the email on this customer&apos;s profile via Podium (
+                  Delivers to the email on this customer&apos;s profile via
+                  Podium (
                   <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
                     POST /v4/messages
                   </code>
-                  ). Requires Integrations: operational email enabled and server Podium
-                  credentials.
+                  ). Requires Integrations: operational email enabled and server
+                  Podium credentials.
                 </p>
                 {!hub.email ? (
                   <p className="mb-3 text-sm font-semibold text-amber-800">
@@ -1881,7 +1988,8 @@ export default function CustomerRelationshipHubDrawer({
                   Podium Web (link)
                 </h3>
                 <p className="mb-3 text-xs text-app-text-muted leading-relaxed">
-                  Optional shortcut to this customer&apos;s thread in Podium Web Inbox.
+                  Optional shortcut to this customer&apos;s thread in Podium Web
+                  Inbox.
                 </p>
                 <input
                   type="url"
@@ -1920,7 +2028,9 @@ export default function CustomerRelationshipHubDrawer({
           {tab === "measurements" && (
             <div className="space-y-6">
               {vaultLoading ? (
-                <p className="text-sm text-app-text-muted">Loading measurements…</p>
+                <p className="text-sm text-app-text-muted">
+                  Loading measurements…
+                </p>
               ) : (
                 <>
                   <div ref={printRef} className="space-y-4">
@@ -1988,7 +2098,9 @@ export default function CustomerRelationshipHubDrawer({
                                   className="border-b border-app-border/50"
                                 >
                                   <td className="px-3 py-2 text-xs text-app-text-muted">
-                                    {new Date(row.measured_at).toLocaleDateString()}
+                                    {new Date(
+                                      row.measured_at,
+                                    ).toLocaleDateString()}
                                   </td>
                                   <td className="px-3 py-2 font-mono text-xs">
                                     {row.neck ?? "—"}
@@ -2045,7 +2157,9 @@ export default function CustomerRelationshipHubDrawer({
                     Duplicate review queue
                   </h3>
                   <p className="mb-3 text-xs text-violet-950/90">
-                    Search for the twin record to mark them as a potential duplicate pair for management review (merge stays a separate step).
+                    Search for the twin record to mark them as a potential
+                    duplicate pair for management review (merge stays a separate
+                    step).
                   </p>
                   <div className="mt-2">
                     <CustomerSearchInput
@@ -2064,7 +2178,9 @@ export default function CustomerRelationshipHubDrawer({
                   type="checkbox"
                   disabled={!canHubEdit}
                   checked={hub.is_vip}
-                  onChange={(e) => void patchCustomer({ is_vip: e.target.checked })}
+                  onChange={(e) =>
+                    void patchCustomer({ is_vip: e.target.checked })
+                  }
                 />
                 <Heart size={16} className="text-amber-500" aria-hidden />
                 VIP customer
@@ -2196,5 +2312,169 @@ export default function CustomerRelationshipHubDrawer({
         </div>
       )}
     </DetailDrawer>
+  );
+}
+
+interface VaultedMethod {
+  id: string;
+  stripe_payment_method_id: string;
+  brand: string;
+  last4: string;
+  exp_month: number;
+  exp_year: number;
+}
+
+function CustomerPaymentVaultSection({
+  customer,
+  baseUrl,
+  headers,
+}: {
+  customer: Customer;
+  baseUrl: string;
+  headers: Record<string, string> | (() => HeadersInit);
+}) {
+  const { toast } = useToast();
+  const [methods, setMethods] = useState<VaultedMethod[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showVaultModal, setShowVaultModal] = useState(false);
+
+  const fetchMethods = useCallback(
+    async (isRefresh = false) => {
+      if (isRefresh) setRefreshing(true);
+      else setLoading(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/payments/customers/${customer.id}/payment-methods`,
+          {
+            headers: mergedPosStaffHeaders(headers),
+          },
+        );
+        if (!res.ok) throw new Error("Failed to fetch payment methods");
+        const data = await res.json();
+        setMethods(data);
+      } catch (e) {
+        toast(e instanceof Error ? e.message : "Error loading cards", "error");
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [baseUrl, customer.id, headers, toast],
+  );
+
+  useEffect(() => {
+    void fetchMethods();
+  }, [fetchMethods]);
+
+  const handleDelete = async (pmId: string) => {
+    if (!confirm("Are you sure you want to remove this vaulted card?")) return;
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/payments/customers/${customer.id}/payment-methods/${pmId}`,
+        {
+          method: "DELETE",
+          headers: mergedPosStaffHeaders(headers),
+        },
+      );
+      if (!res.ok) throw new Error("Failed to delete card");
+      toast("Card removed successfully", "info");
+      void fetchMethods();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Error deleting card", "error");
+    }
+  };
+
+  return (
+    <div className="ui-card flex flex-col border-indigo-500/20 bg-indigo-500/5 p-6">
+      <div className="mb-4 flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <CreditCard className="text-indigo-600" />
+          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+            Payment Methods & Vault
+          </h3>
+        </div>
+        <button
+          onClick={() => void fetchMethods(true)}
+          disabled={refreshing}
+          className="rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 disabled:opacity-50"
+        >
+          <RefreshCw size={16} className={refreshing ? "animate-spin" : ""} />
+        </button>
+      </div>
+      <p className="mb-6 text-xs text-app-text-muted">
+        Securely process phone orders or manage vaulted payment methods for
+        future transactions.
+      </p>
+
+      <div className="space-y-4">
+        <button
+          onClick={() => setShowVaultModal(true)}
+          className="flex h-14 w-full items-center justify-center gap-3 rounded-2xl border-2 border-dashed border-app-accent bg-app-accent/10 text-xs font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent/20"
+        >
+          <div className="rounded-lg bg-emerald-500 p-2 text-white shadow-lg">
+            <Plus size={18} />
+          </div>
+          Vault New Card
+        </button>
+
+        {showVaultModal && (
+          <StripeVaultCardModal
+            customerId={customer.id}
+            baseUrl={baseUrl}
+            headers={headers}
+            onClose={() => setShowVaultModal(false)}
+            onSuccess={() => void fetchMethods()}
+          />
+        )}
+
+        {loading ? (
+          <div className="py-8 text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Loading vaulted methods…
+          </div>
+        ) : methods.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 rounded-2xl border border-app-border bg-app-surface/50 p-8 text-center">
+            <Shield className="text-app-text-muted opacity-25" size={32} />
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              No vaulted cards on file
+            </p>
+            <p className="max-w-[200px] text-[9px] text-app-text-muted/60">
+              Vaulted cards are managed securely via Stripe. Payments can be
+              authorized without the physical card present.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-2">
+            {methods.map((pm) => (
+              <div
+                key={pm.stripe_payment_method_id}
+                className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface p-3"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="rounded bg-app-bg px-2 py-1 text-[10px] font-bold text-app-text-muted">
+                    {pm.brand.toUpperCase()}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[11px] font-black tracking-widest">
+                      •••• •••• •••• {pm.last4}
+                    </span>
+                    <span className="text-[9px] font-bold text-app-text-muted">
+                      EXPIRES {pm.exp_month.toString().padStart(2, "0")}/
+                      {pm.exp_year}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => handleDelete(pm.stripe_payment_method_id)}
+                  className="rounded-lg p-2 text-rose-500 transition-colors hover:bg-rose-500/10"
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }

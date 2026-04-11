@@ -1,14 +1,15 @@
 //! Wedding API SQL: party list, members, activity, actions, ledger, appointments.
 
 use meilisearch_sdk::client::Client as MeilisearchClient;
-use sqlx::{PgPool, QueryBuilder};
 use rust_decimal::Decimal;
+use sqlx::{PgPool, QueryBuilder};
 use uuid::Uuid;
 
 use crate::logic::wedding_api_types::{
-    ActionRow, ActivityFeedRow, AppointmentRow, PartyListQuery, WeddingActions, WeddingLedgerLine,
-    WeddingLedgerResponse, WeddingLedgerSummary, WeddingMemberApi, WeddingMemberFinancialRow,
-    WeddingPartyFinancialContext, WeddingPartyRow, SuitSelectionStat, WeddingPartyAnalytics,
+    ActionRow, ActivityFeedRow, AppointmentRow, PartyListQuery, SuitSelectionStat, WeddingActions,
+    WeddingLedgerLine, WeddingLedgerResponse, WeddingLedgerSummary, WeddingMemberApi,
+    WeddingMemberFinancialRow, WeddingPartyAnalytics, WeddingPartyFinancialContext,
+    WeddingPartyRow,
 };
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 
@@ -608,7 +609,12 @@ pub async fn try_load_party_financial_context(
     .await?;
 
     let (profit, cost, rev, margin, free_marked, qual_count) = econ.unwrap_or((
-        Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, 0, 0
+        Decimal::ZERO,
+        Decimal::ZERO,
+        Decimal::ZERO,
+        Decimal::ZERO,
+        0,
+        0,
     ));
 
     // Common Suits
@@ -626,7 +632,7 @@ pub async fn try_load_party_financial_context(
           AND wm.suit_variant_id IS NOT NULL
         GROUP BY wm.suit_variant_id, p.name, pv.variation_label
         ORDER BY count DESC
-        "#
+        "#,
     )
     .bind(party_id)
     .fetch_all(pool)

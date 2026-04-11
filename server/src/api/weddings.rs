@@ -64,8 +64,8 @@ fn spawn_meilisearch_appointment_upsert(state: &AppState, appt_id: Uuid) {
 pub use crate::logic::wedding_api_types::{
     ActionRow, ActivityFeedRow, AppointmentRow, PaginatedParties, Pagination, PartyListQuery,
     WeddingActions, WeddingLedgerLine, WeddingLedgerResponse, WeddingLedgerSummary,
-    WeddingMemberApi, WeddingMemberFinancialRow, WeddingPartyFinancialContext, WeddingPartyRow,
-    WeddingPartyWithMembers, WeddingNonInventoryItem,
+    WeddingMemberApi, WeddingMemberFinancialRow, WeddingNonInventoryItem,
+    WeddingPartyFinancialContext, WeddingPartyRow, WeddingPartyWithMembers,
 };
 
 #[derive(Debug, Error)]
@@ -463,8 +463,14 @@ pub fn router() -> Router<AppState> {
         .route("/morning-compass", get(get_morning_compass))
         .route("/activity-feed", get(get_activity_feed))
         .route("/actions", get(get_actions))
-        .route("/non-inventory", get(list_non_inventory_items).post(create_non_inventory_item))
-        .route("/non-inventory/{id}", patch(update_non_inventory_item).delete(delete_non_inventory_item))
+        .route(
+            "/non-inventory",
+            get(list_non_inventory_items).post(create_non_inventory_item),
+        )
+        .route(
+            "/non-inventory/{id}",
+            patch(update_non_inventory_item).delete(delete_non_inventory_item),
+        )
         .route(
             "/appointments",
             get(list_appointments).post(create_appointment),
@@ -743,7 +749,8 @@ async fn update_party(
         has_updates = true;
     }
     if body.suit_variant_id.is_some() {
-        sep.push("suit_variant_id = ").push_bind(body.suit_variant_id);
+        sep.push("suit_variant_id = ")
+            .push_bind(body.suit_variant_id);
         has_updates = true;
     }
 
@@ -1624,7 +1631,10 @@ async fn create_non_inventory_item(
     .await?;
 
     let actor = resolve_actor(body.actor_name);
-    let desc = format!("Non-inventory item added: {} (qty {})", body.description, body.quantity);
+    let desc = format!(
+        "Non-inventory item added: {} (qty {})",
+        body.description, body.quantity
+    );
     if let Err(e) = wedding_logic::insert_wedding_activity(
         &state.db,
         body.wedding_party_id,
@@ -1634,16 +1644,20 @@ async fn create_non_inventory_item(
         &desc,
         json!({ "description": body.description, "quantity": body.quantity }),
     )
-    .await {
+    .await
+    {
         tracing::warn!(error = %e, "Wedding activity log failed");
     }
 
-    let item: WeddingNonInventoryItem = sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
-    
-    state.wedding_events.parties_updated(wedding_client_sender(&headers).as_deref());
+    let item: WeddingNonInventoryItem =
+        sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await?;
+
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
     Ok(Json(item))
 }
 
@@ -1652,9 +1666,11 @@ async fn list_non_inventory_items(
     headers: HeaderMap,
 ) -> Result<Json<Vec<WeddingNonInventoryItem>>, WeddingError> {
     require_weddings_view(&state, &headers).await?;
-    let rows = sqlx::query_as::<_, WeddingNonInventoryItem>("SELECT * FROM wedding_non_inventory_items ORDER BY created_at DESC")
-        .fetch_all(&state.db)
-        .await?;
+    let rows = sqlx::query_as::<_, WeddingNonInventoryItem>(
+        "SELECT * FROM wedding_non_inventory_items ORDER BY created_at DESC",
+    )
+    .fetch_all(&state.db)
+    .await?;
     Ok(Json(rows))
 }
 
@@ -1675,8 +1691,9 @@ async fn update_non_inventory_item(
     Json(body): Json<UpdateNonInventoryRequest>,
 ) -> Result<Json<WeddingNonInventoryItem>, WeddingError> {
     require_weddings_mutate(&state, &headers).await?;
-    
-    let mut qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new("UPDATE wedding_non_inventory_items SET ");
+
+    let mut qb: QueryBuilder<'_, sqlx::Postgres> =
+        QueryBuilder::new("UPDATE wedding_non_inventory_items SET ");
     let mut sep = qb.separated(", ");
     let mut has_updates = false;
 
@@ -1700,13 +1717,16 @@ async fn update_non_inventory_item(
     if has_updates {
         qb.push(" WHERE id = ").push_bind(id);
         qb.build().execute(&state.db).await?;
-        state.wedding_events.parties_updated(wedding_client_sender(&headers).as_deref());
+        state
+            .wedding_events
+            .parties_updated(wedding_client_sender(&headers).as_deref());
     }
 
-    let item: WeddingNonInventoryItem = sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
-        .bind(id)
-        .fetch_one(&state.db)
-        .await?;
+    let item: WeddingNonInventoryItem =
+        sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.db)
+            .await?;
     Ok(Json(item))
 }
 
@@ -1720,7 +1740,9 @@ async fn delete_non_inventory_item(
         .bind(id)
         .execute(&state.db)
         .await?;
-    state.wedding_events.parties_updated(wedding_client_sender(&headers).as_deref());
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -1733,26 +1755,31 @@ async fn post_attach_order(
     let mut tx = state.db.begin().await?;
 
     // 1. Validate Order and get Customer
-    let order_info: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
-        "SELECT customer_id, wedding_member_id FROM orders WHERE id = $1"
-    )
-    .bind(body.order_id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let order_info: Option<(Option<Uuid>, Option<Uuid>)> =
+        sqlx::query_as("SELECT customer_id, wedding_member_id FROM orders WHERE id = $1")
+            .bind(body.order_id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
-    let (customer_id, existing_member_id) = order_info.ok_or(WeddingError::BadRequest("Order not found".into()))?;
-    let customer_id = customer_id.ok_or(WeddingError::BadRequest("Order has no customer attached".into()))?;
-    
+    let (customer_id, existing_member_id) =
+        order_info.ok_or(WeddingError::BadRequest("Order not found".into()))?;
+    let customer_id = customer_id.ok_or(WeddingError::BadRequest(
+        "Order has no customer attached".into(),
+    ))?;
+
     if existing_member_id.is_some() {
-        return Err(WeddingError::BadRequest("Order is already attached to a wedding member".into()));
+        return Err(WeddingError::BadRequest(
+            "Order is already attached to a wedding member".into(),
+        ));
     }
 
     // 2. Resolve Party
     let party_id = if let Some(pid) = body.wedding_party_id {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wedding_parties WHERE id = $1)")
-            .bind(pid)
-            .fetch_one(&mut *tx)
-            .await?;
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wedding_parties WHERE id = $1)")
+                .bind(pid)
+                .fetch_one(&mut *tx)
+                .await?;
         if !exists {
             return Err(WeddingError::PartyNotFound);
         }
@@ -1761,14 +1788,28 @@ async fn post_attach_order(
         // Create new party
         let groom = new_party.groom_name.trim();
         if groom.is_empty() {
-            return Err(WeddingError::BadRequest("groom_name is required for new party".into()));
+            return Err(WeddingError::BadRequest(
+                "groom_name is required for new party".into(),
+            ));
         }
         let acc = new_party.accessories.unwrap_or_else(|| json!({}));
         let gp = new_party.groom_phone.as_deref().unwrap_or("");
         let bp = new_party.bride_phone.as_deref().unwrap_or("");
-        let gpc = if gp.is_empty() { None } else { Some(digits_only(gp)) };
-        let bpc = if bp.is_empty() { None } else { Some(digits_only(bp)) };
-        let party_type = new_party.party_type.as_deref().unwrap_or("Wedding").to_string();
+        let gpc = if gp.is_empty() {
+            None
+        } else {
+            Some(digits_only(gp))
+        };
+        let bpc = if bp.is_empty() {
+            None
+        } else {
+            Some(digits_only(bp))
+        };
+        let party_type = new_party
+            .party_type
+            .as_deref()
+            .unwrap_or("Wedding")
+            .to_string();
 
         let pid: Uuid = sqlx::query_scalar(
             r#"
@@ -1804,7 +1845,9 @@ async fn post_attach_order(
         .await?;
         pid
     } else {
-        return Err(WeddingError::BadRequest("Either wedding_party_id or new_party_info must be provided".into()));
+        return Err(WeddingError::BadRequest(
+            "Either wedding_party_id or new_party_info must be provided".into(),
+        ));
     };
 
     // 3. Create Member
@@ -1863,7 +1906,7 @@ async fn post_attach_order(
         UPDATE order_items 
         SET fulfillment = 'wedding_order'
         WHERE order_id = $1 AND fulfillment = 'special_order'
-        "#
+        "#,
     )
     .bind(body.order_id)
     .execute(&mut *tx)

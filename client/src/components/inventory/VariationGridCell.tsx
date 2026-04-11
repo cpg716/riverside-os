@@ -1,10 +1,10 @@
 import React, { useState } from "react";
 import { Globe, AlertTriangle } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import type { HubVariant } from "./VariationsWorkspace";
 
 export interface VariationCellProps {
-  variant: any; // Using any for brevity in this step, will type properly in Workspace
-  templateBaseRetail: string;
+  variant: HubVariant;
   isLowStock: boolean;
   isOutOfStock: boolean;
   hasPriceOverride: boolean;
@@ -17,7 +17,6 @@ export interface VariationCellProps {
 
 export const VariationGridCell: React.FC<VariationCellProps> = ({
   variant,
-  templateBaseRetail: _templateBaseRetail,
   isLowStock,
   isOutOfStock,
   hasPriceOverride,
@@ -57,12 +56,16 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
         isOutOfStock
           ? "border-app-danger/30 bg-app-danger/5 shadow-[inset_0_0_12px_-4px_rgba(239,68,68,0.2)]"
           : isLowStock
-          ? "border-app-warning/40 bg-app-warning/5 shadow-[inset_0_0_12px_-4px_rgba(245,158,11,0.15)]"
-          : "border-app-border bg-app-surface/50 hover:bg-app-surface"
+            ? "border-app-warning/40 bg-app-warning/5 shadow-[inset_0_0_12px_-4px_rgba(245,158,11,0.15)]"
+            : "border-app-border bg-app-surface/50 hover:bg-app-surface"
       } ${
-        flash === "success" ? "ring-2 ring-app-success ring-offset-2 ring-offset-app-bg" : ""
+        flash === "success"
+          ? "ring-2 ring-app-success ring-offset-2 ring-offset-app-bg"
+          : ""
       } ${
-        flash === "error" ? "ring-2 ring-app-danger ring-offset-2 ring-offset-app-bg" : ""
+        flash === "error"
+          ? "ring-2 ring-app-danger ring-offset-2 ring-offset-app-bg"
+          : ""
       }`}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -71,7 +74,10 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
       <div className="flex items-center justify-between">
         <button
           onClick={() => {
-            const p = prompt("New retail price override:", centsToFixed2(parseMoneyToCents(variant.effective_retail)));
+            const p = prompt(
+              "New retail price override:",
+              centsToFixed2(parseMoneyToCents(variant.effective_retail)),
+            );
             if (p === null) return;
             if (p.trim() === "") {
               onUpdatePrice(null);
@@ -87,18 +93,26 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
           ${centsToFixed2(parseMoneyToCents(variant.effective_retail))}
         </button>
         {variant.web_published && (
-            <Globe size={10} className="text-app-success" />
+          <Globe size={10} className="text-app-success" />
         )}
       </div>
 
       {/* Stock Display */}
       <div className="flex items-center gap-2">
-        <span className={`text-xl font-black tabular-nums tracking-tighter ${
-          isOutOfStock ? "text-app-danger" : isLowStock ? "text-app-warning" : "text-app-text"
-        }`}>
+        <span
+          className={`text-xl font-black tabular-nums tracking-tighter ${
+            isOutOfStock
+              ? "text-app-danger"
+              : isLowStock
+                ? "text-app-warning"
+                : "text-app-text"
+          }`}
+        >
           {variant.stock_on_hand}
         </span>
-        {isLowStock && <AlertTriangle size={12} className="text-app-warning animate-pulse" />}
+        {isLowStock && (
+          <AlertTriangle size={12} className="text-app-warning animate-pulse" />
+        )}
       </div>
 
       {/* Reorder Label */}
@@ -107,7 +121,9 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
       </span>
 
       {/* Progressive Disclosure: Actions & Inputs */}
-      <div className={`mt-1 flex flex-col gap-2 overflow-hidden transition-all duration-300 ${isHovered || isUpdating ? "max-h-32 opacity-100" : "max-h-0 opacity-0"}`}>
+      <div
+        className={`mt-1 flex flex-col gap-2 overflow-hidden transition-all duration-300 ${isHovered || isUpdating ? "max-h-32 opacity-100" : "max-h-0 opacity-0"}`}
+      >
         <div className="relative">
           <input
             type="text"
@@ -121,7 +137,7 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
           />
           {isUpdating && (
             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-app-bg/50 backdrop-blur-[1px]">
-               <div className="h-3 w-3 animate-spin rounded-full border-2 border-app-accent border-t-transparent" />
+              <div className="h-3 w-3 animate-spin rounded-full border-2 border-app-accent border-t-transparent" />
             </div>
           )}
         </div>
@@ -142,24 +158,28 @@ export const VariationGridCell: React.FC<VariationCellProps> = ({
         </div>
 
         <div className="flex items-center justify-between gap-1">
-            <label className="flex cursor-pointer items-center gap-1.5">
-                <input
-                    type="checkbox"
-                    checked={variant.track_low_stock}
-                    onChange={(e) => onUpdateTrackLow(e.target.checked)}
-                    className="h-3 w-3 rounded border-app-border"
-                />
-                <span className="text-[9px] font-bold uppercase text-app-text-muted">Track</span>
-            </label>
-            <label className="flex cursor-pointer items-center gap-1.5">
-                <input
-                    type="checkbox"
-                    checked={variant.web_published}
-                    onChange={(e) => onUpdateWeb(e.target.checked)}
-                    className="h-3 w-3 rounded border-app-border"
-                />
-                <span className="text-[9px] font-bold uppercase text-app-text-muted">Web</span>
-            </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={variant.track_low_stock}
+              onChange={(e) => onUpdateTrackLow(e.target.checked)}
+              className="h-3 w-3 rounded border-app-border"
+            />
+            <span className="text-[9px] font-bold uppercase text-app-text-muted">
+              Track
+            </span>
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={variant.web_published}
+              onChange={(e) => onUpdateWeb(e.target.checked)}
+              className="h-3 w-3 rounded border-app-border"
+            />
+            <span className="text-[9px] font-bold uppercase text-app-text-muted">
+              Web
+            </span>
+          </label>
         </div>
       </div>
     </div>

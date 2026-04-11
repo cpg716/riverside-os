@@ -75,9 +75,12 @@ export function sessionPollAuthHeaders(): Record<string, string> {
 }
 
 /** True when `GET /api/sessions/current` can authenticate (staff or open-register POS token). */
-export function hasRegisterSessionPollCredentials(h: Record<string, string>): boolean {
+export function hasRegisterSessionPollCredentials(
+  h: Record<string, string>,
+): boolean {
   return Boolean(
-    (h["x-riverside-staff-code"] ?? "").trim() || (h["x-riverside-pos-session-id"] ?? "").trim(),
+    (h["x-riverside-staff-code"] ?? "").trim() ||
+      (h["x-riverside-pos-session-id"] ?? "").trim(),
   );
 }
 
@@ -103,9 +106,9 @@ export function headersSafeForOfflinePersist(
 
 /** Merge Back Office staff headers with an open register session (POS token wins on key overlap; keys are disjoint today). */
 export function mergedPosStaffHeaders(
-  staffHeaders: () => HeadersInit,
+  staffHeaders: (() => HeadersInit) | Record<string, string>,
 ): Record<string, string> {
-  const sh = staffHeaders();
+  const sh = typeof staffHeaders === "function" ? staffHeaders() : staffHeaders;
   const base: Record<string, string> =
     typeof sh === "object" && sh !== null && !(sh instanceof Headers)
       ? { ...(sh as Record<string, string>) }

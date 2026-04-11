@@ -3,8 +3,8 @@
 //! Persists receipt configuration in `store_settings.receipt_config` (JSONB).
 
 use crate::logic::backups::{BackupFile, BackupManager, BackupSettings};
-use crate::logic::remote_access::{RemoteAccessManager, TailscaleStatus};
 use crate::logic::insights_config::StoreInsightsConfig;
+use crate::logic::remote_access::{RemoteAccessManager, TailscaleStatus};
 use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
@@ -1258,7 +1258,10 @@ pub fn router() -> Router<AppState> {
         )
         .route("/remote-access/status", get(get_remote_access_status))
         .route("/remote-access/connect", post(post_remote_access_connect))
-        .route("/remote-access/disconnect", post(post_remote_access_disconnect))
+        .route(
+            "/remote-access/disconnect",
+            post(post_remote_access_disconnect),
+        )
         .nest("/nuorder", build_nuorder_router())
 }
 

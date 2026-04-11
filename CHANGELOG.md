@@ -7,9 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.9] — 2026-04-11
 ### Added
+- **Stripe Power Integration**: Finalized the "Zero-Touch" PCI-compliant card vaulting flow and unlinked terminal credits. Staff can now save customer cards in the Relationship Hub for phone orders and issue credits directly back to cards when cart balances are negative.
 - **Wedding Party Order Integration**: Implemented "Attach to Wedding" functionality in `OrdersWorkspace` to allow manual linking of legacy Counterpoint tickets to wedding party members.
 - **Zero-Error Baseline Stabilization**: Achieved a 100% clean TypeScript build by resolving lingering type errors in `App.tsx`, `LoyaltyWorkspace.tsx`, and `CommissionManagerWorkspace.tsx`.
-- **Relationship Hub Gating**: Ensured all Customer Hub tabs (Orders, Profile, Measurements) correctly respect RBAC permissions.
+- **Relationship Hub Gating**: Ensured all Customer Hub tabs (Orders, Profile, Measurements, Payments) correctly respect RBAC permissions.
 
 ### Changed
 - **UI Spacing Refinement**: Adjusted spacing and density across Back Office workspaces for better consistency with the high-density CRM overhaul.

@@ -1,38 +1,68 @@
 import React, { useMemo, useState } from "react";
-import { Search, Globe, AlertTriangle, ChevronUp, ChevronDown, Check, Package, Activity, Info } from "lucide-react";
+import {
+  Search,
+  Globe,
+  AlertTriangle,
+  ChevronUp,
+  ChevronDown,
+  Check,
+  Package,
+  Activity,
+  Info,
+} from "lucide-react";
 import { List, RowComponentProps } from "react-window";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
+import type { HubVariant } from "./VariationsWorkspace";
+
+type VariantPatch =
+  | { quantity_delta: number }
+  | { web_published: boolean }
+  | { track_low_stock: boolean }
+  | { retail_price_override: string | null };
 
 export interface VariationsListProps {
-  variants: any[];
+  variants: HubVariant[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onSelectAll: () => void;
   onDeselectAll: () => void;
-  onUpdateVariant: (id: string, patch: any) => Promise<void>;
-  onShowMaintenance: (id: string, sku: string, type: "damaged" | "return_to_vendor") => void;
+  onUpdateVariant: (id: string, patch: VariantPatch) => Promise<void>;
+  onShowMaintenance: (
+    id: string,
+    sku: string,
+    type: "damaged" | "return_to_vendor",
+  ) => void;
 }
 
 const ROW_HEIGHT = 84;
 
 interface RowData {
-  variants: any[];
+  variants: HubVariant[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
-  onUpdateVariant: (id: string, patch: any) => Promise<void>;
-  onShowMaintenance: (id: string, sku: string, type: "damaged" | "return_to_vendor") => void;
+  onUpdateVariant: (id: string, patch: VariantPatch) => Promise<void>;
+  onShowMaintenance: (
+    id: string,
+    sku: string,
+    type: "damaged" | "return_to_vendor",
+  ) => void;
 }
 
-// Virtual Row Renderer for react-window 2.x
 const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
   const v = rowProps.variants[index];
   if (!v) return null;
+
   const isSelected = rowProps.selectedIds.has(v.id);
-  const stockColor = v.stock_on_hand <= 0 ? "text-red-500" : v.stock_on_hand <= (v.reorder_point ?? 0) ? "text-amber-500" : "text-emerald-500";
+  const stockColor =
+    v.stock_on_hand <= 0
+      ? "text-red-500"
+      : v.stock_on_hand <= (v.reorder_point ?? 0)
+        ? "text-amber-500"
+        : "text-emerald-500";
 
   return (
-    <div 
-      style={style} 
+    <div
+      style={style}
       className={`group flex items-center border-b border-app-border/20 px-5 transition-all duration-200 ${
         isSelected ? "bg-app-accent/[0.04] active" : "hover:bg-app-surface-2/60"
       }`}
@@ -40,12 +70,18 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
       <div className="w-14 shrink-0">
         <button
           onClick={() => rowProps.onToggleSelect(v.id)}
-          style={{ backgroundColor: isSelected ? 'var(--app-accent)' : 'transparent' }}
+          style={{
+            backgroundColor: isSelected ? "var(--app-accent)" : "transparent",
+          }}
           className={`flex h-5 w-5 items-center justify-center rounded-lg border-2 transition-all duration-300 ${
-            isSelected ? "border-app-accent shadow-lg" : "border-app-border/40 group-hover:border-app-accent/50 hover:bg-app-surface-2"
+            isSelected
+              ? "border-app-accent shadow-lg"
+              : "border-app-border/40 group-hover:border-app-accent/50 hover:bg-app-surface-2"
           }`}
         >
-          {isSelected && <Check size={12} strokeWidth={4} className="text-white" />}
+          {isSelected && (
+            <Check size={12} strokeWidth={4} className="text-white" />
+          )}
         </button>
       </div>
 
@@ -63,22 +99,30 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
       <div className="w-48 shrink-0">
         <div className="flex items-center gap-4">
           <div className="flex flex-col">
-            <span className={`text-xl font-black tabular-nums tracking-tighter ${stockColor}`}>
+            <span
+              className={`text-xl font-black tabular-nums tracking-tighter ${stockColor}`}
+            >
               {v.stock_on_hand}
             </span>
-            <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">Units</span>
+            <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
+              Units
+            </span>
           </div>
-          
+
           <div className="flex items-center gap-1 rounded-xl bg-app-surface-2/80 p-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
-            <button 
-              onClick={() => rowProps.onUpdateVariant(v.id, { quantity_delta: 1 })}
+            <button
+              onClick={() =>
+                void rowProps.onUpdateVariant(v.id, { quantity_delta: 1 })
+              }
               className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-emerald-500/10 hover:text-emerald-500 text-app-text-muted"
               title="Add 1 Unit"
             >
               <ChevronUp size={16} strokeWidth={3} />
             </button>
-            <button 
-              onClick={() => rowProps.onUpdateVariant(v.id, { quantity_delta: -1 })}
+            <button
+              onClick={() =>
+                void rowProps.onUpdateVariant(v.id, { quantity_delta: -1 })
+              }
               className="flex h-7 w-7 items-center justify-center rounded-lg hover:bg-red-500/10 hover:text-red-500 text-app-text-muted"
               title="Subtract 1 Unit"
             >
@@ -95,25 +139,37 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
               ${centsToFixed2(parseMoneyToCents(v.effective_retail))}
             </span>
             {v.retail_price_override && (
-              <div className="animate-pulse text-app-accent" title="Price Override Active">
+              <div
+                className="animate-pulse text-app-accent"
+                title="Price Override Active"
+              >
                 <Info size={10} />
               </div>
             )}
           </div>
-          <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">Retail</span>
+          <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
+            Retail
+          </span>
         </div>
       </div>
 
       <div className="w-28 shrink-0">
-        <button 
-          onClick={() => void rowProps.onUpdateVariant(v.id, { web_published: !v.web_published })}
+        <button
+          onClick={() =>
+            void rowProps.onUpdateVariant(v.id, {
+              web_published: !v.web_published,
+            })
+          }
           className={`flex items-center gap-2 rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-[0.11em] transition-all duration-300 ${
-            v.web_published 
-              ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" 
+            v.web_published
+              ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
               : "bg-app-surface-2 text-app-text-muted opacity-60"
           }`}
         >
-          <Globe size={14} className={v.web_published ? "text-emerald-500" : "opacity-40"} />
+          <Globe
+            size={14}
+            className={v.web_published ? "text-emerald-500" : "opacity-40"}
+          />
           <span>{v.web_published ? "Live" : "Draft"}</span>
         </button>
       </div>
@@ -127,7 +183,9 @@ const Row = ({ index, style, ...rowProps }: RowComponentProps<RowData>) => {
           Damage
         </button>
         <button
-          onClick={() => rowProps.onShowMaintenance(v.id, v.sku, "return_to_vendor")}
+          onClick={() =>
+            rowProps.onShowMaintenance(v.id, v.sku, "return_to_vendor")
+          }
           className="group/btn flex items-center gap-2 rounded-xl border border-app-accent/10 bg-app-accent/5 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-sm"
         >
           <Package size={14} />
@@ -148,48 +206,61 @@ export const VariationsList: React.FC<VariationsListProps> = ({
   onShowMaintenance,
 }) => {
   const [search, setSearch] = useState("");
-  const [sortField, setSortField] = useState<string>("sku");
+  const [sortField, setSortField] = useState<
+    "sku" | "stock_on_hand" | "effective_retail"
+  >("sku");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
 
   const filteredAndSorted = useMemo(() => {
-    let result = variants.filter(v => 
-        v.sku.toLowerCase().includes(search.toLowerCase()) ||
-        (v.variation_label || "").toLowerCase().includes(search.toLowerCase())
+    const needle = search.trim().toLowerCase();
+    const result = variants.filter(
+      (v) =>
+        v.sku.toLowerCase().includes(needle) ||
+        (v.variation_label || "").toLowerCase().includes(needle),
     );
 
     result.sort((a, b) => {
-        const valA = a[sortField] ?? "";
-        const valB = b[sortField] ?? "";
-        const mod = sortDir === "asc" ? 1 : -1;
-        if (typeof valA === "string") return valA.localeCompare(valB) * mod;
-        return (valA - valB) * mod;
+      const mod = sortDir === "asc" ? 1 : -1;
+
+      if (sortField === "sku") {
+        return a.sku.localeCompare(b.sku) * mod;
+      }
+
+      if (sortField === "stock_on_hand") {
+        return (a.stock_on_hand - b.stock_on_hand) * mod;
+      }
+
+      const priceA = parseMoneyToCents(a.effective_retail);
+      const priceB = parseMoneyToCents(b.effective_retail);
+      return (priceA - priceB) * mod;
     });
 
     return result;
   }, [variants, search, sortField, sortDir]);
 
-  const toggleSort = (field: string) => {
+  const toggleSort = (field: "sku" | "stock_on_hand" | "effective_retail") => {
     if (sortField === field) {
-        setSortDir(sortDir === "asc" ? "desc" : "asc");
-    } else {
-        setSortField(field);
-        setSortDir("asc");
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      return;
     }
+    setSortField(field);
+    setSortDir("asc");
   };
 
-  const isAllSelected = filteredAndSorted.length > 0 && filteredAndSorted.every(v => selectedIds.has(v.id));
+  const isAllSelected =
+    filteredAndSorted.length > 0 &&
+    filteredAndSorted.every((v) => selectedIds.has(v.id));
 
   const rowData: RowData = {
     variants: filteredAndSorted,
     selectedIds,
     onToggleSelect,
     onUpdateVariant,
-    onShowMaintenance
+    onShowMaintenance,
   };
 
   return (
     <div className="flex flex-col gap-4 animate-in fade-in duration-500 h-[640px]">
-      {/* Header Controls */}
       <div className="flex items-center gap-3 rounded-[24px] border border-app-border bg-app-surface/40 p-2 shadow-xl backdrop-blur-2xl ring-1 ring-white/10 shrink-0">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted opacity-50" />
@@ -203,53 +274,75 @@ export const VariationsList: React.FC<VariationsListProps> = ({
         </div>
         <div className="h-10 w-px bg-app-border/20" />
         <div className="flex items-center gap-3 px-4">
-            <div className="flex flex-col items-end">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">High-Density Matrix</span>
-                <span className="text-[13px] font-black text-app-text tabular-nums tracking-tighter">{filteredAndSorted.length} variants</span>
-            </div>
-            <Activity size={20} className="text-app-accent/40 animate-pulse" />
+          <div className="flex flex-col items-end">
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
+              High-Density Matrix
+            </span>
+            <span className="text-[13px] font-black text-app-text tabular-nums tracking-tighter">
+              {filteredAndSorted.length} variants
+            </span>
+          </div>
+          <Activity size={20} className="text-app-accent/40 animate-pulse" />
         </div>
       </div>
 
-      {/* Virtualized Variations HUD */}
       <div className="relative flex-1 overflow-hidden rounded-[32px] border border-app-border/50 bg-app-surface shadow-2xl ring-1 ring-black/5 flex flex-col">
-        {/* Fake Header for Alignment */}
         <div className="flex items-center bg-app-surface-2/90 backdrop-blur-xl border-b border-app-border/50 h-12 px-5 sticky top-0 z-20 shrink-0">
           <div className="w-14">
             <button
               onClick={isAllSelected ? onDeselectAll : onSelectAll}
-              style={{ backgroundColor: isAllSelected ? 'var(--app-accent)' : 'transparent' }}
+              style={{
+                backgroundColor: isAllSelected
+                  ? "var(--app-accent)"
+                  : "transparent",
+              }}
               className={`flex h-5 w-5 items-center justify-center rounded-lg border-2 transition-all duration-300 ${
-                isAllSelected ? "border-app-accent shadow-lg" : "border-app-border/50 hover:border-app-accent hover:bg-app-accent/5"
+                isAllSelected
+                  ? "border-app-accent shadow-lg"
+                  : "border-app-border/50 hover:border-app-accent hover:bg-app-accent/5"
               }`}
             >
-              {isAllSelected && <Check size={12} strokeWidth={4} className="text-white" />}
+              {isAllSelected && (
+                <Check size={12} strokeWidth={4} className="text-white" />
+              )}
             </button>
           </div>
-          <div className="flex-1 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted" onClick={() => toggleSort("sku")}>SKU / Variant</div>
-          <div className="w-48 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted" onClick={() => toggleSort("stock_on_hand")}>Units SOH</div>
-          <div className="w-32 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted text-right pr-4" onClick={() => toggleSort("retail")}>Retail</div>
-          <div className="w-28 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted" onClick={() => toggleSort("web_published")}>Web</div>
-          <div className="w-48 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">Operations</div>
+          <div
+            className="flex-1 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+            onClick={() => toggleSort("sku")}
+          >
+            SKU / Variant
+          </div>
+          <div
+            className="w-48 cursor-pointer font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+            onClick={() => toggleSort("stock_on_hand")}
+          >
+            Units SOH
+          </div>
+          <div
+            className="w-32 cursor-pointer pr-4 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted"
+            onClick={() => toggleSort("effective_retail")}
+          >
+            Retail
+          </div>
+          <div className="w-28 text-center font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">
+            Web
+          </div>
+          <div className="w-48 text-right font-black uppercase tracking-[0.2em] text-[10px] text-app-text-muted">
+            Actions
+          </div>
         </div>
 
-        <div className="flex-1 min-h-0 bg-app-surface">
-          {filteredAndSorted.length > 0 ? (
-            <List
-              rowCount={filteredAndSorted.length}
-              rowHeight={ROW_HEIGHT}
-              rowComponent={Row}
-              rowProps={rowData}
-              style={{ height: 576, width: "100%" }}
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center h-full text-app-text-muted/40">
-              <Package size={64} className="opacity-10 mb-4" />
-              <p className="text-sm font-black uppercase tracking-[0.2em]">No variants match filters</p>
-            </div>
-          )}
-        </div>
+        <List
+          rowComponent={Row}
+          rowCount={filteredAndSorted.length}
+          rowHeight={ROW_HEIGHT}
+          rowProps={rowData}
+          className="flex-1"
+        />
       </div>
     </div>
   );
 };
+
+export default VariationsList;

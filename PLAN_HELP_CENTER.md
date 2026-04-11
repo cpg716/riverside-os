@@ -146,3 +146,4 @@ Optional: after ship, one line in [AGENTS.md](AGENTS.md) / [README.md](README.md
 4. Wire `App.tsx` state and props to `Header` + `PosShell`; add `?` button.
 5. Register existing POS manual in manifest, reindex Meilisearch, verify images + search in both modes (Meili on/off).
 6. Write `docs/MANUAL_CREATION.md` (include Meili reindex step) and (optionally) README link.
+7. **COMPLETED:** Implement Help Center maintenance suite (orphan detection, Safety Net trashing, and 60-day auto-pruning) via `npm run generate:help:components:cleanup`.

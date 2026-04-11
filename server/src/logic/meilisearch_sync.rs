@@ -285,6 +285,28 @@ pub async fn upsert_customer_document(client: &Client, pool: &PgPool, customer_i
     }
 }
 
+pub async fn delete_customer_document(client: &Client, customer_id: Uuid) {
+    let index = client.index(INDEX_CUSTOMERS);
+    let _ = index.delete_document(customer_id.to_string()).await;
+}
+
+pub async fn spawn_meilisearch_customer_upsert(
+    client: &Client,
+    pool: &PgPool,
+    customer_id: Uuid,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    upsert_customer_document(client, pool, customer_id).await;
+    Ok(())
+}
+
+pub async fn spawn_meilisearch_customer_delete(
+    client: &Client,
+    customer_id: Uuid,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    delete_customer_document(client, customer_id).await;
+    Ok(())
+}
+
 pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party_id: Uuid) {
     #[derive(sqlx::FromRow)]
     struct Row {
@@ -907,14 +929,7 @@ pub async fn reindex_all_meilisearch(
         n_weddings += w_batch.len();
         index_w.add_documents(&w_batch, Some("id")).await?;
     }
-    record_sync_status(
-        pool,
-        INDEX_WEDDING_PARTIES,
-        true,
-        n_weddings as i64,
-        None,
-    )
-    .await;
+    record_sync_status(pool, INDEX_WEDDING_PARTIES, true, n_weddings as i64, None).await;
 
     // 5. Orders
     let index_o = client.index(INDEX_ORDERS);

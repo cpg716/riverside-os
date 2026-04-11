@@ -60,6 +60,52 @@ Typical areas (labels may group differently by build):
 - **Customers (CRM / hub):** **Operational SMS** (pickup / alterations) can be toggled separately from **marketing SMS** on the relationship hub and add-customer flows after migration **71** (see plan doc).
 - **Never** paste API keys or Podium/NuORDER secrets into chat or screenshots.
 
+## Help Center Manager
+
+**Purpose:** Manage in-app Help Center manuals, policy overrides, automation workflows, and help-search indexing from one place.
+
+**Where in ROS:** **Settings → Help Center Manager** (shown as **System & Health** section item).  
+**Permission required:** **help.manage** (admin by default).
+
+### Tabs and what they do
+
+- **Library** — browse bundled manuals, see hidden/override status, and inspect source paths.
+- **Editor** — update manual policy overrides:
+  - hide/unhide manual
+  - title/summary/order override
+  - markdown override (or revert to bundled markdown)
+  - required permission overrides
+  - register-session visibility override
+- **Automation** — run manual maintenance workflows that map to Help tooling:
+  - bulk scaffold / rescan component manuals
+  - optional orphan cleanup (for auto-scaffold manuals)
+  - dry-run and include-shadcn options
+  - command output (stdout/stderr) shown in panel
+- **Search & Index** — monitor help-search health and reindex help content for search parity.
+
+### Recommended admin workflow
+
+1. Choose a manual in **Library**.
+2. Apply policy/content changes in **Editor**.
+3. Run **Automation** after structural manual changes (new/renamed/manual scaffold-rescan-cleanup operations).
+4. Run **Search & Index → Reindex Help search** after meaningful text/heading updates.
+5. Validate results in the **operation log** and spot-check Help drawer behavior in POS/Back Office.
+
+### Quick-start checklist (daily use)
+
+- Open **Settings → Help Center Manager**.
+- Select the target guide in **Library** and verify it is not unintentionally hidden.
+- Make edits in **Editor** and click **Save**.
+- If you changed structure/metadata/scaffolding, run **Automation** (use **Dry run** first).
+- Run **Search & Index → Reindex Help search** for search parity.
+- Confirm success in **Operation logs** and quickly verify in Help drawer (POS + Back Office).
+
+### Safety notes
+
+- Prefer **Dry run** before scaffold/rescan/cleanup operations.
+- **Cleanup** only targets eligible auto-scaffold/orphan docs; curated manuals should remain untouched.
+- **Revert overrides** restores bundled defaults for the selected manual.
+
 ## Bug reports
 
 **Staff — how to send a report:** **[bug-reports-submit-manual.md](bug-reports-submit-manual.md)** (bug icon in header or POS; screenshot optional; rate limits; privacy).
@@ -84,6 +130,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 | Weather stopped | Key rotation | Weather doc |
 | 403 on General | Not **settings.admin** | Owner |
 | Missing **Online store** tab | No **online_store.manage** and not admin | Owner / **Staff → Team** (access) or template in **Settings → Staff access defaults** |
+| Missing **Help Center Manager** tab | No **help.manage** permission | Owner / admin updates role or individual access |
 
 ## When to get a manager
 
@@ -100,7 +147,8 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 - [../../REMOTE_ACCESS_GUIDE.md](../../REMOTE_ACCESS_GUIDE.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 - [../ONLINE_STORE.md](../ONLINE_STORE.md)
+- [../MANUAL_CREATION.md](../MANUAL_CREATION.md)
 - [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md)
 - [pos-settings.md](pos-settings.md)
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-04-11

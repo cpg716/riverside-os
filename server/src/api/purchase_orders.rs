@@ -296,7 +296,7 @@ async fn submit_po(
     // --- Wedding Manager Integration: Mark members as 'ordered' ---
     // Find all variants on this PO
     let variants: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT variant_id FROM purchase_order_lines WHERE purchase_order_id = $1"
+        "SELECT variant_id FROM purchase_order_lines WHERE purchase_order_id = $1",
     )
     .bind(po_id)
     .fetch_all(&state.db)
@@ -311,7 +311,7 @@ async fn submit_po(
                 suit_ordered = true
             WHERE suit_variant_id = ANY($1)
               AND status IN ('measured', 'pending')
-            "#
+            "#,
         )
         .bind(&variants)
         .execute(&state.db)

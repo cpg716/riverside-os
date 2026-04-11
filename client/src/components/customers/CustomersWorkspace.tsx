@@ -7,22 +7,21 @@ import React, {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { 
-  Gem, 
-  Search, 
-  Upload, 
-  Users, 
-  Wallet, 
-  Heart, 
-  CheckCircle2, 
-  Truck, 
-  ShoppingBag, 
-  MessageSquare as _MessageSquare,
+import {
+  Gem,
+  Search,
+  Upload,
+  Users,
+  Wallet,
+  Heart,
+  CheckCircle2,
+  Truck,
+  ShoppingBag,
   ChevronRight,
   UserPlus,
   Activity,
   Clock,
-  X as CloseIcon
+  X as CloseIcon,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
 import CustomerRelationshipHubDrawer from "./CustomerRelationshipHubDrawer";
@@ -34,7 +33,7 @@ import FloatingBulkBar from "../ui/FloatingBulkBar";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
- import _PromptModal from "../ui/PromptModal";
+
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { parseCsv } from "../../lib/parseCsv";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -199,7 +198,11 @@ export default function CustomersWorkspace({
         updated?: number;
         skipped?: number;
         email_conflicts?: number;
-        issues?: { row_index: number; customer_code: string | null; issue: string }[];
+        issues?: {
+          row_index: number;
+          customer_code: string | null;
+          issue: string;
+        }[];
       };
       if (!res.ok) {
         toast(body.error ?? `Import failed (${res.status})`, "error");
@@ -235,9 +238,12 @@ export default function CustomersWorkspace({
     if (!cid) return;
     void (async () => {
       try {
-        const res = await fetch(`${baseUrl}/api/customers/${encodeURIComponent(cid)}`, {
-          headers: apiAuth(),
-        });
+        const res = await fetch(
+          `${baseUrl}/api/customers/${encodeURIComponent(cid)}`,
+          {
+            headers: apiAuth(),
+          },
+        );
         if (!res.ok) {
           onMessagingFocusConsumed?.();
           return;
@@ -288,9 +294,8 @@ export default function CustomersWorkspace({
   const [loadingMore, setLoadingMore] = useState(false);
   const [_weddingPartyQuery, _setWeddingPartyQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [pipelineStats, setPipelineStats] = useState<CustomerPipelineStats | null>(
-    null,
-  );
+  const [pipelineStats, setPipelineStats] =
+    useState<CustomerPipelineStats | null>(null);
   const [picked, setPicked] = useState<Customer | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [_tableFocus, _setTableFocus] = useState(false);
@@ -319,10 +324,11 @@ export default function CustomersWorkspace({
   const [mergePreviewLoading, setMergePreviewLoading] = useState(false);
 
   useShellBackdropLayer(mergeOpen);
-  const { dialogRef: mergeDialogRef, titleId: mergeTitleId } = useDialogAccessibility(mergeOpen, {
-    onEscape: () => setMergeOpen(false),
-    closeOnEscape: !mergeBusy,
-  });
+  const { dialogRef: mergeDialogRef, titleId: mergeTitleId } =
+    useDialogAccessibility(mergeOpen, {
+      onEscape: () => setMergeOpen(false),
+      closeOnEscape: !mergeBusy,
+    });
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(_q.trim()), 280);
@@ -433,11 +439,6 @@ export default function CustomersWorkspace({
     void loadFirstPage(true);
   }, [browseFiltersKey, loadFirstPage]);
 
-  const refresh = useCallback(() => {
-    void loadFirstPage(false);
-    void fetchPipelineStats();
-  }, [loadFirstPage]);
-
   const fetchPipelineStats = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/api/customers/pipeline-stats`, {
@@ -450,6 +451,11 @@ export default function CustomersWorkspace({
       /* ignore */
     }
   }, [apiAuth]);
+
+  const refresh = useCallback(() => {
+    void loadFirstPage(false);
+    void fetchPipelineStats();
+  }, [loadFirstPage, fetchPipelineStats]);
 
   useEffect(() => {
     void fetchPipelineStats();
@@ -517,17 +523,17 @@ export default function CustomersWorkspace({
         continue;
       }
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      if (
-        res.status === 400 &&
-        body.error?.includes("already a member")
-      ) {
+      if (res.status === 400 && body.error?.includes("already a member")) {
         dup += 1;
       } else {
         fail += 1;
       }
     }
-    
-    toast(`Successfully added ${ok} customers. (Skipped: ${dup}, Failed: ${fail})`, ok > 0 ? "success" : "error");
+
+    toast(
+      `Successfully added ${ok} customers. (Skipped: ${dup}, Failed: ${fail})`,
+      ok > 0 ? "success" : "error",
+    );
     setSelected(new Set());
     void refresh();
     onOpenWeddingParty(partyId);
@@ -548,7 +554,10 @@ export default function CustomersWorkspace({
       toast(err.error ?? "VIP update failed", "error");
       return;
     }
-    toast(`${ids.length} customers updated to ${isVip ? 'VIP' : 'Regular'}`, "success");
+    toast(
+      `${ids.length} customers updated to ${isVip ? "VIP" : "Regular"}`,
+      "success",
+    );
     setSelected(new Set());
     void refresh();
   };
@@ -771,9 +780,7 @@ export default function CustomersWorkspace({
       );
     }
     return (
-      <ShipmentsHubSection
-        onOpenOrderInBackoffice={onOpenOrderInBackoffice}
-      />
+      <ShipmentsHubSection onOpenOrderInBackoffice={onOpenOrderInBackoffice} />
     );
   }
 
@@ -837,18 +844,55 @@ export default function CustomersWorkspace({
         {/* Pipeline Strip */}
         <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
           {[
-            { label: "Total CRM", count: pipelineStats?.total_customers, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20" },
-            { label: "VIP Premium", count: pipelineStats?.vip_customers, icon: Gem, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20" },
-            { label: "Balance Recovery", count: pipelineStats?.with_balance, icon: Wallet, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
-            { label: "Occasions (30d)", count: pipelineStats?.upcoming_weddings, icon: Heart, color: "text-pink-500", bg: "bg-pink-500/10", border: "border-pink-500/20" },
+            {
+              label: "Total CRM",
+              count: pipelineStats?.total_customers,
+              icon: Users,
+              color: "text-blue-500",
+              bg: "bg-blue-500/10",
+              border: "border-blue-500/20",
+            },
+            {
+              label: "VIP Premium",
+              count: pipelineStats?.vip_customers,
+              icon: Gem,
+              color: "text-amber-500",
+              bg: "bg-amber-500/10",
+              border: "border-amber-500/20",
+            },
+            {
+              label: "Balance Recovery",
+              count: pipelineStats?.with_balance,
+              icon: Wallet,
+              color: "text-rose-500",
+              bg: "bg-rose-500/10",
+              border: "border-rose-500/20",
+            },
+            {
+              label: "Occasions (30d)",
+              count: pipelineStats?.upcoming_weddings,
+              icon: Heart,
+              color: "text-pink-500",
+              bg: "bg-pink-500/10",
+              border: "border-pink-500/20",
+            },
           ].map((stat, i) => (
-            <div key={i} className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} ${stat.bg} p-4 shadow-sm backdrop-blur-md`}>
-              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/50 shadow-sm dark:bg-black/20`}>
+            <div
+              key={i}
+              className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} ${stat.bg} p-4 shadow-sm backdrop-blur-md`}
+            >
+              <div
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/50 shadow-sm dark:bg-black/20`}
+              >
                 <stat.icon size={24} className={stat.color} />
               </div>
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">{stat.label}</p>
-                <p className="text-2xl font-black tabular-nums text-app-text">{stat.count ?? "—"}</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">
+                  {stat.label}
+                </p>
+                <p className="text-2xl font-black tabular-nums text-app-text">
+                  {stat.count ?? "—"}
+                </p>
               </div>
             </div>
           ))}
@@ -859,7 +903,10 @@ export default function CustomersWorkspace({
             {/* Toolbar */}
             <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2/30 px-5 py-4 backdrop-blur-xl">
               <div className="relative group min-w-[300px] flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
+                <Search
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors"
+                  size={16}
+                />
                 <input
                   value={_q}
                   onChange={(e) => _setQ(e.target.value)}
@@ -867,7 +914,7 @@ export default function CustomersWorkspace({
                   className="ui-input w-full pl-10 text-sm font-bold bg-white/50 backdrop-blur-sm border-app-border focus:border-app-accent shadow-sm"
                 />
               </div>
-              
+
               <div className="flex items-center gap-2">
                 <div className="relative group w-64">
                   {_weddingPartyQuery ? (
@@ -886,11 +933,13 @@ export default function CustomersWorkspace({
                   ) : (
                     <WeddingPartySearchInput
                       placeholder="Filter by party…"
-                       onSelect={(p) => _setWeddingPartyQuery(p.party_name || p.groom_name)}
+                      onSelect={(p) =>
+                        _setWeddingPartyQuery(p.party_name || p.groom_name)
+                      }
                     />
                   )}
                 </div>
-                
+
                 <button
                   type="button"
                   onClick={() => setShowAddDrawer(true)}
@@ -899,7 +948,7 @@ export default function CustomersWorkspace({
                   <UserPlus size={16} />
                   Add Customer
                 </button>
-                
+
                 <button
                   type="button"
                   onClick={onPickImportFile}
@@ -929,13 +978,30 @@ export default function CustomersWorkspace({
             {/* Filter Row */}
             <div className="flex shrink-0 items-center justify-between border-b border-app-border/50 bg-app-surface/40 px-5 py-2.5 backdrop-blur-sm">
               <div className="flex flex-wrap items-center gap-3">
-                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">Quick Filters</span>
-                {filterChip(vipOnly, "VIP only", () => setVipOnly((v) => !v), () => setVipOnly(false))}
-                {filterChip(balanceDueOnly, "Balance due", () => setBalanceDueOnly((v) => !v), () => setBalanceDueOnly(false))}
-                {filterChip(weddingSoonOnly, "Upcoming Wedding", () => setWeddingSoonOnly((v) => !v), () => setWeddingSoonOnly(false))}
-                
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">
+                  Quick Filters
+                </span>
+                {filterChip(
+                  vipOnly,
+                  "VIP only",
+                  () => setVipOnly((v) => !v),
+                  () => setVipOnly(false),
+                )}
+                {filterChip(
+                  balanceDueOnly,
+                  "Balance due",
+                  () => setBalanceDueOnly((v) => !v),
+                  () => setBalanceDueOnly(false),
+                )}
+                {filterChip(
+                  weddingSoonOnly,
+                  "Upcoming Wedding",
+                  () => setWeddingSoonOnly((v) => !v),
+                  () => setWeddingSoonOnly(false),
+                )}
+
                 <div className="h-4 w-[1px] bg-app-border/40 mx-2" />
-                
+
                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-80">
                   Segment
                   <select
@@ -945,7 +1011,9 @@ export default function CustomersWorkspace({
                   >
                     <option value="">All Groups</option>
                     {customerGroups.map((g) => (
-                      <option key={g.id} value={g.code}>{g.label}</option>
+                      <option key={g.id} value={g.code}>
+                        {g.label}
+                      </option>
                     ))}
                   </select>
                 </label>
@@ -960,7 +1028,7 @@ export default function CustomersWorkspace({
               tabIndex={0}
               role="region"
               aria-label="Customer CRM Grid"
-               onFocus={() => _setTableFocus(true)}
+              onFocus={() => _setTableFocus(true)}
               onBlur={() => _setTableFocus(false)}
               onKeyDown={onTableKeyDown}
               className="ui-table-shell min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto outline-none"
@@ -971,23 +1039,40 @@ export default function CustomersWorkspace({
                     <th className="w-12 px-5 py-4 border-b border-app-border">
                       <input
                         type="checkbox"
-                        checked={rows.length > 0 && selected.size === rows.length}
+                        checked={
+                          rows.length > 0 && selected.size === rows.length
+                        }
                         onChange={toggleSelectAll}
                         className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
                       />
                     </th>
-                    <th className="px-5 py-4 border-b border-app-border">Customer & ID</th>
-                    <th className="px-5 py-4 border-b border-app-border">Contact Details</th>
-                    <th className="px-5 py-4 border-b border-app-border text-right">Open Balance</th>
-                    <th className="px-5 py-4 border-b border-app-border text-right">Lifetime Sales</th>
-                    <th className="px-5 py-4 border-b border-app-border text-center">Wedding Party</th>
-                    <th className="px-5 py-4 border-b border-app-border text-center">Stats</th>
-                    <th className="w-16 px-5 py-4 border-b border-app-border text-center">VIP</th>
+                    <th className="px-5 py-4 border-b border-app-border">
+                      Customer & ID
+                    </th>
+                    <th className="px-5 py-4 border-b border-app-border">
+                      Contact Details
+                    </th>
+                    <th className="px-5 py-4 border-b border-app-border text-right">
+                      Open Balance
+                    </th>
+                    <th className="px-5 py-4 border-b border-app-border text-right">
+                      Lifetime Sales
+                    </th>
+                    <th className="px-5 py-4 border-b border-app-border text-center">
+                      Wedding Party
+                    </th>
+                    <th className="px-5 py-4 border-b border-app-border text-center">
+                      Stats
+                    </th>
+                    <th className="w-16 px-5 py-4 border-b border-app-border text-center">
+                      VIP
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-app-border/30">
                   {rows.map((r) => {
-                    const hasBalance = parseMoneyToCents(r.open_balance_due) > 0;
+                    const hasBalance =
+                      parseMoneyToCents(r.open_balance_due) > 0;
                     return (
                       <tr
                         key={r.id}
@@ -1031,7 +1116,12 @@ export default function CustomersWorkspace({
                         <td className="px-5 py-4 align-middle">
                           <div className="flex flex-col">
                             <span className="text-xs font-bold text-app-text/90 flex items-center gap-1.5">
-                              {r.phone || <CheckCircle2 size={12} className="opacity-10" />}
+                              {r.phone || (
+                                <CheckCircle2
+                                  size={12}
+                                  className="opacity-10"
+                                />
+                              )}
                               {r.phone}
                             </span>
                             <span className="text-[10px] font-medium text-app-text-muted/70 lowercase tracking-tight">
@@ -1040,7 +1130,9 @@ export default function CustomersWorkspace({
                           </div>
                         </td>
                         <td className="px-5 py-4 align-middle text-right">
-                          <div className={`font-mono text-sm font-black tabular-nums transition-colors ${hasBalance ? "text-rose-600 dark:text-rose-400" : "text-app-text-muted/40"}`}>
+                          <div
+                            className={`font-mono text-sm font-black tabular-nums transition-colors ${hasBalance ? "text-rose-600 dark:text-rose-400" : "text-app-text-muted/40"}`}
+                          >
                             {moneyDec(r.open_balance_due)}
                           </div>
                           <div className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">
@@ -1059,7 +1151,10 @@ export default function CustomersWorkspace({
                           {r.wedding_active ? (
                             <button
                               type="button"
-                              onClick={() => r.wedding_party_id && onOpenWeddingParty(r.wedding_party_id)}
+                              onClick={() =>
+                                r.wedding_party_id &&
+                                onOpenWeddingParty(r.wedding_party_id)
+                              }
                               className="inline-flex items-center gap-2 rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/20 transition-all shadow-sm active:scale-95"
                             >
                               <Heart size={10} fill="currentColor" />
@@ -1077,22 +1172,26 @@ export default function CustomersWorkspace({
                         <td className="px-5 py-4 align-middle text-center">
                           <div className="flex items-center justify-center gap-3">
                             <div className="flex flex-col items-center group/ord">
-                              <ShoppingBag 
-                                size={14} 
-                                className={`transition-colors ${r.open_orders_count > 0 ? "text-app-accent" : "text-app-text-muted/20"}`} 
+                              <ShoppingBag
+                                size={14}
+                                className={`transition-colors ${r.open_orders_count > 0 ? "text-app-accent" : "text-app-text-muted/20"}`}
                               />
                               <span className="text-[9px] font-black tabular-nums opacity-60">
-                                {r.open_orders_count > 0 ? r.open_orders_count : 0}
+                                {r.open_orders_count > 0
+                                  ? r.open_orders_count
+                                  : 0}
                               </span>
                             </div>
                             <div className="h-6 w-[1px] bg-app-border/20" />
                             <div className="flex flex-col items-center">
-                              <Truck 
-                                size={14} 
+                              <Truck
+                                size={14}
                                 className={`transition-colors ${r.active_shipment_status ? "text-blue-500" : "text-app-text-muted/20"}`}
                               />
                               <span className="text-[9px] font-black uppercase tracking-tighter opacity-60">
-                                {r.active_shipment_status ? r.active_shipment_status.replace(/_/g, " ") : "Ship"}
+                                {r.active_shipment_status
+                                  ? r.active_shipment_status.replace(/_/g, " ")
+                                  : "Ship"}
                               </span>
                             </div>
                           </div>
@@ -1101,7 +1200,10 @@ export default function CustomersWorkspace({
                           {r.is_vip ? (
                             <div className="flex items-center justify-center">
                               <div className="relative">
-                                <Gem size={20} className="text-amber-500 drop-shadow-sm animate-pulse" />
+                                <Gem
+                                  size={20}
+                                  className="text-amber-500 drop-shadow-sm animate-pulse"
+                                />
                                 <div className="absolute inset-0 bg-amber-500/20 blur-lg rounded-full" />
                               </div>
                             </div>
@@ -1114,7 +1216,7 @@ export default function CustomersWorkspace({
                   })}
                 </tbody>
               </table>
-              
+
               {hasMore && (
                 <div className="flex flex-col items-center justify-center border-t border-app-border/50 py-8 bg-app-surface-2/10">
                   <button
@@ -1124,45 +1226,59 @@ export default function CustomersWorkspace({
                     className="group relative flex items-center gap-3 rounded-2xl bg-app-surface border border-app-border px-8 py-3 text-xs font-black uppercase tracking-[0.2em] text-app-text shadow-lg transition-all hover:-translate-y-1 active:translate-y-0"
                   >
                     {loadingMore ? "Synchronizing..." : "Load more records"}
-                    <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                    <ChevronRight
+                      size={16}
+                      className="group-hover:translate-x-1 transition-transform"
+                    />
                   </button>
                   <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-app-text-muted/60">
-                    Showing {rows.length} of {pipelineStats?.total_customers ?? "thousands"}
+                    Showing {rows.length} of{" "}
+                    {pipelineStats?.total_customers ?? "thousands"}
                   </p>
                 </div>
               )}
-              
+
               {!loading && rows.length === 0 && (
                 <div className="flex flex-col items-center justify-center p-20 text-center">
                   <div className="mb-4 rounded-3xl bg-app-surface-2 p-6 border border-dashed border-app-border">
-                    <Users size={48} className="text-app-text-muted opacity-20" />
+                    <Users
+                      size={48}
+                      className="text-app-text-muted opacity-20"
+                    />
                   </div>
-                  <h3 className="text-lg font-black text-app-text">No matches found</h3>
+                  <h3 className="text-lg font-black text-app-text">
+                    No matches found
+                  </h3>
                   <p className="text-sm text-app-text-muted max-w-xs mx-auto">
-                    Try adjusting your filters or search terms for a broader overview of the CRM.
+                    Try adjusting your filters or search terms for a broader
+                    overview of the CRM.
                   </p>
                 </div>
               )}
             </div>
           </div>
-          
+
           <div className="mt-4 flex items-center justify-between px-2 shrink-0">
-             <div className="flex items-center gap-6">
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Live Sync Enabled</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="h-2 w-2 rounded-full bg-app-accent shadow-sm shadow-app-accent/50" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">High Density Grid</span>
-                </div>
-             </div>
-             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted/40">
-               Riverside OS CRM — Performance-First Architecture
-             </p>
+            <div className="flex items-center gap-6">
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Live Sync Enabled
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full bg-app-accent shadow-sm shadow-app-accent/50" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  High Density Grid
+                </span>
+              </div>
+            </div>
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted/40">
+              Riverside OS CRM — Performance-First Architecture
+            </p>
           </div>
         </div>
-   </div>
+      </div>
 
       <FloatingBulkBar
         count={selected.size}
@@ -1243,17 +1359,22 @@ export default function CustomersWorkspace({
             onClick={(e) => e.stopPropagation()}
           >
             <div className="ui-modal-header">
-              <h3 id={mergeTitleId} className="text-lg font-black uppercase tracking-tight text-app-text">
+              <h3
+                id={mergeTitleId}
+                className="text-lg font-black uppercase tracking-tight text-app-text"
+              >
                 Merge customers
               </h3>
             </div>
             <div className="space-y-4 p-5 text-sm text-app-text">
               <p className="text-xs text-app-text-muted">
-                The master record is kept; the other is removed after re-pointing
-                orders and wedding links. This cannot be undone.
+                The master record is kept; the other is removed after
+                re-pointing orders and wedding links. This cannot be undone.
               </p>
               {mergePreviewLoading ? (
-                <p className="text-xs text-app-text-muted">Loading impact preview…</p>
+                <p className="text-xs text-app-text-muted">
+                  Loading impact preview…
+                </p>
               ) : mergePreview ? (
                 <div className="rounded-xl border border-app-border bg-app-surface-2 p-3 text-xs text-app-text">
                   <p className="mb-2 font-black uppercase tracking-widest text-app-text-muted">
@@ -1265,9 +1386,15 @@ export default function CustomersWorkspace({
                     <li>Appointments: {mergePreview.wedding_appointments}</li>
                     <li>Gift cards: {mergePreview.gift_cards}</li>
                     <li>Timeline notes: {mergePreview.timeline_notes}</li>
-                    <li>Group memberships: {mergePreview.customer_group_memberships}</li>
+                    <li>
+                      Group memberships:{" "}
+                      {mergePreview.customer_group_memberships}
+                    </li>
                     <li>Alterations: {mergePreview.alteration_orders}</li>
-                    <li>Loyalty pts (slave): {mergePreview.loyalty_points_on_slave}</li>
+                    <li>
+                      Loyalty pts (slave):{" "}
+                      {mergePreview.loyalty_points_on_slave}
+                    </li>
                     <li className="sm:col-span-2">
                       Store credit (slave):{" "}
                       {mergePreview.store_credit_balance_on_slave ?? "—"}
@@ -1365,10 +1492,10 @@ export default function CustomersWorkspace({
                 Bulk Wedding Assignment
               </h2>
             </div>
-            
+
             <p className="mb-6 text-xs text-app-text-muted">
-              Select the wedding party to assign these **{selected.size}** customers to. 
-              Searching by groom name or party tag is recommended.
+              Select the wedding party to assign these **{selected.size}**
+              customers to. Searching by groom name or party tag is recommended.
             </p>
 
             <div className="space-y-4">
@@ -1553,7 +1680,8 @@ function AddCustomerDrawer({
         : "",
   };
 
-  const identityValid = !errors.first_name && !errors.last_name && !errors.phone;
+  const identityValid =
+    !errors.first_name && !errors.last_name && !errors.phone;
   const formValid =
     identityValid &&
     !errors.email &&
@@ -1647,7 +1775,10 @@ function AddCustomerDrawer({
     return () => document.removeEventListener("keydown", onKey, true);
   }, [emailPromptOpen]);
 
-  const submitToApi = async (resolvedEmail: string, skipEmailPrompt = false) => {
+  const submitToApi = async (
+    resolvedEmail: string,
+    skipEmailPrompt = false,
+  ) => {
     setTouched({
       first_name: true,
       last_name: true,
@@ -1671,7 +1802,8 @@ function AddCustomerDrawer({
       const primaryPhone = form.phone.trim();
       const phoneLine2 = form.phone_secondary.trim();
       const phonePrimaryLabel = form.phone_primary_label.trim() || "Primary";
-      const phoneSecondaryLabel = form.phone_secondary_label.trim() || "Secondary";
+      const phoneSecondaryLabel =
+        form.phone_secondary_label.trim() || "Secondary";
       const combinedPhone = phoneLine2
         ? `${phonePrimaryLabel}: ${primaryPhone} | ${phoneSecondaryLabel}: ${phoneLine2}`
         : `${phonePrimaryLabel}: ${primaryPhone}`;
@@ -1712,7 +1844,10 @@ function AddCustomerDrawer({
         const b = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(b.error ?? "Failed to create customer");
       }
-      const created = (await res.json()) as { id: string; customer_code?: string };
+      const created = (await res.json()) as {
+        id: string;
+        customer_code?: string;
+      };
       if (created.customer_code) {
         toast(`Customer created — code ${created.customer_code}`, "success");
       }
@@ -1826,7 +1961,9 @@ function AddCustomerDrawer({
                       key={c.id}
                       className="rounded-lg border border-amber-200/80 bg-app-surface/90 px-2 py-1.5 dark:border-amber-800/50 dark:bg-app-surface-2/80"
                     >
-                      <span className="font-mono font-bold">{c.customer_code}</span>
+                      <span className="font-mono font-bold">
+                        {c.customer_code}
+                      </span>
                       {" — "}
                       {[c.first_name, c.last_name].filter(Boolean).join(" ") ||
                         "(no name)"}
@@ -1844,8 +1981,9 @@ function AddCustomerDrawer({
               )}
               {!dupLoading && dupCandidates.length > 0 ? (
                 <p className="mt-2 text-[10px] font-semibold text-amber-900">
-                  Open an existing profile in Customers if this is the same person;
-                  merge tools live under customer admin when you have access.
+                  Open an existing profile in Customers if this is the same
+                  person; merge tools live under customer admin when you have
+                  access.
                 </p>
               ) : null}
             </div>
@@ -1924,7 +2062,9 @@ function AddCustomerDrawer({
                     type="tel"
                     value={form.phone}
                     onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
-                    onChange={(e) => set("phone", formatPhoneInput(e.target.value))}
+                    onChange={(e) =>
+                      set("phone", formatPhoneInput(e.target.value))
+                    }
                     className="ui-input w-full text-sm"
                     placeholder="(555) 000-0000"
                   />
@@ -2088,7 +2228,9 @@ function AddCustomerDrawer({
                     Custom field {n}
                     <input
                       value={
-                        form[`custom_field_${n}` as keyof AddCustomerForm] as string
+                        form[
+                          `custom_field_${n}` as keyof AddCustomerForm
+                        ] as string
                       }
                       onChange={(e) =>
                         set(
@@ -2193,7 +2335,8 @@ function AddCustomerDrawer({
                     Did you ask for their email?
                   </h3>
                   <p className="text-sm text-app-text-muted">
-                    Email is optional, but recommended for receipts and reminders.
+                    Email is optional, but recommended for receipts and
+                    reminders.
                   </p>
                 </div>
                 <div className="ui-modal-body">

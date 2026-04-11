@@ -216,6 +216,18 @@ export const REPORTS_CATALOG: ReportDef[] = [
     usesBasis: false,
     buildPath: () => `/api/insights/wedding-saved-views`,
   },
+  {
+    id: "merchant_activity",
+    title: "Merchant activity",
+    description: "Daily Stripe volume (Gross), Merchant Fees, and Net settlement values for bank reconciliation.",
+    adminOnly: false,
+    permissionsAll: ["insights.view"],
+    responseKind: "rows",
+    usesGlobalDateRange: true,
+    usesBasis: false,
+    buildPath: ({ fromYmd, toYmd }) =>
+      `/api/insights/merchant-activity?from=${enc(fromYmd)}&to=${enc(toYmd)}`,
+  },
 ];
 
 export function reportVisible(

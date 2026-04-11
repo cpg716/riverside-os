@@ -1,5 +1,41 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useMemo } from "react";
-import { Database, Trash2, Download, Play, RefreshCw, CheckCircle2, History, Gauge, Cloud, Printer, FileText, Settings as SettingsIcon, Info, User, ClipboardList, MessageSquare, BarChart3, CreditCard, ArrowUpRight, ShoppingBag, Search, BookOpen, Monitor, Shield, Star, Bug, Save, Link } from "lucide-react";
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+} from "react";
+import {
+  Database,
+  Trash2,
+  Download,
+  Play,
+  RefreshCw,
+  CheckCircle2,
+  History,
+  Gauge,
+  Cloud,
+  Printer,
+  FileText,
+  Settings as SettingsIcon,
+  Info,
+  User,
+  ClipboardList,
+  MessageSquare,
+  BarChart3,
+  CreditCard,
+  ArrowUpRight,
+  ShoppingBag,
+  Search,
+  BookOpen,
+  Monitor,
+  Shield,
+  Star,
+  Bug,
+  Save,
+  Link,
+} from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
@@ -54,18 +90,12 @@ interface BackupFile {
   created_at: string;
 }
 
-
-
-
-
 type ThemeMode = "light" | "dark" | "system";
 
 interface DbStats {
   database_size: string;
   table_count: number;
 }
-
-
 
 interface SettingsWorkspaceProps {
   themeMode: ThemeMode;
@@ -88,7 +118,7 @@ export default function SettingsWorkspace({
 
   // Navigation
   const [activeTab, setActiveTab] = useState("backups");
-  
+
   // Settings State
   const [cfg, setCfg] = useState<ReceiptConfig | null>(null);
   const [backupCfg, setBackupCfg] = useState<BackupSettings | null>(null);
@@ -100,11 +130,19 @@ export default function SettingsWorkspace({
   const [stats, setStats] = useState<DbStats | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [optimizeBusy, setOptimizeBusy] = useState(false);
-  const [restoreConfirmFile, setRestoreConfirmFile] = useState<string | null>(null);
-  const [deleteConfirmFile, setDeleteConfirmFile] = useState<string | null>(null);
+  const [restoreConfirmFile, setRestoreConfirmFile] = useState<string | null>(
+    null,
+  );
+  const [deleteConfirmFile, setDeleteConfirmFile] = useState<string | null>(
+    null,
+  );
   const { toast } = useToast();
-  const { backofficeHeaders, staffAvatarKey, refreshPermissions, hasPermission } =
-    useBackofficeAuth();
+  const {
+    backofficeHeaders,
+    staffAvatarKey,
+    refreshPermissions,
+    hasPermission,
+  } = useBackofficeAuth();
   const [profileAvatarDraft, setProfileAvatarDraft] = useState(staffAvatarKey);
   const [profileSaving, setProfileSaving] = useState(false);
 
@@ -119,7 +157,8 @@ export default function SettingsWorkspace({
     else if (s === "backups") setActiveTab("backups");
     else if (s === "printing") setActiveTab("printing");
     else if (s === "integrations") setActiveTab("integrations");
-    else if (s === "staff-access-defaults") setActiveTab("staff-access-defaults");
+    else if (s === "staff-access-defaults")
+      setActiveTab("staff-access-defaults");
     else if (s === "counterpoint") setActiveTab("counterpoint");
     else if (s === "remote-access") setActiveTab("remote-access");
     else if (s === "online-store") setActiveTab("online-store");
@@ -140,8 +179,6 @@ export default function SettingsWorkspace({
   const [reviewPolicyBusy, setReviewPolicyBusy] = useState(false);
 
   const STAFF_SOP_MAX_BYTES = 131_072;
-
-  
 
   const fetchBackups = useCallback(async () => {
     try {
@@ -176,8 +213,6 @@ export default function SettingsWorkspace({
     }
   }, [baseUrl, backofficeHeaders]);
 
-
-
   useEffect(() => {
     void (async () => {
       try {
@@ -185,12 +220,20 @@ export default function SettingsWorkspace({
           headers: backofficeHeaders() as Record<string, string>,
         });
         if (res.ok) setCfg((await res.json()) as ReceiptConfig);
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     })();
     void fetchBackups();
     void fetchStats();
     void fetchBackupSettings();
-  }, [baseUrl, backofficeHeaders, fetchBackups, fetchStats, fetchBackupSettings]);
+  }, [
+    baseUrl,
+    backofficeHeaders,
+    fetchBackups,
+    fetchStats,
+    fetchBackupSettings,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "general") return;
@@ -229,7 +272,8 @@ export default function SettingsWorkspace({
           };
           setReviewPolicy({
             review_invites_enabled: j.review_invites_enabled !== false,
-            send_review_invite_by_default: j.send_review_invite_by_default !== false,
+            send_review_invite_by_default:
+              j.send_review_invite_by_default !== false,
           });
         } else {
           setReviewPolicy({
@@ -260,7 +304,8 @@ export default function SettingsWorkspace({
         },
         body: JSON.stringify({
           review_invites_enabled: reviewPolicy.review_invites_enabled,
-          send_review_invite_by_default: reviewPolicy.send_review_invite_by_default,
+          send_review_invite_by_default:
+            reviewPolicy.send_review_invite_by_default,
         }),
       });
       if (res.ok) {
@@ -270,12 +315,18 @@ export default function SettingsWorkspace({
         };
         setReviewPolicy({
           review_invites_enabled: j.review_invites_enabled !== false,
-          send_review_invite_by_default: j.send_review_invite_by_default !== false,
+          send_review_invite_by_default:
+            j.send_review_invite_by_default !== false,
         });
         toast("Review invite policy saved", "success");
       } else {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(typeof err.error === "string" ? err.error : "Could not save review policy", "error");
+        toast(
+          typeof err.error === "string"
+            ? err.error
+            : "Could not save review policy",
+          "error",
+        );
       }
     } catch {
       toast("Could not save review policy", "error");
@@ -286,7 +337,8 @@ export default function SettingsWorkspace({
 
   const saveReceiptSettings = async () => {
     if (!cfg) return;
-    setBusy(true); setSaved(false);
+    setBusy(true);
+    setSaved(false);
     try {
       const res = await fetch(`${baseUrl}/api/settings/receipt`, {
         method: "PATCH",
@@ -307,7 +359,8 @@ export default function SettingsWorkspace({
 
   const saveBackupSettings = async () => {
     if (!backupCfg) return;
-    setBusy(true); setSaved(false);
+    setBusy(true);
+    setSaved(false);
     try {
       const res = await fetch(`${baseUrl}/api/settings/backup/config`, {
         method: "PATCH",
@@ -325,8 +378,6 @@ export default function SettingsWorkspace({
       setBusy(false);
     }
   };
-
-
 
   const handleCreateBackup = async () => {
     setBackupBusy(true);
@@ -357,7 +408,7 @@ export default function SettingsWorkspace({
         headers: backofficeHeaders() as Record<string, string>,
       });
       if (res.ok) {
-        setBackups(prev => prev.filter(b => b.filename !== filename));
+        setBackups((prev) => prev.filter((b) => b.filename !== filename));
         toast("Backup snapshot deleted", "success");
       }
     } catch (e) {
@@ -370,10 +421,13 @@ export default function SettingsWorkspace({
     setBackupBusy(true);
     setRestoreConfirmFile(null);
     try {
-      const res = await fetch(`${baseUrl}/api/settings/backups/restore/${filename}`, {
-        method: "POST",
-        headers: backofficeHeaders() as Record<string, string>,
-      });
+      const res = await fetch(
+        `${baseUrl}/api/settings/backups/restore/${filename}`,
+        {
+          method: "POST",
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
       if (res.ok) {
         toast("Restore successful. Application reloading...", "success");
         setTimeout(() => window.location.reload(), 1500);
@@ -404,9 +458,12 @@ export default function SettingsWorkspace({
   const downloadBackupFile = async (filename: string) => {
     try {
       const enc = encodeURIComponent(filename);
-      const res = await fetch(`${baseUrl}/api/settings/backups/download/${enc}`, {
-        headers: backofficeHeaders() as Record<string, string>,
-      });
+      const res = await fetch(
+        `${baseUrl}/api/settings/backups/download/${enc}`,
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
       if (!res.ok) {
         toast("Could not download backup", "error");
         return;
@@ -444,7 +501,9 @@ export default function SettingsWorkspace({
     setBackupCfg({ ...backupCfg, schedule_cron: `${minute} ${hour} * * *` });
   };
 
-  const [tauriShellVersion, setTauriShellVersion] = useState<string | null>(null);
+  const [tauriShellVersion, setTauriShellVersion] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     void (async () => {
@@ -458,9 +517,15 @@ export default function SettingsWorkspace({
     })();
   }, []);
 
-  const [receiptPrinterIp, setReceiptPrinterIp] = useState(() => window.localStorage.getItem("ros.pos.printerIp") || "127.0.0.1");
-  const [receiptPrinterPort, setReceiptPrinterPort] = useState(() => window.localStorage.getItem("ros.pos.printerPort") || "9100");
-  const [reportPrinterIp, setReportPrinterIp] = useState(() => window.localStorage.getItem("ros.report.printerIp") || "");
+  const [receiptPrinterIp, setReceiptPrinterIp] = useState(
+    () => window.localStorage.getItem("ros.pos.printerIp") || "127.0.0.1",
+  );
+  const [receiptPrinterPort, setReceiptPrinterPort] = useState(
+    () => window.localStorage.getItem("ros.pos.printerPort") || "9100",
+  );
+  const [reportPrinterIp, setReportPrinterIp] = useState(
+    () => window.localStorage.getItem("ros.report.printerIp") || "",
+  );
 
   const saveReceiptPrinter = (ip: string, port: string) => {
     setReceiptPrinterIp(ip);
@@ -479,7 +544,16 @@ export default function SettingsWorkspace({
   };
 
   const groups = useMemo(() => {
-    const base: { title: string; id: string; items: { id: string; label: string; icon: React.ElementType; permission?: string }[] }[] = [
+    const base: {
+      title: string;
+      id: string;
+      items: {
+        id: string;
+        label: string;
+        icon: React.ElementType;
+        permission?: string;
+      }[];
+    }[] = [
       {
         title: "User",
         id: "user",
@@ -493,45 +567,114 @@ export default function SettingsWorkspace({
           { id: "printing", label: "Hardware & Printing", icon: Printer },
           { id: "receipt-builder", label: "Receipt Studio", icon: FileText },
           { id: "online-store", label: "Online Store", icon: ShoppingBag },
-          { id: "staff-access-defaults", label: "Role Permissions", icon: Shield, permission: "settings.admin" },
+          {
+            id: "staff-access-defaults",
+            label: "Role Permissions",
+            icon: Shield,
+            permission: "settings.admin",
+          },
         ],
       },
       {
         title: "Integrations & Bridges",
         id: "integrations",
         items: [
-          { id: "meilisearch", label: "Meilisearch", icon: Search, permission: "settings.admin" },
-          { id: "insights", label: "Metabase Insights", icon: BarChart3, permission: "settings.admin" },
-          { id: "weather", label: "Live Weather", icon: Cloud, permission: "settings.admin" },
-          { id: "podium", label: "Podium SMS/Email", icon: MessageSquare, permission: "settings.admin" },
-          { id: "nuorder", label: "NuORDER Retail", icon: Monitor, permission: "settings.admin" },
-          { id: "counterpoint", label: "Counterpoint Bridge", icon: RefreshCw, permission: "counterpoint.sync" },
+          {
+            id: "meilisearch",
+            label: "Meilisearch",
+            icon: Search,
+            permission: "settings.admin",
+          },
+          {
+            id: "insights",
+            label: "Metabase Insights",
+            icon: BarChart3,
+            permission: "settings.admin",
+          },
+          {
+            id: "weather",
+            label: "Live Weather",
+            icon: Cloud,
+            permission: "settings.admin",
+          },
+          {
+            id: "podium",
+            label: "Podium SMS/Email",
+            icon: MessageSquare,
+            permission: "settings.admin",
+          },
+          {
+            id: "nuorder",
+            label: "NuORDER Retail",
+            icon: Monitor,
+            permission: "settings.admin",
+          },
+          {
+            id: "counterpoint",
+            label: "Counterpoint Bridge",
+            icon: RefreshCw,
+            permission: "counterpoint.sync",
+          },
           { id: "remote-access", label: "Remote Access", icon: Link },
-          { id: "quickbooks", label: "QuickBooks Ledger", icon: ArrowUpRight, permission: "settings.admin" },
-          { id: "stripe", label: "Stripe Terminal", icon: CreditCard, permission: "settings.admin" },
+          {
+            id: "quickbooks",
+            label: "QuickBooks Ledger",
+            icon: ArrowUpRight,
+            permission: "settings.admin",
+          },
+          {
+            id: "stripe",
+            label: "Stripe Terminal",
+            icon: CreditCard,
+            permission: "settings.admin",
+          },
         ],
       },
       {
         title: "System & Health",
         id: "system",
         items: [
-          { id: "backups", label: "Cloud Backups", icon: Database, permission: "settings.admin" },
-          { id: "bug-reports", label: "Bug Reports", icon: Bug, permission: "settings.admin" },
-          { id: "help-center", label: "Reference Docs", icon: BookOpen, permission: "help.manage" },
+          {
+            id: "backups",
+            label: "Cloud Backups",
+            icon: Database,
+            permission: "settings.admin",
+          },
+          {
+            id: "bug-reports",
+            label: "Bug Reports",
+            icon: Bug,
+            permission: "settings.admin",
+          },
+          {
+            id: "help-center",
+            label: "Help Center Manager",
+            icon: BookOpen,
+            permission: "help.manage",
+          },
         ],
       },
     ];
 
-    return base.map(group => ({
-      ...group,
-      items: group.items.filter(item => !item.permission || hasPermission(item.permission))
-    })).filter(group => group.items.length > 0);
+    return base
+      .map((group) => ({
+        ...group,
+        items: group.items.filter(
+          (item) => !item.permission || hasPermission(item.permission),
+        ),
+      }))
+      .filter((group) => group.items.length > 0);
   }, [hasPermission]);
 
   const saveStaffSop = async () => {
     if (staffSopBusy) return;
-    if (new TextEncoder().encode(staffSopMarkdown).length > STAFF_SOP_MAX_BYTES) {
-      toast(`Store playbook is too large (max ${STAFF_SOP_MAX_BYTES} bytes UTF-8)`, "error");
+    if (
+      new TextEncoder().encode(staffSopMarkdown).length > STAFF_SOP_MAX_BYTES
+    ) {
+      toast(
+        `Store playbook is too large (max ${STAFF_SOP_MAX_BYTES} bytes UTF-8)`,
+        "error",
+      );
       return;
     }
     setStaffSopBusy(true);
@@ -546,7 +689,9 @@ export default function SettingsWorkspace({
       });
       if (res.ok) {
         const j = (await res.json()) as { markdown?: string };
-        setStaffSopMarkdown(typeof j.markdown === "string" ? j.markdown : staffSopMarkdown);
+        setStaffSopMarkdown(
+          typeof j.markdown === "string" ? j.markdown : staffSopMarkdown,
+        );
         toast("Store staff playbook saved", "success");
       } else {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -568,7 +713,9 @@ export default function SettingsWorkspace({
           "Content-Type": "application/json",
           ...(backofficeHeaders() as Record<string, string>),
         },
-        body: JSON.stringify({ avatar_key: profileAvatarDraft.trim() || "ros_default" }),
+        body: JSON.stringify({
+          avatar_key: profileAvatarDraft.trim() || "ros_default",
+        }),
       });
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
@@ -589,404 +736,702 @@ export default function SettingsWorkspace({
       <div className="flex h-full overflow-hidden">
         {/* Settings Sidebar */}
         <aside className="w-64 shrink-0 border-r border-app-border bg-app-surface/50 p-6 flex flex-col gap-8 overflow-y-auto no-scrollbar">
-           <div>
-              <h1 className="text-xl font-black uppercase tracking-tight text-app-text italic">System Control</h1>
-              <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] mt-1">Environment Overrides</p>
-           </div>
-           
-           <nav className="flex flex-col gap-8">
-              {groups.map(group => (
-                <div key={group.id} className="flex flex-col gap-1">
-                  <h3 className="px-4 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted mb-2 opacity-60">
-                    {group.title}
-                  </h3>
-                  {group.items.map(tab => (
-                    <button
-                      key={tab.id}
-                      onClick={() => {
-                        setActiveTab(tab.id);
-                        onSettingsSectionNavigate?.(tab.id);
-                      }}
-                      className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-black/20 translate-x-1' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/30'}`}
-                    >
-                      <tab.icon size={16} className={activeTab === tab.id ? '' : 'text-app-accent group-hover:scale-110 transition-transform'} />
-                      <span className="uppercase tracking-widest text-[10px]">{tab.label}</span>
-                    </button>
-                  ))}
-                </div>
-              ))}
-           </nav>
+          <div>
+            <h1 className="text-xl font-black uppercase tracking-tight text-app-text italic">
+              System Control
+            </h1>
+            <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] mt-1">
+              Environment Overrides
+            </p>
+          </div>
 
-           <div className="mt-auto space-y-4">
-              {stats && (
-                <div className="ui-card p-4 bg-app-text/5 border-app-border/50">
-                   <div className="flex items-center gap-3 mb-2">
-                      <Database size={14} className="text-app-accent" />
-                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Storage Info</span>
-                   </div>
-                   <p className="text-xl font-black tabular-nums tracking-tighter text-app-text">{stats.database_size}</p>
-                   <p className="text-[9px] font-bold uppercase text-app-text-muted opacity-60 mt-1">{stats.table_count} tables initialized</p>
+          <nav className="flex flex-col gap-8">
+            {groups.map((group) => (
+              <div key={group.id} className="flex flex-col gap-1">
+                <h3 className="px-4 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted mb-2 opacity-60">
+                  {group.title}
+                </h3>
+                {group.items.map((tab) => (
+                  <button
+                    key={tab.id}
+                    onClick={() => {
+                      setActiveTab(tab.id);
+                      onSettingsSectionNavigate?.(tab.id);
+                    }}
+                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-black/20 translate-x-1" : "text-app-text-muted hover:text-app-text hover:bg-app-border/30"}`}
+                  >
+                    <tab.icon
+                      size={16}
+                      className={
+                        activeTab === tab.id
+                          ? ""
+                          : "text-app-accent group-hover:scale-110 transition-transform"
+                      }
+                    />
+                    <span className="uppercase tracking-widest text-[10px]">
+                      {tab.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ))}
+          </nav>
+
+          <div className="mt-auto space-y-4">
+            {stats && (
+              <div className="ui-card p-4 bg-app-text/5 border-app-border/50">
+                <div className="flex items-center gap-3 mb-2">
+                  <Database size={14} className="text-app-accent" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Storage Info
+                  </span>
                 </div>
-              )}
-           </div>
+                <p className="text-xl font-black tabular-nums tracking-tighter text-app-text">
+                  {stats.database_size}
+                </p>
+                <p className="text-[9px] font-bold uppercase text-app-text-muted opacity-60 mt-1">
+                  {stats.table_count} tables initialized
+                </p>
+              </div>
+            )}
+          </div>
         </aside>
 
         {/* Content Area */}
         <main className="flex-1 overflow-y-auto no-scrollbar scroll-smooth">
-           <div
-             className={`p-10 mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 ${
-               activeTab === "counterpoint" ? "max-w-6xl" : "max-w-5xl"
-             }`}
-           >
-              
-              {activeTab === "profile" && (
-                <div className="space-y-8">
-                  <header className="mb-6">
+          <div
+            className={`p-10 mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 ${
+              activeTab === "counterpoint" ? "max-w-6xl" : "max-w-5xl"
+            }`}
+          >
+            {activeTab === "profile" && (
+              <div className="space-y-8">
+                <header className="mb-6">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    Your profile
+                  </h2>
+                  <p className="mt-2 text-sm font-medium text-app-text-muted">
+                    Choose a portrait for the sidebar, notifications, and staff
+                    lists. Icons are bundled in the app (no external requests at
+                    runtime).
+                  </p>
+                </header>
+                <section className="ui-card p-6">
+                  <StaffAvatarPicker
+                    value={profileAvatarDraft}
+                    onChange={setProfileAvatarDraft}
+                    disabled={profileSaving}
+                  />
+                  <button
+                    type="button"
+                    disabled={
+                      profileSaving ||
+                      profileAvatarDraft.trim() === staffAvatarKey.trim()
+                    }
+                    onClick={() => void saveProfileAvatar()}
+                    className="ui-btn-primary mt-6 h-11 px-6 text-sm font-black disabled:opacity-50"
+                  >
+                    {profileSaving ? "Saving…" : "Save profile icon"}
+                  </button>
+                </section>
+              </div>
+            )}
+
+            {activeTab === "backups" && (
+              <div className="space-y-12">
+                <header className="mb-10">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    Data Lifecycle & Backups
+                  </h2>
+                  <p className="text-sm text-app-text-muted mt-2 font-medium">
+                    Protect and optimize your enterprise data with point-in-time
+                    snapshots.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
+                  <div className="xl:col-span-8 space-y-10">
+                    {/* Backups Section */}
+                    <section className="ui-card overflow-hidden">
+                      <div className="p-6 border-b border-app-border flex items-center justify-between bg-app-surface/30">
+                        <div className="flex items-center gap-3">
+                          <History className="w-5 h-5 text-app-accent" />
+                          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                            Local Snapshots
+                          </h3>
+                        </div>
+                        <button
+                          onClick={handleCreateBackup}
+                          disabled={backupBusy}
+                          className="h-10 px-6 rounded-xl bg-app-text text-white text-[10px] font-black uppercase tracking-widest hover:bg-black/80 disabled:opacity-50 transition-all flex items-center gap-2"
+                        >
+                          {backupBusy ? (
+                            <RefreshCw className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Database className="w-3 h-3 text-app-accent" />
+                          )}
+                          Manual Trigger
+                        </button>
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left">
+                          <thead>
+                            <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
+                              <th className="px-6 py-3">Snapshot Name</th>
+                              <th className="px-6 py-3">Size</th>
+                              <th className="px-6 py-3 text-right">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-app-border">
+                            {backups.length === 0 ? (
+                              <tr>
+                                <td
+                                  colSpan={3}
+                                  className="px-6 py-12 text-center text-sm text-app-text-muted font-bold italic"
+                                >
+                                  No snapshots found.
+                                </td>
+                              </tr>
+                            ) : (
+                              backups.map((b: BackupFile) => (
+                                <tr
+                                  key={b.filename}
+                                  className="hover:bg-app-surface/20 transition-colors group"
+                                >
+                                  <td className="px-6 py-4">
+                                    <div className="flex items-center gap-3">
+                                      <div className="p-2 rounded bg-app-bg text-app-accent group-hover:scale-110 transition-transform">
+                                        <Database size={14} />
+                                      </div>
+                                      <span className="font-mono text-xs font-bold text-app-text">
+                                        {b.filename}
+                                      </span>
+                                    </div>
+                                  </td>
+                                  <td className="px-6 py-4 text-xs font-black text-app-text-muted">
+                                    {formatSize(b.size_bytes)}
+                                  </td>
+                                  <td className="px-6 py-4 text-right">
+                                    <div className="flex items-center justify-end gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          void downloadBackupFile(b.filename)
+                                        }
+                                        className="p-2.5 rounded-lg hover:bg-app-text hover:text-white text-app-text-muted transition-all"
+                                      >
+                                        <Download size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          setRestoreConfirmFile(b.filename)
+                                        }
+                                        className="p-2.5 rounded-lg hover:bg-emerald-600 hover:text-white text-app-text-muted transition-all"
+                                      >
+                                        <Play size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() =>
+                                          handleDeleteBackup(b.filename)
+                                        }
+                                        className="p-2.5 rounded-lg hover:bg-red-600 hover:text-white text-app-text-muted transition-all"
+                                      >
+                                        <Trash2 size={14} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    </section>
+
+                    {backupCfg && (
+                      <section className="ui-card p-8 border-l-4 border-indigo-600">
+                        <div className="flex items-center justify-between mb-8">
+                          <div className="flex items-center gap-3">
+                            <Cloud className="w-5 h-5 text-indigo-500" />
+                            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                              Automation & Cloud Sync
+                            </h3>
+                          </div>
+                          <button
+                            onClick={saveBackupSettings}
+                            disabled={busy}
+                            className="ui-btn-primary py-2 px-4 text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                          >
+                            <Save className="w-3 h-3" /> Update
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
+                          <div className="space-y-4">
+                            <label className="block">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Retention Policy (Days)
+                              </span>
+                              <input
+                                type="number"
+                                value={backupCfg.auto_cleanup_days}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    auto_cleanup_days:
+                                      parseInt(e.target.value) || 0,
+                                  })
+                                }
+                                className="ui-input mt-2 w-full font-black text-lg"
+                              />
+                            </label>
+                            <label className="block">
+                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Daily Sync Window
+                              </span>
+                              <div className="flex items-center gap-2 mt-2">
+                                {(() => {
+                                  const { hour, minute } = getCronTime(
+                                    backupCfg.schedule_cron,
+                                  );
+                                  return (
+                                    <>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={23}
+                                        value={hour}
+                                        onChange={(e) =>
+                                          setCronTime(
+                                            e.target.value.padStart(2, "0"),
+                                            minute,
+                                          )
+                                        }
+                                        className="ui-input w-24 text-center font-black text-lg"
+                                      />
+                                      <span className="font-black text-xl">
+                                        :
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        max={59}
+                                        value={minute}
+                                        onChange={(e) =>
+                                          setCronTime(
+                                            hour,
+                                            e.target.value.padStart(2, "0"),
+                                          )
+                                        }
+                                        className="ui-input w-24 text-center font-black text-lg"
+                                      />
+                                    </>
+                                  );
+                                })()}
+                              </div>
+                            </label>
+                          </div>
+                          <div className="space-y-4">
+                            <label className="flex items-center gap-3 cursor-pointer group mb-6">
+                              <div
+                                className={`relative inline-flex h-6 w-12 items-center rounded-full transition-colors ${backupCfg.cloud_storage_enabled ? "bg-indigo-600 shadow-lg shadow-indigo-500/30" : "bg-app-border"}`}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={backupCfg.cloud_storage_enabled}
+                                  onChange={(e) =>
+                                    setBackupCfg({
+                                      ...backupCfg,
+                                      cloud_storage_enabled: e.target.checked,
+                                    })
+                                  }
+                                  className="sr-only"
+                                />
+                                <span
+                                  className={`inline-block h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform ${backupCfg.cloud_storage_enabled ? "translate-x-7" : "translate-x-1"}`}
+                                />
+                              </div>
+                              <span className="text-xs font-black uppercase tracking-tight text-app-text group-hover:text-indigo-500 transition-colors">
+                                Off-Site Storage
+                              </span>
+                            </label>
+                            <div className="space-y-3 opacity-60">
+                              <input
+                                placeholder="S3 Bucket"
+                                value={backupCfg.cloud_bucket_name}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    cloud_bucket_name: e.target.value,
+                                  })
+                                }
+                                className="ui-input w-full text-[11px] font-bold"
+                                disabled={!backupCfg.cloud_storage_enabled}
+                              />
+                              <input
+                                placeholder="Region"
+                                value={backupCfg.cloud_region}
+                                onChange={(e) =>
+                                  setBackupCfg({
+                                    ...backupCfg,
+                                    cloud_region: e.target.value,
+                                  })
+                                }
+                                className="ui-input w-full text-[11px] font-bold"
+                                disabled={!backupCfg.cloud_storage_enabled}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </section>
+                    )}
+                  </div>
+
+                  <div className="xl:col-span-4 space-y-10">
+                    <section className="ui-card p-6 bg-app-accent/5 border-app-accent/20">
+                      <div className="flex items-center gap-3 mb-6 font-black italic tracking-tighter uppercase">
+                        <Gauge className="w-5 h-5 text-app-accent" />
+                        <span>Optimization</span>
+                      </div>
+                      <div className="space-y-6">
+                        <div>
+                          <h4 className="text-xs font-black uppercase tracking-widest text-app-text mb-2">
+                            Db Structure Health
+                          </h4>
+                          <p className="text-[10px] text-app-text-muted leading-relaxed font-bold uppercase opacity-60">
+                            Reclaims disk space and updates query planner stats.
+                          </p>
+                          <button
+                            onClick={handleOptimize}
+                            disabled={optimizeBusy}
+                            className="mt-4 w-full h-12 rounded-xl bg-app-accent text-white font-black uppercase tracking-widest hover:bg-app-accent-hover transition-all active:scale-95 shadow-lg shadow-app-accent/30"
+                          >
+                            {optimizeBusy ? "VACUUMING..." : "Optimize Now"}
+                          </button>
+                        </div>
+                        <div className="pt-6 border-t border-app-border/40">
+                          <h4 className="text-xs font-black uppercase tracking-widest text-app-text mb-2">
+                            Integrity Check
+                          </h4>
+                          <div className="flex items-center gap-2 text-emerald-500 font-black italic uppercase tracking-tighter">
+                            <CheckCircle2 size={16} />
+                            <span>All Systems Active</span>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "printing" && (
+              <div className="space-y-12">
+                <header className="mb-10">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    Printing Hub & Layouts
+                  </h2>
+                  <p className="text-sm text-app-text-muted mt-2 font-medium">
+                    Manage station-specific thermal printers and universal
+                    reporting destinations.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
+                  <div className="xl:col-span-12 xl:grid xl:grid-cols-2 gap-10">
+                    {/* Station Printer Hub */}
+                    <section className="ui-card p-8 border-l-4 border-app-accent">
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="p-3 rounded-2xl bg-app-accent/10 text-app-accent">
+                          <Printer size={24} />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-black uppercase tracking-tighter italic text-app-text">
+                            Hardware Bridging
+                          </h3>
+                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
+                            Local Thermal Station
+                          </p>
+                        </div>
+                      </div>
+
+                      {saved && activeTab === "printing" && (
+                        <div className="mb-6 rounded-lg bg-emerald-500/10 px-3 py-2 text-[10px] text-emerald-500 font-black uppercase tracking-widest border border-emerald-500/20 flex items-center gap-2 animate-in fade-in zoom-in duration-300">
+                          <CheckCircle2 className="w-3 h-3" /> Hardware configs
+                          cached.
+                        </div>
+                      )}
+
+                      <div className="space-y-6">
+                        <div className="grid grid-cols-2 gap-4">
+                          <label className="block">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              Receipt Printer IP
+                            </span>
+                            <input
+                              value={receiptPrinterIp}
+                              onChange={(e) =>
+                                saveReceiptPrinter(
+                                  e.target.value,
+                                  receiptPrinterPort,
+                                )
+                              }
+                              placeholder="127.0.0.1"
+                              className="ui-input mt-2 w-full font-mono font-bold"
+                            />
+                          </label>
+                          <label className="block">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              TCP Port
+                            </span>
+                            <input
+                              value={receiptPrinterPort}
+                              onChange={(e) =>
+                                saveReceiptPrinter(
+                                  receiptPrinterIp,
+                                  e.target.value,
+                                )
+                              }
+                              placeholder="9100"
+                              className="ui-input mt-2 w-full font-mono font-bold"
+                            />
+                          </label>
+                        </div>
+
+                        <label className="block pt-4 border-t border-app-border">
+                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Universal Report Printer
+                          </span>
+                          <input
+                            value={reportPrinterIp}
+                            onChange={(e) => saveReportPrinter(e.target.value)}
+                            placeholder="e.g. office-laser.local or IP"
+                            className="ui-input mt-2 w-full font-mono font-bold"
+                          />
+                          <p className="text-[10px] text-app-text-muted mt-2 italic">
+                            Destination for PDF End-of-Day and Commission
+                            Reports.
+                          </p>
+                        </label>
+                      </div>
+                    </section>
+
+                    {/* Receipt Content Builder */}
+                    {cfg && (
+                      <section className="ui-card p-8 border-l-4 border-app-text">
+                        <div className="flex items-center justify-between mb-8">
+                          <div className="flex items-center gap-4">
+                            <div className="p-3 rounded-2xl bg-app-text text-white shadow-lg">
+                              <FileText size={24} />
+                            </div>
+                            <div>
+                              <h3 className="text-lg font-black uppercase tracking-tighter italic text-app-text">
+                                Thermal receipt (ZPL)
+                              </h3>
+                              <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
+                                Header text &amp; line toggles
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={saveReceiptSettings}
+                            disabled={busy}
+                            className="h-10 px-6 rounded-xl bg-app-text text-white text-[10px] font-black uppercase tracking-widest hover:bg-black/80 transition-all flex items-center gap-2"
+                          >
+                            {busy ? (
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                            ) : (
+                              <Save size={14} />
+                            )}
+                            Apply
+                          </button>
+                        </div>
+
+                        <div className="space-y-6">
+                          <label className="block">
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                              Store Identifier (Header)
+                            </span>
+                            <input
+                              value={cfg.store_name}
+                              onChange={(e) =>
+                                setCfg({ ...cfg, store_name: e.target.value })
+                              }
+                              className="ui-input mt-2 w-full font-black text-lg tracking-tighter italic"
+                            />
+                          </label>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            {[
+                              [
+                                "show_address",
+                                "Store Address",
+                                "123 Main St...",
+                              ],
+                              ["show_phone", "Phone Number", "(555) 123..."],
+                              ["show_email", "Email Contact", "sales@..."],
+                              ["show_barcode", "Order Barcode", "CODE-128"],
+                              [
+                                "show_loyalty_earned",
+                                "Loyalty Rewards",
+                                "Earned Points",
+                              ],
+                              [
+                                "show_loyalty_balance",
+                                "Points Balance",
+                                "Total Tier",
+                              ],
+                            ].map(([k, label, sub]) => (
+                              <label
+                                key={k}
+                                className="flex items-center gap-3 p-3 rounded-xl border border-app-border hover:border-app-accent cursor-pointer group transition-all"
+                              >
+                                <div
+                                  className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${cfg[k as keyof ReceiptConfig] === true ? "bg-app-accent border-app-accent text-white" : "border-app-border group-hover:border-app-accent"}`}
+                                >
+                                  {cfg[k as keyof ReceiptConfig] === true ? (
+                                    <CheckCircle2 size={12} />
+                                  ) : null}
+                                </div>
+                                <input
+                                  type="checkbox"
+                                  checked={
+                                    cfg[k as keyof ReceiptConfig] === true
+                                  }
+                                  onChange={(e) =>
+                                    setCfg({ ...cfg, [k]: e.target.checked })
+                                  }
+                                  className="sr-only"
+                                />
+                                <div>
+                                  <p className="text-[10px] font-black uppercase text-app-text tracking-widest leading-none">
+                                    {label}
+                                  </p>
+                                  <p className="text-[9px] text-app-text-muted mt-1 opacity-60 font-bold">
+                                    {sub}
+                                  </p>
+                                </div>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      </section>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {activeTab === "integrations" && (
+              <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                <header className="mb-10">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    Integrations & Hub
+                  </h2>
+                  <p className="text-sm text-app-text-muted mt-2 font-medium leading-relaxed">
+                    Each integration is now managed via its own dedicated
+                    sub-page for better control.
+                  </p>
+                </header>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {[
+                    {
+                      id: "meilisearch",
+                      label: "Meilisearch",
+                      icon: Search,
+                      desc: "Meilisearch index health",
+                      color: "bg-emerald-500",
+                    },
+                    {
+                      id: "insights",
+                      label: "Metabase Insights",
+                      icon: BarChart3,
+                      desc: "Enterprise reporting & SSO",
+                      color: "bg-violet-500",
+                    },
+                    {
+                      id: "weather",
+                      label: "Live Weather",
+                      icon: Cloud,
+                      desc: "Visual Crossing snapshots",
+                      color: "bg-sky-500",
+                    },
+                    {
+                      id: "podium",
+                      label: "Podium Comms",
+                      icon: MessageSquare,
+                      desc: "Lifecycle SMS & HTML Email",
+                      color: "bg-indigo-500",
+                    },
+                    {
+                      id: "nuorder",
+                      label: "NuORDER",
+                      icon: Monitor,
+                      desc: "Retail catalog & sync",
+                      color: "bg-slate-800",
+                    },
+                    {
+                      id: "quickbooks",
+                      label: "QuickBooks Online",
+                      icon: ArrowUpRight,
+                      desc: "Launch QBO Data Bridge",
+                      color: "bg-emerald-700",
+                    },
+                    {
+                      id: "stripe",
+                      label: "Stripe Terminal",
+                      icon: CreditCard,
+                      desc: "Card Processing Hub",
+                      color: "bg-indigo-600 focus:ring-indigo-500",
+                    },
+                  ].map((item) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setActiveTab(item.id)}
+                      className="ui-card p-8 flex flex-col items-center text-center group hover:border-app-text transition-all"
+                    >
+                      <div
+                        className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform`}
+                      >
+                        <item.icon size={28} />
+                      </div>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-2">
+                        {item.label}
+                      </h3>
+                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider">
+                        {item.desc}
+                      </p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+            {activeTab === "staff-access-defaults" &&
+              (hasPermission("settings.admin") ||
+                hasPermission("staff.manage_access")) && (
+                <div className="space-y-10">
+                  <header className="mb-2">
                     <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                      Your profile
+                      Staff access defaults
                     </h2>
-                    <p className="mt-2 text-sm font-medium text-app-text-muted">
-                      Choose a portrait for the sidebar, notifications, and staff lists. Icons are bundled in the app (no external requests at runtime).
+                    <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
+                      Role-wide templates used when onboarding or when you click{" "}
+                      <strong className="text-app-text">
+                        Apply role defaults
+                      </strong>{" "}
+                      on an individual profile in Staff → Team. Day-to-day
+                      permissions and discount caps are stored per staff member.
                     </p>
                   </header>
-                  <section className="ui-card p-6">
-                    <StaffAvatarPicker
-                      value={profileAvatarDraft}
-                      onChange={setProfileAvatarDraft}
-                      disabled={profileSaving}
-                    />
-                    <button
-                      type="button"
-                      disabled={
-                        profileSaving || profileAvatarDraft.trim() === staffAvatarKey.trim()
-                      }
-                      onClick={() => void saveProfileAvatar()}
-                      className="ui-btn-primary mt-6 h-11 px-6 text-sm font-black disabled:opacity-50"
-                    >
-                      {profileSaving ? "Saving…" : "Save profile icon"}
-                    </button>
-                  </section>
+                  <StaffRoleAccessPanel />
+                  <StaffDiscountCapsPanel />
                 </div>
               )}
 
-              {activeTab === 'backups' && (
-                <div className="space-y-12">
-                   <header className="mb-10">
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Data Lifecycle & Backups</h2>
-                      <p className="text-sm text-app-text-muted mt-2 font-medium">Protect and optimize your enterprise data with point-in-time snapshots.</p>
-                   </header>
-
-                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
-                      <div className="xl:col-span-8 space-y-10">
-                         {/* Backups Section */}
-                         <section className="ui-card overflow-hidden">
-                            <div className="p-6 border-b border-app-border flex items-center justify-between bg-app-surface/30">
-                              <div className="flex items-center gap-3">
-                                <History className="w-5 h-5 text-app-accent" />
-                                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Local Snapshots</h3>
-                              </div>
-                              <button 
-                                onClick={handleCreateBackup}
-                                disabled={backupBusy}
-                                className="h-10 px-6 rounded-xl bg-app-text text-white text-[10px] font-black uppercase tracking-widest hover:bg-black/80 disabled:opacity-50 transition-all flex items-center gap-2"
-                              >
-                                {backupBusy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3 text-app-accent" />}
-                                Manual Trigger
-                              </button>
-                            </div>
-
-                            <div className="overflow-x-auto">
-                              <table className="w-full text-left">
-                                <thead>
-                                  <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
-                                    <th className="px-6 py-3">Snapshot Name</th>
-                                    <th className="px-6 py-3">Size</th>
-                                    <th className="px-6 py-3 text-right">Actions</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-app-border">
-                                  {backups.length === 0 ? (
-                                    <tr><td colSpan={3} className="px-6 py-12 text-center text-sm text-app-text-muted font-bold italic">No snapshots found.</td></tr>
-                                  ) : (
-                                    backups.map((b: BackupFile) => (
-                                      <tr key={b.filename} className="hover:bg-app-surface/20 transition-colors group">
-                                        <td className="px-6 py-4">
-                                          <div className="flex items-center gap-3">
-                                            <div className="p-2 rounded bg-app-bg text-app-accent group-hover:scale-110 transition-transform"><Database size={14} /></div>
-                                            <span className="font-mono text-xs font-bold text-app-text">{b.filename}</span>
-                                          </div>
-                                        </td>
-                                        <td className="px-6 py-4 text-xs font-black text-app-text-muted">{formatSize(b.size_bytes)}</td>
-                                        <td className="px-6 py-4 text-right">
-                                          <div className="flex items-center justify-end gap-1">
-                                            <button 
-                                              type="button"
-                                              onClick={() => void downloadBackupFile(b.filename)}
-                                              className="p-2.5 rounded-lg hover:bg-app-text hover:text-white text-app-text-muted transition-all"
-                                            ><Download size={14} /></button>
-                                            <button 
-                                              onClick={() => setRestoreConfirmFile(b.filename)}
-                                              className="p-2.5 rounded-lg hover:bg-emerald-600 hover:text-white text-app-text-muted transition-all"
-                                            ><Play size={14} /></button>
-                                            <button 
-                                              onClick={() => handleDeleteBackup(b.filename)}
-                                              className="p-2.5 rounded-lg hover:bg-red-600 hover:text-white text-app-text-muted transition-all"
-                                            ><Trash2 size={14} /></button>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    ))
-                                  )}
-                                </tbody>
-                              </table>
-                            </div>
-                         </section>
-
-                         {backupCfg && (
-                           <section className="ui-card p-8 border-l-4 border-indigo-600">
-                             <div className="flex items-center justify-between mb-8">
-                               <div className="flex items-center gap-3">
-                                 <Cloud className="w-5 h-5 text-indigo-500" />
-                                 <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Automation & Cloud Sync</h3>
-                               </div>
-                               <button onClick={saveBackupSettings} disabled={busy} className="ui-btn-primary py-2 px-4 text-[10px] font-black uppercase tracking-widest flex items-center gap-2">
-                                 <Save className="w-3 h-3" /> Update
-                               </button>
-                             </div>
-
-                             <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-                               <div className="space-y-4">
-                                  <label className="block">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Retention Policy (Days)</span>
-                                    <input type="number" value={backupCfg.auto_cleanup_days} onChange={e => setBackupCfg({ ...backupCfg, auto_cleanup_days: parseInt(e.target.value) || 0 })} className="ui-input mt-2 w-full font-black text-lg" />
-                                  </label>
-                                  <label className="block">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Daily Sync Window</span>
-                                    <div className="flex items-center gap-2 mt-2">
-                                      {(() => {
-                                        const { hour, minute } = getCronTime(backupCfg.schedule_cron);
-                                        return (
-                                          <><input type="number" min={0} max={23} value={hour} onChange={e => setCronTime(e.target.value.padStart(2, '0'), minute)} className="ui-input w-24 text-center font-black text-lg" />
-                                          <span className="font-black text-xl">:</span>
-                                          <input type="number" min={0} max={59} value={minute} onChange={e => setCronTime(hour, e.target.value.padStart(2, '0'))} className="ui-input w-24 text-center font-black text-lg" /></>
-                                        );
-                                      })()}
-                                    </div>
-                                  </label>
-                               </div>
-                               <div className="space-y-4">
-                                  <label className="flex items-center gap-3 cursor-pointer group mb-6">
-                                     <div className={`relative inline-flex h-6 w-12 items-center rounded-full transition-colors ${backupCfg.cloud_storage_enabled ? 'bg-indigo-600 shadow-lg shadow-indigo-500/30' : 'bg-app-border'}`}>
-                                        <input type="checkbox" checked={backupCfg.cloud_storage_enabled} onChange={e => setBackupCfg({ ...backupCfg, cloud_storage_enabled: e.target.checked })} className="sr-only" />
-                                        <span className={`inline-block h-4 w-4 transform rounded-full bg-app-surface shadow-sm transition-transform ${backupCfg.cloud_storage_enabled ? 'translate-x-7' : 'translate-x-1'}`} />
-                                     </div>
-                                     <span className="text-xs font-black uppercase tracking-tight text-app-text group-hover:text-indigo-500 transition-colors">Off-Site Storage</span>
-                                  </label>
-                                  <div className="space-y-3 opacity-60">
-                                     <input placeholder="S3 Bucket" value={backupCfg.cloud_bucket_name} onChange={e => setBackupCfg({ ...backupCfg, cloud_bucket_name: e.target.value })} className="ui-input w-full text-[11px] font-bold" disabled={!backupCfg.cloud_storage_enabled} />
-                                     <input placeholder="Region" value={backupCfg.cloud_region} onChange={e => setBackupCfg({ ...backupCfg, cloud_region: e.target.value })} className="ui-input w-full text-[11px] font-bold" disabled={!backupCfg.cloud_storage_enabled} />
-                                  </div>
-                               </div>
-                             </div>
-                           </section>
-                         )}
-                      </div>
-
-                      <div className="xl:col-span-4 space-y-10">
-                         <section className="ui-card p-6 bg-app-accent/5 border-app-accent/20">
-                            <div className="flex items-center gap-3 mb-6 font-black italic tracking-tighter uppercase">
-                               <Gauge className="w-5 h-5 text-app-accent" />
-                               <span>Optimization</span>
-                            </div>
-                            <div className="space-y-6">
-                               <div>
-                                  <h4 className="text-xs font-black uppercase tracking-widest text-app-text mb-2">Db Structure Health</h4>
-                                  <p className="text-[10px] text-app-text-muted leading-relaxed font-bold uppercase opacity-60">Reclaims disk space and updates query planner stats.</p>
-                                  <button onClick={handleOptimize} disabled={optimizeBusy} className="mt-4 w-full h-12 rounded-xl bg-app-accent text-white font-black uppercase tracking-widest hover:bg-app-accent-hover transition-all active:scale-95 shadow-lg shadow-app-accent/30">
-                                     {optimizeBusy ? "VACUUMING..." : "Optimize Now"}
-                                  </button>
-                               </div>
-                               <div className="pt-6 border-t border-app-border/40">
-                                  <h4 className="text-xs font-black uppercase tracking-widest text-app-text mb-2">Integrity Check</h4>
-                                  <div className="flex items-center gap-2 text-emerald-500 font-black italic uppercase tracking-tighter">
-                                     <CheckCircle2 size={16} />
-                                     <span>All Systems Active</span>
-                                  </div>
-                               </div>
-                            </div>
-                         </section>
-                      </div>
-                   </div>
-                </div>
-              )}
-
-              {activeTab === 'printing' && (
-                <div className="space-y-12">
-                   <header className="mb-10">
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Printing Hub & Layouts</h2>
-                      <p className="text-sm text-app-text-muted mt-2 font-medium">Manage station-specific thermal printers and universal reporting destinations.</p>
-                   </header>
-
-                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
-                      <div className="xl:col-span-12 xl:grid xl:grid-cols-2 gap-10">
-                         
-                         {/* Station Printer Hub */}
-                         <section className="ui-card p-8 border-l-4 border-app-accent">
-                            <div className="flex items-center gap-4 mb-4">
-                               <div className="p-3 rounded-2xl bg-app-accent/10 text-app-accent"><Printer size={24} /></div>
-                               <div>
-                                  <h3 className="text-lg font-black uppercase tracking-tighter italic text-app-text">Hardware Bridging</h3>
-                                  <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Local Thermal Station</p>
-                               </div>
-                            </div>
-
-                            {saved && activeTab === 'printing' && (
-                              <div className="mb-6 rounded-lg bg-emerald-500/10 px-3 py-2 text-[10px] text-emerald-500 font-black uppercase tracking-widest border border-emerald-500/20 flex items-center gap-2 animate-in fade-in zoom-in duration-300">
-                                 <CheckCircle2 className="w-3 h-3" /> Hardware configs cached.
-                              </div>
-                            )}
-
-                            <div className="space-y-6">
-                               <div className="grid grid-cols-2 gap-4">
-                                  <label className="block">
-                                     <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Receipt Printer IP</span>
-                                     <input 
-                                       value={receiptPrinterIp} 
-                                       onChange={e => saveReceiptPrinter(e.target.value, receiptPrinterPort)} 
-                                       placeholder="127.0.0.1"
-                                       className="ui-input mt-2 w-full font-mono font-bold" 
-                                     />
-                                  </label>
-                                  <label className="block">
-                                     <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">TCP Port</span>
-                                     <input 
-                                       value={receiptPrinterPort} 
-                                       onChange={e => saveReceiptPrinter(receiptPrinterIp, e.target.value)} 
-                                       placeholder="9100"
-                                       className="ui-input mt-2 w-full font-mono font-bold" 
-                                     />
-                                  </label>
-                               </div>
-
-                               <label className="block pt-4 border-t border-app-border">
-                                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Universal Report Printer</span>
-                                  <input 
-                                    value={reportPrinterIp} 
-                                    onChange={e => saveReportPrinter(e.target.value)} 
-                                    placeholder="e.g. office-laser.local or IP"
-                                    className="ui-input mt-2 w-full font-mono font-bold" 
-                                  />
-                                  <p className="text-[10px] text-app-text-muted mt-2 italic">Destination for PDF End-of-Day and Commission Reports.</p>
-                               </label>
-                            </div>
-                         </section>
-
-                         {/* Receipt Content Builder */}
-                         {cfg && (
-                           <section className="ui-card p-8 border-l-4 border-app-text">
-                              <div className="flex items-center justify-between mb-8">
-                                 <div className="flex items-center gap-4">
-                                    <div className="p-3 rounded-2xl bg-app-text text-white shadow-lg"><FileText size={24} /></div>
-                                    <div>
-                                       <h3 className="text-lg font-black uppercase tracking-tighter italic text-app-text">Thermal receipt (ZPL)</h3>
-                                       <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Header text &amp; line toggles</p>
-                                    </div>
-                                 </div>
-                                 <button onClick={saveReceiptSettings} disabled={busy} className="h-10 px-6 rounded-xl bg-app-text text-white text-[10px] font-black uppercase tracking-widest hover:bg-black/80 transition-all flex items-center gap-2">
-                                    {busy ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Save size={14} />}
-                                    Apply
-                                 </button>
-                              </div>
-
-                              <div className="space-y-6">
-                                 <label className="block">
-                                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Store Identifier (Header)</span>
-                                    <input value={cfg.store_name} onChange={e => setCfg({...cfg, store_name: e.target.value})} className="ui-input mt-2 w-full font-black text-lg tracking-tighter italic" />
-                                 </label>
-                                 
-                                 <div className="grid grid-cols-2 gap-4">
-                                    {[
-                                      ["show_address", "Store Address", "123 Main St..."],
-                                      ["show_phone", "Phone Number", "(555) 123..."],
-                                      ["show_email", "Email Contact", "sales@..."],
-                                      ["show_barcode", "Order Barcode", "CODE-128"],
-                                      ["show_loyalty_earned", "Loyalty Rewards", "Earned Points"],
-                                      ["show_loyalty_balance", "Points Balance", "Total Tier"],
-                                    ].map(([k, label, sub]) => (
-                                      <label key={k} className="flex items-center gap-3 p-3 rounded-xl border border-app-border hover:border-app-accent cursor-pointer group transition-all">
-                                         <div className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${cfg[k as keyof ReceiptConfig] === true ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
-                                            {cfg[k as keyof ReceiptConfig] === true ? <CheckCircle2 size={12} /> : null}
-                                         </div>
-                                         <input type="checkbox" checked={cfg[k as keyof ReceiptConfig] === true} onChange={e => setCfg({...cfg, [k]: e.target.checked})} className="sr-only" />
-                                         <div>
-                                            <p className="text-[10px] font-black uppercase text-app-text tracking-widest leading-none">{label}</p>
-                                            <p className="text-[9px] text-app-text-muted mt-1 opacity-60 font-bold">{sub}</p>
-                                         </div>
-                                      </label>
-                                    ))}
-                                 </div>
-                              </div>
-                           </section>
-                         )}
-                      </div>
-                   </div>
-                </div>
-              )}
-
-              {activeTab === 'integrations' && (
-                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
-                   <header className="mb-10">
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Integrations & Hub</h2>
-                      <p className="text-sm text-app-text-muted mt-2 font-medium leading-relaxed">
-                        Each integration is now managed via its own dedicated sub-page for better control.
-                      </p>
-                   </header>
-
-                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                      {[
-                        { id: 'meilisearch', label: 'Meilisearch', icon: Search, desc: 'Meilisearch index health', color: 'bg-emerald-500' },
-                        { id: 'insights', label: 'Metabase Insights', icon: BarChart3, desc: 'Enterprise reporting & SSO', color: 'bg-violet-500' },
-                        { id: 'weather', label: 'Live Weather', icon: Cloud, desc: 'Visual Crossing snapshots', color: 'bg-sky-500' },
-                        { id: 'podium', label: 'Podium Comms', icon: MessageSquare, desc: 'Lifecycle SMS & HTML Email', color: 'bg-indigo-500' },
-                        { id: 'nuorder', label: 'NuORDER', icon: Monitor, desc: 'Retail catalog & sync', color: 'bg-slate-800' },
-                        { id: 'quickbooks', label: 'QuickBooks Online', icon: ArrowUpRight, desc: 'Launch QBO Data Bridge', color: 'bg-emerald-700' },
-                        { id: 'stripe', label: 'Stripe Terminal', icon: CreditCard, desc: 'Card Processing Hub', color: 'bg-indigo-600 focus:ring-indigo-500' },
-                      ].map(item => (
-                        <button 
-                          key={item.id}
-                          onClick={() => setActiveTab(item.id)}
-                          className="ui-card p-8 flex flex-col items-center text-center group hover:border-app-text transition-all"
-                        >
-                           <div className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform`}>
-                              <item.icon size={28} />
-                           </div>
-                           <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-2">{item.label}</h3>
-                           <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider">{item.desc}</p>
-                        </button>
-                      ))}
-                   </div>
-                </div>
-              )}
-              {activeTab === "staff-access-defaults" &&
-                (hasPermission("settings.admin") || hasPermission("staff.manage_access")) && (
-                  <div className="space-y-10">
-                    <header className="mb-2">
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                        Staff access defaults
-                      </h2>
-                      <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-                        Role-wide templates used when onboarding or when you click{" "}
-                        <strong className="text-app-text">Apply role defaults</strong> on an individual
-                        profile in Staff → Team. Day-to-day permissions and discount caps are stored per staff
-                        member.
-                      </p>
-                    </header>
-                    <StaffRoleAccessPanel />
-                    <StaffDiscountCapsPanel />
-                  </div>
-                )}
-
-              {activeTab === "counterpoint" && hasPermission("settings.admin") && (
+            {activeTab === "counterpoint" &&
+              hasPermission("settings.admin") && (
                 <div className="space-y-10">
                   <header className="mb-2">
                     <div className="flex flex-wrap items-start gap-4">
@@ -998,9 +1443,11 @@ export default function SettingsWorkspace({
                           Counterpoint
                         </h2>
                         <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
-                          The Windows bridge on your Counterpoint SQL host posts catalog, customers, gift cards,
-                          and ticket history into Riverside. Manage bridge health, staging and apply queues, and
-                          Counterpoint-to-ROS code maps here — not mixed in with unrelated integrations.
+                          The Windows bridge on your Counterpoint SQL host posts
+                          catalog, customers, gift cards, and ticket history
+                          into Riverside. Manage bridge health, staging and
+                          apply queues, and Counterpoint-to-ROS code maps here —
+                          not mixed in with unrelated integrations.
                         </p>
                         <p className="text-xs text-app-text-muted leading-relaxed max-w-3xl">
                           Install and operate the bridge per{" "}
@@ -1021,264 +1468,323 @@ export default function SettingsWorkspace({
                 </div>
               )}
 
-              {activeTab === "remote-access" && (
-                <div className="space-y-10">
-                  <header className="mb-2">
-                    <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                      Remote Access
-                    </h2>
-                    <p className="mt-2 text-sm font-medium text-app-text-muted">
-                      Configure Tailscale to connect to your store network securely.
-                    </p>
-                  </header>
-                  <section className="ui-card p-10">
-                    <RemoteAccessPanel />
-                  </section>
-                </div>
-              )}
+            {activeTab === "remote-access" && (
+              <div className="space-y-10">
+                <header className="mb-2">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    Remote Access
+                  </h2>
+                  <p className="mt-2 text-sm font-medium text-app-text-muted">
+                    Configure Tailscale to connect to your store network
+                    securely.
+                  </p>
+                </header>
+                <section className="ui-card p-10">
+                  <RemoteAccessPanel />
+                </section>
+              </div>
+            )}
 
-              {activeTab === "online-store" && (
-                <OnlineStoreSettingsPanel baseUrl={baseUrl} />
-              )}
+            {activeTab === "online-store" && (
+              <OnlineStoreSettingsPanel baseUrl={baseUrl} />
+            )}
 
-              {activeTab === "help-center" && <HelpCenterSettingsPanel />}
-              {activeTab === "bug-reports" && hasPermission("settings.admin") && (
-                <BugReportsSettingsPanel />
-              )}
-              
-              
-               {activeTab === "meilisearch" && hasPermission("settings.admin") && (
-                 <MeilisearchSettingsPanel />
-               )}
+            {activeTab === "help-center" && <HelpCenterSettingsPanel />}
+            {activeTab === "bug-reports" && hasPermission("settings.admin") && (
+              <BugReportsSettingsPanel />
+            )}
 
-               {activeTab === "nuorder" && hasPermission("settings.admin") && (
-                 <NuorderSettingsPanel />
-               )}
+            {activeTab === "meilisearch" && hasPermission("settings.admin") && (
+              <MeilisearchSettingsPanel />
+            )}
 
-               {activeTab === "insights" && hasPermission("settings.admin") && (
-                 <InsightsSettingsPanel />
-               )}
+            {activeTab === "nuorder" && hasPermission("settings.admin") && (
+              <NuorderSettingsPanel />
+            )}
 
-               {activeTab === "weather" && hasPermission("settings.admin") && (
-                 <WeatherSettingsPanel baseUrl={baseUrl} />
-               )}
+            {activeTab === "insights" && hasPermission("settings.admin") && (
+              <InsightsSettingsPanel />
+            )}
 
-               {activeTab === "podium" && hasPermission("settings.admin") && (
-                 <PodiumSettingsPanel baseUrl={baseUrl} />
-               )}
+            {activeTab === "weather" && hasPermission("settings.admin") && (
+              <WeatherSettingsPanel baseUrl={baseUrl} />
+            )}
 
-               {activeTab === "quickbooks" && hasPermission("settings.admin") && (
-                 <QuickBooksSettingsPanel onOpenQbo={onOpenQbo} />
-               )}
+            {activeTab === "podium" && hasPermission("settings.admin") && (
+              <PodiumSettingsPanel baseUrl={baseUrl} />
+            )}
 
-               {activeTab === "stripe" && hasPermission("settings.admin") && (
-                 <StripeSettingsPanel />
-               )}
+            {activeTab === "quickbooks" && hasPermission("settings.admin") && (
+              <QuickBooksSettingsPanel onOpenQbo={onOpenQbo} />
+            )}
 
+            {activeTab === "stripe" && hasPermission("settings.admin") && (
+              <StripeSettingsPanel />
+            )}
 
-              {activeTab === "receipt-builder" && (
-                <Suspense
-                  fallback={
-                    <p className="text-sm font-medium text-app-text-muted">
-                      Loading Receipt Builder…
-                    </p>
-                  }
-                >
-                  <ReceiptBuilderPanel baseUrl={baseUrl} />
-                </Suspense>
-              )}
+            {activeTab === "receipt-builder" && (
+              <Suspense
+                fallback={
+                  <p className="text-sm font-medium text-app-text-muted">
+                    Loading Receipt Builder…
+                  </p>
+                }
+              >
+                <ReceiptBuilderPanel baseUrl={baseUrl} />
+              </Suspense>
+            )}
 
-              {activeTab === 'general' && (
-                <div className="space-y-12">
-                   <header className="mb-10">
-                      <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">System Settings</h2>
-                      <p className="text-sm text-app-text-muted mt-2 font-medium">Environmental and UI overrides.</p>
-                   </header>
+            {activeTab === "general" && (
+              <div className="space-y-12">
+                <header className="mb-10">
+                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+                    System Settings
+                  </h2>
+                  <p className="text-sm text-app-text-muted mt-2 font-medium">
+                    Environmental and UI overrides.
+                  </p>
+                </header>
 
-                   <section className="ui-card p-8 max-w-2xl">
-                      <label className="block">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Interface Theme Architecture</span>
-                        <div className="grid grid-cols-3 gap-4 mt-4">
-                           {(['light', 'dark', 'system'] as ThemeMode[]).map(mode => (
-                             <button
-                                key={mode}
-                                onClick={() => onThemeChange(mode)}
-                                className={`flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition-all ${themeMode === mode ? 'border-app-text bg-app-text text-white shadow-xl' : 'border-app-border bg-app-surface text-app-text-muted hover:border-app-text'}`}
-                             >
-                                <span className="text-[10px] font-black uppercase tracking-widest">{mode}</span>
-                                <div className={`h-1.5 w-1.5 rounded-full ${themeMode === mode ? 'bg-app-accent shadow-[0_0_8px_rgba(141,128,255,1)]' : 'bg-app-border'}`} />
-                             </button>
-                           ))}
-                        </div>
-                      </label>
-                   </section>
-
-                   {hasPermission("settings.admin") ? (
-                     <section className="ui-card p-8 max-w-2xl">
-                       <div className="mb-4 flex items-start gap-3">
-                         <Star className="mt-0.5 h-5 w-5 shrink-0 text-app-accent" aria-hidden />
-                         <div className="min-w-0 flex-1">
-                           <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                             Post-sale review invites
-                           </h3>
-                           <p className="mt-1 text-xs font-medium text-app-text-muted leading-relaxed">
-                             Store-wide defaults for Podium review flows. The receipt summary (POS) still lets
-                             cashiers opt out per sale when invites are enabled. Completing Podium review
-                             sending remains in Integrations.
-                           </p>
-                         </div>
-                       </div>
-                       {!reviewPolicyLoaded || !reviewPolicy ? (
-                         <p className="text-sm font-medium text-app-text-muted">Loading…</p>
-                       ) : (
-                         <div className="space-y-4">
-                           <label className="flex cursor-pointer items-start gap-3">
-                             <input
-                               type="checkbox"
-                               className="mt-1 h-4 w-4 rounded border-app-border"
-                               checked={reviewPolicy.review_invites_enabled}
-                               onChange={(e) =>
-                                 setReviewPolicy((p) =>
-                                   p
-                                     ? { ...p, review_invites_enabled: e.target.checked }
-                                     : p,
-                                 )
-                               }
-                             />
-                             <span className="text-sm font-medium text-app-text">
-                               Enable post-sale review invites (when Podium is configured on the server).
-                             </span>
-                           </label>
-                           <label
-                             className={`flex cursor-pointer items-start gap-3 ${!reviewPolicy.review_invites_enabled ? "opacity-50" : ""}`}
-                           >
-                             <input
-                               type="checkbox"
-                               className="mt-1 h-4 w-4 rounded border-app-border"
-                               disabled={!reviewPolicy.review_invites_enabled}
-                               checked={reviewPolicy.send_review_invite_by_default}
-                               onChange={(e) =>
-                                 setReviewPolicy((p) =>
-                                   p
-                                     ? { ...p, send_review_invite_by_default: e.target.checked }
-                                     : p,
-                                 )
-                               }
-                             />
-                             <span className="text-sm font-medium text-app-text">
-                               Default receipt summary to send an invite (unchecked means cashiers must
-                               confirm sending, or check &quot;do not send&quot; to suppress).
-                             </span>
-                           </label>
-                           <button
-                             type="button"
-                             disabled={reviewPolicyBusy}
-                             onClick={() => void saveReviewPolicy()}
-                             className="ui-btn-primary h-11 px-6 text-sm font-black disabled:opacity-50"
-                           >
-                             {reviewPolicyBusy ? "Saving…" : "Save review policy"}
-                           </button>
-                         </div>
-                       )}
-                     </section>
-                   ) : null}
-
-                   <section className="ui-card p-8 max-w-4xl">
-                      <div className="mb-4 flex items-start gap-3">
-                        <ClipboardList className="mt-0.5 h-5 w-5 shrink-0 text-app-accent" aria-hidden />
-                        <div className="min-w-0 flex-1">
-                          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                            Store staff playbook
-                          </h3>
-                          <p className="mt-1 text-xs font-medium text-app-text-muted leading-relaxed">
-                            Markdown notes for <strong className="text-app-text">this store</strong> (contacts, void rules,
-                            cash tolerance, seasonal policy). Staff can read it via{" "}
-                            <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                              GET /api/staff/store-sop
-                            </code>{" "}
-                            when signed in. Suggested sections live in repo{" "}
-                            <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                              docs/staff/STORE-SOP-TEMPLATE.md
-                            </code>
-                            .
-                          </p>
-                        </div>
-                      </div>
-                      {!staffSopLoaded ? (
-                        <p className="text-sm font-medium text-app-text-muted">Loading…</p>
-                      ) : (
-                        <>
-                          <textarea
-                            value={staffSopMarkdown}
-                            onChange={(e) => setStaffSopMarkdown(e.target.value)}
-                            spellCheck={false}
-                            className="ui-input min-h-[320px] w-full resize-y font-mono text-sm leading-relaxed"
-                            placeholder={
-                              "# Store playbook\n\nFill tables for your location (manager phone, void policy, …). See docs/staff/STORE-SOP-TEMPLATE.md for ideas."
-                            }
-                            aria-label="Store staff playbook markdown"
-                          />
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-                            <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                              UTF-8 size{" "}
-                              <span
-                                className={
-                                  new TextEncoder().encode(staffSopMarkdown).length > STAFF_SOP_MAX_BYTES
-                                    ? "text-red-600"
-                                    : "text-app-text"
-                                }
-                              >
-                                {new TextEncoder().encode(staffSopMarkdown).length}
-                              </span>
-                              {" / "}
-                              {STAFF_SOP_MAX_BYTES} bytes
-                            </p>
-                            <button
-                              type="button"
-                              disabled={staffSopBusy}
-                              onClick={() => void saveStaffSop()}
-                              className="ui-btn-primary h-11 px-6 text-sm font-black disabled:opacity-50"
-                            >
-                              {staffSopBusy ? "Saving…" : "Save playbook"}
-                            </button>
-                          </div>
-                        </>
+                <section className="ui-card p-8 max-w-2xl">
+                  <label className="block">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Interface Theme Architecture
+                    </span>
+                    <div className="grid grid-cols-3 gap-4 mt-4">
+                      {(["light", "dark", "system"] as ThemeMode[]).map(
+                        (mode) => (
+                          <button
+                            key={mode}
+                            onClick={() => onThemeChange(mode)}
+                            className={`flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition-all ${themeMode === mode ? "border-app-text bg-app-text text-white shadow-xl" : "border-app-border bg-app-surface text-app-text-muted hover:border-app-text"}`}
+                          >
+                            <span className="text-[10px] font-black uppercase tracking-widest">
+                              {mode}
+                            </span>
+                            <div
+                              className={`h-1.5 w-1.5 rounded-full ${themeMode === mode ? "bg-app-accent shadow-[0_0_8px_rgba(141,128,255,1)]" : "bg-app-border"}`}
+                            />
+                          </button>
+                        ),
                       )}
-                   </section>
+                    </div>
+                  </label>
+                </section>
 
-                   <section className="ui-card p-8 max-w-2xl">
-                      <div className="flex items-center gap-3 mb-4">
-                        <Info className="h-5 w-5 text-app-accent shrink-0" aria-hidden />
-                        <div>
-                          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">About this build</h3>
-                          <p className="text-xs text-app-text-muted mt-1 font-medium">
-                            Share these details with support when reporting an issue. PWA users may need a hard refresh after deploy if the shell looks outdated.
-                          </p>
-                        </div>
+                {hasPermission("settings.admin") ? (
+                  <section className="ui-card p-8 max-w-2xl">
+                    <div className="mb-4 flex items-start gap-3">
+                      <Star
+                        className="mt-0.5 h-5 w-5 shrink-0 text-app-accent"
+                        aria-hidden
+                      />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                          Post-sale review invites
+                        </h3>
+                        <p className="mt-1 text-xs font-medium text-app-text-muted leading-relaxed">
+                          Store-wide defaults for Podium review flows. The
+                          receipt summary (POS) still lets cashiers opt out per
+                          sale when invites are enabled. Completing Podium
+                          review sending remains in Integrations.
+                        </p>
                       </div>
-                      <dl className="grid gap-3 text-sm">
-                        <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
-                          <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">Surface</dt>
-                          <dd className="font-mono text-app-text tabular-nums">{tauriShellVersion != null ? `Desktop (Tauri ${tauriShellVersion})` : "Web / PWA"}</dd>
-                        </div>
-                        <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
-                          <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">Client version</dt>
-                          <dd className="font-mono text-app-text tabular-nums">{CLIENT_SEMVER}</dd>
-                        </div>
-                        <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
-                          <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">Git revision</dt>
-                          <dd className="font-mono text-app-text tabular-nums">{GIT_SHORT}</dd>
-                        </div>
-                        <div className="flex flex-wrap justify-between gap-2 pt-1">
-                          <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">API base</dt>
-                          <dd className="font-mono text-xs text-app-text break-all text-right max-w-[min(100%,20rem)]">{import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000 (default)"}</dd>
-                        </div>
-                      </dl>
-                   </section>
-                </div>
-              )}
-              
-           </div>
+                    </div>
+                    {!reviewPolicyLoaded || !reviewPolicy ? (
+                      <p className="text-sm font-medium text-app-text-muted">
+                        Loading…
+                      </p>
+                    ) : (
+                      <div className="space-y-4">
+                        <label className="flex cursor-pointer items-start gap-3">
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 rounded border-app-border"
+                            checked={reviewPolicy.review_invites_enabled}
+                            onChange={(e) =>
+                              setReviewPolicy((p) =>
+                                p
+                                  ? {
+                                      ...p,
+                                      review_invites_enabled: e.target.checked,
+                                    }
+                                  : p,
+                              )
+                            }
+                          />
+                          <span className="text-sm font-medium text-app-text">
+                            Enable post-sale review invites (when Podium is
+                            configured on the server).
+                          </span>
+                        </label>
+                        <label
+                          className={`flex cursor-pointer items-start gap-3 ${!reviewPolicy.review_invites_enabled ? "opacity-50" : ""}`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1 h-4 w-4 rounded border-app-border"
+                            disabled={!reviewPolicy.review_invites_enabled}
+                            checked={reviewPolicy.send_review_invite_by_default}
+                            onChange={(e) =>
+                              setReviewPolicy((p) =>
+                                p
+                                  ? {
+                                      ...p,
+                                      send_review_invite_by_default:
+                                        e.target.checked,
+                                    }
+                                  : p,
+                              )
+                            }
+                          />
+                          <span className="text-sm font-medium text-app-text">
+                            Default receipt summary to send an invite (unchecked
+                            means cashiers must confirm sending, or check
+                            &quot;do not send&quot; to suppress).
+                          </span>
+                        </label>
+                        <button
+                          type="button"
+                          disabled={reviewPolicyBusy}
+                          onClick={() => void saveReviewPolicy()}
+                          className="ui-btn-primary h-11 px-6 text-sm font-black disabled:opacity-50"
+                        >
+                          {reviewPolicyBusy ? "Saving…" : "Save review policy"}
+                        </button>
+                      </div>
+                    )}
+                  </section>
+                ) : null}
+
+                <section className="ui-card p-8 max-w-4xl">
+                  <div className="mb-4 flex items-start gap-3">
+                    <ClipboardList
+                      className="mt-0.5 h-5 w-5 shrink-0 text-app-accent"
+                      aria-hidden
+                    />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                        Store staff playbook
+                      </h3>
+                      <p className="mt-1 text-xs font-medium text-app-text-muted leading-relaxed">
+                        Markdown notes for{" "}
+                        <strong className="text-app-text">this store</strong>{" "}
+                        (contacts, void rules, cash tolerance, seasonal policy).
+                        Staff can read it via{" "}
+                        <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
+                          GET /api/staff/store-sop
+                        </code>{" "}
+                        when signed in. Suggested sections live in repo{" "}
+                        <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
+                          docs/staff/STORE-SOP-TEMPLATE.md
+                        </code>
+                        .
+                      </p>
+                    </div>
+                  </div>
+                  {!staffSopLoaded ? (
+                    <p className="text-sm font-medium text-app-text-muted">
+                      Loading…
+                    </p>
+                  ) : (
+                    <>
+                      <textarea
+                        value={staffSopMarkdown}
+                        onChange={(e) => setStaffSopMarkdown(e.target.value)}
+                        spellCheck={false}
+                        className="ui-input min-h-[320px] w-full resize-y font-mono text-sm leading-relaxed"
+                        placeholder={
+                          "# Store playbook\n\nFill tables for your location (manager phone, void policy, …). See docs/staff/STORE-SOP-TEMPLATE.md for ideas."
+                        }
+                        aria-label="Store staff playbook markdown"
+                      />
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                          UTF-8 size{" "}
+                          <span
+                            className={
+                              new TextEncoder().encode(staffSopMarkdown)
+                                .length > STAFF_SOP_MAX_BYTES
+                                ? "text-red-600"
+                                : "text-app-text"
+                            }
+                          >
+                            {new TextEncoder().encode(staffSopMarkdown).length}
+                          </span>
+                          {" / "}
+                          {STAFF_SOP_MAX_BYTES} bytes
+                        </p>
+                        <button
+                          type="button"
+                          disabled={staffSopBusy}
+                          onClick={() => void saveStaffSop()}
+                          className="ui-btn-primary h-11 px-6 text-sm font-black disabled:opacity-50"
+                        >
+                          {staffSopBusy ? "Saving…" : "Save playbook"}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </section>
+
+                <section className="ui-card p-8 max-w-2xl">
+                  <div className="flex items-center gap-3 mb-4">
+                    <Info
+                      className="h-5 w-5 text-app-accent shrink-0"
+                      aria-hidden
+                    />
+                    <div>
+                      <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                        About this build
+                      </h3>
+                      <p className="text-xs text-app-text-muted mt-1 font-medium">
+                        Share these details with support when reporting an
+                        issue. PWA users may need a hard refresh after deploy if
+                        the shell looks outdated.
+                      </p>
+                    </div>
+                  </div>
+                  <dl className="grid gap-3 text-sm">
+                    <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
+                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
+                        Surface
+                      </dt>
+                      <dd className="font-mono text-app-text tabular-nums">
+                        {tauriShellVersion != null
+                          ? `Desktop (Tauri ${tauriShellVersion})`
+                          : "Web / PWA"}
+                      </dd>
+                    </div>
+                    <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
+                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
+                        Client version
+                      </dt>
+                      <dd className="font-mono text-app-text tabular-nums">
+                        {CLIENT_SEMVER}
+                      </dd>
+                    </div>
+                    <div className="flex flex-wrap justify-between gap-2 border-b border-app-border/60 pb-3">
+                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
+                        Git revision
+                      </dt>
+                      <dd className="font-mono text-app-text tabular-nums">
+                        {GIT_SHORT}
+                      </dd>
+                    </div>
+                    <div className="flex flex-wrap justify-between gap-2 pt-1">
+                      <dt className="font-bold text-app-text-muted uppercase tracking-wider text-[10px]">
+                        API base
+                      </dt>
+                      <dd className="font-mono text-xs text-app-text break-all text-right max-w-[min(100%,20rem)]">
+                        {import.meta.env.VITE_API_BASE ??
+                          "http://127.0.0.1:3000 (default)"}
+                      </dd>
+                    </div>
+                  </dl>
+                </section>
+              </div>
+            )}
+          </div>
         </main>
       </div>
 

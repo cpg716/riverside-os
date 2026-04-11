@@ -153,34 +153,53 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
   const today = days[0];
   const tomorrow = days[1] ?? days[0];
   const current = forecast?.current;
-  const headlineCondition = (current?.condition ?? today.condition).toLowerCase();
+  const headlineCondition = (
+    current?.condition ?? today.condition
+  ).toLowerCase();
   const condition = headlineCondition;
-  
+
   const isRain = condition.includes("rain");
   const isSnow = condition.includes("snow");
   const isCloudy = condition.includes("cloudy");
 
-  const gradientClass = isSnow 
+  const gradientClass = isSnow
     ? "bg-[linear-gradient(135deg,#f0f9ff_0%,#e0f2fe_100%)] text-blue-900 border-blue-200"
     : isRain
-    ? "bg-[linear-gradient(135deg,#f0fdf4_0%,#dcfce7_100%)] text-emerald-900 border-emerald-200"
-    : isCloudy
-    ? "border-app-border bg-[linear-gradient(135deg,var(--app-bg)_0%,var(--app-surface-2)_100%)] text-app-text"
-    : "bg-[linear-gradient(135deg,#fffbeb_0%,#fef3c7_100%)] text-amber-900 border-amber-200";
+      ? "bg-[linear-gradient(135deg,#f0fdf4_0%,#dcfce7_100%)] text-emerald-900 border-emerald-200"
+      : isCloudy
+        ? "border-app-border bg-[linear-gradient(135deg,var(--app-bg)_0%,var(--app-surface-2)_100%)] text-app-text"
+        : "bg-[linear-gradient(135deg,#fffbeb_0%,#fef3c7_100%)] text-amber-900 border-amber-200";
 
   const Icon = isSnow ? Snowflake : isRain ? CloudRain : isCloudy ? Cloud : Sun;
 
   return (
-    <div className={`mb-5 flex flex-col sm:flex-row items-stretch gap-0 rounded-[24px] border ${gradientClass} overflow-hidden shadow-sm animate-workspace-snap`}>
+    <div
+      className={`mb-5 flex flex-col sm:flex-row items-stretch gap-0 rounded-[24px] border ${gradientClass} overflow-hidden shadow-sm animate-workspace-snap`}
+    >
       <div className="flex-1 p-6 flex items-center gap-6">
         <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface/50 shadow-inner dark:bg-app-surface-2/40">
-          <Icon size={32} className={isSnow ? "text-blue-500" : isRain ? "text-emerald-500" : isCloudy ? "text-app-text-muted" : "text-amber-500"} />
+          <Icon
+            size={32}
+            className={
+              isSnow
+                ? "text-blue-500"
+                : isRain
+                  ? "text-emerald-500"
+                  : isCloudy
+                    ? "text-app-text-muted"
+                    : "text-amber-500"
+            }
+          />
         </div>
         <div className="min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Buffalo, NY</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">
+              Buffalo, NY
+            </span>
             <div className="h-1 w-1 rounded-full bg-current opacity-30" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">Today</span>
+            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">
+              Today
+            </span>
           </div>
           <h3 className="text-2xl font-black tracking-tight leading-none mb-1">
             {current != null ? (
@@ -196,7 +215,10 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
             ) : (
               <>
                 {today.temp_high.toFixed(0)}°
-                <span className="text-sm opacity-40"> / {today.temp_low.toFixed(0)}°</span>
+                <span className="text-sm opacity-40">
+                  {" "}
+                  / {today.temp_low.toFixed(0)}°
+                </span>
               </>
             )}
           </h3>
@@ -209,22 +231,31 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
               ? ` · Wind ${current.wind_mph.toFixed(0)} mph`
               : ""}
             {" · "}
-            {today.precipitation_inches > 0 ? `${today.precipitation_inches}"` : "no"} precip today
+            {today.precipitation_inches > 0
+              ? `${today.precipitation_inches}"`
+              : "no"}{" "}
+            precip today
           </p>
         </div>
       </div>
 
       <div className="w-full sm:w-[240px] bg-app-surface/40 border-l border-current/5 p-6 flex items-center gap-5 dark:bg-app-surface-2/30">
         <div className="flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50 mb-1">Tomorrow</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50 mb-1">
+            Tomorrow
+          </p>
           <div className="flex items-center gap-2">
-            <span className="text-lg font-black">{tomorrow.temp_high.toFixed(0)}°</span>
-            <span className="text-xs font-bold opacity-40">{tomorrow.condition}</span>
+            <span className="text-lg font-black">
+              {tomorrow.temp_high.toFixed(0)}°
+            </span>
+            <span className="text-xs font-bold opacity-40">
+              {tomorrow.condition}
+            </span>
           </div>
         </div>
         <div className="flex flex-col items-end gap-1">
-           <Wind size={16} className="opacity-30" />
-           <ThermometerSun size={16} className="opacity-30" />
+          <Wind size={16} className="opacity-30" />
+          <ThermometerSun size={16} className="opacity-30" />
         </div>
       </div>
     </div>
@@ -240,7 +271,8 @@ export default function OperationalHome({
   registerReportsDeepLinkOrderId,
   onRegisterReportsDeepLinkConsumed,
 }: OperationalHomeProps) {
-  const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission, permissionsLoaded } =
+    useBackofficeAuth();
   const [taskMeOpen, setTaskMeOpen] = useState<
     { id: string; title_snapshot: string; due_date: string | null }[]
   >([]);
@@ -257,10 +289,16 @@ export default function OperationalHome({
   const loadTasksMe = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
     try {
-      const res = await fetch(`${baseUrl}/api/tasks/me`, { headers: taskAuth() });
+      const res = await fetch(`${baseUrl}/api/tasks/me`, {
+        headers: taskAuth(),
+      });
       if (!res.ok) return;
       const data = (await res.json()) as {
-        open?: { id: string; title_snapshot: string; due_date: string | null }[];
+        open?: {
+          id: string;
+          title_snapshot: string;
+          due_date: string | null;
+        }[];
       };
       setTaskMeOpen(Array.isArray(data.open) ? data.open : []);
     } catch {
@@ -276,7 +314,8 @@ export default function OperationalHome({
   const refreshNotifUnread = notifOpt?.refreshUnread;
   const { openDrawer: openNotificationDrawer } = useNotificationCenter();
   useEffect(() => {
-    if (activeSection === "inbox" && refreshNotifUnread) void refreshNotifUnread();
+    if (activeSection === "inbox" && refreshNotifUnread)
+      void refreshNotifUnread();
   }, [activeSection, refreshNotifUnread]);
 
   const [notifPreview, setNotifPreview] = useState<NotificationRow[]>([]);
@@ -332,7 +371,9 @@ export default function OperationalHome({
           needs_measure: data.needs_measure || [],
           needs_order: data.needs_order || [],
           overdue_pickups: data.overdue_pickups || [],
-          today_floor_staff: Array.isArray(data.today_floor_staff) ? data.today_floor_staff : [],
+          today_floor_staff: Array.isArray(data.today_floor_staff)
+            ? data.today_floor_staff
+            : [],
         });
       }
     }
@@ -375,7 +416,7 @@ export default function OperationalHome({
     () =>
       buildMorningCompassQueue({
         overduePickups: compass?.overdue_pickups ?? [],
-        needsOrder: (compass as any)?.needs_order ?? [],
+        needsOrder: compass?.needs_order ?? [],
         needsMeasure: compass?.needs_measure ?? [],
         rushOrders: compass?.rush_orders ?? [],
         openTasks: taskMeOpen,
@@ -400,12 +441,20 @@ export default function OperationalHome({
           ) : !hasPermission("register.reports") ? (
             <div className="p-6">
               <p className="text-sm text-app-text-muted">
-                You need the <span className="font-semibold text-app-text">register.reports</span> permission
-                to view register and daily sales activity.
+                You need the{" "}
+                <span className="font-semibold text-app-text">
+                  register.reports
+                </span>{" "}
+                permission to view register and daily sales activity.
               </p>
             </div>
           ) : (
-            <RegisterReports sessionId={null} onOpenWeddingParty={onOpenWeddingParty} deepLinkTransactionId={registerReportsDeepLinkOrderId} onDeepLinkConsumed={onRegisterReportsDeepLinkConsumed} />
+            <RegisterReports
+              sessionId={null}
+              onOpenWeddingParty={onOpenWeddingParty}
+              deepLinkTransactionId={registerReportsDeepLinkOrderId}
+              onDeepLinkConsumed={onRegisterReportsDeepLinkConsumed}
+            />
           )}
         </div>
       </div>
@@ -421,12 +470,17 @@ export default function OperationalHome({
           ) : !hasPermission("customers.hub_view") ? (
             <div className="p-6">
               <p className="text-sm text-app-text-muted">
-                You need the <span className="font-semibold text-app-text">customers.hub_view</span>{" "}
+                You need the{" "}
+                <span className="font-semibold text-app-text">
+                  customers.hub_view
+                </span>{" "}
                 permission to use the inbox.
               </p>
             </div>
           ) : (
-            <PodiumMessagingInboxSection onOpenCustomerHub={onOpenInboxCustomer} />
+            <PodiumMessagingInboxSection
+              onOpenCustomerHub={onOpenInboxCustomer}
+            />
           )}
         </div>
       </div>
@@ -442,15 +496,18 @@ export default function OperationalHome({
               <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
                 Operations
               </p>
-              <h2 className="text-2xl font-black tracking-tight text-app-text">Reviews</h2>
+              <h2 className="text-2xl font-black tracking-tight text-app-text">
+                Reviews
+              </h2>
             </div>
           </div>
           {!permissionsLoaded ? (
             <p className="text-sm text-app-text-muted">Loading…</p>
           ) : !hasPermission("reviews.view") ? (
             <p className="text-sm text-app-text-muted">
-              You need the <span className="font-semibold text-app-text">reviews.view</span> permission
-              to see this list.
+              You need the{" "}
+              <span className="font-semibold text-app-text">reviews.view</span>{" "}
+              permission to see this list.
             </p>
           ) : (
             <ReviewsOperationsSection
@@ -520,11 +577,17 @@ export default function OperationalHome({
       <div className="min-h-0 flex-1 overflow-auto rounded-[20px] sm:rounded-[28px] border border-app-border bg-app-surface p-4 sm:p-7">
         <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
           <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">Operations</p>
-            <h2 className="text-2xl font-black tracking-tight text-app-text">Morning Dashboard</h2>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
+              Operations
+            </p>
+            <h2 className="text-2xl font-black tracking-tight text-app-text">
+              Morning Dashboard
+            </h2>
           </div>
           <div className="flex items-center gap-2">
-            <span className="ui-pill bg-app-surface-2 text-app-text-muted">Live updates (1m)</span>
+            <span className="ui-pill bg-app-surface-2 text-app-text-muted">
+              Live updates (1m)
+            </span>
           </div>
         </div>
 
@@ -534,25 +597,36 @@ export default function OperationalHome({
             className="mb-5 rounded-2xl border border-app-accent/30 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--app-accent)_14%,var(--app-surface-2)),var(--app-surface))] p-4 sm:p-5"
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-black uppercase tracking-wide text-app-text">Suggested next</h3>
+              <h3 className="text-sm font-black uppercase tracking-wide text-app-text">
+                Suggested next
+              </h3>
               <span className="text-[10px] font-semibold text-app-text-muted">
-                Ranked from weddings, tasks, and inbox (explainable rules — not predictions).
+                Ranked from weddings, tasks, and inbox (explainable rules — not
+                predictions).
               </span>
             </div>
             {suggestedMorningQueue.length === 0 ? (
-              <p data-testid="operations-morning-compass-coach-empty" className="text-sm font-semibold text-app-text-muted">
+              <p
+                data-testid="operations-morning-compass-coach-empty"
+                className="text-sm font-semibold text-app-text-muted"
+              >
                 No prioritized actions right now.
               </p>
             ) : (
-              <ul className="grid gap-2 sm:grid-cols-2" data-testid="operations-morning-compass-coach-list">
+              <ul
+                className="grid gap-2 sm:grid-cols-2"
+                data-testid="operations-morning-compass-coach-list"
+              >
                 {suggestedMorningQueue.map((item) => (
                   <li key={item.id}>
                     <button
                       type="button"
                       data-testid={`operations-morning-compass-coach-item-${item.kind}`}
                       onClick={() => {
-                        if (item.kind === "wedding") setCompassDrawerRow(item.row);
-                        else if (item.kind === "task") setTaskDrawerId(item.taskId);
+                        if (item.kind === "wedding")
+                          setCompassDrawerRow(item.row);
+                        else if (item.kind === "task")
+                          setTaskDrawerId(item.taskId);
                         else openNotificationDrawer();
                       }}
                       className="flex h-full w-full items-start gap-3 rounded-2xl border border-app-border bg-app-surface/95 px-4 py-3 text-left shadow-sm transition hover:border-app-accent/45"
@@ -566,7 +640,11 @@ export default function OperationalHome({
                               : "bg-app-surface-2 text-app-text-muted"
                         }`}
                       >
-                        {item.tier === "urgent" ? "Now" : item.tier === "soon" ? "Soon" : "FYI"}
+                        {item.tier === "urgent"
+                          ? "Now"
+                          : item.tier === "soon"
+                            ? "Soon"
+                            : "FYI"}
                       </span>
                       <span className="min-w-0 flex-1">
                         <span className="block font-bold leading-snug text-app-text">
@@ -574,7 +652,9 @@ export default function OperationalHome({
                             ? `${item.row.customer_name} · ${compassBandLabel(item.band)}`
                             : item.kind === "task"
                               ? item.title
-                              : (item as any).row.title}
+                              : item.kind === "rush_order"
+                                ? `${item.row.customer_name} · rush order`
+                                : item.row.title}
                         </span>
                         <span className="mt-1 block text-xs font-semibold text-app-text-muted">
                           {item.kind === "wedding"
@@ -587,7 +667,10 @@ export default function OperationalHome({
                         </span>
                       </span>
                       {item.kind === "notification" ? (
-                        <Bell className="mt-1 h-4 w-4 shrink-0 text-app-accent" aria-hidden />
+                        <Bell
+                          className="mt-1 h-4 w-4 shrink-0 text-app-accent"
+                          aria-hidden
+                        />
                       ) : null}
                     </button>
                   </li>
@@ -602,26 +685,33 @@ export default function OperationalHome({
             Executive pulse strip
           </p>
           <p className="mt-1 text-sm font-semibold text-app-text">
-            Critical queue metrics and throughput are refreshed continuously for floor operations.
+            Critical queue metrics and throughput are refreshed continuously for
+            floor operations.
           </p>
         </div>
 
         {compass ? (
           <section className="mb-5 rounded-2xl border border-app-border bg-app-surface-2 p-4">
             <div className="mb-3 flex items-center gap-2">
-              <Users className="h-[18px] w-[18px] text-app-accent" aria-hidden />
-              <h3 className="text-sm font-black text-app-text">Today&apos;s floor team</h3>
+              <Users
+                className="h-[18px] w-[18px] text-app-accent"
+                aria-hidden
+              />
+              <h3 className="text-sm font-black text-app-text">
+                Today&apos;s floor team
+              </h3>
               <span className="ui-pill bg-app-surface text-app-text-muted">
                 {(compass.today_floor_staff ?? []).length} scheduled
               </span>
             </div>
             <p className="mb-3 text-xs text-app-text-muted">
-              Store-local today from Staff → Schedule (salesperson &amp; sales support). Refreshes with the
-              morning board.
+              Store-local today from Staff → Schedule (salesperson &amp; sales
+              support). Refreshes with the morning board.
             </p>
             {(compass.today_floor_staff ?? []).length === 0 ? (
               <p className="text-sm text-app-text-muted">
-                No floor staff on the schedule for today, or schedule data is not available yet.
+                No floor staff on the schedule for today, or schedule data is
+                not available yet.
               </p>
             ) : (
               <ul className="flex flex-wrap gap-3">
@@ -636,7 +726,9 @@ export default function OperationalHome({
                       className="h-9 w-9 shrink-0 rounded-full border border-app-border object-cover"
                     />
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-app-text">{s.full_name}</p>
+                      <p className="truncate text-sm font-bold text-app-text">
+                        {s.full_name}
+                      </p>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
                         {floorRoleLabel(s.role)}
                       </p>
@@ -658,7 +750,9 @@ export default function OperationalHome({
               </span>
             </div>
             {taskMeOpen.length === 0 ? (
-              <p className="text-sm text-app-text-muted">No open tasks right now.</p>
+              <p className="text-sm text-app-text-muted">
+                No open tasks right now.
+              </p>
             ) : (
               <ul className="mt-2 space-y-2">
                 {taskMeOpen.slice(0, 5).map((t) => (
@@ -668,8 +762,12 @@ export default function OperationalHome({
                       onClick={() => setTaskDrawerId(t.id)}
                       className="flex w-full items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm"
                     >
-                      <span className="font-semibold text-app-text">{t.title_snapshot}</span>
-                      <span className="text-[10px] text-app-text-muted">{t.due_date ?? "—"}</span>
+                      <span className="font-semibold text-app-text">
+                        {t.title_snapshot}
+                      </span>
+                      <span className="text-[10px] text-app-text-muted">
+                        {t.due_date ?? "—"}
+                      </span>
                     </button>
                   </li>
                 ))}
@@ -687,9 +785,13 @@ export default function OperationalHome({
             >
               <div className="mb-2 flex items-center gap-2 text-[#6e4bb3]">
                 <Ruler size={16} />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">Needs measure</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.14em]">
+                  Needs measure
+                </span>
               </div>
-              <p className="text-4xl font-black text-[#3e2d66]">{compass?.stats.needs_measure ?? 0}</p>
+              <p className="text-4xl font-black text-[#3e2d66]">
+                {compass?.stats.needs_measure ?? 0}
+              </p>
             </button>
             <button
               type="button"
@@ -698,9 +800,13 @@ export default function OperationalHome({
             >
               <div className="mb-2 flex items-center gap-2 text-[#2f6d86]">
                 <ShoppingBag size={16} />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">Needs order</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.14em]">
+                  Needs order
+                </span>
               </div>
-              <p className="text-4xl font-black text-[#1d4b5d]">{compass?.stats.needs_order ?? 0}</p>
+              <p className="text-4xl font-black text-[#1d4b5d]">
+                {compass?.stats.needs_order ?? 0}
+              </p>
             </button>
             <button
               type="button"
@@ -709,15 +815,20 @@ export default function OperationalHome({
             >
               <div className="mb-2 flex items-center gap-2 text-[#a0602b]">
                 <Clock size={16} />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">Overdue pickup</span>
+                <span className="text-[11px] font-black uppercase tracking-[0.14em]">
+                  Overdue pickup
+                </span>
               </div>
-              <p className="text-4xl font-black text-[#6d3e18]">{compass?.stats.overdue_pickups ?? 0}</p>
+              <p className="text-4xl font-black text-[#6d3e18]">
+                {compass?.stats.overdue_pickups ?? 0}
+              </p>
             </button>
           </div>
         ) : permissionsLoaded ? (
           <p className="mb-5 rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm text-app-text-muted">
             Wedding queue metrics and activity feed require the{" "}
-            <span className="font-semibold text-app-text">weddings.view</span> permission.
+            <span className="font-semibold text-app-text">weddings.view</span>{" "}
+            permission.
           </p>
         ) : null}
 
@@ -727,16 +838,23 @@ export default function OperationalHome({
           <section className="ui-zone-primary p-5">
             <div className="mb-3 flex flex-wrap items-start justify-between gap-6">
               <div className="min-w-[300px] flex-1">
-                <h3 className="mb-4 text-sm font-black text-app-text">Urgent actions</h3>
+                <h3 className="mb-4 text-sm font-black text-app-text">
+                  Urgent actions
+                </h3>
                 {!canViewWeddingBoard ? (
                   <p className="text-sm text-app-text-muted">
                     Wedding queue data requires the{" "}
-                    <span className="font-semibold text-app-text">weddings.view</span> permission.
+                    <span className="font-semibold text-app-text">
+                      weddings.view
+                    </span>{" "}
+                    permission.
                   </p>
                 ) : !compass ? (
                   <p className="text-sm text-app-text-muted">Loading...</p>
                 ) : pulseRows.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">No urgent members.</p>
+                  <p className="text-sm text-app-text-muted">
+                    No urgent members.
+                  </p>
                 ) : (
                   <table className="w-full text-left text-sm">
                     <thead className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">
@@ -748,14 +866,25 @@ export default function OperationalHome({
                     </thead>
                     <tbody>
                       {pulseRows.map((r) => (
-                        <tr key={r.wedding_member_id} className="border-t border-app-border">
+                        <tr
+                          key={r.wedding_member_id}
+                          className="border-t border-app-border"
+                        >
                           <td className="py-2.5">
-                            <p className="font-semibold text-app-text">{r.customer_name}</p>
-                            <p className="text-[11px] text-app-text-muted">{r.role}</p>
+                            <p className="font-semibold text-app-text">
+                              {r.customer_name}
+                            </p>
+                            <p className="text-[11px] text-app-text-muted">
+                              {r.role}
+                            </p>
                           </td>
                           <td className="py-2.5 text-app-text-muted">
-                            <p className="text-app-text-muted">{r.party_name}</p>
-                            <p className="text-[11px] text-app-text-muted">{r.event_date}</p>
+                            <p className="text-app-text-muted">
+                              {r.party_name}
+                            </p>
+                            <p className="text-[11px] text-app-text-muted">
+                              {r.event_date}
+                            </p>
                           </td>
                           <td className="py-2.5 text-right">
                             <button
@@ -774,14 +903,21 @@ export default function OperationalHome({
               </div>
 
               <div className="min-w-[300px] flex-1 border-l border-app-border pl-6">
-                <h3 className="mb-4 text-sm font-black text-app-text">Global activity feed</h3>
+                <h3 className="mb-4 text-sm font-black text-app-text">
+                  Global activity feed
+                </h3>
                 {!canViewWeddingBoard ? (
                   <p className="text-sm text-app-text-muted">
                     Activity feed requires the{" "}
-                    <span className="font-semibold text-app-text">weddings.view</span> permission.
+                    <span className="font-semibold text-app-text">
+                      weddings.view
+                    </span>{" "}
+                    permission.
                   </p>
                 ) : activityFeed.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">No activity yet.</p>
+                  <p className="text-sm text-app-text-muted">
+                    No activity yet.
+                  </p>
                 ) : (
                   <ul className="space-y-4">
                     {activityFeed.map((ev) => (
@@ -791,11 +927,17 @@ export default function OperationalHome({
                       >
                         <p className="font-semibold text-app-text">
                           {ev.actor_name}{" "}
-                          <span className="px-1 font-normal text-app-text-muted">did</span> {ev.action_type}
+                          <span className="px-1 font-normal text-app-text-muted">
+                            did
+                          </span>{" "}
+                          {ev.action_type}
                         </p>
-                        <p className="mt-0.5 text-app-text-muted">{ev.description}</p>
+                        <p className="mt-0.5 text-app-text-muted">
+                          {ev.description}
+                        </p>
                         <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                          {new Date(ev.created_at).toLocaleString()} · {ev.party_name}{" "}
+                          {new Date(ev.created_at).toLocaleString()} ·{" "}
+                          {ev.party_name}{" "}
                           {ev.member_name ? `(${ev.member_name})` : ""}
                         </p>
                       </li>

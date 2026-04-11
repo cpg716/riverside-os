@@ -219,6 +219,7 @@ pub struct Customer {
     pub phone: Option<String>,
     pub loyalty_points: i32,
     pub wedding_id: Option<Uuid>,
+    pub stripe_customer_id: Option<String>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -307,6 +308,10 @@ pub struct PaymentTransaction {
     #[sqlx(json)]
     pub metadata: Option<serde_json::Value>,
     pub stripe_intent_id: Option<String>,
+    pub merchant_fee: Decimal,
+    pub net_amount: Decimal,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
     pub is_posted_to_rms_portal: bool,
     pub created_at: DateTime<Utc>,
 }

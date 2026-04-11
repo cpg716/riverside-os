@@ -422,22 +422,25 @@ async fn merge_vendors(
                 .await?;
         } else {
             // Move to target
-            sqlx::query("UPDATE vendor_brands SET vendor_id = $1 WHERE vendor_id = $2 AND brand = $3")
-                .bind(payload.target_vendor_id)
-                .bind(payload.source_vendor_id)
-                .bind(&brand)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "UPDATE vendor_brands SET vendor_id = $1 WHERE vendor_id = $2 AND brand = $3",
+            )
+            .bind(payload.target_vendor_id)
+            .bind(payload.source_vendor_id)
+            .bind(&brand)
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
     // 4. Move Supplier Items (handling duplicates)
     // Similar logic to brands
-    let source_items: Vec<(String, String)> =
-        sqlx::query_as("SELECT cp_item_no, vendor_item_no FROM vendor_supplier_item WHERE vendor_id = $1")
-            .bind(payload.source_vendor_id)
-            .fetch_all(&mut *tx)
-            .await?;
+    let source_items: Vec<(String, String)> = sqlx::query_as(
+        "SELECT cp_item_no, vendor_item_no FROM vendor_supplier_item WHERE vendor_id = $1",
+    )
+    .bind(payload.source_vendor_id)
+    .fetch_all(&mut *tx)
+    .await?;
 
     for (cp, vend) in source_items {
         let exists: bool = sqlx::query_scalar(
@@ -478,5 +481,7 @@ async fn merge_vendors(
     // Trigger reindex for target vendor (Meilisearch)
     spawn_meilisearch_vendor_upsert(&state, payload.target_vendor_id);
 
-    Ok(Json(json!({ "status": "merged", "source": payload.source_vendor_id, "target": payload.target_vendor_id })))
+    Ok(Json(
+        json!({ "status": "merged", "source": payload.source_vendor_id, "target": payload.target_vendor_id }),
+    ))
 }

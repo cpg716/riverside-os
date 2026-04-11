@@ -112,6 +112,8 @@ pub struct CheckoutPaymentSplit {
     pub applied_deposit_amount: Option<Decimal>,
     #[serde(default)]
     pub gift_card_code: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]
@@ -128,6 +130,11 @@ pub struct ResolvedPaymentSplit {
     pub amount: Decimal,
     pub gift_card_code: Option<String>,
     pub metadata: serde_json::Value,
+    pub stripe_intent_id: Option<String>,
+    pub merchant_fee: Decimal,
+    pub net_amount: Decimal,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
 }
 
 fn takeaway_line_total_decimal(items: &[CheckoutItem]) -> Decimal {
@@ -352,21 +359,11 @@ async fn expand_bundle_checkout_items(
 fn resolve_payment_splits(
     payload: &CheckoutRequest,
 ) -> Result<(Vec<ResolvedPaymentSplit>, String), CheckoutError> {
-    #[derive(Debug)]
-    struct ParsedSplit {
-        method: String,
-        amount: Decimal,
-        sub_type: Option<String>,
-        applied_deposit_amount: Decimal,
-        gift_card_code: Option<String>,
-    }
-
     let amount_paid = payload.amount_paid.round_dp(2);
 
     if let Some(ref splits) = payload.payment_splits {
         if !splits.is_empty() {
             let mut out: Vec<ResolvedPaymentSplit> = Vec::new();
-            let mut parsed: Vec<ParsedSplit> = Vec::new();
             let mut sum = Decimal::ZERO;
             let mut deposit_sum = Decimal::ZERO;
             for line in splits {
@@ -413,12 +410,6 @@ fn resolve_payment_splits(
                     ));
                 }
                 sum += a;
-                let sub_type = line
-                    .sub_type
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_ascii_lowercase());
                 let applied_deposit_amount = line
                     .applied_deposit_amount
                     .unwrap_or(Decimal::ZERO)
@@ -440,12 +431,41 @@ fn resolve_payment_splits(
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(str::to_string);
-                parsed.push(ParsedSplit {
+
+                let incoming_meta = line.metadata.clone().unwrap_or_else(|| json!({}));
+                let stripe_intent_id = incoming_meta
+                    .get("stripe_intent_id")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let card_brand = incoming_meta
+                    .get("card_brand")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+                let card_last4 = incoming_meta
+                    .get("card_last4")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string());
+
+                let fee = if stripe_intent_id.is_some() {
+                    estimate_stripe_fee(
+                        a,
+                        m.to_lowercase().contains("terminal")
+                            || m.to_lowercase().contains("present"),
+                    )
+                } else {
+                    Decimal::ZERO
+                };
+
+                out.push(ResolvedPaymentSplit {
                     method: m.to_string(),
                     amount: a,
-                    sub_type,
-                    applied_deposit_amount,
-                    gift_card_code,
+                    gift_card_code: gift_card_code.clone(),
+                    metadata: incoming_meta,
+                    stripe_intent_id,
+                    merchant_fee: fee,
+                    net_amount: a - fee,
+                    card_brand,
+                    card_last4,
                 });
             }
             if sum.round_dp(2) != amount_paid {
@@ -458,19 +478,7 @@ fn resolve_payment_splits(
                     "sum(applied_deposit_amount) cannot exceed amount_paid".to_string(),
                 ));
             }
-            for p in parsed {
-                let metadata = json!({
-                    "sub_type": p.sub_type,
-                    "applied_deposit_amount": p.applied_deposit_amount,
-                    "gift_card_code": p.gift_card_code,
-                });
-                out.push(ResolvedPaymentSplit {
-                    method: p.method,
-                    amount: p.amount,
-                    gift_card_code: p.gift_card_code,
-                    metadata,
-                });
-            }
+
             let label = if out.len() == 1 {
                 out[0].method.clone()
             } else {
@@ -495,6 +503,11 @@ fn resolve_payment_splits(
             amount: amount_paid,
             gift_card_code: None,
             metadata: json!({}),
+            stripe_intent_id: None,
+            merchant_fee: Decimal::ZERO,
+            net_amount: amount_paid,
+            card_brand: None,
+            card_last4: None,
         }],
         m.to_string(),
     ))
@@ -506,9 +519,14 @@ pub async fn execute_checkout(
     global_employee_markup: Decimal,
     mut payload: CheckoutRequest,
 ) -> Result<CheckoutDone, CheckoutError> {
-    if payload.items.is_empty() {
+    if payload.items.is_empty()
+        && payload
+            .wedding_disbursements
+            .as_ref()
+            .map_or(true, |v| v.is_empty())
+    {
         return Err(CheckoutError::InvalidPayload(
-            "Cart cannot be empty".to_string(),
+            "Cart cannot be empty (must have items or wedding payouts)".to_string(),
         ));
     }
 
@@ -1320,6 +1338,37 @@ pub async fn execute_checkout(
         )
         .await?;
 
+        let (is_clothing_footwear, category_name): (bool, Option<String>) = sqlx::query_as(
+            r#"
+            SELECT COALESCE(c.is_clothing_footwear, false), c.name
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            LEFT JOIN categories c ON c.id = p.category_id
+            WHERE pv.id = $1
+            "#,
+        )
+        .bind(item.variant_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let logic_tax_cat = if is_clothing_footwear {
+            let cat_name = category_name.as_deref().unwrap_or("").to_lowercase();
+            if cat_name.contains("shoe") || cat_name.contains("footwear") {
+                crate::logic::tax::TaxCategory::Footwear
+            } else {
+                crate::logic::tax::TaxCategory::Clothing
+            }
+        } else {
+            crate::logic::tax::TaxCategory::Other
+        };
+
+        // Recalculate taxes on server to ensure "Iron Cage" precision and NYS threshold compliance.
+        // We calculate per-unit tax to match the order_items schema (unit-based tax storage).
+        let state_tax =
+            crate::logic::tax::nys_state_tax_usd(logic_tax_cat, item.unit_price, item.unit_price);
+        let local_tax =
+            crate::logic::tax::erie_local_tax_usd(logic_tax_cat, item.unit_price, item.unit_price);
+
         let order_item_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO order_items (
@@ -1339,8 +1388,8 @@ pub async fn execute_checkout(
         .bind(item.quantity)
         .bind(item.unit_price)
         .bind(item.unit_cost)
-        .bind(item.state_tax)
-        .bind(item.local_tax)
+        .bind(state_tax)
+        .bind(local_tax)
         .bind(override_meta)
         .bind(line_fulfilled)
         .bind(line_salesperson_id)
@@ -1678,9 +1727,10 @@ pub async fn execute_checkout(
             let transaction_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO payment_transactions (
-                    session_id, wedding_member_id, category, payment_method, amount, metadata
+                    session_id, wedding_member_id, category, payment_method, amount, metadata,
+                    stripe_intent_id, merchant_fee, net_amount, card_brand, card_last4
                 )
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
                 RETURNING id
                 "#,
             )
@@ -1690,6 +1740,11 @@ pub async fn execute_checkout(
             .bind(method)
             .bind(split.amount)
             .bind(&split.metadata)
+            .bind(&split.stripe_intent_id)
+            .bind(split.merchant_fee)
+            .bind(split.net_amount)
+            .bind(&split.card_brand)
+            .bind(&split.card_last4)
             .fetch_one(&mut *tx)
             .await?;
 
@@ -2088,11 +2143,12 @@ pub async fn evaluate_combo_incentives(
 
     for item in items {
         *prod_counts.entry(item.product_id).or_default() += item.quantity;
-        if let Some(cid) = sqlx::query_scalar::<_, Uuid>("SELECT category_id FROM products WHERE id = $1")
-            .bind(item.product_id)
-            .fetch_optional(&mut *conn)
-            .await
-            .map_err(CheckoutError::Database)? 
+        if let Some(cid) =
+            sqlx::query_scalar::<_, Uuid>("SELECT category_id FROM products WHERE id = $1")
+                .bind(item.product_id)
+                .fetch_optional(&mut *conn)
+                .await
+                .map_err(CheckoutError::Database)?
         {
             *cat_counts.entry(cid).or_default() += item.quantity;
             item_cat_map.insert(item.product_id, cid);
@@ -2112,7 +2168,8 @@ pub async fn evaluate_combo_incentives(
                 let mut satisfied = true;
                 for req in reqs {
                     let m_type = req["match_type"].as_str().unwrap_or("");
-                    let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
+                    let m_id =
+                        Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
                     let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
 
                     let available = if m_type == "product" {
@@ -2131,7 +2188,8 @@ pub async fn evaluate_combo_incentives(
                     // Consume quantities
                     for req in reqs {
                         let m_type = req["match_type"].as_str().unwrap_or("");
-                        let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
+                        let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or(""))
+                            .unwrap_or_default();
                         let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
 
                         if m_type == "product" {
@@ -2159,4 +2217,20 @@ pub async fn evaluate_combo_incentives(
     }
 
     Ok(rewards)
+}
+
+/// Estimates Stripe processing fees to provide immediate net financial reporting.
+/// In-person (Terminal) defaults to 2.7% + $0.05. Online / Manual Entry defaults to 2.9% + $0.30.
+fn estimate_stripe_fee(amount: Decimal, is_terminal: bool) -> Decimal {
+    if is_terminal {
+        // 2.7% + 5 cents
+        let pct = amount * Decimal::new(27, 3); // 0.027
+        let fixed = Decimal::new(5, 2); // 0.05
+        (pct + fixed).round_dp(2)
+    } else {
+        // 2.9% + 30 cents
+        let pct = amount * Decimal::new(29, 3); // 0.029
+        let fixed = Decimal::new(30, 2); // 0.30
+        (pct + fixed).round_dp(2)
+    }
 }

@@ -1620,6 +1620,75 @@ async fn loyalty_velocity(
     Ok(Json(rows))
 }
 
+#[derive(Debug, Serialize)]
+pub struct MerchantActivityResponse {
+    pub total_processed: Decimal,
+    pub total_fees: Decimal,
+    pub net_amount: Decimal,
+    pub transactions: Vec<MerchantTransaction>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct MerchantTransaction {
+    pub id: Uuid,
+    pub occurred_at: DateTime<Utc>,
+    pub amount: Decimal,
+    pub merchant_fee: Decimal,
+    pub net_amount: Decimal,
+    pub payment_method: String,
+    pub card_brand: Option<String>,
+    pub card_last4: Option<String>,
+    pub stripe_intent_id: Option<String>,
+    pub status: String,
+}
+
+async fn get_merchant_activity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<MerchantActivityResponse>, InsightsError> {
+    require_staff_with_permission(&state, &headers, INSIGHTS_VIEW)
+        .await
+        .map_err(|e| match e.0 {
+            StatusCode::UNAUTHORIZED => InsightsError::Unauthorized(e.1.to_string()),
+            _ => InsightsError::Forbidden(e.1.to_string()),
+        })?;
+
+    let (start, end) = range_bounds(&q);
+
+    let txs: Vec<MerchantTransaction> = sqlx::query_as(
+        r#"
+        SELECT id, occurred_at, amount, merchant_fee, net_amount, payment_method, 
+               card_brand, card_last4, stripe_intent_id, status::text
+        FROM payment_transactions
+        WHERE occurred_at >= $1 AND occurred_at < $2
+          AND stripe_intent_id IS NOT NULL
+        ORDER BY occurred_at DESC
+        "#,
+    )
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+
+    let mut total_processed = Decimal::ZERO;
+    let mut total_fees = Decimal::ZERO;
+    let mut net_amount = Decimal::ZERO;
+
+    for t in &txs {
+        total_processed += t.amount;
+        total_fees += t.merchant_fee;
+        net_amount += t.net_amount;
+    }
+
+    Ok(Json(MerchantActivityResponse {
+        total_processed,
+        total_fees,
+        net_amount,
+        transactions: txs,
+    }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -1648,4 +1717,5 @@ pub fn router() -> Router<AppState> {
         .route("/best-sellers", get(best_sellers))
         .route("/dead-stock", get(dead_stock))
         .route("/loyalty-velocity", get(loyalty_velocity))
+        .route("/merchant-activity", get(get_merchant_activity))
 }

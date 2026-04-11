@@ -62,7 +62,7 @@ Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP E
 
 | Task | Likely locations |
 |------|------------------|
-| New REST endpoint | `server/src/api/<module>.rs`, register in `server/src/api/mod.rs` |
+| New REST endpoint | `server/src/api/<module>.rs`, register in `server/src/api/mod.rs`; use `{id}` style for path parameters (Axum 0.8+) |
 | Business / tax / pricing rules | `server/src/logic/`, `server/src/services/` — **not** inside handlers |
 | SQL types / enums | `server/src/models/mod.rs` + matching PostgreSQL enums |
 | New UI screen / tab | `client/src/App.tsx` + `client/src/components/...` + `Sidebar.tsx` if new tab |
@@ -79,6 +79,8 @@ Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP E
 | Client modal a11y hook | `client/src/hooks/useDialogAccessibility.ts` (focus trap, restore, optional Escape) — see **`docs/CLIENT_UI_CONVENTIONS.md`** |
 | Embedded Wedding Manager (JSX) | `client/src/components/wedding-manager/**` — preserve look/feel; **`ModalContext`**, **`GlobalModal`**, explicit **`type`** on buttons — **`docs/CLIENT_UI_CONVENTIONS.md`**. **Action Dashboard** loads **`GET /api/weddings/actions`** (embedded WM **`useDashboardActions`**) — rows include **`party_balance_due`**; quick **Done** uses **emerald terminal** styling (POS parity). **Party detail** measure/fitting gates use **scoped appointment fetch** + cache (`PartyDetail.jsx`). |
 | Schema change | New file in `migrations/` (ordered prefix `NN_description.sql`), then align Rust models |
+| **Stripe Power Integration** | `server/src/logic/stripe_vault.rs` (Vaulting/Credits), `server/src/api/payments.rs` (Axum); `client/src/components/customers/StripeVaultCardModal.tsx`, `client/src/components/pos/NexoCheckoutDrawer.tsx` (**Saved Card** / **Stripe Credit** tabs). Migration **131**. See **`docs/STRIPE_POWER_INTEGRATION.md`**. |
+| **Stripe Card Vault** | `client/src/components/customers/StripeVaultCardModal.tsx`, `CustomerRelationshipHubDrawer.tsx` (Payments tab); ROS uses **SetupIntents** for 100% PCI compliance. |
 | Admin auth | `server/src/middleware/mod.rs` + `server/src/auth/pins.rs` |
 | Receipt config / Receipt Builder / Podium receipt send | `server/src/api/settings.rs` → **`ReceiptConfig`**; merge **`receipt_studio_html.rs`**; orders **`receipt.html`**, **`receipt/send-email`**, **`receipt/send-sms`**; client **`ReceiptBuilderPanel`**, **`ReceiptStudioEditor`**, **`ReceiptSummaryModal`** — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`** |
 | **Weather / Visual Crossing** | `server/src/logic/weather.rs`, `server/src/api/weather.rs`, `server/src/api/settings.rs` (weather endpoints + `weather_config` + effective settings after env); UI **`SettingsWorkspace`** Integrations; **`docs/WEATHER_VISUAL_CROSSING.md`** |

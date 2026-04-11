@@ -274,9 +274,15 @@ pub fn router() -> Router<AppState> {
         .route("/admin/{staff_id}/set-pin", post(admin_set_pin))
         .route("/admin/{staff_id}", patch(admin_patch_staff))
         // New Commission Rules API (SPIFFs and Overrides)
-        .route("/commissions/rules", get(list_commission_rules).post(upsert_commission_rule))
+        .route(
+            "/commissions/rules",
+            get(list_commission_rules).post(upsert_commission_rule),
+        )
         .route("/commissions/rules/{id}", delete(delete_commission_rule))
-        .route("/commissions/combos", get(list_commission_combos).post(upsert_commission_combo))
+        .route(
+            "/commissions/combos",
+            get(list_commission_combos).post(upsert_commission_combo),
+        )
         .route("/commissions/combos/{id}", delete(delete_commission_combo))
 }
 
@@ -1292,13 +1298,13 @@ async fn list_commission_rules(
     let _ = require_authenticated_staff_headers(&state, &headers)
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
-    
+
     let rules = sqlx::query_as::<_, crate::models::CommissionRule>(
-        "SELECT * FROM commission_rules ORDER BY created_at DESC"
+        "SELECT * FROM commission_rules ORDER BY created_at DESC",
     )
     .fetch_all(&state.db)
     .await?;
-    
+
     Ok(Json(rules))
 }
 

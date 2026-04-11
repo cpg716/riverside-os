@@ -12,7 +12,7 @@ use crate::models::DbOrderStatus;
 
 #[derive(Debug, Serialize)]
 pub struct OrderPipelineStats {
-    pub needs_action: i64,      // open/pending_measurement
+    pub needs_action: i64,     // open/pending_measurement
     pub ready_for_pickup: i64, // has items marked Arrived (inventory) but not fulfilled
     pub overdue: i64,          // 30+ days old and unfulfilled
     pub wedding_orders: i64,   // active wedding-linked orders
@@ -291,9 +291,7 @@ pub async fn query_paged_orders(
     Ok(PagedOrdersResponse { items, total_count })
 }
 
-pub async fn query_pipeline_stats(
-    pool: &sqlx::PgPool,
-) -> Result<OrderPipelineStats, sqlx::Error> {
+pub async fn query_pipeline_stats(pool: &sqlx::PgPool) -> Result<OrderPipelineStats, sqlx::Error> {
     let row = sqlx::query!(
         r#"
         SELECT

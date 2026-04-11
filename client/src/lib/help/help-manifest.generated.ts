@@ -7,131 +7,144 @@ import manual_2_raw from "../../assets/docs/insights-manual.md?raw";
 import manual_3_raw from "../../assets/docs/remote-access-manual.md?raw";
 import manual_4_raw from "../../assets/docs/pos-custom-work-manual.md?raw";
 import manual_5_raw from "../../assets/docs/settings-backups-manual.md?raw";
-import manual_6_raw from "../../assets/docs/alterations-workspace-manual.md?raw";
-import manual_7_raw from "../../assets/docs/bug-report-flow-manual.md?raw";
-import manual_8_raw from "../../assets/docs/customers-customer-alterations-panel-manual.md?raw";
-import manual_9_raw from "../../assets/docs/customers-customer-measurement-vault-form-manual.md?raw";
-import manual_10_raw from "../../assets/docs/customers-customer-relationship-hub-drawer-manual.md?raw";
-import manual_11_raw from "../../assets/docs/customers-workspace-manual.md?raw";
-import manual_12_raw from "../../assets/docs/customers-duplicate-review-queue-section-manual.md?raw";
-import manual_13_raw from "../../assets/docs/customers-podium-messaging-inbox-section-manual.md?raw";
-import manual_14_raw from "../../assets/docs/customers-rms-charge-admin-section-manual.md?raw";
-import manual_15_raw from "../../assets/docs/customers-shipments-hub-section-manual.md?raw";
-import manual_16_raw from "../../assets/docs/gift-cards-workspace-manual.md?raw";
-import manual_17_raw from "../../assets/docs/help-center-drawer-manual.md?raw";
-import manual_18_raw from "../../assets/docs/inventory-camera-scanner-manual.md?raw";
-import manual_19_raw from "../../assets/docs/inventory-category-manager-manual.md?raw";
-import manual_20_raw from "../../assets/docs/inventory-discount-events-panel-manual.md?raw";
-import manual_21_raw from "../../assets/docs/inventory-bulk-bar-manual.md?raw";
-import manual_22_raw from "../../assets/docs/inventory-control-board-manual.md?raw";
-import manual_23_raw from "../../assets/docs/inventory-workspace-manual.md?raw";
-import manual_24_raw from "../../assets/docs/inventory-matrix-builder-manual.md?raw";
-import manual_25_raw from "../../assets/docs/inventory-matrix-hub-grid-manual.md?raw";
-import manual_26_raw from "../../assets/docs/inventory-physical-inventory-workspace-manual.md?raw";
-import manual_27_raw from "../../assets/docs/inventory-product-hub-drawer-manual.md?raw";
-import manual_28_raw from "../../assets/docs/inventory-product-master-form-manual.md?raw";
-import manual_29_raw from "../../assets/docs/inventory-purchase-order-panel-manual.md?raw";
-import manual_30_raw from "../../assets/docs/inventory-receiving-bay-manual.md?raw";
-import manual_31_raw from "../../assets/docs/inventory-universal-importer-manual.md?raw";
-import manual_32_raw from "../../assets/docs/inventory-vendor-filter-chip-manual.md?raw";
-import manual_33_raw from "../../assets/docs/inventory-vendor-hub-manual.md?raw";
-import manual_34_raw from "../../assets/docs/layout-backoffice-sign-in-gate-manual.md?raw";
-import manual_35_raw from "../../assets/docs/layout-detail-drawer-manual.md?raw";
-import manual_36_raw from "../../assets/docs/layout-global-search-drawers-manual.md?raw";
-import manual_37_raw from "../../assets/docs/layout-header-manual.md?raw";
-import manual_38_raw from "../../assets/docs/layout-insights-shell-manual.md?raw";
-import manual_39_raw from "../../assets/docs/layout-pos-shell-manual.md?raw";
-import manual_40_raw from "../../assets/docs/layout-pwa-update-prompt-manual.md?raw";
-import manual_41_raw from "../../assets/docs/layout-register-pick-modal-manual.md?raw";
-import manual_42_raw from "../../assets/docs/layout-register-required-modal-manual.md?raw";
-import manual_43_raw from "../../assets/docs/layout-register-session-bootstrap-manual.md?raw";
-import manual_44_raw from "../../assets/docs/layout-shell-backdrop-context-manual.md?raw";
-import manual_45_raw from "../../assets/docs/layout-sidebar-manual.md?raw";
-import manual_46_raw from "../../assets/docs/layout-storefront-embed-host-manual.md?raw";
-import manual_47_raw from "../../assets/docs/layout-wedding-shell-manual.md?raw";
-import manual_48_raw from "../../assets/docs/loyalty-workspace-manual.md?raw";
-import manual_49_raw from "../../assets/docs/loyalty-redeem-dialog-manual.md?raw";
-import manual_50_raw from "../../assets/docs/notifications-notification-center-bell-manual.md?raw";
-import manual_51_raw from "../../assets/docs/notifications-notification-center-drawer-manual.md?raw";
-import manual_52_raw from "../../assets/docs/operations-compass-member-detail-drawer-manual.md?raw";
-import manual_53_raw from "../../assets/docs/operations-operational-home-manual.md?raw";
-import manual_54_raw from "../../assets/docs/operations-reviews-operations-section-manual.md?raw";
-import manual_55_raw from "../../assets/docs/orders-workspace-manual.md?raw";
-import manual_56_raw from "../../assets/docs/pos-cart-manual.md?raw";
-import manual_57_raw from "../../assets/docs/pos-close-register-modal-manual.md?raw";
-import manual_58_raw from "../../assets/docs/pos-customer-profile-completion-modal-manual.md?raw";
-import manual_59_raw from "../../assets/docs/pos-customer-selector-manual.md?raw";
-import manual_60_raw from "../../assets/docs/pos-custom-item-prompt-modal-manual.md?raw";
-import manual_61_raw from "../../assets/docs/pos-layaway-workspace-manual.md?raw";
-import manual_62_raw from "../../assets/docs/pos-nexo-checkout-drawer-manual.md?raw";
-import manual_63_raw from "../../assets/docs/pos-order-attribution-modal-manual.md?raw";
-import manual_64_raw from "../../assets/docs/pos-customer-measurements-drawer-manual.md?raw";
-import manual_65_raw from "../../assets/docs/pos-exchange-wizard-manual.md?raw";
-import manual_66_raw from "../../assets/docs/pos-sale-cashier-sign-in-overlay-manual.md?raw";
-import manual_67_raw from "../../assets/docs/pos-shipping-modal-manual.md?raw";
-import manual_68_raw from "../../assets/docs/pos-sidebar-manual.md?raw";
-import manual_69_raw from "../../assets/docs/pos-suit-swap-wizard-manual.md?raw";
-import manual_70_raw from "../../assets/docs/pos-price-override-modal-manual.md?raw";
-import manual_71_raw from "../../assets/docs/pos-procurement-hub-manual.md?raw";
-import manual_72_raw from "../../assets/docs/pos-product-intelligence-drawer-manual.md?raw";
-import manual_73_raw from "../../assets/docs/pos-quick-keys-manual.md?raw";
-import manual_74_raw from "../../assets/docs/pos-receipt-summary-modal-manual.md?raw";
-import manual_75_raw from "../../assets/docs/pos-register-cash-adjust-modal-manual.md?raw";
-import manual_76_raw from "../../assets/docs/pos-register-dashboard-manual.md?raw";
-import manual_77_raw from "../../assets/docs/pos-register-gift-card-load-modal-manual.md?raw";
-import manual_78_raw from "../../assets/docs/pos-register-lookup-hub-manual.md?raw";
-import manual_79_raw from "../../assets/docs/pos-register-overlay-manual.md?raw";
-import manual_80_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
-import manual_81_raw from "../../assets/docs/pos-register-settings-manual.md?raw";
-import manual_82_raw from "../../assets/docs/pos-register-shift-handoff-modal-manual.md?raw";
-import manual_83_raw from "../../assets/docs/pos-register-xreport-modal-manual.md?raw";
-import manual_84_raw from "../../assets/docs/pos-stripe-reader-simulation-manual.md?raw";
-import manual_85_raw from "../../assets/docs/pos-variant-selection-modal-manual.md?raw";
-import manual_86_raw from "../../assets/docs/pos-wedding-lookup-drawer-manual.md?raw";
-import manual_87_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
-import manual_88_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
-import manual_89_raw from "../../assets/docs/reports-workspace-manual.md?raw";
-import manual_90_raw from "../../assets/docs/scheduler-appointment-modal-manual.md?raw";
-import manual_91_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
-import manual_92_raw from "../../assets/docs/settings-bug-reports-settings-panel-manual.md?raw";
-import manual_93_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
-import manual_94_raw from "../../assets/docs/settings-help-center-settings-panel-manual.md?raw";
-import manual_95_raw from "../../assets/docs/settings-insights-settings-panel-manual.md?raw";
-import manual_96_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
-import manual_97_raw from "../../assets/docs/settings-nuorder-settings-panel-manual.md?raw";
-import manual_98_raw from "../../assets/docs/settings-online-store-settings-panel-manual.md?raw";
-import manual_99_raw from "../../assets/docs/settings-podium-oauth-callback-manual.md?raw";
-import manual_100_raw from "../../assets/docs/settings-podium-settings-panel-manual.md?raw";
-import manual_101_raw from "../../assets/docs/settings-qbomapping-manual.md?raw";
-import manual_102_raw from "../../assets/docs/settings-quick-books-settings-panel-manual.md?raw";
-import manual_103_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
-import manual_104_raw from "../../assets/docs/settings-receipt-studio-editor-manual.md?raw";
-import manual_105_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_106_raw from "../../assets/docs/settings-workspace-manual.md?raw";
-import manual_107_raw from "../../assets/docs/settings-store-page-studio-editor-manual.md?raw";
-import manual_108_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
-import manual_109_raw from "../../assets/docs/settings-weather-settings-panel-manual.md?raw";
-import manual_110_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
-import manual_111_raw from "../../assets/docs/staff-access-panels-manual.md?raw";
-import manual_112_raw from "../../assets/docs/staff-avatar-picker-manual.md?raw";
-import manual_113_raw from "../../assets/docs/staff-discount-caps-panel-manual.md?raw";
-import manual_114_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
-import manual_115_raw from "../../assets/docs/staff-tasks-panel-manual.md?raw";
-import manual_116_raw from "../../assets/docs/staff-workspace-manual.md?raw";
-import manual_117_raw from "../../assets/docs/storefront-public-storefront-manual.md?raw";
-import manual_118_raw from "../../assets/docs/tasks-register-tasks-panel-manual.md?raw";
-import manual_119_raw from "../../assets/docs/tasks-task-checklist-drawer-manual.md?raw";
-import manual_120_raw from "../../assets/docs/ui-confirmation-modal-manual.md?raw";
-import manual_121_raw from "../../assets/docs/ui-customer-search-input-manual.md?raw";
-import manual_122_raw from "../../assets/docs/ui-floating-bulk-bar-manual.md?raw";
-import manual_123_raw from "../../assets/docs/ui-numeric-pin-keypad-manual.md?raw";
-import manual_124_raw from "../../assets/docs/ui-prompt-modal-manual.md?raw";
-import manual_125_raw from "../../assets/docs/ui-sidebar-rail-tooltip-manual.md?raw";
-import manual_126_raw from "../../assets/docs/ui-smart-button-manual.md?raw";
-import manual_127_raw from "../../assets/docs/ui-toast-provider-manual.md?raw";
-import manual_128_raw from "../../assets/docs/ui-variant-search-input-manual.md?raw";
-import manual_129_raw from "../../assets/docs/wedding-manager-app-manual.md?raw";
-import manual_130_raw from "../../assets/docs/wedding-manager-auth-bridge-manual.md?raw";
+import manual_6_raw from "../../assets/docs/stripe-payments-manual.md?raw";
+import manual_7_raw from "../../assets/docs/alterations-workspace-manual.md?raw";
+import manual_8_raw from "../../assets/docs/bug-report-flow-manual.md?raw";
+import manual_9_raw from "../../assets/docs/customers-customer-alterations-panel-manual.md?raw";
+import manual_10_raw from "../../assets/docs/customers-customer-measurement-vault-form-manual.md?raw";
+import manual_11_raw from "../../assets/docs/customers-customer-relationship-hub-drawer-manual.md?raw";
+import manual_12_raw from "../../assets/docs/customers-workspace-manual.md?raw";
+import manual_13_raw from "../../assets/docs/customers-duplicate-review-queue-section-manual.md?raw";
+import manual_14_raw from "../../assets/docs/customers-podium-messaging-inbox-section-manual.md?raw";
+import manual_15_raw from "../../assets/docs/customers-rms-charge-admin-section-manual.md?raw";
+import manual_16_raw from "../../assets/docs/customers-shipments-hub-section-manual.md?raw";
+import manual_17_raw from "../../assets/docs/customers-stripe-vault-card-modal-manual.md?raw";
+import manual_18_raw from "../../assets/docs/gift-cards-workspace-manual.md?raw";
+import manual_19_raw from "../../assets/docs/help-center-drawer-manual.md?raw";
+import manual_20_raw from "../../assets/docs/inventory-batch-command-bar-manual.md?raw";
+import manual_21_raw from "../../assets/docs/inventory-camera-scanner-manual.md?raw";
+import manual_22_raw from "../../assets/docs/inventory-category-manager-manual.md?raw";
+import manual_23_raw from "../../assets/docs/inventory-discount-events-panel-manual.md?raw";
+import manual_24_raw from "../../assets/docs/inventory-bulk-bar-manual.md?raw";
+import manual_25_raw from "../../assets/docs/inventory-control-board-manual.md?raw";
+import manual_26_raw from "../../assets/docs/inventory-workspace-manual.md?raw";
+import manual_27_raw from "../../assets/docs/inventory-maintenance-ledger-panel-manual.md?raw";
+import manual_28_raw from "../../assets/docs/inventory-physical-inventory-workspace-manual.md?raw";
+import manual_29_raw from "../../assets/docs/inventory-product-hub-drawer-manual.md?raw";
+import manual_30_raw from "../../assets/docs/inventory-product-master-form-manual.md?raw";
+import manual_31_raw from "../../assets/docs/inventory-purchase-order-panel-manual.md?raw";
+import manual_32_raw from "../../assets/docs/inventory-receiving-bay-manual.md?raw";
+import manual_33_raw from "../../assets/docs/inventory-universal-importer-manual.md?raw";
+import manual_34_raw from "../../assets/docs/inventory-variation-grid-cell-manual.md?raw";
+import manual_35_raw from "../../assets/docs/inventory-vendor-filter-chip-manual.md?raw";
+import manual_36_raw from "../../assets/docs/inventory-variations-builder-manual.md?raw";
+import manual_37_raw from "../../assets/docs/inventory-vendor-hub-manual.md?raw";
+import manual_38_raw from "../../assets/docs/inventory-variations-list-manual.md?raw";
+import manual_39_raw from "../../assets/docs/layout-backoffice-sign-in-gate-manual.md?raw";
+import manual_40_raw from "../../assets/docs/inventory-variations-workspace-manual.md?raw";
+import manual_41_raw from "../../assets/docs/layout-detail-drawer-manual.md?raw";
+import manual_42_raw from "../../assets/docs/layout-global-search-drawers-manual.md?raw";
+import manual_43_raw from "../../assets/docs/layout-header-manual.md?raw";
+import manual_44_raw from "../../assets/docs/layout-insights-shell-manual.md?raw";
+import manual_45_raw from "../../assets/docs/layout-pos-shell-manual.md?raw";
+import manual_46_raw from "../../assets/docs/layout-pwa-update-prompt-manual.md?raw";
+import manual_47_raw from "../../assets/docs/layout-register-pick-modal-manual.md?raw";
+import manual_48_raw from "../../assets/docs/layout-register-required-modal-manual.md?raw";
+import manual_49_raw from "../../assets/docs/layout-register-session-bootstrap-manual.md?raw";
+import manual_50_raw from "../../assets/docs/layout-shell-backdrop-context-manual.md?raw";
+import manual_51_raw from "../../assets/docs/layout-sidebar-manual.md?raw";
+import manual_52_raw from "../../assets/docs/layout-storefront-embed-host-manual.md?raw";
+import manual_53_raw from "../../assets/docs/layout-wedding-shell-manual.md?raw";
+import manual_54_raw from "../../assets/docs/loyalty-workspace-manual.md?raw";
+import manual_55_raw from "../../assets/docs/loyalty-redeem-dialog-manual.md?raw";
+import manual_56_raw from "../../assets/docs/notifications-notification-center-bell-manual.md?raw";
+import manual_57_raw from "../../assets/docs/notifications-notification-center-drawer-manual.md?raw";
+import manual_58_raw from "../../assets/docs/operations-compass-member-detail-drawer-manual.md?raw";
+import manual_59_raw from "../../assets/docs/operations-operational-home-manual.md?raw";
+import manual_60_raw from "../../assets/docs/operations-reviews-operations-section-manual.md?raw";
+import manual_61_raw from "../../assets/docs/orders-workspace-manual.md?raw";
+import manual_62_raw from "../../assets/docs/pos-cart-manual.md?raw";
+import manual_63_raw from "../../assets/docs/pos-close-register-modal-manual.md?raw";
+import manual_64_raw from "../../assets/docs/pos-customer-profile-completion-modal-manual.md?raw";
+import manual_65_raw from "../../assets/docs/orders-attach-order-to-wedding-modal-manual.md?raw";
+import manual_66_raw from "../../assets/docs/pos-customer-selector-manual.md?raw";
+import manual_67_raw from "../../assets/docs/pos-custom-item-prompt-modal-manual.md?raw";
+import manual_68_raw from "../../assets/docs/pos-layaway-workspace-manual.md?raw";
+import manual_69_raw from "../../assets/docs/pos-order-attribution-modal-manual.md?raw";
+import manual_70_raw from "../../assets/docs/pos-customer-measurements-drawer-manual.md?raw";
+import manual_71_raw from "../../assets/docs/pos-exchange-wizard-manual.md?raw";
+import manual_72_raw from "../../assets/docs/pos-sale-cashier-sign-in-overlay-manual.md?raw";
+import manual_73_raw from "../../assets/docs/pos-nexo-checkout-drawer-manual.md?raw";
+import manual_74_raw from "../../assets/docs/pos-shipping-manual.md?raw";
+import manual_75_raw from "../../assets/docs/pos-shipping-modal-manual.md?raw";
+import manual_76_raw from "../../assets/docs/pos-sidebar-manual.md?raw";
+import manual_77_raw from "../../assets/docs/pos-suit-swap-wizard-manual.md?raw";
+import manual_78_raw from "../../assets/docs/pos-price-override-modal-manual.md?raw";
+import manual_79_raw from "../../assets/docs/pos-procurement-hub-manual.md?raw";
+import manual_80_raw from "../../assets/docs/pos-product-intelligence-drawer-manual.md?raw";
+import manual_81_raw from "../../assets/docs/pos-quick-keys-manual.md?raw";
+import manual_82_raw from "../../assets/docs/pos-receipt-summary-modal-manual.md?raw";
+import manual_83_raw from "../../assets/docs/pos-register-cash-adjust-modal-manual.md?raw";
+import manual_84_raw from "../../assets/docs/pos-register-dashboard-manual.md?raw";
+import manual_85_raw from "../../assets/docs/pos-register-gift-card-load-modal-manual.md?raw";
+import manual_86_raw from "../../assets/docs/pos-register-lookup-hub-manual.md?raw";
+import manual_87_raw from "../../assets/docs/pos-register-overlay-manual.md?raw";
+import manual_88_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
+import manual_89_raw from "../../assets/docs/pos-register-settings-manual.md?raw";
+import manual_90_raw from "../../assets/docs/pos-register-shift-handoff-modal-manual.md?raw";
+import manual_91_raw from "../../assets/docs/pos-register-xreport-modal-manual.md?raw";
+import manual_92_raw from "../../assets/docs/pos-stripe-reader-simulation-manual.md?raw";
+import manual_93_raw from "../../assets/docs/pos-variant-selection-modal-manual.md?raw";
+import manual_94_raw from "../../assets/docs/pos-wedding-lookup-drawer-manual.md?raw";
+import manual_95_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
+import manual_96_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
+import manual_97_raw from "../../assets/docs/reports-workspace-manual.md?raw";
+import manual_98_raw from "../../assets/docs/scheduler-appointment-modal-manual.md?raw";
+import manual_99_raw from "../../assets/docs/scheduler-workspace-manual.md?raw";
+import manual_100_raw from "../../assets/docs/settings-bug-reports-settings-panel-manual.md?raw";
+import manual_101_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
+import manual_102_raw from "../../assets/docs/settings-help-center-settings-panel-manual.md?raw";
+import manual_103_raw from "../../assets/docs/settings-insights-settings-panel-manual.md?raw";
+import manual_104_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
+import manual_105_raw from "../../assets/docs/settings-nuorder-settings-panel-manual.md?raw";
+import manual_106_raw from "../../assets/docs/settings-online-store-settings-panel-manual.md?raw";
+import manual_107_raw from "../../assets/docs/settings-podium-oauth-callback-manual.md?raw";
+import manual_108_raw from "../../assets/docs/settings-podium-settings-panel-manual.md?raw";
+import manual_109_raw from "../../assets/docs/settings-qbomapping-manual.md?raw";
+import manual_110_raw from "../../assets/docs/settings-quick-books-settings-panel-manual.md?raw";
+import manual_111_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
+import manual_112_raw from "../../assets/docs/settings-receipt-studio-editor-manual.md?raw";
+import manual_113_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_114_raw from "../../assets/docs/settings-workspace-manual.md?raw";
+import manual_115_raw from "../../assets/docs/settings-store-page-studio-editor-manual.md?raw";
+import manual_116_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
+import manual_117_raw from "../../assets/docs/settings-weather-settings-panel-manual.md?raw";
+import manual_118_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_119_raw from "../../assets/docs/staff-access-panels-manual.md?raw";
+import manual_120_raw from "../../assets/docs/staff-avatar-picker-manual.md?raw";
+import manual_121_raw from "../../assets/docs/staff-discount-caps-panel-manual.md?raw";
+import manual_122_raw from "../../assets/docs/staff-schedule-panel-manual.md?raw";
+import manual_123_raw from "../../assets/docs/staff-combo-editor-modal-manual.md?raw";
+import manual_124_raw from "../../assets/docs/staff-tasks-panel-manual.md?raw";
+import manual_125_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
+import manual_126_raw from "../../assets/docs/staff-workspace-manual.md?raw";
+import manual_127_raw from "../../assets/docs/storefront-public-storefront-manual.md?raw";
+import manual_128_raw from "../../assets/docs/tasks-register-tasks-panel-manual.md?raw";
+import manual_129_raw from "../../assets/docs/tasks-task-checklist-drawer-manual.md?raw";
+import manual_130_raw from "../../assets/docs/ui-confirmation-modal-manual.md?raw";
+import manual_131_raw from "../../assets/docs/ui-customer-search-input-manual.md?raw";
+import manual_132_raw from "../../assets/docs/ui-floating-bulk-bar-manual.md?raw";
+import manual_133_raw from "../../assets/docs/ui-numeric-pin-keypad-manual.md?raw";
+import manual_134_raw from "../../assets/docs/ui-prompt-modal-manual.md?raw";
+import manual_135_raw from "../../assets/docs/ui-sidebar-rail-tooltip-manual.md?raw";
+import manual_136_raw from "../../assets/docs/ui-smart-button-manual.md?raw";
+import manual_137_raw from "../../assets/docs/ui-toast-provider-manual.md?raw";
+import manual_138_raw from "../../assets/docs/ui-variant-search-input-manual.md?raw";
+import manual_139_raw from "../../assets/docs/wedding-manager-app-manual.md?raw";
+import manual_140_raw from "../../assets/docs/wedding-manager-auth-bridge-manual.md?raw";
+import manual_141_raw from "../../assets/docs/ui-order-search-input-manual.md?raw";
+import manual_142_raw from "../../assets/docs/ui-staff-search-input-manual.md?raw";
+import manual_143_raw from "../../assets/docs/ui-wedding-party-search-input-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -175,879 +188,970 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["settings-backups"],
   },
   {
+    id: "stripe-payments",
+    title: "Stripe Payments & Vault",
+    summary: "Guide to card vaulting, saved card payments, and terminal credits.",
+    markdown: manual_6_raw,
+    tags: ["stripe","payments","vault","refunds","credits"],
+  },
+  {
     id: "alterations-workspace",
     title: "Alterations Workspace (alterations)",
     summary: "Auto-generated stub for client/src/components/alterations/AlterationsWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_6_raw,
+    markdown: manual_7_raw,
     tags: ["alterations-workspace","component","auto-scaffold"],
   },
   {
     id: "bug-report-flow",
     title: "Bug Report Flow (bug-report)",
     summary: "Auto-generated stub for client/src/components/bug-report/BugReportFlow.tsx — replace with staff-facing help.",
-    markdown: manual_7_raw,
+    markdown: manual_8_raw,
     tags: ["bug-report-flow","component","auto-scaffold"],
   },
   {
     id: "customers-customer-alterations-panel",
     title: "Customer Alterations Panel (customers)",
     summary: "Auto-generated stub for client/src/components/customers/CustomerAlterationsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_8_raw,
+    markdown: manual_9_raw,
     tags: ["customers-customer-alterations-panel","component","auto-scaffold"],
   },
   {
     id: "customers-customer-measurement-vault-form",
     title: "Customer Measurement Vault Form (customers)",
     summary: "Auto-generated stub for client/src/components/customers/CustomerMeasurementVaultForm.tsx — replace with staff-facing help.",
-    markdown: manual_9_raw,
+    markdown: manual_10_raw,
     tags: ["customers-customer-measurement-vault-form","component","auto-scaffold"],
   },
   {
     id: "customers-customer-relationship-hub-drawer",
     title: "Customer Relationship Hub Drawer (customers)",
     summary: "Auto-generated stub for client/src/components/customers/CustomerRelationshipHubDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_10_raw,
+    markdown: manual_11_raw,
     tags: ["customers-customer-relationship-hub-drawer","component","auto-scaffold"],
   },
   {
     id: "customers-workspace",
     title: "Customer CRM Hub",
     summary: "Manage your client relationships, track lifetime sales, monitor wedding party membership, and handle duplicate accounts.",
-    markdown: manual_11_raw,
+    markdown: manual_12_raw,
     tags: ["crm","customers","sales","duplicate-review"],
   },
   {
     id: "customers-duplicate-review-queue-section",
     title: "Duplicate Review Queue Section (customers)",
     summary: "Auto-generated stub for client/src/components/customers/DuplicateReviewQueueSection.tsx — replace with staff-facing help.",
-    markdown: manual_12_raw,
+    markdown: manual_13_raw,
     tags: ["customers-duplicate-review-queue-section","component","auto-scaffold"],
   },
   {
     id: "customers-podium-messaging-inbox-section",
     title: "Podium Messaging Inbox Section (customers)",
     summary: "Auto-generated stub for client/src/components/customers/PodiumMessagingInboxSection.tsx — replace with staff-facing help.",
-    markdown: manual_13_raw,
+    markdown: manual_14_raw,
     tags: ["customers-podium-messaging-inbox-section","component","auto-scaffold"],
   },
   {
     id: "customers-rms-charge-admin-section",
     title: "Rms Charge Admin Section (customers)",
     summary: "Auto-generated stub for client/src/components/customers/RmsChargeAdminSection.tsx — replace with staff-facing help.",
-    markdown: manual_14_raw,
+    markdown: manual_15_raw,
     tags: ["customers-rms-charge-admin-section","component","auto-scaffold"],
   },
   {
     id: "customers-shipments-hub-section",
-    title: "Shipments Hub Section (customers)",
-    summary: "Auto-generated stub for client/src/components/customers/ShipmentsHubSection.tsx — replace with staff-facing help.",
-    markdown: manual_15_raw,
-    tags: ["customers-shipments-hub-section","component","auto-scaffold"],
+    title: "Shipments Hub",
+    summary: "Back Office headquarters for managing pending shipments, tracking numbers, and delivery status.",
+    markdown: manual_16_raw,
+    tags: ["back-office","shipments","fulfillment","tracking"],
+  },
+  {
+    id: "customers-stripe-vault-card-modal",
+    title: "Stripe Vault Card Modal (customers)",
+    summary: "Auto-generated stub for client/src/components/customers/StripeVaultCardModal.tsx — replace with staff-facing help.",
+    markdown: manual_17_raw,
+    tags: ["customers-stripe-vault-card-modal","component","auto-scaffold"],
   },
   {
     id: "gift-cards-workspace",
     title: "Gift Cards Workspace (gift-cards)",
     summary: "Auto-generated stub for client/src/components/gift-cards/GiftCardsWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_16_raw,
+    markdown: manual_18_raw,
     tags: ["gift-cards-workspace","component","auto-scaffold"],
   },
   {
     id: "help-center-drawer",
     title: "Help Center Drawer (help)",
     summary: "Auto-generated stub for client/src/components/help/HelpCenterDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_17_raw,
+    markdown: manual_19_raw,
     tags: ["help-center-drawer","component","auto-scaffold"],
+  },
+  {
+    id: "inventory-batch-command-bar",
+    title: "Batch Command Bar (inventory)",
+    summary: "Auto-generated stub for client/src/components/inventory/BatchCommandBar.tsx — replace with staff-facing help.",
+    markdown: manual_20_raw,
+    tags: ["inventory-batch-command-bar","component","auto-scaffold"],
   },
   {
     id: "inventory-camera-scanner",
     title: "Camera Scanner (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/CameraScanner.tsx — replace with staff-facing help.",
-    markdown: manual_18_raw,
+    markdown: manual_21_raw,
     tags: ["inventory-camera-scanner","component","auto-scaffold"],
   },
   {
     id: "inventory-category-manager",
     title: "Category Manager (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/CategoryManager.tsx — replace with staff-facing help.",
-    markdown: manual_19_raw,
+    markdown: manual_22_raw,
     tags: ["inventory-category-manager","component","auto-scaffold"],
   },
   {
     id: "inventory-discount-events-panel",
     title: "Discount Events Panel (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/DiscountEventsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_20_raw,
+    markdown: manual_23_raw,
     tags: ["inventory-discount-events-panel","component","auto-scaffold"],
   },
   {
     id: "inventory-bulk-bar",
     title: "Inventory Bulk Bar (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/InventoryBulkBar.tsx — replace with staff-facing help.",
-    markdown: manual_21_raw,
+    markdown: manual_24_raw,
     tags: ["inventory-bulk-bar","component","auto-scaffold"],
   },
   {
     id: "inventory-control-board",
     title: "Inventory Control Board (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/InventoryControlBoard.tsx — replace with staff-facing help.",
-    markdown: manual_22_raw,
+    markdown: manual_25_raw,
     tags: ["inventory-control-board","component","auto-scaffold"],
   },
   {
     id: "inventory-workspace",
     title: "Inventory Workspace (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/InventoryWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_23_raw,
+    markdown: manual_26_raw,
     tags: ["inventory-workspace","component","auto-scaffold"],
   },
   {
-    id: "inventory-matrix-builder",
-    title: "Matrix Builder (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/MatrixBuilder.tsx — replace with staff-facing help.",
-    markdown: manual_24_raw,
-    tags: ["inventory-matrix-builder","component","auto-scaffold"],
-  },
-  {
-    id: "inventory-matrix-hub-grid",
-    title: "Matrix Hub Grid (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/MatrixHubGrid.tsx — replace with staff-facing help.",
-    markdown: manual_25_raw,
-    tags: ["inventory-matrix-hub-grid","component","auto-scaffold"],
+    id: "inventory-maintenance-ledger-panel",
+    title: "Maintenance Ledger Panel (inventory)",
+    summary: "Auto-generated stub for client/src/components/inventory/MaintenanceLedgerPanel.tsx — replace with staff-facing help.",
+    markdown: manual_27_raw,
+    tags: ["inventory-maintenance-ledger-panel","component","auto-scaffold"],
   },
   {
     id: "inventory-physical-inventory-workspace",
     title: "Physical Inventory Workspace (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/PhysicalInventoryWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_26_raw,
+    markdown: manual_28_raw,
     tags: ["inventory-physical-inventory-workspace","component","auto-scaffold"],
   },
   {
     id: "inventory-product-hub-drawer",
     title: "Product Hub Drawer (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/ProductHubDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_27_raw,
+    markdown: manual_29_raw,
     tags: ["inventory-product-hub-drawer","component","auto-scaffold"],
   },
   {
     id: "inventory-product-master-form",
     title: "Product Master Form (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/ProductMasterForm.tsx — replace with staff-facing help.",
-    markdown: manual_28_raw,
+    markdown: manual_30_raw,
     tags: ["inventory-product-master-form","component","auto-scaffold"],
   },
   {
     id: "inventory-purchase-order-panel",
     title: "Purchase Order Panel (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/PurchaseOrderPanel.tsx — replace with staff-facing help.",
-    markdown: manual_29_raw,
+    markdown: manual_31_raw,
     tags: ["inventory-purchase-order-panel","component","auto-scaffold"],
   },
   {
     id: "inventory-receiving-bay",
     title: "Receiving Bay (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/ReceivingBay.tsx — replace with staff-facing help.",
-    markdown: manual_30_raw,
+    markdown: manual_32_raw,
     tags: ["inventory-receiving-bay","component","auto-scaffold"],
   },
   {
     id: "inventory-universal-importer",
     title: "Universal Importer (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/UniversalImporter.tsx — replace with staff-facing help.",
-    markdown: manual_31_raw,
+    markdown: manual_33_raw,
     tags: ["inventory-universal-importer","component","auto-scaffold"],
+  },
+  {
+    id: "inventory-variation-grid-cell",
+    title: "Variation Grid Cell (inventory)",
+    summary: "Auto-generated stub for client/src/components/inventory/VariationGridCell.tsx — replace with staff-facing help.",
+    markdown: manual_34_raw,
+    tags: ["inventory-variation-grid-cell","component","auto-scaffold"],
   },
   {
     id: "inventory-vendor-filter-chip",
     title: "Vendor Filter Chip (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/VendorFilterChip.tsx — replace with staff-facing help.",
-    markdown: manual_32_raw,
+    markdown: manual_35_raw,
     tags: ["inventory-vendor-filter-chip","component","auto-scaffold"],
+  },
+  {
+    id: "inventory-variations-builder",
+    title: "Variations Builder (inventory)",
+    summary: "Auto-generated stub for client/src/components/inventory/VariationsBuilder.tsx — replace with staff-facing help.",
+    markdown: manual_36_raw,
+    tags: ["inventory-variations-builder","component","auto-scaffold"],
   },
   {
     id: "inventory-vendor-hub",
     title: "Vendor Hub (inventory)",
     summary: "Auto-generated stub for client/src/components/inventory/VendorHub.tsx — replace with staff-facing help.",
-    markdown: manual_33_raw,
+    markdown: manual_37_raw,
     tags: ["inventory-vendor-hub","component","auto-scaffold"],
+  },
+  {
+    id: "inventory-variations-list",
+    title: "Variations List (inventory)",
+    summary: "Auto-generated stub for client/src/components/inventory/VariationsList.tsx — replace with staff-facing help.",
+    markdown: manual_38_raw,
+    tags: ["inventory-variations-list","component","auto-scaffold"],
   },
   {
     id: "layout-backoffice-sign-in-gate",
     title: "Backoffice Sign In Gate (layout)",
     summary: "Auto-generated stub for client/src/components/layout/BackofficeSignInGate.tsx — replace with staff-facing help.",
-    markdown: manual_34_raw,
+    markdown: manual_39_raw,
     tags: ["layout-backoffice-sign-in-gate","component","auto-scaffold"],
+  },
+  {
+    id: "inventory-variations-workspace",
+    title: "Variations Workspace (inventory)",
+    summary: "Auto-generated stub for client/src/components/inventory/VariationsWorkspace.tsx — replace with staff-facing help.",
+    markdown: manual_40_raw,
+    tags: ["inventory-variations-workspace","component","auto-scaffold"],
   },
   {
     id: "layout-detail-drawer",
     title: "Detail Drawer (layout)",
     summary: "Auto-generated stub for client/src/components/layout/DetailDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_35_raw,
+    markdown: manual_41_raw,
     tags: ["layout-detail-drawer","component","auto-scaffold"],
   },
   {
     id: "layout-global-search-drawers",
     title: "Global Search Drawers (layout)",
     summary: "Auto-generated stub for client/src/components/layout/GlobalSearchDrawers.tsx — replace with staff-facing help.",
-    markdown: manual_36_raw,
+    markdown: manual_42_raw,
     tags: ["layout-global-search-drawers","component","auto-scaffold"],
   },
   {
     id: "layout-header",
     title: "Header (layout)",
     summary: "Auto-generated stub for client/src/components/layout/Header.tsx — replace with staff-facing help.",
-    markdown: manual_37_raw,
+    markdown: manual_43_raw,
     tags: ["layout-header","component","auto-scaffold"],
   },
   {
     id: "layout-insights-shell",
     title: "Insights Shell (layout)",
     summary: "Auto-generated stub for client/src/components/layout/InsightsShell.tsx — replace with staff-facing help.",
-    markdown: manual_38_raw,
+    markdown: manual_44_raw,
     tags: ["layout-insights-shell","component","auto-scaffold"],
   },
   {
     id: "layout-pos-shell",
     title: "Pos Shell (layout)",
     summary: "Auto-generated stub for client/src/components/layout/PosShell.tsx — replace with staff-facing help.",
-    markdown: manual_39_raw,
+    markdown: manual_45_raw,
     tags: ["layout-pos-shell","component","auto-scaffold"],
   },
   {
     id: "layout-pwa-update-prompt",
     title: "Pwa Update Prompt (layout)",
     summary: "Auto-generated stub for client/src/components/layout/PwaUpdatePrompt.tsx — replace with staff-facing help.",
-    markdown: manual_40_raw,
+    markdown: manual_46_raw,
     tags: ["layout-pwa-update-prompt","component","auto-scaffold"],
   },
   {
     id: "layout-register-pick-modal",
     title: "Register Pick Modal (layout)",
     summary: "Auto-generated stub for client/src/components/layout/RegisterPickModal.tsx — replace with staff-facing help.",
-    markdown: manual_41_raw,
+    markdown: manual_47_raw,
     tags: ["layout-register-pick-modal","component","auto-scaffold"],
   },
   {
     id: "layout-register-required-modal",
     title: "Register Required Modal (layout)",
     summary: "Auto-generated stub for client/src/components/layout/RegisterRequiredModal.tsx — replace with staff-facing help.",
-    markdown: manual_42_raw,
+    markdown: manual_48_raw,
     tags: ["layout-register-required-modal","component","auto-scaffold"],
   },
   {
     id: "layout-register-session-bootstrap",
     title: "Register Session Bootstrap (layout)",
     summary: "Auto-generated stub for client/src/components/layout/RegisterSessionBootstrap.tsx — replace with staff-facing help.",
-    markdown: manual_43_raw,
+    markdown: manual_49_raw,
     tags: ["layout-register-session-bootstrap","component","auto-scaffold"],
   },
   {
     id: "layout-shell-backdrop-context",
     title: "Shell Backdrop Context (layout)",
     summary: "Auto-generated stub for client/src/components/layout/ShellBackdropContext.tsx — replace with staff-facing help.",
-    markdown: manual_44_raw,
+    markdown: manual_50_raw,
     tags: ["layout-shell-backdrop-context","component","auto-scaffold"],
   },
   {
     id: "layout-sidebar",
     title: "Sidebar (layout)",
     summary: "Auto-generated stub for client/src/components/layout/Sidebar.tsx — replace with staff-facing help.",
-    markdown: manual_45_raw,
+    markdown: manual_51_raw,
     tags: ["layout-sidebar","component","auto-scaffold"],
   },
   {
     id: "layout-storefront-embed-host",
     title: "Storefront Embed Host (layout)",
     summary: "Auto-generated stub for client/src/components/layout/StorefrontEmbedHost.tsx — replace with staff-facing help.",
-    markdown: manual_46_raw,
+    markdown: manual_52_raw,
     tags: ["layout-storefront-embed-host","component","auto-scaffold"],
   },
   {
     id: "layout-wedding-shell",
     title: "Wedding Shell (layout)",
     summary: "Auto-generated stub for client/src/components/layout/WeddingShell.tsx — replace with staff-facing help.",
-    markdown: manual_47_raw,
+    markdown: manual_53_raw,
     tags: ["layout-wedding-shell","component","auto-scaffold"],
   },
   {
     id: "loyalty-workspace",
     title: "Loyalty Management Hub",
     summary: "Manage the monthly reward cycle, customize fulfillment letters, and monitor loyalty program health.",
-    markdown: manual_48_raw,
+    markdown: manual_54_raw,
     tags: ["loyalty","rewards","fulfillment","analytics"],
   },
   {
     id: "loyalty-redeem-dialog",
     title: "Reward Redemption Dialog",
     summary: "Finalize loyalty reward redemptions, apply to sales, or load onto new gift cards.",
-    markdown: manual_49_raw,
+    markdown: manual_55_raw,
     tags: ["loyalty","redemption","gift-cards","checkout"],
   },
   {
     id: "notifications-notification-center-bell",
     title: "Notification Center Bell (notifications)",
     summary: "Auto-generated stub for client/src/components/notifications/NotificationCenterBell.tsx — replace with staff-facing help.",
-    markdown: manual_50_raw,
+    markdown: manual_56_raw,
     tags: ["notifications-notification-center-bell","component","auto-scaffold"],
   },
   {
     id: "notifications-notification-center-drawer",
     title: "Notification Center Drawer (notifications)",
     summary: "Auto-generated stub for client/src/components/notifications/NotificationCenterDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_51_raw,
+    markdown: manual_57_raw,
     tags: ["notifications-notification-center-drawer","component","auto-scaffold"],
   },
   {
     id: "operations-compass-member-detail-drawer",
     title: "Compass Member Detail Drawer (operations)",
     summary: "Auto-generated stub for client/src/components/operations/CompassMemberDetailDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_52_raw,
+    markdown: manual_58_raw,
     tags: ["operations-compass-member-detail-drawer","component","auto-scaffold"],
   },
   {
     id: "operations-operational-home",
     title: "Operational Home (operations)",
     summary: "Auto-generated stub for client/src/components/operations/OperationalHome.tsx — replace with staff-facing help.",
-    markdown: manual_53_raw,
+    markdown: manual_59_raw,
     tags: ["operations-operational-home","component","auto-scaffold"],
   },
   {
     id: "operations-reviews-operations-section",
     title: "Reviews Operations Section (operations)",
     summary: "Auto-generated stub for client/src/components/operations/ReviewsOperationsSection.tsx — replace with staff-facing help.",
-    markdown: manual_54_raw,
+    markdown: manual_60_raw,
     tags: ["operations-reviews-operations-section","component","auto-scaffold"],
   },
   {
     id: "orders-workspace",
     title: "Order Fulfillment Hub",
-    summary: "Manage Special, Wedding, and Custom orders. Monitor deposits, track pickups, and manage the fulfillment pipeline.",
-    markdown: manual_55_raw,
+    summary: "Manage regular Orders, Wedding, and Custom orders. Monitor deposits, track pickups, and manage the fulfillment pipeline.",
+    markdown: manual_61_raw,
     tags: ["orders","fulfillment","deposits","tracking"],
   },
   {
     id: "pos-cart",
     title: "Cart (pos)",
     summary: "Auto-generated stub for client/src/components/pos/Cart.tsx — replace with staff-facing help.",
-    markdown: manual_56_raw,
+    markdown: manual_62_raw,
     tags: ["pos-cart","component","auto-scaffold"],
   },
   {
     id: "pos-close-register-modal",
     title: "Close Register Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/CloseRegisterModal.tsx — replace with staff-facing help.",
-    markdown: manual_57_raw,
+    markdown: manual_63_raw,
     tags: ["pos-close-register-modal","component","auto-scaffold"],
   },
   {
     id: "pos-customer-profile-completion-modal",
     title: "Customer Profile Completion Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/CustomerProfileCompletionModal.tsx — replace with staff-facing help.",
-    markdown: manual_58_raw,
+    markdown: manual_64_raw,
     tags: ["pos-customer-profile-completion-modal","component","auto-scaffold"],
+  },
+  {
+    id: "orders-attach-order-to-wedding-modal",
+    title: "Attach Order To Wedding Modal (orders)",
+    summary: "Auto-generated stub for client/src/components/orders/AttachOrderToWeddingModal.tsx — replace with staff-facing help.",
+    markdown: manual_65_raw,
+    tags: ["orders-attach-order-to-wedding-modal","component","auto-scaffold"],
   },
   {
     id: "pos-customer-selector",
     title: "Customer Selector (pos)",
     summary: "Auto-generated stub for client/src/components/pos/CustomerSelector.tsx — replace with staff-facing help.",
-    markdown: manual_59_raw,
+    markdown: manual_66_raw,
     tags: ["pos-customer-selector","component","auto-scaffold"],
   },
   {
     id: "pos-custom-item-prompt-modal",
     title: "Custom Item Prompt Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/CustomItemPromptModal.tsx — replace with staff-facing help.",
-    markdown: manual_60_raw,
+    markdown: manual_67_raw,
     tags: ["pos-custom-item-prompt-modal","component","auto-scaffold"],
   },
   {
     id: "pos-layaway-workspace",
     title: "Layaway Workspace (pos)",
     summary: "Auto-generated stub for client/src/components/pos/LayawayWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_61_raw,
+    markdown: manual_68_raw,
     tags: ["pos-layaway-workspace","component","auto-scaffold"],
-  },
-  {
-    id: "pos-nexo-checkout-drawer",
-    title: "Nexo Checkout Drawer (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/NexoCheckoutDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_62_raw,
-    tags: ["pos-nexo-checkout-drawer","component","auto-scaffold"],
   },
   {
     id: "pos-order-attribution-modal",
     title: "Order Attribution Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/OrderAttributionModal.tsx — replace with staff-facing help.",
-    markdown: manual_63_raw,
+    markdown: manual_69_raw,
     tags: ["pos-order-attribution-modal","component","auto-scaffold"],
   },
   {
     id: "pos-customer-measurements-drawer",
     title: "Pos Customer Measurements Drawer (pos)",
     summary: "Auto-generated stub for client/src/components/pos/PosCustomerMeasurementsDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_64_raw,
+    markdown: manual_70_raw,
     tags: ["pos-customer-measurements-drawer","component","auto-scaffold"],
   },
   {
     id: "pos-exchange-wizard",
     title: "Pos Exchange Wizard (pos)",
     summary: "Auto-generated stub for client/src/components/pos/PosExchangeWizard.tsx — replace with staff-facing help.",
-    markdown: manual_65_raw,
+    markdown: manual_71_raw,
     tags: ["pos-exchange-wizard","component","auto-scaffold"],
   },
   {
     id: "pos-sale-cashier-sign-in-overlay",
     title: "Pos Sale Cashier Sign In Overlay (pos)",
     summary: "Auto-generated stub for client/src/components/pos/PosSaleCashierSignInOverlay.tsx — replace with staff-facing help.",
-    markdown: manual_66_raw,
+    markdown: manual_72_raw,
     tags: ["pos-sale-cashier-sign-in-overlay","component","auto-scaffold"],
   },
   {
+    id: "pos-nexo-checkout-drawer",
+    title: "Nexo Checkout Drawer (pos)",
+    summary: "Guide to the high-level checkout flow, focusing on Stripe card processing and phone orders.",
+    markdown: manual_73_raw,
+    tags: ["pos","checkout","stripe","card","manual-entry","payment"],
+  },
+  {
+    id: "pos-shipping-manual",
+    title: "Shipping & Fulfillment Guide",
+    summary: "Guide to quoting shipping rates at terminal, processing shipped orders, and tracking fulfillment in the Back Office Hub.",
+    markdown: manual_74_raw,
+    tags: ["pos","shipping","shippo","fulfillment","back-office"],
+  },
+  {
     id: "pos-shipping-modal",
-    title: "Pos Shipping Modal (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/PosShippingModal.tsx — replace with staff-facing help.",
-    markdown: manual_67_raw,
-    tags: ["pos-shipping-modal","component","auto-scaffold"],
+    title: "Shipping Quote Modal",
+    summary: "Component for capturing delivery addresses and fetching live carrier rates at the Register.",
+    markdown: manual_75_raw,
+    tags: ["pos","shipping","shippo","rates"],
   },
   {
     id: "pos-sidebar",
     title: "Pos Sidebar (pos)",
     summary: "Auto-generated stub for client/src/components/pos/PosSidebar.tsx — replace with staff-facing help.",
-    markdown: manual_68_raw,
+    markdown: manual_76_raw,
     tags: ["pos-sidebar","component","auto-scaffold"],
   },
   {
     id: "pos-suit-swap-wizard",
     title: "Pos Suit Swap Wizard (pos)",
     summary: "Auto-generated stub for client/src/components/pos/PosSuitSwapWizard.tsx — replace with staff-facing help.",
-    markdown: manual_69_raw,
+    markdown: manual_77_raw,
     tags: ["pos-suit-swap-wizard","component","auto-scaffold"],
   },
   {
     id: "pos-price-override-modal",
     title: "Price Override Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/PriceOverrideModal.tsx — replace with staff-facing help.",
-    markdown: manual_70_raw,
+    markdown: manual_78_raw,
     tags: ["pos-price-override-modal","component","auto-scaffold"],
   },
   {
     id: "pos-procurement-hub",
     title: "Procurement Hub (pos)",
     summary: "Auto-generated stub for client/src/components/pos/ProcurementHub.tsx — replace with staff-facing help.",
-    markdown: manual_71_raw,
+    markdown: manual_79_raw,
     tags: ["pos-procurement-hub","component","auto-scaffold"],
   },
   {
     id: "pos-product-intelligence-drawer",
     title: "Product Intelligence Drawer (pos)",
     summary: "Auto-generated stub for client/src/components/pos/ProductIntelligenceDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_72_raw,
+    markdown: manual_80_raw,
     tags: ["pos-product-intelligence-drawer","component","auto-scaffold"],
   },
   {
     id: "pos-quick-keys",
     title: "Quick Keys (pos)",
     summary: "Auto-generated stub for client/src/components/pos/QuickKeys.tsx — replace with staff-facing help.",
-    markdown: manual_73_raw,
+    markdown: manual_81_raw,
     tags: ["pos-quick-keys","component","auto-scaffold"],
   },
   {
     id: "pos-receipt-summary-modal",
     title: "Receipt Summary Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/ReceiptSummaryModal.tsx — replace with staff-facing help.",
-    markdown: manual_74_raw,
+    markdown: manual_82_raw,
     tags: ["pos-receipt-summary-modal","component","auto-scaffold"],
   },
   {
     id: "pos-register-cash-adjust-modal",
     title: "Register Cash Adjust Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterCashAdjustModal.tsx — replace with staff-facing help.",
-    markdown: manual_75_raw,
+    markdown: manual_83_raw,
     tags: ["pos-register-cash-adjust-modal","component","auto-scaffold"],
   },
   {
     id: "pos-register-dashboard",
     title: "Register Dashboard (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterDashboard.tsx — replace with staff-facing help.",
-    markdown: manual_76_raw,
+    markdown: manual_84_raw,
     tags: ["pos-register-dashboard","component","auto-scaffold"],
   },
   {
     id: "pos-register-gift-card-load-modal",
     title: "Register Gift Card Load Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterGiftCardLoadModal.tsx — replace with staff-facing help.",
-    markdown: manual_77_raw,
+    markdown: manual_85_raw,
     tags: ["pos-register-gift-card-load-modal","component","auto-scaffold"],
   },
   {
     id: "pos-register-lookup-hub",
     title: "Register Lookup Hub (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterLookupHub.tsx — replace with staff-facing help.",
-    markdown: manual_78_raw,
+    markdown: manual_86_raw,
     tags: ["pos-register-lookup-hub","component","auto-scaffold"],
   },
   {
     id: "pos-register-overlay",
     title: "Register Overlay (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterOverlay.tsx — replace with staff-facing help.",
-    markdown: manual_79_raw,
+    markdown: manual_87_raw,
     tags: ["pos-register-overlay","component","auto-scaffold"],
   },
   {
     id: "pos-register-reports",
     title: "Register Reports (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterReports.tsx — replace with staff-facing help.",
-    markdown: manual_80_raw,
+    markdown: manual_88_raw,
     tags: ["pos-register-reports","component","auto-scaffold"],
   },
   {
     id: "pos-register-settings",
     title: "Register Settings (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterSettings.tsx — replace with staff-facing help.",
-    markdown: manual_81_raw,
+    markdown: manual_89_raw,
     tags: ["pos-register-settings","component","auto-scaffold"],
   },
   {
     id: "pos-register-shift-handoff-modal",
     title: "Register Shift Handoff Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterShiftHandoffModal.tsx — replace with staff-facing help.",
-    markdown: manual_82_raw,
+    markdown: manual_90_raw,
     tags: ["pos-register-shift-handoff-modal","component","auto-scaffold"],
   },
   {
     id: "pos-register-xreport-modal",
     title: "Register X Report Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/RegisterXReportModal.tsx — replace with staff-facing help.",
-    markdown: manual_83_raw,
+    markdown: manual_91_raw,
     tags: ["pos-register-xreport-modal","component","auto-scaffold"],
   },
   {
     id: "pos-stripe-reader-simulation",
     title: "Stripe Reader Simulation (pos)",
     summary: "Auto-generated stub for client/src/components/pos/StripeReaderSimulation.tsx — replace with staff-facing help.",
-    markdown: manual_84_raw,
+    markdown: manual_92_raw,
     tags: ["pos-stripe-reader-simulation","component","auto-scaffold"],
   },
   {
     id: "pos-variant-selection-modal",
     title: "Variant Selection Modal (pos)",
     summary: "Auto-generated stub for client/src/components/pos/VariantSelectionModal.tsx — replace with staff-facing help.",
-    markdown: manual_85_raw,
+    markdown: manual_93_raw,
     tags: ["pos-variant-selection-modal","component","auto-scaffold"],
   },
   {
     id: "pos-wedding-lookup-drawer",
     title: "Wedding Lookup Drawer (pos)",
     summary: "Auto-generated stub for client/src/components/pos/WeddingLookupDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_86_raw,
+    markdown: manual_94_raw,
     tags: ["pos-wedding-lookup-drawer","component","auto-scaffold"],
   },
   {
     id: "qbo-mapping-matrix",
-    title: "Qbo Mapping Matrix (qbo)",
-    summary: "Auto-generated stub for client/src/components/qbo/QboMappingMatrix.tsx — replace with staff-facing help.",
-    markdown: manual_87_raw,
-    tags: ["qbo-mapping-matrix","component","auto-scaffold"],
+    title: "QBO Mapping Matrix (qbo)",
+    summary: "Guide to linking Riverside OS accounts (Revenue, Inventory, Tenders) to your QuickBooks Online Chart of Accounts.",
+    markdown: manual_95_raw,
+    tags: ["qbo","mapping","accounting","chart-of-accounts","coa","setup"],
   },
   {
     id: "qbo-workspace",
-    title: "Qbo Workspace (qbo)",
-    summary: "Auto-generated stub for client/src/components/qbo/QboWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_88_raw,
-    tags: ["qbo-workspace","component","auto-scaffold"],
+    title: "QBO Workspace (qbo)",
+    summary: "Central hub for QuickBooks Online integration: credentials, staging queue, and journal synchronization.",
+    markdown: manual_96_raw,
+    tags: ["qbo","quickbooks","accounting","journal","staging","finance"],
   },
   {
     id: "reports-workspace",
     title: "Reports Workspace (reports)",
     summary: "Auto-generated stub for client/src/components/reports/ReportsWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_89_raw,
+    markdown: manual_97_raw,
     tags: ["reports-workspace","component","auto-scaffold"],
   },
   {
     id: "scheduler-appointment-modal",
     title: "Appointment Modal (scheduler)",
     summary: "Auto-generated stub for client/src/components/scheduler/AppointmentModal.tsx — replace with staff-facing help.",
-    markdown: manual_90_raw,
+    markdown: manual_98_raw,
     tags: ["scheduler-appointment-modal","component","auto-scaffold"],
   },
   {
     id: "scheduler-workspace",
     title: "Scheduler Workspace (scheduler)",
     summary: "Auto-generated stub for client/src/components/scheduler/SchedulerWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_91_raw,
+    markdown: manual_99_raw,
     tags: ["scheduler-workspace","component","auto-scaffold"],
   },
   {
     id: "settings-bug-reports-settings-panel",
     title: "Bug Reports Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/BugReportsSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_92_raw,
+    markdown: manual_100_raw,
     tags: ["settings-bug-reports-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Sync Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/CounterpointSyncSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_93_raw,
+    markdown: manual_101_raw,
     tags: ["settings-counterpoint-sync-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-help-center-settings-panel",
     title: "Help Center Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/HelpCenterSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_94_raw,
+    markdown: manual_102_raw,
     tags: ["settings-help-center-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-insights-settings-panel",
     title: "Insights Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/InsightsSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_95_raw,
+    markdown: manual_103_raw,
     tags: ["settings-insights-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-meilisearch-settings-panel",
     title: "Meilisearch Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/MeilisearchSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_96_raw,
+    markdown: manual_104_raw,
     tags: ["settings-meilisearch-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-nuorder-settings-panel",
     title: "Nuorder Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/NuorderSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_97_raw,
+    markdown: manual_105_raw,
     tags: ["settings-nuorder-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-online-store-settings-panel",
     title: "Online Store Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/OnlineStoreSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_98_raw,
+    markdown: manual_106_raw,
     tags: ["settings-online-store-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-podium-oauth-callback",
     title: "Podium O Auth Callback (settings)",
     summary: "Auto-generated stub for client/src/components/settings/PodiumOAuthCallback.tsx — replace with staff-facing help.",
-    markdown: manual_99_raw,
+    markdown: manual_107_raw,
     tags: ["settings-podium-oauth-callback","component","auto-scaffold"],
   },
   {
     id: "settings-podium-settings-panel",
     title: "Podium Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/PodiumSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_100_raw,
+    markdown: manual_108_raw,
     tags: ["settings-podium-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-qbomapping",
     title: "Q B O Mapping (settings)",
     summary: "Auto-generated stub for client/src/components/settings/QBOMapping.tsx — replace with staff-facing help.",
-    markdown: manual_101_raw,
+    markdown: manual_109_raw,
     tags: ["settings-qbomapping","component","auto-scaffold"],
   },
   {
     id: "settings-quick-books-settings-panel",
     title: "Quick Books Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/QuickBooksSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_102_raw,
+    markdown: manual_110_raw,
     tags: ["settings-quick-books-settings-panel","component","auto-scaffold"],
   },
   {
     id: "settings-receipt-builder-panel",
     title: "Receipt Builder Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/ReceiptBuilderPanel.tsx — replace with staff-facing help.",
-    markdown: manual_103_raw,
+    markdown: manual_111_raw,
     tags: ["settings-receipt-builder-panel","component","auto-scaffold"],
   },
   {
     id: "settings-receipt-studio-editor",
     title: "Receipt Studio Editor (settings)",
     summary: "Auto-generated stub for client/src/components/settings/ReceiptStudioEditor.tsx — replace with staff-facing help.",
-    markdown: manual_104_raw,
+    markdown: manual_112_raw,
     tags: ["settings-receipt-studio-editor","component","auto-scaffold"],
   },
   {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/RemoteAccessPanel.tsx — replace with staff-facing help.",
-    markdown: manual_105_raw,
+    markdown: manual_113_raw,
     tags: ["settings-remote-access-panel","component","auto-scaffold"],
   },
   {
     id: "settings-workspace",
     title: "Settings Workspace (settings)",
     summary: "Auto-generated stub for client/src/components/settings/SettingsWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_106_raw,
+    markdown: manual_114_raw,
     tags: ["settings-workspace","component","auto-scaffold"],
   },
   {
     id: "settings-store-page-studio-editor",
     title: "Store Page Studio Editor (settings)",
     summary: "Auto-generated stub for client/src/components/settings/StorePageStudioEditor.tsx — replace with staff-facing help.",
-    markdown: manual_107_raw,
+    markdown: manual_115_raw,
     tags: ["settings-store-page-studio-editor","component","auto-scaffold"],
   },
   {
     id: "settings-stripe-settings-panel",
-    title: "Stripe Settings Panel (settings)",
-    summary: "Auto-generated stub for client/src/components/settings/StripeSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_108_raw,
-    tags: ["settings-stripe-settings-panel","component","auto-scaffold"],
+    title: "Stripe & Merchant Hub (settings)",
+    summary: "High-level integration manual for card processing, fee reconciliation, and QBO clearing account workflows.",
+    markdown: manual_116_raw,
+    tags: ["settings-stripe-settings-panel","merchant-processing","reconciliation","stripe","qbo"],
   },
   {
     id: "settings-weather-settings-panel",
     title: "Weather Settings Panel (settings)",
     summary: "Auto-generated stub for client/src/components/settings/WeatherSettingsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_109_raw,
+    markdown: manual_117_raw,
     tags: ["settings-weather-settings-panel","component","auto-scaffold"],
   },
   {
     id: "staff-commission-payouts-panel",
     title: "Commission Payouts Panel (staff)",
     summary: "Auto-generated stub for client/src/components/staff/CommissionPayoutsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_110_raw,
+    markdown: manual_118_raw,
     tags: ["staff-commission-payouts-panel","component","auto-scaffold"],
   },
   {
     id: "staff-access-panels",
     title: "Staff Access Panels (staff)",
     summary: "Auto-generated stub for client/src/components/staff/StaffAccessPanels.tsx — replace with staff-facing help.",
-    markdown: manual_111_raw,
+    markdown: manual_119_raw,
     tags: ["staff-access-panels","component","auto-scaffold"],
   },
   {
     id: "staff-avatar-picker",
     title: "Staff Avatar Picker (staff)",
     summary: "Auto-generated stub for client/src/components/staff/StaffAvatarPicker.tsx — replace with staff-facing help.",
-    markdown: manual_112_raw,
+    markdown: manual_120_raw,
     tags: ["staff-avatar-picker","component","auto-scaffold"],
   },
   {
     id: "staff-discount-caps-panel",
     title: "Staff Discount Caps Panel (staff)",
     summary: "Auto-generated stub for client/src/components/staff/StaffDiscountCapsPanel.tsx — replace with staff-facing help.",
-    markdown: manual_113_raw,
+    markdown: manual_121_raw,
     tags: ["staff-discount-caps-panel","component","auto-scaffold"],
   },
   {
     id: "staff-schedule-panel",
     title: "Staff Schedule Panel (staff)",
     summary: "Auto-generated stub for client/src/components/staff/StaffSchedulePanel.tsx — replace with staff-facing help.",
-    markdown: manual_114_raw,
+    markdown: manual_122_raw,
     tags: ["staff-schedule-panel","component","auto-scaffold"],
+  },
+  {
+    id: "staff-combo-editor-modal",
+    title: "Combo Editor Modal (staff)",
+    summary: "Auto-generated stub for client/src/components/staff/ComboEditorModal.tsx — replace with staff-facing help.",
+    markdown: manual_123_raw,
+    tags: ["staff-combo-editor-modal","component","auto-scaffold"],
   },
   {
     id: "staff-tasks-panel",
     title: "Staff Tasks Panel (staff)",
     summary: "Auto-generated stub for client/src/components/staff/StaffTasksPanel.tsx — replace with staff-facing help.",
-    markdown: manual_115_raw,
+    markdown: manual_124_raw,
     tags: ["staff-tasks-panel","component","auto-scaffold"],
+  },
+  {
+    id: "staff-commission-manager-workspace",
+    title: "Commission Manager Workspace (staff)",
+    summary: "Auto-generated stub for client/src/components/staff/CommissionManagerWorkspace.tsx — replace with staff-facing help.",
+    markdown: manual_125_raw,
+    tags: ["staff-commission-manager-workspace","component","auto-scaffold"],
   },
   {
     id: "staff-workspace",
     title: "Staff Workspace (staff)",
     summary: "Auto-generated stub for client/src/components/staff/StaffWorkspace.tsx — replace with staff-facing help.",
-    markdown: manual_116_raw,
+    markdown: manual_126_raw,
     tags: ["staff-workspace","component","auto-scaffold"],
   },
   {
     id: "storefront-public-storefront",
     title: "Public Storefront (storefront)",
     summary: "Auto-generated stub for client/src/components/storefront/PublicStorefront.tsx — replace with staff-facing help.",
-    markdown: manual_117_raw,
+    markdown: manual_127_raw,
     tags: ["storefront-public-storefront","component","auto-scaffold"],
   },
   {
     id: "tasks-register-tasks-panel",
     title: "Register Tasks Panel (tasks)",
     summary: "Auto-generated stub for client/src/components/tasks/RegisterTasksPanel.tsx — replace with staff-facing help.",
-    markdown: manual_118_raw,
+    markdown: manual_128_raw,
     tags: ["tasks-register-tasks-panel","component","auto-scaffold"],
   },
   {
     id: "tasks-task-checklist-drawer",
     title: "Task Checklist Drawer (tasks)",
     summary: "Auto-generated stub for client/src/components/tasks/TaskChecklistDrawer.tsx — replace with staff-facing help.",
-    markdown: manual_119_raw,
+    markdown: manual_129_raw,
     tags: ["tasks-task-checklist-drawer","component","auto-scaffold"],
   },
   {
     id: "ui-confirmation-modal",
     title: "Confirmation Modal (ui)",
     summary: "Auto-generated stub for client/src/components/ui/ConfirmationModal.tsx — replace with staff-facing help.",
-    markdown: manual_120_raw,
+    markdown: manual_130_raw,
     tags: ["ui-confirmation-modal","component","auto-scaffold"],
   },
   {
     id: "ui-customer-search-input",
     title: "Customer Search Input (ui)",
     summary: "Auto-generated stub for client/src/components/ui/CustomerSearchInput.tsx — replace with staff-facing help.",
-    markdown: manual_121_raw,
+    markdown: manual_131_raw,
     tags: ["ui-customer-search-input","component","auto-scaffold"],
   },
   {
     id: "ui-floating-bulk-bar",
     title: "Floating Bulk Bar (ui)",
     summary: "Auto-generated stub for client/src/components/ui/FloatingBulkBar.tsx — replace with staff-facing help.",
-    markdown: manual_122_raw,
+    markdown: manual_132_raw,
     tags: ["ui-floating-bulk-bar","component","auto-scaffold"],
   },
   {
     id: "ui-numeric-pin-keypad",
     title: "Numeric Pin Keypad (ui)",
     summary: "Auto-generated stub for client/src/components/ui/NumericPinKeypad.tsx — replace with staff-facing help.",
-    markdown: manual_123_raw,
+    markdown: manual_133_raw,
     tags: ["ui-numeric-pin-keypad","component","auto-scaffold"],
   },
   {
     id: "ui-prompt-modal",
     title: "Prompt Modal (ui)",
     summary: "Auto-generated stub for client/src/components/ui/PromptModal.tsx — replace with staff-facing help.",
-    markdown: manual_124_raw,
+    markdown: manual_134_raw,
     tags: ["ui-prompt-modal","component","auto-scaffold"],
   },
   {
     id: "ui-sidebar-rail-tooltip",
     title: "Sidebar Rail Tooltip (ui)",
     summary: "Auto-generated stub for client/src/components/ui/SidebarRailTooltip.tsx — replace with staff-facing help.",
-    markdown: manual_125_raw,
+    markdown: manual_135_raw,
     tags: ["ui-sidebar-rail-tooltip","component","auto-scaffold"],
   },
   {
     id: "ui-smart-button",
     title: "Smart Button (ui)",
     summary: "Auto-generated stub for client/src/components/ui/SmartButton.tsx — replace with staff-facing help.",
-    markdown: manual_126_raw,
+    markdown: manual_136_raw,
     tags: ["ui-smart-button","component","auto-scaffold"],
   },
   {
     id: "ui-toast-provider",
     title: "Toast Provider (ui)",
     summary: "Auto-generated stub for client/src/components/ui/ToastProvider.tsx — replace with staff-facing help.",
-    markdown: manual_127_raw,
+    markdown: manual_137_raw,
     tags: ["ui-toast-provider","component","auto-scaffold"],
   },
   {
     id: "ui-variant-search-input",
     title: "Variant Search Input (ui)",
     summary: "Auto-generated stub for client/src/components/ui/VariantSearchInput.tsx — replace with staff-facing help.",
-    markdown: manual_128_raw,
+    markdown: manual_138_raw,
     tags: ["ui-variant-search-input","component","auto-scaffold"],
   },
   {
     id: "wedding-manager-app",
     title: "Wedding Manager App (wedding-manager)",
     summary: "Auto-generated stub for client/src/components/wedding-manager/WeddingManagerApp.tsx — replace with staff-facing help.",
-    markdown: manual_129_raw,
+    markdown: manual_139_raw,
     tags: ["wedding-manager-app","component","auto-scaffold"],
   },
   {
     id: "wedding-manager-auth-bridge",
     title: "Wedding Manager Auth Bridge (wedding-manager)",
     summary: "Auto-generated stub for client/src/components/wedding-manager/WeddingManagerAuthBridge.tsx — replace with staff-facing help.",
-    markdown: manual_130_raw,
+    markdown: manual_140_raw,
     tags: ["wedding-manager-auth-bridge","component","auto-scaffold"],
+  },
+  {
+    id: "ui-order-search-input",
+    title: "Order Search Input (ui)",
+    summary: "Auto-generated stub for client/src/components/ui/OrderSearchInput.tsx — replace with staff-facing help.",
+    markdown: manual_141_raw,
+    tags: ["ui-order-search-input","component","auto-scaffold"],
+  },
+  {
+    id: "ui-staff-search-input",
+    title: "Staff Search Input (ui)",
+    summary: "Auto-generated stub for client/src/components/ui/StaffSearchInput.tsx — replace with staff-facing help.",
+    markdown: manual_142_raw,
+    tags: ["ui-staff-search-input","component","auto-scaffold"],
+  },
+  {
+    id: "ui-wedding-party-search-input",
+    title: "Wedding Party Search Input (ui)",
+    summary: "Auto-generated stub for client/src/components/ui/WeddingPartySearchInput.tsx — replace with staff-facing help.",
+    markdown: manual_143_raw,
+    tags: ["ui-wedding-party-search-input","component","auto-scaffold"],
   },
 ];
 

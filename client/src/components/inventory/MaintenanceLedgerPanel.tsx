@@ -1,5 +1,15 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { Search, ShieldAlert, Truck, ChevronDown, Calendar, DollarSign, Package, TrendingDown, ArrowUpRight } from "lucide-react";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import {
+  Search,
+  ShieldAlert,
+  Truck,
+  ChevronDown,
+  Calendar,
+  DollarSign,
+  Package,
+  TrendingDown,
+  ArrowUpRight,
+} from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 // Unused centsToFixed2 removed
@@ -24,15 +34,20 @@ export interface MaintenanceLedgerPanelProps {
   type: "damaged" | "return_to_vendor";
 }
 
-export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ type }) => {
+export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({
+  type,
+}) => {
   const { backofficeHeaders } = useBackofficeAuth();
   const [rows, setRows] = useState<MaintenanceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
 
-  const apiHeaders = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
+  const apiHeaders = useMemo(
+    () => mergedPosStaffHeaders(backofficeHeaders),
+    [backofficeHeaders],
+  );
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const qs = new URLSearchParams({ tx_type: type, search });
@@ -47,11 +62,11 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
     } finally {
       setLoading(false);
     }
-  };
+  }, [type, search, apiHeaders]);
 
   useEffect(() => {
     loadData();
-  }, [type, search]);
+  }, [loadData]);
 
   const stats = useMemo(() => {
     let totalQty = 0;
@@ -70,17 +85,33 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <div className="group relative overflow-hidden rounded-[32px] border border-app-border bg-app-surface/40 p-8 transition-all duration-500 hover:shadow-2xl hover:shadow-app-accent/10">
           <div className="absolute -right-4 -top-4 opacity-[0.03] grayscale transition-all duration-700 group-hover:scale-110 group-hover:opacity-[0.08]">
-            {type === 'damaged' ? <ShieldAlert size={140} /> : <Truck size={140} />}
+            {type === "damaged" ? (
+              <ShieldAlert size={140} />
+            ) : (
+              <Truck size={140} />
+            )}
           </div>
           <div className="flex items-center gap-5">
-            <div className={`flex h-14 w-14 items-center justify-center rounded-2xl ${type === 'damaged' ? "bg-red-500/10 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.2)]" : "bg-app-accent/10 text-app-accent shadow-[0_0_20px_rgba(var(--app-accent-rgb),0.2)]"}`}>
-              {type === 'damaged' ? <ShieldAlert size={32} /> : <Truck size={32} />}
+            <div
+              className={`flex h-14 w-14 items-center justify-center rounded-2xl ${type === "damaged" ? "bg-red-500/10 text-red-500 shadow-[0_0_20px_rgba(239,68,68,0.2)]" : "bg-app-accent/10 text-app-accent shadow-[0_0_20px_rgba(var(--app-accent-rgb),0.2)]"}`}
+            >
+              {type === "damaged" ? (
+                <ShieldAlert size={32} />
+              ) : (
+                <Truck size={32} />
+              )}
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic opacity-60">Inventory Movements</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic opacity-60">
+                Inventory Movements
+              </p>
               <div className="flex items-baseline gap-2">
-                <p className="text-4xl font-black tracking-tighter text-app-text">{rows.length}</p>
-                <span className="text-xs font-bold text-app-text-muted">records filtered</span>
+                <p className="text-4xl font-black tracking-tighter text-app-text">
+                  {rows.length}
+                </p>
+                <span className="text-xs font-bold text-app-text-muted">
+                  records filtered
+                </span>
               </div>
             </div>
           </div>
@@ -95,10 +126,16 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
               <Package size={32} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic opacity-60">Deficit Capacity</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic opacity-60">
+                Deficit Capacity
+              </p>
               <div className="flex items-baseline gap-2">
-                <p className="text-4xl font-black tracking-tighter text-app-text">{stats.totalQty}</p>
-                <span className="text-xs font-bold text-app-text-muted">total units</span>
+                <p className="text-4xl font-black tracking-tighter text-app-text">
+                  {stats.totalQty}
+                </p>
+                <span className="text-xs font-bold text-app-text-muted">
+                  total units
+                </span>
               </div>
             </div>
           </div>
@@ -113,10 +150,20 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
               <TrendingDown size={32} />
             </div>
             <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic opacity-60">Financial Realization</p>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic opacity-60">
+                Financial Realization
+              </p>
               <div className="flex items-baseline gap-2">
-                <p className="text-4xl font-black tracking-tighter text-app-text">${stats.totalValue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                <span className="text-xs font-bold text-app-text-muted">USD extended loss</span>
+                <p className="text-4xl font-black tracking-tighter text-app-text">
+                  $
+                  {stats.totalValue.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}
+                </p>
+                <span className="text-xs font-bold text-app-text-muted">
+                  USD extended loss
+                </span>
               </div>
             </div>
           </div>
@@ -139,7 +186,10 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
         <button className="group flex items-center gap-3 rounded-[20px] bg-app-surface-2 px-6 py-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted transition-all hover:bg-app-surface-3 hover:text-app-text">
           <Calendar size={14} className="opacity-40 group-hover:opacity-100" />
           <span>Trailing 30 Days</span>
-          <ChevronDown size={14} className="opacity-20 group-hover:opacity-100" />
+          <ChevronDown
+            size={14}
+            className="opacity-20 group-hover:opacity-100"
+          />
         </button>
       </div>
 
@@ -149,11 +199,21 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
           <table className="w-full text-left border-separate border-spacing-0">
             <thead className="sticky top-0 z-20 bg-app-surface-2/95 backdrop-blur-3xl border-b border-app-border">
               <tr className="h-16">
-                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">Timeline</th>
-                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">Canonical Product</th>
-                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">Quantity</th>
-                <th className="px-8 border-b border-app-border/40 text-[10px) font-black uppercase tracking-[0.3em] text-app-text-muted">Financial Integrity</th>
-                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">Fulfillment Attribution</th>
+                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
+                  Timeline
+                </th>
+                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
+                  Canonical Product
+                </th>
+                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
+                  Quantity
+                </th>
+                <th className="px-8 border-b border-app-border/40 text-[10px) font-black uppercase tracking-[0.3em] text-app-text-muted">
+                  Financial Integrity
+                </th>
+                <th className="px-8 border-b border-app-border/40 text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
+                  Fulfillment Attribution
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border/20">
@@ -161,8 +221,10 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
                 <tr>
                   <td colSpan={7} className="py-40 text-center">
                     <div className="flex flex-col items-center gap-4">
-                        <div className="h-10 w-10 border-4 border-app-accent border-b-transparent rounded-full animate-spin" />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted animate-pulse">Synchronizing Ledger Data...</p>
+                      <div className="h-10 w-10 border-4 border-app-accent border-b-transparent rounded-full animate-spin" />
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted animate-pulse">
+                        Synchronizing Ledger Data...
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -170,8 +232,10 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
                 <tr>
                   <td colSpan={7} className="py-40 text-center">
                     <div className="flex flex-col items-center gap-6 opacity-20 grayscale">
-                        <Package size={64} />
-                        <p className="text-xs font-black uppercase tracking-[0.2em] italic">No historical movements in current buffer</p>
+                      <Package size={64} />
+                      <p className="text-xs font-black uppercase tracking-[0.2em] italic">
+                        No historical movements in current buffer
+                      </p>
                     </div>
                   </td>
                 </tr>
@@ -180,51 +244,80 @@ export const MaintenanceLedgerPanel: React.FC<MaintenanceLedgerPanelProps> = ({ 
                   const qty = Math.abs(row.quantity_delta);
                   const cost = parseFloat(row.unit_cost || "0");
                   return (
-                    <tr key={row.id} className="group transition-all duration-300 hover:bg-app-accent/[0.02]">
+                    <tr
+                      key={row.id}
+                      className="group transition-all duration-300 hover:bg-app-accent/[0.02]"
+                    >
                       <td className="px-8 py-6 whitespace-nowrap">
                         <div className="flex flex-col">
-                            <span className="font-black text-app-text leading-none">{new Date(row.created_at).toLocaleDateString()}</span>
-                            <span className="mt-1.5 text-[10px] font-bold uppercase tracking-widest text-app-text-muted opacity-50">{new Date(row.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                          <span className="font-black text-app-text leading-none">
+                            {new Date(row.created_at).toLocaleDateString()}
+                          </span>
+                          <span className="mt-1.5 text-[10px] font-bold uppercase tracking-widest text-app-text-muted opacity-50">
+                            {new Date(row.created_at).toLocaleTimeString([], {
+                              hour: "2-digit",
+                              minute: "2-digit",
+                            })}
+                          </span>
                         </div>
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex flex-col min-w-[240px]">
-                          <span className="font-black text-app-text group-hover:text-app-accent transition-colors leading-tight">{row.product_name}</span>
+                          <span className="font-black text-app-text group-hover:text-app-accent transition-colors leading-tight">
+                            {row.product_name}
+                          </span>
                           <div className="mt-1.5 flex items-center gap-2">
-                              <span className="rounded bg-app-surface-2 px-2 py-0.5 font-mono text-[11px] font-bold text-app-text-muted border border-app-border/50">{row.sku}</span>
-                              <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40">{row.brand || "Generics"}</span>
+                            <span className="rounded bg-app-surface-2 px-2 py-0.5 font-mono text-[11px] font-bold text-app-text-muted border border-app-border/50">
+                              {row.sku}
+                            </span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40">
+                              {row.brand || "Generics"}
+                            </span>
                           </div>
                         </div>
                       </td>
                       <td className="px-8 py-6">
-                        <div className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-black tabular-nums shadow-inner ${type === 'damaged' ? "bg-red-500/10 text-red-500" : "bg-app-accent/10 text-app-accent"}`}>
-                            -{qty}
+                        <div
+                          className={`flex h-10 w-10 items-center justify-center rounded-xl text-sm font-black tabular-nums shadow-inner ${type === "damaged" ? "bg-red-500/10 text-red-500" : "bg-app-accent/10 text-app-accent"}`}
+                        >
+                          -{qty}
                         </div>
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex flex-col">
-                            <div className="flex items-center gap-2">
-                                <span className="font-black text-app-text tabular-nums tracking-tighter text-lg leading-none">
-                                    ${(qty * cost).toFixed(2)}
-                                </span>
-                                <ArrowUpRight size={14} className="opacity-20 translate-y-0.5" />
-                            </div>
-                            <span className="mt-1 text-[10px] font-bold text-app-text-muted opacity-40 italic">${cost.toFixed(2)} base unit cost</span>
+                          <div className="flex items-center gap-2">
+                            <span className="font-black text-app-text tabular-nums tracking-tighter text-lg leading-none">
+                              ${(qty * cost).toFixed(2)}
+                            </span>
+                            <ArrowUpRight
+                              size={14}
+                              className="opacity-20 translate-y-0.5"
+                            />
+                          </div>
+                          <span className="mt-1 text-[10px] font-bold text-app-text-muted opacity-40 italic">
+                            ${cost.toFixed(2)} base unit cost
+                          </span>
                         </div>
                       </td>
                       <td className="px-8 py-6">
                         <div className="flex flex-col gap-2">
-                            <div className="flex items-center gap-2">
-                                <Truck size={14} className="opacity-40" />
-                                <span className="text-[10px] font-black uppercase tracking-widest text-app-text truncate max-w-[150px]">{row.vendor_name || "Self Discretion"}</span>
+                          <div className="flex items-center gap-2">
+                            <Truck size={14} className="opacity-40" />
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text truncate max-w-[150px]">
+                              {row.vendor_name || "Self Discretion"}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="h-4 w-4 rounded-full bg-app-accent/10 flex items-center justify-center text-app-accent text-[8px] font-black">
+                              {row.staff_name ? row.staff_name.charAt(0) : "S"}
                             </div>
-                            <div className="flex items-center gap-2">
-                                <div className="h-4 w-4 rounded-full bg-app-accent/10 flex items-center justify-center text-app-accent text-[8px] font-black">
-                                  {row.staff_name ? row.staff_name.charAt(0) : "S"}
-                                </div>
-                                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">{row.staff_name || "System / Auto"}</span>
-                            </div>
-                            <p className="max-w-[180px] truncate text-[11px] font-semibold text-app-text-muted italic opacity-60">"{row.notes || "No audit trail memo"}"</p>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              {row.staff_name || "System / Auto"}
+                            </span>
+                          </div>
+                          <p className="max-w-[180px] truncate text-[11px] font-semibold text-app-text-muted italic opacity-60">
+                            "{row.notes || "No audit trail memo"}"
+                          </p>
                         </div>
                       </td>
                     </tr>

@@ -1110,6 +1110,27 @@ async fn post_merge_customers(
         }
     });
 
+    if let Some(c) = state.meilisearch.clone() {
+        let pool = state.db.clone();
+        tokio::spawn(async move {
+            // Delete slave from Meilisearch
+            if let Err(e) =
+                crate::logic::meilisearch_sync::spawn_meilisearch_customer_delete(&c, slave_id)
+                    .await
+            {
+                tracing::error!(error = %e, slave_id = %slave_id, "Meilisearch customer delete after merge failed");
+            }
+            // Upsert master to ensure latest metrics/status are reflected
+            if let Err(e) = crate::logic::meilisearch_sync::spawn_meilisearch_customer_upsert(
+                &c, &pool, master_id,
+            )
+            .await
+            {
+                tracing::error!(error = %e, master_id = %master_id, "Meilisearch customer upsert after merge failed");
+            }
+        });
+    }
+
     Ok(Json(json!({ "status": "merged" })))
 }
 
@@ -1458,7 +1479,7 @@ async fn browse_customer_pipeline_stats(
     headers: HeaderMap,
 ) -> Result<Json<CustomerPipelineStats>, CustomerError> {
     require_customer_access(&state, &headers).await?;
-    
+
     let stats = sqlx::query!(
         r#"
         SELECT

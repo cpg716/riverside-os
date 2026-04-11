@@ -454,7 +454,9 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
     let health_audit_job = Job::new_async("0 0 3 * * *", move |_uuid, _l| {
         let st = health_state.clone();
         Box::pin(async move {
-            if let Err(e) = riverside_server::logic::maintenance::run_system_health_audit(&st.db).await {
+            if let Err(e) =
+                riverside_server::logic::maintenance::run_system_health_audit(&st.db).await
+            {
                 tracing::error!(error = %e, "daily system health audit failed");
             }
         })

@@ -1,6 +1,6 @@
+use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::process::Command as TokioCommand;
-use anyhow::{Result, Context};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TailscaleStatus {

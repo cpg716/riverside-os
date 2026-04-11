@@ -1,35 +1,51 @@
 ---
 id: qbo-mapping-matrix
-title: "Qbo Mapping Matrix (qbo)"
+title: "QBO Mapping Matrix (qbo)"
 order: 1081
-summary: "Auto-generated stub for client/src/components/qbo/QboMappingMatrix.tsx — replace with staff-facing help."
+summary: "Guide to linking Riverside OS accounts (Revenue, Inventory, Tenders) to your QuickBooks Online Chart of Accounts."
 source: client/src/components/qbo/QboMappingMatrix.tsx
 last_scanned: 2026-04-11
-tags: qbo-mapping-matrix, component, auto-scaffold
+tags: qbo, mapping, accounting, chart-of-accounts, coa, setup
 ---
 
-# Qbo Mapping Matrix (qbo)
+# QBO Mapping Matrix (qbo)
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/qbo/QboMappingMatrix.tsx`._
 <!-- /help:component-source -->
 
-## What this is
+The **Mapping Matrix** is the configuration engine that tells Riverside OS where to "post" every dollar. Correct mappings are essential for automated reconciliation.
 
-Briefly describe what staff use this screen for.
+## Mapping categories
 
-## How to use it
+The matrix is divided into three primary sections:
 
-1. 
-2. 
+### 1. Revenue & COGS (by Category)
+For every product category (e.g., Clothing, Accessories), you must map:
+- **Revenue Account**: Usually an Income account.
+- **COGS Account**: Usually an Expense account for Cost of Goods Sold.
+- **Inventory Asset**: The asset account where inventory value is held.
+
+### 2. Tenders (Payment Methods)
+Map each payment method (Cash, Check, Card) to its respective clearing or asset account.
+- **Standard Tenders**: Map to "Cash on Hand" or your primary bank account.
+- **Stripe/Merchant Tenders**: **IMPORTANT:** We recommend mapping these to a "Stripe Clearing" (Other Current Asset) account rather than your checking account.
+
+### 3. Global Fallbacks
+These are safety accounts used when a specific mapping is missing or for global logic:
+- **Merchant Processing Fees**: Map this to your "Merchant Fees" or "Bank Charges" expense account.
+- **Sales Tax**: Map to your "Sales Tax Payable" liability account.
+- **Shipping Expense**: Map to your outbound shipping freight account.
+
+## How to map an account
+
+1. Navigate to **Back Office → Settings → QBO Bridge → Mappings**.
+2. Locate the row you wish to update.
+3. Select the matching account from the **QBO Account** dropdown.
+4. Tapping "Save Matrix" will persist these mappings server-side for all future journal proposals.
 
 ## Tips
 
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/qbo-mapping-matrix/` and embed them, for example:
-
-![Example](../images/help/qbo-mapping-matrix/example.png)
-
+- **Balanced Journals**: If you leave a required account unmapped, the daily journal will use a "MISC FALLBACK" account and include a warning in the staging queue.
+- **New Accounts**: If you create a new account in QuickBooks, you must click **"Refresh QBO accounts"** at the top of the matrix to see it in the list.
+- **Clearing Account Reconcile**: Use the "Transfer" feature in QuickBooks to move funds from your "Stripe Clearing" account to your "Checking" account once the daily settlement hits your bank statement.

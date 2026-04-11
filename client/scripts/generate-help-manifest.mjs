@@ -9,7 +9,7 @@
  *   node client/scripts/generate-help-manifest.mjs
  *   node client/scripts/generate-help-manifest.mjs --scaffold <id> --title "Title" [--markdown path]
  *   node client/scripts/generate-help-manifest.mjs --scaffold-components [--dry-run] [--include-shadcn]
- *   node client/scripts/generate-help-manifest.mjs --rescan-components [--dry-run] [--include-shadcn]
+ *   node client/scripts/generate-help-manifest.mjs --rescan-components [--dry-run] [--include-shadcn] [--delete-orphans]
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -34,6 +34,7 @@ function findRepoRoot() {
 const REPO_ROOT = findRepoRoot();
 const COMPONENTS_DIR = path.join(REPO_ROOT, "client", "src", "components");
 const DOCS_DIR = path.join(REPO_ROOT, "client", "src", "assets", "docs");
+const TRASH_DIR = path.join(DOCS_DIR, ".trash");
 const CLIENT_LIB_HELP = path.join(REPO_ROOT, "client", "src", "lib", "help");
 const OUT_TS = path.join(CLIENT_LIB_HELP, "help-manifest.generated.ts");
 const OUT_RS = path.join(REPO_ROOT, "server", "src", "logic", "help_corpus_manuals.generated.rs");
@@ -496,8 +497,12 @@ function runRescanComponents() {
 
   let created = 0;
   let updated = 0;
+  let deleted = 0;
+  let pruned = 0;
   let skippedUnchanged = 0;
   let skippedNotTracked = 0;
+
+  pruned = pruneTrash(60);
 
   for (let index = 0; index < sortedIds.length; index += 1) {
     const id = sortedIds[index];
@@ -571,13 +576,60 @@ function runRescanComponents() {
         console.warn(
           `[rescan] orphan auto-scaffold manual (no component file maps to id "${baseId}"): ${f}`,
         );
+        if (argv.includes("--delete-orphans")) {
+          if (dryRun) {
+            console.log(`[dry-run] would move orphan to trash: ${f}`);
+            deleted += 1;
+          } else {
+            moveToTrash(f);
+            deleted += 1;
+          }
+        }
       }
     }
   }
 
   console.log(
-    `rescan-components: ${dryRun ? "dry-run — " : ""}created ${created}, updated ${updated}, skipped ${skippedUnchanged} unchanged, skipped ${skippedNotTracked} (no auto-scaffold tag).`,
+    `rescan-components: ${dryRun ? "dry-run — " : ""}created ${created}, updated ${updated}, removed-to-trash ${deleted}, pruned-trash ${pruned}, skipped ${skippedUnchanged} unchanged, skipped ${skippedNotTracked} (no auto-scaffold tag).`,
   );
+}
+
+function pruneTrash(maxAgeDays) {
+  if (!fs.existsSync(TRASH_DIR)) return 0;
+  let prunedCount = 0;
+  const now = Date.now();
+  const maxAgeMs = maxAgeDays * 24 * 60 * 60 * 1000;
+  const files = fs.readdirSync(TRASH_DIR);
+
+  for (const f of files) {
+    const full = path.join(TRASH_DIR, f);
+    try {
+      const stats = fs.statSync(full);
+      const ageMs = now - stats.mtimeMs;
+      if (ageMs > maxAgeMs) {
+        fs.unlinkSync(full);
+        prunedCount += 1;
+      }
+    } catch (e) {
+      console.warn(`[prune] error scanning ${f}:`, e.message);
+    }
+  }
+  if (prunedCount > 0) {
+    console.log(`[prune] permanently cleared ${prunedCount} old backup(s) from .trash (older than ${maxAgeDays} days)`);
+  }
+  return prunedCount;
+}
+
+function moveToTrash(fileName) {
+  if (!fs.existsSync(TRASH_DIR)) {
+    fs.mkdirSync(TRASH_DIR, { recursive: true });
+  }
+  const timestamp = new Date().toISOString().replace(/[:T]/g, "-").slice(0, 16);
+  const backupName = `${fileName}.${timestamp}.bak`;
+  const src = path.join(DOCS_DIR, fileName);
+  const dst = path.join(TRASH_DIR, backupName);
+  fs.renameSync(src, dst);
+  console.log(`[rescan] moved orphan to trash: ${fileName} -> .trash/${backupName}`);
 }
 
 function runScaffold() {

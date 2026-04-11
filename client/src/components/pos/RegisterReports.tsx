@@ -16,12 +16,24 @@ import {
   Radio,
   Archive,
   Pin,
+  ChevronDown,
+  ExternalLink,
+  ChevronUp,
 } from "lucide-react";
 import ReceiptSummaryModal from "./ReceiptSummaryModal";
+import ProductHubDrawer from "../inventory/ProductHubDrawer";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
 type PresetId = "today" | "yesterday" | "this_week" | "this_month" | "this_year" | "custom";
+
+interface ActivityItemDetail {
+  name: string;
+  sku: string;
+  quantity: number;
+  price: string;
+  product_id: string;
+}
 
 interface RegisterActivityItem {
   id: string;
@@ -33,6 +45,12 @@ interface RegisterActivityItem {
   wedding_party_id?: string | null;
   amount_label?: string | null;
   payment_summary?: string | null;
+  sales_total?: string | null;
+  tax_total?: string | null;
+  is_takeaway?: boolean | null;
+  channel?: string | null;
+  wedding_party_name?: string | null;
+  items?: ActivityItemDetail[] | null;
 }
 
 interface RegisterDaySummary {
@@ -48,12 +66,15 @@ interface RegisterDaySummary {
   reporting_basis?: string;
   sales_count: number;
   sales_subtotal_no_tax: string;
+  sales_tax_total: string;
   avg_sale_no_tax: string;
   online_order_count: number;
   pickup_count: number;
   special_order_sale_count: number;
   appointment_count: number;
   new_wedding_parties_count: number;
+  stripe_fees_total: string;
+  net_sales: string;
   activities: RegisterActivityItem[];
 }
 
@@ -117,6 +138,9 @@ export default function RegisterReports({
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [receiptOrderId, setReceiptOrderId] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [hubProductId, setHubProductId] = useState<string | null>(null);
+
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
 
@@ -398,53 +422,71 @@ export default function RegisterReports({
                 </div>
 
                 <div className="relative mt-5 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/90 p-4 shadow-sm backdrop-blur-sm transition hover:border-app-accent/30">
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-app-accent/30 hover:scale-[1.02]">
                     <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
                       <Hash className="h-3.5 w-3.5" />
                       {(summary.reporting_basis ?? "booked") === "fulfilled" ? "Fulfilled #" : "Sales #"}
                     </div>
                     <p className="text-2xl font-black tabular-nums text-app-text">{summary.sales_count}</p>
                   </div>
-                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/90 p-4 shadow-sm backdrop-blur-sm transition hover:border-app-accent/30">
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-app-accent/30 hover:scale-[1.02]">
                     <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
                       <DollarSign className="h-3.5 w-3.5" />
                       {(summary.reporting_basis ?? "booked") === "fulfilled"
-                        ? "Revenue $ (no tax)"
-                        : "Sales $ (no tax)"}
+                        ? "Revenue (no tax)"
+                        : "Sales (no tax)"}
                     </div>
                     <p className="text-2xl font-black tabular-nums text-app-accent">
                       ${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}
                     </p>
                   </div>
-                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/90 p-4 shadow-sm backdrop-blur-sm transition hover:border-app-accent/30">
-                    <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-app-accent/30 hover:scale-[1.02]">
+                    <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted text-amber-600">
                       <Percent className="h-3.5 w-3.5" />
-                      {(summary.reporting_basis ?? "booked") === "fulfilled" ? "Avg order" : "Avg sale"}
+                      Daily tax liability
                     </div>
-                    <p className="text-2xl font-black tabular-nums text-app-text">
-                      ${centsToFixed2(parseMoneyToCents(summary.avg_sale_no_tax))}
+                    <p className="text-2xl font-black tabular-nums text-amber-600">
+                      ${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}
                     </p>
                   </div>
-                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/90 p-4 shadow-sm backdrop-blur-sm transition hover:border-app-accent/30">
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-app-accent/30 hover:scale-[1.02]">
                     <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
                       <Calendar className="h-3.5 w-3.5" />
                       Appointments
                     </div>
                     <p className="text-2xl font-black tabular-nums text-app-text">{summary.appointment_count}</p>
                   </div>
-                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/90 p-4 shadow-sm backdrop-blur-sm transition hover:border-app-accent/30">
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-app-accent/30 hover:scale-[1.02]">
                     <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
                       <Globe className="h-3.5 w-3.5" />
                       Online orders
                     </div>
                     <p className="text-2xl font-black tabular-nums text-app-text">{summary.online_order_count}</p>
                   </div>
-                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/90 p-4 shadow-sm backdrop-blur-sm transition hover:border-app-accent/30">
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-app-accent/30 hover:scale-[1.02]">
                     <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-app-text-muted">
                       <Heart className="h-3.5 w-3.5" />
                       New weddings
                     </div>
                     <p className="text-2xl font-black tabular-nums text-app-text">{summary.new_wedding_parties_count}</p>
+                  </div>
+                  <div className="group rounded-2xl border border-app-border/80 bg-app-surface/95 p-4 shadow-xl shadow-black/5 ring-1 ring-black/5 backdrop-blur-md transition hover:border-red-500/30 hover:scale-[1.02]">
+                    <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-red-600/70">
+                      <Percent className="h-3.5 w-3.5" />
+                      Merchant Fees
+                    </div>
+                    <p className="text-2xl font-black tabular-nums text-red-600">
+                      ${centsToFixed2(parseMoneyToCents(summary.stripe_fees_total))}
+                    </p>
+                  </div>
+                  <div className="group rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 shadow-xl shadow-black/5 ring-1 ring-emerald-500/10 backdrop-blur-md transition hover:border-emerald-500/60 hover:scale-[1.02] sm:col-span-2 lg:col-span-1">
+                    <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-wider text-emerald-700">
+                      <DollarSign className="h-3.5 w-3.5" />
+                      Net (Deposit)
+                    </div>
+                    <p className="text-2xl font-black tabular-nums text-emerald-700">
+                      ${centsToFixed2(parseMoneyToCents(summary.net_sales))}
+                    </p>
                   </div>
                 </div>
                 <div className="relative mt-3 space-y-1.5 text-[11px] font-semibold leading-relaxed text-app-text-muted">
@@ -496,20 +538,33 @@ export default function RegisterReports({
                 {summary.activities.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-app-text-muted">No activity in this range.</div>
                 ) : (
-                  <ul className="divide-y divide-app-border">
+                  <ul className="flex flex-col gap-2 p-2 sm:p-4">
                     {summary.activities.map((row) => (
                       <li
                         key={row.id}
-                        className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-app-surface/60 sm:flex-row sm:items-center sm:justify-between sm:px-8"
+                        className={`group relative flex flex-col gap-0 overflow-hidden rounded-[24px] border border-app-border bg-app-surface transition-all ${
+                          expandedId === row.id ? "ring-2 ring-app-accent shadow-2xl" : "hover:border-app-accent/40"
+                        }`}
                       >
+                        <div className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
                         <div className="flex min-w-0 flex-1 items-start gap-4">
-                          <span
-                            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ring-1 ${kindPill(row.kind)}`}
-                          >
-                            {row.kind.replace("_", " ")}
-                          </span>
-                          <div className="min-w-0">
-                            <p className="font-bold text-app-text">{row.title}</p>
+                          <div className="mt-1 flex flex-col items-center gap-2">
+                            <span
+                              className={`shrink-0 rounded-lg px-2 py-0.5 text-[9px] font-black uppercase tracking-tighter ring-1 ${kindPill(row.kind)}`}
+                            >
+                              {row.kind.replace("_", " ")}
+                            </span>
+                            {row.is_takeaway && (
+                              <span className="rounded-lg bg-orange-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-tighter text-orange-600 ring-1 ring-orange-500/20">
+                                Takeaway
+                              </span>
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                               <p className="font-black text-app-text text-base leading-tight">{row.title}</p>
+                               {row.channel === 'web' && <Globe size={12} className="text-app-text-muted opacity-40" />}
+                            </div>
                             {row.subtitle ? (
                               row.wedding_party_id ? (
                                 <button
@@ -520,38 +575,112 @@ export default function RegisterReports({
                                   {row.subtitle}
                                 </button>
                               ) : (
-                                <p className="mt-0.5 truncate text-sm font-semibold text-app-text-muted">{row.subtitle}</p>
+                                <p className="mt-0.5 truncate text-sm font-semibold text-app-text-muted opacity-80">{row.subtitle}</p>
                               )
                             ) : null}
-                            {row.payment_summary ? (
-                              <p className="mt-1 text-xs text-app-text-muted">{row.payment_summary}</p>
-                            ) : null}
-                            <p className="mt-1 text-[11px] font-mono text-app-text-muted/80">
-                              {new Date(row.occurred_at).toLocaleString(undefined, {
-                                month: "short",
-                                day: "numeric",
-                                hour: "2-digit",
-                                minute: "2-digit",
-                              })}
-                            </p>
+                            
+                            <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                                <p className="text-[10px] font-mono font-bold text-app-text-muted/60 uppercase">
+                                  {new Date(row.occurred_at).toLocaleString(undefined, {
+                                    month: "short",
+                                    day: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit",
+                                  })}
+                                </p>
+                                {row.payment_summary && (
+                                  <div className="flex items-center gap-1.5 rounded-lg bg-app-surface-2 px-2 py-0.5 border border-app-border/40">
+                                     <DollarSign size={10} className="text-app-text-muted" />
+                                     <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">{row.payment_summary}</span>
+                                  </div>
+                                )}
+                            </div>
                           </div>
                         </div>
-                        <div className="flex shrink-0 items-center gap-3 sm:justify-end">
-                          {row.amount_label ? (
-                            <span className="text-lg font-black tabular-nums text-app-accent">{row.amount_label}</span>
-                          ) : null}
-                          {row.order_id ? (
-                            <button
-                              type="button"
-                              onClick={() => setReceiptOrderId(row.order_id!)}
-                              className="inline-flex items-center gap-1.5 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-xs font-black uppercase tracking-wide text-app-text shadow-sm hover:border-app-accent/50 hover:text-app-accent"
-                              title="Reprint customer receipt"
-                            >
-                              <Receipt className="h-4 w-4" />
-                              Receipt
-                            </button>
-                          ) : null}
+
+                        <div className="flex shrink-0 flex-col items-end gap-1">
+                           <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                 <p className="text-lg font-black tabular-nums text-app-accent leading-none">{row.amount_label}</p>
+                                 {row.tax_total && (
+                                   <p className="text-[10px] font-black text-app-text-muted opacity-40 mt-1 uppercase">Tax: ${row.tax_total}</p>
+                                 )}
+                              </div>
+                              
+                              <div className="flex items-center gap-1 border-l border-app-border pl-3">
+                                {row.order_id && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() => setReceiptOrderId(row.order_id!)}
+                                      className="ui-btn-secondary h-9 w-9 flex items-center justify-center rounded-xl transition-all hover:bg-app-accent hover:text-white"
+                                      title="Reprint Receipt"
+                                    >
+                                      <Receipt size={16} />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setExpandedId(expandedId === row.id ? null : row.id)}
+                                      className={`ui-btn-secondary h-9 w-9 flex items-center justify-center rounded-xl transition-all ${expandedId === row.id ? "bg-app-accent text-white" : ""}`}
+                                    >
+                                      {expandedId === row.id ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                           </div>
                         </div>
+                        </div>
+
+                        {/* Expandable Receipt Section */}
+                        {expandedId === row.id && row.items && (
+                          <div className="border-t border-app-border bg-app-surface-2/40 animate-in slide-in-from-top-4 duration-300">
+                             <div className="p-4 sm:p-6">
+                                <div className="mb-4 flex items-center justify-between">
+                                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Transaction Details</h4>
+                                   <p className="text-[9px] font-mono text-app-text-muted opacity-40">ORD-{row.order_id?.slice(0,8).toUpperCase()}</p>
+                                </div>
+                                <div className="space-y-2">
+                                   {row.items.map((item, idx) => (
+                                      <div key={idx} className="flex items-center justify-between rounded-xl border border-app-border/40 bg-app-surface p-3 transition-colors hover:bg-app-accent/[0.03]">
+                                         <div className="flex items-center gap-4">
+                                            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-surface-2 border border-app-border font-black text-app-accent text-xs">
+                                              {item.quantity}×
+                                            </div>
+                                            <div>
+                                               <button 
+                                                 type="button"
+                                                 onClick={() => setHubProductId(item.product_id)}
+                                                 className="text-sm font-black text-app-text hover:text-app-accent transition-colors flex items-center gap-2 group"
+                                               >
+                                                 {item.name}
+                                                 <ExternalLink size={12} className="opacity-0 group-hover:opacity-100 transition-opacity" />
+                                               </button>
+                                               <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">{item.sku}</p>
+                                            </div>
+                                         </div>
+                                         <p className="text-sm font-black tabular-nums text-app-text">${item.price}</p>
+                                      </div>
+                                   ))}
+                                </div>
+                                
+                                <div className="mt-6 flex flex-col items-end gap-1.5 border-t border-app-border pt-4">
+                                   <div className="flex justify-between w-full max-w-[240px] text-xs font-bold text-app-text-muted uppercase">
+                                      <span>Sales Subtotal</span>
+                                      <span className="tabular-nums text-app-text">${row.sales_total}</span>
+                                   </div>
+                                   <div className="flex justify-between w-full max-w-[240px] text-xs font-bold text-app-text-muted uppercase">
+                                      <span>Tax Collected</span>
+                                      <span className="tabular-nums text-amber-600">${row.tax_total}</span>
+                                   </div>
+                                   <div className="flex justify-between w-full max-w-[240px] text-base font-black text-app-text uppercase border-t border-app-border pt-2 mt-1">
+                                      <span>Grand Total</span>
+                                      <span className="tabular-nums text-app-accent">{row.amount_label}</span>
+                                   </div>
+                                </div>
+                             </div>
+                          </div>
+                        )}
                       </li>
                     ))}
                   </ul>
@@ -615,6 +744,13 @@ export default function RegisterReports({
           </div>
         )}
       </div>
+
+      <ProductHubDrawer
+        isOpen={!!hubProductId}
+        productId={hubProductId}
+        onClose={() => setHubProductId(null)}
+        baseUrl={baseUrl}
+      />
     </div>
   );
 }

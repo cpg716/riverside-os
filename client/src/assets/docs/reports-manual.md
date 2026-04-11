@@ -32,8 +32,9 @@ Use **Open Insights (Metabase)** on the Reports page when you need dashboards or
 
 ## Payouts and register tools
 
-- **Finalize commission** is always under **Staff → Commission payouts** (not here).
-- For **lane / daily register** tools, use **POS → Reports** or **Operations → Register reports** as your SOP directs.
+- **NYS tax audit**: Drill-down into clothing vs non-clothing sales for audit.
+- **Merchant activity**: Daily Stripe volume, fees, and net settlement values matched to business days.
+- **RMS charges**: Export of store-account charges vs payments.
 
 ## Full documentation
 

@@ -162,6 +162,7 @@ pub async fn propose_daily_journal(
         payment_method: String,
         sub_type: Option<String>,
         total: Option<Decimal>,
+        total_merchant_fee: Option<Decimal>,
     }
 
     let tender_rows: Vec<TenderAgg> = sqlx::query_as(
@@ -169,7 +170,8 @@ pub async fn propose_daily_journal(
         SELECT
             payment_method,
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), '') AS sub_type,
-            SUM(amount)::numeric(14, 2) AS total
+            SUM(amount)::numeric(14, 2) AS total,
+            SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee
         FROM payment_transactions
         WHERE (created_at AT TIME ZONE 'UTC')::date = $1::date
         GROUP BY payment_method, NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), '')
@@ -453,17 +455,60 @@ pub async fn propose_daily_journal(
             format!("Tenders — {sid}")
         };
         lines.push(JournalLine {
-            qbo_account_id: aid,
-            qbo_account_name: aname,
+            qbo_account_id: aid.clone(),
+            qbo_account_name: aname.clone(),
             debit,
             credit,
-            memo,
+            memo: memo.clone(),
             detail: vec![serde_json::json!({
                 "payment_method": sid,
                 "sub_type": t.sub_type,
                 "amount": amt
             })],
         });
+
+        // 2b. Stripe Fee Recon: If this is a Stripe transaction with reconciled fees,
+        // post the fee as an expense and credit the clearing account (leaving the net in clearing).
+        let fees = t.total_merchant_fee.unwrap_or(Decimal::ZERO);
+        if sid.to_lowercase().contains("stripe") && !fees.is_zero() {
+            if let Some((fee_aid, fee_aname)) = qbo_map_with_misc_fallback(
+                pool,
+                "expense_merchant_fee",
+                "default",
+                Some("EXP_MERCHANT_FEE"),
+            )
+            .await?
+            {
+                let abs_fees = fees.abs().round_dp(2);
+                let (d_fee, c_fee) = if fees > Decimal::ZERO {
+                    (abs_fees, Decimal::ZERO)
+                } else {
+                    (Decimal::ZERO, abs_fees)
+                };
+
+                // Debit Fee Expense
+                lines.push(JournalLine {
+                    qbo_account_id: fee_aid,
+                    qbo_account_name: fee_aname,
+                    debit: d_fee,
+                    credit: c_fee,
+                    memo: format!("Merchant Fees — {sid}"),
+                    detail: vec![serde_json::json!({ "kind": "merchant_fee", "method": sid, "amount": fees })],
+                });
+
+                // Credit Clearing Account (reducing the gross debit to net)
+                lines.push(JournalLine {
+                    qbo_account_id: aid,
+                    qbo_account_name: aname,
+                    debit: c_fee,
+                    credit: d_fee,
+                    memo: format!("Merchant Fee Offset — {sid}"),
+                    detail: vec![],
+                });
+            } else {
+                warnings.push(format!("Merchant fees detected for {sid} (${fees}) but no `expense_merchant_fee` mapping found. Clearing account will remain at GROSS."));
+            }
+        }
     }
 
     #[derive(sqlx::FromRow)]

@@ -9,7 +9,7 @@ Riverside OS (ROS) is a **production retail ERM/POS** for a formalwear / wedding
 | **Task 3** | `messaging.rs` | Automated Messaging Engine for pickup pings. |
 | **Task 4** | `orders.rs` | Individual item Bag Tags (?mode=bag-tag) and pagination. |
 | **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
-| **v0.1.9** | Zero-error stabilization sprint; Wedding Party order attachment flow. |
+| **v0.1.9** | **Stripe Power Integration**: Secure Card Vaulting & Unlinked Credits; Wedding Party attachment flow. |
 
 Domain language and canonical requirements live in **`Riverside_OS_Master_Specification.md`**.
 1. **Custom Work Orders & Rush Orders** | `client/src/components/pos/CustomItemPromptModal.tsx`, `client/src/components/pos/Cart.tsx`, `server/src/logic/order_checkout.rs`, `server/src/logic/weddings.rs` (Morning Compass priority); see **`docs/ORDERS_AND_WEDDING_ORDERS.md`** and **`docs/staff/custom-work-orders-manual.md`**.
@@ -72,6 +72,7 @@ flowchart LR
 - **API**: `server/` — `riverside-server` library + `main` binary. Routers nested under `/api/...`. **`Router::with_state` is called once in `server/src/main.rs`** after `build_router()`. Implements async `tokio` + `reqwest` webhook dispatch queues. Uses **Rust 1.88** pinned via `rust-toolchain.toml` with `clippy` and `rustfmt` components enforced.
 - **Data**: SQL migrations in **`migrations/`** (apply in numeric order through the latest `NN_*.sql`; ledger in `00_ros_migration_ledger.sql`). **Current repo ceiling:** **`117_*.sql`** (see [Migrations reference](#migrations-reference-selected-files-see-migrations-for-full-set); drift checks: **`scripts/ros_migration_build_probes.sql`**, **`./scripts/migration-status-docker.sh`**). **Local dev database** is the **`db` service** in [`docker-compose.yml`](docker-compose.yml); use [`scripts/apply-migrations-docker.sh`](scripts/apply-migrations-docker.sh) or `docker compose exec` as in [Running locally](#running-locally).
 - **Logging / traces**: `tracing` + `tracing-subscriber`; level controlled via **`RUST_LOG`**. Optional **OpenTelemetry OTLP** export and **`tower-http`** **`TraceLayer`** for HTTP request spans — **[`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**.
+- **Stripe Power Integration**: PCI-compliant **Card Vaulting** (Customer Hub) and **Unlinked Credits** (POS Terminal). ROS uses Stripe Elements and `SetupIntents` so raw card data never touches the server. Metadata (`last4`, `brand`, `expiry`) is stored locally for staff reference and off-session phone orders. See **[`docs/STRIPE_POWER_INTEGRATION.md`](docs/STRIPE_POWER_INTEGRATION.md)**.
 - **Timezone**: `chrono-tz`; store timezone IANA string stored in `store_settings.receipt_config.timezone` (default `America/New_York`).
 - **Reference-only trees** (`NexoPOS-master`, `odoo-19.0`, `riverside-wedding-manager`) are **ignored / optional** — they are **not** dependencies of Riverside OS. Clone upstream if you need them for research or UX parity work; see root **`.gitignore`**.
 

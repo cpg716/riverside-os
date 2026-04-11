@@ -15,7 +15,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::logic::store_credit;
- 
+
 const HISTORICAL_FALLBACK_SKU: &str = "HIST-CP-FALLBACK";
 const HISTORICAL_FALLBACK_NAME: &str = "Historical Counterpoint Sale (Item Unresolved)";
 
@@ -1252,12 +1252,11 @@ async fn upsert_catalog_item(
         .and_then(|v| vendor_map.get(v.trim()))
         .copied();
 
-    let existing_product: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM products WHERE catalog_handle = $1 LIMIT 1",
-    )
-    .bind(item_no)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let existing_product: Option<Uuid> =
+        sqlx::query_scalar("SELECT id FROM products WHERE catalog_handle = $1 LIMIT 1")
+            .bind(item_no)
+            .fetch_optional(&mut **tx)
+            .await?;
 
     let product_id = if let Some(pid) = existing_product {
         sqlx::query(
@@ -2013,7 +2012,7 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(&codes)
         .fetch_all(pool)
         .await?;
-        
+
         for (code, id) in rows {
             // Priority 1: Exact match
             map.insert(code.clone(), id);
@@ -2128,9 +2127,9 @@ pub async fn execute_counterpoint_ticket_batch(
             .await;
 
             // Reset lines for order insertion (use fallback for all lines if ANY failed in this order
-            // to maintain consistency, or we could selectively fallback. For simplicity, if any fail, 
+            // to maintain consistency, or we could selectively fallback. For simplicity, if any fail,
             // we'll keep the resolved ones and use fallback for the rest).
-            
+
             // Re-run resolution with fallback mode
             resolved_lines.clear();
             for line in &tkt.lines {
@@ -2144,7 +2143,7 @@ pub async fn execute_counterpoint_ticket_batch(
                     }
                 }
                 if resolved.is_none() {
-                     let parent_only = line
+                    let parent_only = line
                         .counterpoint_item_key
                         .as_deref()
                         .or(line.sku.as_deref())
@@ -2159,7 +2158,7 @@ pub async fn execute_counterpoint_ticket_batch(
                         .await?;
                     }
                 }
-                
+
                 resolved_lines.push(resolved.unwrap_or(fallback));
             }
         }
@@ -3759,12 +3758,11 @@ pub async fn resolve_staff_id(pool: &PgPool, cp_code: Option<&str>) -> Option<Uu
 async fn ensure_historical_fallback_variant(
     tx: &mut Transaction<'_, Postgres>,
 ) -> Result<(Uuid, Uuid), sqlx::Error> {
-    let existing: Option<(Uuid, Uuid)> = sqlx::query_as(
-        "SELECT id, product_id FROM product_variants WHERE sku = $1"
-    )
-    .bind(HISTORICAL_FALLBACK_SKU)
-    .fetch_optional(&mut **tx)
-    .await?;
+    let existing: Option<(Uuid, Uuid)> =
+        sqlx::query_as("SELECT id, product_id FROM product_variants WHERE sku = $1")
+            .bind(HISTORICAL_FALLBACK_SKU)
+            .fetch_optional(&mut **tx)
+            .await?;
 
     if let Some(ids) = existing {
         return Ok(ids);

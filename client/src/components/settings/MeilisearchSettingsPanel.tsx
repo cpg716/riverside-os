@@ -60,11 +60,11 @@ export default function MeilisearchSettingsPanel() {
   // Dynamic polling when indexing is active
   useEffect(() => {
     if (!isIndexing) return;
-    
+
     const interval = setInterval(() => {
       void fetchStatus();
     }, 3000); // Poll every 3 seconds while indexing
-    
+
     return () => clearInterval(interval);
   }, [isIndexing, fetchStatus]);
 
@@ -114,8 +114,9 @@ export default function MeilisearchSettingsPanel() {
               Meilisearch
             </h2>
             <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
-              High-performance fuzzy search engine. Riverside uses Meilisearch for inventory, customers, 
-              weddings, and help-center search when configured.
+              High-performance fuzzy search engine. Riverside uses Meilisearch
+              for inventory, customers, weddings, and help-center search when
+              configured.
             </p>
           </div>
         </div>
@@ -132,23 +133,27 @@ export default function MeilisearchSettingsPanel() {
                 Sync Health Dashboard
               </h3>
               <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
-                Riverside pushes updates to Meilisearch via background workers. 
+                Riverside pushes updates to Meilisearch via background workers.
                 Monitor sync status and row counts per index below.
               </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
             <span className="ui-pill bg-app-surface-2 text-app-text-muted text-[9px]">
-              {loading ? "Checking..." : isIndexing ? (
+              {loading ? (
+                "Checking..."
+              ) : isIndexing ? (
                 <span className="flex items-center gap-1.5 text-emerald-500 font-bold">
                   <RefreshCw className="h-2 w-2 animate-spin" />
                   Indexing...
                 </span>
-              ) : meiliConfigured === null
-                ? "Status unknown"
-                : meiliConfigured
-                  ? "Configured on server"
-                  : "Not configured"}
+              ) : meiliConfigured === null ? (
+                "Status unknown"
+              ) : meiliConfigured ? (
+                "Configured on server"
+              ) : (
+                "Not configured"
+              )}
             </span>
             <button
               type="button"
@@ -156,7 +161,10 @@ export default function MeilisearchSettingsPanel() {
               onClick={() => void fetchStatus()}
               className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
             >
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} aria-hidden />
+              <RefreshCw
+                className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`}
+                aria-hidden
+              />
               Refresh
             </button>
           </div>
@@ -167,7 +175,15 @@ export default function MeilisearchSettingsPanel() {
             <p className="font-bold text-amber-800 dark:text-amber-200 uppercase tracking-widest text-[10px] mb-1">
               Server environment required
             </p>
-            Meilisearch reindex stays disabled until <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">RIVERSIDE_MEILISEARCH_URL</code> and <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">RIVERSIDE_MEILISEARCH_KEY</code> are set on the API host.
+            Meilisearch reindex stays disabled until{" "}
+            <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
+              RIVERSIDE_MEILISEARCH_URL
+            </code>{" "}
+            and{" "}
+            <code className="font-mono text-[10px] bg-app-surface-2 px-1 rounded">
+              RIVERSIDE_MEILISEARCH_KEY
+            </code>{" "}
+            are set on the API host.
           </div>
         )}
 
@@ -175,76 +191,132 @@ export default function MeilisearchSettingsPanel() {
           <div className="mb-8 space-y-8">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Index Health</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
+                  Index Health
+                </p>
                 <div className="flex items-center gap-2">
-                  <div className={`h-2 w-2 rounded-full ${isIndexing ? 'bg-emerald-500 animate-pulse' : meiliIndices.every(i => i.is_success) ? 'bg-emerald-500' : 'bg-rose-500'} shadow-[0_0_8px_rgba(16,185,129,0.5)]`} />
+                  <div
+                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-emerald-500 animate-pulse" : meiliIndices.every((i) => i.is_success) ? "bg-emerald-500" : "bg-rose-500"} shadow-[0_0_8px_rgba(16,185,129,0.5)]`}
+                  />
                   <span className="text-sm font-black text-app-text">
-                    {isIndexing ? 'Indexing...' : meiliIndices.every(i => i.is_success) ? 'All Healthy' : 'Action Required'}
+                    {isIndexing
+                      ? "Indexing..."
+                      : meiliIndices.every((i) => i.is_success)
+                        ? "All Healthy"
+                        : "Action Required"}
                   </span>
                 </div>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Total Indexed</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
+                  Total Indexed
+                </p>
                 <span className="text-sm font-black text-app-text flex items-center gap-2">
-                  {meiliIndices.reduce((acc, i) => acc + i.row_count, 0).toLocaleString()} <span className="text-[10px] opacity-60">Rows</span>
-                  {isIndexing && <RefreshCw className="h-3 w-3 animate-spin text-emerald-500/50" />}
+                  {meiliIndices
+                    .reduce((acc, i) => acc + i.row_count, 0)
+                    .toLocaleString()}{" "}
+                  <span className="text-[10px] opacity-60">Rows</span>
+                  {isIndexing && (
+                    <RefreshCw className="h-3 w-3 animate-spin text-emerald-500/50" />
+                  )}
                 </span>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Stale Warning</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
+                  Stale Warning
+                </p>
                 <span className="text-sm font-black text-app-text">
-                  {meiliIndices.filter(i => i.last_success_at && (new Date().getTime() - new Date(i.last_success_at).getTime() > 86400000)).length} <span className="text-[10px] opacity-60">Indices</span>
+                  {
+                    meiliIndices.filter(
+                      (i) =>
+                        i.last_success_at &&
+                        new Date().getTime() -
+                          new Date(i.last_success_at).getTime() >
+                          86400000,
+                    ).length
+                  }{" "}
+                  <span className="text-[10px] opacity-60">Indices</span>
                 </span>
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">Last Contact</p>
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
+                  Last Contact
+                </p>
                 <span className="text-xs font-black text-app-text truncate">
-                  {meiliIndices.length > 0 ? (
-                    meiliIndices.reduce((prev, curr) => (
-                      new Date(curr.last_attempt_at) > new Date(prev.last_attempt_at) ? curr : prev
-                    )).last_attempt_at.split('T')[0]
-                  ) : 'Never'}
+                  {meiliIndices.length > 0
+                    ? meiliIndices
+                        .reduce((prev, curr) =>
+                          new Date(curr.last_attempt_at) >
+                          new Date(prev.last_attempt_at)
+                            ? curr
+                            : prev,
+                        )
+                        .last_attempt_at.split("T")[0]
+                    : "Never"}
                 </span>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-              {([
-                'ros_variants', 'ros_customers', 'ros_wedding_parties', 'ros_orders', 
-                'ros_staff', 'ros_vendors', 'ros_tasks', 'ros_appointments'
-              ]).map(catName => {
-                const idx = meiliIndices.find(i => i.index_name === catName) || {
+              {[
+                "ros_variants",
+                "ros_customers",
+                "ros_wedding_parties",
+                "ros_orders",
+                "ros_staff",
+                "ros_vendors",
+                "ros_tasks",
+                "ros_appointments",
+              ].map((catName) => {
+                const idx = meiliIndices.find(
+                  (i) => i.index_name === catName,
+                ) || {
                   index_name: catName,
                   row_count: 0,
                   is_success: false,
                   last_success_at: null,
-                  error_message: "Index not yet created or tracked."
+                  error_message: "Index not yet created or tracked.",
                 };
-                
-                const isStale = idx.last_success_at && (new Date().getTime() - new Date(idx.last_success_at).getTime() > 86400000);
-                const hasRun = idx.last_success_at !== null || !!(idx as any).last_finished_at;
-                const isLocalIndexing = isIndexing && (!hasRun || idx.is_success);
+
+                const isStale =
+                  idx.last_success_at &&
+                  new Date().getTime() -
+                    new Date(idx.last_success_at).getTime() >
+                    86400000;
+                const hasRun = idx.last_success_at !== null;
+                const isLocalIndexing =
+                  isIndexing && (!hasRun || idx.is_success);
                 if (isLocalIndexing) {
                   console.debug("Meilisearch is currently indexing locally.");
                 }
 
                 // User-friendly display names
-                const displayLabel = ({
-                  'ros_variants': 'Inventory',
-                  'ros_wedding_parties': 'Weddings',
-                  'ros_customers': 'Customers',
-                  'ros_orders': 'Orders',
-                  'ros_staff': 'Staff',
-                  'ros_vendors': 'Vendors',
-                  'ros_tasks': 'Tasks',
-                  'ros_appointments': 'Appointments'
-                } as Record<string, string>)[idx.index_name] || idx.index_name.replace('ros_', '').replace('_', ' ');
+                const displayLabel =
+                  (
+                    {
+                      ros_variants: "Inventory",
+                      ros_wedding_parties: "Weddings",
+                      ros_customers: "Customers",
+                      ros_orders: "Orders",
+                      ros_staff: "Staff",
+                      ros_vendors: "Vendors",
+                      ros_tasks: "Tasks",
+                      ros_appointments: "Appointments",
+                    } as Record<string, string>
+                  )[idx.index_name] ||
+                  idx.index_name.replace("ros_", "").replace("_", " ");
 
                 return (
-                  <div key={idx.index_name} className={`p-4 rounded-xl border ${isIndexing ? 'border-emerald-500/20 bg-emerald-500/5 animate-pulse-subtle' : idx.is_success ? (isStale ? 'border-amber-500/20 bg-amber-500/5' : 'border-emerald-500/20 bg-emerald-500/5') : 'border-rose-500/20 bg-rose-500/5'} transition-all group relative overflow-hidden`}>
+                  <div
+                    key={idx.index_name}
+                    className={`p-4 rounded-xl border ${isIndexing ? "border-emerald-500/20 bg-emerald-500/5 animate-pulse-subtle" : idx.is_success ? (isStale ? "border-amber-500/20 bg-amber-500/5" : "border-emerald-500/20 bg-emerald-500/5") : "border-rose-500/20 bg-rose-500/5"} transition-all group relative overflow-hidden`}
+                  >
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div className="flex flex-col min-w-0">
-                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text truncate" title={idx.index_name}>
+                        <span
+                          className="text-[10px] font-black uppercase tracking-widest text-app-text truncate"
+                          title={idx.index_name}
+                        >
                           {displayLabel}
                         </span>
                         {isIndexing ? (
@@ -252,14 +324,22 @@ export default function MeilisearchSettingsPanel() {
                             <RefreshCw className="h-2 w-2 animate-spin" />
                             Indexing...
                           </span>
-                        ) : !hasRun && (
-                          <span className="text-[8px] font-black text-rose-500 uppercase tracking-tighter">Sync Required</span>
+                        ) : (
+                          !hasRun && (
+                            <span className="text-[8px] font-black text-rose-500 uppercase tracking-tighter">
+                              Sync Required
+                            </span>
+                          )
                         )}
                       </div>
                       {isIndexing ? (
                         <RefreshCw className="h-4 w-4 text-emerald-500 animate-spin opacity-50" />
                       ) : idx.is_success ? (
-                        isStale ? <History className="h-4 w-4 text-amber-500 animate-pulse" /> : <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        isStale ? (
+                          <History className="h-4 w-4 text-amber-500 animate-pulse" />
+                        ) : (
+                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                        )
                       ) : (
                         <div className="h-4 w-4 flex items-center justify-center rounded-full bg-rose-500/10">
                           <Info className="h-3 w-3 text-rose-500" />
@@ -268,12 +348,27 @@ export default function MeilisearchSettingsPanel() {
                     </div>
                     <div className="flex flex-col gap-1.5 mt-3">
                       <div className="flex justify-between items-center text-[11px]">
-                        <span className="text-app-text-muted font-bold">Rows</span>
-                        <span className="text-app-text font-black">{idx.row_count.toLocaleString()}</span>
+                        <span className="text-app-text-muted font-bold">
+                          Rows
+                        </span>
+                        <span className="text-app-text font-black">
+                          {idx.row_count.toLocaleString()}
+                        </span>
                       </div>
                       <div className="flex justify-between items-center text-[9px]">
-                        <span className="text-app-text-muted font-bold">Last Sync</span>
-                        <span className="text-app-text font-black opacity-80">{idx.last_success_at ? new Date(idx.last_success_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : isIndexing ? 'Pending...' : 'Never'}</span>
+                        <span className="text-app-text-muted font-bold">
+                          Last Sync
+                        </span>
+                        <span className="text-app-text font-black opacity-80">
+                          {idx.last_success_at
+                            ? new Date(idx.last_success_at).toLocaleTimeString(
+                                [],
+                                { hour: "2-digit", minute: "2-digit" },
+                              )
+                            : isIndexing
+                              ? "Pending..."
+                              : "Never"}
+                        </span>
                       </div>
                       {!isIndexing && !idx.is_success && idx.error_message && (
                         <div className="mt-2 text-[8px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 p-2 rounded-lg border border-rose-500/10 break-words leading-tight">
@@ -299,17 +394,24 @@ export default function MeilisearchSettingsPanel() {
               Full index rebuild
             </h4>
             <p className="text-[10px] text-app-text-muted leading-relaxed">
-              If search results feel stale or Meilisearch was recently wiped, run a full rebuild. 
-              This will re-push all records from SQL to Meilisearch. Large catalogs may take minutes.
+              If search results feel stale or Meilisearch was recently wiped,
+              run a full rebuild. This will re-push all records from SQL to
+              Meilisearch. Large catalogs may take minutes.
             </p>
           </div>
           <button
             type="button"
-            disabled={meiliReindexBusy || isIndexing || meiliConfigured !== true}
+            disabled={
+              meiliReindexBusy || isIndexing || meiliConfigured !== true
+            }
             onClick={() => setMeiliReindexConfirmOpen(true)}
             className="ui-btn-primary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest bg-emerald-600 border-emerald-700 shadow-emerald-900/10 hover:bg-emerald-700 disabled:bg-app-surface-2 disabled:text-app-text-muted disabled:border-app-border"
           >
-            {isIndexing ? "Indexing..." : meiliReindexBusy ? "Starting..." : "Rebuild all indices"}
+            {isIndexing
+              ? "Indexing..."
+              : meiliReindexBusy
+                ? "Starting..."
+                : "Rebuild all indices"}
           </button>
         </div>
       </section>

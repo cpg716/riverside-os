@@ -11,15 +11,21 @@ pub async fn recalc_order_totals(
     tx: &mut Transaction<'_, Postgres>,
     order_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    let (total, amount_paid, status): (Option<Decimal>, Decimal, DbOrderStatus) = sqlx::query_as(
+    let (total, amount_paid, status, _ship): (
+        Option<Decimal>,
+        Decimal,
+        DbOrderStatus,
+        Option<Decimal>,
+    ) = sqlx::query_as(
         r#"
         SELECT
             COALESCE(SUM(
                 (oi.unit_price + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0))::numeric
                 * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
-            ), 0::numeric) AS total,
+            ), 0::numeric) + COALESCE(o.shipping_amount_usd, 0)::numeric AS total,
             o.amount_paid,
-            o.status
+            o.status,
+            o.shipping_amount_usd
         FROM orders o
         LEFT JOIN order_items oi ON oi.order_id = o.id
         LEFT JOIN (
@@ -28,7 +34,7 @@ pub async fn recalc_order_totals(
             GROUP BY order_item_id
         ) orl ON orl.order_item_id = oi.id
         WHERE o.id = $1
-        GROUP BY o.amount_paid, o.status
+        GROUP BY o.amount_paid, o.status, o.shipping_amount_usd
         "#,
     )
     .bind(order_id)

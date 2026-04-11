@@ -14,23 +14,29 @@ export type ReaderStatus = "connecting" | "idle" | "insert_card" | "processing" 
 /** POS mock terminal — display only; tender amount is integer cents (same path as Nexo / Stripe intent). */
 interface StripeReaderSimulationProps {
   amountCents: number;
-  onSuccess: () => void;
+  moto?: boolean;
+  onSuccess: (metadata?: { brand?: string; last4?: string }) => void;
   onCancel: () => void;
 }
 
 export default function StripeReaderSimulation({
   amountCents,
+  moto,
   onSuccess,
   onCancel
 }: StripeReaderSimulationProps) {
-  const [status, setStatus] = useState<ReaderStatus>("connecting");
+  const [status, setStatus] = useState<ReaderStatus>(moto ? "insert_card" : "connecting");
   const [dots, setDots] = useState("");
 
   // Simulated Connection Handshake
   useEffect(() => {
+    if (moto) {
+        setStatus("insert_card");
+        return;
+    }
     const timer = setTimeout(() => setStatus("insert_card"), 2000);
     return () => clearTimeout(timer);
-  }, []);
+  }, [moto]);
 
   // Pulsing Dots for "Connecting" or "Processing"
   useEffect(() => {
@@ -42,12 +48,18 @@ export default function StripeReaderSimulation({
     }
   }, [status]);
 
+  const [cardNumber, setCardNumber] = useState("");
+  const [cardExpiry, setCardExpiry] = useState("");
+  const [cardCvc, setCardCvc] = useState("");
+
   const simulatePayment = () => {
     setStatus("processing");
     setTimeout(() => {
       setStatus("success");
       setTimeout(() => {
-        onSuccess();
+        const last4 = cardNumber.slice(-4) || "4242";
+        const brand = cardNumber.startsWith("4") ? "visa" : "mastercard";
+        onSuccess({ brand, last4 });
       }, 1500);
     }, 2500);
   };
@@ -90,13 +102,44 @@ export default function StripeReaderSimulation({
 
           {status === "insert_card" && (
             <>
-              <div className="h-16 w-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 animate-pulse">
-                 <CreditCard size={32} />
-              </div>
-              <div>
-                <p className="text-2xl font-black text-white italic tracking-tighter">${centsToFixed2(amountCents)}</p>
-                <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Insert / Tap Card</p>
-              </div>
+              {moto ? (
+                <div className="w-full space-y-3">
+                    <p className="text-xl font-black text-emerald-400 italic tracking-tighter mb-2">TEL MOTO ORDER</p>
+                    <div className="space-y-2">
+                        <input 
+                            placeholder="CARD NUMBER" 
+                            value={cardNumber} 
+                            autoFocus
+                            onChange={e => setCardNumber(e.target.value.replace(/\D/g, '').slice(0, 16))}
+                            className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-white font-mono text-xs placeholder:text-white/20 focus:border-blue-500 outline-none" 
+                        />
+                        <div className="grid grid-cols-2 gap-2">
+                            <input 
+                                placeholder="MM/YY" 
+                                value={cardExpiry}
+                                onChange={e => setCardExpiry(e.target.value.slice(0, 5))}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-white font-mono text-xs placeholder:text-white/20 focus:border-blue-500 outline-none" 
+                            />
+                            <input 
+                                placeholder="CVC" 
+                                value={cardCvc}
+                                onChange={e => setCardCvc(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                                className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-white font-mono text-xs placeholder:text-white/20 focus:border-blue-500 outline-none" 
+                            />
+                        </div>
+                    </div>
+                </div>
+              ) : (
+                <>
+                <div className="h-16 w-16 rounded-full bg-blue-500/10 flex items-center justify-center text-blue-500 animate-pulse">
+                    <CreditCard size={32} />
+                </div>
+                <div>
+                    <p className="text-2xl font-black text-white italic tracking-tighter">${centsToFixed2(amountCents)}</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Insert / Tap Card</p>
+                </div>
+                </>
+              )}
             </>
           )}
 
@@ -130,20 +173,33 @@ export default function StripeReaderSimulation({
       {/* Manual Hardware Triggers (Mocking physical actions) */}
       {status === "insert_card" && (
         <div className="mt-8 grid grid-cols-2 gap-3 w-full">
-          <button 
-            onClick={simulatePayment}
-            className="group flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 transition-all hover:bg-white/10 active:scale-95 text-white"
-          >
-            <Smartphone size={20} className="transition-colors group-hover:text-blue-400" />
-            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Simulate Tap</span>
-          </button>
-          <button 
-            onClick={simulatePayment}
-            className="group flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 transition-all hover:bg-white/10 active:scale-95 text-white"
-          >
-            <CreditCard size={20} className="transition-colors group-hover:text-blue-400" />
-            <span className="text-[10px] font-black uppercase tracking-widest leading-none">Simulate Dip</span>
-          </button>
+          {!moto ? (
+            <>
+            <button 
+                onClick={simulatePayment}
+                className="group flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 transition-all hover:bg-white/10 active:scale-95 text-white"
+            >
+                <Smartphone size={20} className="transition-colors group-hover:text-blue-400" />
+                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Simulate Tap</span>
+            </button>
+            <button 
+                onClick={simulatePayment}
+                className="group flex h-20 flex-col items-center justify-center gap-2 rounded-2xl border border-white/10 bg-black/40 transition-all hover:bg-white/10 active:scale-95 text-white"
+            >
+                <CreditCard size={20} className="transition-colors group-hover:text-blue-400" />
+                <span className="text-[10px] font-black uppercase tracking-widest leading-none">Simulate Dip</span>
+            </button>
+            </>
+          ) : (
+            <button 
+                onClick={simulatePayment}
+                disabled={cardNumber.length < 15}
+                className="col-span-2 h-14 rounded-2xl bg-blue-600 text-white font-black uppercase tracking-widest text-xs hover:bg-blue-500 disabled:opacity-30 transition-all flex items-center justify-center gap-2"
+            >
+                Process Charge — ${centsToFixed2(amountCents)}
+                <CheckCircle2 size={16} />
+            </button>
+          )}
         </div>
       )}
 

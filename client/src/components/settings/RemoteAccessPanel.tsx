@@ -1,14 +1,15 @@
-import { useState, useEffect } from "react";
-import { 
-  WifiOff, 
-  ExternalLink, 
-  ShieldCheck, 
-  RefreshCcw, 
+import { useState, useEffect, useCallback } from "react";
+import {
+  WifiOff,
+  ExternalLink,
+  ShieldCheck,
+  RefreshCcw,
   Terminal,
   Server,
-  Key
+  Key,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
+import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 interface TailscaleNode {
   ID: string;
@@ -28,31 +29,32 @@ export default function RemoteAccessPanel() {
   const [loading, setLoading] = useState(true);
   const [authKey, setAuthKey] = useState("");
   const [connecting, setConnecting] = useState(false);
+  const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-  const fetchStatus = async () => {
+  const fetchStatus = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/settings/remote-access/status`, {
-        headers: {
-          "x-riverside-staff-code": "SYSTEM", // Placeholder or from context
-          "x-riverside-staff-pin": "SYSTEM",
-        }
+        headers: backofficeHeaders() as Record<string, string>,
       });
       if (!res.ok) throw new Error("Failed to fetch Tailscale status");
-      const data = await res.json();
+      const data = (await res.json()) as TailscaleStatus;
       setStatus(data);
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      toast("Connection Error: Could not reach Tailscale service. Is the binary configured?", "error");
+      toast(
+        "Connection Error: Could not reach Tailscale service. Is the binary configured?",
+        "error",
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [baseUrl, backofficeHeaders, toast]);
 
   useEffect(() => {
-    fetchStatus();
-  }, []);
+    void fetchStatus();
+  }, [fetchStatus]);
 
   const handleConnect = async () => {
     if (!authKey.trim()) return;
@@ -60,22 +62,22 @@ export default function RemoteAccessPanel() {
     try {
       const res = await fetch(`${baseUrl}/api/settings/remote-access/connect`, {
         method: "POST",
-        headers: { 
+        headers: {
           "Content-Type": "application/json",
-          "x-riverside-staff-code": "SYSTEM",
-          "x-riverside-staff-pin": "SYSTEM",
+          ...(backofficeHeaders() as Record<string, string>),
         },
         body: JSON.stringify({ auth_key: authKey }),
       });
       if (!res.ok) {
-        const d = await res.json();
+        const d = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(d.error || "Failed to connect");
       }
       toast("Success: Tailscale connection initiated.", "success");
       setAuthKey("");
-      fetchStatus();
-    } catch (err: any) {
-      toast(`Error: ${(err as any).message || "Connect failed"}`, "error");
+      await fetchStatus();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Connect failed";
+      toast(`Error: ${msg}`, "error");
     } finally {
       setConnecting(false);
     }
@@ -83,25 +85,28 @@ export default function RemoteAccessPanel() {
 
   const handleDisconnect = async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/settings/remote-access/disconnect`, {
-        method: "POST",
-        headers: {
-          "x-riverside-staff-code": "SYSTEM",
-          "x-riverside-staff-pin": "SYSTEM",
-        }
-      });
+      const res = await fetch(
+        `${baseUrl}/api/settings/remote-access/disconnect`,
+        {
+          method: "POST",
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
       if (!res.ok) throw new Error("Failed to disconnect");
       toast("Disconnected: Tailscale session closed.", "info");
-      fetchStatus();
-    } catch (err: any) {
-      toast(`Error: ${(err as any).message || "Disconnect failed"}`, "error");
+      await fetchStatus();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Disconnect failed";
+      toast(`Error: ${msg}`, "error");
     }
   };
 
   const isConnected = status?.BackendState === "Running";
-  
+
   // Basic heuristic: if we are accessing via a 100.x.x.x IP, we are remote.
-  const isRemoteSession = typeof window !== "undefined" && window.location.hostname.startsWith("100.");
+  const isRemoteSession =
+    typeof window !== "undefined" &&
+    window.location.hostname.startsWith("100.");
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -111,8 +116,13 @@ export default function RemoteAccessPanel() {
             <ExternalLink className="w-5 h-5" />
           </div>
           <div className="flex-1">
-            <p className="text-xs font-black uppercase tracking-widest text-amber-500">Remote Session Active</p>
-            <p className="text-[11px] font-medium text-app-text-muted">You are accessing ROS via Tailscale. Be extremely careful when managing connectivity.</p>
+            <p className="text-xs font-black uppercase tracking-widest text-amber-500">
+              Remote Session Active
+            </p>
+            <p className="text-[11px] font-medium text-app-text-muted">
+              You are accessing ROS via Tailscale. Be extremely careful when
+              managing connectivity.
+            </p>
           </div>
         </div>
       )}
@@ -123,16 +133,20 @@ export default function RemoteAccessPanel() {
             <Server className="w-8 h-8" />
           </div>
           <div>
-            <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Network Bridge</h2>
-            <p className="text-sm font-medium text-app-text-muted">Managed Remote Access & Tailscale Connectivity</p>
+            <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
+              Network Bridge
+            </h2>
+            <p className="text-sm font-medium text-app-text-muted">
+              Managed Remote Access & Tailscale Connectivity
+            </p>
           </div>
         </div>
-        <button 
+        <button
           onClick={fetchStatus}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 bg-app-bg-accent rounded-xl text-xs font-black uppercase tracking-widest text-app-text-muted hover:text-app-text transition-all"
         >
-          <RefreshCcw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           Check Status
         </button>
       </div>
@@ -140,13 +154,21 @@ export default function RemoteAccessPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
         {/* Status Dashboard */}
         <div className="lg:col-span-7 space-y-6">
-          <div className={`p-8 rounded-3xl border-2 transition-all shadow-2xl ${
-            isConnected ? 'bg-emerald-500/5 border-emerald-500/20' : 'bg-app-bg-accent border-app-border shadow-none'
-          }`}>
+          <div
+            className={`p-8 rounded-3xl border-2 transition-all shadow-2xl ${
+              isConnected
+                ? "bg-emerald-500/5 border-emerald-500/20"
+                : "bg-app-bg-accent border-app-border shadow-none"
+            }`}
+          >
             <div className="flex items-center justify-between mb-8">
-              <span className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] ${
-                isConnected ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/40' : 'bg-app-text-muted/20 text-app-text-muted'
-              }`}>
+              <span
+                className={`px-4 py-1 rounded-full text-[10px] font-black uppercase tracking-[0.2em] ${
+                  isConnected
+                    ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/40"
+                    : "bg-app-text-muted/20 text-app-text-muted"
+                }`}
+              >
                 {status?.BackendState || "System Offline"}
               </span>
               {isConnected && status?.Self && (
@@ -161,16 +183,24 @@ export default function RemoteAccessPanel() {
               <div className="space-y-8">
                 <div className="grid grid-cols-2 gap-8">
                   <div className="space-y-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Store Node Name</span>
-                    <div className="text-2xl font-black italic tracking-tight text-app-text">{status.Self.HostName}</div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                      Store Node Name
+                    </span>
+                    <div className="text-2xl font-black italic tracking-tight text-app-text">
+                      {status.Self.HostName}
+                    </div>
                   </div>
                   <div className="space-y-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Private Tailscale IP</span>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                      Private Tailscale IP
+                    </span>
                     <div className="text-2xl font-black tabular-nums tracking-tighter text-app-text group relative">
                       {status.Self.TailscaleIPs[0]}
-                      <button 
+                      <button
                         onClick={() => {
-                          navigator.clipboard.writeText(status.Self!.TailscaleIPs[0]);
+                          navigator.clipboard.writeText(
+                            status.Self!.TailscaleIPs[0],
+                          );
                           toast("Copied: IP copied to clipboard.", "success");
                         }}
                         className="ml-2 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -184,12 +214,18 @@ export default function RemoteAccessPanel() {
                 <div className="pt-6 border-t border-app-border/40 flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <ShieldCheck className="w-5 h-5 text-emerald-500" />
-                    <span className="text-xs font-bold text-app-text">Connection is encrypted and private.</span>
+                    <span className="text-xs font-bold text-app-text">
+                      Connection is encrypted and private.
+                    </span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => {
                       if (isRemoteSession) {
-                        if (confirm("CRITICAL WARNING: You are connected remotely. Disconnecting Tailscale will terminate your access IMMEDIATELY and you will be locked out until you are physically at the shop. Proceed?")) {
+                        if (
+                          confirm(
+                            "CRITICAL WARNING: You are connected remotely. Disconnecting Tailscale will terminate your access IMMEDIATELY and you will be locked out until you are physically at the shop. Proceed?",
+                          )
+                        ) {
                           handleDisconnect();
                         }
                       } else {
@@ -206,9 +242,12 @@ export default function RemoteAccessPanel() {
               <div className="py-12 flex flex-col items-center justify-center text-center space-y-4">
                 <WifiOff className="w-16 h-16 text-app-text-muted/20" />
                 <div>
-                  <h3 className="text-lg font-black uppercase italic tracking-tighter text-app-text">Not Connected</h3>
+                  <h3 className="text-lg font-black uppercase italic tracking-tighter text-app-text">
+                    Not Connected
+                  </h3>
                   <p className="text-sm font-medium text-app-text-muted max-w-xs mx-auto">
-                    This machine is currently invisible to remote devices. Connect below to enable off-site access.
+                    This machine is currently invisible to remote devices.
+                    Connect below to enable off-site access.
                   </p>
                 </div>
               </div>
@@ -219,21 +258,24 @@ export default function RemoteAccessPanel() {
             <div className="ui-card p-8 space-y-6">
               <div className="flex items-center gap-3">
                 <Key className="w-6 h-6 text-app-primary" />
-                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">One-Click Link</h3>
+                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                  One-Click Link
+                </h3>
               </div>
               <div className="space-y-4">
                 <p className="text-xs font-medium text-app-text-muted leading-relaxed">
-                  Generate a "Join Key" from your Tailscale dashboard to securely link this host.
+                  Generate a "Join Key" from your Tailscale dashboard to
+                  securely link this host.
                 </p>
                 <div className="flex gap-3">
-                  <input 
+                  <input
                     type="password"
                     placeholder="tskey-auth-xxxxxx..."
                     value={authKey}
                     onChange={(e) => setAuthKey(e.target.value)}
                     className="flex-1 bg-app-bg border-2 border-app-border rounded-2xl px-6 py-3 text-app-text font-mono text-sm focus:border-app-primary outline-none transition-all"
                   />
-                  <button 
+                  <button
                     onClick={handleConnect}
                     disabled={connecting || !authKey}
                     className="h-12 px-8 bg-app-primary text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:brightness-110 disabled:opacity-50 transition-all shadow-lg shadow-app-primary/20"
@@ -242,13 +284,14 @@ export default function RemoteAccessPanel() {
                   </button>
                 </div>
                 <div className="pt-2">
-                  <a 
-                    href="https://login.tailscale.com/admin/settings/keys" 
-                    target="_blank" 
+                  <a
+                    href="https://login.tailscale.com/admin/settings/keys"
+                    target="_blank"
                     rel="noreferrer"
                     className="text-[10px] font-bold uppercase tracking-widest text-app-primary hover:underline inline-flex items-center gap-2"
                   >
-                    Go to Tailscale Key Center <ExternalLink className="w-3 h-3" />
+                    Go to Tailscale Key Center{" "}
+                    <ExternalLink className="w-3 h-3" />
                   </a>
                 </div>
               </div>
@@ -259,41 +302,49 @@ export default function RemoteAccessPanel() {
         {/* User Manual / Guide Sidebar */}
         <div className="lg:col-span-5 space-y-6">
           <div className="bg-app-accent/5 border border-app-accent/20 rounded-3xl p-8 space-y-6">
-            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-app-accent">Setup Manual</h3>
-            
+            <h3 className="text-xs font-black uppercase tracking-[0.2em] text-app-accent">
+              Setup Manual
+            </h3>
+
             <ol className="space-y-6">
               {[
-                { 
-                  step: "01", 
-                  title: "Deploy Host", 
-                  desc: "Running ROS on this machine (Host) is the first step. This app will act as your store's digital brain." 
+                {
+                  step: "01",
+                  title: "Deploy Host",
+                  desc: "Running ROS on this machine (Host) is the first step. This app will act as your store's digital brain.",
                 },
-                { 
-                  step: "02", 
-                  title: "Obtain Join Key", 
-                  desc: "Visit Tailscale Admin and create an 'Auth Key'. Copy it to the clipboard." 
+                {
+                  step: "02",
+                  title: "Obtain Join Key",
+                  desc: "Visit Tailscale Admin and create an 'Auth Key'. Copy it to the clipboard.",
                 },
-                { 
-                  step: "03", 
-                  title: "Link and Bridge", 
-                  desc: "Paste the key into 'One-Click Link' on the left. Your machine is now part of your private cloud." 
+                {
+                  step: "03",
+                  title: "Link and Bridge",
+                  desc: "Paste the key into 'One-Click Link' on the left. Your machine is now part of your private cloud.",
                 },
-                { 
-                  step: "04", 
-                  title: "Remote Apps", 
-                  desc: "Install Tailscale on your iPhone or Home Laptop. Log in with the same account." 
+                {
+                  step: "04",
+                  title: "Remote Apps",
+                  desc: "Install Tailscale on your iPhone or Home Laptop. Log in with the same account.",
                 },
-                { 
-                  step: "05", 
-                  title: "Secure Access", 
-                  desc: "Open your browser to the Private IP shown here. You are now inside ROS from anywhere." 
-                }
+                {
+                  step: "05",
+                  title: "Secure Access",
+                  desc: "Open your browser to the Private IP shown here. You are now inside ROS from anywhere.",
+                },
               ].map((item) => (
                 <li key={item.step} className="flex gap-4">
-                  <span className="text-xs font-black text-app-accent opacity-40">{item.step}</span>
+                  <span className="text-xs font-black text-app-accent opacity-40">
+                    {item.step}
+                  </span>
                   <div>
-                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text mb-1">{item.title}</h4>
-                    <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">{item.desc}</p>
+                    <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text mb-1">
+                      {item.title}
+                    </h4>
+                    <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">
+                      {item.desc}
+                    </p>
                   </div>
                 </li>
               ))}
@@ -304,9 +355,12 @@ export default function RemoteAccessPanel() {
             <div className="flex items-start gap-3">
               <ShieldCheck className="w-5 h-5 text-app-text-muted mt-0.5" />
               <div className="space-y-1">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text">Zero-Trust Environment</h4>
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                  Zero-Trust Environment
+                </h4>
                 <p className="text-[11px] font-medium text-app-text-muted leading-relaxed">
-                  Riverside never opens ports to the public web. All traffic is tunneled through your private Tailscale mesh.
+                  Riverside never opens ports to the public web. All traffic is
+                  tunneled through your private Tailscale mesh.
                 </p>
               </div>
             </div>

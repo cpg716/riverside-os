@@ -138,7 +138,22 @@ npm run generate:help:components:rescan
 
 Same **`--include-shadcn`** / **`--dry-run`** flags as above (pass after `--` from repo root).
 
-After the first bulk run or a rescan that creates/updates files, commit changed markdown plus regenerated **`help-manifest.generated.ts`** and **`help_corpus_manuals.generated.rs`** (the script always runs the full generator at the end).
+### Orphan Cleanup & Safety Net
+
+To automatically remove orphaned manuals (those with the `auto-scaffold` tag that no longer map to a component), use the cleanup script:
+
+```bash
+npm run generate:help:components:cleanup
+# preview: npm run generate:help:components:cleanup -- --dry-run
+```
+
+**How it works:**
+1. **Trash System:** Instead of permanent deletion, orphans are moved to `client/src/assets/docs/.trash/` and appended with a timestamp (e.g., `.2026-04-11-15-06.bak`).
+2. **Safety:** Only files with the `auto-scaffold` tag are eligible for automatic trashing. Your manually curated guides stay safe.
+3. **Restoration:** To restore a trashed manual, move it from `.trash/` back to the parent directory and remove the `.bak` suffix.
+4. **Maintenance:** Stale backups in `.trash/` are automatically purged after **60 days** to prevent storage bloat.
+
+After the first bulk run or a rescan/cleanup that creates/updates/trashes files, commit changed markdown plus regenerated **`help-manifest.generated.ts`** and **`help_corpus_manuals.generated.rs`**.
 
 ---
 
@@ -176,7 +191,8 @@ All paths below are from the **repository root** unless noted.
 | Scaffold one manual (example) | `cd client && node scripts/generate-help-manifest.mjs --scaffold <id> --title "Title"` |
 | Stub every `components/**/*.tsx` | `npm run generate:help:components` |
 | Resync auto-scaffold manuals | `npm run generate:help:components:rescan` |
-| Pass flags through npm (dry-run, shadcn) | `npm run generate:help:components -- --dry-run` — same pattern for `:rescan` and `--include-shadcn` |
+| Purge orphaned stubs to trash | `npm run generate:help:components:cleanup` |
+| Pass flags through npm (dry-run, shadcn) | `npm run generate:help:components -- --dry-run` — same pattern for `:rescan`, `:cleanup` and `--include-shadcn` |
 | Full app dev (API + Vite) | `npm run dev` (Postgres should be up: `npm run docker:db` or `docker compose up -d db`) |
 | Apply DB migrations (includes **`help_manual_policy`** / **`help.manage`** when migration **79** is present) | `./scripts/apply-migrations-docker.sh` |
 | Meilisearch full reindex (optional; includes `ros_help`) | `./scripts/ros-meilisearch-reindex-local.sh` or **Settings → Integrations → Rebuild** |

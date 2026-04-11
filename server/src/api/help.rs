@@ -1,15 +1,17 @@
 //! In-app help: Meilisearch search (`ros_help`), bundled manuals with DB policy overrides, admin editor.
 
 use std::collections::HashSet;
+use std::path::{Path as FsPath, PathBuf};
 
 use axum::{
     extract::{Path, Query, State},
     http::HeaderMap,
     response::{IntoResponse, Response},
-    routing::get,
+    routing::{get, post},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tokio::process::Command;
 
 use crate::api::AppState;
 use crate::auth::permissions::{effective_permissions_for_staff, ALL_PERMISSION_KEYS, HELP_MANAGE};
@@ -28,6 +30,38 @@ pub struct HelpSearchQuery {
     pub q: String,
     #[serde(default = "default_limit")]
     pub limit: usize,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct GenerateManifestBody {
+    dry_run: bool,
+    include_shadcn: bool,
+    rescan_components: bool,
+    cleanup_orphans: bool,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct ReindexSearchBody {
+    full_reindex_fallback: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminOpsStatusOut {
+    meilisearch_configured: bool,
+    meilisearch_indexing: bool,
+    node_available: bool,
+    script_exists: bool,
+    help_docs_dir_exists: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct AdminOpsRunOut {
+    ok: bool,
+    exit_code: Option<i32>,
+    stdout: String,
+    stderr: String,
 }
 
 fn default_limit() -> usize {
@@ -66,6 +100,38 @@ fn map_hit(h: HelpSearchHit) -> HelpSearchHitOut {
         section_heading: h.section_heading,
         excerpt,
     }
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(FsPath::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn help_manifest_script_path() -> PathBuf {
+    repo_root()
+        .join("client")
+        .join("scripts")
+        .join("generate-help-manifest.mjs")
+}
+
+async fn run_command_capture(mut cmd: Command) -> Result<AdminOpsRunOut, Response> {
+    let out = cmd.output().await.map_err(|e| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({
+                "error": format!("failed to start command: {e}")
+            })),
+        )
+            .into_response()
+    })?;
+    Ok(AdminOpsRunOut {
+        ok: out.status.success(),
+        exit_code: out.status.code(),
+        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+    })
 }
 
 struct HelpViewer {
@@ -134,6 +200,12 @@ pub fn router() -> Router<AppState> {
                 .put(admin_put_manual)
                 .delete(admin_delete_manual),
         )
+        .route("/admin/ops/status", get(admin_ops_status))
+        .route(
+            "/admin/ops/generate-manifest",
+            post(admin_ops_generate_manifest),
+        )
+        .route("/admin/ops/reindex-search", post(admin_ops_reindex_search))
 }
 
 async fn search_help(
@@ -395,4 +467,168 @@ async fn admin_delete_manual(
         })?;
 
     Ok(Json(serde_json::json!({ "deleted": deleted })))
+}
+
+async fn admin_ops_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<AdminOpsStatusOut>, Response> {
+    let _staff = middleware::require_staff_with_permission(&state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let mut node_cmd = Command::new("node");
+    node_cmd.arg("--version");
+    let node_available = match node_cmd.output().await {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    };
+
+    let meilisearch_indexing = if let Some(client) = &state.meilisearch {
+        crate::logic::meilisearch_client::is_indexing(client).await
+    } else {
+        false
+    };
+
+    let script_path = help_manifest_script_path();
+    let docs_dir = repo_root()
+        .join("client")
+        .join("src")
+        .join("assets")
+        .join("docs");
+
+    Ok(Json(AdminOpsStatusOut {
+        meilisearch_configured: state.meilisearch.is_some(),
+        meilisearch_indexing,
+        node_available,
+        script_exists: script_path.exists(),
+        help_docs_dir_exists: docs_dir.exists(),
+    }))
+}
+
+async fn admin_ops_generate_manifest(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<GenerateManifestBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _staff = middleware::require_staff_with_permission(&state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    if body.cleanup_orphans && !body.rescan_components {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "error": "cleanup_orphans requires rescan_components=true"
+            })),
+        )
+            .into_response());
+    }
+
+    let script = help_manifest_script_path();
+    if !script.exists() {
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("manifest script not found: {}", script.display())
+            })),
+        )
+            .into_response());
+    }
+
+    let mut cmd = Command::new("node");
+    cmd.arg(script.as_os_str());
+
+    if body.rescan_components {
+        cmd.arg("--rescan-components");
+    } else {
+        cmd.arg("--scaffold-components");
+    }
+
+    if body.cleanup_orphans {
+        cmd.arg("--delete-orphans");
+    }
+    if body.dry_run {
+        cmd.arg("--dry-run");
+    }
+    if body.include_shadcn {
+        cmd.arg("--include-shadcn");
+    }
+
+    cmd.current_dir(repo_root());
+
+    let out = run_command_capture(cmd).await?;
+    Ok(Json(serde_json::json!({
+        "status": if out.ok { "ok" } else { "error" },
+        "result": out
+    })))
+}
+
+async fn admin_ops_reindex_search(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<ReindexSearchBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _staff = middleware::require_staff_with_permission(&state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let Some(client) = state.meilisearch.as_ref() else {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "Meilisearch is not configured" })),
+        )
+            .into_response());
+    };
+
+    match crate::logic::help_corpus::reindex_help_meilisearch(client).await {
+        Ok(()) => {
+            crate::logic::meilisearch_sync::record_sync_status(
+                &state.db,
+                crate::logic::meilisearch_client::INDEX_HELP,
+                true,
+                0,
+                None,
+            )
+            .await;
+            Ok(Json(
+                serde_json::json!({ "status": "ok", "mode": "help_only" }),
+            ))
+        }
+        Err(help_err) => {
+            crate::logic::meilisearch_sync::record_sync_status(
+                &state.db,
+                crate::logic::meilisearch_client::INDEX_HELP,
+                false,
+                0,
+                Some(&help_err.to_string()),
+            )
+            .await;
+
+            if body.full_reindex_fallback {
+                crate::logic::meilisearch_sync::reindex_all_meilisearch(client, &state.db)
+                    .await
+                    .map_err(|e| {
+                        (
+                            axum::http::StatusCode::BAD_GATEWAY,
+                            Json(serde_json::json!({
+                                "error": format!("full fallback reindex failed: {e}")
+                            })),
+                        )
+                            .into_response()
+                    })?;
+                Ok(Json(
+                    serde_json::json!({ "status": "ok", "mode": "full_fallback" }),
+                ))
+            } else {
+                Err((
+                    axum::http::StatusCode::BAD_GATEWAY,
+                    Json(serde_json::json!({
+                        "error": format!("help reindex failed: {help_err}")
+                    })),
+                )
+                    .into_response())
+            }
+        }
+    }
 }

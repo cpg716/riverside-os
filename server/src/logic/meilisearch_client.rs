@@ -251,9 +251,10 @@ pub async fn is_indexing(client: &Client) -> bool {
     // Get the most recent tasks from the client.
     // By default, it returns the last few tasks which is enough to detect active indexing.
     match client.get_tasks().await {
-        Ok(tasks) => tasks.results.iter().any(|t| {
-            matches!(t, Task::Enqueued { .. } | Task::Processing { .. })
-        }),
+        Ok(tasks) => tasks
+            .results
+            .iter()
+            .any(|t| matches!(t, Task::Enqueued { .. } | Task::Processing { .. })),
         Err(e) => {
             tracing::error!(error = %e, "Failed to check Meilisearch indexing status");
             false

@@ -25,6 +25,15 @@ fn money_label(d: Decimal) -> String {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ActivityItemDetail {
+    pub name: String,
+    pub sku: String,
+    pub quantity: i32,
+    pub price: String,
+    pub product_id: Uuid,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RegisterActivityItem {
     pub id: String,
     pub kind: String,
@@ -40,6 +49,24 @@ pub struct RegisterActivityItem {
     pub amount_label: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub payment_summary: Option<String>,
+
+    // High-density UI fields
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sales_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tax_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_takeaway: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub channel: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wedding_party_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<ActivityItemDetail>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stripe_fees_total: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub net_amount: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -60,12 +87,17 @@ pub struct RegisterDaySummary {
     pub reporting_basis: String,
     pub sales_count: i64,
     pub sales_subtotal_no_tax: String,
+    pub sales_tax_total: String,
     pub avg_sale_no_tax: String,
     pub online_order_count: i64,
     pub pickup_count: i64,
     pub special_order_sale_count: i64,
     pub appointment_count: i64,
     pub new_wedding_parties_count: i64,
+    /// Sum of all `merchant_fee` in `payment_transactions` for the range/session.
+    pub stripe_fees_total: String,
+    /// subtotal + tax - fees (or similar net definition).
+    pub net_sales: String,
     pub activities: Vec<RegisterActivityItem>,
 }
 
@@ -337,10 +369,14 @@ pub async fn fetch_register_day_summary(
         SELECT
             COUNT(DISTINCT o.id)::bigint AS sale_count,
             COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
+            COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
             COUNT(DISTINCT o.id) FILTER (WHERE o.sale_channel = 'web')::bigint AS web_count
         FROM orders o
         INNER JOIN (
-            SELECT order_id, SUM((quantity::numeric) * oi.unit_price)::numeric(14,2) AS line_subtotal
+            SELECT 
+                order_id, 
+                SUM((quantity::numeric) * oi.unit_price)::numeric(14,2) AS line_subtotal,
+                SUM(oi.state_tax + oi.local_tax)::numeric(14,2) AS line_tax
             FROM order_items oi
             GROUP BY order_id
         ) ln ON ln.order_id = o.id
@@ -349,7 +385,7 @@ pub async fn fetch_register_day_summary(
         "#,
     );
 
-    let row: (i64, Option<Decimal>, i64) = sqlx::query_as(&agg_sql)
+    let row: (i64, Option<Decimal>, Option<Decimal>, i64) = sqlx::query_as(&agg_sql)
         .bind(start_utc)
         .bind(end_utc)
         .bind(register_session_id)
@@ -358,7 +394,8 @@ pub async fn fetch_register_day_summary(
 
     let sales_count = row.0;
     let subtotal = row.1.unwrap_or(Decimal::ZERO);
-    let online_order_count = row.2;
+    let tax_total = row.2.unwrap_or(Decimal::ZERO);
+    let online_order_count = row.3;
 
     // Booked mode: pickups completed in range (fulfillment date). Completed mode: same as sale_count (orders completed in range).
     let pickup_count = if matches!(basis, ReportBasis::Booked) {
@@ -408,6 +445,24 @@ pub async fn fetch_register_day_summary(
         .await?;
     let special_order_sale_count = special_row.0;
 
+    // --- Merchant Fees (Stripe) aggregation ---
+    let fee_sql = format!(
+        r#"
+        SELECT COALESCE(SUM(pt.merchant_fee), 0)::numeric(14,2)
+        FROM payment_transactions pt
+        WHERE pt.occurred_at >= $1 AND pt.occurred_at < $2
+          AND pt.status = 'success'
+          AND ($3::uuid IS NULL OR pt.session_id = $3)
+        "#
+    );
+    let stripe_fees_total: (Decimal,) = sqlx::query_as(&fee_sql)
+        .bind(start_utc)
+        .bind(end_utc)
+        .bind(register_session_id)
+        .fetch_one(pool)
+        .await?;
+    let stripe_fees = stripe_fees_total.0;
+
     let appt_row: (i64,) = sqlx::query_as(
         r#"
         SELECT COUNT(*)::bigint
@@ -444,12 +499,17 @@ pub async fn fetch_register_day_summary(
         order_id: Uuid,
         booked_at: chrono::DateTime<Utc>,
         total_price: Decimal,
+        tax_total: Decimal,
         party_name: Option<String>,
         customer_first: Option<String>,
         customer_last: Option<String>,
         has_special: bool,
+        is_takeaway: bool,
         channel: String,
         pay: Option<String>,
+        items_json: Option<serde_json::Value>,
+        stripe_fees: Option<Decimal>,
+        net_amount: Option<Decimal>,
     }
 
     let sale_ts = match basis {
@@ -471,17 +531,44 @@ pub async fn fetch_register_day_summary(
             o.id AS order_id,
             {sale_ts} AS booked_at,
             o.total_price,
+            COALESCE(SUM(oi.state_tax + oi.local_tax), 0)::numeric(14,2) AS tax_total,
             wp.party_name,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) AS has_special,
+            BOOL_AND(oi.fulfillment::text = 'takeaway') AS is_takeaway,
             o.sale_channel::text AS channel,
             (
                 SELECT STRING_AGG(DISTINCT pt.payment_method, ', ' ORDER BY pt.payment_method)
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
                 WHERE pa.target_order_id = o.id
-            ) AS pay
+            ) AS pay,
+            (
+                SELECT SUM(pt.merchant_fee)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_order_id = o.id
+            ) AS stripe_fees,
+            (
+                SELECT SUM(pt.net_amount)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_order_id = o.id
+            ) AS net_amount,
+            (
+                SELECT jsonb_agg(jsonb_build_object(
+                    'name', px.name,
+                    'sku', pvx.sku,
+                    'quantity', oix.quantity,
+                    'price', oix.unit_price::text,
+                    'product_id', px.id
+                ))
+                FROM order_items oix
+                INNER JOIN products px ON px.id = oix.product_id
+                INNER JOIN product_variants pvx ON pvx.id = oix.variant_id
+                WHERE oix.order_id = o.id
+            ) AS items_json
         FROM orders o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
@@ -649,6 +736,10 @@ pub async fn fetch_register_day_summary(
         } else {
             "sale"
         };
+        let items: Option<Vec<ActivityItemDetail>> = s
+            .items_json
+            .and_then(|v| serde_json::from_value::<Vec<ActivityItemDetail>>(v).ok());
+
         activities.push(RegisterActivityItem {
             id: format!("{sale_kind}:{}", s.order_id),
             kind: sale_kind.to_string(),
@@ -663,6 +754,14 @@ pub async fn fetch_register_day_summary(
             wedding_party_id: None,
             amount_label: Some(format!("${}", money_label(s.total_price))),
             payment_summary: s.pay,
+            sales_total: Some(money_label(s.total_price)),
+            tax_total: Some(money_label(s.tax_total)),
+            is_takeaway: Some(s.is_takeaway),
+            channel: Some(s.channel),
+            wedding_party_name: s.party_name,
+            items,
+            stripe_fees_total: s.stripe_fees.map(|v| money_label(v)),
+            net_amount: s.net_amount.map(|v| money_label(v)),
         });
     }
 
@@ -681,6 +780,14 @@ pub async fn fetch_register_day_summary(
             wedding_party_id: None,
             amount_label: Some(format!("${}", money_label(p.total_price))),
             payment_summary: None,
+            sales_total: Some(money_label(p.total_price)),
+            tax_total: None,
+            is_takeaway: Some(false),
+            channel: None,
+            items: None,
+            stripe_fees_total: None,
+            net_amount: None,
+            wedding_party_name: None,
         });
     }
 
@@ -695,6 +802,14 @@ pub async fn fetch_register_day_summary(
             wedding_party_id: Some(w.id),
             amount_label: None,
             payment_summary: None,
+            sales_total: None,
+            tax_total: None,
+            is_takeaway: None,
+            channel: None,
+            items: None,
+            stripe_fees_total: None,
+            net_amount: None,
+            wedding_party_name: None,
         });
     }
 
@@ -712,6 +827,14 @@ pub async fn fetch_register_day_summary(
             wedding_party_id: None,
             amount_label: None,
             payment_summary: None,
+            sales_total: None,
+            tax_total: None,
+            is_takeaway: None,
+            channel: None,
+            items: None,
+            stripe_fees_total: None,
+            net_amount: None,
+            wedding_party_name: None,
         });
     }
 
@@ -729,12 +852,15 @@ pub async fn fetch_register_day_summary(
         reporting_basis: basis.as_str().to_string(),
         sales_count,
         sales_subtotal_no_tax: money_label(subtotal),
+        sales_tax_total: money_label(tax_total),
         avg_sale_no_tax: money_label(avg),
         online_order_count,
         pickup_count,
         special_order_sale_count,
         appointment_count,
         new_wedding_parties_count,
+        stripe_fees_total: money_label(stripe_fees),
+        net_sales: money_label(subtotal + tax_total - stripe_fees),
         activities,
     })
 }

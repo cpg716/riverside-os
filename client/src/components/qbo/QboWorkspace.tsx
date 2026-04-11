@@ -102,6 +102,7 @@ const LEGACY_ROWS: { key: string; description: string }[] = [
   { key: "COGS_DEFAULT", description: "Default COGS" },
   { key: "COGS_FREIGHT", description: "Inbound freight (PO)" },
   { key: "EXP_SHIPPING", description: "Shipping expense" },
+  { key: "EXP_MERCHANT_FEE", description: "Stripe / Card processing fees" },
 ];
 
 function moneyJson(n: unknown): string {
