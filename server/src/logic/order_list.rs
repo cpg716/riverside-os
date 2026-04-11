@@ -8,7 +8,15 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
-use crate::models::DbOrderStatus;
+use crate::models::{DbOrderStatus, DbFulfillmentType};
+
+#[derive(Debug, Serialize)]
+pub struct OrderPipelineStats {
+    pub needs_action: i64,      // open/pending_measurement
+    pub ready_for_pickup: i64, // has items marked Arrived (inventory) but not fulfilled
+    pub overdue: i64,          // 30+ days old and unfulfilled
+    pub wedding_orders: i64,   // active wedding-linked orders
+}
 
 #[derive(Debug, Deserialize)]
 pub struct OrdersListQuery {
@@ -45,6 +53,7 @@ pub struct OrderListRow {
     pub has_special_order: bool,
     pub has_wedding_order: bool,
     pub has_layaway: bool,
+    pub has_custom: bool,
     pub total_count: i64,
 }
 
@@ -117,9 +126,10 @@ pub async fn query_paged_orders(
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
             ps.full_name AS primary_salesperson_name,
             COUNT(oi.id)::bigint AS item_count,
-            BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) AS has_special_order,
+            BOOL_OR(oi.fulfillment::text = 'special_order') AS has_special_order,
             BOOL_OR(oi.fulfillment::text = 'wedding_order') AS has_wedding_order,
             BOOL_OR(oi.fulfillment::text = 'layaway') AS has_layaway,
+            BOOL_OR(oi.fulfillment::text = 'custom') AS has_custom,
             COUNT(*) OVER()::bigint AS total_count
         FROM orders o
         LEFT JOIN customers c ON c.id = o.customer_id
@@ -220,6 +230,9 @@ pub async fn query_paged_orders(
         } else if kf == "layaway" {
             qb.push(" HAVING BOOL_OR(oi.fulfillment::text = 'layaway') = true ");
         }
+    } else {
+        // Default: exclude pure takeaway 'regular' sales. They belong in Daily Sales.
+        qb.push(" HAVING (o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'layaway', 'wedding_order')) = true) ");
     }
 
     qb.push(" ORDER BY o.booked_at DESC ");
@@ -249,6 +262,8 @@ pub async fn query_paged_orders(
                 "layaway".to_string()
             } else if r.wedding_member_id.is_some() || r.has_wedding_order {
                 "wedding_order".to_string()
+            } else if r.has_custom {
+                "custom".to_string()
             } else if r.has_special_order {
                 "special_order".to_string()
             } else {
@@ -274,4 +289,42 @@ pub async fn query_paged_orders(
         .collect();
 
     Ok(PagedOrdersResponse { items, total_count })
+}
+
+pub async fn query_pipeline_stats(
+    pool: &sqlx::PgPool,
+) -> Result<OrderPipelineStats, sqlx::Error> {
+    let row = sqlx::query!(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE status IN ('open', 'pending_measurement'))::bigint AS needs_action,
+            COUNT(*) FILTER (WHERE status = 'open' AND balance_due > 0 AND booked_at < NOW() - INTERVAL '30 days')::bigint AS overdue,
+            COUNT(*) FILTER (WHERE wedding_member_id IS NOT NULL AND status IN ('open', 'pending_measurement'))::bigint AS wedding_orders
+        FROM orders
+        "#
+    )
+    .fetch_one(pool)
+    .await?;
+
+    // We'll estimate "ready_for_pickup" as status=open and all special/wedding items are fulfilled (arrived in store)
+    // but the order itself is not yet closed.
+    let ready_row = sqlx::query!(
+        r#"
+        SELECT COUNT(DISTINCT o.id)::bigint AS ready_count
+        FROM orders o
+        JOIN order_items oi ON oi.order_id = o.id
+        WHERE o.status = 'open'
+          AND oi.fulfillment IN ('special_order', 'wedding_order', 'custom')
+          AND oi.is_fulfilled = true
+        "#
+    )
+    .fetch_one(pool)
+    .await?;
+
+    Ok(OrderPipelineStats {
+        needs_action: row.needs_action.unwrap_or(0),
+        ready_for_pickup: ready_row.ready_count.unwrap_or(0),
+        overdue: row.overdue.unwrap_or(0),
+        wedding_orders: row.wedding_orders.unwrap_or(0),
+    })
 }

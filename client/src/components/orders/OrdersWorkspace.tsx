@@ -12,6 +12,27 @@ import {
   formatUsdFromCents,
   parseMoneyToCents,
 } from "../../lib/money";
+import {
+  Activity,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Flame,
+  Heart,
+  Package,
+  Search,
+  Wrench,
+  AlertCircle,
+  TrendingDown,
+  ShoppingBag,
+} from "lucide-react";
+
+interface OrderPipelineStats {
+  needs_action: number;
+  ready_for_pickup: number;
+  overdue: number;
+  wedding_orders: number;
+}
 
 type Section = "open" | "all";
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
@@ -58,9 +79,9 @@ interface OrderDetail {
   amount_paid: string;
   balance_due: string;
   exchange_group_id: string | null;
-  wedding_member_id: string | null;
-  customer: { id: string; first_name: string; last_name: string } | null;
   items: OrderItem[];
+  booked_at: string;
+  wedding_member_id: string | null;
   is_forfeited: boolean;
   forfeited_at: string | null;
   forfeiture_reason: string | null;
@@ -142,6 +163,7 @@ export default function OrdersWorkspace({
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [refundModalOpen, setRefundModalOpen] = useState(false);
   const [refundTargetOrderId, setRefundTargetOrderId] = useState<string | null>(null);
+  const [pipelineStats, setPipelineStats] = useState<OrderPipelineStats | null>(null);
   const [refundAmountStr, setRefundAmountStr] = useState("");
   const [refundMethod, setRefundMethod] = useState("cash");
   const [refundGiftCode, setRefundGiftCode] = useState("");
@@ -194,6 +216,17 @@ export default function OrdersWorkspace({
     }
     setRefundsDue((await res.json()) as RefundQueueRow[]);
   }, [baseUrl, backofficeHeaders, canRefund]);
+
+  const loadPipelineStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/orders/pipeline-stats`, {
+        headers: backofficeHeaders(),
+      });
+      if (res.ok) setPipelineStats((await res.json()) as OrderPipelineStats);
+    } catch {
+      /* ignore */
+    }
+  }, [baseUrl, backofficeHeaders]);
 
   const loadOrders = useCallback(async () => {
     const params = new URLSearchParams();
@@ -252,6 +285,10 @@ export default function OrdersWorkspace({
     setSuitSwapSku("");
     setSuitSwapNote("");
   }, [baseUrl, backofficeHeaders]);
+
+  useEffect(() => {
+    void loadPipelineStats();
+  }, [loadPipelineStats]);
 
   useEffect(() => {
     void loadOrders();
@@ -547,163 +584,209 @@ export default function OrdersWorkspace({
   }, [rows]);
 
   return (
-    <div className="flex min-h-0 flex-1 overflow-hidden">
-      <div className="w-96 shrink-0 flex flex-col border-r border-app-border bg-app-surface">
-        <div className="border-b border-app-border bg-app-surface p-3 shrink-0">
-          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Order Search & Filters
-          </p>
-          {canRefund && refundsDue.length > 0 && (
-            <div className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-2 text-xs text-app-text">
-              <p className="font-bold text-amber-800 dark:text-amber-200">
-                {refundsDue.length} refund{refundsDue.length === 1 ? "" : "s"} due
-              </p>
-              <ul className="mt-1 max-h-24 space-y-1 overflow-y-auto">
-                {refundsDue.slice(0, 8).map((r) => (
-                  <li key={r.id} className="flex justify-between gap-1">
-                    <button
-                      type="button"
-                      className="truncate text-left font-mono text-[11px] text-app-accent hover:underline"
-                      onClick={() => setSelectedId(r.order_id)}
-                    >
-                      {r.order_id.slice(0, 8)}
-                    </button>
-                    <button
-                      type="button"
-                      className="shrink-0 text-app-accent hover:underline"
-                      onClick={() => openRefundModalForOrder(r.order_id)}
-                    >
-                      Process
-                    </button>
-                  </li>
-                ))}
-              </ul>
+    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+      {/* Pipeline Strip */}
+      <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+        {[
+          { label: "Needs action", count: pipelineStats?.needs_action, icon: Activity, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20" },
+          { label: "Ready for Pickup", count: pipelineStats?.ready_for_pickup, icon: CheckCircle2, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20" },
+          { label: "Wedding Orders", count: pipelineStats?.wedding_orders, icon: Heart, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
+          { label: "Overdue (30d+)", count: pipelineStats?.overdue, icon: Flame, color: "text-orange-500", bg: "bg-orange-500/10", border: "border-orange-500/20" },
+        ].map((stat, i) => (
+          <div key={i} className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} ${stat.bg} p-4 shadow-sm backdrop-blur-md`}>
+            <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/50 shadow-sm dark:bg-black/20`}>
+              <stat.icon size={24} className={stat.color} />
             </div>
-          )}
+            <div className="min-w-0">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">{stat.label}</p>
+              <p className="text-2xl font-black tabular-nums text-app-text">{stat.count ?? "—"}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex min-h-0 flex-1 overflow-hidden p-4 sm:p-6 sm:pt-4">
+        <div className="flex min-h-0 flex-1 overflow-hidden rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
+          <div className="w-96 shrink-0 flex flex-col border-r border-app-border bg-app-surface-2/30 backdrop-blur-sm">
+            <div className="bg-app-surface/40 p-5 shrink-0 backdrop-blur-xl">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-4 opacity-60">
+                Order Management
+              </p>
+              
+              <div className="relative group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Order #, customer, or party..."
+                  className="ui-input w-full pl-10 text-sm font-bold bg-white/50 backdrop-blur-sm border-app-border focus:border-app-accent shadow-sm"
+                />
+              </div>
+
+              {canRefund && refundsDue.length > 0 && (
+                <div className="mt-4 rounded-[18px] border border-amber-500/30 bg-amber-500/10 p-4 text-xs">
+                  <div className="flex items-center gap-2 mb-2">
+                    <AlertCircle size={14} className="text-amber-600" />
+                    <p className="font-extrabold text-amber-900 dark:text-amber-100 uppercase tracking-tighter">
+                      {refundsDue.length} Refund{refundsDue.length === 1 ? "" : "s"} Pending
+                    </p>
+                  </div>
+                  <ul className="space-y-2">
+                    {refundsDue.slice(0, 3).map((r) => (
+                      <li key={r.id} className="flex items-center justify-between gap-2 p-2 rounded-xl bg-white/40 dark:bg-black/20 border border-amber-500/10">
+                        <button
+                          type="button"
+                          className="truncate text-left font-mono font-bold text-app-accent hover:text-amber-600 transition-colors"
+                          onClick={() => setSelectedId(r.order_id)}
+                        >
+                          #{r.order_id.slice(0, 8)}
+                        </button>
+                        <button
+                          type="button"
+                          className="px-2 py-1 rounded-lg bg-amber-500 text-white font-black uppercase text-[9px] shadow-sm hover:translate-y-[-1px] active:translate-y-0 transition-transform"
+                          onClick={() => openRefundModalForOrder(r.order_id)}
+                        >
+                          Settle
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search order #, customer, wedding party..."
             className="ui-input mt-2 w-full text-xs"
           />
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <select
-              value={kindFilter}
-              onChange={(e) => setKindFilter(e.target.value)}
-              className="ui-input text-xs"
-            >
-              <option value="all">All kinds</option>
-              <option value="regular_order">Regular</option>
-              <option value="special_order">Special</option>
-              <option value="wedding_order">Wedding</option>
-              <option value="layaway">Layaway</option>
-            </select>
-            <select
-              value={paymentFilter}
-              onChange={(e) => setPaymentFilter(e.target.value)}
-              className="ui-input text-xs"
-            >
-              <option value="all">All payment</option>
-              <option value="paid">Paid</option>
-              <option value="partial">Partial</option>
-              <option value="unpaid">Unpaid</option>
-            </select>
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-2">
-            <select
-              value={salespersonFilter}
-              onChange={(e) => setSalespersonFilter(e.target.value)}
-              className="ui-input text-xs"
-            >
-              <option value="all">All salespeople</option>
-              {salespersonOptions.map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
-              ))}
-            </select>
-            <select
-              value={datePreset}
-              onChange={(e) => setDatePreset(e.target.value)}
-              className="ui-input text-xs"
-            >
-              <option value="all">All dates</option>
-              <option value="today">Today</option>
-              <option value="7d">Last 7 days</option>
-              <option value="30d">Last 30 days</option>
-              <option value="custom">Custom range</option>
-            </select>
-          </div>
-          {datePreset === "custom" && (
-            <div className="mt-2 grid grid-cols-2 gap-2">
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="ui-input text-xs"
-              />
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="ui-input text-xs"
-              />
+              <div className="mt-4 grid grid-cols-2 gap-2">
+                <select
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value)}
+                  className="ui-input text-[11px] font-black uppercase tracking-tighter bg-white/50"
+                >
+                  <option value="all">All kinds</option>
+                  <option value="regular_order">Takeaway</option>
+                  <option value="special_order">Special</option>
+                  <option value="wedding_order">Wedding</option>
+                  <option value="layaway">Layaway</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => setPaymentFilter(e.target.value)}
+                  className="ui-input text-[11px] font-black uppercase tracking-tighter bg-white/50"
+                >
+                  <option value="all">All payment</option>
+                  <option value="paid">Paid</option>
+                  <option value="partial">Partial</option>
+                  <option value="unpaid">Unpaid</option>
+                </select>
+              </div>
+              
+              <div className="mt-2 grid grid-cols-1 gap-2">
+                 <button
+                    type="button"
+                    onClick={() => {
+                      setSearch("");
+                      setKindFilter("all");
+                      setPaymentFilter("all");
+                      setSalespersonFilter("all");
+                      setDatePreset("all");
+                      setDateFrom("");
+                      setDateTo("");
+                    }}
+                    className="w-full py-2 rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text-muted bg-app-surface-2 hover:bg-app-surface border border-app-border transition-colors shadow-sm"
+                  >
+                    Clear All Filters
+                </button>
+              </div>
             </div>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              setSearch("");
-              setKindFilter("all");
-              setPaymentFilter("all");
-              setSalespersonFilter("all");
-              setDatePreset("all");
-              setDateFrom("");
-              setDateTo("");
-            }}
-            className="ui-btn-secondary mt-2 w-full py-1.5 text-xs"
-          >
-            Clear filters
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto">
-          {rows.map((r) => (
-            <button
-              key={r.order_id}
-              type="button"
-              onClick={() => setSelectedId(r.order_id)}
-              className={`w-full border-b border-app-border px-4 py-3 text-left ${selectedId === r.order_id ? "bg-app-surface-2" : ""}`}
-            >
-              <p className="text-sm font-bold text-app-text">
-                {r.customer_name ?? "Walk-in"} · {r.order_kind}
-              </p>
-              <p className="text-xs text-app-text-muted">
-                #{r.order_id.slice(0, 8)} · {money(r.balance_due)} due
-              </p>
-            </button>
-          ))}
-        </div>
-        <div className="sticky bottom-0 z-10 flex items-center justify-between border-t border-app-border bg-app-surface p-3">
-          <span className="text-xs text-app-text-muted">{totalCount} max orders</span>
-          <div className="flex gap-2">
-            <button
-              disabled={page === 0}
-              onClick={() => setPage((p) => p - 1)}
-              className="rounded bg-app-surface-2 px-2 py-1 text-xs disabled:opacity-50"
-            >
-              Prev
-            </button>
-            <button
-              disabled={(page + 1) * limit >= totalCount}
-              onClick={() => setPage((p) => p + 1)}
-              className="rounded bg-app-surface-2 px-2 py-1 text-xs disabled:opacity-50"
-            >
-              Next
-            </button>
+
+            <div className="flex-1 overflow-y-auto px-4 py-2 space-y-2">
+              {rows.length === 0 && !loading && (
+                <div className="py-12 text-center">
+                   <ShoppingBag size={48} className="mx-auto text-app-text-muted mb-4 opacity-20" />
+                   <p className="text-sm font-black text-app-text-muted uppercase tracking-widest opacity-40">No matching orders</p>
+                </div>
+              )}
+              {rows.map((r) => (
+                <button
+                  key={r.order_id}
+                  type="button"
+                  onClick={() => setSelectedId(r.order_id)}
+                  className={`group w-full relative overflow-hidden rounded-[20px] p-4 text-left transition-all duration-300 ${
+                    selectedId === r.order_id 
+                      ? "bg-app-accent text-white shadow-lg shadow-app-accent/20 scale-[1.02] z-10" 
+                      : "bg-white/40 dark:bg-black/10 border border-app-border hover:bg-white/80 dark:hover:bg-black/20 hover:border-app-accent/30"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3 mb-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                       <div className={`p-2 rounded-xl flex items-center justify-center shrink-0 ${selectedId === r.order_id ? "bg-white/20" : "bg-app-surface-2"}`}>
+                          <OrderKindIcon kind={r.order_kind} className={selectedId === r.order_id ? "text-white" : ""} />
+                       </div>
+                       <div className="min-w-0">
+                          <p className={`font-black uppercase tracking-tighter leading-none truncate ${selectedId === r.order_id ? "text-white" : "text-app-text"}`}>
+                            {r.customer_name ?? "Walk-in"}
+                          </p>
+                          <p className={`text-[10px] font-bold mt-1 opacity-70 ${selectedId === r.order_id ? "text-white" : "text-app-text-muted"}`}>
+                             #{r.order_id.slice(0, 8)}
+                          </p>
+                       </div>
+                    </div>
+                    {parseMoneyToCents(r.balance_due) > 0 && (
+                      <span className={`shrink-0 text-[10px] font-black px-2 py-0.5 rounded-lg uppercase tracking-wider ${selectedId === r.order_id ? "bg-white/30 text-white" : "bg-red-500/10 text-red-600"}`}>
+                         {money(r.balance_due)} Due
+                      </span>
+                    )}
+                  </div>
+                  
+                  <div className="flex items-center justify-between gap-2 mt-auto pt-2 border-t border-current/10">
+                     <span className={`text-[9px] font-black uppercase tracking-widest opacity-60`}>
+                        {new Date(r.booked_at).toLocaleDateString()}
+                     </span>
+                     <div className="flex items-center gap-1">
+                        <span className={`text-[10px] font-black px-1.5 py-0.5 rounded-md uppercase tracking-tighter ${
+                          r.status === 'open' 
+                            ? (selectedId === r.order_id ? "bg-white/20" : "bg-emerald-500/10 text-emerald-600")
+                            : (selectedId === r.order_id ? "bg-white/20" : "bg-app-surface border border-app-border text-app-text-muted")
+                        }`}>
+                           {r.status}
+                        </span>
+                     </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="shrink-0 p-4 border-t border-app-border bg-app-surface-2 hover:bg-app-surface transition-colors">
+              <div className="flex items-center justify-between gap-4">
+                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
+                   {totalCount} Active
+                 </p>
+                <div className="flex gap-1">
+                  <button
+                    disabled={page === 0}
+                    onClick={() => setPage((p) => p - 1)}
+                    className="p-2 rounded-xl border border-app-border bg-white/50 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
+                  >
+                    <ArrowRight className="rotate-180" size={14} />
+                  </button>
+                  <button
+                    disabled={(page + 1) * limit >= totalCount}
+                    onClick={() => setPage((p) => p + 1)}
+                    className="p-2 rounded-xl border border-app-border bg-white/50 hover:bg-white disabled:opacity-30 transition-all shadow-sm"
+                  >
+                    <ArrowRight size={14} />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+
+          <div className="min-h-0 flex-1 overflow-y-auto bg-transparent relative">
+             <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,var(--app-accent),transparent_30%)] opacity-[0.03] pointer-events-none" />
         {!detail ? (
           <p className="text-sm text-app-text-muted">Select an order.</p>
         ) : (

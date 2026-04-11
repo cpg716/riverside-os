@@ -117,6 +117,11 @@ Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP E
 - **Fast Refresh / Logic Separation**: Files containing React components should strictly only export the component(s). Move shared logic, types, and constants to dedicated `.ts` logic files (e.g., `ComponentLogic.ts`). **Context providers** must be split from their context/hooks into a `*Logic.ts` sibling to maintain zero lint warnings.
 - **Versioning**: All modules (`client`, `server`, `tauri`) must stay synchronized with the version in the root `package.json`. Follow [SemVer](https://semver.org) for all tags and releases.
 - **No dev bypasses**: Auth middleware and PIN verification are production-enforced. Do not re-add `let _ = pin;` or similar shortcuts.
+- **GitHub CI/CD & Production Build Resilience**:
+  - **Local Verification**: You MUST run `npm run lint` and `npm run build` (or `tsc --noEmit`) in the `client/` directory before every push. 0 Errors is the only acceptable state.
+  - **ID Stability & Sync**: If you rename an `activeSection` in `OperationalHome.tsx` (e.g., `register-reports` -> `daily-sales`), you MUST synchronize the change in `sidebarSections.ts` immediately to prevent navigation breaks.
+  - **Playwright Timeouts**: All dashboard-related E2E tests (like `morning-compass-coach.spec.ts`) must use a minimum `{ timeout: 30_000 }` when waiting for components that query the backend to accommodate slow CI runners.
+  - **Interface Synchronization**: Strict Rule: When updating dashboard-related interfaces, you MUST synchronize `MorningCompassBundle` and `RushOrderRow` in BOTH `OperationalHome.tsx`, `RegisterDashboard.tsx`, and `morningCompassQueue.ts`.
 
 ## Auth model (do not modify without understanding)
 

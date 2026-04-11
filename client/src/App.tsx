@@ -413,7 +413,7 @@ function App() {
       setWeddingMode(false);
       setActiveTab("home");
       const sub = link.subsection.trim();
-      const allowedHome = new Set(["dashboard", "inbox", "reviews", "register-reports"]);
+      const allowedHome = new Set(["dashboard", "inbox", "reviews", "daily-sales"]);
       // Legacy deep links used "activity"; content now lives on Dashboard.
       const normalizedSub = sub === "activity" ? "dashboard" : sub;
       setActiveSubSection(allowedHome.has(normalizedSub) ? normalizedSub : "dashboard");
@@ -740,7 +740,7 @@ function App() {
             }}
             onNavigateRegisterReports={() => {
               setActiveTab("home");
-              setActiveSubSection("register-reports");
+              setActiveSubSection("daily-sales");
             }}
             onNavigateCommissionPayouts={() => {
               setActiveTab("staff");

@@ -122,7 +122,9 @@ fn spawn_meilisearch_order_upsert(state: &AppState, order_id: Uuid) {
 pub use crate::logic::order_checkout::{
     CheckoutItem, CheckoutPaymentSplit, CheckoutRequest, CheckoutResponse, WeddingDisbursement,
 };
-pub use crate::logic::order_list::{OrderListResponse, OrdersListQuery, PagedOrdersResponse};
+pub use crate::logic::order_list::{
+    OrderListResponse, OrderPipelineStats, OrdersListQuery, PagedOrdersResponse,
+};
 
 #[derive(Debug, Serialize)]
 pub struct OrderCustomerSummary {
@@ -508,6 +510,7 @@ pub struct LineAttributionUpdate {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_orders))
+        .route("/pipeline-stats", get(get_pipeline_stats))
         .route("/refunds/due", get(list_refunds_due))
         .route("/checkout", post(checkout))
         .route("/{order_id}/attribution", patch(patch_order_attribution))
@@ -2726,4 +2729,13 @@ async fn patch_order_attribution(
     }
 
     Ok(Json(json!({ "status": "updated" })))
+}
+
+async fn get_pipeline_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<OrderPipelineStats>, OrderError> {
+    staff_has_permission(&state.db, &headers, ORDERS_VIEW).await?;
+    let stats = crate::logic::order_list::query_pipeline_stats(&state.db).await?;
+    Ok(Json(stats))
 }

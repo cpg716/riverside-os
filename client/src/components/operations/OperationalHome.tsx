@@ -387,7 +387,7 @@ export default function OperationalHome({
       hasPermission("tasks.complete") ||
       hasPermission("notifications.view"));
 
-  if (activeSection === "register-reports") {
+  if (activeSection === "daily-sales") {
     return (
       <div className="flex h-full min-h-0 flex-col bg-transparent p-3 sm:p-6">
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] sm:rounded-[28px] border border-app-border bg-app-surface">

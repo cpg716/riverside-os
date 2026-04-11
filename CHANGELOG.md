@@ -12,12 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Backup Resiliency Manual**: Documented "Universal Docker Fallback" for database operations.
 - **Production-Ready Indexing**: Automatically generated help manifest to sync new manuals with the UI.
 
-### Fixed
-- **Phase 5 Build QA Sweep**: Resolved 18+ TypeScript/ESLint errors blocking `npm run build`.
-- **Cart Stability**: Corrected `commissionStaff` deconstruction and missing `Gift` icon imports.
-- **UI Restoration**: Repaired broken JSX tags and ternary logic in `OperationalHome.tsx`.
-- **Toast Signatures**: Standardized `toast()` calls to use the validated `(msg, type)` signature.
-- **Type Mismatches**: Aligned `LoyaltyEligibleCustomer` and `MorningCompassBundle` with API schemas.
+- **CRM High-Density Overhaul**: Transformed the Customer list into a visually stunning, name-dominant interface with combined financial/wedding data and tighter spacing.
+- **CI/CD Resilience Hardening**: Implemented 30s Playwright buffers and codified 'GitHub CI Resilience' rules in `AGENTS.md` to ensure zero-failure deployments.
+- **Navigation Sync**: Synchronized 'daily-sales' ID between Operations and Sidebar to maintain flawless navigation.
 
 ## [v0.1.8-alpha] - 2026-04-10 (Baseline)
 ### Added

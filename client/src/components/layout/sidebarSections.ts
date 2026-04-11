@@ -27,7 +27,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "dashboard", label: "Dashboard" },
     { id: "inbox", label: "Inbox" },
     { id: "reviews", label: "Reviews" },
-    { id: "register-reports", label: "Register reports" },
+    { id: "daily-sales", label: "Daily Sales" },
   ],
   register: [{ id: "floor", label: "Register" }],
   customers: [

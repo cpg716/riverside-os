@@ -221,7 +221,7 @@ export default function RegisterReports({
       <div className="mb-4 flex shrink-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">Register</p>
-          <h2 className="text-2xl font-black tracking-tight text-app-text">Reports</h2>
+          <h2 className="text-2xl font-black tracking-tight text-app-text">Daily Sales</h2>
           {summary ? (
             <p className="mt-1 text-xs font-semibold text-app-text-muted">
               {rangeLabel}
