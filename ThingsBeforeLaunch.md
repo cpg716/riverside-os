@@ -206,4 +206,99 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ---
 
+## Launch Day Run Sheet (Chronological Cutover + Rollback Triggers)
+
+### T-120 to T-90 (Infrastructure lock)
+- [ ] Announce **change freeze** (no ad-hoc schema/code edits during cutover).
+- [ ] Confirm owner roles are assigned and reachable:
+  - [ ] Launch commander
+  - [ ] DB owner
+  - [ ] App owner
+  - [ ] Register floor lead
+- [ ] Confirm production host health (CPU, disk, memory headroom) and Docker/DB service status.
+- [ ] Confirm latest approved app artifact/version is staged.
+
+### T-90 to T-60 (Database finalization)
+- [ ] Run migration apply script against production DB (`./scripts/apply-migrations-docker.sh` or production equivalent).
+- [ ] Run migration status script (`./scripts/migration-status-docker.sh`) and archive output.
+- [ ] Verify ledger includes latest migrations (through **131** at current baseline).
+- [ ] Confirm any known probe mismatches are understood/accepted per runbook policy (e.g., retired AI tables).
+
+### T-60 to T-45 (Secrets + network readiness)
+- [ ] Verify runtime env on API host:
+  - [ ] `DATABASE_URL`
+  - [ ] `RIVERSIDE_CORS_ORIGINS`
+  - [ ] `RIVERSIDE_HTTP_BIND`
+  - [ ] Integration secrets used by this store (Stripe/Podium/Shippo/QBO/Meilisearch)
+- [ ] Verify TLS/reverse proxy route and LAN/Tailscale access from at least 2 staff devices.
+- [ ] Verify firewall and remote-access policy for Metabase and Back Office endpoints.
+
+### T-45 to T-30 (Build + quality gate)
+- [ ] Run and capture:
+  - [ ] `cargo fmt --check`
+  - [ ] `npm run lint`
+  - [ ] `npm --prefix client run build`
+- [ ] Abort launch if any hard gate fails and move to rollback/hold decision.
+
+### T-30 to T-20 (E2E release gate)
+- [ ] Start stack (`npm run dev`) in launch environment.
+- [ ] Run:
+  - [ ] `npm run test:e2e:release`
+  - [ ] `npm run test:e2e:high-risk`
+  - [ ] `npm run test:e2e:phase2`
+  - [ ] `npm run test:e2e:tender`
+- [ ] Optional visual run (`npm run test:e2e:visual`) only if visual signoff is in scope.
+- [ ] Capture and store E2E output for launch record.
+
+### T-20 to T-10 (Store operations checks)
+- [ ] Open Register #1 with real cashier code/PIN.
+- [ ] Verify POS cashier sign-in, product search, and checkout drawer.
+- [ ] Process one supervised sample sale end-to-end:
+  - [ ] Cart build
+  - [ ] Tender apply
+  - [ ] Complete sale
+  - [ ] Receipt output
+- [ ] Verify reports/insights shell opens with expected permissions.
+- [ ] Verify Help Center access from Back Office and POS.
+
+### T-10 to T-0 (Go/No-Go)
+- [ ] Confirm all checklist gates are green or explicitly waived by launch commander.
+- [ ] Confirm rollback owner is on standby with restore instructions open.
+- [ ] Launch commander announces **GO LIVE** timestamp.
+
+### T+0 to T+30 (Hypercare)
+- [ ] Monitor API logs and critical alerts (auth failures, checkout errors, payment intent failures).
+- [ ] Monitor DB health and connection pool behavior.
+- [ ] Confirm first real transaction completes and is visible in reporting.
+- [ ] Confirm no abnormal tender/refund behavior.
+
+### T+30 to T+120 (Stabilization)
+- [ ] Spot-check:
+  - [ ] POS flow
+  - [ ] Back Office workspace navigation
+  - [ ] Register close/reconcile flow
+  - [ ] Integration health indicators
+- [ ] Log all incidents with timestamp, symptom, owner, mitigation.
+
+### Hard Rollback Triggers (Immediate No-Go / Revert)
+- [ ] Migration script fails and cannot be safely corrected within launch window.
+- [ ] Any required validation gate fails (fmt/lint/build/E2E release suites).
+- [ ] Checkout cannot complete a supervised sample sale.
+- [ ] Payment intent/tender path failure blocks transactions.
+- [ ] Critical auth/RBAC failure grants or denies core access incorrectly.
+- [ ] Production API unavailable or persistent 5xx on core flows.
+
+### Rollback Execution Checklist
+- [ ] Launch commander calls rollback and records timestamp/reason.
+- [ ] Disable/storefront access path as needed (maintenance mode or routing block).
+- [ ] Restore DB to pre-launch restore point (or execute approved rollback migration plan).
+- [ ] Re-deploy previous known-good app artifact.
+- [ ] Re-run minimal smoke:
+  - [ ] staff sign-in
+  - [ ] POS cart + checkout
+  - [ ] reports access
+- [ ] Announce status to store team and update incident log.
+
+---
+
 <!-- Add new launch areas above this line or as new ## sections. -->
