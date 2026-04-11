@@ -34,20 +34,21 @@ test.beforeAll(async ({ request }) => {
 test.beforeEach(() => {
   test.skip(
     !serverReachable,
-    `API not reachable at ${apiBase()} — start Postgres + riverside-server to run api-gates`
+    `API not reachable at ${apiBase()} — start Postgres + riverside-server to run api-gates`,
   );
 });
 
 test.describe("API auth gates", () => {
-  test("GET /api/products without staff headers returns 401", async ({ request }) => {
+  test("GET /api/products without staff headers returns 401", async ({
+    request,
+  }) => {
     const res = await request.get(`${apiBase()}/api/products`);
-    expect(
-      res.status(),
-      `body: ${(await res.text()).slice(0, 200)}`
-    ).toBe(401);
+    expect(res.status(), `body: ${(await res.text()).slice(0, 200)}`).toBe(401);
   });
 
-  test("POST /api/payments/intent without auth returns 401", async ({ request }) => {
+  test("POST /api/payments/intent without auth returns 401", async ({
+    request,
+  }) => {
     /** Playwright `APIRequestContext` ignores `json`; use `data` so `Content-Type: application/json` is set. */
     const res = await request.post(`${apiBase()}/api/payments/intent`, {
       data: { amount_due: "1.00" },
@@ -55,38 +56,52 @@ test.describe("API auth gates", () => {
     expect(res.status()).toBe(401);
   });
 
-  test("GET /api/settings/receipt without staff returns 401 or 403", async ({ request }) => {
+  test("GET /api/settings/receipt without staff returns 401 or 403", async ({
+    request,
+  }) => {
     const res = await request.get(`${apiBase()}/api/settings/receipt`);
     expect([401, 403]).toContain(res.status());
   });
 
-  test("GET /api/customers/{id}/order-history without staff returns 401", async ({ request }) => {
+  test("GET /api/customers/{id}/order-history without staff returns 401", async ({
+    request,
+  }) => {
     const res = await request.get(
       `${apiBase()}/api/customers/00000000-0000-0000-0000-000000000000/order-history`,
     );
     expect(res.status()).toBe(401);
   });
 
-  test("GET /api/insights/sales-pivot?group_by=customer without staff returns 401", async ({ request }) => {
+  test("GET /api/insights/sales-pivot?group_by=customer without staff returns 401", async ({
+    request,
+  }) => {
     const res = await request.get(
       `${apiBase()}/api/insights/sales-pivot?group_by=customer&basis=sale`,
     );
     expect(res.status()).toBe(401);
   });
 
-  test("GET /api/insights/best-sellers without staff returns 401", async ({ request }) => {
-    const res = await request.get(`${apiBase()}/api/insights/best-sellers?limit=5&basis=sale`);
+  test("GET /api/insights/best-sellers without staff returns 401", async ({
+    request,
+  }) => {
+    const res = await request.get(
+      `${apiBase()}/api/insights/best-sellers?limit=5&basis=sale`,
+    );
     expect(res.status()).toBe(401);
   });
 
-  test("GET /api/insights/margin-pivot without staff returns 401", async ({ request }) => {
+  test("GET /api/insights/margin-pivot without staff returns 401", async ({
+    request,
+  }) => {
     const res = await request.get(
       `${apiBase()}/api/insights/margin-pivot?group_by=brand&basis=sale`,
     );
     expect(res.status()).toBe(401);
   });
 
-  test("GET /api/insights/margin-pivot with non-Admin staff returns 403", async ({ request }) => {
+  test("GET /api/insights/margin-pivot with non-Admin staff returns 403", async ({
+    request,
+  }) => {
     const code = e2eNonAdminStaffCode();
     const res = await request.get(
       `${apiBase()}/api/insights/margin-pivot?group_by=brand&basis=sale`,
@@ -108,13 +123,16 @@ test.describe("API auth gates", () => {
     request,
   }) => {
     const code = process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
-    const res = await request.get(`${apiBase()}/api/staff/effective-permissions`, {
-      headers: {
-        "x-riverside-staff-code": code,
-        "x-riverside-staff-pin": code,
+    const res = await request.get(
+      `${apiBase()}/api/staff/effective-permissions`,
+      {
+        headers: {
+          "x-riverside-staff-code": code,
+          "x-riverside-staff-pin": code,
+        },
+        failOnStatusCode: false,
       },
-      failOnStatusCode: false,
-    });
+    );
     if (res.status() === 401 || res.status() === 403) {
       test.skip(
         true,
@@ -171,5 +189,219 @@ test.describe("API auth gates", () => {
     const j = JSON.parse(body) as { rows?: unknown[]; truncated?: boolean };
     expect(Array.isArray(j.rows)).toBeTruthy();
     expect(typeof j.truncated).toBe("boolean");
+  });
+
+  test("GET /api/help/admin/ops/status without staff returns 401", async ({
+    request,
+  }) => {
+    const res = await request.get(`${apiBase()}/api/help/admin/ops/status`);
+    expect(res.status()).toBe(401);
+  });
+
+  test("POST /api/help/admin/ops/generate-manifest without staff returns 401", async ({
+    request,
+  }) => {
+    const res = await request.post(
+      `${apiBase()}/api/help/admin/ops/generate-manifest`,
+      {
+        data: {
+          dry_run: true,
+          include_shadcn: false,
+          rescan_components: false,
+          cleanup_orphans: false,
+        },
+      },
+    );
+    expect(res.status()).toBe(401);
+  });
+
+  test("POST /api/help/admin/ops/reindex-search without staff returns 401", async ({
+    request,
+  }) => {
+    const res = await request.post(
+      `${apiBase()}/api/help/admin/ops/reindex-search`,
+      {
+        data: { full_reindex_fallback: true },
+      },
+    );
+    expect(res.status()).toBe(401);
+  });
+
+  test("GET /api/help/admin/ops/status with non-Admin staff returns 403", async ({
+    request,
+  }) => {
+    const code = e2eNonAdminStaffCode();
+    const res = await request.get(`${apiBase()}/api/help/admin/ops/status`, {
+      headers: { "x-riverside-staff-code": code },
+      failOnStatusCode: false,
+    });
+    if (res.status() === 401) {
+      test.skip(
+        true,
+        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+      );
+    }
+    expect(res.status()).toBe(403);
+  });
+
+  test("POST /api/help/admin/ops/generate-manifest with non-Admin staff returns 403", async ({
+    request,
+  }) => {
+    const code = e2eNonAdminStaffCode();
+    const res = await request.post(
+      `${apiBase()}/api/help/admin/ops/generate-manifest`,
+      {
+        headers: { "x-riverside-staff-code": code },
+        data: {
+          dry_run: true,
+          include_shadcn: false,
+          rescan_components: false,
+          cleanup_orphans: false,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    if (res.status() === 401) {
+      test.skip(
+        true,
+        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+      );
+    }
+    expect(res.status()).toBe(403);
+  });
+
+  test("POST /api/help/admin/ops/reindex-search with non-Admin staff returns 403", async ({
+    request,
+  }) => {
+    const code = e2eNonAdminStaffCode();
+    const res = await request.post(
+      `${apiBase()}/api/help/admin/ops/reindex-search`,
+      {
+        headers: { "x-riverside-staff-code": code },
+        data: { full_reindex_fallback: true },
+        failOnStatusCode: false,
+      },
+    );
+    if (res.status() === 401) {
+      test.skip(
+        true,
+        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+      );
+    }
+    expect(res.status()).toBe(403);
+  });
+
+  test("GET /api/help/admin/ops/status with Admin staff returns 200 and shape", async ({
+    request,
+  }) => {
+    const code = process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
+    const res = await request.get(`${apiBase()}/api/help/admin/ops/status`, {
+      headers: {
+        "x-riverside-staff-code": code,
+        "x-riverside-staff-pin": code,
+      },
+      failOnStatusCode: false,
+    });
+    if (res.status() === 401 || res.status() === 403) {
+      test.skip(
+        true,
+        `Help admin ops status requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
+      );
+    }
+    expect(res.status()).toBe(200);
+    const j = (await res.json()) as {
+      meilisearch_configured?: unknown;
+      meilisearch_indexing?: unknown;
+      node_available?: unknown;
+      script_exists?: unknown;
+      help_docs_dir_exists?: unknown;
+    };
+    expect(typeof j.meilisearch_configured).toBe("boolean");
+    expect(typeof j.meilisearch_indexing).toBe("boolean");
+    expect(typeof j.node_available).toBe("boolean");
+    expect(typeof j.script_exists).toBe("boolean");
+    expect(typeof j.help_docs_dir_exists).toBe("boolean");
+  });
+
+  test("POST /api/help/admin/ops/generate-manifest with Admin staff returns terminal result shape", async ({
+    request,
+  }) => {
+    const code = process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
+    const res = await request.post(
+      `${apiBase()}/api/help/admin/ops/generate-manifest`,
+      {
+        headers: {
+          "x-riverside-staff-code": code,
+          "x-riverside-staff-pin": code,
+        },
+        data: {
+          dry_run: true,
+          include_shadcn: false,
+          rescan_components: false,
+          cleanup_orphans: false,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    if (res.status() === 401 || res.status() === 403) {
+      test.skip(
+        true,
+        `Help admin manifest generation requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
+      );
+    }
+    const body = await res.text();
+    expect(res.status(), `body: ${body.slice(0, 600)}`).toBe(200);
+    const j = JSON.parse(body) as {
+      result?: {
+        ok?: unknown;
+        exit_code?: unknown;
+        stdout?: unknown;
+        stderr?: unknown;
+      };
+      error?: unknown;
+    };
+    expect(j.result).toBeTruthy();
+    expect(typeof j.result?.ok).toBe("boolean");
+    expect(
+      j.result?.exit_code == null || typeof j.result?.exit_code === "number",
+    ).toBeTruthy();
+    expect(
+      j.result?.stdout == null || typeof j.result?.stdout === "string",
+    ).toBeTruthy();
+    expect(
+      j.result?.stderr == null || typeof j.result?.stderr === "string",
+    ).toBeTruthy();
+  });
+
+  test("POST /api/help/admin/ops/reindex-search with Admin staff returns status payload", async ({
+    request,
+  }) => {
+    const code = process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
+    const res = await request.post(
+      `${apiBase()}/api/help/admin/ops/reindex-search`,
+      {
+        headers: {
+          "x-riverside-staff-code": code,
+          "x-riverside-staff-pin": code,
+        },
+        data: { full_reindex_fallback: true },
+        failOnStatusCode: false,
+      },
+    );
+    if (res.status() === 401 || res.status() === 403) {
+      test.skip(
+        true,
+        `Help search reindex requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
+      );
+    }
+    const body = await res.text();
+    expect(res.status(), `body: ${body.slice(0, 600)}`).toBe(200);
+    const j = JSON.parse(body) as {
+      status?: unknown;
+      mode?: unknown;
+      error?: unknown;
+    };
+    expect(typeof j.status).toBe("string");
+    expect(j.mode == null || typeof j.mode === "string").toBeTruthy();
   });
 });
