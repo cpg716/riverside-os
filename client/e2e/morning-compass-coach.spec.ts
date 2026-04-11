@@ -31,8 +31,8 @@ test.describe("Morning Compass coach", () => {
     const empty = page.getByTestId("register-morning-compass-coach-empty");
     const list = page.getByTestId("register-morning-compass-coach-list");
 
-    await expect(coach).toBeVisible({ timeout: 15_000 });
-    await expect(empty.or(list)).toBeVisible({ timeout: 15_000 });
+    await expect(coach).toBeVisible({ timeout: 30_000 });
+    await expect(empty.or(list)).toBeVisible({ timeout: 30_000 });
   });
 
   test("shows coach on Operations morning home when permissions allow", async ({

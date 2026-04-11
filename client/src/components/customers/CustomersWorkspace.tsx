@@ -922,12 +922,11 @@ export default function CustomersWorkspace({
                     className="h-4 w-4 rounded border-app-border text-[var(--app-accent)]"
                   />
                 </th>
-                <th className="px-4 py-3">Code</th>
-                <th className="px-4 py-3">Customer</th>
-                <th className="px-4 py-3">Contact</th>
-                <th className="px-4 py-3">VIP</th>
-                <th className="px-4 py-3 text-right">Open balance</th>
-                <th className="px-4 py-3 text-center">Wedding</th>
+                <th className="px-4 py-2">Customer & ID</th>
+                <th className="px-4 py-2">Phone / Contact</th>
+                <th className="px-4 py-2 text-right">Balance / Sales</th>
+                <th className="px-4 py-2 text-center">Wedding Party</th>
+                <th className="w-10 px-3 py-2">VIP</th>
               </tr>
             </thead>
             <tbody>
@@ -945,58 +944,75 @@ export default function CustomersWorkspace({
                       aria-label={`Select ${r.first_name} ${r.last_name}`}
                     />
                   </td>
-                  <td className="px-4 py-3 font-mono text-xs text-app-text-muted tabular-nums">
-                    {r.customer_code}
-                  </td>
-                  <td className="px-4 py-3">
+                  <td className="px-4 py-2">
                     <button
                       type="button"
                       onClick={() => {
                         setHubInitialTab(null);
                         setPicked(rowToCustomer(r));
                       }}
-                      className="text-left font-bold text-app-text transition-colors hover:text-[var(--app-accent)]"
+                      className="group flex flex-col text-left transition-colors"
                     >
-                      <span className="block">
+                      <span className="text-base font-black tracking-tight text-app-text group-hover:text-[var(--app-accent)]">
                         {r.first_name} {r.last_name}
                       </span>
-                      {r.company_name ? (
-                        <span className="mt-0.5 block text-[11px] font-semibold text-app-text-muted">
-                          {r.company_name}
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] uppercase tracking-widest text-app-text-muted">
+                          {r.customer_code}
                         </span>
-                      ) : null}
+                        {r.company_name ? (
+                          <>
+                            <span className="text-app-text-muted/30">|</span>
+                            <span className="text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
+                              {r.company_name}
+                            </span>
+                          </>
+                        ) : null}
+                      </div>
                     </button>
                   </td>
-                  <td className="px-4 py-3 text-xs text-app-text-muted">
-                    {r.phone ?? r.email ?? "—"}
+                  <td className="px-4 py-2">
+                    <span className="block text-xs font-semibold text-app-text">
+                      {r.phone || "—"}
+                    </span>
+                    {r.email ? (
+                      <span className="block text-[10px] lowercase text-app-text-muted">
+                        {r.email}
+                      </span>
+                    ) : null}
                   </td>
-                  <td className="px-4 py-3">
-                    {r.is_vip ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-900">
-                        VIP
+                  <td className="px-4 py-2 text-right">
+                    <div className="font-mono text-sm font-black tabular-nums text-app-text">
+                      {moneyDec(r.open_balance_due)}
+                    </div>
+                    <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-600/80">
+                      Balance Due
+                    </div>
+                  </td>
+                  <td className="px-4 py-2 text-center">
+                    {r.wedding_active ? (
+                      <button
+                        type="button"
+                        onClick={() => r.wedding_party_id && onOpenWeddingParty(r.wedding_party_id)}
+                        className="inline-flex items-center gap-1.5 rounded border border-app-accent/30 bg-app-accent/5 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent/10 transition-colors"
+                        title={r.wedding_party_name ?? "Active wedding"}
+                      >
+                        <Gem size={10} aria-hidden />
+                        {r.wedding_party_name ?? "Wedding"}
+                      </button>
+                    ) : r.wedding_soon ? (
+                      <span className="inline-flex items-center gap-1.5 rounded border border-app-border bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <Gem size={10} aria-hidden />
+                        Soon
                       </span>
                     ) : (
                       <span className="text-app-text-muted">—</span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-right font-mono text-xs tabular-nums text-app-text">
-                    {moneyDec(r.open_balance_due)}
-                  </td>
-                  <td className="px-4 py-3 text-center">
-                    {r.wedding_active ? (
-                      <button
-                        type="button"
-                        onClick={() => r.wedding_party_id && onOpenWeddingParty(r.wedding_party_id)}
-                        className="inline-flex items-center gap-1 rounded-full border border-app-accent/35 bg-app-accent/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent"
-                        title={r.wedding_party_name ?? "Active wedding"}
-                      >
-                        <Gem size={11} aria-hidden />
-                        {r.wedding_party_name ?? "Wedding"}
-                      </button>
-                    ) : r.wedding_soon ? (
-                      <span className="inline-flex items-center gap-1 rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        <Gem size={11} aria-hidden />
-                        Soon
+                  <td className="px-4 py-2 text-center">
+                    {r.is_vip ? (
+                      <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-900 border border-amber-200">
+                        VIP
                       </span>
                     ) : (
                       <span className="text-app-text-muted">—</span>
