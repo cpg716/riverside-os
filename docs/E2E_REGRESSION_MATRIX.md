@@ -27,7 +27,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 | **`staff-tasks.spec.ts`** | **Staff → Tasks** → **My tasks** | Migration **56**, task permissions |
 | **`podium-settings.spec.ts`** | **Settings → Integrations** Podium section | **`settings.admin`**-ish paths |
 | **`qbo-staging.spec.ts`** | QBO workspace staging shell (map / propose / approve / sync flow) | Insights/QBO permissions; may flake if data dependent |
-| **`help-center.spec.ts`** | Help from BO header + POS; search results | API; Meilisearch optional |
+| **`help-center.spec.ts`** | Help from BO header + POS; search results; **Settings → Help Center Manager** tab visibility; Automation and Search & Index admin-op request wiring | API; Meilisearch optional; manager flows require staff with **`help.manage`** |
 | **`reports-workspace.spec.ts`** | **Reports** curated library (`insights.view`); Admin **Margin pivot** tile + API wait | API + migration **53** admin; nav uses **`data-testid="sidebar-nav-reports"`** |
 | **`pwa-responsive.spec.ts`** | Narrow + tablet viewports; shell + **Insights** lazy heading | UI only |
 | **`visual-baselines.spec.ts`** | Full-page screenshots: register closed, QBO, dark inventory, customers, operations | **`settings.admin`** for Settings/dark path; **skipped in CI** unless **`E2E_RUN_VISUAL=1`** (font/layout drift) |
@@ -52,6 +52,15 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 | `GET /api/insights/margin-pivot` (seeded **Admin** staff) | **200**, JSON `rows` + `truncated` |
 | `GET /api/staff/effective-permissions` (seeded code+PIN) | **200**, non-empty `permissions` |
 | `GET /api/sessions/list-open` (staff headers) | **200** array |
+| `GET /api/help/admin/ops/status` (no staff) | **401** |
+| `POST /api/help/admin/ops/generate-manifest` (no staff) | **401** |
+| `POST /api/help/admin/ops/reindex-search` (no staff) | **401** |
+| `GET /api/help/admin/ops/status` (non-Admin staff, e.g. **`5678`**) | **403** (or skip when non-Admin seed is missing) |
+| `POST /api/help/admin/ops/generate-manifest` (non-Admin staff) | **403** (or skip when non-Admin seed is missing) |
+| `POST /api/help/admin/ops/reindex-search` (non-Admin staff) | **403** (or skip when non-Admin seed is missing) |
+| `GET /api/help/admin/ops/status` (seeded **Admin** staff) | **200**, boolean status shape (`meilisearch_configured`, `meilisearch_indexing`, `node_available`, `script_exists`, `help_docs_dir_exists`) |
+| `POST /api/help/admin/ops/generate-manifest` (seeded **Admin** staff) | **200**, terminal result shape (`ok`, `exit_code`, `stdout`, `stderr`) |
+| `POST /api/help/admin/ops/reindex-search` (seeded **Admin** staff) | **200**, status payload shape (`status`, optional `mode`) |
 
 **Not covered here (add spec or expand gates intentionally):** granular **`insights.view`** vs other keys on every **`/api/insights/*`** route, **`POST`** mutations, Counterpoint M2M, webhooks.
 
@@ -107,3 +116,4 @@ Local release gate remains **`E2E_BASE_URL=http://localhost:5173`** + **`npm run
 |------|--------|
 | 2026-04-08 | Initial matrix + **`playwright-e2e.yml`** CI; **`seed_e2e_non_admin_staff.sql`**; **`api-gates`**: best-sellers 401, margin **403** for non-Admin; visual baselines **skipped** on CI unless **`E2E_RUN_VISUAL=1`** |
 | 2026-04-08 | **`reports-workspace.spec.ts`**; matrix rows updated. **Operations** sidebar: **Dashboard** includes the former **Activity** content; deep link **`subsection=activity`** normalizes to **dashboard** (`App.tsx`). |
+| 2026-04-11 | Expanded **Help Center** coverage: `help-center.spec.ts` now includes **Help Center Manager** settings navigation and admin-op request checks (generate-manifest / reindex-search); `api-gates.spec.ts` now includes anonymous/non-admin/admin route gates and payload-shape checks for **`/api/help/admin/ops/*`**. |
