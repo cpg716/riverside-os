@@ -16,10 +16,14 @@
     "dev:client": "cd client && npm run dev",
     "dev:bridge": "wait-on -t 600000 tcp:127.0.0.1:3000 && cd counterpoint-bridge && node index.mjs",
     "lint": "cd client && npm run lint",
+    "test:e2e:list": "npm --prefix client run test:e2e -- --list",
+    "test:e2e:release": "npm --prefix client run test:e2e -- --workers=1",
+    "test:e2e:visual": "cross-env E2E_RUN_VISUAL=1 npm --prefix client run test:e2e -- --workers=1",
     "docker:db": "docker compose up -d"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
     "shadcn": "^4.2.0",
     "wait-on": "^8.0.5"
   },

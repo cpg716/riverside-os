@@ -58,6 +58,18 @@ npm run test:e2e -- --list
 E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- --workers=1
 ```
 
+### Root shortcuts (recommended for release flow)
+
+From repo root, use these shortcuts:
+
+```bash
+npm run test:e2e:release
+npm run test:e2e:visual
+```
+
+- `test:e2e:release` runs the standard release gate suite.
+- `test:e2e:visual` runs visual baselines with `E2E_RUN_VISUAL=1`.
+
 > If you see `ERR_CONNECTION_REFUSED` to `localhost:5173`, the UI server is not running.
 
 ---
@@ -169,6 +181,12 @@ git push origin main
 ## 10) Required reminder for checkout/revenue-impacting releases
 
 For any checkout/revenue/tender/tax logic changes, always run:
+
+```bash
+npm run test:e2e:release
+```
+
+Equivalent explicit form:
 
 ```bash
 cd client

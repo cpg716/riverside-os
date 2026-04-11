@@ -83,6 +83,12 @@ cd client && npm run build       # tsc --noEmit + vite build
 ## E2E tests (Playwright)
 
 ```bash
+# Root shortcuts (recommended)
+npm run test:e2e:list
+npm run test:e2e:release
+npm run test:e2e:visual
+
+# Direct client commands
 cd client
 npm run test:e2e -- --list
 E2E_BASE_URL="http://localhost:5173" npm run test:e2e
