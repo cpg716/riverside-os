@@ -184,4 +184,20 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ---
 
+## Release Validation Gate (E2E + Visual Consistency)
+
+- [ ] **Start app stack before browser E2E:** run `npm run dev` at repo root (UI + API reachable) before Playwright runs.
+- [ ] **List suite inventory:** `npm run test:e2e:list` (root) or `cd client && npm run test:e2e:list`.
+- [ ] **Required release E2E gate:** `npm run test:e2e:release` (root).
+- [ ] **Required high-risk finance/help gate (checkout/reporting/help-admin changes):** `npm run test:e2e:high-risk`.
+- [ ] **Required Phase 2 lifecycle gate (help policy persistence/revert + finance contracts):** `npm run test:e2e:phase2`.
+- [ ] **Required tender contract gate (checkout/payment behavior):** `npm run test:e2e:tender`.
+- [ ] **Visual suite policy:** run `npm run test:e2e:visual` only when intentionally validating/updating snapshots.
+- [ ] **Canonical visual source of truth:** approve screenshot updates only from a pinned canonical environment (same OS/browser/fonts/viewport assumptions).
+- [ ] **Visual deterministic defaults confirmed:** Playwright visual mode uses disabled animations + UTC timezone + en-US locale.
+- [ ] **If E2E fails with `ERR_CONNECTION_REFUSED`:** treat as environment boot issue first (UI host not running), not product regression.
+- [ ] **Cross-reference release runbook:** validate against `docs/RELEASE_QA_CHECKLIST.md` before final sign-off.
+
+---
+
 <!-- Add new launch areas above this line or as new ## sections. -->
