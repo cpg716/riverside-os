@@ -197,7 +197,7 @@ pub fn build_receipt_zpl(
         let status_label = match it.fulfillment {
             DbFulfillmentType::Takeaway => "*** TAKEN HOME TODAY ***",
             DbFulfillmentType::WeddingOrder => "--- WEDDING ORDER ---",
-            DbFulfillmentType::SpecialOrder | DbFulfillmentType::Custom => "--- SPECIAL ORDER ---",
+            DbFulfillmentType::SpecialOrder | DbFulfillmentType::Custom => "--- ORDER ---",
             DbFulfillmentType::Layaway => "--- LAYAWAY ---",
         };
         if let Some(orig) = it.original_unit_price {

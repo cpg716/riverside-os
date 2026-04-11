@@ -7,7 +7,23 @@ import React, {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { createPortal } from "react-dom";
-import { Gem, Search, Upload } from "lucide-react";
+import { 
+  Gem, 
+  Search, 
+  Upload, 
+  Users, 
+  Wallet, 
+  Heart, 
+  CheckCircle2, 
+  Truck, 
+  ShoppingBag, 
+  MessageSquare as _MessageSquare,
+  ChevronRight,
+  UserPlus,
+  Activity,
+  Clock,
+  X as CloseIcon
+} from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
 import CustomerRelationshipHubDrawer from "./CustomerRelationshipHubDrawer";
 import DuplicateReviewQueueSection from "./DuplicateReviewQueueSection";
@@ -18,14 +34,23 @@ import FloatingBulkBar from "../ui/FloatingBulkBar";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import PromptModal from "../ui/PromptModal";
+ import _PromptModal from "../ui/PromptModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { parseCsv } from "../../lib/parseCsv";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import WeddingPartySearchInput from "../ui/WeddingPartySearchInput";
+// Redundant CloseIcon import removed
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+
+interface CustomerPipelineStats {
+  total_customers: number;
+  vip_customers: number;
+  with_balance: number;
+  upcoming_weddings: number;
+}
 
 function downloadLightspeedImportIssuesCsv(
   issues: { row_index: number; customer_code: string | null; issue: string }[],
@@ -75,6 +100,9 @@ interface CustomerBrowseRow {
   phone: string | null;
   is_vip: boolean;
   open_balance_due: string;
+  lifetime_sales: string;
+  open_orders_count: number;
+  active_shipment_status: string | null;
   wedding_soon: boolean;
   wedding_active: boolean;
   wedding_party_name: string | null;
@@ -125,7 +153,7 @@ export default function CustomersWorkspace({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const [q, setQ] = useState("");
+  const [_q, _setQ] = useState("");
   const [showAddDrawer, setShowAddDrawer] = useState(false);
   const { toast } = useToast();
   const [showBulkWeddingPrompt, setShowBulkWeddingPrompt] = useState(false);
@@ -251,18 +279,21 @@ export default function CustomersWorkspace({
     setShowAddDrawer(false);
     if (activeSection === "add") onNavigateSubSection?.("all");
   }, [activeSection, onNavigateSubSection]);
-  const [qDebounced, setQDebounced] = useState("");
+  const [_qDebounced, setQDebounced] = useState("");
   const [vipOnly, setVipOnly] = useState(false);
   const [balanceDueOnly, setBalanceDueOnly] = useState(false);
   const [weddingSoonOnly, setWeddingSoonOnly] = useState(false);
   const [rows, setRows] = useState<CustomerBrowseRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [weddingPartyQuery, setWeddingPartyQuery] = useState("");
+  const [_weddingPartyQuery, _setWeddingPartyQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [pipelineStats, setPipelineStats] = useState<CustomerPipelineStats | null>(
+    null,
+  );
   const [picked, setPicked] = useState<Customer | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
-  const [tableFocus, setTableFocus] = useState(false);
+  const [_tableFocus, _setTableFocus] = useState(false);
   const [customerGroups, setCustomerGroups] = useState<
     { id: string; code: string; label: string }[]
   >([]);
@@ -294,19 +325,19 @@ export default function CustomersWorkspace({
   });
 
   useEffect(() => {
-    const t = setTimeout(() => setQDebounced(q.trim()), 280);
+    const t = setTimeout(() => setQDebounced(_q.trim()), 280);
     return () => clearTimeout(t);
-  }, [q]);
+  }, [_q]);
 
   const buildBrowseParams = useCallback(
     (offset: number) => {
       const p = new URLSearchParams();
-      if (qDebounced.length > 0) p.set("q", qDebounced);
+      if (_qDebounced.length > 0) p.set("q", _qDebounced);
       if (vipOnly) p.set("vip_only", "true");
       if (balanceDueOnly) p.set("balance_due_only", "true");
       if (weddingSoonOnly) p.set("wedding_soon_only", "true");
-      if (weddingPartyQuery.trim().length > 0) {
-        p.set("wedding_party_q", weddingPartyQuery.trim());
+      if (_weddingPartyQuery.trim().length > 0) {
+        p.set("wedding_party_q", _weddingPartyQuery.trim());
       }
       if (groupFilterCode.trim().length > 0) {
         p.set("group_code", groupFilterCode.trim());
@@ -317,11 +348,11 @@ export default function CustomersWorkspace({
       return p;
     },
     [
-      qDebounced,
+      _qDebounced,
       vipOnly,
       balanceDueOnly,
       weddingSoonOnly,
-      weddingPartyQuery,
+      _weddingPartyQuery,
       groupFilterCode,
     ],
   );
@@ -341,19 +372,19 @@ export default function CustomersWorkspace({
   const browseFiltersKey = useMemo(
     () =>
       JSON.stringify({
-        q: qDebounced,
+        q: _qDebounced,
         vipOnly,
         balanceDueOnly,
         weddingSoonOnly,
-        wp: weddingPartyQuery.trim(),
+        wp: _weddingPartyQuery.trim(),
         group: groupFilterCode.trim(),
       }),
     [
-      qDebounced,
+      _qDebounced,
       vipOnly,
       balanceDueOnly,
       weddingSoonOnly,
-      weddingPartyQuery,
+      _weddingPartyQuery,
       groupFilterCode,
     ],
   );
@@ -404,7 +435,25 @@ export default function CustomersWorkspace({
 
   const refresh = useCallback(() => {
     void loadFirstPage(false);
+    void fetchPipelineStats();
   }, [loadFirstPage]);
+
+  const fetchPipelineStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/pipeline-stats`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as CustomerPipelineStats;
+      setPipelineStats(data);
+    } catch {
+      /* ignore */
+    }
+  }, [apiAuth]);
+
+  useEffect(() => {
+    void fetchPipelineStats();
+  }, [fetchPipelineStats]);
 
   const loadMore = useCallback(async () => {
     if (!hasMore || loadingMore || loading) return;
@@ -663,7 +712,7 @@ export default function CustomersWorkspace({
   };
 
   const onTableKeyDown = (e: ReactKeyboardEvent) => {
-    if (!tableFocus) return;
+    if (!_tableFocus) return;
     if (e.key === "Enter" && selected.size > 0) {
       const first = rows.find((r) => selected.has(r.id));
       if (first) {
@@ -783,271 +832,337 @@ export default function CustomersWorkspace({
   }
 
   return (
-    <div className="ui-page">
-      <div className="flex items-center justify-between px-1 pb-2">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">Customers</p>
-          <h2 className="text-2xl font-black tracking-tight text-app-text">All Customers</h2>
+    <div className="ui-page p-0 bg-transparent flex flex-col h-full overflow-hidden">
+      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+        {/* Pipeline Strip */}
+        <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+          {[
+            { label: "Total CRM", count: pipelineStats?.total_customers, icon: Users, color: "text-blue-500", bg: "bg-blue-500/10", border: "border-blue-500/20" },
+            { label: "VIP Premium", count: pipelineStats?.vip_customers, icon: Gem, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20" },
+            { label: "Balance Recovery", count: pipelineStats?.with_balance, icon: Wallet, color: "text-rose-500", bg: "bg-rose-500/10", border: "border-rose-500/20" },
+            { label: "Occasions (30d)", count: pipelineStats?.upcoming_weddings, icon: Heart, color: "text-pink-500", bg: "bg-pink-500/10", border: "border-pink-500/20" },
+          ].map((stat, i) => (
+            <div key={i} className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} ${stat.bg} p-4 shadow-sm backdrop-blur-md`}>
+              <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/50 shadow-sm dark:bg-black/20`}>
+                <stat.icon size={24} className={stat.color} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">{stat.label}</p>
+                <p className="text-2xl font-black tabular-nums text-app-text">{stat.count ?? "—"}</p>
+              </div>
+            </div>
+          ))}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex gap-3 text-xs text-app-text-muted">
-            <span className="rounded-xl border border-app-border bg-[color-mix(in_srgb,var(--app-accent)_10%,var(--app-surface-2))] px-3 py-1 font-semibold text-app-text">
-              {rows.length} loaded
-              {hasMore ? " · more available" : ""}
-            </span>
-            <span className="rounded-xl border border-app-border bg-[color-mix(in_srgb,var(--app-accent-2)_14%,var(--app-surface-2))] px-3 py-1 font-semibold text-app-text">
-              {rows.filter((r) => r.is_vip).length} VIP
-            </span>
-            <span className="rounded-xl border border-app-border bg-[color-mix(in_srgb,#f0b978_16%,var(--app-surface-2))] px-3 py-1 font-semibold text-app-text">
-              {rows.filter((r) => r.wedding_soon).length} weddings soon
-            </span>
-          </div>
-        </div>
-      </div>
 
-      <section className="ui-card p-5">
-        <div className="ui-toolbar bg-[color-mix(in_srgb,var(--app-accent-2)_12%,var(--app-surface-2))]">
-          <div className="relative min-w-[200px] flex-1">
-            <Search
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
-              size={18}
-              aria-hidden
-            />
-            <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search name, code, company, phone, email…"
-              className="ui-input w-full py-3 pl-10 pr-4 text-sm font-medium"
-            />
-          </div>
-          <input
-            value={weddingPartyQuery}
-            onChange={(e) => setWeddingPartyQuery(e.target.value)}
-            placeholder="Filter by wedding party..."
-            className="ui-input w-[260px] py-3 text-sm"
-          />
-          <button
-            type="button"
-            onClick={() => setShowAddDrawer(true)}
-            className="ui-btn-primary px-5 py-3"
-          >
-            + Add Customer
-          </button>
-          <input
-            ref={importFileRef}
-            type="file"
-            accept=".csv,text/csv"
-            className="hidden"
-            onChange={onImportFileChange}
-          />
-          <button
-            type="button"
-            onClick={onPickImportFile}
-            className="ui-btn-secondary inline-flex items-center gap-2 px-5 py-3"
-          >
-            <Upload size={16} aria-hidden />
-            Import Lightspeed CSV
-          </button>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            className="ui-btn-secondary px-5 py-3"
-          >
-            {loading ? "Loading…" : "Refresh"}
-          </button>
-        </div>
-        <div className="mt-3 ui-filter-row">
-          <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-            Filters
-          </span>
-          {filterChip(vipOnly, "VIP only", () => setVipOnly((v) => !v), () =>
-            setVipOnly(false),
-          )}
-          {filterChip(
-            balanceDueOnly,
-            "Balance due",
-            () => setBalanceDueOnly((v) => !v),
-            () => setBalanceDueOnly(false),
-          )}
-          {filterChip(
-            weddingSoonOnly,
-            "Wedding ≤30d",
-            () => setWeddingSoonOnly((v) => !v),
-            () => setWeddingSoonOnly(false),
-          )}
-          <label className="ml-1 flex flex-wrap items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Group
-            <select
-              value={groupFilterCode}
-              onChange={(e) => setGroupFilterCode(e.target.value)}
-              className="ui-input max-w-[200px] py-1.5 text-xs font-semibold normal-case text-app-text"
-            >
-              <option value="">All</option>
-              {customerGroups.map((g) => (
-                <option key={g.id} value={g.code}>
-                  {g.label}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-      </section>
-
-      <section className="ui-card flex min-h-0 flex-1 flex-col p-5">
-        <div className="mb-3 shrink-0">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-            Customer list subsection
-          </p>
-        </div>
-        <div
-          tabIndex={0}
-          role="region"
-          aria-label="Customer list"
-          onFocus={() => setTableFocus(true)}
-          onBlur={() => setTableFocus(false)}
-          onKeyDown={onTableKeyDown}
-          className="ui-table-shell min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto overscroll-x-contain outline-none ring-app-border focus-visible:ring-2"
-        >
-          <table className="w-full min-w-[640px] border-collapse text-left text-sm md:min-w-[720px] xl:min-w-[820px]">
-            <thead className="sticky top-0 z-[1] bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted backdrop-blur-sm">
-              <tr>
-                <th className="w-10 px-3 py-3">
-                  <input
-                    type="checkbox"
-                    checked={
-                      rows.length > 0 && selected.size === rows.length
-                    }
-                    onChange={toggleSelectAll}
-                    aria-label="Select all"
-                    className="h-4 w-4 rounded border-app-border text-[var(--app-accent)]"
-                  />
-                </th>
-                <th className="px-4 py-2">Customer & ID</th>
-                <th className="px-4 py-2">Phone / Contact</th>
-                <th className="px-4 py-2 text-right">Balance / Sales</th>
-                <th className="px-4 py-2 text-center">Wedding Party</th>
-                <th className="w-10 px-3 py-2">VIP</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr
-                  key={r.id}
-                  className="border-t border-app-border transition-colors hover:bg-app-surface-2"
-                >
-                  <td className="px-3 py-3">
-                    <input
-                      type="checkbox"
-                      checked={selected.has(r.id)}
-                      onChange={() => toggleSelect(r.id)}
-                      className="h-4 w-4 rounded border-app-border text-[var(--app-accent)]"
-                      aria-label={`Select ${r.first_name} ${r.last_name}`}
-                    />
-                  </td>
-                  <td className="px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setHubInitialTab(null);
-                        setPicked(rowToCustomer(r));
-                      }}
-                      className="group flex flex-col text-left transition-colors"
-                    >
-                      <span className="text-base font-black tracking-tight text-app-text group-hover:text-[var(--app-accent)]">
-                        {r.first_name} {r.last_name}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
+            {/* Toolbar */}
+            <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2/30 px-5 py-4 backdrop-blur-xl">
+              <div className="relative group min-w-[300px] flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
+                <input
+                  value={_q}
+                  onChange={(e) => _setQ(e.target.value)}
+                  placeholder="Search name, code, company, contact..."
+                  className="ui-input w-full pl-10 text-sm font-bold bg-white/50 backdrop-blur-sm border-app-border focus:border-app-accent shadow-sm"
+                />
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <div className="relative group w-64">
+                  {_weddingPartyQuery ? (
+                    <div className="flex h-9 items-center justify-between rounded-xl border border-app-accent bg-app-accent/5 px-3">
+                      <span className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent">
+                        Party: {_weddingPartyQuery}
                       </span>
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-[10px] uppercase tracking-widest text-app-text-muted">
-                          {r.customer_code}
-                        </span>
-                        {r.company_name ? (
-                          <>
-                            <span className="text-app-text-muted/30">|</span>
-                            <span className="text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
-                              {r.company_name}
-                            </span>
-                          </>
-                        ) : null}
-                      </div>
-                    </button>
-                  </td>
-                  <td className="px-4 py-2">
-                    <span className="block text-xs font-semibold text-app-text">
-                      {r.phone || "—"}
-                    </span>
-                    {r.email ? (
-                      <span className="block text-[10px] lowercase text-app-text-muted">
-                        {r.email}
-                      </span>
-                    ) : null}
-                  </td>
-                  <td className="px-4 py-2 text-right">
-                    <div className="font-mono text-sm font-black tabular-nums text-app-text">
-                      {moneyDec(r.open_balance_due)}
-                    </div>
-                    <div className="text-[9px] font-bold uppercase tracking-widest text-emerald-600/80">
-                      Balance Due
-                    </div>
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    {r.wedding_active ? (
                       <button
                         type="button"
-                        onClick={() => r.wedding_party_id && onOpenWeddingParty(r.wedding_party_id)}
-                        className="inline-flex items-center gap-1.5 rounded border border-app-accent/30 bg-app-accent/5 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent/10 transition-colors"
-                        title={r.wedding_party_name ?? "Active wedding"}
+                        onClick={() => _setWeddingPartyQuery("")}
+                        className="ml-2 text-app-accent hover:text-black"
                       >
-                        <Gem size={10} aria-hidden />
-                        {r.wedding_party_name ?? "Wedding"}
+                        <CloseIcon size={12} />
                       </button>
-                    ) : r.wedding_soon ? (
-                      <span className="inline-flex items-center gap-1.5 rounded border border-app-border bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        <Gem size={10} aria-hidden />
-                        Soon
-                      </span>
-                    ) : (
-                      <span className="text-app-text-muted">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-2 text-center">
-                    {r.is_vip ? (
-                      <span className="inline-block rounded bg-amber-100 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-900 border border-amber-200">
-                        VIP
-                      </span>
-                    ) : (
-                      <span className="text-app-text-muted">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {hasMore ? (
-            <div className="flex flex-col items-center gap-2 border-t border-app-border py-4">
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={loadingMore || loading}
-                className="ui-btn-secondary px-6 py-2 text-xs font-black uppercase tracking-widest"
-              >
-                {loadingMore ? "Loading…" : "Load more customers"}
-              </button>
-              <p className="text-center text-[10px] text-app-text-muted">
-                Same filters and sort; each request loads up to {BROWSE_PAGE_SIZE} additional rows.
-              </p>
-            </div>
-          ) : null}
-          {!loading && rows.length === 0 ? (
-            <p className="p-6 text-sm text-app-text-muted">No customers match.</p>
-          ) : null}
-        </div>
+                    </div>
+                  ) : (
+                    <WeddingPartySearchInput
+                      placeholder="Filter by party…"
+                       onSelect={(p) => _setWeddingPartyQuery(p.party_name || p.groom_name)}
+                    />
+                  )}
+                </div>
+                
+                <button
+                  type="button"
+                  onClick={() => setShowAddDrawer(true)}
+                  className="flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-xs font-black uppercase tracking-tight text-white shadow-lg shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95"
+                >
+                  <UserPlus size={16} />
+                  Add Customer
+                </button>
+                
+                <button
+                  type="button"
+                  onClick={onPickImportFile}
+                  className="flex items-center justify-center rounded-xl bg-app-surface-2 p-2.5 text-app-text-muted border border-app-border hover:bg-app-surface transition-colors"
+                  title="Import CSV"
+                >
+                  <Upload size={18} />
+                </button>
+                <input
+                  type="file"
+                  ref={importFileRef}
+                  className="hidden"
+                  accept=".csv"
+                  onChange={onImportFileChange}
+                />
 
-        <p className="mt-3 shrink-0 text-[10px] text-app-text-muted">
-          Combine filters for segments (e.g. balance due + wedding in the next
-          30 days). Click the table area (or tab to it), then press Enter to open
-          the hub for the first selected row.
-        </p>
-      </section>
+                <button
+                  type="button"
+                  onClick={() => void refresh()}
+                  className={`flex items-center justify-center rounded-xl bg-app-surface-2 p-2.5 text-app-text-muted border border-app-border hover:bg-app-surface transition-colors ${loading ? "animate-spin" : ""}`}
+                >
+                  <Activity size={18} />
+                </button>
+              </div>
+            </div>
+
+            {/* Filter Row */}
+            <div className="flex shrink-0 items-center justify-between border-b border-app-border/50 bg-app-surface/40 px-5 py-2.5 backdrop-blur-sm">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">Quick Filters</span>
+                {filterChip(vipOnly, "VIP only", () => setVipOnly((v) => !v), () => setVipOnly(false))}
+                {filterChip(balanceDueOnly, "Balance due", () => setBalanceDueOnly((v) => !v), () => setBalanceDueOnly(false))}
+                {filterChip(weddingSoonOnly, "Upcoming Wedding", () => setWeddingSoonOnly((v) => !v), () => setWeddingSoonOnly(false))}
+                
+                <div className="h-4 w-[1px] bg-app-border/40 mx-2" />
+                
+                <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-80">
+                  Segment
+                  <select
+                    value={groupFilterCode}
+                    onChange={(e) => setGroupFilterCode(e.target.value)}
+                    className="ui-input max-w-[140px] appearance-none py-1 text-xs font-black bg-transparent border-none text-app-accent underline underline-offset-4"
+                  >
+                    <option value="">All Groups</option>
+                    {customerGroups.map((g) => (
+                      <option key={g.id} value={g.code}>{g.label}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40">
+                {rows.length} records detected
+              </div>
+            </div>
+
+            {/* Main Table Content */}
+            <div
+              tabIndex={0}
+              role="region"
+              aria-label="Customer CRM Grid"
+               onFocus={() => _setTableFocus(true)}
+              onBlur={() => _setTableFocus(false)}
+              onKeyDown={onTableKeyDown}
+              className="ui-table-shell min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto outline-none"
+            >
+              <table className="w-full border-separate border-spacing-0 text-left text-sm">
+                <thead className="sticky top-0 z-10">
+                  <tr className="bg-app-surface-2/95 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors backdrop-blur-xl">
+                    <th className="w-12 px-5 py-4 border-b border-app-border">
+                      <input
+                        type="checkbox"
+                        checked={rows.length > 0 && selected.size === rows.length}
+                        onChange={toggleSelectAll}
+                        className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
+                      />
+                    </th>
+                    <th className="px-5 py-4 border-b border-app-border">Customer & ID</th>
+                    <th className="px-5 py-4 border-b border-app-border">Contact Details</th>
+                    <th className="px-5 py-4 border-b border-app-border text-right">Open Balance</th>
+                    <th className="px-5 py-4 border-b border-app-border text-right">Lifetime Sales</th>
+                    <th className="px-5 py-4 border-b border-app-border text-center">Wedding Party</th>
+                    <th className="px-5 py-4 border-b border-app-border text-center">Stats</th>
+                    <th className="w-16 px-5 py-4 border-b border-app-border text-center">VIP</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-app-border/30">
+                  {rows.map((r) => {
+                    const hasBalance = parseMoneyToCents(r.open_balance_due) > 0;
+                    return (
+                      <tr
+                        key={r.id}
+                        className={`group transition-all hover:bg-app-accent/[0.03] ${selected.has(r.id) ? "bg-app-accent/[0.04]" : ""}`}
+                      >
+                        <td className="px-5 py-4 align-middle">
+                          <input
+                            type="checkbox"
+                            checked={selected.has(r.id)}
+                            onChange={() => toggleSelect(r.id)}
+                            className="h-4 w-4 rounded border-app-border text-app-accent focus:ring-0"
+                          />
+                        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setHubInitialTab(null);
+                              setPicked(rowToCustomer(r));
+                            }}
+                            className="flex flex-col text-left group-hover:translate-x-1 transition-transform"
+                          >
+                            <span className="text-sm font-black tracking-tight text-app-text group-hover:text-app-accent">
+                              {r.first_name} {r.last_name}
+                            </span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className="font-mono text-[9px] uppercase tracking-widest text-app-text-muted/60">
+                                {r.customer_code}
+                              </span>
+                              {r.company_name && (
+                                <>
+                                  <span className="h-1 w-1 rounded-full bg-app-border" />
+                                  <span className="text-[9px] font-black uppercase tracking-tight text-app-accent/70">
+                                    {r.company_name}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </button>
+                        </td>
+                        <td className="px-5 py-4 align-middle">
+                          <div className="flex flex-col">
+                            <span className="text-xs font-bold text-app-text/90 flex items-center gap-1.5">
+                              {r.phone || <CheckCircle2 size={12} className="opacity-10" />}
+                              {r.phone}
+                            </span>
+                            <span className="text-[10px] font-medium text-app-text-muted/70 lowercase tracking-tight">
+                              {r.email || "No email"}
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 align-middle text-right">
+                          <div className={`font-mono text-sm font-black tabular-nums transition-colors ${hasBalance ? "text-rose-600 dark:text-rose-400" : "text-app-text-muted/40"}`}>
+                            {moneyDec(r.open_balance_due)}
+                          </div>
+                          <div className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">
+                            Balance Due
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 align-middle text-right">
+                          <div className="font-mono text-sm font-black tabular-nums text-emerald-600 dark:text-emerald-400">
+                            {moneyDec(r.lifetime_sales)}
+                          </div>
+                          <div className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">
+                            LTV Sales
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 align-middle text-center">
+                          {r.wedding_active ? (
+                            <button
+                              type="button"
+                              onClick={() => r.wedding_party_id && onOpenWeddingParty(r.wedding_party_id)}
+                              className="inline-flex items-center gap-2 rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/20 transition-all shadow-sm active:scale-95"
+                            >
+                              <Heart size={10} fill="currentColor" />
+                              {r.wedding_party_name || "Active Party"}
+                            </button>
+                          ) : r.wedding_soon ? (
+                            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-amber-600">
+                              <Clock size={10} />
+                              Party Soon
+                            </div>
+                          ) : (
+                            <span className="text-app-text-muted/20">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-4 align-middle text-center">
+                          <div className="flex items-center justify-center gap-3">
+                            <div className="flex flex-col items-center group/ord">
+                              <ShoppingBag 
+                                size={14} 
+                                className={`transition-colors ${r.open_orders_count > 0 ? "text-app-accent" : "text-app-text-muted/20"}`} 
+                              />
+                              <span className="text-[9px] font-black tabular-nums opacity-60">
+                                {r.open_orders_count > 0 ? r.open_orders_count : 0}
+                              </span>
+                            </div>
+                            <div className="h-6 w-[1px] bg-app-border/20" />
+                            <div className="flex flex-col items-center">
+                              <Truck 
+                                size={14} 
+                                className={`transition-colors ${r.active_shipment_status ? "text-blue-500" : "text-app-text-muted/20"}`}
+                              />
+                              <span className="text-[9px] font-black uppercase tracking-tighter opacity-60">
+                                {r.active_shipment_status ? r.active_shipment_status.replace(/_/g, " ") : "Ship"}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-5 py-4 align-middle text-center">
+                          {r.is_vip ? (
+                            <div className="flex items-center justify-center">
+                              <div className="relative">
+                                <Gem size={20} className="text-amber-500 drop-shadow-sm animate-pulse" />
+                                <div className="absolute inset-0 bg-amber-500/20 blur-lg rounded-full" />
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-app-text-muted/10">—</span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              
+              {hasMore && (
+                <div className="flex flex-col items-center justify-center border-t border-app-border/50 py-8 bg-app-surface-2/10">
+                  <button
+                    type="button"
+                    onClick={() => void loadMore()}
+                    disabled={loadingMore || loading}
+                    className="group relative flex items-center gap-3 rounded-2xl bg-app-surface border border-app-border px-8 py-3 text-xs font-black uppercase tracking-[0.2em] text-app-text shadow-lg transition-all hover:-translate-y-1 active:translate-y-0"
+                  >
+                    {loadingMore ? "Synchronizing..." : "Load more records"}
+                    <ChevronRight size={16} className="group-hover:translate-x-1 transition-transform" />
+                  </button>
+                  <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-app-text-muted/60">
+                    Showing {rows.length} of {pipelineStats?.total_customers ?? "thousands"}
+                  </p>
+                </div>
+              )}
+              
+              {!loading && rows.length === 0 && (
+                <div className="flex flex-col items-center justify-center p-20 text-center">
+                  <div className="mb-4 rounded-3xl bg-app-surface-2 p-6 border border-dashed border-app-border">
+                    <Users size={48} className="text-app-text-muted opacity-20" />
+                  </div>
+                  <h3 className="text-lg font-black text-app-text">No matches found</h3>
+                  <p className="text-sm text-app-text-muted max-w-xs mx-auto">
+                    Try adjusting your filters or search terms for a broader overview of the CRM.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="mt-4 flex items-center justify-between px-2 shrink-0">
+             <div className="flex items-center gap-6">
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Live Sync Enabled</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="h-2 w-2 rounded-full bg-app-accent shadow-sm shadow-app-accent/50" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">High Density Grid</span>
+                </div>
+             </div>
+             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted/40">
+               Riverside OS CRM — Performance-First Architecture
+             </p>
+          </div>
+        </div>
+   </div>
 
       <FloatingBulkBar
         count={selected.size}
@@ -1234,15 +1349,54 @@ export default function CustomersWorkspace({
         }}
       />
 
-      <PromptModal
-        isOpen={showBulkWeddingPrompt}
-        onClose={() => setShowBulkWeddingPrompt(false)}
-        onSubmit={executeBulkAddToWedding}
-        title="Add to Wedding"
-        message={`Assign ${selected.size} selected customers to a wedding party. Enter the ID below:`}
-        placeholder="Enter Wedding Party ID (UUID)"
-        confirmLabel="Assign Members"
-      />
+      {showBulkWeddingPrompt && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowBulkWeddingPrompt(false)}
+          />
+          <div className="relative w-full max-w-md overflow-hidden rounded-[28px] border border-app-border bg-app-surface p-6 shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-200">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent">
+                <Users size={20} />
+              </div>
+              <h2 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Bulk Wedding Assignment
+              </h2>
+            </div>
+            
+            <p className="mb-6 text-xs text-app-text-muted">
+              Select the wedding party to assign these **{selected.size}** customers to. 
+              Searching by groom name or party tag is recommended.
+            </p>
+
+            <div className="space-y-4">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">
+                Target Wedding Party
+                <WeddingPartySearchInput
+                  className="mt-1"
+                  onSelect={(p) => {
+                    void executeBulkAddToWedding(p.id);
+                    setShowBulkWeddingPrompt(false);
+                  }}
+                  placeholder="Search by groom name..."
+                />
+              </label>
+
+              <div className="mt-8 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkWeddingPrompt(false)}
+                  className="ui-btn-secondary px-6 py-2 text-[10px] font-black uppercase"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <ConfirmationModal
         isOpen={importConfirmOpen}

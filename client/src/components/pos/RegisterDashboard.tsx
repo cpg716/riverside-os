@@ -25,7 +25,6 @@ import { parseNotificationBundle } from "../../lib/notificationBundle";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
-import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -220,7 +219,7 @@ export default function RegisterDashboard({
     }
   }, [apiAuth, hasPermission, permissionsLoaded, sessionId]);
 
-  const loadMetrics = useCallback(async () => {
+  const _loadMetrics = useCallback(async () => {
     if (!permissionsLoaded) return;
     if (staffRole !== "salesperson" && staffRole !== "sales_support") {
       setMetrics(null);
@@ -248,7 +247,10 @@ export default function RegisterDashboard({
 
   useEffect(() => {
     void loadTasks();
-  }, [loadTasks, refreshSignal]);
+    void _loadMetrics();
+    void loadXReport();
+    void loadWeather();
+  }, [loadTasks, _loadMetrics, loadXReport, loadWeather, refreshSignal]);
 
   useEffect(() => {
     void loadNotifications();

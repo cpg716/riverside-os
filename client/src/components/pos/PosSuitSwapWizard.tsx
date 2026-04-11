@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Shirt, X } from "lucide-react";
+import { Shirt, X, Loader2 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
+import OrderSearchInput from "../ui/OrderSearchInput";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -45,8 +46,7 @@ export default function PosSuitSwapWizard({
   useShellBackdropLayer(open);
 
   const [step, setStep] = useState<"load" | "swap" | "done">("load");
-  const [orderIdInput, setOrderIdInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [_loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<OrderDetailLite | null>(null);
   const [selectedLineId, setSelectedLineId] = useState<string | null>(null);
   const [replacementSku, setReplacementSku] = useState("");
@@ -57,7 +57,6 @@ export default function PosSuitSwapWizard({
 
   const reset = useCallback(() => {
     setStep("load");
-    setOrderIdInput("");
     setDetail(null);
     setSelectedLineId(null);
     setReplacementSku("");
@@ -68,12 +67,7 @@ export default function PosSuitSwapWizard({
     if (!open) reset();
   }, [open, reset]);
 
-  const loadOrder = async () => {
-    const id = orderIdInput.trim();
-    if (!id) {
-      toast("Enter the order ID", "info");
-      return;
-    }
+  const loadOrder = async (id: string) => {
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/orders/${encodeURIComponent(id)}?${sessionQs}`, {
@@ -186,24 +180,21 @@ export default function PosSuitSwapWizard({
           {step === "load" && (
             <div className="space-y-4">
               <p className="text-xs text-app-text-muted">
-                Load an order that already has a payment on this open register session. Inventory moves apply
-                for fulfilled takeaway and fulfilled special/wedding lines per server rules.
+                Search for an order that already has a payment on this open register session.
               </p>
-              <input
-                className="ui-input w-full font-mono text-sm"
-                value={orderIdInput}
-                onChange={(e) => setOrderIdInput(e.target.value)}
-                placeholder="Order UUID"
-              />
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void loadOrder()}
-                className="ui-btn-primary flex w-full items-center justify-center gap-2 py-3"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Load order
-              </button>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                 <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                   Select Order
+                 </p>
+                 <OrderSearchInput 
+                    autoFocus 
+                    onSelect={(o) => void loadOrder(o.order_id)} 
+                    disabled={_loading}
+                 />
+              </div>
+              <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
+                Inventory moves apply for fulfilled takeaway and fulfilled special/wedding lines per server rules.
+              </p>
             </div>
           )}
 

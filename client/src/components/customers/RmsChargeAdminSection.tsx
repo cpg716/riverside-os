@@ -3,6 +3,8 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { useToast } from "../ui/ToastProviderLogic";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
+import { X as CloseIcon } from "lucide-react";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -155,15 +157,30 @@ export default function RmsChargeAdminSection({
             <option value="payment">Payment (cash/check)</option>
           </select>
         </label>
-        <label className="flex min-w-[200px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          Customer ID
-          <input
-            value={customerId}
-            onChange={(e) => setCustomerId(e.target.value)}
-            placeholder="UUID (optional)"
-            className="ui-input py-2 text-xs font-mono font-semibold normal-case"
-          />
-        </label>
+        <div className="flex min-w-[240px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Customer Filter
+          {customerId ? (
+            <div className="flex h-[38px] items-center justify-between rounded-xl border border-app-accent bg-app-accent/5 px-3">
+              <span className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent">
+                ID: {customerId.slice(0, 8)}...
+              </span>
+              <button
+                type="button"
+                onClick={() => setCustomerId("")}
+                className="ml-2 text-app-accent hover:text-black"
+                aria-label="Clear customer filter"
+              >
+                <CloseIcon size={14} />
+              </button>
+            </div>
+          ) : (
+            <CustomerSearchInput
+              onSelect={(c) => setCustomerId(c.id)}
+              placeholder="Filter by name or code…"
+              className="py-0.5"
+            />
+          )}
+        </div>
         <label className="flex min-w-[200px] flex-[2] flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
           Search
           <input

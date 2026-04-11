@@ -2,6 +2,19 @@ import { useCallback, useEffect, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
+import { 
+  Ticket, 
+  Clock3, 
+  BarChart3, 
+  Plus, 
+  Zap, 
+  Calendar, 
+  ArrowRight,
+  ShieldCheck,
+  CheckCircle2,
+  AlertCircle,
+  Settings2
+} from "lucide-react";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -46,22 +59,27 @@ export default function DiscountEventsPanel() {
   const [rows, setRows] = useState<EventRow[]>([]);
   const [sel, setSel] = useState<string | null>(null);
   const [vars, setVars] = useState<VarRow[]>([]);
+  
+  // Create / Edit Fields
   const [name, setName] = useState("");
   const [receiptLabel, setReceiptLabel] = useState("");
   const [starts, setStarts] = useState("");
   const [ends, setEnds] = useState("");
   const [pct, setPct] = useState("25");
   const [scopeType, setScopeType] = useState<"variants" | "category" | "vendor">("variants");
-  const [scopeCategoryId, setScopeCategoryId] = useState("");
-  const [scopeVendorId, setScopeVendorId] = useState("");
+  const [scopeCategoryId] = useState("");
+  const [scopeVendorId] = useState("");
+  
   const [categories, setCategories] = useState<{ id: string; name: string }[]>([]);
   const [promoVendors, setPromoVendors] = useState<{ id: string; name: string }[]>([]);
+  
   const [editScopeType, setEditScopeType] = useState<"variants" | "category" | "vendor">("variants");
   const [editCategoryId, setEditCategoryId] = useState("");
   const [editVendorId, setEditVendorId] = useState("");
+  
   const [usageFrom, setUsageFrom] = useState(() => {
     const d = new Date();
-    d.setDate(d.getDate() - 89);
+    d.setDate(d.getDate() - 30);
     return ymdLocal(d);
   });
   const [usageTo, setUsageTo] = useState(() => ymdLocal(new Date()));
@@ -95,17 +113,17 @@ export default function DiscountEventsPanel() {
     if (!canView) return;
     void (async () => {
       const [cRes, vRes] = await Promise.all([
-        fetch(`${baseUrl}/api/categories/`, { headers: backofficeHeaders() }),
-        fetch(`${baseUrl}/api/vendors/`, { headers: backofficeHeaders() }),
+        fetch(`${baseUrl}/api/categories`, { headers: backofficeHeaders() }),
+        fetch(`${baseUrl}/api/vendors`, { headers: backofficeHeaders() }),
       ]);
       if (cRes.ok) {
         const j = (await cRes.json()) as { id: string; name: string }[];
         setCategories(Array.isArray(j) ? j : []);
-      } else setCategories([]);
+      }
       if (vRes.ok) {
         const j = (await vRes.json()) as { id: string; name: string }[];
         setPromoVendors(Array.isArray(j) ? j : []);
-      } else setPromoVendors([]);
+      }
     })();
   }, [canView, backofficeHeaders]);
 
@@ -123,18 +141,27 @@ export default function DiscountEventsPanel() {
     const p = new URLSearchParams();
     if (usageFrom.trim()) p.set("from", usageFrom.trim());
     if (usageTo.trim()) p.set("to", usageTo.trim());
-    const q = p.toString();
     const res = await fetch(
-      `${baseUrl}/api/discount-events/usage-report${q ? `?${q}` : ""}`,
+      `${baseUrl}/api/discount-events/usage-report?${p.toString()}`,
       { headers: backofficeHeaders() },
     );
     if (!res.ok) {
       setUsageRows([]);
-      toast("Could not load usage report", "error");
+      toast("Analytical capture failed", "error");
       return;
     }
-    setUsageRows((await res.json()) as typeof usageRows);
+    setUsageRows((await res.json()) as {
+      event_id: string;
+      event_name: string;
+      line_count: number;
+      units_sold: number;
+      subtotal_sum: string;
+    }[]);
   }, [backofficeHeaders, canView, usageFrom, usageTo, toast]);
+
+  useEffect(() => {
+     void loadUsageReport();
+  }, [loadUsageReport]);
 
   const loadVars = useCallback(
     async (id: string) => {
@@ -161,12 +188,12 @@ export default function DiscountEventsPanel() {
   const createEvent = async () => {
     if (!canEdit) return;
     if (!name.trim() || !receiptLabel.trim() || !starts || !ends) {
-      toast("Fill name, receipt label, start and end", "info");
+      toast("Essential parameters missing for event creation", "info");
       return;
     }
     const p = Number.parseFloat(pct);
     if (!Number.isFinite(p) || p <= 0 || p > 100) {
-      toast("Percent must be greater than 0 and at most 100", "error");
+      toast("Invalid percentage value", "error");
       return;
     }
     const body: Record<string, unknown> = {
@@ -177,20 +204,9 @@ export default function DiscountEventsPanel() {
       percent_off: p.toFixed(2),
       scope_type: scopeType,
     };
-    if (scopeType === "category") {
-      if (!scopeCategoryId.trim()) {
-        toast("Choose a category for this promotion", "error");
-        return;
-      }
-      body.scope_category_id = scopeCategoryId.trim();
-    }
-    if (scopeType === "vendor") {
-      if (!scopeVendorId.trim()) {
-        toast("Choose a vendor for this promotion", "error");
-        return;
-      }
-      body.scope_vendor_id = scopeVendorId.trim();
-    }
+    if (scopeType === "category") body.scope_category_id = scopeCategoryId;
+    if (scopeType === "vendor") body.scope_vendor_id = scopeVendorId;
+
     const res = await fetch(`${baseUrl}/api/discount-events`, {
       method: "POST",
       headers: jsonHeaders(backofficeHeaders),
@@ -198,46 +214,31 @@ export default function DiscountEventsPanel() {
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Create failed", "error");
+      toast(b.error ?? "Registry rejected promotion", "error");
       return;
     }
-    toast("Promotion created", "success");
+    toast("Promotion localized and activated", "success");
     setName("");
     setReceiptLabel("");
-    setScopeType("variants");
-    setScopeCategoryId("");
-    setScopeVendorId("");
     void load();
   };
 
   const patchSelectedScope = async () => {
     if (!canEdit || !sel) return;
     const body: Record<string, unknown> = { scope_type: editScopeType };
-    if (editScopeType === "category") {
-      if (!editCategoryId.trim()) {
-        toast("Choose a category", "info");
-        return;
-      }
-      body.scope_category_id = editCategoryId.trim();
-    }
-    if (editScopeType === "vendor") {
-      if (!editVendorId.trim()) {
-        toast("Choose a vendor", "info");
-        return;
-      }
-      body.scope_vendor_id = editVendorId.trim();
-    }
+    if (editScopeType === "category") body.scope_category_id = editCategoryId;
+    if (editScopeType === "vendor") body.scope_vendor_id = editVendorId;
+
     const res = await fetch(`${baseUrl}/api/discount-events/${sel}`, {
       method: "PATCH",
       headers: jsonHeaders(backofficeHeaders),
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Update failed", "error");
-      return;
+        toast("Scope mutation failed", "error");
+        return;
     }
-    toast("Promotion scope updated", "success");
+    toast("Event scope re-localized", "success");
     void load();
     void loadVars(sel);
   };
@@ -250,315 +251,281 @@ export default function DiscountEventsPanel() {
       body: JSON.stringify({ variant_id: v.variant_id }),
     });
     if (!res.ok) {
-      const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Add failed", "error");
+      toast("SKU binding failed", "error");
       return;
     }
-    toast("Variant added", "success");
     void loadVars(sel);
   };
 
-  if (!canView) {
-    return (
-      <p className="text-sm text-app-text-muted">Catalog view permission required.</p>
-    );
-  }
+  if (!canView) return <p className="p-8 text-app-text-muted">Security clearance insufficient.</p>;
 
   return (
-    <div className="space-y-8">
-      <div className="rounded-xl border border-app-border bg-app-surface-2/80 p-4">
-        <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-          Checkout usage by event
-        </h3>
-        <p className="mt-1 text-xs text-app-text-muted">
-          Lines that applied a discount event at checkout (UTC date range).
-        </p>
-        <div className="mt-3 flex flex-wrap items-end gap-2">
-          <label className="text-[10px] font-black uppercase text-app-text-muted">
-            From
-            <input
-              type="date"
-              className="ui-input mt-1 block font-mono text-sm"
-              value={usageFrom}
-              onChange={(e) => setUsageFrom(e.target.value)}
-            />
-          </label>
-          <label className="text-[10px] font-black uppercase text-app-text-muted">
-            To
-            <input
-              type="date"
-              className="ui-input mt-1 block font-mono text-sm"
-              value={usageTo}
-              onChange={(e) => setUsageTo(e.target.value)}
-            />
-          </label>
-          <button
-            type="button"
-            onClick={() => void loadUsageReport()}
-            className="ui-btn-secondary px-4 py-2 text-xs font-black uppercase"
-          >
-            Refresh
-          </button>
-        </div>
-        <div className="mt-3 overflow-x-auto rounded-lg border border-app-border">
-          <table className="w-full min-w-[480px] text-left text-sm">
-            <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase text-app-text-muted">
-              <tr>
-                <th className="px-3 py-2">Event</th>
-                <th className="px-3 py-2 text-right">Lines</th>
-                <th className="px-3 py-2 text-right">Units</th>
-                <th className="px-3 py-2 text-right">Subtotal</th>
-              </tr>
-            </thead>
-            <tbody>
-              {usageRows.map((u) => (
-                <tr key={u.event_id} className="border-b border-app-border/60">
-                  <td className="px-3 py-2 font-medium">{u.event_name}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{u.line_count}</td>
-                  <td className="px-3 py-2 text-right tabular-nums">{u.units_sold}</td>
-                  <td className="px-3 py-2 text-right font-mono tabular-nums">
-                    ${u.subtotal_sum}
-                  </td>
-                </tr>
-              ))}
-              {usageRows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={4}
-                    className="px-3 py-6 text-center text-xs text-app-text-muted"
-                  >
-                    No usage in this range. Adjust dates and press Refresh.
-                  </td>
-                </tr>
-              ) : null}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      <div>
-        <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-          New promotion / sale
-        </h3>
-        <p className="mt-1 text-xs text-app-text-muted">
-          Sale price = retail minus this percent, for the active dates. Pick products by SKU list, whole category, or
-          vendor (primary vendor on the product template).
-        </p>
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <input
-            className="ui-input"
-            placeholder="Name (internal)"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-          />
-          <input
-            className="ui-input"
-            placeholder="Receipt label (e.g. Holiday Sale)"
-            value={receiptLabel}
-            onChange={(e) => setReceiptLabel(e.target.value)}
-          />
-          <input
-            className="ui-input"
-            type="datetime-local"
-            value={starts}
-            onChange={(e) => setStarts(e.target.value)}
-          />
-          <input
-            className="ui-input"
-            type="datetime-local"
-            value={ends}
-            onChange={(e) => setEnds(e.target.value)}
-          />
-          <input
-            className="ui-input"
-            placeholder="Percent off retail"
-            value={pct}
-            onChange={(e) => setPct(e.target.value)}
-          />
-          <label className="flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Applies to
-            <select
-              className="ui-input text-sm font-semibold normal-case"
-              value={scopeType}
-              onChange={(e) =>
-                setScopeType(e.target.value as "variants" | "category" | "vendor")
-              }
-            >
-              <option value="variants">Selected products (SKUs below after create)</option>
-              <option value="category">Whole category</option>
-              <option value="vendor">Primary vendor</option>
-            </select>
-          </label>
-          {scopeType === "category" ? (
-            <label className="sm:col-span-2 flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Category
-              <select
-                className="ui-input text-sm font-semibold normal-case"
-                value={scopeCategoryId}
-                onChange={(e) => setScopeCategoryId(e.target.value)}
-              >
-                <option value="">Select…</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-          {scopeType === "vendor" ? (
-            <label className="sm:col-span-2 flex flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Vendor
-              <select
-                className="ui-input text-sm font-semibold normal-case"
-                value={scopeVendorId}
-                onChange={(e) => setScopeVendorId(e.target.value)}
-              >
-                <option value="">Select…</option>
-                {promoVendors.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
-        </div>
-        {canEdit ? (
-          <button
-            type="button"
-            onClick={() => void createEvent()}
-            className="ui-btn-primary mt-3 px-6 py-2 text-xs font-black uppercase tracking-widest"
-          >
-            Create promotion
-          </button>
-        ) : null}
-      </div>
-
-      <div className="grid gap-6 lg:grid-cols-2">
+    <div className="flex h-full flex-col gap-8 bg-app-surface p-6 overflow-hidden">
+      <header className="flex items-center justify-between">
         <div>
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Promotions</h3>
-          <ul className="mt-2 max-h-64 space-y-1 overflow-y-auto rounded-xl border border-app-border">
-            {rows.map((r) => (
-              <li key={r.id}>
-                <button
-                  type="button"
-                  onClick={() => setSel(r.id)}
-                  className={`flex w-full flex-col items-start px-3 py-2 text-left text-sm ${
-                    sel === r.id ? "bg-app-accent/10 font-bold" : "hover:bg-app-surface-2"
-                  }`}
-                >
-                  <span>{r.name}</span>
-                  <span className="text-xs text-app-text-muted">
-                    {r.receipt_label} · {r.percent_off}% · scope: {r.scope_type ?? "variants"} ·{" "}
-                    {r.is_active ? "active" : "off"}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-          {sel && canEdit ? (
-            <div className="mt-4 rounded-xl border border-app-border bg-app-surface-2/60 p-3">
-              <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Edit scope
-              </h4>
-              <p className="mt-1 text-[11px] text-app-text-muted">
-                Changing scope clears manual SKU lists when switching away from selected products.
-              </p>
-              <div className="mt-2 flex flex-col gap-2">
-                <select
-                  className="ui-input text-sm"
-                  value={editScopeType}
-                  onChange={(e) =>
-                    setEditScopeType(e.target.value as "variants" | "category" | "vendor")
-                  }
-                >
-                  <option value="variants">Selected products (SKUs)</option>
-                  <option value="category">Whole category</option>
-                  <option value="vendor">Primary vendor</option>
-                </select>
-                {editScopeType === "category" ? (
-                  <select
-                    className="ui-input text-sm"
-                    value={editCategoryId}
-                    onChange={(e) => setEditCategoryId(e.target.value)}
-                  >
-                    <option value="">Select category…</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                {editScopeType === "vendor" ? (
-                  <select
-                    className="ui-input text-sm"
-                    value={editVendorId}
-                    onChange={(e) => setEditVendorId(e.target.value)}
-                  >
-                    <option value="">Select vendor…</option>
-                    {promoVendors.map((v) => (
-                      <option key={v.id} value={v.id}>
-                        {v.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : null}
-                <button
-                  type="button"
-                  onClick={() => void patchSelectedScope()}
-                  className="ui-btn-secondary py-2 text-[10px] font-black uppercase"
-                >
-                  Save scope
-                </button>
+          <h2 className="text-3xl font-black italic tracking-tighter text-app-text uppercase flex items-center gap-3">
+             <Ticket size={32} className="text-app-accent" />
+             Strategic Promotions
+          </h2>
+          <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
+             Dynamic markdown engine and performance auditing
+          </p>
+        </div>
+      </header>
+
+      <main className="grid min-h-0 flex-1 gap-8 lg:grid-cols-[1fr_400px]">
+        <div className="flex flex-col gap-8 overflow-y-auto no-scrollbar pb-20">
+          
+          {/* ANALYTICS SNAPSHOT */}
+          <section className="rounded-[2.5rem] border border-app-border bg-app-surface-2 p-8 shadow-inner">
+             <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3 text-app-text-muted">
+                    <BarChart3 size={18} />
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Promotion Performance</h4>
+                </div>
+                <div className="flex items-center gap-3">
+                    <input 
+                        type="date"
+                        value={usageFrom}
+                        onChange={(e) => setUsageFrom(e.target.value)}
+                        className="ui-input h-10 w-36 text-[10px] font-black uppercase"
+                    />
+                    <ArrowRight size={14} className="text-app-text-muted" />
+                    <input 
+                        type="date"
+                        value={usageTo}
+                        onChange={(e) => setUsageTo(e.target.value)}
+                        className="ui-input h-10 w-36 text-[10px] font-black uppercase"
+                    />
+                </div>
+             </div>
+
+             <div className="rounded-3xl border border-app-border bg-app-surface overflow-hidden shadow-sm">
+                <table className="w-full text-left text-xs">
+                    <thead className="bg-app-surface-2 border-b border-app-border">
+                        <tr>
+                            <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted">Event Label</th>
+                            <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted">Volume</th>
+                            <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted">Units</th>
+                            <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted">Capture</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-app-border/40">
+                        {usageRows.map((u) => (
+                            <tr key={u.event_id} className="hover:bg-app-surface-2/50 transition-colors">
+                                <td className="px-6 py-4 font-black uppercase italic text-app-text">{u.event_name}</td>
+                                <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.line_count} lines</td>
+                                <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.units_sold}</td>
+                                <td className="px-6 py-4 text-right font-mono font-black text-emerald-600">${u.subtotal_sum}</td>
+                            </tr>
+                        ))}
+                        {usageRows.length === 0 && (
+                            <tr>
+                                <td colSpan={4} className="px-6 py-12 text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40">No historical data in window</td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+             </div>
+          </section>
+
+          {/* ACTIVE PROMOTIONS LIST */}
+          <section className="space-y-4">
+             <div className="flex items-center justify-between ml-2">
+                <div className="flex items-center gap-3 text-app-text-muted">
+                    <Clock3 size={18} />
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Promotion Registry</h4>
+                </div>
+                <span className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">{rows.length} Events Logged</span>
+             </div>
+
+             <div className="grid gap-4 md:grid-cols-2">
+                {rows.map((r) => (
+                    <button
+                        key={r.id}
+                        onClick={() => setSel(r.id)}
+                        className={`group relative flex flex-col p-6 rounded-[2rem] border transition-all text-left ${
+                            sel === r.id 
+                            ? "border-app-accent bg-app-accent/5 ring-4 ring-app-accent/10 shadow-xl" 
+                            : "border-app-border bg-app-surface hover:border-app-accent/40"
+                        }`}
+                    >
+                        <div className="flex items-center justify-between mb-4">
+                            <div className={`h-10 w-10 flex items-center justify-center rounded-2xl ${r.is_active ? 'bg-emerald-500 text-white' : 'bg-app-surface-2 text-app-text-muted'}`}>
+                                <Zap size={20} className={r.is_active ? 'animate-pulse' : ''} />
+                            </div>
+                            <span className="font-mono text-2xl font-black italic tracking-tighter text-app-text">
+                                -{Number(r.percent_off)}%
+                            </span>
+                        </div>
+                        <h5 className="text-sm font-black uppercase tracking-tight text-app-text italic">{r.name}</h5>
+                        <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest mt-1 opacity-60">{r.receipt_label}</p>
+                        
+                        <div className="mt-6 flex items-center gap-4 text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
+                            <div className="flex items-center gap-1">
+                                <Calendar size={12} />
+                                {new Date(r.starts_at).toLocaleDateString()} — {new Date(r.ends_at).toLocaleDateString()}
+                            </div>
+                            <div className="flex items-center gap-1 border-l border-app-border pl-4 uppercase italic">
+                                {r.scope_type} Scope
+                            </div>
+                        </div>
+                    </button>
+                ))}
+             </div>
+          </section>
+        </div>
+
+        {/* SIDEBAR: CREATION & SCOPE */}
+        <aside className="no-scrollbar overflow-y-auto pb-20 space-y-8">
+           
+           {/* NEW PROMOTION FORM */}
+           <section className="rounded-[2.5rem] border border-app-border bg-app-surface p-8 shadow-sm">
+                <div className="flex items-center gap-3 text-app-accent mb-6">
+                    <Plus size={20} />
+                    <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Deploy Promotion</h4>
+                </div>
+
+                <div className="space-y-4">
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">Internal Name</label>
+                        <input className="ui-input h-12 text-xs font-bold" value={name} onChange={(e) => setName(e.target.value)} />
+                    </div>
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">Receipt Descriptor</label>
+                        <input className="ui-input h-12 text-xs font-bold" value={receiptLabel} onChange={(e) => setReceiptLabel(e.target.value)} />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">Activation</label>
+                            <input className="ui-input h-10 text-[10px] font-black uppercase" type="datetime-local" value={starts} onChange={(e) => setStarts(e.target.value)} />
+                        </div>
+                        <div className="space-y-1.5">
+                            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">Expiration</label>
+                            <input className="ui-input h-10 text-[10px] font-black uppercase" type="datetime-local" value={ends} onChange={(e) => setEnds(e.target.value)} />
+                        </div>
+                    </div>
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">Markdown Percentage</label>
+                        <div className="relative">
+                            <input className="ui-input h-14 pl-10 text-xl font-black tabular-nums tracking-tighter" value={pct} onChange={(e) => setPct(e.target.value)} />
+                            <div className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted"><Zap size={18} /></div>
+                        </div>
+                    </div>
+                    <div className="space-y-1.5">
+                        <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">Targeting Logic</label>
+                        <select className="ui-input h-12 text-xs font-bold" value={scopeType} onChange={(e) => setScopeType(e.target.value as any)}>
+                            <option value="variants">Selected SKUs</option>
+                            <option value="category">Whole Category</option>
+                            <option value="vendor">Primary Vendor</option>
+                        </select>
+                    </div>
+
+                    <button 
+                        onClick={createEvent}
+                        className="w-full h-14 rounded-2xl bg-app-accent text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all mt-4"
+                    >
+                        Initialize Strategic Event
+                    </button>
+                </div>
+           </section>
+
+           {/* EDIT SCOPE (Only if selected) */}
+           {sel && (
+               <section className="rounded-[2.5rem] border border-app-border bg-violet-600 p-8 shadow-xl shadow-violet-600/20 text-white animate-in slide-in-from-right-4 duration-300">
+                   <div className="flex items-center justify-between mb-6">
+                        <div className="flex items-center gap-3 opacity-90">
+                            <Settings2 size={20} />
+                            <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Resource Targeting</h4>
+                        </div>
+                        <button onClick={() => setSel(null)}><CheckCircle2 size={18} className="opacity-60 hover:opacity-100" /></button>
+                   </div>
+                   
+                   <div className="space-y-4">
+                        <select 
+                            className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
+                            value={editScopeType} 
+                            onChange={(e) => setEditScopeType(e.target.value as any)}
+                        >
+                            <option className="text-app-text" value="variants">Discrete Variant List</option>
+                            <option className="text-app-text" value="category">Global Category Binding</option>
+                            <option className="text-app-text" value="vendor">Vendor Asset Direct</option>
+                        </select>
+
+                        {editScopeType === "category" && (
+                            <select 
+                                className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
+                                value={editCategoryId} 
+                                onChange={(e) => setEditCategoryId(e.target.value)}
+                            >
+                                <option className="text-app-text" value="">Select Classification...</option>
+                                {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
+                        )}
+
+                        {editScopeType === "vendor" && (
+                            <select 
+                                className="w-full h-12 bg-white/10 border border-white/20 rounded-xl px-4 text-xs font-bold text-white outline-none"
+                                value={editVendorId} 
+                                onChange={(e) => setEditVendorId(e.target.value)}
+                            >
+                                <option className="text-app-text" value="">Select Vendor Entity...</option>
+                                {promoVendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                            </select>
+                        )}
+
+                        {editScopeType === "variants" && (
+                            <div className="space-y-4">
+                                <VariantSearchInput 
+                                    onSelect={addVariant} 
+                                    className="ui-input-dark h-12 w-full" 
+                                    placeholder="Add SKU to markdown list..." 
+                                />
+                                <div className="max-h-48 overflow-y-auto no-scrollbar space-y-2">
+                                    {vars.map(v => (
+                                        <div key={v.variant_id} className="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10 group">
+                                           <div className="flex flex-col">
+                                              <span className="text-[10px] font-black uppercase tracking-tight">{v.product_name}</span>
+                                              <span className="text-[8px] font-bold opacity-60 font-mono">{v.sku}</span>
+                                           </div>
+                                           <button 
+                                                onClick={async () => {
+                                                    await fetch(`${baseUrl}/api/discount-events/${sel}/variants/${v.variant_id}`, { method: "DELETE", headers: backofficeHeaders() });
+                                                    void loadVars(sel!);
+                                                }}
+                                                className="opacity-0 group-hover:opacity-100 p-1.5 hover:bg-red-500 rounded-lg transition-all"
+                                           >
+                                                <AlertCircle size={14} />
+                                           </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        <button 
+                            onClick={patchSelectedScope}
+                            className="w-full h-14 bg-white text-violet-600 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:brightness-110 active:scale-95 transition-all"
+                        >
+                            Sync Targeting Logic
+                        </button>
+                   </div>
+               </section>
+           )}
+
+           <section className="rounded-[2rem] border border-app-border bg-app-surface p-8 shadow-sm">
+              <div className="flex items-center gap-3 text-app-text-muted mb-4">
+                 <ShieldCheck size={18} />
+                 <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Governance</h4>
               </div>
-            </div>
-          ) : null}
-        </div>
-        <div>
-          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-            SKUs in promotion
-          </h3>
-          {sel && rows.find((x) => x.id === sel)?.scope_type === "variants" && canEdit ? (
-            <div className="mt-2">
-              <VariantSearchInput
-                onSelect={addVariant}
-                placeholder="Search products to add to promotion…"
-                className="w-full"
-              />
-            </div>
-          ) : sel && rows.find((x) => x.id === sel)?.scope_type !== "variants" ? (
-            <p className="mt-2 text-xs text-app-text-muted">
-              This promotion applies by category or vendor. Use POS to apply the promotion to lines that match.
-            </p>
-          ) : null}
-          <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-sm">
-            {vars.map((v) => (
-              <li key={v.variant_id} className="flex justify-between border-b border-app-border py-1">
-                <span>
-                  {v.sku} — {v.product_name}
-                </span>
-                {canEdit ? (
-                  <button
-                    type="button"
-                    className="text-xs text-red-600"
-                    onClick={async () => {
-                      await fetch(
-                        `${baseUrl}/api/discount-events/${sel}/variants/${v.variant_id}`,
-                        { method: "DELETE", headers: backofficeHeaders() },
-                      );
-                      void loadVars(sel!);
-                    }}
-                  >
-                    Remove
-                  </button>
-                ) : null}
-              </li>
-            ))}
-          </ul>
-        </div>
-      </div>
+              <p className="text-[10px] font-bold text-app-text-muted leading-relaxed">
+                 Promotion events are automatically applied at POS based on the checkout timestamp. 
+                 Global Category & Vendor bindings are computationally efficient but check your overlapping 
+                 prompts in the Checkout Configuration.
+              </p>
+           </section>
+        </aside>
+      </main>
     </div>
   );
 }

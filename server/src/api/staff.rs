@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use chrono::{DateTime, NaiveDate, Utc};
@@ -273,6 +273,11 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/{staff_id}/set-pin", post(admin_set_pin))
         .route("/admin/{staff_id}", patch(admin_patch_staff))
+        // New Commission Rules API (SPIFFs and Overrides)
+        .route("/commissions/rules", get(list_commission_rules).post(upsert_commission_rule))
+        .route("/commissions/rules/{id}", delete(delete_commission_rule))
+        .route("/commissions/combos", get(list_commission_combos).post(upsert_commission_combo))
+        .route("/commissions/combos/{id}", delete(delete_commission_combo))
 }
 
 /// Markdown SOP/playbook for all authenticated staff (Back Office headers). Edited via `PUT /api/settings/staff-sop` (settings.admin).
@@ -1263,4 +1268,259 @@ async fn admin_apply_role_defaults(
     .await;
 
     Ok(Json(json!({ "status": "updated" })))
+}
+
+// --- Commission Rules (SPIFFs and Overrides) Handlers ---
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertCommissionRuleBody {
+    pub id: Option<Uuid>,
+    pub match_type: String,
+    pub match_id: Uuid,
+    pub override_rate: Option<Decimal>,
+    pub fixed_spiff_amount: Option<Decimal>,
+    pub label: Option<String>,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub is_active: bool,
+}
+
+async fn list_commission_rules(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<crate::models::CommissionRule>>, StaffApiError> {
+    let _ = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+    
+    let rules = sqlx::query_as::<_, crate::models::CommissionRule>(
+        "SELECT * FROM commission_rules ORDER BY created_at DESC"
+    )
+    .fetch_all(&state.db)
+    .await?;
+    
+    Ok(Json(rules))
+}
+
+async fn upsert_commission_rule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<UpsertCommissionRuleBody>,
+) -> Result<Json<crate::models::CommissionRule>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let rule = if let Some(id) = body.id {
+        sqlx::query_as::<_, crate::models::CommissionRule>(
+            r#"
+            UPDATE commission_rules
+            SET match_type = $1, match_id = $2, override_rate = $3, 
+                fixed_spiff_amount = $4, label = $5, start_date = $6, 
+                end_date = $7, is_active = $8
+            WHERE id = $9
+            RETURNING *
+            "#,
+        )
+        .bind(body.match_type)
+        .bind(body.match_id)
+        .bind(body.override_rate)
+        .bind(body.fixed_spiff_amount.unwrap_or(Decimal::ZERO))
+        .bind(body.label)
+        .bind(body.start_date)
+        .bind(body.end_date)
+        .bind(body.is_active)
+        .bind(id)
+        .fetch_one(&state.db)
+        .await?
+    } else {
+        sqlx::query_as::<_, crate::models::CommissionRule>(
+            r#"
+            INSERT INTO commission_rules (
+                match_type, match_id, override_rate, fixed_spiff_amount, 
+                label, start_date, end_date, is_active
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            RETURNING *
+            "#,
+        )
+        .bind(body.match_type)
+        .bind(body.match_id)
+        .bind(body.override_rate)
+        .bind(body.fixed_spiff_amount.unwrap_or(Decimal::ZERO))
+        .bind(body.label)
+        .bind(body.start_date)
+        .bind(body.end_date)
+        .bind(body.is_active)
+        .fetch_one(&state.db)
+        .await?
+    };
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "upsert_commission_rule",
+        json!({ "rule_id": rule.id, "label": rule.label }),
+    )
+    .await;
+
+    Ok(Json(rule))
+}
+
+async fn delete_commission_rule(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    sqlx::query("DELETE FROM commission_rules WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "delete_commission_rule",
+        json!({ "rule_id": id }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "deleted" })))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpsertCommissionComboBody {
+    pub id: Option<Uuid>,
+    pub label: String,
+    pub reward_amount: Decimal,
+    pub is_active: bool,
+    pub items: Vec<ComboItemInput>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ComboItemInput {
+    pub match_type: String, // 'category', 'product'
+    pub match_id: Uuid,
+    pub qty_required: i32,
+}
+
+async fn list_commission_combos(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let _ = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let combos: Vec<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT json_build_object(
+            'id', r.id,
+            'label', r.label,
+            'reward_amount', r.reward_amount,
+            'is_active', r.is_active,
+            'created_at', r.created_at,
+            'items', (
+                SELECT json_agg(json_build_object(
+                    'match_type', ri.match_type,
+                    'match_id', ri.match_id,
+                    'qty_required', ri.qty_required
+                ))
+                FROM commission_combo_rule_items ri
+                WHERE ri.rule_id = r.id
+            )
+        )
+        FROM commission_combo_rules r
+        ORDER BY r.created_at DESC
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(json!(combos)))
+}
+
+async fn upsert_commission_combo(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<UpsertCommissionComboBody>,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let mut tx = state.db.begin().await?;
+
+    let rule_id = if let Some(id) = body.id {
+        sqlx::query_scalar::<_, Uuid>("UPDATE commission_combo_rules SET label = $1, reward_amount = $2, is_active = $3 WHERE id = $4 RETURNING id")
+            .bind(&body.label)
+            .bind(body.reward_amount)
+            .bind(body.is_active)
+            .bind(id)
+            .fetch_one(&mut *tx)
+            .await?
+    } else {
+        sqlx::query_scalar::<_, Uuid>("INSERT INTO commission_combo_rules (label, reward_amount, is_active) VALUES ($1, $2, $3) RETURNING id")
+            .bind(&body.label)
+            .bind(body.reward_amount)
+            .bind(body.is_active)
+            .fetch_one(&mut *tx)
+            .await?
+    };
+
+    sqlx::query("DELETE FROM commission_combo_rule_items WHERE rule_id = $1")
+        .bind(rule_id)
+        .execute(&mut *tx)
+        .await?;
+
+    for item in body.items {
+        sqlx::query("INSERT INTO commission_combo_rule_items (rule_id, match_type, match_id, qty_required) VALUES ($1, $2, $3, $4)")
+            .bind(rule_id)
+            .bind(item.match_type)
+            .bind(item.match_id)
+            .bind(item.qty_required)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "upsert_commission_combo",
+        json!({ "rule_id": rule_id, "label": body.label }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "ok", "id": rule_id })))
+}
+
+async fn delete_commission_combo(
+    Path(id): Path<Uuid>,
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    sqlx::query("DELETE FROM commission_combo_rules WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "delete_commission_combo",
+        json!({ "combo_id": id }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "deleted" })))
 }

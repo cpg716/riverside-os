@@ -61,7 +61,7 @@ Use this when a customer already paid on **this open register session** and you 
 6. Add an optional **note** for the file.
 7. Select **Confirm swap**. When finished, close the wizard.
 
-Inventory and bookkeeping follow server rules for takeaway vs special order vs wedding lines; ask a lead if you are unsure.
+Inventory and bookkeeping follow server rules for takeaway vs order vs wedding lines; ask a lead if you are unsure.
 
 ![Suit swap wizard](../images/help/pos/pos-suit-swap-wizard.png)
 
@@ -72,7 +72,7 @@ Inventory and bookkeeping follow server rules for takeaway vs special order vs w
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
-4. On **special-order / wedding** sales, the ledger may show **Deposit release** — use **Apply deposit** below **Apply payment** when your store records a deposit on the keypad. **Split deposit (wedding party)** opens wedding lookup in group-pay mode to allocate amounts across members. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
+4. On **Order / Wedding** sales, the ledger may show **Deposit release** — use **Apply deposit** below **Apply payment** when your store records a deposit on the keypad. **Split deposit (wedding party)** opens wedding lookup in group-pay mode to allocate amounts across members. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
 5. When the sale is balanced (or deposit-only when the UI allows, including mixed takeaway + order lines once takeaway is paid), finish using **Complete Sale**.
 6. Close the panel with **Close drawer** when you are done.
 

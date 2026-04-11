@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FolderTree, Clock3, CheckCircle2, ChevronRight, ShieldAlert } from "lucide-react";
+import { FolderTree, Clock3, ShieldAlert, Tag, Settings2, History, ShieldCheck, Zap } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -41,7 +41,7 @@ function collectFlat(nodes: CategoryNode[], out: FlatCategory[] = []): FlatCateg
   return out;
 }
 
-function CategoryMatrixAxisEditor({
+function CategoryVariationAxisEditor({
   node,
   depth,
   baseUrl,
@@ -78,7 +78,7 @@ function CategoryMatrixAxisEditor({
           matrix_row_axis_key: row.trim(),
           matrix_col_axis_key: col.trim(),
           changed_by_staff_id: actorStaffId,
-          change_note: "Matrix axes (Category Manager)",
+          change_note: "Variation axes (Category Manager)",
         }),
       });
       if (!res.ok) {
@@ -87,6 +87,7 @@ function CategoryMatrixAxisEditor({
         return;
       }
       onSaved();
+      toast("Category matrix defaults updated", "success");
     } finally {
       setSaving(false);
     }
@@ -94,38 +95,35 @@ function CategoryMatrixAxisEditor({
 
   return (
     <div
-      className="flex flex-col gap-2 rounded-xl border border-dashed border-app-border bg-app-surface px-4 py-3 sm:flex-row sm:flex-wrap sm:items-end"
-      style={{ marginInlineStart: `${depth * 20}px` }}
+      className="flex flex-col gap-4 rounded-3xl border border-dashed border-app-border bg-app-surface px-6 py-4 sm:flex-row sm:items-center group hover:bg-app-accent/5 transition-all"
+      style={{ marginInlineStart: `${depth * 28}px` }}
     >
-      <label className="flex min-w-[140px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-        Matrix row key
-        <input
-          value={row}
-          onChange={(e) => setRow(e.target.value)}
-          placeholder="e.g. Neck"
-          className="ui-input font-semibold normal-case tracking-normal"
-        />
-      </label>
-      <label className="flex min-w-[140px] flex-1 flex-col gap-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-        Matrix col key
-        <input
-          value={col}
-          onChange={(e) => setCol(e.target.value)}
-          placeholder="e.g. Sleeve"
-          className="ui-input font-semibold normal-case tracking-normal"
-        />
-      </label>
+      <div className="flex items-center gap-2 text-app-text-muted">
+         <Settings2 size={16} className="opacity-40" />
+         <span className="text-[10px] font-black uppercase tracking-widest leading-none">Matrix Defaults</span>
+      </div>
+      <div className="flex flex-1 flex-wrap gap-3">
+          <input
+            value={row}
+            onChange={(e) => setRow(e.target.value)}
+            placeholder="Default Row Key (e.g. Size)"
+            className="ui-input h-10 min-w-[160px] flex-1 text-xs font-bold"
+          />
+          <input
+            value={col}
+            onChange={(e) => setCol(e.target.value)}
+            placeholder="Default Col Key (e.g. Color)"
+            className="ui-input h-10 min-w-[160px] flex-1 text-xs font-bold"
+          />
+      </div>
       <button
         type="button"
         disabled={saving}
         onClick={() => void save()}
-        className="ui-btn-primary px-4 py-2 disabled:opacity-50"
+        className="ui-btn-primary h-10 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
       >
-        {saving ? "Saving…" : "Save axes"}
+        {saving ? "Syncing…" : "Update Axes"}
       </button>
-      <p className="w-full text-[10px] text-app-text-muted sm:order-last">
-        Must match JSON keys in variant variation values. Leave blank and save to clear.
-      </p>
     </div>
   );
 }
@@ -140,11 +138,14 @@ export default function CategoryManager() {
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
   const [tree, setTree] = useState<CategoryNode[]>([]);
   const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  
   const [createName, setCreateName] = useState("");
   const [createParentId, setCreateParentId] = useState("");
   const [createIsClothing, setCreateIsClothing] = useState(false);
   const [createMatrixRow, setCreateMatrixRow] = useState("");
   const [createMatrixCol, setCreateMatrixCol] = useState("");
+  
   const [auditRows, setAuditRows] = useState<CategoryAuditEntry[]>([]);
   const [actorStaffId, setActorStaffId] = useState<string | null>(null);
 
@@ -158,6 +159,7 @@ export default function CategoryManager() {
       });
       if (!res.ok) throw new Error("Failed to load category tree");
       setTree((await res.json()) as CategoryNode[]);
+      
       const sessionRes = await fetch(apiUrl(baseUrl, "/api/sessions/current"), {
         headers: apiAuth(),
       });
@@ -166,9 +168,8 @@ export default function CategoryManager() {
           register_primary_staff_id?: string;
         };
         setActorStaffId(session.register_primary_staff_id ?? null);
-      } else {
-        setActorStaffId(null);
       }
+      
       const auditRes = await fetch(
         apiUrl(baseUrl, "/api/categories/audit?limit=150"),
         { headers: apiAuth() },
@@ -191,7 +192,7 @@ export default function CategoryManager() {
       bucket.push(row);
       map.set(key, bucket);
     }
-    return Array.from(map.entries());
+    return Array.from(map.entries()) as [string, CategoryAuditEntry[]][];
   }, [auditRows]);
 
   useEffect(() => {
@@ -200,37 +201,43 @@ export default function CategoryManager() {
 
   const createCategory = async () => {
     if (!createName.trim()) return;
-    const res = await fetch(apiUrl(baseUrl, "/api/categories"), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...apiAuth(),
-      },
-      body: JSON.stringify({
-        name: createName.trim(),
-        parent_id: createParentId || null,
-        is_clothing_footwear: createIsClothing,
-        changed_by_staff_id: actorStaffId,
-        change_note: "Created in Category & Tax Manager",
-        ...(createMatrixRow.trim()
-          ? { matrix_row_axis_key: createMatrixRow.trim() }
-          : {}),
-        ...(createMatrixCol.trim()
-          ? { matrix_col_axis_key: createMatrixCol.trim() }
-          : {}),
-      }),
-    });
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      toast(body.error ?? "Failed to create category", "error");
-      return;
+    setCreating(true);
+    try {
+      const res = await fetch(apiUrl(baseUrl, "/api/categories"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...apiAuth(),
+        },
+        body: JSON.stringify({
+          name: createName.trim(),
+          parent_id: createParentId || null,
+          is_clothing_footwear: createIsClothing,
+          changed_by_staff_id: actorStaffId,
+          change_note: "Created in Category Manager Hub",
+          ...(createMatrixRow.trim()
+            ? { matrix_row_axis_key: createMatrixRow.trim() }
+            : {}),
+          ...(createMatrixCol.trim()
+            ? { matrix_col_axis_key: createMatrixCol.trim() }
+            : {}),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        toast(body.error ?? "Failed to create category", "error");
+        return;
+      }
+      setCreateName("");
+      setCreateParentId("");
+      setCreateIsClothing(false);
+      setCreateMatrixRow("");
+      setCreateMatrixCol("");
+      toast("Category added to global registry", "success");
+      await refresh();
+    } finally {
+      setCreating(false);
     }
-    setCreateName("");
-    setCreateParentId("");
-    setCreateIsClothing(false);
-    setCreateMatrixRow("");
-    setCreateMatrixCol("");
-    await refresh();
   };
 
   const toggleTaxRule = async (node: CategoryNode) => {
@@ -243,7 +250,7 @@ export default function CategoryManager() {
       body: JSON.stringify({
         is_clothing_footwear: !node.is_clothing_footwear,
         changed_by_staff_id: actorStaffId,
-        change_note: "Updated in Category & Tax Manager",
+        change_note: "Tax status manual toggle",
       }),
     });
     if (!res.ok) {
@@ -251,6 +258,7 @@ export default function CategoryManager() {
       toast(body.error ?? "Failed to update category", "error");
       return;
     }
+    toast(`${node.name} tax classification updated`, "success");
     await refresh();
   };
 
@@ -265,50 +273,65 @@ export default function CategoryManager() {
   }) => {
     const effectiveExempt = inheritedExempt || node.is_clothing_footwear;
     return (
-      <div className="space-y-2">
+      <div className="space-y-4">
         <div
-          className="group flex items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-4 transition-all hover:border-app-accent-2/50"
-          style={{ marginInlineStart: `${depth * 20}px` }}
+          className="group relative flex items-center justify-between rounded-[2rem] border border-app-border bg-app-surface px-6 py-5 transition-all hover:bg-app-accent/5 hover:border-app-accent/20 shadow-sm"
+          style={{ marginInlineStart: `${depth * 28}px` }}
         >
-          <div className="flex items-center gap-3">
-            <ChevronRight size={18} className="text-app-text-muted" />
-            <span className="font-black uppercase tracking-tight text-app-text">
-              {node.name}
-            </span>
+           {/* Visual connection line if depth > 0 */}
+           {depth > 0 && (
+               <div className="absolute left-[-20px] top-1/2 h-px w-5 bg-app-border" />
+           )}
+           
+          <div className="flex items-center gap-4">
+             <div className={`flex h-10 w-10 items-center justify-center rounded-2xl border ${node.is_clothing_footwear ? 'border-emerald-200 bg-emerald-50 text-emerald-600' : 'border-app-border bg-app-surface-2 text-app-text-muted'}`}>
+                <Tag size={18} />
+             </div>
+             <div>
+               <h4 className="text-sm font-black uppercase tracking-tight text-app-text italic">
+                 {node.name}
+               </h4>
+               <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest opacity-60">
+                  {node.children.length} Nested Classifications
+               </p>
+             </div>
           </div>
 
-          <div className="flex items-center gap-4">
-            <button
-              type="button"
-              onClick={() => void toggleTaxRule(node)}
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-tighter transition-all ${
-                node.is_clothing_footwear
-                  ? "border-emerald-200 bg-emerald-50 text-emerald-600"
-                  : "border-app-border bg-app-surface-2 text-app-text-muted"
-              }`}
-            >
-              {node.is_clothing_footwear ? (
-                <CheckCircle2 size={12} />
-              ) : (
-                <ShieldAlert size={12} />
-              )}
-              {node.is_clothing_footwear
-                ? "Clothing/Footwear (explicit)"
-                : "Standard tax (explicit)"}
-            </button>
-            <span
-              className={`rounded px-2 py-0.5 text-[9px] font-black uppercase ${
-                effectiveExempt
-                  ? "bg-emerald-50 text-emerald-600"
-                  : "bg-app-surface-2 text-app-text-muted"
-              }`}
-            >
-              {effectiveExempt ? "Inherited exemption active" : "No exemption"}
-            </span>
+          <div className="flex items-center gap-6">
+            <div className="text-right hidden sm:block">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-tight">Tax Implication</p>
+                <button
+                    type="button"
+                    onClick={() => void toggleTaxRule(node)}
+                    className={`mt-1 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-all ${
+                        node.is_clothing_footwear
+                        ? "border-emerald-200 bg-emerald-100/50 text-emerald-600 shadow-sm"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40"
+                    }`}
+                >
+                    {node.is_clothing_footwear ? (
+                        <ShieldCheck size={12} className="animate-pulse" />
+                    ) : (
+                        <ShieldAlert size={12} />
+                    )}
+                    {node.is_clothing_footwear ? "Clothing Exempt" : "Standard Model"}
+                </button>
+            </div>
+
+            <div className="h-10 w-px bg-app-border/40" />
+
+            <div className="hidden xl:flex flex-col items-end">
+                <span className={`text-[9px] font-black uppercase tracking-widest leading-tight ${effectiveExempt ? 'text-emerald-600' : 'text-app-text-muted opacity-40'}`}>
+                    Status
+                </span>
+                <span className={`text-[10px] font-black uppercase italic ${effectiveExempt ? 'text-emerald-500' : 'text-app-text-muted'}`}>
+                    {effectiveExempt ? 'Tax-Protected' : 'Global Rate'}
+                </span>
+            </div>
           </div>
         </div>
 
-        <CategoryMatrixAxisEditor
+        <CategoryVariationAxisEditor
           node={node}
           depth={depth}
           baseUrl={baseUrl}
@@ -316,89 +339,120 @@ export default function CategoryManager() {
           onSaved={() => void refresh()}
         />
 
-        {node.children.map((child) => (
-          <NodeRow
-            key={child.id}
-            node={child}
-            depth={depth + 1}
-            inheritedExempt={effectiveExempt}
-          />
-        ))}
+        <div className="space-y-4">
+            {node.children.map((child) => (
+            <NodeRow
+                key={child.id}
+                node={child}
+                depth={depth + 1}
+                inheritedExempt={effectiveExempt}
+            />
+            ))}
+        </div>
       </div>
     );
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-sm">
-      <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2/50 p-6">
-        <div className="flex items-center gap-3">
-          <FolderTree className="text-app-accent-2" size={22} />
-          <h3 className="text-lg font-black uppercase italic tracking-tighter text-app-text">
-            Category Hierarchy
-          </h3>
+    <div className="flex h-full flex-col gap-6 overflow-hidden bg-app-surface p-6">
+      <header className="flex items-center justify-between">
+        <div>
+          <h2 className="text-3xl font-black italic tracking-tighter text-app-text uppercase flex items-center gap-3">
+             <FolderTree size={32} className="text-app-accent-2" />
+             Global Category Registry
+          </h2>
+          <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
+            Define hierarchical classifications and tax-protected inventory domains
+          </p>
         </div>
-      </div>
+        <button 
+           onClick={() => void refresh()}
+           className="p-3 rounded-2xl bg-app-surface border border-app-border text-app-text-muted hover:text-app-accent-2 transition-all shadow-sm"
+        >
+           <Zap size={20} />
+        </button>
+      </header>
 
-      <div className="space-y-2 border-b border-app-border bg-app-surface p-4">
-        <div className="grid gap-2 md:grid-cols-4">
-          <input
-            value={createName}
-            onChange={(e) => setCreateName(e.target.value)}
-            placeholder="New category name"
-            className="ui-input"
-          />
-          <select
-            value={createParentId}
-            onChange={(e) => setCreateParentId(e.target.value)}
-            className="ui-input"
-          >
-            <option value="">Top-level category</option>
-            {flat.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
-          <label className="flex items-center gap-2 text-sm font-bold text-app-text">
-            <input
-              type="checkbox"
-              checked={createIsClothing}
-              onChange={(e) => setCreateIsClothing(e.target.checked)}
-            />
-            Clothing / footwear exempt
-          </label>
-          <button
-            type="button"
-            onClick={() => void createCategory()}
-            className="ui-btn-primary shadow-lg shadow-black/20"
-          >
-            New Category
-          </button>
-        </div>
-        <div className="grid gap-2 md:grid-cols-2">
-          <input
-            value={createMatrixRow}
-            onChange={(e) => setCreateMatrixRow(e.target.value)}
-            placeholder="Optional matrix row key (e.g. Neck)"
-            className="ui-input"
-          />
-          <input
-            value={createMatrixCol}
-            onChange={(e) => setCreateMatrixCol(e.target.value)}
-            placeholder="Optional matrix column key (e.g. Sleeve)"
-            className="ui-input"
-          />
-        </div>
-      </div>
+      {/* QUICK CREATE BAR */}
+      <section className="rounded-[2.5rem] border border-app-border bg-app-surface-2 p-8 shadow-inner">
+         <div className="grid gap-6 md:grid-cols-[1fr_240px_200px_200px_160px]">
+            <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Category Name</label>
+                <input
+                    value={createName}
+                    onChange={(e) => setCreateName(e.target.value)}
+                    placeholder="e.g. Formal Footwear"
+                    className="ui-input h-14 text-sm font-bold"
+                />
+            </div>
+            <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Parent Node</label>
+                <select
+                    value={createParentId}
+                    onChange={(e) => setCreateParentId(e.target.value)}
+                    className="ui-input h-14 text-sm font-bold"
+                >
+                    <option value="">Top-Level Asset</option>
+                    {flat.map((c) => (
+                    <option key={c.id} value={c.id}>
+                        {c.name}
+                    </option>
+                    ))}
+                </select>
+            </div>
+            <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Row Default</label>
+                <input
+                    value={createMatrixRow}
+                    onChange={(e) => setCreateMatrixRow(e.target.value)}
+                    placeholder="e.g. Size"
+                    className="ui-input h-14 text-sm font-bold"
+                />
+            </div>
+            <div className="space-y-1.5">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Col Default</label>
+                <input
+                    value={createMatrixCol}
+                    onChange={(e) => setCreateMatrixCol(e.target.value)}
+                    placeholder="e.g. Color"
+                    className="ui-input h-14 text-sm font-bold"
+                />
+            </div>
+            <div className="flex flex-col justify-end gap-3">
+                 <label className="flex items-center gap-2 cursor-pointer group">
+                    <input
+                        type="checkbox"
+                        checked={createIsClothing}
+                        onChange={(e) => setCreateIsClothing(e.target.checked)}
+                        className="h-5 w-5 rounded-lg border-app-border bg-app-surface text-emerald-500"
+                    />
+                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted group-hover:text-emerald-600 transition-colors">Exempt</span>
+                 </label>
+                 <button
+                    type="button"
+                    disabled={creating || !createName.trim()}
+                    onClick={() => void createCategory()}
+                    className="ui-btn-primary h-14 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-app-accent/20 disabled:opacity-20 transition-all"
+                >
+                    {creating ? "Creating..." : "Add Registry Entry"}
+                </button>
+            </div>
+         </div>
+      </section>
 
-      <div className="grid min-h-0 flex-1 gap-4 p-6 lg:grid-cols-2">
-        <div className="min-h-0 space-y-3 overflow-y-auto">
+      <div className="grid min-h-0 flex-1 gap-8 lg:grid-cols-[1fr_360px]">
+        {/* TREE VIEW */}
+        <div className="min-h-0 space-y-6 overflow-y-auto no-scrollbar pb-20 pr-4">
           {loading ? (
-            <p className="text-sm font-medium text-app-text-muted">Loading categories...</p>
+             <div className="flex flex-col items-center py-20 opacity-20">
+                <FolderTree size={64} className="animate-pulse" />
+                <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">Mapping Registry...</p>
+             </div>
           ) : tree.length === 0 ? (
-            <p className="text-sm font-medium text-app-text-muted">
-              No categories yet. Create your first category above.
-            </p>
+            <div className="flex flex-col items-center py-20 opacity-20">
+               <FolderTree size={64} />
+               <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">Empty Classification Tree</p>
+            </div>
           ) : (
             tree.map((node) => (
               <NodeRow key={node.id} node={node} depth={0} inheritedExempt={false} />
@@ -406,50 +460,42 @@ export default function CategoryManager() {
           )}
         </div>
 
-        <aside className="min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface-2">
-          <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
-            <div className="flex items-center gap-2">
-              <Clock3 size={16} className="text-app-text-muted" />
-              <h4 className="text-xs font-black uppercase tracking-widest text-app-text-muted">
-                Category Audit History
-              </h4>
+        {/* AUDIT ASIDE */}
+        <aside className="flex flex-col min-h-0 overflow-hidden rounded-[2.5rem] border border-app-border bg-app-surface-2 shadow-inner">
+          <div className="flex items-center justify-between border-b border-app-border/40 px-8 py-6 bg-app-surface">
+            <div className="flex items-center gap-3 text-app-text-muted">
+              <History size={18} />
+              <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Registry Mutation Log</h4>
             </div>
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted hover:text-app-accent-2"
-            >
-              Refresh
-            </button>
           </div>
-          <div className="min-h-0 space-y-3 overflow-y-auto p-3">
+          <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-6 no-scrollbar">
             {groupedAudit.length === 0 ? (
-              <p className="p-2 text-xs text-app-text-muted">No category changes logged yet.</p>
+              <div className="flex flex-col items-center py-20 opacity-20">
+                <Clock3 size={32} />
+                <p className="mt-3 text-[10px] font-black uppercase tracking-widest">No mutations logged</p>
+              </div>
             ) : (
               groupedAudit.map(([category, entries]) => (
-                <div key={category} className="rounded-xl border border-app-border bg-app-surface p-3">
-                  <p className="mb-2 text-xs font-black uppercase tracking-widest text-app-text">
+                <div key={category} className="rounded-[2rem] border border-app-border bg-app-surface p-6 shadow-sm">
+                  <h5 className="mb-4 text-xs font-black uppercase tracking-widest text-app-text italic">
                     {category}
-                  </p>
-                  <div className="space-y-2">
-                    {entries.slice(0, 6).map((entry) => (
-                      <div key={entry.id} className="rounded-lg bg-app-surface-2 p-2">
-                        <p className="text-[11px] font-bold text-app-text">
-                          {entry.changed_field}:{" "}
-                          <span className="text-app-text-muted">
-                            {entry.old_value ?? "null"} {"->"} {entry.new_value ?? "null"}
-                          </span>
+                  </h5>
+                  <div className="space-y-3">
+                    {entries.slice(0, 8).map((entry) => (
+                      <div key={entry.id} className="group relative pl-4 border-l-2 border-app-border hover:border-app-accent-2 transition-all">
+                        <p className="text-[11px] font-black text-app-text uppercase tracking-tight">
+                          {entry.changed_field}
                         </p>
-                        <p className="text-[10px] uppercase tracking-widest text-app-text-muted">
-                          {new Date(entry.created_at).toLocaleString()}{" "}
-                          {entry.changed_by_name
-                            ? `· ${entry.changed_by_name}`
-                            : entry.changed_by
-                              ? `· ${entry.changed_by}`
-                              : "· system"}
+                        <p className="text-[10px] font-bold text-app-text-muted leading-tight mt-0.5">
+                           {entry.old_value || "—"} → <span className="text-app-text">{entry.new_value || "—"}</span>
                         </p>
+                        <div className="mt-2 flex items-center gap-2 text-[8px] font-black uppercase tracking-widest text-app-text-muted opacity-40">
+                          {new Date(entry.created_at).toLocaleDateString()} · {entry.changed_by_name || "System"}
+                        </div>
                         {entry.change_note && (
-                          <p className="mt-0.5 text-[10px] text-app-text-muted">{entry.change_note}</p>
+                          <div className="mt-1.5 rounded-lg bg-app-surface-2 p-2 text-[9px] font-bold text-app-text-muted leading-relaxed">
+                            {entry.change_note}
+                          </div>
                         )}
                       </div>
                     ))}
@@ -457,6 +503,9 @@ export default function CategoryManager() {
                 </div>
               ))
             )}
+          </div>
+          <div className="bg-app-surface p-6 border-t border-app-border/40 text-center">
+             <p className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted opacity-40">Showing last 150 mutations</p>
           </div>
         </aside>
       </div>

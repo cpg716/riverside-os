@@ -102,6 +102,7 @@ pub struct LoyaltySettings {
     pub loyalty_point_threshold: i32,
     pub loyalty_reward_amount: Decimal,
     pub points_per_dollar: i32,
+    pub loyalty_letter_template: String,
 }
 
 async fn get_settings(
@@ -113,8 +114,8 @@ async fn get_settings(
 }
 
 async fn loyalty_settings_from_db(state: &AppState) -> Result<Json<LoyaltySettings>, LoyaltyError> {
-    let row = sqlx::query_as::<_, (i32, Decimal)>(
-        "SELECT loyalty_point_threshold, loyalty_reward_amount FROM store_settings WHERE id = 1",
+    let row = sqlx::query_as::<_, (i32, Decimal, String)>(
+        "SELECT loyalty_point_threshold, loyalty_reward_amount, loyalty_letter_template FROM store_settings WHERE id = 1",
     )
     .fetch_one(&state.db)
     .await?;
@@ -123,6 +124,7 @@ async fn loyalty_settings_from_db(state: &AppState) -> Result<Json<LoyaltySettin
         loyalty_point_threshold: row.0,
         loyalty_reward_amount: row.1,
         points_per_dollar: crate::logic::loyalty::POINTS_PER_DOLLAR,
+        loyalty_letter_template: row.2,
     }))
 }
 
@@ -141,6 +143,8 @@ pub struct PatchSettingsRequest {
     pub loyalty_point_threshold: Option<i32>,
     #[serde(default)]
     pub loyalty_reward_amount: Option<Decimal>,
+    #[serde(default)]
+    pub loyalty_letter_template: Option<String>,
 }
 
 async fn patch_settings(
@@ -168,6 +172,12 @@ async fn patch_settings(
         }
         sqlx::query("UPDATE store_settings SET loyalty_reward_amount = $1 WHERE id = 1")
             .bind(a)
+            .execute(&state.db)
+            .await?;
+    }
+    if let Some(template) = body.loyalty_letter_template {
+        sqlx::query("UPDATE store_settings SET loyalty_letter_template = $1 WHERE id = 1")
+            .bind(template.trim())
             .execute(&state.db)
             .await?;
     }
@@ -619,12 +629,99 @@ async fn customer_ledger(
     Ok(Json(rows))
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct IssuanceRow {
+    pub id: Uuid,
+    pub customer_id: Uuid,
+    pub card_id: Option<Uuid>,
+    pub card_code: Option<String>,
+    pub first_name: Option<String>,
+    pub last_name: Option<String>,
+    pub address_line1: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub zip: Option<String>,
+    pub reward_amount: Decimal,
+    pub points_deducted: i32,
+    pub applied_to_sale: Decimal,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+async fn get_recent_issuances(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<IssuanceRow>>, LoyaltyError> {
+    require_staff_or_pos_session(&state, &headers).await?;
+
+    let rows = sqlx::query_as::<_, IssuanceRow>(
+        r#"
+        SELECT
+            lri.id, lri.customer_id, lri.remainder_card_id as card_id, 
+            gc.code as card_code,
+            c.first_name, c.last_name, c.address_line1, c.city, c.state, c.postal_code as zip,
+            lri.reward_amount, lri.points_deducted, lri.applied_to_sale,
+            lri.created_at
+        FROM loyalty_reward_issuances lri
+        JOIN customers c ON lri.customer_id = c.id
+        LEFT JOIN gift_cards gc ON lri.remainder_card_id = gc.id
+        ORDER BY lri.created_at DESC
+        LIMIT 100
+        "#,
+    )
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/settings", get(get_settings).patch(patch_settings))
         .route("/program-summary", get(get_program_summary))
+        .route("/pipeline-stats", get(get_loyalty_pipeline_stats))
         .route("/monthly-eligible", get(monthly_eligible))
+        .route("/recent-issuances", get(get_recent_issuances))
         .route("/adjust-points", post(adjust_points))
         .route("/redeem-reward", post(redeem_reward))
         .route("/ledger", get(customer_ledger))
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoyaltyPipelineStats {
+    pub total_points_liability: i64,
+    pub eligible_customers_count: i64,
+    pub lifetime_rewards_issued: i64,
+    pub active_30d_adjustments: i64,
+}
+
+async fn get_loyalty_pipeline_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<LoyaltyPipelineStats>, LoyaltyError> {
+    require_staff_or_pos_session(&state, &headers).await?;
+
+    let threshold: i32 =
+        sqlx::query_scalar("SELECT loyalty_point_threshold FROM store_settings WHERE id = 1")
+            .fetch_one(&state.db)
+            .await?;
+
+    let stats = sqlx::query!(
+        r#"
+        SELECT
+            (SELECT COALESCE(SUM(loyalty_points), 0)::bigint FROM customers WHERE is_active = TRUE) as total_pts,
+            (SELECT COUNT(*)::bigint FROM customers WHERE loyalty_points >= $1 AND is_active = TRUE) as eligible_count,
+            (SELECT COUNT(*)::bigint FROM loyalty_reward_issuances) as total_issuances,
+            (SELECT COUNT(*)::bigint FROM loyalty_point_ledger WHERE created_at > (now() - interval '30 days') AND reason = 'manual_adjust') as recent_adjustments
+        "#,
+        threshold
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(LoyaltyPipelineStats {
+        total_points_liability: stats.total_pts.unwrap_or(0),
+        eligible_customers_count: stats.eligible_count.unwrap_or(0),
+        lifetime_rewards_issued: stats.total_issuances.unwrap_or(0),
+        active_30d_adjustments: stats.recent_adjustments.unwrap_or(0),
+    }))
 }

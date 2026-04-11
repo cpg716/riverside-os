@@ -65,7 +65,7 @@ pub use crate::logic::wedding_api_types::{
     ActionRow, ActivityFeedRow, AppointmentRow, PaginatedParties, Pagination, PartyListQuery,
     WeddingActions, WeddingLedgerLine, WeddingLedgerResponse, WeddingLedgerSummary,
     WeddingMemberApi, WeddingMemberFinancialRow, WeddingPartyFinancialContext, WeddingPartyRow,
-    WeddingPartyWithMembers,
+    WeddingPartyWithMembers, WeddingNonInventoryItem,
 };
 
 #[derive(Debug, Error)]
@@ -219,6 +219,8 @@ fn member_patch_keys(body: &UpdateMemberRequest) -> Vec<String> {
     push!(pin_note, "pin_note");
     push!(ordered_po, "ordered_po");
     push!(stock_info, "stock_info");
+    push!(suit_variant_id, "suit_variant_id");
+    push!(is_free_suit_promo, "is_free_suit_promo");
     k
 }
 
@@ -272,6 +274,9 @@ fn party_patch_summary(body: &UpdatePartyRequest) -> Vec<String> {
     if body.accessories.is_some() {
         k.push("accessories".into());
     }
+    if body.suit_variant_id.is_some() {
+        k.push("suit_variant_id".into());
+    }
     k
 }
 
@@ -320,6 +325,7 @@ pub struct UpdatePartyRequest {
     pub bride_phone: Option<String>,
     pub bride_email: Option<String>,
     pub accessories: Option<serde_json::Value>,
+    pub suit_variant_id: Option<Uuid>,
     #[serde(default)]
     pub actor_name: Option<String>,
 }
@@ -387,11 +393,24 @@ pub struct UpdateMemberRequest {
     pub pin_note: Option<bool>,
     pub ordered_po: Option<String>,
     pub stock_info: Option<serde_json::Value>,
+    pub suit_variant_id: Option<Uuid>,
+    pub is_free_suit_promo: Option<bool>,
     #[serde(default)]
     pub actor_name: Option<String>,
     /// When set (non-empty), used as the wedding_activity_log description instead of the default patch summary.
     #[serde(default)]
     pub activity_description: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateNonInventoryItemRequest {
+    pub wedding_party_id: Uuid,
+    pub wedding_member_id: Option<Uuid>,
+    pub description: String,
+    pub quantity: i32,
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub actor_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -428,12 +447,24 @@ pub struct AppointmentsQuery {
     pub to: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct AttachOrderRequest {
+    pub order_id: Uuid,
+    pub wedding_party_id: Option<Uuid>,
+    pub new_party_info: Option<CreatePartyRequest>,
+    pub role: String,
+    #[serde(default)]
+    pub actor_name: Option<String>,
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/events", get(wedding_events_stream))
         .route("/morning-compass", get(get_morning_compass))
         .route("/activity-feed", get(get_activity_feed))
         .route("/actions", get(get_actions))
+        .route("/non-inventory", get(list_non_inventory_items).post(create_non_inventory_item))
+        .route("/non-inventory/{id}", patch(update_non_inventory_item).delete(delete_non_inventory_item))
         .route(
             "/appointments",
             get(list_appointments).post(create_appointment),
@@ -457,6 +488,7 @@ pub fn router() -> Router<AppState> {
                 .patch(update_party)
                 .delete(delete_party_handler),
         )
+        .route("/attach-order", post(post_attach_order))
         .route(
             "/members/{member_id}",
             get(get_member)
@@ -708,6 +740,10 @@ async fn update_party(
     }
     if let Some(acc) = &body.accessories {
         sep.push("accessories = ").push_bind(acc.clone());
+        has_updates = true;
+    }
+    if body.suit_variant_id.is_some() {
+        sep.push("suit_variant_id = ").push_bind(body.suit_variant_id);
         has_updates = true;
     }
 
@@ -1095,6 +1131,8 @@ async fn update_member(
     opt!("pin_note", body.pin_note);
     opt!("ordered_po", body.ordered_po);
     opt!("stock_info", body.stock_info);
+    opt!("suit_variant_id", body.suit_variant_id);
+    opt!("is_free_suit_promo", body.is_free_suit_promo);
 
     if !has_updates {
         let member = fetch_member_optional(&state.db, member_id)
@@ -1560,4 +1598,313 @@ async fn get_party_financial_context(
         .await?
         .ok_or(WeddingError::PartyNotFound)?;
     Ok(Json(ctx))
+}
+
+async fn create_non_inventory_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateNonInventoryItemRequest>,
+) -> Result<Json<WeddingNonInventoryItem>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO wedding_non_inventory_items (
+            wedding_party_id, wedding_member_id, description, quantity, notes, status
+        )
+        VALUES ($1, $2, $3, $4, $5, 'needed')
+        RETURNING id
+        "#,
+    )
+    .bind(body.wedding_party_id)
+    .bind(body.wedding_member_id)
+    .bind(&body.description)
+    .bind(body.quantity)
+    .bind(&body.notes)
+    .fetch_one(&state.db)
+    .await?;
+
+    let actor = resolve_actor(body.actor_name);
+    let desc = format!("Non-inventory item added: {} (qty {})", body.description, body.quantity);
+    if let Err(e) = wedding_logic::insert_wedding_activity(
+        &state.db,
+        body.wedding_party_id,
+        body.wedding_member_id,
+        &actor,
+        "STATUS_CHANGE",
+        &desc,
+        json!({ "description": body.description, "quantity": body.quantity }),
+    )
+    .await {
+        tracing::warn!(error = %e, "Wedding activity log failed");
+    }
+
+    let item: WeddingNonInventoryItem = sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
+        .bind(id)
+        .fetch_one(&state.db)
+        .await?;
+    
+    state.wedding_events.parties_updated(wedding_client_sender(&headers).as_deref());
+    Ok(Json(item))
+}
+
+async fn list_non_inventory_items(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<WeddingNonInventoryItem>>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let rows = sqlx::query_as::<_, WeddingNonInventoryItem>("SELECT * FROM wedding_non_inventory_items ORDER BY created_at DESC")
+        .fetch_all(&state.db)
+        .await?;
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateNonInventoryRequest {
+    pub description: Option<String>,
+    pub quantity: Option<i32>,
+    pub status: Option<String>,
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub actor_name: Option<String>,
+}
+
+async fn update_non_inventory_item(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateNonInventoryRequest>,
+) -> Result<Json<WeddingNonInventoryItem>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    
+    let mut qb: QueryBuilder<'_, sqlx::Postgres> = QueryBuilder::new("UPDATE wedding_non_inventory_items SET ");
+    let mut sep = qb.separated(", ");
+    let mut has_updates = false;
+
+    if let Some(v) = &body.description {
+        sep.push("description = ").push_bind(v.clone());
+        has_updates = true;
+    }
+    if let Some(v) = body.quantity {
+        sep.push("quantity = ").push_bind(v);
+        has_updates = true;
+    }
+    if let Some(v) = &body.status {
+        sep.push("status = ").push_bind(v.clone());
+        has_updates = true;
+    }
+    if let Some(v) = &body.notes {
+        sep.push("notes = ").push_bind(v.clone());
+        has_updates = true;
+    }
+
+    if has_updates {
+        qb.push(" WHERE id = ").push_bind(id);
+        qb.build().execute(&state.db).await?;
+        state.wedding_events.parties_updated(wedding_client_sender(&headers).as_deref());
+    }
+
+    let item: WeddingNonInventoryItem = sqlx::query_as("SELECT * FROM wedding_non_inventory_items WHERE id = $1")
+        .bind(id)
+        .fetch_one(&state.db)
+        .await?;
+    Ok(Json(item))
+}
+
+async fn delete_non_inventory_item(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<StatusCode, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    sqlx::query("DELETE FROM wedding_non_inventory_items WHERE id = $1")
+        .bind(id)
+        .execute(&state.db)
+        .await?;
+    state.wedding_events.parties_updated(wedding_client_sender(&headers).as_deref());
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn post_attach_order(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AttachOrderRequest>,
+) -> Result<Json<WeddingMemberApi>, WeddingError> {
+    require_weddings_mutate(&state, &headers).await?;
+    let mut tx = state.db.begin().await?;
+
+    // 1. Validate Order and get Customer
+    let order_info: Option<(Option<Uuid>, Option<Uuid>)> = sqlx::query_as(
+        "SELECT customer_id, wedding_member_id FROM orders WHERE id = $1"
+    )
+    .bind(body.order_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let (customer_id, existing_member_id) = order_info.ok_or(WeddingError::BadRequest("Order not found".into()))?;
+    let customer_id = customer_id.ok_or(WeddingError::BadRequest("Order has no customer attached".into()))?;
+    
+    if existing_member_id.is_some() {
+        return Err(WeddingError::BadRequest("Order is already attached to a wedding member".into()));
+    }
+
+    // 2. Resolve Party
+    let party_id = if let Some(pid) = body.wedding_party_id {
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM wedding_parties WHERE id = $1)")
+            .bind(pid)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !exists {
+            return Err(WeddingError::PartyNotFound);
+        }
+        pid
+    } else if let Some(new_party) = body.new_party_info {
+        // Create new party
+        let groom = new_party.groom_name.trim();
+        if groom.is_empty() {
+            return Err(WeddingError::BadRequest("groom_name is required for new party".into()));
+        }
+        let acc = new_party.accessories.unwrap_or_else(|| json!({}));
+        let gp = new_party.groom_phone.as_deref().unwrap_or("");
+        let bp = new_party.bride_phone.as_deref().unwrap_or("");
+        let gpc = if gp.is_empty() { None } else { Some(digits_only(gp)) };
+        let bpc = if bp.is_empty() { None } else { Some(digits_only(bp)) };
+        let party_type = new_party.party_type.as_deref().unwrap_or("Wedding").to_string();
+
+        let pid: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO wedding_parties (
+                party_name, groom_name, event_date, venue, notes,
+                party_type, sign_up_date, salesperson, style_info, price_info,
+                groom_phone, groom_email, bride_name, bride_phone, bride_email,
+                accessories, groom_phone_clean, bride_phone_clean, is_deleted
+            )
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,FALSE)
+            RETURNING id
+            "#,
+        )
+        .bind(&new_party.party_name)
+        .bind(groom)
+        .bind(new_party.event_date)
+        .bind(&new_party.venue)
+        .bind(&new_party.notes)
+        .bind(&party_type)
+        .bind(new_party.sign_up_date)
+        .bind(&new_party.salesperson)
+        .bind(&new_party.style_info)
+        .bind(&new_party.price_info)
+        .bind(&new_party.groom_phone)
+        .bind(&new_party.groom_email)
+        .bind(&new_party.bride_name)
+        .bind(&new_party.bride_phone)
+        .bind(&new_party.bride_email)
+        .bind(acc)
+        .bind(&gpc)
+        .bind(&bpc)
+        .fetch_one(&mut *tx)
+        .await?;
+        pid
+    } else {
+        return Err(WeddingError::BadRequest("Either wedding_party_id or new_party_info must be provided".into()));
+    };
+
+    // 3. Create Member
+    let max_idx: Option<i32> = sqlx::query_scalar(
+        "SELECT MAX(member_index) FROM wedding_members WHERE wedding_party_id = $1",
+    )
+    .bind(party_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    let next_idx = max_idx.unwrap_or(0) + 1;
+    let role = body.role.trim();
+    if role.is_empty() {
+        return Err(WeddingError::BadRequest("role is required".into()));
+    }
+
+    let member_id: Uuid = match sqlx::query_scalar(
+        r#"
+        INSERT INTO wedding_members (
+            wedding_party_id, customer_id, role, status, member_index, order_id
+        )
+        VALUES ($1, $2, $3, 'prospect', $4, $5)
+        RETURNING id
+        "#,
+    )
+    .bind(party_id)
+    .bind(customer_id)
+    .bind(role)
+    .bind(next_idx)
+    .bind(body.order_id)
+    .fetch_one(&mut *tx)
+    .await
+    {
+        Ok(id) => id,
+        Err(e) => {
+            if let sqlx::Error::Database(ref d) = e {
+                if d.is_unique_violation() {
+                    return Err(WeddingError::BadRequest(
+                        "this customer is already a member of this party".into(),
+                    ));
+                }
+            }
+            return Err(WeddingError::Database(e));
+        }
+    };
+
+    // 4. Update Order
+    sqlx::query("UPDATE orders SET wedding_member_id = $1 WHERE id = $2")
+        .bind(member_id)
+        .bind(body.order_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 5. Update Order Items to 'wedding_order'
+    sqlx::query(
+        r#"
+        UPDATE order_items 
+        SET fulfillment = 'wedding_order'
+        WHERE order_id = $1 AND fulfillment = 'special_order'
+        "#
+    )
+    .bind(body.order_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // 6. Log Activity
+    let actor = resolve_actor(body.actor_name);
+    if let Err(e) = wedding_logic::insert_wedding_activity(
+        &mut *tx,
+        party_id,
+        Some(member_id),
+        &actor,
+        "STATUS_CHANGE",
+        &format!("Order attached to wedding party (role: {role})"),
+        json!({ "order_id": body.order_id, "wedding_member_id": member_id }),
+    )
+    .await
+    {
+        tracing::warn!(error = %e, "Wedding activity log failed");
+    }
+
+    tx.commit().await?;
+
+    // 7. Post-commit actions
+    state
+        .wedding_events
+        .parties_updated(wedding_client_sender(&headers).as_deref());
+
+    spawn_meilisearch_wedding_party(&state, party_id);
+    crate::logic::meilisearch_sync::spawn_meili({
+        let state = state.clone();
+        let oid = body.order_id;
+        async move {
+            if let Some(c) = &state.meilisearch {
+                crate::logic::meilisearch_sync::upsert_order_document(c, &state.db, oid).await;
+            }
+        }
+    });
+
+    let member = fetch_member_optional(&state.db, member_id)
+        .await?
+        .ok_or(WeddingError::MemberNotFound)?;
+    Ok(Json(member))
 }

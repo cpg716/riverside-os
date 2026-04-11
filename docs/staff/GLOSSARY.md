@@ -4,7 +4,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 
 | Term | Meaning |
 |------|---------|
-| **Available stock** | What you can sell from inventory that is not already promised: on-hand minus **reserved** (see [abstracts/special-orders-and-stock.md](abstracts/special-orders-and-stock.md)). |
+| **Available stock** | What you can sell from inventory that is not already promised: on-hand minus **reserved** (see [abstracts/orders-and-stock.md](abstracts/orders-and-stock.md)). |
 | **Back Office** | Desktop-oriented shell: Operations, Inventory, Weddings, Settings, etc. Signed in with **staff code** (+ PIN when set). |
 | **Balance due** | Amount still owed on an order after payments and credits. |
 | **Business date** | The store’s calendar day for reporting, driven by **timezone** in receipt/settings — may differ from UTC midnight. |
@@ -25,8 +25,8 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **POST-only** | An API that **changes** data — there is no GET list for staff browsers; use the in-app screen or reporting APIs. |
 | **Recalc** | Server recomputation of order totals, tax, or balances after a change. |
 | **Refund queue** | Workflow for processing refunds with controls and audit — see [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md). |
-| **Reserved stock** | Units physically in the store but promised to **special order** (or similar) customers until pickup. |
-| **Special order** | Line type where stock is **not** reduced at checkout the same way as an immediate pickup; receiving can **reserve** into this pipeline. |
+| **Reserved stock** | Units physically in the store but promised to **order** (or similar) customers until pickup. |
+| **Order** | Line type where stock is **not** reduced at checkout the same way as an immediate pickup; receiving can **reserve** into this pipeline. |
 | **Staff code** | Four-digit Back Office sign-in identifier; may match **cashier code** depending on setup. |
 | **Toast** | Small non-blocking success/error message at the edge of the UI (ROS does **not** use browser `alert` / `confirm`). |
 | **User override** | Per-person allow/deny on a single permission key; **deny** wins over role **allow**. |
@@ -44,4 +44,4 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 - [FAQ.md](FAQ.md)
 - [permissions-and-access.md](permissions-and-access.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-11

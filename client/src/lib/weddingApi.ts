@@ -195,6 +195,44 @@ export const weddingApi = {
     return rows.map(mapAppointmentRow);
   },
 
+  async attachOrderToWedding(
+    data: {
+      orderId: string;
+      weddingPartyId?: string | null;
+      newPartyInfo?: {
+        party_name?: string | null;
+        groom_name: string;
+        event_date: string;
+        venue?: string | null;
+        notes?: string | null;
+        party_type?: string | null;
+      } | null;
+      role: string;
+      actorName?: string | null;
+    },
+    opts?: WeddingApiFetchOpts,
+  ) {
+    const payload = {
+      order_id: data.orderId,
+      wedding_party_id: data.weddingPartyId || null,
+      new_party_info: data.newPartyInfo || null,
+      role: data.role,
+      actor_name: data.actorName || null,
+    };
+    const headers = new Headers(opts?.headers ?? undefined);
+    headers.set("Content-Type", "application/json");
+    const res = await fetch(`${baseUrl}/api/weddings/attach-order`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? "Failed to attach order to wedding");
+    }
+    return res.json();
+  },
+
   /**
    * Active floor staff (salesperson + sales support), for appointment attribution — aligned with schedule rules.
    */

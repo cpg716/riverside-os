@@ -8,7 +8,7 @@ use sqlx::FromRow;
 use uuid::Uuid;
 
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
-use crate::models::{DbOrderStatus, DbFulfillmentType};
+use crate::models::DbOrderStatus;
 
 #[derive(Debug, Serialize)]
 pub struct OrderPipelineStats {

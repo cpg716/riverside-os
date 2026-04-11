@@ -155,6 +155,7 @@ pub struct OrderDetailItem {
     pub fulfillment: DbFulfillmentType,
     /// Takeaway lines fulfilled at checkout; special orders fulfill at pickup.
     pub is_fulfilled: bool,
+    pub is_internal: bool,
     pub salesperson_id: Option<Uuid>,
     pub salesperson_name: Option<String>,
     /// From `order_items.size_specs` when checkout stored a price override (receipt / audit).
@@ -236,7 +237,7 @@ impl OrderDetailResponse {
         use std::collections::HashSet;
 
         let selected: Vec<&OrderDetailItem> = match order_item_ids {
-            None => self.items.iter().collect(),
+            None => self.items.iter().filter(|it| !it.is_internal).collect(),
             Some(ids) => {
                 if ids.is_empty() {
                     return Err(OrderError::InvalidPayload(
@@ -247,7 +248,7 @@ impl OrderDetailResponse {
                 let v: Vec<_> = self
                     .items
                     .iter()
-                    .filter(|it| set.contains(&it.order_item_id))
+                    .filter(|it| !it.is_internal && set.contains(&it.order_item_id))
                     .collect();
                 if v.is_empty() {
                     return Err(OrderError::InvalidPayload(
@@ -371,6 +372,7 @@ struct OrderItemRow {
     local_tax: Decimal,
     fulfillment: DbFulfillmentType,
     is_fulfilled: bool,
+    is_internal: bool,
     salesperson_id: Option<Uuid>,
     salesperson_name: Option<String>,
     receipt_original_unit_price: Option<Decimal>,
@@ -529,7 +531,6 @@ pub fn router() -> Router<AppState> {
             "/{order_id}/items/{order_item_id}/suit-swap",
             post(post_suit_component_swap),
         )
-        .route("/{order_id}", get(get_order_detail).patch(patch_order))
         .route("/{order_id}/receipt.zpl", get(get_order_receipt_zpl))
         .route("/{order_id}/receipt.html", get(get_order_receipt_html))
         .route(
@@ -540,6 +541,8 @@ pub fn router() -> Router<AppState> {
             "/{order_id}/receipt/send-sms",
             post(post_order_receipt_send_sms),
         )
+        // Catch-all /{order_id} must be AFTER all other /{order_id}/... routes and static routes
+        .route("/{order_id}", get(get_order_detail).patch(patch_order))
 }
 
 fn map_perm_err(e: (StatusCode, axum::Json<serde_json::Value>)) -> OrderError {
@@ -1751,6 +1754,7 @@ pub(crate) async fn load_order_detail(
             oi.local_tax,
             oi.fulfillment,
             oi.is_fulfilled,
+            oi.is_internal,
             oi.salesperson_id,
             sp.full_name AS salesperson_name,
             CASE
@@ -1815,6 +1819,7 @@ pub(crate) async fn load_order_detail(
             local_tax: r.local_tax,
             fulfillment: r.fulfillment,
             is_fulfilled: r.is_fulfilled,
+            is_internal: r.is_internal,
             salesperson_id: r.salesperson_id,
             salesperson_name: r.salesperson_name,
             receipt_original_unit_price: r.receipt_original_unit_price,
@@ -2621,13 +2626,14 @@ async fn patch_order_attribution(
         unit_price: Decimal,
         quantity: i32,
         product_id: Uuid,
+        variant_id: Uuid,
         commission_payout_finalized_at: Option<DateTime<Utc>>,
     }
 
     for line in &body.line_attribution {
         let row: Option<LineAttribRow> = sqlx::query_as(
             r#"
-            SELECT oi.salesperson_id, oi.unit_price, oi.quantity, oi.product_id,
+            SELECT oi.salesperson_id, oi.unit_price, oi.quantity, oi.product_id, oi.variant_id,
                    oi.commission_payout_finalized_at
             FROM order_items oi
             WHERE oi.id = $1 AND oi.order_id = $2
@@ -2644,6 +2650,7 @@ async fn patch_order_attribution(
             unit_price,
             quantity: qty,
             product_id,
+            variant_id,
             commission_payout_finalized_at,
         }) = row
         else {
@@ -2672,6 +2679,7 @@ async fn patch_order_attribution(
             qty,
             line.salesperson_id,
             product_id,
+            variant_id,
             is_employee_purchase_order,
         )
         .await?;
@@ -2735,7 +2743,9 @@ async fn get_pipeline_stats(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<OrderPipelineStats>, OrderError> {
-    staff_has_permission(&state.db, &headers, ORDERS_VIEW).await?;
+    middleware::require_staff_with_permission(&state, &headers, ORDERS_VIEW)
+        .await
+        .map_err(map_perm_err)?;
     let stats = crate::logic::order_list::query_pipeline_stats(&state.db).await?;
     Ok(Json(stats))
 }

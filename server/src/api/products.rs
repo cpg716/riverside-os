@@ -1,5 +1,5 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, patch, post},
@@ -211,6 +211,32 @@ pub struct InventoryBoardQuery {
     pub negative_stock_only: Option<bool>,
     /// Text search only: rank rows where the **product** (name / brand / handle) matches the query
     pub parent_rank_first: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MaintenanceLedgerQuery {
+    pub tx_type: Option<String>, // "damaged" | "return_to_vendor"
+    pub vendor_id: Option<Uuid>,
+    pub search: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct MaintenanceLedgerRow {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub tx_type: String,
+    pub quantity_delta: i32,
+    pub unit_cost: Option<Decimal>,
+    pub notes: Option<String>,
+    pub variant_id: Uuid,
+    pub sku: String,
+    pub product_name: String,
+    pub brand: Option<String>,
+    pub category_name: Option<String>,
+    pub vendor_name: Option<String>,
+    pub staff_name: Option<String>,
 }
 
 /// `%…%` pattern for PostgreSQL `ILIKE … ESCAPE '\'`.
@@ -471,6 +497,7 @@ pub struct ProductTimelineResponse {
 
 pub fn router() -> Router<AppState> {
     Router::new()
+        .route("/maintenance", get(get_maintenance_ledger))
         .route("/", post(create_product).get(list_products))
         .route("/control-board", get(list_control_board))
         .route("/bulk-update", post(bulk_update_product_model))
@@ -514,6 +541,16 @@ async fn require_catalog_perm(
     middleware::require_staff_with_permission(state, headers, key)
         .await
         .map(|_| ())
+        .map_err(map_perm_err_products)
+}
+
+async fn require_catalog_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+    key: &'static str,
+) -> Result<crate::auth::pins::AuthenticatedStaff, ProductError> {
+    middleware::require_staff_with_permission(state, headers, key)
+        .await
         .map_err(map_perm_err_products)
 }
 
@@ -2036,7 +2073,7 @@ async fn adjust_variant_stock(
     headers: HeaderMap,
     Json(body): Json<AdjustVariantStockRequest>,
 ) -> Result<Json<Value>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+    let staff = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
 
     let mut tx = state.db.begin().await?;
 
@@ -2066,8 +2103,8 @@ async fn adjust_variant_stock(
     sqlx::query(
         r#"
         INSERT INTO inventory_transactions
-            (variant_id, tx_type, quantity_delta, unit_cost, notes)
-        VALUES ($1, $2::inventory_tx_type, $3, $4, $5)
+            (variant_id, tx_type, quantity_delta, unit_cost, notes, created_by)
+        VALUES ($1, $2::inventory_tx_type, $3, $4, $5, $6)
         "#,
     )
     .bind(variant_id)
@@ -2075,6 +2112,7 @@ async fn adjust_variant_stock(
     .bind(body.quantity_delta)
     .bind(unit_cost)
     .bind(body.notes)
+    .bind(staff.id)
     .execute(&mut *tx)
     .await?;
 
@@ -2105,5 +2143,54 @@ async fn list_variants(
     .bind(product_id)
     .fetch_all(&state.db)
     .await?;
+    Ok(Json(rows))
+}
+async fn get_maintenance_ledger(
+    State(state): State<AppState>,
+    Query(query): Query<MaintenanceLedgerQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<MaintenanceLedgerRow>>, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+
+    let tx_type_filter = query.tx_type.unwrap_or_else(|| "damaged".to_string());
+    let limit = query.limit.unwrap_or(100).min(1000);
+    let offset = query.offset.unwrap_or(0);
+
+    let rows = sqlx::query_as::<_, MaintenanceLedgerRow>(
+        r#"
+        SELECT 
+            it.id,
+            it.created_at,
+            it.tx_type::text AS tx_type,
+            it.quantity_delta,
+            it.unit_cost,
+            it.notes,
+            pv.id AS variant_id,
+            pv.sku,
+            p.name AS product_name,
+            p.brand,
+            c.name AS category_name,
+            v.name AS vendor_name,
+            s.full_name AS staff_name
+        FROM inventory_transactions it
+        INNER JOIN product_variants pv ON pv.id = it.variant_id
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+        LEFT JOIN staff s ON s.id = it.created_by
+        WHERE it.tx_type::text = $1
+          AND ($2::text IS NULL OR pv.sku ILIKE $3 OR p.name ILIKE $3)
+        ORDER BY it.created_at DESC
+        LIMIT $4 OFFSET $5
+        "#,
+    )
+    .bind(tx_type_filter)
+    .bind(query.search.as_ref())
+    .bind(query.search.as_ref().map(|s| format!("%{s}%")))
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(&state.db)
+    .await?;
+
     Ok(Json(rows))
 }

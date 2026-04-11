@@ -1,8 +1,6 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
 use tokio::process::Command as TokioCommand;
 use anyhow::{Result, Context};
-use std::path::PathBuf;
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct TailscaleStatus {

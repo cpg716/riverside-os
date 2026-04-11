@@ -947,7 +947,7 @@ pub async fn reindex_all_meilisearch(
                 row.customer_first.as_deref().unwrap_or(""),
                 row.customer_last.as_deref().unwrap_or(""),
                 row.party_name.as_deref().unwrap_or(""),
-                &row.salesperson
+                row.salesperson.as_deref().unwrap_or("")
             );
             o_batch.push(OrderDoc {
                 id: order_id_str,

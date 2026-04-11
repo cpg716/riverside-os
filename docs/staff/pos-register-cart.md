@@ -34,7 +34,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 2. **Single match:** the line may drop in automatically.
 3. **Multiple matches:** a **product / variation picker** opens — select the correct **size / color / style**; wrong selection causes return work later.
 4. **Search suggestions:** keyword matches may list **best‑selling styles first** (recent store sales by product), then alphabetically — so common names like “suit” still surface many **different** products, not only one matrix with many sizes.
-5. **Custom Work Orders (MTM Light):** To book a custom garment (Suits, Sport Coats, Slacks, or Individualized Shirts), type **`CUSTOM`** in the search field as the SKU. A modal will open to select the **Item Type**, and collect the **Price**, **Need By Date**, and **Rush** status. These items are tracked as Special Orders.
+5. **Custom Work Orders (MTM Light):** To book a custom garment (Suits, Sport Coats, Slacks, or Individualized Shirts), type **`CUSTOM`** in the search field as the SKU. A modal will open to select the **Item Type**, and collect the **Price**, **Need By Date**, and **Rush** status. These items are tracked as Orders.
 6. **Wrong size after adding?** Tap the **product name** on the line (not only the SKU chip). If that style has multiple sizes/options, the **variation picker** opens again so you can **swap** the line without removing it; if there is only one SKU, a **review / price** panel may open instead.
 7. **Cart Item Toggles:** Each line in the cart now includes quick toggles for **Gift Wrap** (blue wrapping icon) and **Rush** (orange/red clock icon). Tapping these updates the fulfillment priority immediately.
 8. **Quantity and price:** use the on-screen **numpad**; **%** discount and **$** override only if your role allows; if blocked, call a manager for **override**.
@@ -42,7 +42,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 
 **R2S payment on the customer’s outside charge (not a normal sale):** When the customer is paying down an **R2S-managed** balance (not store credit, not a new purchase), type **`PAYMENT`** in the product search. Select **RMS CHARGE PAYMENT**, attach the **customer**, enter the **amount** on the **Price** numpad (no tax on this line; no loyalty points on this transaction type). Complete the sale with **Cash** or **Check** only (other tenders are hidden for this flow). **Sales Support** gets a **task** to confirm the payment was posted in the **R2S** portal — complete it per SOP. Details: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 
-**Special orders:** Lines that are **not** takeaway fulfillment typically do **not** reduce on-hand stock at checkout; **takeaway** items decrement stock at sale time. The system may allow **negative on-hand** when policy permits oversell. Do not promise same-day pickup unless the line type and notes say so.
+**Orders:** Lines that are **not** takeaway fulfillment typically do **not** reduce on-hand stock at checkout; **takeaway** items decrement stock at sale time. The system may allow **negative on-hand** when policy permits oversell. Do not promise same-day pickup unless the line type and notes say so.
 
 ## Attaching a customer
 
@@ -70,7 +70,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 1. Review **subtotal**, **tax**, and **balance due** with the customer.
 2. Tap **Pay** / **Complete Sale** (or equivalent green action) to open the **payment ledger**.
 3. **Tender:** choose the method, enter the amount on the keypad, then **Apply payment** for each tender before finalizing. Enter cash, swipe/tap card, gift card, or **split** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen. The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
-4. **Special / wedding orders (when shown):** The balance ledger may include **Deposit (ledger)**. Use the same keypad, then tap **Apply deposit** (below **Apply payment**) to record the deposit amount the customer pledges to pay today. This instantly reduces the "Balance to Pay" calculation down to just the requested deposit (+ any immediate takeaway goods). Once the balance is updated, use **Apply payment** via cash/card to fulfill the deposit target. **Split deposit (wedding party)** opens wedding lookup in **group pay** mode so one payer can split amounts across members (same as **Wedding** → party → **Enter Group Pay**). If your sale is **order lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
+4. **Order / wedding orders (when shown):** The balance ledger may include **Deposit (ledger)**. Use the same keypad, then tap **Apply deposit** (below **Apply payment**) to record the deposit amount the customer pledges to pay today. This instantly reduces the "Balance to Pay" calculation down to just the requested deposit (+ any immediate takeaway goods). Once the balance is updated, use **Apply payment** via cash/card to fulfill the deposit target. **Split deposit (wedding party)** opens wedding lookup in **group pay** mode so one payer can split amounts across members (same as **Wedding** → party → **Enter Group Pay**). If your sale is **order lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
 5. **Store date and time** next to **Salesperson** is a live clock in the store’s receipt timezone; the **printed receipt time** is the time the server records when the sale completes.
 6. **Receipt:** after tender completes, a **receipt** screen opens on top of the cart — **print** (thermal path depends on Settings receipt / printer setup), **Email receipt**, and **Text receipt**. When **Podium** is configured in Integrations, email sends **inline HTML** from **Receipt Builder**, and text sends a **receipt image** (when your store has a saved receipt template and the carrier supports it) or a **plain summary**. You can view or edit **phone** and **email** on that screen and **save** them to the customer record when allowed. Close that screen when done; only then does the register treat the sale as fully finished for “next customer” flow. Offer **bag tag** / label prints if your store uses them.
 
@@ -93,7 +93,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 | Search returns **no results** | Type **SKU** only; scan again; one slow second between scans | Inventory checks **active** SKU in Back Office **Inventory List** |
 | Picker won’t close | **Cancel** or tap outside if allowed; clear search | Refresh **only if no tender in progress**; manager |
 | **Price override** blocked | Expected at cap | Manager with higher cap or admin |
-| **Complete Sale** disabled | Missing customer, zero-total line, open modal, or (special orders) need to pay balance **or** set deposit per on-screen hint | Read the hint; apply tenders and/or deposit |
+| **Complete Sale** disabled | Missing customer, zero-total line, open modal, or (order items) need to pay balance **or** set deposit per on-screen hint | Read the hint; apply tenders and/or deposit |
 | Card stuck on **connecting** | Wait full timeout once | Retry tender; if repeated, use fallback SOP (other lane / manual auth) |
 | **Balance due** wrong after discount | Remove and re-add discount | Manager reviews order lines |
 | Wrong item on ticket | **Before pay:** remove line, re-add | **After pay:** return/exchange flow — manager |
@@ -117,4 +117,4 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md)
 
-**Last reviewed:** 2026-04-06
+**Last reviewed:** 2026-04-11

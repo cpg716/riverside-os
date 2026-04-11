@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import Icon from './Icon';
+import VariantSearchInput from '../../ui/VariantSearchInput';
 
 import { useModal } from '../hooks/useModal';
 
@@ -41,12 +42,13 @@ const StyleEditModal = ({ isOpen, onClose, party, onSave }) => {
         // Given "Style & Pricing" is a specific section, maybe just the Activity Log is fine.
         // But to be safe and "perfect", let's pass `updatedBy` so the backend can log it properly.
 
-        const { styleInfo, priceInfo, accessories } = localParty;
+        const { styleInfo, priceInfo, accessories, suit_variant_id } = localParty;
 
         onSave({
             styleInfo,
             priceInfo,
             accessories,
+            suit_variant_id,
             updatedBy
         });
         onClose();
@@ -66,15 +68,47 @@ const StyleEditModal = ({ isOpen, onClose, party, onSave }) => {
                 <div className="p-6 space-y-6">
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Style Info (Suit/Color)</label>
-                            <input type="text" className="w-full px-4 py-2 bg-app-surface border border-app-border rounded focus:ring-2 focus:ring-navy-900 outline-none transition-colors text-app-text"
-                                value={localParty.styleInfo} onChange={(e) => setLocalParty({ ...localParty, styleInfo: e.target.value })} />
+                        <div className="md:col-span-2">
+                            <label className="text-xs font-bold text-app-text uppercase tracking-wide mb-2 flex justify-between items-center">
+                                <span>Style Selection (Inventory Link)</span>
+                                {localParty.suit_variant_id && (
+                                    <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-black uppercase">Linked to SKUs</span>
+                                )}
+                            </label>
+                            <div className="flex gap-2">
+                                <VariantSearchInput 
+                                    className="flex-1"
+                                    placeholder="Search products by name or SKU to link style…"
+                                    onSelect={(v) => {
+                                        setLocalParty({
+                                            ...localParty,
+                                            styleInfo: `${v.product_name}${v.variation_label ? ` (${v.variation_label})` : ''}`,
+                                            suit_variant_id: v.variant_id
+                                        });
+                                    }}
+                                />
+                                {localParty.suit_variant_id && (
+                                    <button 
+                                        type="button"
+                                        onClick={() => setLocalParty({ ...localParty, suit_variant_id: null })}
+                                        className="px-3 py-2 bg-app-surface border border-app-border text-app-text-muted hover:text-red-600 rounded text-xs font-bold transition-colors"
+                                    >
+                                        Unlink
+                                    </button>
+                                )}
+                            </div>
+                            <div className="mt-2 text-[10px] text-app-text-muted italic flex items-center gap-1">
+                                <Icon name="Info" size={12} /> Search to link real inventory. Current: <span className="font-bold text-app-text">{localParty.styleInfo || "None"}</span>
+                            </div>
                         </div>
                         <div>
-                            <label className="block text-xs font-bold text-app-text uppercase tracking-wide mb-2">Price / Sale Info</label>
+                            <label className="text-xs font-bold text-app-text uppercase tracking-wide mb-2 flex justify-between items-center">
+                                <span>Manual Overide / Price Info</span>
+                            </label>
                             <input type="text" className="w-full px-4 py-2 bg-app-surface border border-app-border rounded focus:ring-2 focus:ring-navy-900 outline-none transition-colors text-app-text"
-                                value={localParty.priceInfo} onChange={(e) => setLocalParty({ ...localParty, priceInfo: e.target.value })} />
+                                value={localParty.priceInfo} onChange={(e) => setLocalParty({ ...localParty, priceInfo: e.target.value })} 
+                                placeholder="e.g. $199.95 SPECIAL"
+                            />
                         </div>
                     </div>
 

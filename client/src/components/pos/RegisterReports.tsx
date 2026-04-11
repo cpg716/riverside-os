@@ -95,13 +95,16 @@ function kindPill(kind: string): string {
       return "bg-app-surface-2 text-app-text-muted ring-app-border";
   }
 }
-
 export default function RegisterReports({
   sessionId,
   onOpenWeddingParty,
+  deepLinkTransactionId,
+  onDeepLinkConsumed,
 }: {
   sessionId: string | null;
   onOpenWeddingParty?: (partyId: string) => void;
+  deepLinkTransactionId?: string | null;
+  onDeepLinkConsumed?: () => void;
 }) {
   const [view, setView] = useState<"daily" | "zlogs">("daily");
   const [preset, setPreset] = useState<PresetId>("today");
@@ -207,6 +210,13 @@ export default function RegisterReports({
     if (summary.from_local === summary.to_local) return summary.from_local;
     return `${summary.from_local} → ${summary.to_local}`;
   }, [summary]);
+  
+  useEffect(() => {
+    if (deepLinkTransactionId) {
+      setReceiptOrderId(deepLinkTransactionId);
+      onDeepLinkConsumed?.();
+    }
+  }, [deepLinkTransactionId, onDeepLinkConsumed]);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-app-surface p-4 sm:p-6">

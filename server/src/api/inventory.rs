@@ -50,7 +50,7 @@ impl IntoResponse for InventoryError {
 
 pub fn router() -> Router<AppState> {
     Router::new()
-        .route("/scan/{sku}", get(scan_sku))
+        .route("/scan/{*sku}", get(scan_sku))
         .route("/scan-resolve", get(scan_resolve))
         .route("/control-board", get(products::list_control_board))
         .route("/batch-scan", post(batch_scan))

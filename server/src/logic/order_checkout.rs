@@ -1248,7 +1248,7 @@ pub async fn execute_checkout(
     let mut layaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
     let mut takeaway_stock_by_variant: HashMap<Uuid, i32> = HashMap::new();
 
-    for (idx, item) in payload.items.into_iter().enumerate() {
+    for (idx, item) in payload.items.iter().enumerate() {
         let fulfillment = persist_fulfillment(payload.wedding_member_id, item.fulfillment)
             .map_err(|m| CheckoutError::InvalidPayload(m.to_string()))?;
         let line_fulfilled = fulfillment == DbFulfillmentType::Takeaway;
@@ -1315,6 +1315,7 @@ pub async fn execute_checkout(
             item.quantity,
             line_salesperson_id,
             item.product_id,
+            item.variant_id,
             is_employee_purchase_order,
         )
         .await?;
@@ -1325,9 +1326,9 @@ pub async fn execute_checkout(
                 order_id, product_id, variant_id, fulfillment, quantity,
                 unit_price, unit_cost, state_tax, local_tax, size_specs, is_fulfilled,
                 salesperson_id, calculated_commission,
-                custom_item_type, is_rush, need_by_date, needs_gift_wrap
+                custom_item_type, is_rush, need_by_date, needs_gift_wrap, is_internal
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
             RETURNING id
             "#,
         )
@@ -1344,10 +1345,11 @@ pub async fn execute_checkout(
         .bind(line_fulfilled)
         .bind(line_salesperson_id)
         .bind(commission)
-        .bind(item.custom_item_type)
+        .bind(item.custom_item_type.clone())
         .bind(item.is_rush)
         .bind(item.need_by_date)
         .bind(item.needs_gift_wrap)
+        .bind(false) // is_internal = false for customer cart items
         .fetch_one(&mut *tx)
         .await?;
 
@@ -1438,6 +1440,41 @@ pub async fn execute_checkout(
                 .entry(item.variant_id)
                 .and_modify(|q| *q += item.quantity)
                 .or_insert(item.quantity);
+        }
+    }
+
+    // 2) Evaluate Combo SPIFF Incentives
+    // Group items by salesperson and check for satisfied bundle rules.
+    let mut salesperson_items: HashMap<Uuid, Vec<&CheckoutItem>> = HashMap::new();
+    for item in &payload.items {
+        if let Some(sid) = item.salesperson_id.or(primary_for_lines) {
+            salesperson_items.entry(sid).or_default().push(item);
+        }
+    }
+
+    for (sid, staff_items) in salesperson_items {
+        let incentives = evaluate_combo_incentives(&mut tx, &staff_items).await?;
+        for inc in incentives {
+            sqlx::query(
+                r#"
+                INSERT INTO order_items (
+                    order_id, product_id, variant_id, fulfillment, quantity,
+                    unit_price, unit_cost, state_tax, local_tax, salesperson_id,
+                    calculated_commission, is_fulfilled, is_internal, custom_item_type
+                )
+                VALUES ($1, $2, $3, $4, $5, 0, 0, 0, 0, $6, $7, $8, TRUE, 'spiff_reward')
+                "#,
+            )
+            .bind(order_id)
+            .bind(inc.product_id)
+            .bind(inc.variant_id)
+            .bind(DbFulfillmentType::Takeaway)
+            .bind(1)
+            .bind(sid)
+            .bind(inc.reward_amount)
+            .bind(order_status == DbOrderStatus::Fulfilled)
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -1997,4 +2034,129 @@ pub async fn execute_checkout(
         amount_paid,
         total_price,
     })
+}
+
+#[derive(Debug, Serialize)]
+pub struct ComboSpiffReward {
+    pub product_id: Uuid,
+    pub variant_id: Uuid,
+    pub reward_amount: Decimal,
+    pub label: String,
+}
+
+/// Scans a salesperson's set of items for satisfied bundle rules (e.g. Suit + Tie + Shirt).
+/// Returns a list of rewards to be inserted as 0.00 lines.
+pub async fn evaluate_combo_incentives(
+    conn: &mut sqlx::PgConnection,
+    items: &[&CheckoutItem],
+) -> Result<Vec<ComboSpiffReward>, CheckoutError> {
+    let mut rewards = Vec::new();
+    if items.is_empty() {
+        return Ok(rewards);
+    }
+
+    // 1) Fetch all active combo rules
+    let rules: Vec<sqlx::types::JsonValue> = sqlx::query_scalar(
+        r#"
+        SELECT json_build_object(
+            'id', r.id,
+            'label', r.label,
+            'reward_amount', r.reward_amount,
+            'items', (
+                SELECT json_agg(json_build_object(
+                    'match_type', ri.match_type,
+                    'match_id', ri.match_id,
+                    'qty_required', ri.qty_required
+                ))
+                FROM commission_combo_rule_items ri
+                WHERE ri.rule_id = r.id
+            )
+        )
+        FROM commission_combo_rules r
+        WHERE r.is_active = TRUE
+        "#,
+    )
+    .fetch_all(&mut *conn)
+    .await
+    .map_err(CheckoutError::Database)?;
+
+    // 2) Map item counts for current salesperson
+    let mut cat_counts: HashMap<Uuid, i32> = HashMap::new();
+    let mut prod_counts: HashMap<Uuid, i32> = HashMap::new();
+    // Cache categories to avoid re-querying in inner loops
+    let mut item_cat_map: HashMap<Uuid, Uuid> = HashMap::new();
+
+    for item in items {
+        *prod_counts.entry(item.product_id).or_default() += item.quantity;
+        if let Some(cid) = sqlx::query_scalar::<_, Uuid>("SELECT category_id FROM products WHERE id = $1")
+            .bind(item.product_id)
+            .fetch_optional(&mut *conn)
+            .await
+            .map_err(CheckoutError::Database)? 
+        {
+            *cat_counts.entry(cid).or_default() += item.quantity;
+            item_cat_map.insert(item.product_id, cid);
+        }
+    }
+
+    // 3) Evaluate rules (repeatedly to catch multiple combos if per-bundle is allowed)
+    for rule_json in rules {
+        let rule_id = Uuid::parse_str(rule_json["id"].as_str().unwrap_or("")).unwrap_or_default();
+        let reward_val = rule_json["reward_amount"].as_f64().unwrap_or(0.0);
+        let reward_amount = Decimal::from_f64_retain(reward_val).unwrap_or(Decimal::ZERO);
+        let label = rule_json["label"].as_str().unwrap_or("SPIFF").to_string();
+        let requirements = rule_json["items"].as_array();
+
+        if let Some(reqs) = requirements {
+            loop {
+                let mut satisfied = true;
+                for req in reqs {
+                    let m_type = req["match_type"].as_str().unwrap_or("");
+                    let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
+                    let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
+
+                    let available = if m_type == "product" {
+                        prod_counts.get(&m_id).copied().unwrap_or(0)
+                    } else {
+                        cat_counts.get(&m_id).copied().unwrap_or(0)
+                    };
+
+                    if available < qty_req {
+                        satisfied = false;
+                        break;
+                    }
+                }
+
+                if satisfied {
+                    // Consume quantities
+                    for req in reqs {
+                        let m_type = req["match_type"].as_str().unwrap_or("");
+                        let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
+                        let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
+
+                        if m_type == "product" {
+                            prod_counts.entry(m_id).and_modify(|q| *q -= qty_req);
+                        } else {
+                            cat_counts.entry(m_id).and_modify(|q| *q -= qty_req);
+                        }
+                    }
+
+                    // Add reward line metadata. Use a placeholder variant/product context if needed.
+                    // For reporting, we'll use a generic "Promotional SPIFF" product_id if one exists,
+                    // or just use the rule_id as product_id (conceptually) if the schema allows.
+                    // Actually, let's use a fixed "SPIFF REWARD" product UUID or the rule_id.
+                    rewards.push(ComboSpiffReward {
+                        product_id: rule_id, // Use rule id as product context for now
+                        variant_id: rule_id,
+                        reward_amount,
+                        label: label.clone(),
+                    });
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    Ok(rewards)
 }

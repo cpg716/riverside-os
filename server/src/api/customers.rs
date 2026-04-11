@@ -448,6 +448,14 @@ pub struct CustomerBrowseQuery {
     pub group_code: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+pub struct CustomerPipelineStats {
+    pub total_customers: i64,
+    pub vip_customers: i64,
+    pub with_balance: i64,
+    pub upcoming_weddings: i64,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct CustomerBrowseRow {
     pub id: Uuid,
@@ -459,6 +467,9 @@ pub struct CustomerBrowseRow {
     pub phone: Option<String>,
     pub is_vip: bool,
     pub open_balance_due: Decimal,
+    pub lifetime_sales: Decimal,
+    pub open_orders_count: i64,
+    pub active_shipment_status: Option<String>,
     pub wedding_soon: bool,
     pub wedding_active: bool,
     pub wedding_party_name: Option<String>,
@@ -996,6 +1007,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/search", get(search_customers))
         .route("/browse", get(browse_customers))
+        .route("/pipeline-stats", get(browse_customer_pipeline_stats))
         .route("/podium/messaging-inbox", get(list_podium_messaging_inbox))
         .route("/rms-charge/records", get(list_rms_charge_records))
         .route("/groups", get(list_customer_groups))
@@ -1165,6 +1177,16 @@ async fn browse_customers(
                 c.couple_id,
                 c.couple_primary_id,
                 COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
+                COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
+                COALESCE(ob.open_orders_count, 0)::bigint AS open_orders_count,
+                (
+                    SELECT s.status::text 
+                    FROM shipment s 
+                    WHERE s.customer_id = c.id 
+                      AND s.status NOT IN ('delivered', 'cancelled')
+                    ORDER BY s.created_at DESC 
+                    LIMIT 1
+                ) AS active_shipment_status,
                 EXISTS (
                     SELECT 1
                     FROM wedding_members wm
@@ -1204,10 +1226,12 @@ async fn browse_customers(
                 ) AS wedding_party_id
             FROM customers c
             LEFT JOIN LATERAL (
-                SELECT SUM(balance_due) AS balance_sum
+                SELECT 
+                    SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status) AS lifetime_sales,
+                    COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count
                 FROM orders
                 WHERE customer_id = c.id
-                  AND status = 'open'::order_status
             ) ob ON true
             WHERE ($2::bool = false OR c.is_vip = TRUE)
               AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
@@ -1284,6 +1308,16 @@ async fn browse_customers(
                 c.couple_id,
                 c.couple_primary_id,
                 COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
+                COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
+                COALESCE(ob.open_orders_count, 0)::bigint AS open_orders_count,
+                (
+                    SELECT s.status::text 
+                    FROM shipment s 
+                    WHERE s.customer_id = c.id 
+                      AND s.status NOT IN ('delivered', 'cancelled')
+                    ORDER BY s.created_at DESC 
+                    LIMIT 1
+                ) AS active_shipment_status,
                 EXISTS (
                     SELECT 1
                     FROM wedding_members wm
@@ -1323,10 +1357,12 @@ async fn browse_customers(
                 ) AS wedding_party_id
             FROM customers c
             LEFT JOIN LATERAL (
-                SELECT SUM(balance_due) AS balance_sum
+                SELECT 
+                    SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status) AS lifetime_sales,
+                    COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count
                 FROM orders
                 WHERE customer_id = c.id
-                  AND status = 'open'::order_status
             ) ob ON true
             WHERE ($2::bool = false OR c.is_vip = TRUE)
               AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
@@ -1415,6 +1451,44 @@ async fn bulk_set_customer_vip(
         .await?;
 
     Ok(Json(json!({ "status": "updated" })))
+}
+
+async fn browse_customer_pipeline_stats(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<CustomerPipelineStats>, CustomerError> {
+    require_customer_access(&state, &headers).await?;
+    
+    let stats = sqlx::query!(
+        r#"
+        SELECT
+            COUNT(*)::bigint AS total_customers,
+            COUNT(*) FILTER (WHERE is_vip = TRUE)::bigint AS vip_customers,
+            (
+                SELECT COUNT(DISTINCT customer_id)::bigint
+                FROM orders
+                WHERE status = 'open' AND balance_due > 0
+            ) AS with_balance,
+            (
+                SELECT COUNT(DISTINCT wm.customer_id)::bigint
+                FROM wedding_members wm
+                JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                WHERE (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                  AND wp.event_date >= CURRENT_DATE
+                  AND wp.event_date <= CURRENT_DATE + INTERVAL '30 days'
+            ) AS upcoming_weddings
+        FROM customers
+        "#
+    )
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(CustomerPipelineStats {
+        total_customers: stats.total_customers.unwrap_or(0),
+        vip_customers: stats.vip_customers.unwrap_or(0),
+        with_balance: stats.with_balance.unwrap_or(0),
+        upcoming_weddings: stats.upcoming_weddings.unwrap_or(0),
+    }))
 }
 
 async fn import_lightspeed_customers(

@@ -2155,7 +2155,7 @@ async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Err
     }
 
     let n = items.len();
-    let title = format!("Special orders ready to stage ({n})");
+    let title = format!("Orders ready to stage ({n})");
     let body = format!("{n} order(s) have in-stock special/wedding lines to fulfill.");
     let deep = json!({
         "type": "notification_bundle",

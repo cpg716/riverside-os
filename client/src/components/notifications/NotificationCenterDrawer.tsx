@@ -10,6 +10,8 @@ import { parseNotificationBundle } from "../../lib/notificationBundle";
 import { isActionableNotificationDeepLink } from "../../lib/notificationDeepLink";
 import { useToast } from "../ui/ToastProviderLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
+import StaffSearchInput, { StaffSearchResult } from "../ui/StaffSearchInput";
+import { X as CloseIcon } from "lucide-react";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -39,18 +41,9 @@ function shortKindLabel(kind: string): string {
 
 type Tab = "inbox" | "history";
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+// Unused UUID_RE removed
 
-function parseStaffUuidList(raw: string): string[] {
-  const out: string[] = [];
-  for (const part of raw.split(/[\s,]+/)) {
-    const t = part.trim();
-    if (!t) continue;
-    if (UUID_RE.test(t)) out.push(t.toLowerCase());
-  }
-  return [...new Set(out)];
-}
+// parseStaffUuidList removed
 
 export default function NotificationCenterDrawer({
   isOpen,
@@ -75,7 +68,8 @@ export default function NotificationCenterDrawer({
   const [audienceMode, setAudienceMode] = useState<
     "all_staff" | "roles_admin" | "roles_sales" | "staff_custom"
   >("all_staff");
-  const [customStaffIdsRaw, setCustomStaffIdsRaw] = useState("");
+  // Removed unused customStaffIdsRaw
+  const [selectedStaff, setSelectedStaff] = useState<StaffSearchResult[]>([]);
   const [sending, setSending] = useState(false);
   const [expandedSnId, setExpandedSnId] = useState<string | null>(null);
 
@@ -172,9 +166,9 @@ export default function NotificationCenterDrawer({
           staff_ids: [],
         };
       } else {
-        const staff_ids = parseStaffUuidList(customStaffIdsRaw);
+        const staff_ids = selectedStaff.map((s) => s.id);
         if (staff_ids.length === 0) {
-          toast("Enter at least one valid staff UUID.", "error");
+          toast("Select at least one staff member.", "error");
           setSending(false);
           return;
         }
@@ -197,7 +191,7 @@ export default function NotificationCenterDrawer({
       toast("Broadcast sent", "success");
       setBroadcastTitle("");
       setBroadcastBody("");
-      setCustomStaffIdsRaw("");
+      setSelectedStaff([]);
       onCountsChanged();
       void load();
     } catch {
@@ -262,7 +256,7 @@ export default function NotificationCenterDrawer({
     );
   };
 
-  const canBroadcast = hasPermission("notifications.broadcast");
+  const _canBroadcast = hasPermission("notifications.broadcast");
 
   return (
     <DetailDrawer
@@ -449,7 +443,7 @@ export default function NotificationCenterDrawer({
           )}
         </div>
 
-        {canBroadcast ? (
+        {_canBroadcast ? (
           <div className="border-t border-app-border pt-4">
             <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Admin broadcast
@@ -488,19 +482,53 @@ export default function NotificationCenterDrawer({
                 <option value="all_staff">All active staff</option>
                 <option value="roles_admin">Admins only</option>
                 <option value="roles_sales">Salesperson + sales support</option>
-                <option value="staff_custom">Specific staff (UUIDs)</option>
+                <option value="staff_custom">Specific staff members</option>
               </select>
             </label>
             {audienceMode === "staff_custom" ? (
-              <label className="mb-2 block text-[10px] font-bold uppercase text-app-text-muted">
-                Staff UUIDs (comma or newline separated)
-                <textarea
-                  value={customStaffIdsRaw}
-                  onChange={(e) => setCustomStaffIdsRaw(e.target.value)}
-                  className="ui-input mt-1 min-h-[88px] w-full font-mono text-xs"
-                  placeholder="e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6"
-                />
-              </label>
+              <div className="mb-4 space-y-3">
+                <label className="block text-[10px] font-bold uppercase text-app-text-muted">
+                  Add staff member
+                  <StaffSearchInput
+                    className="mt-1"
+                    excludeIds={selectedStaff.map((s) => s.id)}
+                    onSelect={(s) => setSelectedStaff((prev) => [...prev, s])}
+                  />
+                </label>
+
+                {selectedStaff.length > 0 && (
+                  <div className="flex flex-wrap gap-2 rounded-xl border border-app-border bg-app-surface-2 p-3 shadow-inner">
+                    {selectedStaff.map((s) => (
+                      <div
+                        key={s.id}
+                        className="flex items-center gap-1.5 rounded-lg bg-app-surface px-2 py-1.5 border border-app-border shadow-sm group animate-in zoom-in-95 duration-200"
+                      >
+                        <div className="h-5 w-5 shrink-0 overflow-hidden rounded-full border border-app-border bg-app-surface-2">
+                          <img
+                            src={staffAvatarUrl(s.avatar_key)}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
+                        </div>
+                        <span className="text-[10px] font-black text-app-text">
+                          {s.full_name}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setSelectedStaff((prev) =>
+                              prev.filter((p) => p.id !== s.id),
+                            )
+                          }
+                          className="ml-1 text-app-text-muted hover:text-red-500 transition-colors"
+                        >
+                          <CloseIcon size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             ) : null}
             <button
               type="button"

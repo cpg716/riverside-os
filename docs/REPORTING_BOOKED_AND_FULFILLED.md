@@ -18,14 +18,17 @@ Riverside OS uses two time axes for revenue-style analytics:
 - **`commission-ledger`** — **Unpaid** = open lines with **booked** date in range (pipeline). **Realized** / **paid out** = fulfilled lines with **fulfillment** instant in range.
 - **`commission-finalize`** (POST) — Finalizes lines whose **fulfillment** instant falls in the posted range (same rule as ledger realized).
 - **`staff-performance`** — Optional **`basis`** for 7-day **revenue_momentum** (booked vs fulfilled).
+- **`loyalty-velocity`** — Time-series of loyalty points earned vs. burned (Earn vs Burn).
 
 ## Metabase (`reporting` schema)
 
-After migration **106**:
+After migration **106** & **122**:
 
 - **`reporting.orders_core`** / **`reporting.order_lines`** — **`order_business_date`** = booked local day; **`order_recognition_at`**, **`order_recognition_business_date`** = fulfillment. **`fulfillment_method`** on **`orders_core`**.
 - **`reporting.daily_order_totals`** — Aggregates by **booked** business date only (unchanged semantics; comment in migration).
 - **`reporting.daily_order_totals_fulfilled`** — Aggregates by **fulfillment** business day (cancelled excluded; `recognition_at IS NOT NULL`).
+- **`view_loyalty_customer_snapshot`** — Per-customer loyalty stats (Earnings vs Redemptions vs Balance).
+- **`view_loyalty_daily_velocity`** — Daily earn vs burn velocity charts.
 
 **`metabase_ro`:** `GRANT EXECUTE` on **`reporting.order_recognition_at`**.
 

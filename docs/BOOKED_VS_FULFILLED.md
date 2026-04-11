@@ -49,9 +49,9 @@ Strictly **Fulfilled-only**. Items are only taxed when they leave the store (Ful
 ### Commissions
 Strictly **Fulfilled-only**. Payouts are calculated based on the margin of lines fulfilled during the commission period.
 
-## Layaways & Special Orders
+## Layaways & Orders
 - **Layaway**: Items are booked and moved to `on_layaway`. Revenue remains in liability until the final payment and pickup (Fulfillment).
-- **Special Orders**: Items are booked and moved to `reserved_stock` upon arrival. Revenue is deferred until pickup (Fulfillment).
+- **Orders**: Items are booked and moved to `reserved_stock` upon arrival. Revenue is deferred until pickup (Fulfillment).
 
 ---
 *For staff workflows, see [Order Pickup Manual](docs/staff/order-pickup-manual.md) and [Layaway Manual](docs/staff/layaway-manual.md).*

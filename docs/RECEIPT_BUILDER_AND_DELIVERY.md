@@ -40,7 +40,9 @@ Email and text flows **do not** use `receipt_thermal_mode`; they always use merg
 
 **Thermal ZPL:** **`GET /api/orders/{order_id}/receipt.zpl`** supports the same **`gift`** and **`order_item_ids`** query parameters (full order is the default when omitted).
 
-**Customer-facing privacy:** Line-level salesperson names on receipts use **`receipt_privacy::staff_name_for_customer_receipt`** (initials-style) so full staff names are not exposed on printed/HTML/SMS/email copies.
+**Customer-facing privacy:**
+- **Salesperson Names**: Line-level staff names on receipts use **`receipt_privacy::staff_name_for_customer_receipt`** to return **First Name + Last Initial** (e.g. "Christopher G."). Full staff names are never exposed on printed, HTML, SMS, or email copies.
+- **Internal Line Suppression**: Items flagged as `is_internal` (e.g., SPIFF rewards, combo incentives) are automatically filtered from all customer-facing receipts. They remain visible in the Back Office for payroll and audit.
 
 ---
 

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Building2, ChevronsUpDown, X, ShoppingBag } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
-import MatrixHubGrid, { type HubVariant } from "./MatrixHubGrid";
+import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
 import {
   formatMoney,
@@ -12,7 +12,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
-type HubTab = "general" | "matrix" | "history";
+type HubTab = "general" | "variations" | "history";
 
 interface ProductHubProduct {
   id: string;
@@ -183,7 +183,7 @@ export default function ProductHubDrawer({
   useEffect(() => {
     if (!isOpen || !productId) return;
     void (async () => {
-      const res = await fetch(`${baseUrl}/api/vendors/`, {
+      const res = await fetch(`${baseUrl}/api/vendors`, {
         headers: apiAuth(),
       });
       if (!res.ok) {
@@ -337,23 +337,22 @@ export default function ProductHubDrawer({
 
   const subtitle = (
     <div className="flex items-center gap-2">
-      <span>{hub?.product.brand ?? "Product template hub"}</span>
-      {hub?.product.nuorder_product_id && (
+      <span>{hub?.product?.brand ?? "Product template hub"}</span>
+      {hub?.product?.nuorder_product_id && (
         <>
           <span className="text-app-text-muted/30">·</span>
           <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-black uppercase tracking-widest text-[10px]">
-            <ShoppingBag size={10} /> NuORDER {hub.product.nuorder_product_id}
+            <ShoppingBag size={10} /> NuORDER {hub.product?.nuorder_product_id}
           </span>
         </>
       )}
     </div>
   );
 
-  const totalStock =
-    hub?.stats.total_units_on_hand ?? 0;
+  const totalStock = hub?.stats?.total_units_on_hand ?? 0;
 
   const hubVariants: HubVariant[] =
-    hub?.variants.map((v) => ({
+    hub?.variants?.map((v) => ({
       id: v.id,
       sku: v.sku,
       variation_values: v.variation_values,
@@ -395,7 +394,7 @@ export default function ProductHubDrawer({
       actions={
         <div className="flex flex-wrap gap-2">
           {tabBtn("general", "General")}
-          {tabBtn("matrix", "Matrix")}
+          {tabBtn("variations", "Variations")}
           {tabBtn("history", "History")}
         </div>
       }
@@ -433,7 +432,7 @@ export default function ProductHubDrawer({
                     Track low stock (template)
                   </p>
                   <p className="mt-1 text-xs text-app-text-muted">
-                    When enabled, individual SKUs can still opt in on the Matrix tab. Morning admin
+                    When enabled, individual SKUs can still opt in on the Variations tab. Morning admin
                     alerts only include variants where both this box and the SKU box are on, and
                     available quantity is at or below reorder point.
                   </p>
@@ -442,17 +441,17 @@ export default function ProductHubDrawer({
 
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[
-                  ["$ value on hand", money(hub.stats.value_on_hand)],
-                  ["Total sold (units)", String(hub.stats.units_sold_all_time)],
-                  ["Open order units", String(hub.stats.open_order_units)],
+                  ["$ value on hand", money(hub?.stats?.value_on_hand ?? 0)],
+                  ["Total sold (units)", String(hub?.stats?.units_sold_all_time ?? 0)],
+                  ["Open order units", String(hub?.stats?.open_order_units ?? 0)],
                   [
                     "Purchase orders",
-                    hub.po_summary.open_po_count === 0 &&
-                    hub.po_summary.pending_receive_units === 0
+                    (hub?.po_summary?.open_po_count ?? 0) === 0 &&
+                    (hub?.po_summary?.pending_receive_units ?? 0) === 0
                       ? "No open pipeline"
-                      : `${hub.po_summary.open_po_count} open PO${
-                          hub.po_summary.open_po_count === 1 ? "" : "s"
-                        } · ${hub.po_summary.pending_receive_units} pending`,
+                      : `${hub?.po_summary?.open_po_count ?? 0} open PO${
+                          (hub?.po_summary?.open_po_count ?? 0) === 1 ? "" : "s"
+                        } · ${hub?.po_summary?.pending_receive_units ?? 0} pending`,
                   ],
                 ].map(([k, v]) => (
                   <div
@@ -466,10 +465,10 @@ export default function ProductHubDrawer({
                       {v}
                     </p>
                     {k === "Purchase orders" &&
-                    (hub.po_summary.open_po_count > 0 ||
-                      hub.po_summary.pending_receive_units > 0) ? (
+                    ((hub?.po_summary?.open_po_count ?? 0) > 0 ||
+                      (hub?.po_summary?.pending_receive_units ?? 0) > 0) ? (
                       <p className="mt-1 text-[11px] font-semibold tabular-nums text-app-text-muted">
-                        ≈ {money(hub.po_summary.pending_commit_value_usd)} committed (at
+                        ≈ {money(hub?.po_summary?.pending_commit_value_usd ?? 0)} committed (at
                         line unit cost)
                       </p>
                     ) : null}
@@ -731,8 +730,8 @@ export default function ProductHubDrawer({
             </div>
           )}
 
-          {tab === "matrix" && (
-            <MatrixHubGrid
+          {tab === "variations" && (
+            <VariationsWorkspace
               productId={hub.product.id}
               productTrackLowStock={hub.product.track_low_stock}
               templateBaseRetail={hub.product.base_retail_price}

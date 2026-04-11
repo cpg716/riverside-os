@@ -8,8 +8,9 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ## Database and migrations
 
-- [ ] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
-- [ ] **All migrations applied** in numeric order through the latest **`migrations/NN_*.sql`** (repo tracks **00–107** as of 2026-04; includes **`106_reporting_order_recognition.sql`** (recognition dates + **`daily_order_totals_recognized`**) and **`107_reporting_order_lines_margin.sql`** (**`line_gross_margin_pre_tax`** / cost columns on **`reporting.order_lines`** for Metabase — parity with **`GET /api/insights/margin-pivot`**); full table **`DEVELOPER.md`**). **Docker dev:** `./scripts/apply-migrations-docker.sh` from repo root (ledger in **`ros_schema_migrations`**). **Drift / QA:** `./scripts/migration-status-docker.sh` vs **`scripts/ros_migration_build_probes.sql`**. **Prod:** run the same ordered DDL + ledger procedure your ops use; do not skip files.
+- [x] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
+- [x] **All migrations applied** in numeric order through the latest **`migrations/NN_*.sql`** (repo tracks **00–128** as of 2026-04; includes **`128_commission_spiff_program.sql`** (SPIFF logic + combo rewards) and **`01b_utility_functions.sql`** (Bootstrap triggers); full table **`DEVELOPER.md`**). **Docker dev:** `./scripts/apply-migrations-docker.sh` from repo root (ledger in **`ros_schema_migrations`**). **Drift / QA:** `./scripts/migration-status-docker.sh` vs **`scripts/ros_migration_build_probes.sql`**. **Prod:** run the same ordered DDL + ledger procedure your ops use; do not skip files.
+- [x] **Final Migration Consistency Check:** Confirm ledger is at **128** and no mismatches exist in critical schema probes (e.g. `is_internal` on `order_items`).
 - [ ] **Staff RBAC schema (migration 97):** Confirm **`staff_permission`**, **`staff.max_discount_percent`**, employment / **`employee_customer_id`** columns exist or the server will fail startup / staff routes — **`docs/STAFF_PERMISSIONS.md`**.
 - [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
 
@@ -28,6 +29,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 - [ ] **Receipt settings:** Store name, **IANA timezone** (drives receipts, register “store day,” and **`reporting`** business dates — Settings → Receipt).
 - [ ] **Staff roster:** Roles and permissions; **change default/bootstrap credentials** if the DB still uses dev seeds (**`docs/STAFF_PERMISSIONS.md`**, migration **53** on greenfield). After migration **97**, effective Back Office keys live in **`staff_permission`**; role-wide templates are under **Settings → Staff access defaults**.
+- [ ] **Commission Roster (v0.1.8):** Audit Sales Rep base rates in the **Staff -> Commission** ledger and initialize overrides for high-priority products/variants — **`docs/COMMISSION_AND_SPIFF_OPERATIONS.md`**.
 
 ---
 
@@ -161,8 +163,13 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [ ] Visual color-coding in Wedding Manager (Red/Yellow/Green) based on payment status and measurement completion.
 - [ ] **Staff Commission Verification:**
   - [ ] Audit Sales Rep commission percentages before the first official sale.
+  - [x] **Combo Reward Integrity:** Confirm multi-item bundles require single-salesperson attribution to trigger bonuses.
+  - [x] **Specificity Hierarchy:** Verify `Variant -> Product -> Category` override precedence.
 - [ ] **Inventory Labeling:**
   - [ ] Validate 2x1 inventory barcode printing for all SUIT/COAT units.
+- [ ] **Receipt Privacy Audit (v0.1.8):**
+  - [x] **Name Masking:** Confirm salesperson appears as "First Name + Last Initial" on customer copies.
+  - [x] **Internal suppression:** Confirm `is_internal = true` lines (Commission Rewards) are hidden from ZPL, Studio HTML, and SMS/Email.
 
 ---
 

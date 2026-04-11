@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeftRight, Loader2, Package, X } from "lucide-react";
-import type { Customer } from "./CustomerSelector";
+import { ArrowLeftRight, X, Loader2, Package } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
-import { formatMoney, parseMoney } from "../../lib/money";
+import { parseMoney, formatMoney } from "../../lib/money";
+import type { Customer } from "../pos/CustomerSelector";
+import OrderSearchInput from "../ui/OrderSearchInput";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -58,7 +59,6 @@ export default function PosExchangeWizard({
   useShellBackdropLayer(open);
 
   const [step, setStep] = useState<Step>("load");
-  const [orderIdInput, setOrderIdInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<OrderDetailLite | null>(null);
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
@@ -68,7 +68,6 @@ export default function PosExchangeWizard({
 
   const reset = useCallback(() => {
     setStep("load");
-    setOrderIdInput("");
     setDetail(null);
     setReturnQtyDraft({});
   }, []);
@@ -77,12 +76,7 @@ export default function PosExchangeWizard({
     if (!open) reset();
   }, [open, reset]);
 
-  const loadOrder = async () => {
-    const id = orderIdInput.trim();
-    if (!id) {
-      toast("Paste or type the original order ID", "info");
-      return;
-    }
+  const loadOrder = async (id: string) => {
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/orders/${encodeURIComponent(id)}?${sessionQs}`, {
@@ -213,33 +207,23 @@ export default function PosExchangeWizard({
           {step === "load" && (
             <div className="space-y-4">
               <p className="text-xs text-app-text-muted">
-                Load the original sale. The order must have a payment on this open register session,
-                or use Back Office Orders instead.
+                Search for the original sale by customer name, phone, or Short ID.
               </p>
-              <p className="text-xs text-app-text-muted">
-                For uneven wedding group payments (one payer, multiple member orders), confirm return
-                quantities against the correct member order in Back Office if balances look wrong.
-                Component-only changes on an open line use Orders → Swap component (inventory-aware).
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                 <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                   Select Order
+                 </p>
+                 <OrderSearchInput 
+                    autoFocus 
+                    onSelect={(o) => void loadOrder(o.order_id)} 
+                    disabled={loading}
+                 />
+              </div>
+              <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
+                The order must have a payment on this open register session,
+                or use Back Office Orders instead. For uneven wedding group payments, confirm return
+                quantities against the correct member order in Back Office.
               </p>
-              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Order ID
-              </label>
-              <input
-                className="ui-input w-full font-mono text-sm"
-                value={orderIdInput}
-                onChange={(e) => setOrderIdInput(e.target.value)}
-                placeholder="UUID from receipt or Orders"
-                autoComplete="off"
-              />
-              <button
-                type="button"
-                disabled={loading}
-                onClick={() => void loadOrder()}
-                className="ui-btn-primary flex w-full items-center justify-center gap-2 py-3"
-              >
-                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-                Load order
-              </button>
             </div>
           )}
 
@@ -277,7 +261,7 @@ export default function PosExchangeWizard({
                 ) : null}
               </div>
               <ul className="space-y-2">
-                {detail.items.map((it) => {
+                {detail.items.map((it: OrderItemRow) => {
                   const max = it.quantity - (it.quantity_returned ?? 0);
                   if (max <= 0) return null;
                   return (
@@ -297,7 +281,7 @@ export default function PosExchangeWizard({
                         placeholder="Qty"
                         value={returnQtyDraft[it.order_item_id] ?? ""}
                         onChange={(e) =>
-                          setReturnQtyDraft((d) => ({
+                          setReturnQtyDraft((d: Record<string, string>) => ({
                             ...d,
                             [it.order_item_id]: e.target.value,
                           }))

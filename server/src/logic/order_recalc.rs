@@ -15,7 +15,7 @@ pub async fn recalc_order_totals(
         r#"
         SELECT
             COALESCE(SUM(
-                (oi.unit_price + oi.state_tax + oi.local_tax)
+                (oi.unit_price + COALESCE(oi.state_tax, 0) + COALESCE(oi.local_tax, 0))::numeric
                 * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
             ), 0::numeric) AS total,
             o.amount_paid,

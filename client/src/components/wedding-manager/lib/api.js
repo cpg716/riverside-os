@@ -280,6 +280,7 @@ function toWmMember(m) {
     pickupDate: m.pickup_date ?? null,
     measureDate: m.measure_date ?? null,
     orderedPO: m.ordered_po ?? null,
+    isFreeSuitPromo: yn(m.is_free_suit_promo),
   };
 }
 
@@ -452,6 +453,7 @@ export const api = {
       contact_history: updates.contactHistory ?? updates.contact_history,
       ordered_po: updates.orderedPO ?? updates.ordered_po,
       stock_info: updates.stockInfo ?? updates.stock_info,
+      is_free_suit_promo: updates.isFreeSuitPromo ?? updates.is_free_suit_promo,
       actor_name: updates.updatedBy || null,
     };
     return wmJson("PATCH", `${API_URL}/weddings/members/${id}`, { body: payload });

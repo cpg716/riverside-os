@@ -10,6 +10,7 @@ export interface LoyaltyEligibleCustomer {
   zip: string | null;
   loyalty_points: number;
   customer_code?: string;
+  card_code?: string;
 }
 
 export function loyaltyEligibleDisplayName(c: LoyaltyEligibleCustomer): string {
@@ -24,4 +25,5 @@ export interface LoyaltySettings {
   loyalty_reward_amount: string | number;
   reward_threshold_points?: number;
   reward_dollar_value?: string;
+  loyalty_letter_template?: string;
 }

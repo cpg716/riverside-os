@@ -37,6 +37,14 @@ Use **Weddings** to manage **groups**, **money**, and **dates** for formalwear p
 4. **Add members** (groom, groomsmen, etc.) with **roles** and **outfit** types.
 5. **Link orders** when sales exist; balances flow from **orders**, not manual typing.
 
+### Attaching Orders from Previous POS (v0.1.9)
+If a customer has an order from Counterpoint (legacy) that should belong to this wedding party:
+1. Go to **Back Office** → **Orders**.
+2. Find the relevant order and open the detail view.
+3. Click **Attach Wedding** in the action bar.
+4. Select the matching **Wedding Party** and **Member** to link them.
+5. Once linked, the order status and balances will reflect in the **Action Board** pipeline.
+
 ### Ledger and financial context
 
 - **Ledger** (`party` → **Ledger**): payment-oriented detail.

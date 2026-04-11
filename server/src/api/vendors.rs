@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get},
+    routing::{delete, get, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -104,6 +104,12 @@ pub struct AddVendorBrandRequest {
     pub brand: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MergeVendorsRequest {
+    pub source_vendor_id: Uuid,
+    pub target_vendor_id: Uuid,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct VendorBrandRow {
     pub id: Uuid,
@@ -114,6 +120,7 @@ pub struct VendorBrandRow {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_vendors).post(create_vendor))
+        .route("/merge", post(merge_vendors))
         .route("/{vendor_id}/hub", get(get_vendor_hub))
         .route("/{vendor_id}/brands", get(list_brands).post(add_brand))
         .route("/{vendor_id}/brands/{brand_id}", delete(delete_brand))
@@ -335,4 +342,141 @@ async fn delete_brand(
     }
 
     Ok(Json(json!({ "status": "deleted" })))
+}
+
+async fn merge_vendors(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<MergeVendorsRequest>,
+) -> Result<Json<serde_json::Value>, VendorError> {
+    require_v(&state, &headers, CATALOG_EDIT).await?;
+
+    if payload.source_vendor_id == payload.target_vendor_id {
+        return Err(VendorError::InvalidPayload(
+            "source and target vendors must be different".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    // Verify both exist
+    let source_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1)")
+            .bind(payload.source_vendor_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    let target_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1)")
+            .bind(payload.target_vendor_id)
+            .fetch_one(&mut *tx)
+            .await?;
+
+    if !source_exists || !target_exists {
+        return Err(VendorError::NotFound);
+    }
+
+    // 1. Move products
+    sqlx::query("UPDATE products SET primary_vendor_id = $1 WHERE primary_vendor_id = $2")
+        .bind(payload.target_vendor_id)
+        .bind(payload.source_vendor_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 2. Move Purchase Orders
+    sqlx::query("UPDATE purchase_orders SET vendor_id = $1 WHERE vendor_id = $2")
+        .bind(payload.target_vendor_id)
+        .bind(payload.source_vendor_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // Move Product Promotions
+    sqlx::query("UPDATE product_promotions SET scope_vendor_id = $1 WHERE scope_vendor_id = $2")
+        .bind(payload.target_vendor_id)
+        .bind(payload.source_vendor_id)
+        .execute(&mut *tx)
+        .await?;
+
+    // 3. Move brands (handling duplicates)
+    // First, find brands in source that are already in target
+    let source_brands: Vec<String> =
+        sqlx::query_scalar("SELECT brand FROM vendor_brands WHERE vendor_id = $1")
+            .bind(payload.source_vendor_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+    for brand in source_brands {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM vendor_brands WHERE vendor_id = $1 AND brand = $2)",
+        )
+        .bind(payload.target_vendor_id)
+        .bind(&brand)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if exists {
+            // Delete the duplicate from source
+            sqlx::query("DELETE FROM vendor_brands WHERE vendor_id = $1 AND brand = $2")
+                .bind(payload.source_vendor_id)
+                .bind(&brand)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            // Move to target
+            sqlx::query("UPDATE vendor_brands SET vendor_id = $1 WHERE vendor_id = $2 AND brand = $3")
+                .bind(payload.target_vendor_id)
+                .bind(payload.source_vendor_id)
+                .bind(&brand)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    // 4. Move Supplier Items (handling duplicates)
+    // Similar logic to brands
+    let source_items: Vec<(String, String)> =
+        sqlx::query_as("SELECT cp_item_no, vendor_item_no FROM vendor_supplier_item WHERE vendor_id = $1")
+            .bind(payload.source_vendor_id)
+            .fetch_all(&mut *tx)
+            .await?;
+
+    for (cp, vend) in source_items {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM vendor_supplier_item WHERE vendor_id = $1 AND cp_item_no = $2 AND vendor_item_no = $3)",
+        )
+        .bind(payload.target_vendor_id)
+        .bind(&cp)
+        .bind(&vend)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if exists {
+            sqlx::query("DELETE FROM vendor_supplier_item WHERE vendor_id = $1 AND cp_item_no = $2 AND vendor_item_no = $3")
+                .bind(payload.source_vendor_id)
+                .bind(&cp)
+                .bind(&vend)
+                .execute(&mut *tx)
+                .await?;
+        } else {
+            sqlx::query("UPDATE vendor_supplier_item SET vendor_id = $1 WHERE vendor_id = $2 AND cp_item_no = $3 AND vendor_item_no = $4")
+                .bind(payload.target_vendor_id)
+                .bind(payload.source_vendor_id)
+                .bind(&cp)
+                .bind(&vend)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
+    // 5. Delete source vendor
+    sqlx::query("DELETE FROM vendors WHERE id = $1")
+        .bind(payload.source_vendor_id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
+    // Trigger reindex for target vendor (Meilisearch)
+    spawn_meilisearch_vendor_upsert(&state, payload.target_vendor_id);
+
+    Ok(Json(json!({ "status": "merged", "source": payload.source_vendor_id, "target": payload.target_vendor_id })))
 }

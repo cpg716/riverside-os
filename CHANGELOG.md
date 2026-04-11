@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] — 2026-04-11
+### Added
+- **Wedding Party Order Integration**: Implemented "Attach to Wedding" functionality in `OrdersWorkspace` to allow manual linking of legacy Counterpoint tickets to wedding party members.
+- **Zero-Error Baseline Stabilization**: Achieved a 100% clean TypeScript build by resolving lingering type errors in `App.tsx`, `LoyaltyWorkspace.tsx`, and `CommissionManagerWorkspace.tsx`.
+- **Relationship Hub Gating**: Ensured all Customer Hub tabs (Orders, Profile, Measurements) correctly respect RBAC permissions.
+
+### Changed
+- **UI Spacing Refinement**: Adjusted spacing and density across Back Office workspaces for better consistency with the high-density CRM overhaul.
+- **Project Structure**: Formally updated all project modules to v0.1.9.
+
 ## [0.1.8] — 2026-04-11
 ### Added
 - **Morning Compass Evolution**: Formalized `RushOrderRow` and `needsOrder` tracking in the dashboard queue.
@@ -13,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Production-Ready Indexing**: Automatically generated help manifest to sync new manuals with the UI.
 
 - **CRM High-Density Overhaul**: Transformed the Customer list into a visually stunning, name-dominant interface with combined financial/wedding data and tighter spacing.
+- **Commission Manager Workspace**: Unified tracking for payouts, promo overrides, and combo rewards in a high-density Back Office hub.
+- **SPIFF Incentive Engine**: Implemented specificity-based commission overrides (Variant > Product > Category) and a combo matching engine with strict single-salesperson attribution.
+- **Receipt Privacy & Internal Filtering**: Standardized staff names on receipts as "First Name + Last Initial" and automated the filtering of internal SPIFF/Combo lines from customer-facing output.
 - **CI/CD Resilience Hardening**: Implemented 30s Playwright buffers and codified 'GitHub CI Resilience' rules in `AGENTS.md` to ensure zero-failure deployments.
 - **Navigation Sync**: Synchronized 'daily-sales' ID between Operations and Sidebar to maintain flawless navigation.
 

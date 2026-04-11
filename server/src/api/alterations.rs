@@ -24,6 +24,9 @@ use crate::middleware;
 pub struct AlterationOrderRow {
     pub id: Uuid,
     pub customer_id: Uuid,
+    pub customer_first_name: Option<String>,
+    pub customer_last_name: Option<String>,
+    pub customer_code: Option<String>,
     pub wedding_member_id: Option<Uuid>,
     pub status: String,
     pub due_at: Option<DateTime<Utc>>,
@@ -125,11 +128,13 @@ async fn list_alterations(
         if let Some(ref status) = st {
             sqlx::query_as::<_, AlterationOrderRow>(
                 r#"
-                SELECT id, customer_id, wedding_member_id, status::text AS status,
-                       due_at, notes, linked_order_id, created_at, updated_at
-                FROM alteration_orders
-                WHERE customer_id = $1 AND status::text = $2
-                ORDER BY created_at DESC
+                SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+                       c.customer_code, a.wedding_member_id, a.status::text AS status,
+                       a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+                FROM alteration_orders a
+                LEFT JOIN customers c ON a.customer_id = c.id
+                WHERE a.customer_id = $1 AND a.status::text = $2
+                ORDER BY a.created_at DESC
                 LIMIT 200
                 "#,
             )
@@ -140,11 +145,13 @@ async fn list_alterations(
         } else {
             sqlx::query_as::<_, AlterationOrderRow>(
                 r#"
-                SELECT id, customer_id, wedding_member_id, status::text AS status,
-                       due_at, notes, linked_order_id, created_at, updated_at
-                FROM alteration_orders
-                WHERE customer_id = $1
-                ORDER BY created_at DESC
+                SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+                       c.customer_code, a.wedding_member_id, a.status::text AS status,
+                       a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+                FROM alteration_orders a
+                LEFT JOIN customers c ON a.customer_id = c.id
+                WHERE a.customer_id = $1
+                ORDER BY a.created_at DESC
                 LIMIT 200
                 "#,
             )
@@ -155,11 +162,13 @@ async fn list_alterations(
     } else if let Some(ref status) = st {
         sqlx::query_as::<_, AlterationOrderRow>(
             r#"
-            SELECT id, customer_id, wedding_member_id, status::text AS status,
-                   due_at, notes, linked_order_id, created_at, updated_at
-            FROM alteration_orders
-            WHERE status::text = $1
-            ORDER BY created_at DESC
+            SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+                   c.customer_code, a.wedding_member_id, a.status::text AS status,
+                   a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+            FROM alteration_orders a
+            LEFT JOIN customers c ON a.customer_id = c.id
+            WHERE a.status::text = $1
+            ORDER BY a.created_at DESC
             LIMIT 200
             "#,
         )
@@ -169,10 +178,12 @@ async fn list_alterations(
     } else {
         sqlx::query_as::<_, AlterationOrderRow>(
             r#"
-            SELECT id, customer_id, wedding_member_id, status::text AS status,
-                   due_at, notes, linked_order_id, created_at, updated_at
-            FROM alteration_orders
-            ORDER BY created_at DESC
+            SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+                   c.customer_code, a.wedding_member_id, a.status::text AS status,
+                   a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+            FROM alteration_orders a
+            LEFT JOIN customers c ON a.customer_id = c.id
+            ORDER BY a.created_at DESC
             LIMIT 200
             "#,
         )
@@ -224,9 +235,12 @@ async fn create_alteration(
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
-        SELECT id, customer_id, wedding_member_id, status::text AS status,
-               due_at, notes, linked_order_id, created_at, updated_at
-        FROM alteration_orders WHERE id = $1
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+               c.customer_code, a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        WHERE a.id = $1
         "#,
     )
     .bind(id)
@@ -291,9 +305,12 @@ async fn patch_alteration(
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
-        SELECT id, customer_id, wedding_member_id, status::text AS status,
-               due_at, notes, linked_order_id, created_at, updated_at
-        FROM alteration_orders WHERE id = $1
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+               c.customer_code, a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        WHERE a.id = $1
         "#,
     )
     .bind(id)

@@ -186,7 +186,7 @@ export default function QboWorkspace({
     const h = backofficeHeaders();
     const [a, c, g, l, cr, st] = await Promise.all([
       fetch(`${baseUrl}/api/qbo/accounts-cache`, { headers: h }),
-      fetch(`${baseUrl}/api/categories/`, { headers: h }),
+      fetch(`${baseUrl}/api/categories`, { headers: h }),
       fetch(`${baseUrl}/api/qbo/granular-mappings`, { headers: h }),
       fetch(`${baseUrl}/api/qbo/mappings`, { headers: h }),
       fetch(`${baseUrl}/api/qbo/credentials`, { headers: h }),

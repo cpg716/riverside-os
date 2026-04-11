@@ -293,6 +293,31 @@ async fn submit_po(
         return Err(PurchaseOrderError::NotFound);
     }
 
+    // --- Wedding Manager Integration: Mark members as 'ordered' ---
+    // Find all variants on this PO
+    let variants: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT variant_id FROM purchase_order_lines WHERE purchase_order_id = $1"
+    )
+    .bind(po_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    if !variants.is_empty() {
+        // Update wedding members matching these variants
+        sqlx::query(
+            r#"
+            UPDATE wedding_members
+            SET status = 'ordered',
+                suit_ordered = true
+            WHERE suit_variant_id = ANY($1)
+              AND status IN ('measured', 'pending')
+            "#
+        )
+        .bind(&variants)
+        .execute(&state.db)
+        .await?;
+    }
+
     Ok(Json(json!({ "status": "submitted" })))
 }
 
@@ -650,6 +675,24 @@ async fn receive_po(
             .execute(&mut *tx)
             .await?;
         }
+
+        // --- WEDDING SYNC ---
+        // If this variant is assigned to any wedding members as their suit selection,
+        // mark them as received.
+        sqlx::query(
+            r#"
+            UPDATE wedding_members
+            SET 
+                received = TRUE,
+                received_date = COALESCE(received_date, NOW()),
+                status = CASE WHEN status = 'ordered' THEN 'received' ELSE status END
+            WHERE suit_variant_id = $1
+              AND (received IS NULL OR received = FALSE)
+            "#,
+        )
+        .bind(row.variant_id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     let has_short = sqlx::query_scalar::<_, bool>(

@@ -978,13 +978,50 @@ export default function Cart({
         customer_id: wm.customer_id,
         customer_email: wm.customer_email ?? undefined,
         customer_phone: wm.customer_phone ?? undefined,
+        suit_variant_id: wm.suit_variant_id,
+        is_free_suit_promo: Boolean(wm.is_free_suit_promo),
       });
       setActiveWeddingPartyName(partyName);
+
+      // --- Auto-add Linked Suit to Cart ---
+      if (wm.suit_variant_id) {
+        try {
+          const res = await fetch(`${baseUrl}/api/products/variants/${wm.suit_variant_id}`, {
+            headers: { ...apiAuth() },
+          });
+          if (res.ok) {
+            const v = (await res.json()) as ResolvedSkuItem;
+            const isFree = Boolean(wm.is_free_suit_promo);
+            const newItem: CartLineItem = {
+              ...v,
+              quantity: 1,
+              fulfillment: "wedding_order",
+              cart_row_id: newCartRowId(),
+              ...(isFree ? {
+                standard_retail_price: 0,
+                original_unit_price: String(v.standard_retail_price),
+                price_override_reason: "Wedding Promo (Free Suit Selection)"
+              } : {})
+            };
+            setLines(prev => {
+                if (prev.some(l => l.variant_id === v.variant_id)) return prev;
+                return [...prev, newItem];
+            });
+            if (isFree) {
+              toast(`Free Suit applied for ${wm.first_name} (Promo)`, "success");
+            }
+            toast(`Linked suit added to cart: ${v.name}`, "success");
+          }
+        } catch (err) {
+          console.error("Failed to auto-add linked suit:", err);
+        }
+      }
+
       onInitialWeddingPosLinkConsumed?.();
     };
 
     void run();
-  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth]);
+  }, [initialWeddingPosLink, baseUrl, onInitialWeddingPosLinkConsumed, apiAuth, toast]);
 
   // --- Search Logic ---
   const runSearch = useCallback(async (raw: string) => {
@@ -3410,6 +3447,40 @@ export default function Cart({
           } catch (e) {
             console.warn("Could not auto-select customer for wedding member", e);
           }
+
+          // --- Auto-add Linked Suit to Cart (Manual Link) ---
+          if (m.suit_variant_id) {
+            try {
+              const res = await fetch(`${baseUrl}/api/products/variants/${m.suit_variant_id}`, {
+                headers: { ...apiAuth() },
+              });
+              if (res.ok) {
+                const v = await res.json();
+                const isFree = Boolean(m.is_free_suit_promo);
+                const newItem = {
+                  ...v,
+                  quantity: 1,
+                  fulfillment: "wedding_order",
+                  cart_row_id: newCartRowId(),
+                  ...(isFree ? {
+                    standard_retail_price: 0,
+                    original_unit_price: String(v.standard_retail_price),
+                    price_override_reason: "Wedding Promo (Free Suit Selection)"
+                  } : {})
+                };
+                setLines(prev => {
+                  if (prev.some(l => l.variant_id === v.variant_id)) return prev;
+                  return [...prev, newItem];
+                });
+                if (isFree) {
+                  toast(`Free Suit applied for ${m.first_name} (Promo)`, "success");
+                }
+                toast(`Linked suit added to cart: ${v.name}`, "success");
+              }
+            } catch (err) {
+              console.error("Failed to auto-add linked suit", err);
+            }
+          }
         }}
         onGroupPay={(members, partyName) => {
           if (isRmsPaymentCart) {
@@ -3605,7 +3676,7 @@ function CartItemRow({
   const laterLabel =
     orderLaterFulfillment === "wedding_order"
       ? "Wedding order"
-      : "Special order";
+      : "Order";
 
   return (
     <div

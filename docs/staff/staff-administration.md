@@ -52,14 +52,23 @@ Floor staff complete items in **POS → Tasks** or Operations widgets — see [p
 2. Edit **Role permissions** and **Role discount caps** deliberately; document broad changes in the store log.
 3. **Admin** accounts still receive the **full** permission catalog in software — template rows do not restrict admins.
 
-## Commission
+## Commission Manager (v0.1.8+)
 
-**Purpose:** **Category** commission **rates** (overrides by product category).
+**Purpose:** Manage **category rates**, individual **SPIFF incentives**, and **Combo rewards**.
 
 1. **Staff** → **Commission** (**staff.manage_commission**).
-2. Adjust rules only with **finance** alignment.
+2. **Category overrides:** Set base % for specific inventory categories.
+3. **SPIFF Engine:** Assign dollar-amount rewards for specific SKUs or Products.
+4. **Combo Matching:** Configure multi-item rewards (e.g., Suit + Shirt + Tie) that trigger a fixed SPIFF for the salesperson.
+5. SPIFF/Combo lines are automatically filtered from customer receipts for privacy.
 
-**Commission payouts** (ledger + **Finalize payout**) live under **Staff** → **Commission payouts** — see [insights-back-office.md](insights-back-office.md). That flow needs **insights.view** and **insights.commission_finalize**, not **staff.manage_commission** alone.
+## Commission payouts
+
+**Purpose:** Ledger view of earned commissions + **Finalize payout** action.
+
+1. **Staff** → **Commission payouts** (**insights.view** + **insights.commission_finalize**).
+2. Review the **unpaid ledger** to verify calculations.
+3. Use **Finalize payout** to mark earnings as paid and clear them from the active queue.
 
 ## Audit
 

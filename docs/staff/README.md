@@ -33,7 +33,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Open, close, EOD narrative | [EOD-AND-OPEN-CLOSE.md](EOD-AND-OPEN-CLOSE.md) |
 | PII and customer data | [PII-AND-CUSTOMER-DATA.md](PII-AND-CUSTOMER-DATA.md) |
 | Store-specific SOP (fill in) | [STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md) |
-| Abstract: special orders & stock | [abstracts/special-orders-and-stock.md](abstracts/special-orders-and-stock.md) |
+| Abstract: orders & stock | [abstracts/orders-and-stock.md](abstracts/orders-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |
 | Custom Work Orders (MTM) & Rush Tracking | [custom-work-orders-manual.md](custom-work-orders-manual.md) |
@@ -159,4 +159,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-04-11

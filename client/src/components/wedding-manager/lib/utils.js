@@ -27,6 +27,11 @@ export const formatDate = (dateString) => {
     return date.toLocaleDateString(undefined, options);
 };
 
+export const formatMoney = (raw) => {
+    const val = Number(raw ?? 0);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(val);
+};
+
 export const isSoon = (dateString) => {
     const date = new Date(dateString);
     const now = new Date();
@@ -70,11 +75,6 @@ export const isWithinDays = (dateString, days) => {
     // Reset time to start of day for accurate comparison
     now.setHours(0, 0, 0, 0);
 
-    // If date is in the past, return false (unless we want to include past events? usually dashboard is forward looking)
-    // But maybe we want to see recent past? Let's assume forward looking for "Upcoming" logic, but "Next 90 Days" usually implies future.
-    // However, if a wedding was yesterday, it might still be relevant. 
-    // Let's stick to the requested "Next 90 Days" which implies >= Today.
-
     const future = new Date(now);
     future.setDate(future.getDate() + days);
 
@@ -83,10 +83,6 @@ export const isWithinDays = (dateString, days) => {
 
 export const isInMonth = (dateString, monthIndex, year) => {
     if (!dateString) return false;
-    // Handle potential timezone issues by treating the string as local date if possible, 
-    // but standard new Date() is fine for now as long as we are consistent.
-    // Ideally we'd parse YYYY-MM-DD explicitly to avoid timezone shifts.
-    // Let's use a safer parse if it matches YYYY-MM-DD
     let date;
     if (typeof dateString === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateString)) {
         const [y, m, d] = dateString.split('-').map(Number);

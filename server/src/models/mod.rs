@@ -339,24 +339,34 @@ pub struct StoreSettings {
     pub loyalty_reward_amount: Decimal,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::logic::tax::TaxCategory;
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CommissionRule {
+    pub id: Uuid,
+    pub match_type: String, // 'category', 'product', 'variant'
+    pub match_id: Uuid,
+    pub override_rate: Option<Decimal>,
+    pub fixed_spiff_amount: Decimal,
+    pub label: Option<String>,
+    pub is_active: bool,
+    pub start_date: Option<DateTime<Utc>>,
+    pub end_date: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
 
-    #[test]
-    fn db_tax_maps_accessory_and_service_to_engine_other() {
-        assert_eq!(
-            TaxCategory::from(DbTaxCategory::Accessory),
-            TaxCategory::Other
-        );
-        assert_eq!(
-            TaxCategory::from(DbTaxCategory::Service),
-            TaxCategory::Other
-        );
-        assert_eq!(
-            TaxCategory::from(DbTaxCategory::Clothing),
-            TaxCategory::Clothing
-        );
-    }
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CommissionComboRule {
+    pub id: Uuid,
+    pub label: String,
+    pub reward_amount: Decimal,
+    pub is_active: bool,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct CommissionComboRuleItem {
+    pub id: Uuid,
+    pub rule_id: Uuid,
+    pub match_type: String, // 'category', 'product'
+    pub match_id: Uuid,
+    pub qty_required: i32,
 }

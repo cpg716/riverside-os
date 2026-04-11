@@ -319,6 +319,7 @@ pub async fn execute_suit_component_swap(
         ctx.quantity,
         ctx.salesperson_id,
         new_resolved.product_id,
+        body.in_variant_id,
         ctx.is_employee_purchase,
     )
     .await?;

@@ -12,6 +12,9 @@ export type RosOpenRegisterFromWmMember = {
   customer_id: string;
   customer_email?: string | null;
   customer_phone?: string | null;
+  suit_variant_id?: string | null;
+  /** Added for "Buy 5, Get 1" promotion tracking. */
+  is_free_suit_promo?: boolean | null;
 };
 
 export type RosOpenRegisterFromWmDetail = {

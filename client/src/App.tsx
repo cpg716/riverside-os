@@ -8,9 +8,10 @@ import InsightsShell from "./components/layout/InsightsShell";
 import GlobalSearchDrawerHost, {
   type GlobalSearchDrawerState,
 } from "./components/layout/GlobalSearchDrawers";
-import OperationalHome from "./components/operations/OperationalHome";
+const CommissionManagerWorkspace = lazy(() => import("./components/staff/CommissionManagerWorkspace"));
 import CloseRegisterModal from "./components/pos/CloseRegisterModal";
 import CustomersWorkspace from "./components/customers/CustomersWorkspace";
+import OperationalHome from "./components/operations/OperationalHome";
 import type { Customer } from "./components/pos/CustomerSelector";
 
 const InventoryWorkspace = lazy(() => import("./components/inventory/InventoryWorkspace"));
@@ -101,6 +102,7 @@ function App() {
     return "light";
   });
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const [registerReportsDeepLinkOrderId, setRegisterReportsDeepLinkOrderId] = useState<string | null>(null);
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
 
@@ -738,7 +740,8 @@ function App() {
               setInsightsMode(true);
               setActiveTab("dashboard");
             }}
-            onNavigateRegisterReports={() => {
+            onNavigateRegisterReports={(transactionId) => {
+              if (transactionId) setRegisterReportsDeepLinkOrderId(transactionId);
               setActiveTab("home");
               setActiveSubSection("daily-sales");
             }}
@@ -746,6 +749,8 @@ function App() {
               setActiveTab("staff");
               setActiveSubSection("commission-payouts");
             }}
+            registerReportsDeepLinkOrderId={registerReportsDeepLinkOrderId}
+            setRegisterReportsDeepLinkOrderId={setRegisterReportsDeepLinkOrderId}
           />
         </ShellBackdropProvider>
       </div>
@@ -843,8 +848,10 @@ type AppMainColumnProps = {
   onCustomersMessagingFocusConsumed: () => void;
   onOpenCustomerHubFromInbox: (customer: Customer) => void;
   onOpenMetabaseExplore: () => void;
-  onNavigateRegisterReports: () => void;
+  onNavigateRegisterReports: (transactionId?: string) => void;
   onNavigateCommissionPayouts: () => void;
+  registerReportsDeepLinkOrderId: string | null;
+  setRegisterReportsDeepLinkOrderId: (id: string | null) => void;
 };
 
 function AppMainColumn({
@@ -900,6 +907,8 @@ function AppMainColumn({
   onOpenMetabaseExplore,
   onNavigateRegisterReports,
   onNavigateCommissionPayouts,
+  registerReportsDeepLinkOrderId,
+  setRegisterReportsDeepLinkOrderId,
 }: AppMainColumnProps) {
   const { hasPermission, permissionsLoaded } = useBackofficeAuth();
   const shellDepth = useShellBackdropDepth();
@@ -953,7 +962,7 @@ function AppMainColumn({
       onClick={onWorkspaceClick}
     >
   <Header segments={breadcrumbSegments} onNavigateRegister={navigateRegister} onSelectCustomerForPos={(c) => setPendingPosCustomer(c)} onSearchOpenCustomerDrawer={(c) => setGlobalSearchDrawer({ kind: "customer", customer: c })} onSearchOpenProductDrawer={(sku, hintName) => setGlobalSearchDrawer({ kind: "product", sku, hintName })} onSearchOpenWeddingPartyCustomers={(partyQuery) => setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })} onToggleSidebar={onToggleSidebar} isRegisterOpen={isRegisterOpen} onOpenHelp={onOpenHelp} onOpenBugReport={onOpenBugReport} />
-      <GlobalSearchDrawerHost state={globalSearchDrawer} onClose={() => setGlobalSearchDrawer(null)} onOpenWeddingParty={(id) => { navigateWedding(id); }} onUseCustomerInRegister={(c) => setPendingPosCustomer(c)} onNavigateRegister={navigateRegister} onAddCustomerToWedding={() => { navigateWedding(); }} onBookCustomerAppointment={() => setActiveTab("appointments")} onOpenOrderInBackoffice={onOpenOrderInBackoffice} />
+      <GlobalSearchDrawerHost state={globalSearchDrawer} onClose={() => setGlobalSearchDrawer(null)} onOpenWeddingParty={(id: string) => { navigateWedding(id); }} onUseCustomerInRegister={(c) => setPendingPosCustomer(c)} onNavigateRegister={navigateRegister} onAddCustomerToWedding={() => { navigateWedding(); }} onBookCustomerAppointment={() => setActiveTab("appointments")} onOpenOrderInBackoffice={onOpenOrderInBackoffice} />
       <div className="relative flex min-h-0 flex-1 flex-col p-4">
         <div className={`relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface transition-all duration-300 ease-standard ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : "shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]"}`}>
           <Suspense
@@ -975,6 +984,8 @@ function AppMainColumn({
                     }}
                     onOpenOrderInBackoffice={onOpenOrderInBackoffice}
                     onOpenInboxCustomer={onOpenCustomerHubFromInbox}
+                    registerReportsDeepLinkOrderId={registerReportsDeepLinkOrderId}
+                    onRegisterReportsDeepLinkConsumed={() => setRegisterReportsDeepLinkOrderId(null)}
                   />
                 );
               if (activeTab === "inventory")
@@ -1056,6 +1067,9 @@ function AppMainColumn({
                     onNavigateCommissionPayouts={onNavigateCommissionPayouts}
                   />
                 );
+              }
+              if (activeTab === "staff" && activeSubSection === "commission-manager") {
+                return <CommissionManagerWorkspace />;
               }
               if (activeTab === "dashboard") {
                 return (

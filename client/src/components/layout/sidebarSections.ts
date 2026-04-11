@@ -51,6 +51,8 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "import", label: "Import" },
     { id: "vendors", label: "Vendors" },
     { id: "physical", label: "Physical count" },
+    { id: "damaged", label: "Damaged Inventory" },
+    { id: "rtv", label: "Return to Vendor" },
   ],
   weddings: [
     { id: "action-board", label: "Action Board" },
@@ -64,6 +66,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   ],
   loyalty: [
     { id: "eligible", label: "Monthly Eligible" },
+    { id: "history", label: "History" },
     { id: "adjust", label: "Adjust Points" },
     { id: "settings", label: "Program Settings" },
   ],
@@ -71,8 +74,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "team", label: "Team" },
     { id: "tasks", label: "Tasks" },
     { id: "schedule", label: "Schedule" },
-    { id: "commission", label: "Commission" },
-    { id: "commission-payouts", label: "Commission payouts" },
+    { id: "commission-manager", label: "Commission Manager" },
     { id: "audit", label: "Audit" },
   ],
   qbo: [

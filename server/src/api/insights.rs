@@ -1576,6 +1576,50 @@ async fn post_metabase_launch(
     metabase_launch_resolve(&state, &headers, &body.return_to).await
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct LoyaltyVelocityRow {
+    pub event_date: NaiveDate,
+    pub points_earned: i64,
+    pub points_burned: i64,
+    pub net_velocity: i64,
+}
+
+async fn loyalty_velocity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DateRangeQuery>,
+) -> Result<Json<Vec<LoyaltyVelocityRow>>, InsightsError> {
+    require_staff_with_permission(&state, &headers, INSIGHTS_VIEW)
+        .await
+        .map_err(|(s, _)| {
+            if s == StatusCode::FORBIDDEN {
+                InsightsError::Forbidden("insights.view permission required".to_string())
+            } else {
+                InsightsError::Unauthorized(
+                    "staff credentials required (x-riverside-staff-code and PIN if set)"
+                        .to_string(),
+                )
+            }
+        })?;
+
+    let (start, end) = range_bounds(&q);
+
+    let rows = sqlx::query_as::<_, LoyaltyVelocityRow>(
+        r#"
+        SELECT event_date, points_earned, points_burned, net_velocity
+        FROM view_loyalty_daily_velocity
+        WHERE event_date >= $1::date AND event_date < $2::date
+        ORDER BY event_date ASC
+        "#,
+    )
+    .bind(start.date_naive())
+    .bind(end.date_naive())
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -1603,4 +1647,5 @@ pub fn router() -> Router<AppState> {
         .route("/staff-performance", get(staff_performance))
         .route("/best-sellers", get(best_sellers))
         .route("/dead-stock", get(dead_stock))
+        .route("/loyalty-velocity", get(loyalty_velocity))
 }

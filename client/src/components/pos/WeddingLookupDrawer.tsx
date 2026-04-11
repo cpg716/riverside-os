@@ -27,6 +27,8 @@ export interface WeddingMember {
   customer_email?: string;
   customer_phone?: string;
   balance_due?: string; // Added for group pay
+  suit_variant_id?: string | null;
+  is_free_suit_promo: boolean;
 }
 
 export interface WeddingParty {
@@ -106,6 +108,8 @@ export default function WeddingLookupDrawer({
                 customer_id: String(m.customer_id ?? ""),
                 customer_email: m.customer_email,
                 customer_phone: m.customer_phone,
+                suit_variant_id: m.suit_variant_id != null ? String(m.suit_variant_id) : null,
+                is_free_suit_promo: Boolean(m.is_free_suit_promo),
               })),
             };
           })

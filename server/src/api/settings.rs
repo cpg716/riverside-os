@@ -1304,7 +1304,7 @@ async fn patch_review_policy(
 
 async fn get_remote_access_status(
     State(_state): State<AppState>,
-    headers: HeaderMap,
+    _headers: HeaderMap,
 ) -> Result<Json<TailscaleStatus>, SettingsError> {
     let manager = RemoteAccessManager::new();
     let status = manager

@@ -49,8 +49,8 @@ import manual_44_raw from "../../assets/docs/layout-shell-backdrop-context-manua
 import manual_45_raw from "../../assets/docs/layout-sidebar-manual.md?raw";
 import manual_46_raw from "../../assets/docs/layout-storefront-embed-host-manual.md?raw";
 import manual_47_raw from "../../assets/docs/layout-wedding-shell-manual.md?raw";
-import manual_48_raw from "../../assets/docs/loyalty-redeem-dialog-manual.md?raw";
-import manual_49_raw from "../../assets/docs/loyalty-workspace-manual.md?raw";
+import manual_48_raw from "../../assets/docs/loyalty-workspace-manual.md?raw";
+import manual_49_raw from "../../assets/docs/loyalty-redeem-dialog-manual.md?raw";
 import manual_50_raw from "../../assets/docs/notifications-notification-center-bell-manual.md?raw";
 import manual_51_raw from "../../assets/docs/notifications-notification-center-drawer-manual.md?raw";
 import manual_52_raw from "../../assets/docs/operations-compass-member-detail-drawer-manual.md?raw";
@@ -211,10 +211,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "customers-workspace",
-    title: "Customers Workspace (customers)",
-    summary: "Auto-generated stub for client/src/components/customers/CustomersWorkspace.tsx — replace with staff-facing help.",
+    title: "Customer CRM Hub",
+    summary: "Manage your client relationships, track lifetime sales, monitor wedding party membership, and handle duplicate accounts.",
     markdown: manual_11_raw,
-    tags: ["customers-workspace","component","auto-scaffold"],
+    tags: ["crm","customers","sales","duplicate-review"],
   },
   {
     id: "customers-duplicate-review-queue-section",
@@ -469,18 +469,18 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["layout-wedding-shell","component","auto-scaffold"],
   },
   {
-    id: "loyalty-redeem-dialog",
-    title: "Loyalty Redeem Dialog (loyalty)",
-    summary: "Auto-generated stub for client/src/components/loyalty/LoyaltyRedeemDialog.tsx — replace with staff-facing help.",
+    id: "loyalty-workspace",
+    title: "Loyalty Management Hub",
+    summary: "Manage the monthly reward cycle, customize fulfillment letters, and monitor loyalty program health.",
     markdown: manual_48_raw,
-    tags: ["loyalty-redeem-dialog","component","auto-scaffold"],
+    tags: ["loyalty","rewards","fulfillment","analytics"],
   },
   {
-    id: "loyalty-workspace",
-    title: "Loyalty Workspace (loyalty)",
-    summary: "Auto-generated stub for client/src/components/loyalty/LoyaltyWorkspace.tsx — replace with staff-facing help.",
+    id: "loyalty-redeem-dialog",
+    title: "Reward Redemption Dialog",
+    summary: "Finalize loyalty reward redemptions, apply to sales, or load onto new gift cards.",
     markdown: manual_49_raw,
-    tags: ["loyalty-workspace","component","auto-scaffold"],
+    tags: ["loyalty","redemption","gift-cards","checkout"],
   },
   {
     id: "notifications-notification-center-bell",
@@ -519,10 +519,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "orders-workspace",
-    title: "Orders Workspace (orders)",
-    summary: "Auto-generated stub for client/src/components/orders/OrdersWorkspace.tsx — replace with staff-facing help.",
+    title: "Order Fulfillment Hub",
+    summary: "Manage Special, Wedding, and Custom orders. Monitor deposits, track pickups, and manage the fulfillment pipeline.",
     markdown: manual_55_raw,
-    tags: ["orders-workspace","component","auto-scaffold"],
+    tags: ["orders","fulfillment","deposits","tracking"],
   },
   {
     id: "pos-cart",

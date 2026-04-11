@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Icon from './Icon';
 import SchedulerModal from './SchedulerModal';
 import { api } from '../lib/api';
 import { parseJSON } from '../lib/dataUtils';
 import { isLegacyIndividualParty } from '../lib/partyLegacy';
+import { formatDate, formatPhone, formatMoney } from '../lib/utils';
 
 const AppointmentList = ({ memberId, partyId }) => {
     const [appointments, setAppointments] = useState([]);
@@ -46,6 +47,7 @@ import { useModal } from '../hooks/useModal';
 import { dispatchOpenRegisterFromWeddingManager } from '../../../lib/weddingPosBridge';
 import { WEDDING_MEMBER_RETAIL_SIZE_FIELDS } from '../../customers/retailMeasurementLabels';
 import CustomerSearchInput from '../../ui/CustomerSearchInput';
+import VariantSearchInput from '../../ui/VariantSearchInput';
 
 const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, onRefresh }) => {
 
@@ -148,18 +150,19 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
         void run();
     }, [isOpen, member?.partyId, member?.id]);
 
-    const fmtMoney = (raw) => {
-        const n = Number(raw ?? 0);
-        if (!Number.isFinite(n)) return "$0.00";
-        return n.toLocaleString(undefined, { style: "currency", currency: "USD" });
-    };
+    const pickupHistory = useMemo(() => {
+        if (!member || !member.contactHistory) return [];
+        return member.contactHistory
+            .filter(h => h.note?.includes('PICKUP'))
+            .sort((a, b) => b.date.localeCompare(a.date));
+    }, [member]);
 
     const fulfillmentLabel = (profile) => {
         if (!profile) return null;
         const map = {
             takeaway: "Takeaway",
             wedding_order: "Wedding order",
-            special_order: "Special order",
+            special_order: "Order",
             mixed: "Mixed fulfillment",
             other: "Order",
         };
@@ -182,6 +185,8 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                 customer_id: cid,
                 customer_email: localMember.customerEmail || null,
                 customer_phone: localMember.phone || null,
+                suit_variant_id: localMember.suitVariantId || null,
+                is_free_suit_promo: Boolean(localMember.isFreeSuitPromo),
             },
         });
     };
@@ -428,18 +433,120 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                 </div>
                             </div>
 
-                            {/* Measurements */}
                             <div>
-                                <h4 className="font-bold text-app-text mb-2 border-b border-app-border pb-1">Measurements</h4>
-                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-                                    {WEDDING_MEMBER_RETAIL_SIZE_FIELDS.map(({ memberField, label }) => (
-                                        <div key={memberField}>
-                                            <label className="block text-xs font-bold text-app-text-muted uppercase mb-1 text-center">{label}</label>
-                                            <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none text-center transition-colors font-bold text-lg"
-                                                value={localMember[memberField] || ''} onChange={(e) => handleFieldChange(memberField, e.target.value)}
-                                            />
+                                <h4 className="font-bold text-app-text mb-2 border-b border-app-border pb-1 flex justify-between items-center">
+                                    <span>Suit Style (Inventory Link)</span>
+                                    {localMember.suit_variant_id ? (
+                                        <span className="text-[10px] bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-black uppercase">Individual SKU</span>
+                                    ) : party?.suit_variant_id ? (
+                                        <span className="text-[10px] bg-gold-100 text-gold-800 px-1.5 py-0.5 rounded font-black uppercase">Inherited from Party</span>
+                                    ) : null}
+                                </h4>
+                                <div className="space-y-3">
+                                    <div className="flex gap-2">
+                                        <VariantSearchInput 
+                                            className="flex-1"
+                                            placeholder="Search inventory to link suit..."
+                                            onSelect={(v) => {
+                                                setLocalMember(prev => ({
+                                                    ...prev,
+                                                    suit: `${v.product_name}${v.variation_label ? ` (${v.variation_label})` : ''}`,
+                                                    suit_variant_id: v.variant_id
+                                                }));
+                                            }}
+                                        />
+                                        {(localMember.suit_variant_id) && (
+                                            <button 
+                                                type="button"
+                                                onClick={() => setLocalMember({ ...localMember, suit_variant_id: null })}
+                                                className="px-3 py-2 bg-app-surface border border-app-border text-app-text-muted hover:text-red-600 rounded text-xs font-bold transition-colors"
+                                            >
+                                                Unlink
+                                            </button>
+                                        )}
+                                    </div>
+                                    <div className="text-[10px] text-app-text-muted italic flex items-center justify-between gap-1">
+                                        <div className="flex items-center gap-1">
+                                            <Icon name="Info" size={12} /> Linked: <span className="font-bold text-app-text">{localMember.suit || (party?.styleInfo ? `${party.styleInfo} (Party)` : "None")}</span>
                                         </div>
-                                    ))}
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[10px] uppercase font-black text-app-text-muted">Promo Free Suit:</span>
+                                            <button 
+                                                type="button"
+                                                onClick={() => handleFieldChange('isFreeSuitPromo', !localMember.isFreeSuitPromo)}
+                                                className={`px-3 py-1 rounded border text-[10px] font-black uppercase transition-all flex items-center gap-1 ${
+                                                    localMember.isFreeSuitPromo
+                                                        ? "bg-emerald-600 border-emerald-800 text-white"
+                                                        : "bg-app-surface border-app-border text-app-text-muted hover:text-app-text"
+                                                }`}
+                                            >
+                                                <Icon name={localMember.isFreeSuitPromo ? "CheckCircle" : "Circle"} size={10} />
+                                                {localMember.isFreeSuitPromo ? "Active" : "Disabled"}
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                        {WEDDING_MEMBER_RETAIL_SIZE_FIELDS.map(({ memberField, label }) => (
+                                            <div key={memberField}>
+                                                <label className="block text-xs font-bold text-app-text-muted uppercase mb-1 text-center">{label}</label>
+                                                <input type="text" className="w-full p-3 border border-app-border bg-app-surface text-app-text rounded-lg focus:ring-2 focus:ring-navy-900 outline-none text-center transition-colors font-bold text-lg"
+                                                    value={localMember[memberField] || ''} onChange={(e) => handleFieldChange(memberField, e.target.value)}
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            </div>
+ 
+                            <div>
+                                <h4 className="font-bold text-app-text mb-2 border-b border-app-border pb-1 flex justify-between items-center">
+                                    <span>Special Non-Inventory Needs</span>
+                                    <span className="text-[10px] text-app-text-muted font-normal normal-case italic">For items not in master catalog</span>
+                                </h4>
+                                <div className="space-y-2">
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="text"
+                                            id="new-non-inv-desc"
+                                            className="flex-1 px-3 py-2 text-sm border border-app-border bg-app-surface text-app-text rounded focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                            placeholder="Item description (e.g. Brooks Bros Silk Tie)..."
+                                        />
+                                        <input 
+                                            type="number"
+                                            id="new-non-inv-qty"
+                                            className="w-16 px-3 py-2 text-sm border border-app-border bg-app-surface text-app-text rounded focus:ring-2 focus:ring-navy-900 outline-none transition-colors"
+                                            defaultValue="1"
+                                        />
+                                        <button 
+                                            type="button"
+                                            onClick={async () => {
+                                                const desc = document.getElementById('new-non-inv-desc').value;
+                                                const qty = parseInt(document.getElementById('new-non-inv-qty').value);
+                                                if (!desc) return;
+                                                const author = await selectSalesperson();
+                                                if (!author) return;
+                                                try {
+                                                    await api.createNonInventoryItem({
+                                                        wedding_party_id: localMember.partyId,
+                                                        wedding_member_id: localMember.id,
+                                                        description: desc,
+                                                        quantity: qty,
+                                                        actor_name: author
+                                                    });
+                                                    document.getElementById('new-non-inv-desc').value = '';
+                                                    if (onRefresh) onRefresh();
+                                                } catch (err) {
+                                                    console.error("Failed to add non-inventory item", err);
+                                                }
+                                            }}
+                                            className="px-4 py-2 bg-app-surface border border-app-border text-app-text hover:bg-app-surface-2 rounded text-xs font-bold transition-all"
+                                        >
+                                            Add Need
+                                        </button>
+                                    </div>
+                                    <p className="text-[10px] text-app-text-muted italic">
+                                        These items will appear on the Purchase Order "Due List" for procurement.
+                                    </p>
                                 </div>
                             </div>
 
@@ -494,11 +601,11 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                             </div>
                                             <div className="rounded border border-app-border bg-app-surface p-2">
                                                 <div className="text-[10px] font-bold uppercase text-app-text-muted">Order Total</div>
-                                                <div className="text-sm font-black text-app-text">{fmtMoney(financialRow.order_total)}</div>
+                                                <div className="text-sm font-black text-app-text">{formatMoney(financialRow.order_total)}</div>
                                             </div>
                                             <div className="rounded border border-app-border bg-app-surface p-2">
                                                 <div className="text-[10px] font-bold uppercase text-app-text-muted">Paid / Deposits</div>
-                                                <div className="text-sm font-black text-emerald-700">{fmtMoney(financialRow.paid_total)}</div>
+                                                <div className="text-sm font-black text-emerald-700">{formatMoney(financialRow.paid_total)}</div>
                                             </div>
                                         </div>
                                         <div className={`rounded border p-2 text-sm font-black ${
@@ -506,7 +613,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                                 ? "border-amber-200 bg-amber-50 text-amber-800"
                                                 : "border-emerald-200 bg-emerald-50 text-emerald-800"
                                         }`}>
-                                            Balance Due: {fmtMoney(financialRow.balance_due)}
+                                            Balance Due: {formatMoney(financialRow.balance_due)}
                                         </div>
                                         {!member?.isNew && localMember.customerId ? (
                                             <button
@@ -533,7 +640,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                                                 {" · "}
                                                                 {ln.created_at ? new Date(ln.created_at).toLocaleString() : "No date"}
                                                             </span>
-                                                            <span className="font-bold text-app-text">{fmtMoney(ln.amount)}</span>
+                                                            <span className="font-bold text-app-text">{formatMoney(ln.amount)}</span>
                                                         </div>
                                                     ))}
                                                 </div>

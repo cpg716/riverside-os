@@ -26,6 +26,7 @@ pub struct CustomerOrderHistoryItem {
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
     pub item_count: i64,
+    pub is_fulfillment_order: bool,
     pub primary_salesperson_name: Option<String>,
 }
 
@@ -45,6 +46,7 @@ struct Row {
     amount_paid: Decimal,
     balance_due: Decimal,
     item_count: i64,
+    is_fulfillment_order: bool,
     primary_salesperson_name: Option<String>,
     total_count: i64,
 }
@@ -67,6 +69,7 @@ pub async fn query_customer_order_history(
             o.amount_paid,
             o.balance_due,
             COUNT(oi.id)::bigint AS item_count,
+            EXISTS(SELECT 1 FROM order_items WHERE order_id = o.id AND fulfillment != 'takeaway') AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
             COUNT(*) OVER()::bigint AS total_count
         FROM orders o
@@ -116,6 +119,7 @@ pub async fn query_customer_order_history(
             amount_paid: r.amount_paid,
             balance_due: r.balance_due,
             item_count: r.item_count,
+            is_fulfillment_order: r.is_fulfillment_order,
             primary_salesperson_name: r.primary_salesperson_name,
         })
         .collect();

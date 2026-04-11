@@ -137,7 +137,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `staff.view` | View staff roster / hub. |
 | `staff.edit` | Edit staff profile fields (name, code, role, active, contacts). |
 | `staff.manage_pins` | Set or change staff PINs. |
-| `staff.manage_commission` | Base and category commission. |
+| `staff.manage_commission` | Commission Manager: rules, SPIFFs, combos, and category overrides. |
 | `staff.view_audit` | Staff access log. |
 | `staff.manage_access` | Edit **per-person** permission checklists on staff profiles; use **Settings → Staff access defaults** for role **template** matrix and template discount caps (**`settings.admin`** may also open Settings; templates are policy-sensitive). |
 | `qbo.view` | QBO workspace read-oriented actions. |

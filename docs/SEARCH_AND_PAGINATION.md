@@ -79,11 +79,12 @@ Older builds applied a fixed row cap **before** substring filtering, which hid m
 ### `GET /api/customers/browse`
 
 Segmented list with wedding/balance/VIP filters. **Filters are in SQL**; then **`LIMIT` / `OFFSET`**.  
+The UI uses a **High-Density Grid** approach, prioritizing financial data (Lifetime Sales, Open Balance) and wedding status.
 When **`q`** is set and **`wedding_party_q`** is **not**, optional **Meilisearch** resolves customer ids first (same SQL hydration + filters); with **`wedding_party_q`**, the **`q`** leg stays **ILIKE** in SQL.
 
 | Param | Notes |
 |-------|--------|
-| `q`, `vip_only`, `balance_due_only`, `wedding_soon_only`, `wedding_party_q`, `wedding_within_days` | See `CustomerBrowseQuery` in `server/src/api/customers.rs` |
+| `q`, `vip_only`, `balance_due_only`, `loyalty_pool_only`, `wedding_soon_only`, `wedding_party_q`, `wedding_within_days` | See `CustomerBrowseQuery` in `server/src/api/customers.rs` |
 | `limit` | Default **300**, max **1000** |
 | `offset` | Default **0**, max **500_000** |
 

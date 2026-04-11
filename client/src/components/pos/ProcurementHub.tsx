@@ -408,7 +408,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
                         <button
                           type="button"
                           className="flex min-h-[48px] min-w-[48px] items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text-muted transition-colors hover:text-app-text active:scale-[0.98] sm:min-h-[44px] sm:w-full"
-                          title="Request special order"
+                          title="Request order"
                           aria-label="Request order for out of stock variant"
                         >
                           <ClipboardList className="size-5" aria-hidden />

@@ -152,7 +152,8 @@ interface CustomerOrderHistoryItem {
   amount_paid: string;
   balance_due: string;
   item_count: number;
-  primary_salesperson_name: string | null;
+  primary_salesperson_name?: string | null;
+  is_fulfillment_order?: boolean;
 }
 
 export interface CustomerRelationshipHubDrawerProps {
@@ -167,6 +168,7 @@ export interface CustomerRelationshipHubDrawerProps {
   navigateAfterStartSale?: boolean;
   onAddToWedding?: () => void;
   onBookAppointment?: () => void;
+  onNavigateRegisterReports?: (transactionId?: string) => void;
   onOpenOrderInBackoffice?: (orderId: string) => void;
   onSwitchCustomer?: (c: Customer) => void;
   baseUrl?: string;
@@ -184,6 +186,7 @@ export default function CustomerRelationshipHubDrawer({
   navigateAfterStartSale = true,
   onAddToWedding,
   onBookAppointment,
+  onNavigateRegisterReports,
   onOpenOrderInBackoffice,
   onSwitchCustomer,
   baseUrl = defaultBase,
@@ -1118,7 +1121,18 @@ export default function CustomerRelationshipHubDrawer({
                         {row.primary_salesperson_name ?? "—"}
                       </td>
                       <td className="px-3 py-2">
-                        {onOpenOrderInBackoffice ? (
+                        {row.is_fulfillment_order === false ? (
+                           <button
+                             type="button"
+                             onClick={() => {
+                               onNavigateRegisterReports?.(row.order_id);
+                               onClose();
+                             }}
+                             className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-emerald-700 dark:text-emerald-400"
+                           >
+                             Receipt
+                           </button>
+                        ) : onOpenOrderInBackoffice ? (
                           <button
                             type="button"
                             onClick={() => {

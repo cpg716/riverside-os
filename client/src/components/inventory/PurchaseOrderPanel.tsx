@@ -14,6 +14,17 @@ interface PurchaseOrder {
   po_kind?: string;
 }
 
+interface WeddingNonInventoryItem {
+  id: string;
+  wedding_party_id: string;
+  wedding_member_id?: string;
+  description: string;
+  quantity: number;
+  status: string;
+  notes?: string;
+  created_at: string;
+}
+
 interface Vendor {
   id: string;
   name: string;
@@ -47,6 +58,7 @@ export default function PurchaseOrderPanel({
   const [invoiceNo, setInvoiceNo] = useState("");
   const [freightTotal, setFreightTotal] = useState("0.00");
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
+  const [nonInventoryNeeds, setNonInventoryNeeds] = useState<WeddingNonInventoryItem[]>([]);
 
   const refresh = useCallback(() => {
     fetch(apiUrl(baseUrl, "/api/purchase-orders"), {
@@ -71,7 +83,6 @@ export default function PurchaseOrderPanel({
   }, [initialPoId, orders, onInitialPoConsumed]);
 
   useEffect(() => {
-    refresh();
     fetch(apiUrl(baseUrl, "/api/vendors"), {
       headers: backofficeHeaders() as Record<string, string>,
     })
@@ -82,6 +93,17 @@ export default function PurchaseOrderPanel({
         if (list.length > 0) setVendorId(list[0].id);
       })
       .catch(() => setVendors([]));
+
+    // Fetch Non-Inventory Needs
+    fetch(apiUrl(baseUrl, "/api/weddings/non-inventory"), {
+      headers: backofficeHeaders() as Record<string, string>,
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => {
+        const list = Array.isArray(data) ? data : [];
+        setNonInventoryNeeds(list.filter(item => item.status === 'needed'));
+      })
+      .catch(() => setNonInventoryNeeds([]));
   }, [refresh, backofficeHeaders]);
 
   const createDraft = async () => {
@@ -292,18 +314,18 @@ export default function PurchaseOrderPanel({
           Add line
         </button>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-3">
-          <input
-            value={receiveLineId}
-            onChange={(e) => setReceiveLineId(e.target.value)}
-            placeholder="PO line UUID"
-            className="ui-input py-2 text-xs md:col-span-3"
-          />
+        <div className="mt-4 grid gap-2 md:grid-cols-4 border-t border-app-border pt-4">
           <input
             value={invoiceNo}
             onChange={(e) => setInvoiceNo(e.target.value)}
             placeholder="Invoice #"
             className="ui-input py-2 text-xs"
+          />
+          <input
+            value={receiveLineId}
+            onChange={(e) => setReceiveLineId(e.target.value)}
+            placeholder="PO Line ID"
+            className="ui-input py-2 text-xs font-mono"
           />
           <input
             value={receiveQty}
@@ -323,12 +345,48 @@ export default function PurchaseOrderPanel({
           <button
             type="button"
             onClick={receive}
-            className="rounded bg-emerald-600 px-3 py-2 text-xs font-bold text-white"
+            className="rounded bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:brightness-110 transition-all"
           >
-            Receive + Allocate Freight
+            Quick Receive
           </button>
         </div>
       </section>
+
+      {nonInventoryNeeds.length > 0 && (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">
+          <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-amber-900 flex items-center gap-2">
+            <span className="flex h-2 w-2 animate-pulse rounded-full bg-amber-600"></span>
+            Non-Inventory Items Needed (Weddings)
+          </h3>
+          <div className="rounded border border-amber-200 bg-white overflow-hidden">
+            <table className="w-full text-left text-[11px]">
+              <thead className="bg-amber-100/50">
+                <tr>
+                  <th className="px-3 py-2 text-amber-900">Description</th>
+                  <th className="px-3 py-2 text-amber-900 text-center">Qty</th>
+                  <th className="px-3 py-2 text-amber-900">Notes</th>
+                  <th className="px-3 py-2 text-amber-900">Added</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-amber-100">
+                {nonInventoryNeeds.map((item) => (
+                  <tr key={item.id} className="hover:bg-amber-50/50 transition-colors">
+                    <td className="px-3 py-2 font-bold text-app-text">{item.description}</td>
+                    <td className="px-3 py-2 text-center font-mono text-emerald-700">{item.quantity}</td>
+                    <td className="px-3 py-2 text-app-text-muted italic">{item.notes || "-"}</td>
+                    <td className="px-3 py-2 text-[10px] text-app-text-muted">
+                        {new Date(item.created_at).toLocaleDateString()}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className="mt-2 text-[10px] text-amber-700 italic">
+            Note: These items are not in the master catalog and must be sourced manually for specific wedding orders.
+          </p>
+        </section>
+      )}
     </div>
   );
 }

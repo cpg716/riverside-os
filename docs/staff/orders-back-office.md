@@ -19,6 +19,7 @@
 3. Click order → verify **lines**, **balance due**, **customer** attachment.
 4. **Take payment** per tender UI; confirm **$0** balance or correct **partial**.
 5. **Pickup** / **fulfill**: complete **line checkoffs** if prompted (prevents partial mistakes).
+6. **Attach Wedding** (v0.1.9): Link a standalone or imported order to a **Wedding Party** member. This updates the order kind to `wedding_order` and synchronizes it with the party's Action Board.
 
 ## All Orders
 

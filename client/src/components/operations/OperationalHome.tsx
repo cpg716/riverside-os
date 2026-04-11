@@ -79,6 +79,8 @@ interface OperationalHomeProps {
   /** Increment to refetch compass + activity (e.g. after wedding edits). */
   refreshSignal?: number;
   activeSection?: string;
+  registerReportsDeepLinkOrderId?: string | null;
+  onRegisterReportsDeepLinkConsumed?: () => void;
 }
 
 type CompassQueueKind = "overdue" | "measure" | "order";
@@ -235,6 +237,8 @@ export default function OperationalHome({
   onOpenInboxCustomer,
   refreshSignal = 0,
   activeSection,
+  registerReportsDeepLinkOrderId,
+  onRegisterReportsDeepLinkConsumed,
 }: OperationalHomeProps) {
   const { backofficeHeaders, hasPermission, permissionsLoaded } = useBackofficeAuth();
   const [taskMeOpen, setTaskMeOpen] = useState<
@@ -401,7 +405,7 @@ export default function OperationalHome({
               </p>
             </div>
           ) : (
-            <RegisterReports sessionId={null} onOpenWeddingParty={onOpenWeddingParty} />
+            <RegisterReports sessionId={null} onOpenWeddingParty={onOpenWeddingParty} deepLinkTransactionId={registerReportsDeepLinkOrderId} onDeepLinkConsumed={onRegisterReportsDeepLinkConsumed} />
           )}
         </div>
       </div>

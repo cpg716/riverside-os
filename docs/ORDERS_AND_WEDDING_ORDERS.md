@@ -1,4 +1,4 @@
-# Special and Wedding Orders — Riverside OS
+# Orders and Wedding Orders — Riverside OS
 
 Special Orders and Wedding Orders allow customers to purchase items that are not fulfilled immediately as floor takeaway. These items may need to be ordered from a vendor, manufactured, or reserved specifically for an event. 
 
@@ -6,15 +6,15 @@ This document covers their lifecycle, inventory impact, financial handling, and 
 
 ## Overview and Differences from Layaways
 * **Layaways**: Placed on entirely **in-stock** floor items. The item is immediately removed from floor availability and set aside on a layaway shelf.
-* **Special Orders**: Placed for items that might **not** currently be in stock, requiring procurement. Revenue is deferred until the items physically arrive, are assigned to the customer, and are fulfilled.
-* **Wedding Orders**: Function exactly like Special Orders but are strictly tied to a `wedding_party` and specific event timelines. They enforce additional workflows such as required fittings, group-pay capabilities, and component swapping.
+* **Orders**: Placed for items that might **not** currently be in stock, requiring procurement. Revenue is deferred until the items physically arrive, are assigned to the customer, and are fulfilled.
+* **Wedding Orders**: Function exactly like Orders but are strictly tied to a `wedding_party` and specific event timelines. They enforce additional workflows such as required fittings, group-pay capabilities, and component swapping.
 * **Custom Work Orders (MTM Light)**: Specifically for items that don't exist in the catalog yet (SUITS, SHIRTS, etc.). Triggered by the `CUSTOM` SKU prefix, they allow for variable pricing and custom item type selection at the point of sale. 
 
 ---
 
 ## Lifecycle
 
-1. **Booking**: The cashier builds the cart. If the purchase requires items to be secured for a future pickup date without decrementing floor stock immediately, they designate the lines as **Special Order** or **Wedding Order**.
+1. **Booking**: The cashier builds the cart. If the purchase requires items to be secured for a future pickup date without decrementing floor stock immediately, they designate the lines as **Order** or **Wedding Order**.
 2. **Deposit**: The cashier can require a deposit up front. The POS register allows cashiers to specify the requested deposit down payment.
 3. **Procurement**: The items enter the procurement pipeline. Management views open orders and issues POs out to vendors for these goods. For **Custom Work Orders**, the item type (e.g., "SUITS") and any rush requirements (Need-By Date) are prioritized in the procurement queue.
 4. **Reserving Stock**: When goods arrive via receiving, they automatically or manually allocate into **Reserved Stock** linked to this specific order.
@@ -24,7 +24,7 @@ This document covers their lifecycle, inventory impact, financial handling, and 
 
 ## Inventory Impact
 
-Unlike standard takeaway sales, Special and Wedding orders follow a delayed inventory protocol to protect operational accuracy:
+Unlike standard takeaway sales, Orders and Wedding orders follow a delayed inventory protocol to protect operational accuracy:
 
 - **stock_on_hand**: Does **not** decrement at the time of booking.
 - **pipeline / open order quantity**: Increments, showing management the pending demand that needs to be filled.
@@ -35,7 +35,7 @@ Unlike standard takeaway sales, Special and Wedding orders follow a delayed inve
 
 ## Financials (Fulfilled-Recognition)
 
-Riverside OS strictly adheres to a **fulfilled-recognition** model for Special and Wedding orders to ensure accurate tax and commission data:
+Riverside OS strictly adheres to a **fulfilled-recognition** model for Orders and Wedding orders to ensure accurate tax and commission data:
 
 - **Initial Deposit**: Captured purely as a Liability (`liability_deposit`) on the balance sheet. No revenue or sales tax is recognized on the day of the deposit.
 - **Interim Payments**: Captured as Liability against the customer account.
@@ -50,12 +50,12 @@ Riverside OS strictly adheres to a **fulfilled-recognition** model for Special a
 ## Staff Steps (POS)
 
 ### 1. Booking & Setting Deposits
-When a customer intends to special order items:
-1. Build the cart and select the **Special Order** (or **Wedding**) layout.
+When a customer intends to order items:
+1. Build the cart and select the **Order** (or **Wedding**) layout.
 2. Select/Add the Customer (Required).
 3. If taking a partial deposit today: Type the agreed-upon deposit amount on the payment keypad (e.g., `100`), then tap **Apply deposit**.
 4. The remaining **Balance to Pay** instantly drops to match the deposit amount requested. Complete the checkout using normal cash or card tender.
-5. Provide the customer with the printed Special Order receipt detailing their deposit and remaining ledger balance.
+5. Provide the customer with the printed Order receipt detailing their deposit and remaining ledger balance.
 
 ### 2. Group Payouts (Wedding Only)
 Wedding orders support localized splitting. Tapping **Split deposit (wedding party)** opens the group pay mode. A single groom or sponsor can pay multiple deposits or full balances for groomsmen dynamically in one unified transaction.

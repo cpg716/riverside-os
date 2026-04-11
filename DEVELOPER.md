@@ -9,9 +9,11 @@ Riverside OS (ROS) is a **production retail ERM/POS** for a formalwear / wedding
 | **Task 3** | `messaging.rs` | Automated Messaging Engine for pickup pings. |
 | **Task 4** | `orders.rs` | Individual item Bag Tags (?mode=bag-tag) and pagination. |
 | **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
+| **v0.1.9** | Zero-error stabilization sprint; Wedding Party order attachment flow. |
 
 Domain language and canonical requirements live in **`Riverside_OS_Master_Specification.md`**.
-Operational guides: **`docs/STORE_DEPLOYMENT_GUIDE.md`** (full production topology, hardware, builds), **`docs/ORBSTACK_GUIDE.md`** (Mac setup), **`REMOTE_ACCESS_GUIDE.md`**, **`INVENTORY_GUIDE.md`**, **`BACKUP_RESTORE_GUIDE.md`**, **`docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`** (No-rot strategy), **`CHANGELOG.md`** (version history), **`docs/CI_CD_AND_CODE_HYGIENE_STANDARDS.md`** (**Zero-Error / Fast Refresh** mandate).
+1. **Custom Work Orders & Rush Orders** | `client/src/components/pos/CustomItemPromptModal.tsx`, `client/src/components/pos/Cart.tsx`, `server/src/logic/order_checkout.rs`, `server/src/logic/weddings.rs` (Morning Compass priority); see **`docs/ORDERS_AND_WEDDING_ORDERS.md`** and **`docs/staff/custom-work-orders-manual.md`**.
+10. **`docs/DEPOSIT_OPERATIONS.md`** — Complete deposit lifecycle: layaway / order / wedding / split / open deposit types, POS register keypad flow, deposit-only completion, mixed carts, interim payments, fulfillment release, forfeiture, QBO journal mappings (`liability_deposit`, `income_forfeited_deposit`).
 
 Product planning (strengths, gaps, prioritization for men’s / wedding retail): **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`**.
 
@@ -21,7 +23,7 @@ Version bumps should be synchronized across the entire repository to ensure clie
 
 - **Root Source of Truth**: The `version` field in the root `package.json` is the authoritative version for the entire repository.
 - **Synchronized Modules**: Versions in `client/package.json`, `server/Cargo.toml`, `client/src-tauri/tauri.conf.json`, and `client/src-tauri/Cargo.toml` must match.
-- **Git Tags**: Official releases are marked with Git tags in the format `vMAJOR.MINOR.PATCH` (e.g., `v0.1.1`). 
+- **Git Tags**: Official releases are marked with Git tags in the format `vMAJOR.MINOR.PATCH` (e.g. `v0.1.1`). 
 - **Changelog**: All changes are documented in `CHANGELOG.md` under the corresponding version header.
 
 ### Automated Bumping
@@ -273,7 +275,7 @@ npm run tauri:dev
 | 27 | `27_golden_rule_accounting.sql` | `weather_snapshot` JSONB on `register_sessions` and `orders`; `closing_comments` on `register_sessions`; index on `register_sessions.closed_at` |
 | 28 | `28_customer_profile_and_code.sql` | `customers.customer_code` (unique, NOT NULL, sequence-backed allocation), `company_name`, `date_of_birth`, `anniversary_date`, `custom_field_1..4`; backfill for existing rows |
 | 29 | `29_counterpoint_sync.sql` | `product_variants.counterpoint_item_key` (nullable unique), `counterpoint_sync_runs` bookkeeping for the CP bridge |
-| 30 | `30_fulfillment_wedding_order.sql` | `fulfillment_type` adds `wedding_order`; legacy `custom` → `special_order`; wedding-linked lines → `wedding_order` |
+| 30 | `30_fulfillment_wedding_order.sql` | `fulfillment_type` adds `wedding_order`; legacy `custom` → `order`; wedding-linked lines → `wedding_order` |
 | 31 | `31_customers_is_active.sql` | `customers.is_active BOOLEAN NOT NULL DEFAULT TRUE` |
 | 32 | `32_customers_phone_width.sql` | Widen `customers.phone` for E.164-style values |
 | **33** | **`33_wedding_appointments_walk_in.sql`** | **`wedding_appointments`**: nullable `wedding_party_id` / `wedding_member_id`; optional **`customer_id`** → `customers` for general store appointments |
@@ -402,8 +404,8 @@ Routers are composed in `server/src/api/mod.rs`:
 | `/api/inventory` | `inventory` | **`GET /scan/{sku}`**, **`GET /intelligence/{variant_id}`**, **`GET /control-board`**: staff **or** POS session. **`GET /scan-resolve`**: **`catalog.view`** (or POS session). **`POST /batch-scan`**: **`catalog.edit`** (or POS session). |
 | `/api/inventory/physical`| `physical_inventory` | Session CRUD, counting, review, reconciliation, publish |
 | `/api/orders` | `orders` | **RBAC:** most routes require staff headers + `orders.*` keys (see **`docs/STAFF_PERMISSIONS.md`**). **`POST /checkout`** requires the **same register session** as `session_id` in the JSON body: POS headers above must match that session (see `middleware::require_pos_register_session_for_checkout`). Optional idempotency: **`checkout_client_id`** (unique per order when set; migration **38**). List/detail/audit/receipt support optional **`register_session_id`** when the session has a positive payment allocation to the order. **Receipt delivery:** **`GET …/receipt.html`**, **`GET …/receipt.zpl`**, **`POST …/receipt/send-email`**, **`POST …/receipt/send-sms`** (Podium); optional **`gift`** + **`order_item_ids`** (query or JSON body) — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**. |
-| `/api/orders/checkout` | `orders` | Server validates lines vs catalog + tax (`logic::checkout_validate`). **`total_price`** = cart lines + shipping (±$0.02); **`wedding_disbursements`** are **excluded** from **`total_price`** and settled from **`amount_paid`** separately (`amount_toward_order` = `amount_paid` − sum(disbursements); takeaway must be covered by non-**`deposit_ledger`** / non-**`open_deposit`** tenders — see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**). **Takeaway** lines decrement **`stock_on_hand`** in one aggregated UPDATE per variant (can go **negative** when policy allows oversell); **special_order** / non-takeaway paths skip checkout-time decrement. Variant resolution prefers **`variant_id`** (`logic::order_checkout` / `services::inventory::resolve_variant_by_id`). Disbursements with no beneficiary **open** order credit **`customer_open_deposit_*`**. Tender **`open_deposit`** redeems that balance. Post-sale **receipt** UI: **`ReceiptSummaryModal`** — thermal per **`receipt_thermal_mode`** (ZPL, ESC/POS raster, or browser print), **Email** / **Text** standard or **gift** (line subset) via Podium (**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**); **`OrderCustomerSummary`** includes **`phone`** / **`email`**. |
-| `/api/orders/{id}/pickup` | `orders` | Decrements `reserved_stock` + `stock_on_hand` for special/custom items at delivery; optional body **`register_session_id`** for till without BO headers |
+| `/api/orders/checkout` | `orders` | Server validates lines vs catalog + tax (`logic::checkout_validate`). **`total_price`** = cart lines + shipping (±$0.02); **`wedding_disbursements`** are **excluded** from **`total_price`** and settled from **`amount_paid`** separately (`amount_toward_order` = `amount_paid` − sum(disbursements); takeaway must be covered by non-**`deposit_ledger`** / non-**`open_deposit`** tenders — see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**). **Takeaway** lines decrement **`stock_on_hand`** in one aggregated UPDATE per variant (can go **negative** when policy allows oversell); **order** / non-takeaway paths skip checkout-time decrement. Variant resolution prefers **`variant_id`** (`logic::order_checkout` / `services::inventory::resolve_variant_by_id`). Disbursements with no beneficiary **open** order credit **`customer_open_deposit_*`**. Tender **`open_deposit`** redeems that balance. Post-sale **receipt** UI: **`ReceiptSummaryModal`** — thermal per **`receipt_thermal_mode`** (ZPL, ESC/POS raster, or browser print), **Email** / **Text** standard or **gift** (line subset) via Podium (**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**); **`OrderCustomerSummary`** includes **`phone`** / **`email`**. |
+| `/api/orders/{id}/pickup` | `orders` | Decrements `reserved_stock` + `stock_on_hand` for order/custom items at delivery; optional body **`register_session_id`** for till without BO headers |
 | `/api/orders/refunds/due` | `orders` | Open **`order_refund_queue`** rows — requires **`orders.refund_process`** |
 | `/api/orders/{id}/refunds/process` | `orders` | Money-out refund — **`orders.refund_process`**, open register session; Stripe/gift-card paths documented in **`docs/ORDERS_RETURNS_EXCHANGES.md`** |
 | `/api/orders/{id}/returns` | `orders` | Line returns + restock rules + queue bump — **`orders.modify`** (or register session path) |
@@ -517,7 +519,7 @@ If stock levels or asset valuations are lost but a Lightspeed CSV is available (
 
 ---
 
-## Special / custom order inventory model
+## Order / custom order inventory model
 
 ```
 Checkout          →  NO stock_on_hand change
@@ -564,6 +566,36 @@ Full strict list: **`.cursorrules`**. Non-negotiables:
 
 ---
 
+## Financial Integrity & Precision (The "Iron Cage")
+
+Riverside OS follows a "Zero-Drift" policy for all currency calculations. 
+
+### 1. High-Precision Engine
+- **Server**: All currency MUST use the `rust_decimal::Decimal` crate. Floating-point types (`f32`, `f64`) are strictly forbidden for financial logic.
+- **Precision**: Money is stored and computed with 2 decimal places. 
+- **Rounding Strategy**: Standardized on `MidpointAwayFromZero`.
+
+### 2. SQL Hardening
+Even with `Decimal` on the server, aggregate sums in SQL (e.g., `SUM(total_price)`) include explicit rounding and casting:
+```sql
+COALESCE(SUM(
+    (unit_price + COALESCE(state_tax, 0) + COALESCE(local_tax, 0))::numeric
+    * quantity::numeric
+), 0::numeric)
+```
+This protects the database "source of truth" from sub-penny accumulation that can occur if imprecise data is synced from legacy external systems (Counterpoint Ticket Imports).
+
+### 3. Price Override Audit
+Every manual price modification at the register is audited. The original price and reason code are stored in the line item's `size_specs` JSONB column. NEVER clobber this metadata when re-calculating or returns.
+
+---
+
+## BUGSQUASH History
+Detailed audit logs of system stabilizations:
+- [v0.1.8 Bugsquash Report](docs/BUGSQUASH_REPORT_V0.1.8.md) (27 TS fixes, Bundle UI implementation, SQL hardening).
+
+---
+
 ## Agent / IDE helpers
 
 - **Documentation catalog** — [`README.md`](README.md) § **Documentation catalog** (every first-party doc: path, role, audience).
@@ -599,7 +631,7 @@ Full strict list: **`.cursorrules`**. Non-negotiables:
 | Cannot connect to Postgres / wrong database | Ensure `docker compose up -d`; **`DATABASE_URL` uses `localhost:5433`** (Compose maps **5433→5432**). If the API logs **relation/column does not exist** but **`./scripts/migration-status-docker.sh`** is all **ok**, the server was almost certainly hitting a **different** Postgres (e.g. native **`localhost:5432`**) — fix the URL port or stop the other instance. |
 | Weather / “relation does not exist” while migrations show applied | Often **`search_path`** for the DB role omits **`public`**, so unqualified names fail even though **`public.weather_*`** exists. Weather SQL is qualified with **`public.`**; check startup **`PostgreSQL startup context`** (`db_startup_diag`) for `current_database`, `search_path`, and `to_regclass` of the weather tables. Also confirm **`DATABASE_URL`** matches the instance you migrated. |
 | `session_ordinal` NULL | Migration 24 adds `BIGSERIAL` — existing rows get auto-populated on first write. |
-| `reserved_stock` unexpected | Inspect `inventory_transactions` for `po_receipt` entries and open `order_items` with **`special_order`** fulfillment (legacy DB may still label **`custom`**; behavior matches **`special_order`**). |
+| `reserved_stock` unexpected | Inspect `inventory_transactions` for `po_receipt` entries and open `order_items` with **`order`** fulfillment (legacy DB may still label **`custom`**; behavior matches **`order`**). |
 | Backup fails | Ensure `pg_dump` is in the PATH and `DATABASE_URL` uses the internal Docker network or reachable IP. |
 | Physical inventory off | Check `physical_inventory_audit` to see if sales reconciliation deducted items correctly during count. |
 | Decimal JSON | `rust_decimal` serializes as string by default; TypeScript should parse consistently. |

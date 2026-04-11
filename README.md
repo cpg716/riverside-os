@@ -2,7 +2,7 @@
 
 **Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. It bundles a full-feature POS, inventory management, wedding-party workflow, CRM, commission accounting, and QuickBooks Online bridge into a single Tauri 2 desktop application.
 
-Current Version: **v0.1.8** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.1.9** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 
@@ -45,7 +45,7 @@ Environment variables:
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
 | `STRIPE_SECRET_KEY` | dummy | Stripe client |
 | `VITE_API_BASE` | `http://127.0.0.1:3000` | API origin for client |
-| `VITE_POS_OFFLINE_CARD_SIM` | _(unset)_ | When **`true`**, register **Credit Card** tender can open the **training** reader simulation if **`POST /api/payments/intent`** fails — see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** |
+| `VITE_POS_OFFLINE_CARD_SIM` | _(unset)_ | When **`true`**, register **Credit Card** tender can open the **training** reader simulation if **`POST /api/payments/intent`** fails — **`docs/ORDERS_AND_WEDDING_ORDERS.md`** |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `VITE_PODIUM_OAUTH_REDIRECT_URI` | _(unset)_ | Optional. Override Podium OAuth callback URL (must match Podium app); default is **`${origin}/callback`** — **`client/.env.example`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
 | `RIVERSIDE_PODIUM_CLIENT_ID` | _(unset)_ | Podium OAuth client id; pair with secret + refresh token — **`DEVELOPER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
@@ -78,7 +78,7 @@ cd client && npm run lint        # ESLint check
 cd client && npm run build       # tsc --noEmit + vite build
 ```
 
-**Reporting routes:** when adding **GET** APIs used by **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`ThingsBeforeLaunch.md`** § LLM). Booked vs recognition semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Ops model: **`docs/METABASE_REPORTING.md`**, **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**.
+**Reporting routes:** when adding **GET** APIs used by **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`ThingsBeforeLaunch.md`** § LLM). Booked vs recognition semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Ops model: **`docs/METABASE_REPORTING.md`**, **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**. Order and Wedding Order rules: **[`docs/ORDERS_AND_WEDDING_ORDERS.md`](docs/ORDERS_AND_WEDDING_ORDERS.md)**.
 
 ## E2E tests (Playwright)
 
@@ -119,6 +119,7 @@ First-party Markdown only. **Role:** runbook, agent guide, spec, future plan, au
 | `CHANGELOG.md` | Detailed version history and release notes | Everyone |
 | `DEVELOPER.md` | Architecture, API overview, migrations table, runbooks | Developers |
 | `AGENTS.md` | Invariants, edit map, commands, migration cheat sheet | Agents / devs |
+| `docs/ORDERS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
 | `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
@@ -128,6 +129,7 @@ First-party Markdown only. **Role:** runbook, agent guide, spec, future plan, au
 | `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |
 | `docs/PLAN_BUG_REPORTS.md` | In-app bug report architecture and triage | Devs / ops |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
+| `docs/COMMISSION_AND_SPIFF_OPERATIONS.md` | Commission Manager, SPIFF rules, and combo rewards | Ops / devs |
 | `docs/SHIPPING_AND_SHIPMENTS_HUB.md` | Shippo, Registry, and Hub operations | Devs / ops |
 | `docs/WISEPOS_E_SETUP_STRIPE.md` | Stripe Terminal WisePOS E reset and server-driven flow | Ops / devs |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |

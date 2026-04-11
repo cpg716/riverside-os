@@ -40,7 +40,7 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 | Type | Order Context | When Used | Minimum |
 |------|--------------|-----------|---------|
 | **Layaway Deposit** | In-stock items held on a layaway shelf | Customer reserves floor merchandise for future pickup | 25% of sale total (admin override allowed) |
-| **Special Order Deposit** | Items not yet in stock; must be procured | Customer commits to purchasing items the store will order from a vendor | Store policy (typically 50%) |
+| **Order Deposit** | Items not yet in stock; must be procured | Customer commits to purchasing items the store will order from a vendor | Store policy (typically 50%) |
 | **Wedding Order Deposit** | Special order tied to a wedding party + event date | Groom, groomsmen, or sponsor commits to formalwear orders | Store policy |
 | **Split Deposit** | Wedding group pay across multiple party members | One payer covers deposits for several members in a single transaction | Per-member balance from the party |
 | **Open Deposit** | Credit held on a customer account (not store credit) | Group pay disbursement targets a member with no open order yet | Exact disbursement amount |
@@ -52,7 +52,7 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 ### Step-by-Step
 
 1. **Build the cart** with the items the customer is ordering.
-2. **Select the order type** from the toolbar: **Layaway**, **Special Order**, or **Wedding**.
+2. **Select the order type** from the toolbar: **Layaway**, **Order**, or **Wedding**.
 3. **Attach a customer** (required for all deferred-fulfillment orders).
 4. Tap **Pay** / **Complete Sale** to open the **Payment Ledger** drawer.
 5. On the keypad, type the amount the customer will pay today (e.g., `100` for $100.00).
@@ -112,7 +112,7 @@ In certain scenarios, a cashier may record a deposit commitment **without** coll
 
 ### When It's Allowed
 
-- The cart contains **only** special order / wedding order lines (no takeaway items).
+- The cart contains **only** order / wedding order lines (no takeaway items).
 - `allowDepositOnlyComplete` is `true` (set automatically by Cart.tsx when these conditions are met).
 - The cashier enters a deposit amount via **Apply deposit** but does **not** apply any cash/card tenders.
 
@@ -130,12 +130,12 @@ In certain scenarios, a cashier may record a deposit commitment **without** coll
 
 ## Mixed Carts (Takeaway + Deferred Items)
 
-A single cart can contain both immediate-pickup (takeaway) items and deferred-fulfillment (special order) items. The deposit logic handles this with a split calculation:
+A single cart can contain both immediate-pickup (takeaway) items and deferred-fulfillment (order) items. The deposit logic handles this with a split calculation:
 
 | Component | Paid by | Example |
 |-----------|---------|---------|
 | Takeaway items + their tax | Real tenders (card/cash) | $50 sweater taken home today |
-| Deposit on deferred items | Real tenders or deposit ledger | $100 deposit on a $200 special order suit |
+| Deposit on deferred items | Real tenders or deposit ledger | $100 deposit on a $200 order suit |
 
 The **Balance remaining** in the payment ledger reflects: `deposit amount + takeaway total - tenders applied`.
 
@@ -176,7 +176,7 @@ The QBO Daily Staging Journal uses `applied_deposit_amount` metadata from the pa
 
 ## Deposit Forfeiture
 
-If a customer abandons a layaway or cancels a special order:
+If a customer abandons a layaway or cancels an order:
 
 1. A manager cancels the order with reason **Forfeited**.
 2. Inventory reservations are released (`on_layaway` or `reserved` stock decremented).
@@ -234,9 +234,9 @@ If a customer abandons a layaway or cancels a special order:
 | `server/src/logic/qbo_journal.rs` | QBO journal: `liability_deposit` debit on release, `income_forfeited_deposit` on forfeiture, category-level release aggregation |
 | `docs/BOOKED_VS_FULFILLED.md` | Revenue recognition model (booked vs fulfilled dates) |
 | `docs/LAYAWAY_OPERATIONS.md` | Layaway-specific lifecycle and inventory impact |
-| `docs/SPECIAL_AND_WEDDING_ORDERS.md` | Special/wedding order lifecycle and inventory impact |
+| `docs/ORDERS_AND_WEDDING_ORDERS.md` | Order/wedding order lifecycle and inventory impact |
 | `docs/WEDDING_GROUP_PAY_AND_RETURNS.md` | Group pay disbursement, open deposits, return/refund on member orders |
 
 ---
 
-*Last updated: 2026-04-09*
+*Last updated: 2026-04-11*

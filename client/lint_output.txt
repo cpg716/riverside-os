@@ -1,151 +1,93 @@
 
-> riverside-pos@0.1.0 lint
+> riverside-pos@0.1.8 lint
 > eslint .
 
 
-/Users/cpg/riverside-os/client/src/components/customers/CustomerMeasurementVaultForm.tsx
-   6:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  18:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/components/customers/CustomerRelationshipHubDrawer.tsx
-  263:6  warning  React Hook useEffect has a missing dependency: 'hub'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
-
 /Users/cpg/riverside-os/client/src/components/customers/CustomersWorkspace.tsx
-  243:6  warning  React Hook useEffect has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component    react-hooks/exhaustive-deps
-  339:5  warning  React Hook useCallback has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  379:6  warning  React Hook useEffect has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component    react-hooks/exhaustive-deps
-  587:6  warning  React Hook useEffect has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component    react-hooks/exhaustive-deps
+  838:13  error  Parsing error: JSX element 'span' has no corresponding closing tag
 
-/Users/cpg/riverside-os/client/src/components/gift-cards/GiftCardsWorkspace.tsx
-  149:6  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+/Users/cpg/riverside-os/client/src/components/inventory/MaintenanceLedgerPanel.tsx
+   5:10  error    'centsToFixed2' is defined but never used                                                                    @typescript-eslint/no-unused-vars
+  53:6   warning  React Hook useEffect has a missing dependency: 'loadData'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
 
-/Users/cpg/riverside-os/client/src/components/help/HelpCenterDrawer.tsx
-  346:6  warning  React Hook useEffect has a missing dependency: 'markdownById'. Either include it or remove the dependency array                                                                                    react-hooks/exhaustive-deps
-  378:9  warning  The 'activeManual' conditional could make the dependencies of useMemo Hook (at line 388) change on every render. To fix this, wrap the initialization of 'activeManual' in its own useMemo() Hook  react-hooks/exhaustive-deps
+/Users/cpg/riverside-os/client/src/components/inventory/VariationGridCell.tsx
+   2:10  error  'AlertCircle' is defined but never used         @typescript-eslint/no-unused-vars
+   2:30  error  'DollarSign' is defined but never used          @typescript-eslint/no-unused-vars
+   2:42  error  'Package' is defined but never used             @typescript-eslint/no-unused-vars
+   6:12  error  Unexpected any. Specify a different type        @typescript-eslint/no-explicit-any
+  20:3   error  'templateBaseRetail' is defined but never used  @typescript-eslint/no-unused-vars
 
-/Users/cpg/riverside-os/client/src/components/inventory/CategoryManager.tsx
-  199:6  warning  React Hook useEffect has a missing dependency: 'refresh'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+/Users/cpg/riverside-os/client/src/components/inventory/VariationsList.tsx
+   2:25  error  'AlertTriangle' is defined but never used          @typescript-eslint/no-unused-vars
+   6:13  error  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  11:40  error  Unexpected any. Specify a different type           @typescript-eslint/no-explicit-any
+  29:9   error  'result' is never reassigned. Use 'const' instead  prefer-const
 
-/Users/cpg/riverside-os/client/src/components/inventory/DiscountEventsPanel.tsx
-  110:6  warning  React Hook useEffect has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  156:6  warning  React Hook useEffect has a missing dependency: 'loadVars'. Either include it or remove the dependency array                                                                                                                         react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/inventory/PhysicalInventoryWorkspace.tsx
-  160:10  error  'loading' is assigned a value but never used        @typescript-eslint/no-unused-vars
-  183:10  error  'publishResult' is assigned a value but never used  @typescript-eslint/no-unused-vars
-
-/Users/cpg/riverside-os/client/src/components/inventory/ProductHubDrawer.tsx
-  278:6  warning  React Hook useEffect has a missing dependency: 'hub'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/inventory/PurchaseOrderPanel.tsx
-  83:6  warning  React Hook useEffect has a missing dependency: 'refresh'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/layout/Header.tsx
-  191:6  warning  React Hook useCallback has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  211:6  warning  React Hook useCallback has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/layout/RegisterSessionBootstrap.tsx
-  343:32  error  '_token' is defined but never used  @typescript-eslint/no-unused-vars
-
-/Users/cpg/riverside-os/client/src/components/layout/ShellBackdropContext.tsx
-  37:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  46:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/components/layout/Sidebar.tsx
-  79:9  warning  The 'menuItems' array makes the dependencies of useMemo Hook (at line 115) change on every render. Move it inside the useMemo callback. Alternatively, wrap the initialization of 'menuItems' in its own useMemo() Hook  react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/loyalty/LoyaltyRedeemDialog.tsx
-  22:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+/Users/cpg/riverside-os/client/src/components/inventory/VariationsWorkspace.tsx
+    2:28  error  'Search' is defined but never used                   @typescript-eslint/no-unused-vars
+    2:56  error  'Zap' is defined but never used                      @typescript-eslint/no-unused-vars
+   10:8   error  'ConfirmationModal' is defined but never used        @typescript-eslint/no-unused-vars
+   11:8   error  'PromptModal' is defined but never used              @typescript-eslint/no-unused-vars
+   12:10  error  'X' is defined but never used                        @typescript-eslint/no-unused-vars
+   12:13  error  'Trash2' is defined but never used                   @typescript-eslint/no-unused-vars
+   56:3   error  'productId' is defined but never used                @typescript-eslint/no-unused-vars
+   57:3   error  'productTrackLowStock' is defined but never used     @typescript-eslint/no-unused-vars
+   59:3   error  'productName' is defined but never used              @typescript-eslint/no-unused-vars
+   69:30  error  'staffRecord' is assigned a value but never used     @typescript-eslint/no-unused-vars
+   73:10  error  'localSearch' is assigned a value but never used     @typescript-eslint/no-unused-vars
+   73:23  error  'setLocalSearch' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  130:69  error  Unexpected any. Specify a different type             @typescript-eslint/no-explicit-any
+  197:14  error  'e' is defined but never used                        @typescript-eslint/no-unused-vars
 
 /Users/cpg/riverside-os/client/src/components/loyalty/LoyaltyWorkspace.tsx
-   42:83  error    Unnecessary escape character: \/                                                                         no-useless-escape
-  213:6   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   12:3   error  'Settings' is defined but never used                @typescript-eslint/no-unused-vars
+   13:3   error  'Edit3' is defined but never used                   @typescript-eslint/no-unused-vars
+   16:3   error  'ChevronRight' is defined but never used            @typescript-eslint/no-unused-vars
+   17:3   error  'Plus' is defined but never used                    @typescript-eslint/no-unused-vars
+   41:67  error  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   69:39  error  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+   73:7   error  'content' is never reassigned. Use 'const' instead  prefer-const
+  500:46  error  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  509:54  error  Unexpected any. Specify a different type            @typescript-eslint/no-explicit-any
+  642:10  error  'loadingStats' is assigned a value but never used   @typescript-eslint/no-unused-vars
+  663:9   error  'apiHeaders' is assigned a value but never used     @typescript-eslint/no-unused-vars
 
-/Users/cpg/riverside-os/client/src/components/operations/CompassMemberDetailDrawer.tsx
-  136:6  warning  React Hook useEffect has a missing dependency: 'member'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+/Users/cpg/riverside-os/client/src/components/operations/OperationalHome.tsx
+  374:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  573:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
 
 /Users/cpg/riverside-os/client/src/components/orders/OrdersWorkspace.tsx
-  209:9  error    'to' is never reassigned. Use 'const' instead                                                                  prefer-const
-  258:6  warning  React Hook useEffect has a missing dependency: 'loadOrders'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
-  276:6  warning  React Hook useEffect has a missing dependency: 'loadDetail'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+   24:3   error  'Wrench' is defined but never used                        @typescript-eslint/no-unused-vars
+  151:9   error  'canSuitSwap' is assigned a value but never used          @typescript-eslint/no-unused-vars
+  186:10  error  'suitSwapBusy' is assigned a value but never used         @typescript-eslint/no-unused-vars
+  318:9   error  'updateItem' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  338:9   error  'orderAllowsLineSwap' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  342:9   error  'submitSuitSwap' is assigned a value but never used       @typescript-eslint/no-unused-vars
+  382:9   error  'addBySku' is assigned a value but never used             @typescript-eslint/no-unused-vars
+  439:9   error  'deleteLine' is assigned a value but never used           @typescript-eslint/no-unused-vars
+  454:9   error  'applyReturns' is assigned a value but never used         @typescript-eslint/no-unused-vars
+  490:9   error  'linkExchange' is assigned a value but never used         @typescript-eslint/no-unused-vars
+  580:9   error  'salespersonOptions' is assigned a value but never used   @typescript-eslint/no-unused-vars
 
 /Users/cpg/riverside-os/client/src/components/pos/Cart.tsx
-    20:3   error    'Shirt' is defined but never used                                                                                           @typescript-eslint/no-unused-vars
-    21:3   error    'ParkingCircle' is defined but never used                                                                                   @typescript-eslint/no-unused-vars
-    22:3   error    'ListOrdered' is defined but never used                                                                                     @typescript-eslint/no-unused-vars
-   154:10  error    Unexpected any. Specify a different type                                                                                    @typescript-eslint/no-explicit-any
-   275:16  error    '_cashierCode' is assigned a value but never used                                                                           @typescript-eslint/no-unused-vars
-   328:10  error    'parkedCount' is assigned a value but never used                                                                            @typescript-eslint/no-unused-vars
-   650:49  error    Unexpected any. Specify a different type                                                                                    @typescript-eslint/no-explicit-any
-   960:6   warning  React Hook useEffect has a missing dependency: 'apiAuth'. Either include it or remove the dependency array                  react-hooks/exhaustive-deps
-  1017:41  error    Unexpected any. Specify a different type                                                                                    @typescript-eslint/no-explicit-any
-  1043:52  error    Unexpected any. Specify a different type                                                                                    @typescript-eslint/no-explicit-any
-  1074:6   warning  React Hook useCallback has an unnecessary dependency: 'giftCardLoadMeta'. Either exclude it or remove the dependency array  react-hooks/exhaustive-deps
-  1424:52  error    Unexpected any. Specify a different type                                                                                    @typescript-eslint/no-explicit-any
-  1579:13  error    'newCents' is never reassigned. Use 'const' instead                                                                         prefer-const
-  1842:9   error    'handleParkCurrentSale' is assigned a value but never used                                                                  @typescript-eslint/no-unused-vars
+  3572:20  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
 
-/Users/cpg/riverside-os/client/src/components/pos/LayawayWorkspace.tsx
-  12:3  error  'Filter' is defined but never used                      @typescript-eslint/no-unused-vars
-  15:3  error  'ExternalLink' is defined but never used                @typescript-eslint/no-unused-vars
-  41:3  error  'registerSessionId' is assigned a value but never used  @typescript-eslint/no-unused-vars
+/Users/cpg/riverside-os/client/src/components/pos/RegisterDashboard.tsx
+   28:10  error  'useToast' is defined but never used              @typescript-eslint/no-unused-vars
+  223:9   error  'loadMetrics' is assigned a value but never used  @typescript-eslint/no-unused-vars
+  294:33  error  Unexpected any. Specify a different type          @typescript-eslint/no-explicit-any
 
-/Users/cpg/riverside-os/client/src/components/pos/NexoCheckoutDrawer.tsx
-  311:6  warning  React Hook useEffect has a missing dependency: 'setAppliedDepositAmount'. Either include it or remove the dependency array. If 'setAppliedDepositAmount' changes too often, find the parent component that defines it and wrap that definition in useCallback  react-hooks/exhaustive-deps
-  428:5  warning  React Hook useCallback has a missing dependency: 'setApplied'. Either include it or remove the dependency array. If 'setApplied' changes too often, find the parent component that defines it and wrap that definition in useCallback                          react-hooks/exhaustive-deps
+/Users/cpg/riverside-os/client/src/components/settings/MeilisearchSettingsPanel.tsx
+  225:74  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
 
-/Users/cpg/riverside-os/client/src/components/pos/RegisterOverlay.tsx
-  173:6  warning  React Hook useEffect has an unnecessary dependency: 'BYPASS'. Either exclude it or remove the dependency array. Outer scope values like 'BYPASS' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  183:6  warning  React Hook useEffect has an unnecessary dependency: 'BYPASS'. Either exclude it or remove the dependency array. Outer scope values like 'BYPASS' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  242:6  warning  React Hook useEffect has an unnecessary dependency: 'BYPASS'. Either exclude it or remove the dependency array. Outer scope values like 'BYPASS' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-  424:5  warning  React Hook useMemo has an unnecessary dependency: 'BYPASS'. Either exclude it or remove the dependency array. Outer scope values like 'BYPASS' aren't valid dependencies because mutating them doesn't re-render the component    react-hooks/exhaustive-deps
+/Users/cpg/riverside-os/client/src/components/settings/RemoteAccessPanel.tsx
+  45:19  error    Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+  55:6   warning  React Hook useEffect has a missing dependency: 'fetchStatus'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  77:19  error    Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+  78:31  error    Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+  96:19  error    Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
+  97:31  error    Unexpected any. Specify a different type                                                                        @typescript-eslint/no-explicit-any
 
-/Users/cpg/riverside-os/client/src/components/qbo/QboMappingMatrix.tsx
-   15:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  291:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  320:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  348:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/components/settings/PodiumOAuthCallback.tsx
-  45:9  error  The value assigned to 'expectedState' is not used in subsequent statements  no-useless-assignment
-
-/Users/cpg/riverside-os/client/src/components/settings/ReceiptStudioEditor.tsx
-  53:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/components/staff/CommissionPayoutsPanel.tsx
-  189:6  warning  React Hook useCallback has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/staff/StaffWorkspace.tsx
-  138:6  warning  React Hook useEffect has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component    react-hooks/exhaustive-deps
-  312:5  warning  React Hook useCallback has an unnecessary dependency: 'baseUrl'. Either exclude it or remove the dependency array. Outer scope values like 'baseUrl' aren't valid dependencies because mutating them doesn't re-render the component  react-hooks/exhaustive-deps
-
-/Users/cpg/riverside-os/client/src/components/ui-shadcn/badge.tsx
-  34:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/components/ui-shadcn/button.tsx
-  57:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/components/ui/ToastProvider.tsx
-  19:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/context/BackofficeAuthContext.tsx
-  170:6   warning  React Hook useCallback has an unnecessary dependency: 'staffPin'. Either exclude it or remove the dependency array              react-hooks/exhaustive-deps
-  266:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  275:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  288:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  294:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  315:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  320:14  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  324:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  332:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/context/NotificationCenterContext.tsx
-  51:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-  60:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-/Users/cpg/riverside-os/client/src/context/RegisterGateContext.tsx
-  37:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
-
-✖ 77 problems (21 errors, 56 warnings)
+✖ 61 problems (59 errors, 2 warnings)
   2 errors and 0 warnings potentially fixable with the `--fix` option.
 

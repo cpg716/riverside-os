@@ -2,12 +2,13 @@
 
 use meilisearch_sdk::client::Client as MeilisearchClient;
 use sqlx::{PgPool, QueryBuilder};
+use rust_decimal::Decimal;
 use uuid::Uuid;
 
 use crate::logic::wedding_api_types::{
     ActionRow, ActivityFeedRow, AppointmentRow, PartyListQuery, WeddingActions, WeddingLedgerLine,
     WeddingLedgerResponse, WeddingLedgerSummary, WeddingMemberApi, WeddingMemberFinancialRow,
-    WeddingPartyFinancialContext, WeddingPartyRow,
+    WeddingPartyFinancialContext, WeddingPartyRow, SuitSelectionStat, WeddingPartyAnalytics,
 };
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 
@@ -37,7 +38,8 @@ fn party_select_sql() -> &'static str {
             wp.accessories,
             wp.groom_phone_clean,
             wp.bride_phone_clean,
-            wp.is_deleted
+            wp.is_deleted,
+            wp.suit_variant_id
         FROM wedding_parties wp
     "#
 }
@@ -82,7 +84,9 @@ pub async fn load_members_for_party(
             wm.contact_history,
             wm.pin_note,
             wm.ordered_po,
-            wm.stock_info
+            wm.stock_info,
+            wm.suit_variant_id,
+            wm.is_free_suit_promo
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
@@ -560,11 +564,12 @@ pub async fn try_load_party_financial_context(
             COALESCE((SELECT COUNT(*) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS payment_count,
             COALESCE((SELECT SUM(o.total_price) FROM orders o WHERE o.wedding_member_id = wm.id), 0) AS order_total,
             COALESCE((SELECT SUM(pt.amount) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS paid_total,
-            COALESCE((SELECT SUM(o.balance_due) FROM orders o WHERE o.wedding_member_id = wm.id), 0) AS balance_due
+            COALESCE((SELECT SUM(o.balance_due) FROM orders o WHERE o.wedding_member_id = wm.id), 0) AS balance_due,
+            wm.is_free_suit_promo
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
-        GROUP BY wm.id, c.first_name, c.last_name
+        GROUP BY wm.id, c.first_name, c.last_name, wm.is_free_suit_promo
         ORDER BY customer_name ASC
         "#,
     )
@@ -573,10 +578,73 @@ pub async fn try_load_party_financial_context(
     .await?;
 
     let WeddingLedgerResponse { summary, lines } = ledger;
+
+    // Analytics: Profit, Margin, Promo
+    let econ = sqlx::query_as::<_, (Decimal, Decimal, Decimal, Decimal, i32, i32)>(
+        r#"
+        SELECT
+            total_profit,
+            total_cost,
+            total_revenue,
+            margin_percent,
+            free_suits_marked,
+            -- Qualification Count: Number of members in this party who have an order with a suit fulfillment
+            -- used as a proxy for the "5 suits" buy-in.
+            (
+              SELECT COUNT(DISTINCT wm2.id)::int
+              FROM wedding_members wm2
+              JOIN orders o2 ON o2.wedding_member_id = wm2.id
+              JOIN order_items oi2 ON oi2.order_id = o2.id
+              WHERE wm2.wedding_party_id = $1
+                AND o2.status <> 'cancelled'
+                AND oi2.fulfillment::text = 'wedding_order'
+            ) AS qualification_count
+        FROM reporting.wedding_party_economics
+        WHERE wedding_party_id = $1
+        "#
+    )
+    .bind(party_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let (profit, cost, rev, margin, free_marked, qual_count) = econ.unwrap_or((
+        Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, Decimal::ZERO, 0, 0
+    ));
+
+    // Common Suits
+    let common_suits = sqlx::query_as::<_, SuitSelectionStat>(
+        r#"
+        SELECT
+            wm.suit_variant_id AS variant_id,
+            p.name AS product_name,
+            pv.variation_label,
+            COUNT(*) AS count
+        FROM wedding_members wm
+        LEFT JOIN product_variants pv ON pv.id = wm.suit_variant_id
+        LEFT JOIN products p ON p.id = pv.product_id
+        WHERE wm.wedding_party_id = $1
+          AND wm.suit_variant_id IS NOT NULL
+        GROUP BY wm.suit_variant_id, p.name, pv.variation_label
+        ORDER BY count DESC
+        "#
+    )
+    .bind(party_id)
+    .fetch_all(pool)
+    .await?;
+
     Ok(Some(WeddingPartyFinancialContext {
         summary,
         lines,
         members,
+        analytics: WeddingPartyAnalytics {
+            total_profit: profit,
+            total_cost: cost,
+            total_revenue: rev,
+            average_margin: margin,
+            free_suits_marked: free_marked,
+            qualification_count: qual_count,
+            common_suits,
+        },
     }))
 }
 
@@ -620,7 +688,9 @@ pub async fn fetch_member_optional(
             wm.contact_history,
             wm.pin_note,
             wm.ordered_po,
-            wm.stock_info
+            wm.stock_info,
+            wm.suit_variant_id,
+            wm.is_free_suit_promo
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.id = $1

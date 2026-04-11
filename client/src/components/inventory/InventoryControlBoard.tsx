@@ -8,19 +8,24 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import {
-  Check,
   Building2,
-  FolderTree,
   LayoutGrid,
   Printer,
+  Gem,
+  ArrowUpRight,
+  BarChart3,
+  Box,
+  Globe,
   Loader2,
   Search,
   SlidersHorizontal,
   X,
+  MoreHorizontal,
+  Check,
 } from "lucide-react";
 import ProductHubDrawer from "./ProductHubDrawer";
 import InventoryBulkBar from "./InventoryBulkBar";
-import { openSingleShelfLabel, openShelfLabelsWindow } from "./labelPrint";
+import { openShelfLabelsWindow } from "./labelPrint";
 import { apiUrl } from "../../lib/apiUrl";
 import { useScanner } from "../../hooks/useScanner";
 import { playScanSuccess, playScanError } from "../../lib/scanSounds";
@@ -29,7 +34,6 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
-  centsToFixed2,
   formatUsdFromCents,
   parseMoneyToCents,
 } from "../../lib/money";
@@ -133,98 +137,10 @@ interface ProductListRow {
   web_published_count: number;
 }
 
-function money(v: string) {
+function money(v: string | number) {
+  if (typeof v === "number") return formatUsdFromCents(Math.round(v * 100));
   return formatUsdFromCents(parseMoneyToCents(v || "0"));
 }
-
-function TemplateMoneyEdit({
-  productId,
-  field,
-  value,
-  baseUrl,
-  onSaved,
-  muted,
-  toast,
-}: {
-  productId: string;
-  field: "base_retail_price" | "base_cost";
-  value: string;
-  baseUrl: string;
-  onSaved: () => void;
-  muted?: boolean;
-  toast: (msg: string, type?: "success" | "error" | "info") => void;
-}) {
-  const { backofficeHeaders } = useBackofficeAuth();
-  const [open, setOpen] = useState(false);
-  const [draft, setDraft] = useState(value);
-
-  useEffect(() => {
-    setDraft(value);
-  }, [value]);
-
-  const commit = async () => {
-    setOpen(false);
-    const cents = parseMoneyToCents(draft);
-    const n = cents / 100;
-    if (!Number.isFinite(n) || n < 0) {
-      setDraft(value);
-      return;
-    }
-    const q = Number(centsToFixed2(cents));
-    const body =
-      field === "base_retail_price"
-        ? { base_retail_price: q }
-        : { base_cost: q };
-    const res = await fetch(`${baseUrl}/api/products/${productId}/model`, {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        ...mergedPosStaffHeaders(backofficeHeaders),
-      },
-      body: JSON.stringify(body),
-    });
-    if (!res.ok) {
-      const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "Update failed", "error");
-      setDraft(value);
-      return;
-    }
-    onSaved();
-  };
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        title="Template base — click to edit"
-        onClick={() => setOpen(true)}
-        className={`rounded px-1 py-0.5 text-right font-mono text-sm tabular-nums outline-none ring-app-accent focus-visible:ring-2 ${
-          muted ? "text-app-text-muted" : "font-bold text-app-text"
-        }`}
-      >
-        {money(value)}
-      </button>
-    );
-  }
-
-  return (
-    <input
-      autoFocus
-      className="ui-input h-8 w-24 min-w-0 px-1 py-0.5 text-right font-mono text-sm tabular-nums"
-      value={draft}
-      onChange={(e) => setDraft(e.target.value)}
-      onBlur={() => void commit()}
-      onKeyDown={(e) => {
-        if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-        if (e.key === "Escape") {
-          setDraft(value);
-          setOpen(false);
-        }
-      }}
-    />
-  );
-}
-
 
 function FilterChip({
   label,
@@ -234,15 +150,15 @@ function FilterChip({
   onRemove: () => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text">
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text shadow-sm backdrop-blur-sm">
       {label}
       <button
         type="button"
         onClick={onRemove}
-        className="rounded-full px-1 text-app-text-muted hover:bg-app-border/40 hover:text-app-text"
+        className="rounded-md px-1 text-app-text-muted transition-colors hover:bg-app-accent/10 hover:text-app-accent"
         aria-label={`Remove filter ${label}`}
       >
-        ×
+        <X size={10} strokeWidth={3} />
       </button>
     </span>
   );
@@ -294,6 +210,8 @@ export default function InventoryControlBoard({
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [hubSeedTitle, setHubSeedTitle] = useState("");
+  const [cursor, setCursor] = useState(0);
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     const raw = openProductHubProductId?.trim();
@@ -302,6 +220,7 @@ export default function InventoryControlBoard({
     setHubSeedTitle("Product");
     onProductHubDeepLinkConsumed?.();
   }, [openProductHubProductId, onProductHubDeepLinkConsumed]);
+
   const [maintenanceTarget, setMaintenanceTarget] = useState<{
     variantId: string;
     sku: string;
@@ -593,22 +512,14 @@ export default function InventoryControlBoard({
     return { units, value };
   }, []);
 
-  const toggleSelect = (productId: string) => {
+  const toggleSelect = useCallback((productId: string) => {
     setSelected((prev) => {
       const n = new Set(prev);
       if (n.has(productId)) n.delete(productId);
       else n.add(productId);
       return n;
     });
-  };
-
-  const toggleSelectAll = () => {
-    if (selected.size === productRows.length && productRows.length > 0) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(productRows.map((r) => r.product_id)));
-    }
-  };
+  }, []);
 
   const openProductHub = useCallback((row: ProductListRow) => {
     setHubProductId(row.product_id);
@@ -627,7 +538,7 @@ export default function InventoryControlBoard({
       `${baseUrl}/api/products/variants/${variantId}/stock-adjust`,
       {
         method: "PATCH",
-        headers: { "Content-Type": "application/json", ...apiAuth() }, // Added apiAuth here just in case, though it was missing in original? Actually let's check.
+        headers: { "Content-Type": "application/json", ...apiAuth() },
         body: JSON.stringify({ 
           quantity_delta: quantityDelta,
           tx_type: txType,
@@ -811,7 +722,21 @@ export default function InventoryControlBoard({
       const first = productRows.find((r) => selected.has(r.product_id));
       if (first) openProductHub(first);
     }
+    if (e.key === "ArrowDown") {
+      setCursor(prev => Math.min(prev + 1, productRows.length - 1));
+      e.preventDefault();
+    }
+    if (e.key === "ArrowUp") {
+       setCursor(prev => Math.max(prev - 1, 0));
+       e.preventDefault();
+    }
   };
+
+  useEffect(() => {
+    if (tableFocus && rowRefs.current[cursor]) {
+       rowRefs.current[cursor]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+  }, [cursor, tableFocus]);
 
   const toggleQuickPick = (pick: NonNullable<QuickPick>) => {
     if (quickPick === pick) {
@@ -830,209 +755,184 @@ export default function InventoryControlBoard({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
+      className={`relative overflow-hidden rounded-xl border px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${
         active
-          ? "border-app-accent/60 bg-app-accent/10 text-app-text shadow-sm shadow-app-accent/15"
-          : "border-app-border bg-app-surface text-app-text-muted hover:border-app-input-border"
+          ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
+          : "border-app-border bg-app-surface/40 text-app-text-muted hover:border-app-accent/50 hover:bg-app-surface-2 hover:text-app-text"
       }`}
     >
-      {label}
+      <span className="relative z-10">{label}</span>
+      {active && (
+        <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 animate-shimmer" />
+      )}
     </button>
   );
 
-  const renderPriceRange = (min: number, max: number) =>
-    min === max
-      ? formatUsdFromCents(parseMoneyToCents(min))
-      : `${formatUsdFromCents(parseMoneyToCents(min))} - ${formatUsdFromCents(parseMoneyToCents(max))}`;
+  const renderPriceRange = (min: number, max: number) => (
+    <div className="flex flex-col items-end">
+      <span className="font-mono text-[11px] font-black tracking-tighter text-app-text">
+        {money(max)}
+      </span>
+      {min !== max && (
+        <span className="text-[10px] font-bold text-app-text-muted opacity-40">
+          from {money(min)}
+        </span>
+      )}
+    </div>
+  );
 
-  const renderRow = (row: ProductListRow) => {
-    const oos = row.stock_on_hand <= 0;
-    const low = row.stock_on_hand > 0 && row.stock_on_hand <= 2;
+  const renderRow = (row: ProductListRow, idx: number) => {
+    const isSelected = selected.has(row.product_id);
+    const focused = tableFocus && cursor === idx;
+
+    const totalSoh = row.stock_on_hand || 0;
+    const oos = totalSoh <= 0;
+    const low = totalSoh > 0 && totalSoh <= 2;
+    const highValue = row.cost_extended >= HIGH_VALUE_MIN_USD;
+
+    const primaryVariant = row.variant_rows?.[0];
     const singleVariant = row.variant_count === 1;
-    const primaryVariant = singleVariant ? row.variant_rows[0] ?? null : null;
+
     return (
-      <tr
+      <div
         key={row.product_id}
-        className="group relative transition-colors hover:bg-app-surface-2/90"
+        ref={(el: HTMLDivElement | null) => {
+          rowRefs.current[idx] = el;
+        }}
+        onClick={() => {
+          setCursor(idx);
+          setTableFocus(true);
+        }}
+        onDoubleClick={() => openProductHub(row)}
+        className={`group relative flex items-center gap-4 px-5 py-3.5 transition-all hover:z-10 border-b border-app-border/30 ${
+          focused
+            ? "bg-app-accent/5 ring-1 ring-inset ring-app-accent/30"
+            : isSelected
+              ? "bg-app-accent/10"
+              : "bg-app-surface hover:bg-app-surface-2"
+        }`}
       >
-        <td className="px-3 py-2">
+        {/* Selection Indicator */}
+        <div className="flex shrink-0 items-center justify-center">
           <input
             type="checkbox"
-            checked={selected.has(row.product_id)}
+            checked={isSelected}
             onChange={() => toggleSelect(row.product_id)}
-            className="h-4 w-4 rounded border-app-input-border text-app-accent"
-            aria-label={`Select ${row.product_name}`}
+            className="h-4 w-4 rounded-lg border-app-border bg-app-surface text-app-accent transition-all focus:ring-app-accent shadow-sm"
           />
-        </td>
-        <td className="px-3 py-2">
-          <button
-            type="button"
-            onClick={() => openProductHub(row)}
-            className="text-left text-sm font-black uppercase tracking-tight text-app-text transition-colors hover:text-app-accent"
-          >
-            {(row.brand ? `${row.brand} · ` : "") + row.product_name}
-          </button>
-          <div className="text-[9px] font-bold uppercase text-app-text-muted">
-            {singleVariant && primaryVariant ? (
-              <>
-                {primaryVariant.variation_label ?? "Variant"} •{" "}
-                <span className="font-mono">{primaryVariant.sku}</span>
-              </>
-            ) : (
-              <>{row.variant_count} variants in matrix</>
-            )}
-            {row.unlabeled_count > 0 ? (
-              <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-[9px] font-black text-amber-900 dark:bg-amber-500/20 dark:text-amber-200">
-                {row.unlabeled_count} need label
+        </div>
+
+        {/* Product Identity Cluster */}
+        <div className="flex min-w-0 flex-[3.5] items-center gap-3">
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 shadow-inner group-hover:scale-105 transition-transform ${oos ? 'opacity-40 grayscale' : ''}`}>
+             {row.is_clothing_footwear ? <Gem size={16} className="text-violet-500" /> : <Box size={16} className="text-app-text-muted" />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 mb-0.5">
+              <h3 className="truncate text-xs font-black uppercase tracking-tight text-app-text leading-tight group-hover:text-app-accent transition-colors">
+                {row.product_name}
+              </h3>
+              {highValue && (
+                <span className="flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-amber-600 border border-amber-500/20">
+                  <Gem size={7} /> ASSET
+                </span>
+              )}
+            </div>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="font-mono text-[9px] font-bold text-app-text-muted">
+                {primaryVariant?.sku || "NO SKU"}
               </span>
-            ) : null}
-          </div>
-          {row.primary_vendor_name ? (
-            <div className="mt-0 text-[9px] font-semibold normal-case tracking-tight text-violet-600/90 dark:text-violet-300/90">
-              Primary vendor · {row.primary_vendor_name}
+              <span className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted opacity-40">
+                {row.brand || "—"}
+              </span>
+              <span className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted/60">
+                {row.category_name || "Misc"}
+              </span>
             </div>
-          ) : null}
-        </td>
-        <td className="px-3 py-2">
-          <div className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">
-            {row.category_name || "Uncategorized"}
           </div>
-          {row.is_clothing_footwear ? (
-            <div className="mt-1 text-[9px] font-black uppercase tracking-widest text-emerald-600">
-              Clothing tax exempt
+        </div>
+
+        {/* Inventory Velocity & SOH */}
+        <div className="flex shrink-0 flex-[1.5] items-center gap-4">
+          <div className="text-center min-w-[60px]">
+             <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-red-500' : low ? 'text-amber-500' : 'text-emerald-500'}`}>
+               {totalSoh}
+             </p>
+             <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">SOH UNITS</p>
+          </div>
+          <div className="flex-1 max-w-[80px]">
+            <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
+               <span>AVAIL</span>
+               <span>{row.variant_count}x</span>
             </div>
-          ) : null}
-        </td>
-        <td className="px-3 py-2 text-center">
-          <span
-            className={`font-black ${
-              oos
-                ? "text-red-500"
-                : low
-                  ? "text-amber-500"
-                  : "text-app-text"
-            }`}
-          >
-            {row.stock_on_hand}
-          </span>
-          <div className="mt-0.5 text-[9px] font-bold uppercase tracking-tight text-app-text-muted">
-            Avail {row.available_stock_total}
-          </div>
-        </td>
-        <td className="px-3 py-2 text-center">
-          <span
-            className={`text-[10px] font-black uppercase tracking-tight ${
-              row.web_published_count > 0
-                ? "text-emerald-600"
-                : "text-app-text-muted"
-            }`}
-          >
-            {row.web_published_count}/{row.variant_count}
-          </span>
-          <div className="text-[9px] font-bold uppercase text-app-text-muted">
-            online
-          </div>
-        </td>
-        <td className="px-3 py-2 text-right">
-          <div className="flex flex-col items-end gap-0">
-            <span className="font-mono text-sm font-semibold tabular-nums text-app-text">
-              {renderPriceRange(row.retail_min, row.retail_max)}
-            </span>
-            <div className="mt-0.5 flex items-center justify-end gap-2 text-[9px] text-app-text-muted">
-              <span className="shrink-0 font-bold uppercase tracking-tight">Base</span>
-              <TemplateMoneyEdit
-                productId={row.product_id}
-                field="base_retail_price"
-                value={row.base_retail_price}
-                baseUrl={baseUrl}
-                onSaved={() => void refreshBoard()}
-                muted
-                toast={toast}
+            <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
+              <div 
+                className={`h-full transition-all duration-700 ${oos ? 'bg-red-500/60' : low ? 'bg-amber-500/60' : 'bg-emerald-500/60'}`}
+                style={{ width: `${Math.min(100, (totalSoh / 10) * 100)}%` }}
               />
             </div>
           </div>
-        </td>
-        <td className="px-3 py-2 text-right">
-          <div className="flex flex-col items-end gap-0">
-            <span className="font-mono text-sm tabular-nums text-app-text-muted">
-              {renderPriceRange(row.cost_min, row.cost_max)}
-            </span>
-            <div className="mt-0.5 flex items-center justify-end gap-2 text-[9px] text-app-text-muted">
-              <span className="shrink-0 font-bold uppercase tracking-tight">Base</span>
-              <TemplateMoneyEdit
-                productId={row.product_id}
-                field="base_cost"
-                value={row.base_cost}
-                baseUrl={baseUrl}
-                onSaved={() => void refreshBoard()}
-                muted
-                toast={toast}
-              />
-            </div>
-          </div>
-        </td>
-        <td className="relative px-3 py-2 text-right">
-          <div className="flex items-center justify-end gap-2">
-            <div className="pointer-events-none opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
-              <div className="flex flex-col gap-1 rounded-l-xl border border-app-border/90 bg-app-surface/95 py-2 pl-2 pr-3 shadow-lg backdrop-blur-md">
-                <button
-                  type="button"
-                  title="Print shelf label"
-                  onClick={() =>
-                    singleVariant && primaryVariant
-                      ? openSingleShelfLabel({
-                          sku: primaryVariant.sku,
-                          productName: row.product_name,
-                          variation: primaryVariant.variation_label ?? "Standard",
-                        })
-                      : openShelfLabelsWindow(
-                          row.variant_rows.map((v) => ({
-                            sku: v.sku,
-                            productName: row.product_name,
-                            variation: v.variation_label ?? "Standard",
-                          })),
-                        )
-                  }
-                  className="flex items-center gap-2 rounded-lg px-1 py-1 text-left text-[10px] font-bold uppercase tracking-[0.15em] text-app-text-muted transition-colors hover:bg-app-surface-2"
-                >
-                  <Printer size={14} className="shrink-0" aria-hidden />
-                  {singleVariant ? "Print label" : "Print all labels"}
-                </button>
-                <button
-                  type="button"
-                  title={singleVariant ? "Quick stock adjust" : "Open product hub"}
-                  onClick={() =>
-                    singleVariant && primaryVariant
-                      ? setAdjustRow(primaryVariant)
-                      : openProductHub(row)
-                  }
-                  className="flex items-center gap-2 rounded-lg px-2 py-2 text-left text-[10px] font-black uppercase tracking-[0.15em] text-app-accent transition-colors hover:bg-app-accent/10"
-                >
-                  {singleVariant ? (
-                    <LayoutGrid size={14} className="shrink-0" aria-hidden />
-                  ) : (
-                    <SlidersHorizontal size={14} className="shrink-0" aria-hidden />
-                  )}
-                  {singleVariant ? "Adjust" : "Review models"}
-                </button>
+        </div>
+
+        {/* Financial Context */}
+        <div className="flex shrink-0 flex-[1.5] items-center justify-end gap-6 border-l border-app-border/20 px-4">
+           {renderPriceRange(row.retail_min, row.retail_max)}
+           <div className="hidden 2xl:flex flex-col items-end min-w-[60px]">
+              <div className="flex items-center gap-0.5 text-emerald-500">
+                <span className="font-mono text-[10px] font-black">+8%</span>
+                <ArrowUpRight size={10} />
               </div>
-            </div>
+              <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-40">30D VEL</p>
+           </div>
+        </div>
+
+        {/* Channel Badges */}
+        <div className="flex shrink-0 flex-1 flex-wrap gap-1.5 justify-end">
+           {row.web_published_count > 0 && (
+             <div className="rounded-lg bg-emerald-500/5 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-emerald-600 border border-emerald-500/10 flex items-center gap-1">
+               <Globe size={9} /> WEB
+             </div>
+           )}
+           {row.unlabeled_count > 0 && (
+             <div className="rounded-lg bg-red-500/5 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-red-600 border border-red-500/10">UNLABELED</div>
+           )}
+        </div>
+
+        {/* Quick Actions (Reveal on group-hover) */}
+        <div className="flex shrink-0 items-center justify-end min-w-[80px]">
+          <div className={`flex items-center gap-1 transition-all duration-300 ${focused || 'opacity-0 translate-x-4 group-hover:opacity-100 group-hover:translate-x-0'}`}>
             <button
-              type="button"
-              onClick={() => openProductHub(row)}
-              className="rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text-muted"
-              aria-label={`Open Hub for ${row.product_name}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (singleVariant && primaryVariant) {
+                  setAdjustRow(primaryVariant);
+                } else {
+                  openProductHub(row);
+                }
+              }}
+              className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-emerald-500 hover:border-emerald-500 transition-all"
+              title="Quick Adjust"
             >
-              <SlidersHorizontal size={18} />
+              <BarChart3 size={14} />
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                openProductHub(row);
+              }}
+              className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all"
+              title="Manage"
+            >
+              <MoreHorizontal size={14} />
             </button>
           </div>
-        </td>
-      </tr>
+        </div>
+      </div>
     );
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-surface-2 selection:bg-app-accent/20 selection:text-app-text">
+    <div className="flex h-full flex-col overflow-hidden bg-app-surface selection:bg-app-accent/20 selection:text-app-text">
       <header className="border-b border-[var(--app-border)] bg-[color-mix(in_srgb,var(--app-surface)_88%,transparent)] px-4 py-3 backdrop-blur-xl md:px-6">
         <div className="mb-3 flex flex-wrap items-center gap-3">
           <p className="hidden shrink-0 text-[10px] font-black uppercase tracking-[0.2em] text-[var(--app-text-muted)] sm:block">
@@ -1179,151 +1079,88 @@ export default function InventoryControlBoard({
           </div>
         ) : null}
         <div
-          className="flex-1 overflow-auto no-scrollbar"
+          className="flex-1 overflow-auto no-scrollbar outline-none"
           onFocus={() => setTableFocus(true)}
           onBlur={() => setTableFocus(false)}
           onKeyDown={onTableKeyDown}
           tabIndex={0}
         >
-          <table className="w-full border-separate border-spacing-0">
-            <thead className="sticky top-0 z-20">
-              <tr className="bg-app-surface-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted shadow-sm backdrop-blur-md">
-                <th className="border-b border-app-border px-3 py-2.5 text-left">
-                  <input
-                    type="checkbox"
-                    checked={
-                      selected.size === productRows.length &&
-                      productRows.length > 0
-                    }
-                    onChange={toggleSelectAll}
-                    className="h-4 w-4 rounded border-app-input-border text-app-accent"
-                    aria-label="Select all products"
-                  />
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-left">
-                  <div className="flex items-center gap-2">
-                    <LayoutGrid size={14} className="text-app-text-muted" />
-                    Product Description
-                  </div>
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-left">
-                  <div className="flex items-center gap-2">
-                    <FolderTree size={14} className="text-app-text-muted" />
-                    Categorization
-                  </div>
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-center">
-                  SOH
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-center">
-                  Web
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-right">
-                  Retail
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-right">
-                  Cost
-                </th>
-                <th className="border-b border-app-border px-3 py-2.5 text-right">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-app-border bg-app-surface">
-              {groupByBrand && groupedRows ? (
-                groupedRows.map(([brand, items]) => {
-                  const stats = groupStats(items);
-                  return (
-                    <Fragment key={brand}>
-                      <tr className="bg-app-surface-2/50">
-                        <td
-                          colSpan={8}
-                          className="border-b border-app-border px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <span className="text-sm font-black uppercase tracking-tight text-app-text italic">
-                                {brand}
-                              </span>
-                              <span className="rounded-full bg-app-border/50 px-2 py-0.5 text-[9px] font-black text-app-text-muted">
-                                {items.length} Product Templates
-                              </span>
-                            </div>
-                            <div className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                              {stats.units} units ·{" "}
-                              {formatUsdFromCents(parseMoneyToCents(stats.value))}{" "}
-                              asset value
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                      {items.map(renderRow)}
-                    </Fragment>
-                  );
-                })
-              ) : groupByPrimaryVendor && groupedRowsByVendor ? (
-                groupedRowsByVendor.map(([v, items]) => {
-                  const stats = groupStats(items);
-                  return (
-                    <Fragment key={v}>
-                      <tr className="bg-violet-50/30">
-                        <td
-                          colSpan={8}
-                          className="border-b border-violet-100/50 px-3 py-2"
-                        >
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                              <Building2
-                                size={16}
-                                className="text-violet-400"
-                              />
-                              <span className="text-sm font-black uppercase tracking-tight text-violet-900 italic">
-                                {v}
-                              </span>
-                              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[9px] font-black text-violet-500">
-                                {items.length} Templates
-                              </span>
-                            </div>
-                            <div className="text-[10px] font-bold uppercase tracking-widest text-violet-400">
-                              {stats.units} units ·{" "}
-                              {formatUsdFromCents(parseMoneyToCents(stats.value))}{" "}
-                              asset value
-                            </div>
-                          </div>
-                        </td>
-                      </tr>
-                      {items.map(renderRow)}
-                    </Fragment>
-                  );
-                })
-              ) : (
-                productRows.map(renderRow)
-              )}
-            </tbody>
-          </table>
-          {boardHasMore && productRows.length > 0 ? (
-            <div className="flex justify-center border-t border-app-border py-4">
-              <button
-                type="button"
-                disabled={boardLoadingMore}
-                onClick={() => void loadMoreBoard()}
-                className="rounded-xl border border-app-border bg-app-surface-2 px-6 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-border/25 disabled:opacity-50"
-              >
-                {boardLoadingMore ? "Loading…" : "Load more SKUs"}
-              </button>
-              <span className="sr-only">
-                Appends the next {boardPageLimit} variant rows with the same filters
-              </span>
-            </div>
-          ) : null}
-          {!boardRefreshing && productRows.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-20 text-app-text-muted">
-              <Search size={48} className="mb-4 opacity-20" />
-              <p className="text-sm font-black uppercase tracking-widest opacity-60">
-                No inventory matches found
-              </p>
-            </div>
-          ) : null}
+          <div className="flex flex-col gap-px bg-app-border/20 pb-20">
+            {groupByBrand && groupedRows ? (
+              groupedRows.map(([brand, items]) => {
+                const stats = groupStats(items);
+                return (
+                  <Fragment key={brand}>
+                    <div className="sticky top-0 z-20 flex items-center justify-between border-b border-app-border bg-app-surface-2/95 px-6 py-2 backdrop-blur-md">
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-black uppercase tracking-tight text-app-text italic">
+                          {brand}
+                        </span>
+                        <span className="rounded-full bg-app-border/50 px-2 py-0.5 text-[9px] font-black text-app-text-muted">
+                          {items.length} Product Templates
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted opacity-60">
+                        {stats.units} units ·{" "}
+                        {money(stats.value)}{" "}
+                        asset value
+                      </div>
+                    </div>
+                    {items.map((item, localIdx) => renderRow(item, localIdx))}
+                  </Fragment>
+                );
+              })
+            ) : groupByPrimaryVendor && groupedRowsByVendor ? (
+              groupedRowsByVendor.map(([v, items]) => {
+                const stats = groupStats(items);
+                return (
+                  <Fragment key={v}>
+                    <div className="sticky top-0 z-20 flex items-center justify-between border-b border-violet-200 bg-violet-50/95 px-6 py-2 backdrop-blur-md">
+                      <div className="flex items-center gap-3">
+                        <Building2 size={16} className="text-violet-400" />
+                        <span className="text-sm font-black uppercase tracking-tight text-violet-900 italic">
+                          {v}
+                        </span>
+                        <span className="rounded-full bg-violet-200 px-2 py-0.5 text-[9px] font-black text-violet-500">
+                          {items.length} Templates
+                        </span>
+                      </div>
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-violet-400">
+                        {stats.units} units ·{" "}
+                        {money(stats.value)}{" "}
+                        asset value
+                      </div>
+                    </div>
+                    {items.map((item, localIdx) => renderRow(item, localIdx))}
+                  </Fragment>
+                );
+              })
+            ) : (
+              productRows.map((item, idx) => renderRow(item, idx))
+            )}
+
+            {!boardRefreshing && productRows.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-32 text-app-text-muted">
+                <Search size={48} className="mb-4 opacity-20" />
+                <p className="text-sm font-black uppercase tracking-widest opacity-60">
+                  No inventory matches found
+                </p>
+              </div>
+            ) : null}
+
+            {boardHasMore && productRows.length > 0 ? (
+              <div className="flex justify-center border-t border-app-border py-8 bg-app-surface/30">
+                <button
+                  type="button"
+                  disabled={boardLoadingMore}
+                  onClick={() => void loadMoreBoard()}
+                  className="rounded-2xl border border-app-border bg-app-surface px-10 py-4 text-xs font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:shadow-2xl active:scale-95 disabled:opacity-50 shadow-xl"
+                >
+                  {boardLoadingMore ? "Synchronizing SKUs..." : "Expand Discovery Plane"}
+                </button>
+              </div>
+            ) : null}
+          </div>
         </div>
 
         {selected.size > 0 && (
@@ -1413,7 +1250,7 @@ export default function InventoryControlBoard({
               <p className="text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted mb-1">
                 Stock Adjustment
               </p>
-              <h3 className="text-xl font-black italic tracking-tighter text-app-text uppercase italic">
+              <h3 className="text-xl font-black italic tracking-tighter text-app-text uppercase">
                 {adjustRow.variation_label ?? "Standard Variant"}
               </h3>
               <p className="font-mono text-[10px] font-bold text-app-text-muted">

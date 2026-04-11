@@ -45,6 +45,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
     const [pendingOrderToggle, setPendingOrderToggle] = useState(null);
     const [pendingStockUpdate, setPendingStockUpdate] = useState(null); // { memberId, field, value }
     const [paymentStatusByMemberId, setPaymentStatusByMemberId] = useState({});
+    const [financialContext, setFinancialContext] = useState(null);
 
     useEffect(() => {
         if (!party?.id) {
@@ -54,6 +55,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
         const run = async () => {
             try {
                 const ctx = await api.getPartyFinancialContext(party.id);
+                setFinancialContext(ctx);
                 const rows = Array.isArray(ctx?.members) ? ctx.members : [];
                 const next = {};
                 rows.forEach((row) => {
@@ -68,6 +70,7 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
             } catch (err) {
                 console.error("Failed to load payment status:", err);
                 setPaymentStatusByMemberId({});
+                setFinancialContext(null);
             }
         };
         void run();
@@ -1145,6 +1148,89 @@ const PartyDetail = ({ party, parties, onBack, onUpdate, onRefresh, onPrint, onN
                             </div>
                         </div>
                     </div>
+ 
+                    {/* Economics & Analytics */}
+                    {financialContext?.analytics && (
+                        <div className="bg-app-surface rounded-lg shadow-sm border border-app-border overflow-hidden transition-colors">
+                            <div className="bg-app-surface-2 px-4 py-2 border-b border-app-border flex justify-between items-center">
+                                <h3 className="text-xs font-bold text-app-text uppercase tracking-wide">Economics & Analytics</h3>
+                            </div>
+                            <div className="p-4 grid grid-cols-1 lg:grid-cols-4 gap-6">
+                                <div className="lg:col-span-3">
+                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                                        <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
+                                            <div className="text-[10px] font-bold text-emerald-800 uppercase">Total Profit</div>
+                                            <div className="text-2xl font-black text-emerald-900">{formatMoney(financialContext.analytics.total_profit)}</div>
+                                            <div className="text-[9px] text-emerald-700/60 font-medium">Pre-tax gross</div>
+                                        </div>
+                                        <div className="bg-navy-50 p-4 rounded-lg border border-navy-100">
+                                            <div className="text-[10px] font-bold text-navy-800 uppercase">Avg. Margin</div>
+                                            <div className="text-2xl font-black text-navy-900">{Number(financialContext.analytics.average_margin).toFixed(1)}%</div>
+                                            <div className="text-[9px] text-navy-700/60 font-medium">Profit / Revenue</div>
+                                        </div>
+                                        <div className="bg-app-surface-2 p-4 rounded-lg border border-app-border">
+                                            <div className="text-[10px] font-bold text-app-text-muted uppercase">Total Revenue</div>
+                                            <div className="text-2xl font-black text-app-text">{formatMoney(financialContext.analytics.total_revenue)}</div>
+                                            <div className="text-[9px] text-app-text-muted/60 font-medium">Aggregate Sales</div>
+                                        </div>
+                                        <div className="bg-app-surface-2 p-4 rounded-lg border border-app-border">
+                                            <div className="text-[10px] font-bold text-app-text-muted uppercase">Total Cost</div>
+                                            <div className="text-2xl font-black text-app-text">{formatMoney(financialContext.analytics.total_cost)}</div>
+                                            <div className="text-[9px] text-app-text-muted/60 font-medium">Frozen Line Costs</div>
+                                        </div>
+                                    </div>
+
+                                    {/* Promo Progress */}
+                                    <div className="mt-6 p-4 bg-app-surface border border-app-border rounded-lg relative overflow-hidden">
+                                        <div className="flex justify-between items-end mb-2">
+                                            <div>
+                                                <div className="text-xs font-black uppercase text-app-text">"Buy 5, Get 1 Free" Promo</div>
+                                                <div className="text-[10px] text-app-text-muted font-bold">Progress based on Wedding Orders processed</div>
+                                            </div>
+                                            <div className="text-right">
+                                                <div className="text-xs font-black text-app-text">{financialContext.analytics.qualification_count} / 5 Suits</div>
+                                            </div>
+                                        </div>
+                                        <div className="w-full bg-app-surface-2 rounded-full h-3 border border-app-border">
+                                            <div 
+                                                className={`h-3 rounded-full transition-all duration-700 ${financialContext.analytics.qualification_count >= 5 ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.3)]' : 'bg-gold-500'}`}
+                                                style={{ inlineSize: `${Math.min(100, (financialContext.analytics.qualification_count / 5) * 100)}%` }}
+                                            ></div>
+                                        </div>
+                                        {financialContext.analytics.qualification_count >= 5 && (
+                                            <div className="mt-2 text-[10px] font-bold text-emerald-700 flex items-center gap-1">
+                                                <Icon name="CheckCircle" size={12} /> Qualification Met! 
+                                                {financialContext.analytics.free_suits_marked > 0 
+                                                    ? ` (${financialContext.analytics.free_suits_marked} Marked Free)` 
+                                                    : " Mark a member as 'Promo Free' in details."}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="lg:col-span-1 border-l border-app-border pl-6">
+                                    <h4 className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-3">Suit Selections</h4>
+                                    <div className="space-y-3">
+                                        {financialContext.analytics.common_suits?.length > 0 ? (
+                                            financialContext.analytics.common_suits.map((s, idx) => (
+                                                <div key={idx} className="flex justify-between items-start gap-2 border-b border-app-border/30 pb-2 last:border-0">
+                                                    <div>
+                                                        <div className="text-xs font-bold text-app-text leading-tight">{s.product_name || "Unknown Product"}</div>
+                                                        <div className="text-[9px] text-app-text-muted uppercase font-medium">{s.variation_label || "Base Selection"}</div>
+                                                    </div>
+                                                    <div className="bg-navy-50 text-navy-800 text-[10px] font-black px-1.5 py-0.5 rounded border border-navy-100">
+                                                        x{s.count}
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-[10px] text-app-text-muted italic">No linked suits selected.</div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Members Table */}
                     <div className="bg-app-surface shadow-md border border-app-border rounded-lg overflow-hidden transition-colors">

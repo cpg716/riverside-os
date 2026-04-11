@@ -51,6 +51,7 @@ pub struct WeddingPartyRow {
     pub groom_phone_clean: Option<String>,
     pub bride_phone_clean: Option<String>,
     pub is_deleted: Option<bool>,
+    pub suit_variant_id: Option<Uuid>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -93,6 +94,8 @@ pub struct WeddingMemberApi {
     pub ordered_po: Option<String>,
     #[sqlx(json)]
     pub stock_info: serde_json::Value,
+    pub suit_variant_id: Option<Uuid>,
+    pub is_free_suit_promo: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -192,6 +195,26 @@ pub struct WeddingMemberFinancialRow {
     pub order_total: Decimal,
     pub paid_total: Decimal,
     pub balance_due: Decimal,
+    pub is_free_suit_promo: bool,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct SuitSelectionStat {
+    pub variant_id: Option<Uuid>,
+    pub product_name: Option<String>,
+    pub variation_label: Option<String>,
+    pub count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WeddingPartyAnalytics {
+    pub total_profit: Decimal,
+    pub total_cost: Decimal,
+    pub total_revenue: Decimal,
+    pub average_margin: Decimal,
+    pub free_suits_marked: i32,
+    pub qualification_count: i32,
+    pub common_suits: Vec<SuitSelectionStat>,
 }
 
 #[derive(Debug, Serialize)]
@@ -199,6 +222,7 @@ pub struct WeddingPartyFinancialContext {
     pub summary: WeddingLedgerSummary,
     pub lines: Vec<WeddingLedgerLine>,
     pub members: Vec<WeddingMemberFinancialRow>,
+    pub analytics: WeddingPartyAnalytics,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -214,4 +238,17 @@ pub struct AppointmentRow {
     pub notes: Option<String>,
     pub status: String,
     pub salesperson: Option<String>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct WeddingNonInventoryItem {
+    pub id: Uuid,
+    pub wedding_party_id: Uuid,
+    pub wedding_member_id: Option<Uuid>,
+    pub description: String,
+    pub quantity: i32,
+    pub status: String,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
 }

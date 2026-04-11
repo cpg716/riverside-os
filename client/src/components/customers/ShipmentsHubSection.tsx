@@ -11,6 +11,8 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import CustomerSearchInput from "../ui/CustomerSearchInput";
+import { CheckCircle2 } from "lucide-react";
 
 const defaultBase =
   import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
@@ -787,18 +789,32 @@ export default function ShipmentsHubSection({
                 New manual shipment
               </h2>
             </div>
-            <p className="mb-3 text-xs text-app-text-muted">
-              Optional CRM link: paste customer UUID. Ship-from uses Settings / Shippo.
-            </p>
-            <label className="mb-2 block text-[10px] font-bold uppercase text-app-text-muted">
-              Customer ID (optional)
-              <input
-                className="ui-input mt-1 w-full text-xs"
-                value={newCustomerId}
-                onChange={(e) => setNewCustomerId(e.target.value)}
-                placeholder="uuid"
-              />
-            </label>
+            <div className="mb-4 space-y-2">
+              <label className="block text-[10px] font-bold uppercase text-app-text-muted">
+                Link Customer (optional)
+                <CustomerSearchInput
+                  className="mt-1"
+                  onSelect={(c) => {
+                    setNewCustomerId(c.id);
+                    setNewForm((f) => ({
+                      ...f,
+                      name: f.name || `${c.first_name} ${c.last_name}`.trim(),
+                      street1: f.street1 || (c as any).street1 || "", // attempt prefill if data exists
+                      city: f.city || (c as any).city || "",
+                      state: f.state || (c as any).state || "",
+                      zip: f.zip || (c as any).zip || "",
+                    }));
+                  }}
+                  placeholder="Search by name or phone…"
+                />
+              </label>
+              {newCustomerId && (
+                <div className="flex items-center gap-2 rounded-lg bg-emerald-500/5 border border-emerald-500/10 px-2 py-1.5 animate-in fade-in slide-in-from-top-1 duration-200">
+                  <CheckCircle2 size={12} className="text-emerald-600" />
+                  <span className="text-[10px] font-black uppercase text-emerald-700">Linked to CRM Profile</span>
+                </div>
+              )}
+            </div>
             <div className="grid grid-cols-2 gap-2">
               <label className="col-span-2 block text-[10px] font-bold uppercase text-app-text-muted">
                 Name

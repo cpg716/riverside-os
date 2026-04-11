@@ -629,7 +629,7 @@ pub async fn fetch_register_day_summary(
                 if s.channel.trim() == "web" {
                     "Online order — recognized".to_string()
                 } else if s.has_special {
-                    "Completed — included special order".to_string()
+                    "Completed — included order".to_string()
                 } else {
                     "Completed (recognized)".to_string()
                 }
@@ -638,7 +638,7 @@ pub async fn fetch_register_day_summary(
                 if s.channel.trim() == "web" {
                     "Online order".to_string()
                 } else if s.has_special {
-                    "Sale — includes special order".to_string()
+                    "Sale — includes order".to_string()
                 } else {
                     "Sale".to_string()
                 }
