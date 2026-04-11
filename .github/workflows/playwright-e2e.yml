@@ -81,7 +81,7 @@ jobs:
         run: |
           cd server
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
-            cargo run > /tmp/ros-server.log 2>&1 &
+            ./target/debug/riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
           for i in $(seq 1 90); do
             if curl -sf "http://127.0.0.1:3000/api/staff/list-for-pos" | grep -q '\['; then
