@@ -63,12 +63,20 @@ E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm ru
 From repo root, use these shortcuts:
 
 ```bash
+npm run test:e2e:list
 npm run test:e2e:release
 npm run test:e2e:visual
+npm run test:e2e:high-risk
+npm run test:e2e:phase2
+npm run test:e2e:tender
 ```
 
+- `test:e2e:list` lists all Playwright tests.
 - `test:e2e:release` runs the standard release gate suite.
 - `test:e2e:visual` runs visual baselines with `E2E_RUN_VISUAL=1`.
+- `test:e2e:high-risk` runs the high-risk API regression suite.
+- `test:e2e:phase2` runs the Phase 2 finance/help lifecycle suite.
+- `test:e2e:tender` runs the deterministic tender contract suite.
 
 > If you see `ERR_CONNECTION_REFUSED` to `localhost:5173`, the UI server is not running.
 
@@ -203,13 +211,19 @@ For any checkout/revenue/tender/tax logic changes, always run:
 
 ```bash
 npm run test:e2e:release
+npm run test:e2e:high-risk
+npm run test:e2e:phase2
+npm run test:e2e:tender
 ```
 
-Equivalent explicit form:
+Equivalent explicit forms:
 
 ```bash
 cd client
 E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- --workers=1
+E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/high-risk-regressions.spec.ts --workers=1
+E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1
+E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1
 ```
 
 This is a release gate, not optional.

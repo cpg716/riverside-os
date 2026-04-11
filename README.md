@@ -87,6 +87,9 @@ cd client && npm run build       # tsc --noEmit + vite build
 npm run test:e2e:list
 npm run test:e2e:release
 npm run test:e2e:visual
+npm run test:e2e:high-risk
+npm run test:e2e:phase2
+npm run test:e2e:tender
 
 # Direct client commands
 cd client
