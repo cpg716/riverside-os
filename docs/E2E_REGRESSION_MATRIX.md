@@ -33,6 +33,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 | **`visual-baselines.spec.ts`** | Full-page screenshots: register closed, QBO, dark inventory, customers, operations | **Opt-in only**: runs only when **`E2E_RUN_VISUAL=1`** (local or CI). By default this suite is skipped to avoid release-blocking snapshot drift (fonts/layout/render differences). |
 | **`api-gates.spec.ts`** | **HTTP:** anonymous 401/403 on sample routes; staff probes | API only (no browser base URL) |
 | **`high-risk-regressions.spec.ts`** | High-risk API regressions: route mount smoke (non-404), NYS tax audit auth/shape, sales-pivot basis alias stability (`booked`/`sale`/`completed`/`pickup`), Help Manager admin-op RBAC + payload shape, session endpoint auth behavior, non-admin permission boundaries | API-focused release hardening; seeded Admin (`1234`) and non-Admin (`5678`) recommended |
+| **`phase2-finance-and-help-lifecycle.spec.ts`** | Phase 2 release checks: Help manual policy lifecycle persistence/revert, Help admin policy RBAC boundaries, NYS tax + sales-pivot contract stability, payments/session auth-gate safety, non-admin boundary checks on sensitive analytics/help-admin routes | API-centric deterministic suite for finance/help lifecycle hardening; requires seeded Admin (`1234`) and recommended non-Admin (`5678`) |
 
 ---
 
@@ -119,4 +120,5 @@ Local release gate remains **`E2E_BASE_URL=http://localhost:5173`** + **`npm run
 | 2026-04-08 | **`reports-workspace.spec.ts`**; matrix rows updated. **Operations** sidebar: **Dashboard** includes the former **Activity** content; deep link **`subsection=activity`** normalizes to **dashboard** (`App.tsx`). |
 | 2026-04-11 | Expanded **Help Center** coverage: `help-center.spec.ts` now includes **Help Center Manager** settings navigation and admin-op request checks (generate-manifest / reindex-search); `api-gates.spec.ts` now includes anonymous/non-admin/admin route gates and payload-shape checks for **`/api/help/admin/ops/*`**. |
 | 2026-04-11 | Added **`high-risk-regressions.spec.ts`** for release-critical API checks: migration route mount smoke, NYS tax audit auth/shape, sales-pivot basis alias stability, help-admin op RBAC/payload checks, session auth behavior, and non-admin boundary assertions. |
+| 2026-04-11 | Added **`phase2-finance-and-help-lifecycle.spec.ts`** for Phase 2 hardening: Help manual policy lifecycle persistence/revert, policy endpoint RBAC boundaries, finance-sensitive contract checks, and payments/session auth-gate regressions. |
 | 2026-04-11 | Visual baseline policy clarified: `visual-baselines.spec.ts` is **opt-in** behind **`E2E_RUN_VISUAL=1`** and treated as **non-blocking** for standard release gates unless explicitly enabled. |
