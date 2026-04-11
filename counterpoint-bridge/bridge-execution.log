@@ -1265,3 +1265,6 @@
 [2026-04-10T22:10:09.080Z] [proxy] Forwarding GET to Riverside: /api/settings/counterpoint-sync/status
 [2026-04-10T22:10:11.080Z] [proxy] Forwarding GET to Riverside: /api/settings/counterpoint-sync/status
 [2026-04-10T22:10:12.800Z] [proxy] Forwarding GET to Riverside: /api/settings/counterpoint-sync/status
+[2026-04-11T02:09:55.184Z] Bridge started in IDLE mode. Use dashboard or wait for timer.
+[2026-04-11T02:11:05.221Z] [heartbeat] online (bridge 0.7.3)
+[2026-04-11T02:12:35.233Z] [heartbeat] online (bridge 0.7.3)

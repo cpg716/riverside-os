@@ -118,8 +118,7 @@ export default function RegisterDashboard({
     staffDisplayName,
     staffRole,
   } = useBackofficeAuth();
-  const { openDrawer, refreshUnread } = useNotificationCenter();
-  const { toast } = useToast();
+  const { openDrawer } = useNotificationCenter();
 
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -267,10 +266,6 @@ export default function RegisterDashboard({
     void loadXReport();
   }, [loadXReport, refreshSignal]);
 
-  useEffect(() => {
-    void loadMetrics();
-  }, [loadMetrics, refreshSignal]);
-
   const notifAction = async (
     id: string,
     path: "read" | "complete" | "archive",
@@ -280,14 +275,10 @@ export default function RegisterDashboard({
         method: "POST",
         headers: apiAuth(),
       });
-      if (!res.ok) {
-        toast("Could not update notification.", "error");
-        return;
-      }
-      void refreshUnread();
+      if (!res.ok) return;
       void loadNotifications();
     } catch {
-      toast("Network error.", "error");
+      /* ignore */
     }
   };
 
@@ -323,7 +314,6 @@ export default function RegisterDashboard({
     cond.includes("snow") ? Snowflake : cond.includes("rain") ? CloudRain : cond.includes("cloud") ? Cloud : Sun;
 
   const stats = compass?.stats;
-
   return (
     <div
       className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto bg-app-bg p-4 sm:p-5 lg:gap-4 lg:p-6"
