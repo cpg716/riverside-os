@@ -58,6 +58,75 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ---
 
+## Station & hardware commissioning (must-pass before first customer)
+
+### Server host (Windows PC running API + Postgres)
+
+- [ ] Hostname and static/DHCP-reserved LAN IP documented.
+- [ ] Power plan set to prevent sleep/hibernate during store hours.
+- [ ] Auto-start/service strategy validated for API and DB after reboot.
+- [ ] Windows Firewall rules verified for required ports only (least privilege).
+- [ ] NTP/time sync verified (clock drift can break TLS and reports).
+- [ ] UPS present and graceful shutdown plan documented.
+- [ ] Backup target reachable and write permissions verified.
+
+### Register 1 (Tauri, primary drawer lane)
+
+- [ ] Tauri app installed, launch tested, and version confirmed in **About this build**.
+- [ ] `VITE_API_BASE` in built app points to production API origin.
+- [ ] Register open/close flow validated on lane 1 with real cashier credentials.
+- [ ] Cash drawer/till workflow validated (open float, paid in/out, reconcile).
+- [ ] Receipt print workflow validated end-to-end from completed sale.
+- [ ] Reprint workflow validated from order/report context.
+
+### Register 2+ stations (Tauri or PWA satellite lanes)
+
+- [ ] Lane assignment and operator SOP documented (satellite lanes tie to lane 1 till group).
+- [ ] Register open behavior validated for lane >1 expectations.
+- [ ] Satellite checkout flow validated with physical handoff to drawer lane policy.
+- [ ] Shared-device logout/lock SOP posted at station.
+
+### PWA devices (iPad/phones)
+
+- [ ] Add-to-Home-Screen install completed on each intended device.
+- [ ] Initial login and role-specific workspace access validated.
+- [ ] Offline/poor-network behavior drill completed (what works vs what must wait).
+- [ ] Cache reset/hard-refresh procedure documented for floor staff.
+- [ ] MDM/screen-lock/auto-lock policy set for shared devices.
+
+### Receipt printers
+
+- [ ] Each printer model, IP, port, and physical station label documented.
+- [ ] Static IP or DHCP reservation confirmed.
+- [ ] Test print completed from target station and from production app flow.
+- [ ] Paper width/stock loaded and spare roll policy documented.
+- [ ] Fallback printer procedure documented if primary printer fails.
+
+### Report/label printers
+
+- [ ] Driver installed and set as expected printer on back-office station.
+- [ ] Correct page/label size validated (no scaling/clipping).
+- [ ] Test label/report print saved as acceptance artifact.
+- [ ] Spare labels/ink/maintenance kit availability checked.
+
+### Scanners (barcode hardware)
+
+- [ ] Device mode set to HID keyboard wedge (or approved equivalent).
+- [ ] Suffix/prefix behavior standardized (e.g., Enter/Tab) per station SOP.
+- [ ] Scan tests pass in POS search, inventory flows, and any scanner-driven dialogs.
+- [ ] Bluetooth scanners paired and reconnect procedure documented.
+- [ ] Charging/storage plan documented for cordless scanners.
+
+### Card/terminal hardware (credit card equipment)
+
+- [ ] Reader registration/location mapping verified per lane/station.
+- [ ] Connection token/terminal handshake works from live app context.
+- [ ] Payment flow test completed for at least one successful card transaction path.
+- [ ] Failure handling drill completed (reader offline, retry, fallback tender SOP).
+- [ ] End-of-day reconciliation includes card activity verification path.
+
+---
+
 ## Metabase / Insights (reporting)
 
 **Policy (OSS baseline):** Prefer Metabase **Open Source** — **`RIVERSIDE_METABASE_JWT_SECRET`** unset and Metabase **Authentication → JWT** off unless you deliberately adopt **paid** Metabase for SSO. **Riverside `insights.view`** only opens the **Insights** shell; **margin and private data in Metabase** are controlled by **which Metabase user** logs in, not by staff PIN.
@@ -258,6 +327,9 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [ ] Tender apply
   - [ ] Complete sale
   - [ ] Receipt output
+- [ ] Verify scanner reads SKU and lands in expected POS/inventory search flows.
+- [ ] Verify card reader is online and payment path initializes successfully.
+- [ ] Verify report/label print output from designated back-office station.
 - [ ] Verify reports/insights shell opens with expected permissions.
 - [ ] Verify Help Center access from Back Office and POS.
 

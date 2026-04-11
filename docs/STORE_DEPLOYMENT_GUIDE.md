@@ -13,6 +13,16 @@ Deeper checklists and remote access detail live in linked docs at the end.
 
 ## 1. Architecture snapshot
 
+### 1.1 Host engine verification (macOS dev / pre-prod)
+
+If your team uses macOS for local validation before Windows production cutover, verify the Docker engine context before any DB or migration operation:
+
+- `docker context show` should return **`orbstack`**.
+- `docker info` should identify **OrbStack** as the runtime.
+- `docker compose ps` should show expected services healthy (`db`, optional `meilisearch`, optional `metabase` stack).
+
+Record this verification in your deployment log so troubleshooting always starts from a known container runtime.
+
 There is **one application backend** and **one database**. Every client device talks to the **same API origin** (for example `https://ros.yourstore.tld` or `http://server-pc:3000` on the LAN).
 
 ```mermaid
@@ -73,6 +83,17 @@ The app supports **multiple open register terminals** (migration **66**) sharing
 
 Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section D.
 
+#### 3.2.1 Tauri station install checklist (per Windows station)
+
+- [ ] Confirm Windows user account and local admin rights for install/update.
+- [ ] Install the correct Riverside desktop artifact for the release version.
+- [ ] Launch app and verify **Settings → General → About this build** shows expected app version + API base.
+- [ ] Confirm station reaches API origin and can sign in with staff PIN flow.
+- [ ] Confirm station-specific Printing Hub values are set (receipt/report destinations).
+- [ ] Confirm scanner input reaches focused fields as keyboard wedge text.
+- [ ] Execute one supervised smoke flow (open POS, search item, open checkout drawer, cancel safely).
+- [ ] Record station name, install time, artifact version, and installer owner in deployment log.
+
 ### 3.3 PWA (iPad, phones, optional browser-only PCs)
 
 1. Copy [`client/.env.pwa.example`](../client/.env.pwa.example) to **`client/.env.pwa`**.
@@ -83,6 +104,16 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 **Version visibility:** Settings → General → **About this build** (semver, git SHA, Tauri version on desktop, API base).
 
 **Quality gates:** See section G in [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) (Playwright, soak, backup drill).
+
+#### 3.3.1 PWA station install checklist (per iPad/phone)
+
+- [ ] Open deployed app URL in Safari/Chrome and confirm TLS is valid.
+- [ ] Add to Home Screen and launch from icon (not only browser tab).
+- [ ] Verify staff sign-in and shell navigation render correctly.
+- [ ] Verify camera/scanner workflow used by that station profile (if applicable).
+- [ ] Verify session behavior on shared device (log out / close register when unattended).
+- [ ] Validate stale-cache recovery procedure (hard refresh / clear site data / reinstall icon).
+- [ ] Record device name, OS version, browser engine, and test result in deployment log.
 
 ---
 
@@ -131,11 +162,24 @@ Key variables (full table in [`DEVELOPER.md`](../DEVELOPER.md)):
 
 Configure each **Register 1** PC with the **Epson receipt printer IP** (or your chosen workflow; see hardware section below).
 
+### 5.1 Station commissioning checklist (go-live required)
+
+Run this on every station before first customer:
+
+- [ ] Staff sign-in works with expected role and permissions.
+- [ ] POS navigation opens and register session can be opened/attached correctly.
+- [ ] Product search and cart interactions respond with expected performance.
+- [ ] Checkout drawer opens and can be dismissed safely.
+- [ ] Help drawer opens from station header/top bar.
+- [ ] Printing Hub values verified and saved.
+- [ ] One supervised sample transaction (or safe dry run) completed per station class.
+- [ ] Incident/exception notes captured with station ID and owner.
+
 ---
 
 ## 6. Hardware matrix (reference deployment)
 
-This section matches a common Riverside deployment: **Zebra** scanners and label printer, **Epson** receipt printer, **iPad** second register.
+This section matches a common Riverside deployment: **Zebra** scanners and label printer, **Epson** receipt printer, **iPad** second register, and Stripe payment hardware.
 
 | Station | Device | Role in Riverside OS |
 |---------|--------|----------------------|
@@ -144,6 +188,35 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 | Back office | **Zebra LP 2844** | **Shelf / inventory labels:** the app opens a **print layout** and uses the **system print dialog** (`labelPrint.ts`, `@page` **4in × 2.5in**). Install the **Zebra Windows driver**, match **label stock** and driver page size to avoid scaling issues. Tauri and Edge use the same OS print path for this feature. |
 | Register 1 | **Epson TM-m30III** (receipts) | See **subsection 6.1** — important language/protocol note. |
 | Register 2 (iPad) | Receipts | See **subsection 6.2** — current app behavior. |
+| Register lanes using card present | **Stripe Terminal reader(s)** | Used for card-present checkout flow; must be registered to correct location and validated per-lane before go-live. |
+
+### 6.0 Hardware commissioning checklist (required before go-live)
+
+#### Receipt printers
+- [ ] Static/DHCP-reserved IP documented.
+- [ ] Reachable from required host (Tauri PC and/or API host for server-side print path).
+- [ ] Test receipt printed from ROS flow.
+- [ ] Spare paper stock and quick paper-reload SOP verified.
+
+#### Report / label printers
+- [ ] Correct Windows/macOS driver installed.
+- [ ] Correct page size/media profile configured.
+- [ ] Test print from report/label workflow passes with no scaling/cropping issues.
+- [ ] Fallback printer routing documented for busy-day contingencies.
+
+#### Scanners
+- [ ] Device paired/connected in HID wedge mode.
+- [ ] Scan suffix behavior validated (Enter/Tab as desired).
+- [ ] POS search scan test passed.
+- [ ] Inventory/search input scan test passed.
+- [ ] Battery/charging and spare unit plan documented.
+
+#### Credit-card hardware (Stripe Terminal)
+- [ ] Reader firmware and location registration confirmed.
+- [ ] Reader visible/healthy in store payment settings.
+- [ ] Card-present payment intent path validated with supervised test.
+- [ ] Reader disconnect/failure fallback procedure trained.
+- [ ] Refund/credit reconciliation path verified in reports and logs.
 
 ### 6.1 Epson TM-m30III and ZPL (read carefully)
 
@@ -204,6 +277,8 @@ So **iPad PWA cannot print a thermal receipt from that button today**, even thou
 
 - [`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md) — Tailscale, phones, laptops.
 - [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) — PWA vs Tauri builds, CORS, offline, QA sign-off.
+- [`docs/RELEASE_QA_CHECKLIST.md`](RELEASE_QA_CHECKLIST.md) — release validation gates, E2E policy, canonical visual workflow.
+- [`docs/ORBSTACK_GUIDE.md`](ORBSTACK_GUIDE.md) — macOS Docker runtime standard and verification.
 - [`DEVELOPER.md`](../DEVELOPER.md) — local dev, env vars, architecture.
 - [`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md) — RBAC, headers, PINs.
 - [`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md) — multi-lane register, combined Z-close.
