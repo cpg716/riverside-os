@@ -77,6 +77,22 @@ For releases touching checkout, payments, taxes, reports, or Help Center admin f
 
 ---
 
+## 3.1) Visual baseline policy (opt-in)
+
+Visual screenshot baselines are **opt-in** and **non-blocking by default**.
+
+- The visual suite runs only when explicitly enabled with:
+  - `E2E_RUN_VISUAL=1`
+- Default release gate behavior should not fail solely due to snapshot drift
+  (fonts/layout/render variance across machines).
+
+Run visuals only when you intentionally want snapshot validation/update:
+- UI polish sweeps
+- intentional visual refreshes
+- pre-merge screenshot review passes
+
+---
+
 ## 4) API gate regression smoke (recommended each release)
 
 From `client/` E2E suite (`api-gates.spec.ts`), confirm:

@@ -13,11 +13,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Relationship Hub Gating**: Ensured all Customer Hub tabs (Orders, Profile, Measurements, Payments) correctly respect RBAC permissions.
 - **Help Center Manager E2E Expansion**: Added Playwright coverage for Settings navigation into Help Center Manager, tab visibility checks (Library, Editor, Automation, Search & Index, ROSIE readiness), and request-shape assertions for `generate-manifest` and `reindex-search` admin operations.
 - **Help Admin API Gate Coverage**: Expanded `api-gates.spec.ts` with anonymous (`401`), non-Admin (`403`), and Admin success-shape checks for `/api/help/admin/ops/status`, `/api/help/admin/ops/generate-manifest`, and `/api/help/admin/ops/reindex-search`.
+- **E2E Stability Hardening**: Improved test resilience for Settings/Reports navigation timing by reducing dependence on brittle response timing and strengthening UI-ready assertions in the Podium and Reports workspace specs.
 
 ### Changed
 - **UI Spacing Refinement**: Adjusted spacing and density across Back Office workspaces for better consistency with the high-density CRM overhaul.
 - **Project Structure**: Formally updated all project modules to v0.1.9.
 - **Test-Run Hygiene Documentation**: Clarified E2E run expectations around service availability (UI + API) to avoid false-negative `ERR_CONNECTION_REFUSED` failures when the frontend host is not running.
+- **Visual Suite Policy**: Standardized visual baseline tests as opt-in (`E2E_RUN_VISUAL=1`) and non-blocking by default to avoid release failures caused by cross-machine font/render snapshot drift.
 
 ## [0.1.8] — 2026-04-11
 ### Added

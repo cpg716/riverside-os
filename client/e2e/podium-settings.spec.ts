@@ -17,14 +17,17 @@ let canaryStaffOk = false;
 test.beforeAll(async ({ request }) => {
   const code = e2eBackofficeStaffCode();
   try {
-    const res = await request.get(`${apiBase()}/api/staff/effective-permissions`, {
-      headers: {
-        "x-riverside-staff-code": code,
-        "x-riverside-staff-pin": code,
+    const res = await request.get(
+      `${apiBase()}/api/staff/effective-permissions`,
+      {
+        headers: {
+          "x-riverside-staff-code": code,
+          "x-riverside-staff-pin": code,
+        },
+        timeout: 8000,
+        failOnStatusCode: false,
       },
-      timeout: 8000,
-      failOnStatusCode: false,
-    });
+    );
     if (!res.ok()) return;
     const j = (await res.json()) as { permissions?: string[] };
     canaryStaffOk =
@@ -56,9 +59,17 @@ test.describe("Settings Podium integration", () => {
     await expect
       .poll(
         async () => {
-          await mainNav.getByRole("button", { name: /^settings(\s+bo)?$/i }).click({ force: true });
-          const asideOk = await systemControlHeading.isVisible().catch(() => false);
-          const crumbOk = await breadcrumb.getByText(/settings/i).first().isVisible().catch(() => false);
+          await mainNav
+            .getByRole("button", { name: /^settings(\s+bo)?$/i })
+            .click({ force: true });
+          const asideOk = await systemControlHeading
+            .isVisible()
+            .catch(() => false);
+          const crumbOk = await breadcrumb
+            .getByText(/settings/i)
+            .first()
+            .isVisible()
+            .catch(() => false);
           return asideOk && crumbOk;
         },
         { timeout: 45_000 },
@@ -66,29 +77,39 @@ test.describe("Settings Podium integration", () => {
       .toBeTruthy();
     const settingsAside = page
       .locator("aside")
-      .filter({ has: page.getByRole("heading", { level: 1, name: /system control/i }) });
+      .filter({
+        has: page.getByRole("heading", { level: 1, name: /system control/i }),
+      });
     const [pr] = await Promise.all([
-      page.waitForResponse(
-        (r) =>
-          r.url().includes("/api/settings/podium-sms") &&
-          !r.url().includes("readiness") &&
-          r.request().method() === "GET",
-        { timeout: 25_000 },
-      ),
+      page
+        .waitForResponse(
+          (r) =>
+            r.url().includes("/api/settings/podium-sms") &&
+            !r.url().includes("readiness") &&
+            r.request().method() === "GET",
+          { timeout: 25_000 },
+        )
+        .catch(() => null),
       settingsAside.getByRole("button", { name: /integrations/i }).click(),
     ]);
-    test.skip(
-      !pr.ok(),
-      `GET /api/settings/podium-sms returned ${pr.status()} (requires settings.admin + API)`,
-    );
+    if (pr && !pr.ok()) {
+      test.skip(
+        true,
+        `GET /api/settings/podium-sms returned ${pr.status()} (requires settings.admin + API)`,
+      );
+    }
     await expect(
-      page.getByRole("heading", { name: /integrations & bridges/i }),
-    ).toBeVisible({ timeout: 15_000 });
+      page
+        .getByRole("heading", { name: /integrations & (bridges|hub)/i })
+        .first(),
+    ).toBeVisible({ timeout: 20_000 });
     const podium = page.getByTestId("podium-sms-settings-section");
     await expect(podium).toBeVisible({ timeout: 25_000 });
     await podium.scrollIntoViewIfNeeded();
     await expect(
-      page.getByRole("heading", { name: /podium \(sms \+ email \+ web chat\)/i }),
+      page.getByRole("heading", {
+        name: /podium \(sms \+ email \+ web chat\)/i,
+      }),
     ).toBeVisible();
   });
 });

@@ -30,7 +30,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 | **`help-center.spec.ts`** | Help from BO header + POS; search results; **Settings → Help Center Manager** tab visibility; Automation and Search & Index admin-op request wiring | API; Meilisearch optional; manager flows require staff with **`help.manage`** |
 | **`reports-workspace.spec.ts`** | **Reports** curated library (`insights.view`); Admin **Margin pivot** tile + API wait | API + migration **53** admin; nav uses **`data-testid="sidebar-nav-reports"`** |
 | **`pwa-responsive.spec.ts`** | Narrow + tablet viewports; shell + **Insights** lazy heading | UI only |
-| **`visual-baselines.spec.ts`** | Full-page screenshots: register closed, QBO, dark inventory, customers, operations | **`settings.admin`** for Settings/dark path; **skipped in CI** unless **`E2E_RUN_VISUAL=1`** (font/layout drift) |
+| **`visual-baselines.spec.ts`** | Full-page screenshots: register closed, QBO, dark inventory, customers, operations | **Opt-in only**: runs only when **`E2E_RUN_VISUAL=1`** (local or CI). By default this suite is skipped to avoid release-blocking snapshot drift (fonts/layout/render differences). |
 | **`api-gates.spec.ts`** | **HTTP:** anonymous 401/403 on sample routes; staff probes | API only (no browser base URL) |
 
 ---
@@ -96,7 +96,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 
 ## CI
 
-- **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, **`scripts/seed_e2e_non_admin_staff.sql`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`client` `npm ci` + `npm run build`**, Playwright Chromium + **`npx playwright test --workers=1`**. **`E2E_BASE_URL` / `E2E_API_BASE`** target **`http://127.0.0.1:3000`** (SPA from Axum). Failure uploads **`playwright-output`** artifact.
+- **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, **`scripts/seed_e2e_non_admin_staff.sql`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`client` `npm ci` + `npm run build`**, Playwright Chromium + **`npx playwright test --workers=1`**. **`E2E_BASE_URL` / `E2E_API_BASE`** target **`http://127.0.0.1:3000`** (SPA from Axum). Failure uploads **`playwright-output`** artifact. Visual baselines are **non-blocking by default** because they are opt-in via **`E2E_RUN_VISUAL=1`**.
 - **`tauri-register-build.yml`:** Windows Tauri bundle (**`workflow_dispatch`** only).
 
 Local release gate remains **`E2E_BASE_URL=http://localhost:5173`** + **`npm run dev`** when exercising Vite-specific behavior.
@@ -117,3 +117,4 @@ Local release gate remains **`E2E_BASE_URL=http://localhost:5173`** + **`npm run
 | 2026-04-08 | Initial matrix + **`playwright-e2e.yml`** CI; **`seed_e2e_non_admin_staff.sql`**; **`api-gates`**: best-sellers 401, margin **403** for non-Admin; visual baselines **skipped** on CI unless **`E2E_RUN_VISUAL=1`** |
 | 2026-04-08 | **`reports-workspace.spec.ts`**; matrix rows updated. **Operations** sidebar: **Dashboard** includes the former **Activity** content; deep link **`subsection=activity`** normalizes to **dashboard** (`App.tsx`). |
 | 2026-04-11 | Expanded **Help Center** coverage: `help-center.spec.ts` now includes **Help Center Manager** settings navigation and admin-op request checks (generate-manifest / reindex-search); `api-gates.spec.ts` now includes anonymous/non-admin/admin route gates and payload-shape checks for **`/api/help/admin/ops/*`**. |
+| 2026-04-11 | Visual baseline policy clarified: `visual-baselines.spec.ts` is **opt-in** behind **`E2E_RUN_VISUAL=1`** and treated as **non-blocking** for standard release gates unless explicitly enabled. |

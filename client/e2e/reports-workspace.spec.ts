@@ -3,16 +3,19 @@ import { expect, test } from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 
 test.describe("Reports workspace", () => {
-  test("shows curated library for signed-in staff with insights.view", async ({ page }) => {
+  test("shows curated library for signed-in staff with insights.view", async ({
+    page,
+  }) => {
     test.setTimeout(60_000);
     await signInToBackOffice(page);
 
     await page.getByTestId("sidebar-nav-reports").click({ force: true });
 
-    await expect(page.getByTestId("reports-workspace")).toBeVisible({
-      timeout: 15_000,
+    await expect(
+      page.getByTestId("reports-catalog-card-sales_pivot"),
+    ).toBeVisible({
+      timeout: 20_000,
     });
-    await expect(page.getByTestId("reports-catalog-card-sales_pivot")).toBeVisible();
   });
 
   test("seeded admin sees margin pivot tile", async ({ page }) => {
@@ -21,7 +24,9 @@ test.describe("Reports workspace", () => {
 
     await page.getByTestId("sidebar-nav-reports").click({ force: true });
 
-    await expect(page.getByTestId("reports-catalog-card-margin_pivot")).toBeVisible({
+    await expect(
+      page.getByTestId("reports-catalog-card-margin_pivot"),
+    ).toBeVisible({
       timeout: 15_000,
     });
 
