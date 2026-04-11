@@ -9,8 +9,9 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ## Database and migrations
 
 - [x] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
-- [x] **All migrations applied** in numeric order through the latest **`migrations/NN_*.sql`** (repo tracks **00–128** as of 2026-04; includes **`128_commission_spiff_program.sql`** (SPIFF logic + combo rewards) and **`01b_utility_functions.sql`** (Bootstrap triggers); full table **`DEVELOPER.md`**). **Docker dev:** `./scripts/apply-migrations-docker.sh` from repo root (ledger in **`ros_schema_migrations`**). **Drift / QA:** `./scripts/migration-status-docker.sh` vs **`scripts/ros_migration_build_probes.sql`**. **Prod:** run the same ordered DDL + ledger procedure your ops use; do not skip files.
-- [x] **Final Migration Consistency Check:** Confirm ledger is at **128** and no mismatches exist in critical schema probes (e.g. `is_internal` on `order_items`).
+- [x] **All migrations applied** in numeric order through the latest **`migrations/NN_*.sql`** (repo tracks **00–131** as of 2026-04; includes Stripe integration migrations **`129_stripe_high_level_integration.sql`**, **`130_stripe_reporting_reconciliation.sql`**, **`131_stripe_vault_and_credits.sql`**, plus **`128_commission_spiff_program.sql`** and **`01b_utility_functions.sql`**). **Docker dev:** `./scripts/apply-migrations-docker.sh` from repo root (ledger in **`ros_schema_migrations`**). **Drift / QA:** `./scripts/migration-status-docker.sh` vs **`scripts/ros_migration_build_probes.sql`**. **Prod:** run the same ordered DDL + ledger procedure your ops use; do not skip files.
+- [x] **Final Migration Consistency Check:** Confirm ledger is at **131** and no mismatches exist in critical schema probes (e.g. `is_internal` on `order_items`, Stripe vault/credit tables, and reporting reconciliation columns).
+- [ ] **SQLx query metadata freshness:** run `cargo sqlx prepare` after any `query!`/`query_as!` macro changes and ensure `.sqlx` artifacts are committed for CI parity.
 - [ ] **Staff RBAC schema (migration 97):** Confirm **`staff_permission`**, **`staff.max_discount_percent`**, employment / **`employee_customer_id`** columns exist or the server will fail startup / staff routes — **`docs/STAFF_PERMISSIONS.md`**.
 - [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
 
@@ -22,6 +23,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **`RIVERSIDE_CORS_ORIGINS`** set to real browser origins when staff use HTTPS hostnames or multiple entry URLs (avoid accidental wide-open CORS in production).
 - [ ] **`RIVERSIDE_HTTP_BIND`** aligned with your TLS/reverse-proxy plan (**`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`REMOTE_ACCESS_GUIDE.md`**).
 - [ ] **Staff auth:** No dev bypasses; PINs and RBAC match store policy (**`docs/STAFF_PERMISSIONS.md`**).
+- [ ] **Stripe PCI safeguards enforced:** ROS never stores raw PAN/CVC; Stripe Elements + SetupIntents only; only non-sensitive metadata persisted (brand/last4/expiry/intents).
 
 ---
 
@@ -85,6 +87,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 - [ ] **QuickBooks Online:** OAuth, mappings, staging rules — ops runbook in **`DEVELOPER.md`** / QBO docs as you use them.
 - [ ] **Stripe:** **`STRIPE_SECRET_KEY`** and live vs test; terminal behavior — see server env docs.
+- [ ] **Stripe cutover controls:** Verify reader locations, connection tokens, webhook secret, and refund/credit reconciliation paths before opening day.
 - [ ] **Podium SMS / storefront embed / CRM threads:** **`RIVERSIDE_PODIUM_*`**, webhook secret — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, completion matrix **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**.
 - [ ] **Shippo / shipments:** **`SHIPPO_API_TOKEN`**, rates and hub — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**.
 - [ ] **Meilisearch (optional):** **`RIVERSIDE_MEILISEARCH_*`**; **rebuild index** after major catalog deploy — **`docs/SEARCH_AND_PAGINATION.md`**.
@@ -197,6 +200,9 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Visual deterministic defaults confirmed:** Playwright visual mode uses disabled animations + UTC timezone + en-US locale.
 - [ ] **If E2E fails with `ERR_CONNECTION_REFUSED`:** treat as environment boot issue first (UI host not running), not product regression.
 - [ ] **Cross-reference release runbook:** validate against `docs/RELEASE_QA_CHECKLIST.md` before final sign-off.
+- [ ] **Pre-commit validation gate:** run `cargo fmt --check`, `npm run lint`, and `npm --prefix client run build`; block launch candidate if any fail.
+- [ ] **Go-live cutover safeguard:** perform a timed “open register → complete sample sale → close register” dress rehearsal on production-like hardware/network before first customer.
+- [ ] **Rollback readiness:** define owner + exact rollback command path (DB restore point + previous app artifact) and confirm contact chain for launch hour.
 
 ---
 
