@@ -380,6 +380,8 @@ npm run test:e2e -- --list
 E2E_BASE_URL="http://localhost:5173" npm run test:e2e
 E2E_BASE_URL="http://localhost:5173" npx playwright test --workers=1
 E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
+
+For full pre-release validation steps (lint/build/E2E/service boot order), see `docs/RELEASE_QA_CHECKLIST.md`.
 ```
 
 Optional: set **`E2E_STAFF_CODE`** and **`E2E_STAFF_PIN`** (use the **same four digits** when that staff has `pin_hash`) so every Playwright navigation sends **`x-riverside-staff-code`** / **`x-riverside-staff-pin`** (Back Office gated routes in tests).
