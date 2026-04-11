@@ -4,6 +4,7 @@ import { defineConfig, devices } from "@playwright/test";
 // E2E_BO_STAFF_CODE (optional; default 1234 for UI keypad sign-in — see e2e/helpers/backofficeSignIn.ts).
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
+const visualMode = process.env.E2E_RUN_VISUAL === "1";
 
 /** Optional: inject staff headers on every browser request (use the same 4-digit value for code + pin when `pin_hash` is set). */
 const e2eStaffCode = process.env.E2E_STAFF_CODE?.trim();
@@ -19,8 +20,11 @@ export default defineConfig({
   reporter: [["list"]],
   use: {
     baseURL,
-    trace: "on-first-retry",
-    screenshot: "only-on-failure",
+    trace: visualMode ? "retain-on-failure" : "on-first-retry",
+    screenshot: visualMode ? "on" : "only-on-failure",
+    animation: "disabled",
+    timezoneId: "UTC",
+    locale: "en-US",
     ...(Object.keys(e2eExtraHeaders).length > 0
       ? { extraHTTPHeaders: e2eExtraHeaders }
       : {}),
@@ -32,4 +36,3 @@ export default defineConfig({
     },
   ],
 });
-

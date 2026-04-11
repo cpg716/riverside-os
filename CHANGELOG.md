@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Help Admin API Gate Coverage**: Expanded `api-gates.spec.ts` with anonymous (`401`), non-Admin (`403`), and Admin success-shape checks for `/api/help/admin/ops/status`, `/api/help/admin/ops/generate-manifest`, and `/api/help/admin/ops/reindex-search`.
 - **High-Risk Regression API Suite**: Added `high-risk-regressions.spec.ts` to cover migration-smoke route mounting, NYS tax audit shape/auth checks, revenue basis alias stability (`booked`/`sale`/`completed`/`pickup`), Help Manager RBAC + payload stability, session route auth behavior, and non-admin boundary enforcement on sensitive insights/help admin endpoints.
 - **Phase 2 E2E Rollout (Finance + Help Lifecycle)**: Added `phase2-finance-and-help-lifecycle.spec.ts` with end-to-end admin policy lifecycle assertions for Help manuals (update + verify persistence + delete/revert), plus finance-sensitive endpoint contract checks for NYS tax audit payload stability, sales-pivot basis invariants, payments/session auth gates, and non-admin boundaries.
+- **Deterministic Tender Matrix Contract Suite**: Added `tender-matrix-contract.spec.ts` to validate payment-intent and cancel endpoint behavior across tender modes (manual card/MOTO, reader card, saved-card invalid PM guardrails, credit-negative rejection, and session-safe non-card path checks) with deterministic API-level assertions.
 - **E2E Stability Hardening**: Improved test resilience for Settings/Reports navigation timing by reducing dependence on brittle response timing and strengthening UI-ready assertions in the Podium and Reports workspace specs.
 
 ### Changed
@@ -22,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Project Structure**: Formally updated all project modules to v0.1.9.
 - **Test-Run Hygiene Documentation**: Clarified E2E run expectations around service availability (UI + API) to avoid false-negative `ERR_CONNECTION_REFUSED` failures when the frontend host is not running.
 - **Visual Suite Policy**: Standardized visual baseline tests as opt-in (`E2E_RUN_VISUAL=1`) and non-blocking by default to avoid release failures caused by cross-machine font/render snapshot drift.
-- **E2E Coverage Depth**: Expanded release-focused Playwright inventory to include additional Phase 2 finance/help lifecycle regression checks for stronger release confidence on tax, reporting basis, admin policy persistence, and RBAC boundaries.
+- **Visual Determinism Defaults**: Hardened Playwright runtime defaults for visual consistency by setting deterministic context controls (animations disabled, UTC timezone, en-US locale) and richer failure artifacts in visual mode.
+- **E2E Coverage Depth**: Expanded release-focused Playwright inventory to include additional Phase 2 finance/help lifecycle regression checks for stronger release confidence on tax, reporting basis, admin policy persistence, RBAC boundaries, and tender contract safety.
 
 ## [0.1.8] — 2026-04-11
 ### Added

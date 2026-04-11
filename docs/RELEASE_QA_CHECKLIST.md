@@ -103,6 +103,24 @@ Run visuals only when you intentionally want snapshot validation/update:
 - intentional visual refreshes
 - pre-merge screenshot review passes
 
+### Canonical visual consistency guidance
+
+For “visual-perfect” consistency, use a **single canonical environment** as the
+source of truth for screenshot approvals:
+
+- Same OS image / runtime stack across runs
+- Same browser channel/version
+- Same viewport(s), locale, timezone, and device scale assumptions
+- Same font set installed and loaded before capture
+- Animations disabled during capture
+- Stable seed data and deterministic API state
+
+Recommended workflow:
+1. Run standard release E2E gate first (`npm run test:e2e:release`).
+2. Run visual suite only in canonical mode (`npm run test:e2e:visual`).
+3. Approve snapshot changes only from canonical environment output.
+4. Treat non-canonical local visual drift as advisory unless reproduced canonically.
+
 ---
 
 ## 4) API gate regression smoke (recommended each release)
@@ -166,6 +184,7 @@ git push origin main
 - Confirm CI starts and all required jobs run.
 - Review failing jobs immediately; if red on required checks, treat release as blocked.
 - Record release notes/changelog updates if not already done.
+- If visual checks are enabled for the release, verify they ran in the canonical environment before accepting snapshot updates.
 
 ---
 
