@@ -58,6 +58,13 @@ import {
 type ThemeMode = "light" | "dark" | "system";
 
 function App() {
+  // UI Overhaul gating: render placeholder when flag is enabled to avoid breaking the baseline UI
+  // Import statements for UI_OVERHAUL_ENABLED and NewUIPlaceholder are assumed to be added at the top of the file.
+  // @ts-ignore - runtime conditional gating
+  if (typeof (window as any).__UI_OVERHAUL_ENABLED__ !== 'undefined' ? (window as any).__UI_OVERHAUL_ENABLED__ : false) {
+    const Placeholder = require('./components/new-ui/NewUIPlaceholder').default
+    return Placeholder ? <Placeholder /> : null
+  }
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<SidebarTabId>("home");
   const [posMode, setPosMode] = useState(false);
