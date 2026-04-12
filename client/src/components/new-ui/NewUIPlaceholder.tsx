@@ -1,4 +1,5 @@
 import React from 'react'
+import NewUIHeaderBar from './NewUIHeaderBar'
 import NewUISection from './NewUISection'
 import NewUIPanel from './NewUIPanel'
 
@@ -7,7 +8,7 @@ import NewUIPanel from './NewUIPanel'
 const NewUIPlaceholder: React.FC = () => {
   return (
     <div data-testid="new-ui-container" role="main" aria-label="New UI Overhaul Placeholder Main" style={{ padding: '2rem', textAlign: 'center' }}>
-      <span style={{ position: 'absolute', width: 1, height: 1, margin: -1, padding: 0, overflow: 'hidden', clipPath: 'inset(50%)' }}>New UI Overhaul</span>
+      <NewUIHeaderBar />
       <div role="navigation" aria-label="new-ui-nav" style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
         {['Overview','Inventory','Checkout'].map((t,i)=> (
           <span key={i} style={{ padding: '6px 12px', borderRadius: 999, background: '#e5e7eb', fontSize:12, color:'#374151' }}>{t}</span>
