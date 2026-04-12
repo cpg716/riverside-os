@@ -1,4 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { UI_OVERHAUL_ENABLED } from "./flags/uiOverhaul";
+import NewUIPlaceholder from "./components/new-ui/NewUIPlaceholder";
 import Sidebar from "./components/layout/Sidebar";
 import { type SidebarTabId, SIDEBAR_SUB_SECTIONS } from "./components/layout/sidebarSections";
 import Header, { type BreadcrumbSegment } from "./components/layout/Header";
@@ -59,11 +61,8 @@ type ThemeMode = "light" | "dark" | "system";
 
 function App() {
   // UI Overhaul gating: render placeholder when flag is enabled to avoid breaking the baseline UI
-  // Import statements for UI_OVERHAUL_ENABLED and NewUIPlaceholder are assumed to be added at the top of the file.
-  // @ts-ignore - runtime conditional gating
-  if (typeof (window as any).__UI_OVERHAUL_ENABLED__ !== 'undefined' ? (window as any).__UI_OVERHAUL_ENABLED__ : false) {
-    const Placeholder = require('./components/new-ui/NewUIPlaceholder').default
-    return Placeholder ? <Placeholder /> : null
+  if (UI_OVERHAUL_ENABLED) {
+    return <NewUIPlaceholder />
   }
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<SidebarTabId>("home");
