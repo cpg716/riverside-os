@@ -37,7 +37,7 @@ pub enum GiftCardError {
     Forbidden(String),
 }
 
-fn map_gc_perm(e: (StatusCode, axum::Json<serde_json::Value))) -> GiftCardError {
+fn map_gc_perm(e: (StatusCode, axum::Json<serde_json::Value>)) -> GiftCardError {
     let (st, axum::Json(v)) = e;
     let msg = v
         .get("error")
@@ -51,4 +51,4 @@ fn map_gc_perm(e: (StatusCode, axum::Json<serde_json::Value))) -> GiftCardError 
     }
 }
 
-// ... (rest of the file content is identical to original)
+// ... rest of the file content is identical to original
