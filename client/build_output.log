@@ -1,0 +1,498 @@
+
+> riverside-pos@0.1.11 prebuild
+> node scripts/generate-help-manifest.mjs
+
+Wrote client/src/lib/help/help-manifest.generated.ts
+Wrote server/src/logic/help_corpus_manuals.generated.rs
+generate-help-manifest: ok
+
+> riverside-pos@0.1.11 build
+> tsc --noEmit && vite build
+
+src/App.tsx(996,11): error TS2304: Cannot find name 'setCommandPaletteOpen'.
+src/App.tsx(1002,9): error TS2304: Cannot find name 'setCommandPaletteOpen'.
+src/components/customers/CustomerAlterationsPanel.tsx(5,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/customers/CustomerAlterationsPanel.tsx(9,3): error TS6133: 'UserPlus' is declared but its value is never read.
+src/components/customers/CustomerAlterationsPanel.tsx(356,35): error TS6133: 'isCompletion' is declared but its value is never read.
+src/components/customers/CustomersWorkspace.tsx(17,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/customers/CustomersWorkspace.tsx(24,8): error TS6133: 'CloseIcon' is declared but its value is never read.
+src/components/customers/CustomersWorkspace.tsx(27,3): error TS6133: 'TrendingUp' is declared but its value is never read.
+src/components/customers/CustomersWorkspace.tsx(30,3): error TS6133: 'Lock' is declared but its value is never read.
+src/components/customers/CustomersWorkspace.tsx(175,9): error TS6133: 'onImportFileChange' is declared but its value is never read.
+src/components/customers/CustomersWorkspace.tsx(1030,31): error TS2304: Cannot find name 'Terminal'.
+src/components/customers/CustomersWorkspace.tsx(1187,9): error TS2322: Type '{ children: Element; count: number; onClearSelection: () => void; label: string; className: string; }' is not assignable to type 'IntrinsicAttributes & FloatingBulkBarProps'.
+  Property 'className' does not exist on type 'IntrinsicAttributes & FloatingBulkBarProps'.
+src/components/customers/CustomersWorkspace.tsx(1277,25): error TS2304: Cannot find name 'Terminal'.
+src/components/gift-cards/GiftCardsWorkspace.tsx(3,3): error TS6133: 'CreditCard' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(6,3): error TS6133: 'X' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(8,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(11,3): error TS6133: 'Clock3' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(19,3): error TS6133: 'History' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(21,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(25,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(51,7): error TS6133: 'KIND_LABELS' is declared but its value is never read.
+src/components/gift-cards/GiftCardsWorkspace.tsx(293,24): error TS6133: 'setFilterStatus' is declared but its value is never read.
+src/components/inventory/BatchCommandBar.tsx(2,65): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/inventory/CategoryManager.tsx(1,8): error TS6133: 'React' is declared but its value is never read.
+src/components/inventory/CategoryManager.tsx(2,97): error TS6133: 'ArrowLeft' is declared but its value is never read.
+src/components/inventory/DiscountEventsPanel.tsx(9,3): error TS6133: 'Clock3' is declared but its value is never read.
+src/components/inventory/DiscountEventsPanel.tsx(10,3): error TS6133: 'BarChart3' is declared but its value is never read.
+src/components/inventory/DiscountEventsPanel.tsx(19,3): error TS6133: 'TrendingUp' is declared but its value is never read.
+src/components/inventory/DiscountEventsPanel.tsx(22,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/inventory/InventoryBulkBar.tsx(38,3): error TS6133: 'onBulkUnpublishWeb' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(15,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(16,3): error TS6133: 'BarChart3' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(21,3): error TS6133: 'SlidersHorizontal' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(23,3): error TS6133: 'MoreHorizontal' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(33,3): error TS6133: 'PackageCheck' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(36,3): error TS6133: 'ShieldCheck' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(38,3): error TS6133: 'CalendarDays' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(39,3): error TS6133: 'Target' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(42,3): error TS6133: 'ChevronsUpDown' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(44,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/inventory/InventoryControlBoard.tsx(1333,18): error TS2304: Cannot find name 'Truck'.
+src/components/inventory/InventoryIntelligencePanel.tsx(2,17): error TS6133: 'AlertTriangle' is declared but its value is never read.
+src/components/inventory/InventoryIntelligencePanel.tsx(3,10): error TS2724: '"../ui/ToastProviderLogic"' has no exported member named 'toast'. Did you mean 'Toast'?
+src/components/inventory/MaintenanceLedgerPanel.tsx(11,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/inventory/MaintenanceLedgerPanel.tsx(13,3): error TS6133: 'User' is declared but its value is never read.
+src/components/inventory/MaintenanceLedgerPanel.tsx(14,3): error TS6133: 'Hash' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(18,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(39,3): error TS6133: 'ScanBarcode' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(40,3): error TS6133: 'ArrowLeft' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(41,3): error TS6133: 'Fingerprint' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(42,3): error TS6133: 'MonitorCheck' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(445,9): error TS6133: 'cancelSession' is declared but its value is never read.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(841,11): error TS2322: Type '{ isOpen: boolean; onClose: () => void; onConfirm: () => undefined; title: string; message: string; confirmText: string; confirmType: string; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(1117,11): error TS2322: Type '{ isOpen: boolean; onClose: () => void; onConfirm: () => undefined; title: string; message: string; confirmText: string; confirmType: string; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(1128,11): error TS2322: Type '{ isOpen: boolean; onClose: () => void; onConfirm: () => undefined; title: string; message: string; confirmText: string; confirmType: string; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(1320,33): error TS2304: Cannot find name 'Check'.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(1364,11): error TS2322: Type '{ isOpen: boolean; onClose: () => void; onConfirm: () => undefined; title: string; message: string; confirmText: string; confirmType: string; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/inventory/PhysicalInventoryWorkspace.tsx(1375,11): error TS2322: Type '{ isOpen: boolean; onClose: () => void; onConfirm: () => undefined; title: string; message: string; confirmText: string; confirmType: string; isLoading: boolean; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/inventory/ProductHubDrawer.tsx(16,3): error TS6133: 'TrendingUp' is declared but its value is never read.
+src/components/inventory/ProductHubDrawer.tsx(498,21): error TS2322: Type 'string | Element' is not assignable to type 'Key | null | undefined'.
+  Type 'Element' is not assignable to type 'Key | null | undefined'.
+src/components/inventory/ProductMasterForm.tsx(187,58): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: { size?: number | undefined; strokeWidth?: number | undefined; }, context?: any): string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | ... 4 more ... | undefined', gave the following error.
+    Type '{ size: number; strokeWidth: number; className: string; }' is not assignable to type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+      Property 'className' does not exist on type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+  Overload 2 of 2, '(props: { size?: number | undefined; strokeWidth?: number | undefined; }): string | number | bigint | boolean | ReactElement<unknown, string | JSXElementConstructor<any>> | ... 4 more ... | undefined', gave the following error.
+    Type '{ size: number; strokeWidth: number; className: string; }' is not assignable to type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+      Property 'className' does not exist on type 'IntrinsicAttributes & { size?: number | undefined; strokeWidth?: number | undefined; }'.
+src/components/inventory/PurchaseOrderPanel.tsx(17,3): error TS6133: 'Calendar' is declared but its value is never read.
+src/components/inventory/PurchaseOrderPanel.tsx(555,23): error TS2304: Cannot find name 'DollarSign'.
+src/components/inventory/ReceivingBay.tsx(16,3): error TS6133: 'ShieldCheck' is declared but its value is never read.
+src/components/inventory/ReceivingBay.tsx(19,3): error TS6133: 'ArrowLeft' is declared but its value is never read.
+src/components/inventory/ReceivingBay.tsx(20,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/inventory/ReceivingBay.tsx(25,3): error TS6133: 'DollarSign' is declared but its value is never read.
+src/components/inventory/VariationGridCell.tsx(2,17): error TS6133: 'AlertTriangle' is declared but its value is never read.
+src/components/inventory/VariationGridCell.tsx(25,3): error TS6133: 'onUpdateTrackLow' is declared but its value is never read.
+src/components/inventory/VariationGridCell.tsx(191,35): error TS2304: Cannot find name 'onUpdateTrackLong'.
+src/components/inventory/VariationsBuilder.tsx(4,3): error TS6133: 'Trash2' is declared but its value is never read.
+src/components/inventory/VariationsBuilder.tsx(9,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/inventory/VariationsList.tsx(5,3): error TS6133: 'AlertTriangle' is declared but its value is never read.
+src/components/inventory/VariationsList.tsx(9,3): error TS6133: 'Package' is declared but its value is never read.
+src/components/inventory/VariationsWorkspace.tsx(11,3): error TS6133: 'Package' is declared but its value is never read.
+src/components/inventory/VariationsWorkspace.tsx(13,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/inventory/VendorHub.tsx(2,88): error TS6133: 'Info' is declared but its value is never read.
+src/components/inventory/VendorHub.tsx(2,128): error TS6133: 'User' is declared but its value is never read.
+src/components/layout/CommandPalette.tsx(8,3): error TS6133: 'Settings' is declared but its value is never read.
+src/components/layout/CommandPalette.tsx(9,3): error TS6133: 'HelpCircle' is declared but its value is never read.
+src/components/layout/CommandPalette.tsx(11,3): error TS6133: 'Tag' is declared but its value is never read.
+src/components/layout/CommandPalette.tsx(12,3): error TS6133: 'Calendar' is declared but its value is never read.
+src/components/layout/CommandPalette.tsx(13,3): error TS6133: 'Layers' is declared but its value is never read.
+src/components/layout/GlobalSearchDrawers.tsx(6,15): error TS2614: Module '"../pos/Cart"' has no exported member 'ResolvedSkuItem'. Did you mean to use 'import ResolvedSkuItem from "../pos/Cart"' instead?
+src/components/layout/Header.tsx(8,77): error TS6133: 'ShieldCheck' is declared but its value is never read.
+src/components/layout/Header.tsx(8,90): error TS6133: 'Zap' is declared but its value is never read.
+src/components/layout/Header.tsx(81,3): error TS6133: 'onSearchOpenWeddingPartyCustomers' is declared but its value is never read.
+src/components/layout/PosShell.tsx(20,74): error TS6133: 'Activity' is declared but its value is never read.
+src/components/layout/Sidebar.tsx(1,19): error TS6133: 'useState' is declared but its value is never read.
+src/components/layout/Sidebar.tsx(24,3): error TS6133: 'Bell' is declared but its value is never read.
+src/components/layout/Sidebar.tsx(25,3): error TS6133: 'MessageSquare' is declared but its value is never read.
+src/components/loyalty/LoyaltyWorkspace.tsx(10,3): error TS6133: 'TrendingUp' is declared but its value is never read.
+src/components/loyalty/LoyaltyWorkspace.tsx(18,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(4,3): error TS6133: 'Send' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(8,3): error TS6133: 'Archive' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(9,3): error TS6133: 'Smartphone' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(10,3): error TS6133: 'Mail' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(11,3): error TS6133: 'Target' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(12,3): error TS6133: 'Layers' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(13,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(14,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(15,3): error TS6133: 'Sparkles' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(18,3): error TS2305: Module '"lucide-react"' has no exported member 'UserGroup'.
+src/components/notifications/NotificationCenterDrawer.tsx(18,3): error TS6133: 'UserGroup' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(19,3): error TS6133: 'Users' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(20,3): error TS6133: 'Eye' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(126,39): error TS6133: 'isSilent' is declared but its value is never read.
+src/components/notifications/NotificationCenterDrawer.tsx(414,34): error TS2304: Cannot find name 'ArrowRight'.
+src/components/notifications/NotificationCenterDrawer.tsx(557,25): error TS2304: Cannot find name 'RefreshCw'.
+src/components/operations/OperationalHome.tsx(4,3): error TS6133: 'Clock' is declared but its value is never read.
+src/components/operations/OperationalHome.tsx(5,3): error TS6133: 'ListChecks' is declared but its value is never read.
+src/components/operations/OperationalHome.tsx(21,3): error TS6133: 'Sparkles' is declared but its value is never read.
+src/components/operations/OperationalHome.tsx(410,9): error TS6133: 'pulseRows' is declared but its value is never read.
+src/components/pos/Cart.tsx(4,3): error TS6133: 'useLayoutEffect' is declared but its value is never read.
+src/components/pos/Cart.tsx(23,8): error TS2614: Module '"./NexoCheckoutDrawer"' has no exported member 'AppliedPaymentLine'. Did you mean to use 'import AppliedPaymentLine from "./NexoCheckoutDrawer"' instead?
+src/components/pos/Cart.tsx(34,1): error TS6133: 'enqueueCheckout' is declared but its value is never read.
+src/components/pos/Cart.tsx(35,1): error TS6192: All imports in import declaration are unused.
+src/components/pos/Cart.tsx(38,3): error TS6133: 'parseMoney' is declared but its value is never read.
+src/components/pos/Cart.tsx(59,3): error TS6133: 'fetchParkedSales' is declared but its value is never read.
+src/components/pos/Cart.tsx(60,3): error TS6133: 'recallParkedSaleOnServer' is declared but its value is never read.
+src/components/pos/Cart.tsx(61,8): error TS6133: 'ServerParkedSale' is declared but its value is never read.
+src/components/pos/Cart.tsx(63,10): error TS6133: 'newCheckoutClientId' is declared but its value is never read.
+src/components/pos/Cart.tsx(63,31): error TS6133: 'normalizeGiftCardSubType' is declared but its value is never read.
+src/components/pos/Cart.tsx(71,8): error TS6133: 'CheckoutPayload' is declared but its value is never read.
+src/components/pos/Cart.tsx(72,8): error TS6133: 'CheckoutPaymentSplitPayload' is declared but its value is never read.
+src/components/pos/Cart.tsx(79,10): error TS2440: Import declaration conflicts with local declaration of 'CartItemRow'.
+src/components/pos/Cart.tsx(120,3): error TS6133: 'initialWeddingLookupOpen' is declared but its value is never read.
+src/components/pos/Cart.tsx(123,3): error TS6133: 'pendingInventorySku' is declared but its value is never read.
+src/components/pos/Cart.tsx(124,3): error TS6133: 'onPendingInventorySkuConsumed' is declared but its value is never read.
+src/components/pos/Cart.tsx(145,10): error TS6133: 'saleEpoch' is declared but its value is never read.
+src/components/pos/Cart.tsx(188,5): error TS2339: Property 'handleNumpadKey' does not exist on type '{ lines: CartLineItem[]; setLines: Dispatch<SetStateAction<CartLineItem[]>>; selectedLineKey: string | null; setSelectedLineKey: Dispatch<...>; ... 15 more ...; onExchangeContinue: (args: { ...; }, baseUrl: string, apiAuth: () => Record<...>) => void; }'.
+src/components/pos/Cart.tsx(189,5): error TS6133: 'applyDiscountEvent' is declared but its value is never read.
+src/components/pos/Cart.tsx(199,22): error TS2345: Argument of type '{ checkoutOperator: CheckoutOperatorContext | null; rmsPaymentMeta: RmsPaymentLineMeta | null; giftCardLoadMeta: GiftCardLoadLineMeta | null; ... 17 more ...; setSaleEpoch: Dispatch<...>; }' is not assignable to parameter of type 'UseCartActionsProps'.
+  Type '{ checkoutOperator: CheckoutOperatorContext | null; rmsPaymentMeta: RmsPaymentLineMeta | null; giftCardLoadMeta: GiftCardLoadLineMeta | null; ... 17 more ...; setSaleEpoch: Dispatch<...>; }' is missing the following properties from type 'UseCartActionsProps': setKeypadMode, setKeypadBuffer
+src/components/pos/Cart.tsx(318,5): error TS6133: 'skipParkedPrompt' is declared but its value is never read.
+src/components/pos/Cart.tsx(338,38): error TS7053: Element implicitly has an 'any' type because expression of type '"x-riverside-staff-id"' can't be used to index type '() => HeadersInit'.
+  Property 'x-riverside-staff-id' does not exist on type '() => HeadersInit'.
+src/components/pos/Cart.tsx(368,9): error TS6133: 'pendingExchangeOriginalOrderIdRef' is declared but its value is never read.
+src/components/pos/Cart.tsx(374,32): error TS6133: 'setActiveDiscountEvents' is declared but its value is never read.
+src/components/pos/Cart.tsx(376,10): error TS6133: 'eventVariantIds' is declared but its value is never read.
+src/components/pos/Cart.tsx(376,27): error TS6133: 'setEventVariantIds' is declared but its value is never read.
+src/components/pos/Cart.tsx(584,7): error TS2304: Cannot find name 'checkoutDrawerOpen'.
+src/components/pos/Cart.tsx(586,7): error TS2552: Cannot find name 'suitSwapWizardOpen'. Did you mean 'PosSuitSwapWizard'?
+src/components/pos/Cart.tsx(587,7): error TS2304: Cannot find name 'weddingDrawerOpen'.
+src/components/pos/Cart.tsx(588,7): error TS2304: Cannot find name 'measDrawerOpen'.
+src/components/pos/Cart.tsx(589,7): error TS2304: Cannot find name 'customerProfileHubOpen'.
+src/components/pos/Cart.tsx(590,7): error TS2304: Cannot find name 'cashAdjustOpen'.
+src/components/pos/Cart.tsx(597,7): error TS2304: Cannot find name 'intelligenceVariantId'.
+src/components/pos/Cart.tsx(600,25): error TS2304: Cannot find name 'checkoutDrawerOpen'.
+src/components/pos/Cart.tsx(600,65): error TS2304: Cannot find name 'suitSwapWizardOpen'.
+src/components/pos/Cart.tsx(601,7): error TS2304: Cannot find name 'weddingDrawerOpen'.
+src/components/pos/Cart.tsx(601,26): error TS2304: Cannot find name 'measDrawerOpen'.
+src/components/pos/Cart.tsx(601,42): error TS2304: Cannot find name 'customerProfileHubOpen'.
+src/components/pos/Cart.tsx(601,66): error TS2304: Cannot find name 'cashAdjustOpen'.
+src/components/pos/Cart.tsx(603,43): error TS2304: Cannot find name 'intelligenceVariantId'.
+src/components/pos/Cart.tsx(634,67): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(650,8): error TS2304: Cannot find name 'checkoutDrawerOpen'.
+src/components/pos/Cart.tsx(705,23): error TS2304: Cannot find name 'setSaleCashierCredential'.
+src/components/pos/Cart.tsx(706,23): error TS2304: Cannot find name 'setSaleCashierError'.
+src/components/pos/Cart.tsx(713,17): error TS2304: Cannot find name 'isGiftCardOnlyCart'.
+src/components/pos/Cart.tsx(773,21): error TS2304: Cannot find name 'searchDebounceRef'.
+src/components/pos/Cart.tsx(774,32): error TS2304: Cannot find name 'searchDebounceRef'.
+src/components/pos/Cart.tsx(775,19): error TS2304: Cannot find name 'searchDebounceRef'.
+src/components/pos/Cart.tsx(796,19): error TS2304: Cannot find name 'setWeddingDrawerPreferGroupPay'.
+src/components/pos/Cart.tsx(797,19): error TS2304: Cannot find name 'setWeddingDrawerOpen'.
+src/components/pos/Cart.tsx(878,44): error TS2304: Cannot find name 'openLineProductBrowser'.
+src/components/pos/Cart.tsx(881,40): error TS2304: Cannot find name 'isGiftCardOnlyCart'.
+src/components/pos/Cart.tsx(887,18): error TS2304: Cannot find name 'Package'.
+src/components/pos/Cart.tsx(933,321): error TS2304: Cannot find name 'checkoutDrawerOpen'.
+src/components/pos/Cart.tsx(943,15): error TS2304: Cannot find name 'setCustomerProfileHubOpen'.
+src/components/pos/Cart.tsx(945,39): error TS2304: Cannot find name 'setMeasDrawerOpen'.
+src/components/pos/Cart.tsx(957,20): error TS2304: Cannot find name 'Package'.
+src/components/pos/Cart.tsx(958,20): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(965,19): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(965,39): error TS2304: Cannot find name 'isGiftCardOnlyCart'.
+src/components/pos/Cart.tsx(986,40): error TS2304: Cannot find name 'applyDiscountEventToSelectedLine'.
+src/components/pos/Cart.tsx(1035,31): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(1118,20): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(1136,18): error TS2304: Cannot find name 'setCheckoutDrawerOpen'.
+src/components/pos/Cart.tsx(1139,21): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(1139,42): error TS2304: Cannot find name 'isGiftCardOnlyCart'.
+src/components/pos/Cart.tsx(1154,18): error TS2304: Cannot find name 'setCheckoutDrawerOpen'.
+src/components/pos/Cart.tsx(1192,17): error TS2304: Cannot find name 'checkoutDrawerOpen'.
+src/components/pos/Cart.tsx(1193,24): error TS2304: Cannot find name 'setCheckoutDrawerOpen'.
+src/components/pos/Cart.tsx(1212,35): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(1220,11): error TS2304: Cannot find name 'setWeddingDrawerPreferGroupPay'.
+src/components/pos/Cart.tsx(1221,11): error TS2304: Cannot find name 'setWeddingDrawerOpen'.
+src/components/pos/Cart.tsx(1226,17): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1228,11): error TS2304: Cannot find name 'openDepositSuppressedRef'.
+src/components/pos/Cart.tsx(1229,11): error TS2304: Cannot find name 'setOpenDepositPrompt'.
+src/components/pos/Cart.tsx(1232,16): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1238,37): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1250,11): error TS2304: Cannot find name 'setOpenDepositPrompt'.
+src/components/pos/Cart.tsx(1254,11): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1255,18): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1255,51): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1255,159): error TS2304: Cannot find name 'openDepositPrompt'.
+src/components/pos/Cart.tsx(1392,19): error TS2304: Cannot find name 'skippedParkedForCustomerRef'.
+src/components/pos/Cart.tsx(1407,39): error TS2304: Cannot find name 'ensurePosTokenForSession'.
+src/components/pos/Cart.tsx(1415,41): error TS2304: Cannot find name 'resolveActorStaffId'.
+src/components/pos/Cart.tsx(1452,8): error TS2304: Cannot find name 'cashAdjustOpen'.
+src/components/pos/Cart.tsx(1456,26): error TS2304: Cannot find name 'setCashAdjustOpen'.
+src/components/pos/Cart.tsx(1466,8): error TS2304: Cannot find name 'measDrawerOpen'.
+src/components/pos/Cart.tsx(1468,17): error TS2304: Cannot find name 'measDrawerOpen'.
+src/components/pos/Cart.tsx(1472,26): error TS2304: Cannot find name 'setMeasDrawerOpen'.
+src/components/pos/Cart.tsx(1478,17): error TS2304: Cannot find name 'customerProfileHubOpen'.
+src/components/pos/Cart.tsx(1479,26): error TS2304: Cannot find name 'setCustomerProfileHubOpen'.
+src/components/pos/Cart.tsx(1481,13): error TS2304: Cannot find name 'setCustomerProfileHubOpen'.
+src/components/pos/Cart.tsx(1482,13): error TS2304: Cannot find name 'setWeddingDrawerPreferGroupPay'.
+src/components/pos/Cart.tsx(1483,13): error TS2304: Cannot find name 'setWeddingDrawerOpen'.
+src/components/pos/Cart.tsx(1487,13): error TS2304: Cannot find name 'setCustomerProfileHubOpen'.
+src/components/pos/Cart.tsx(1561,11): error TS2304: Cannot find name 'setCheckoutDrawerOpen'.
+src/components/pos/Cart.tsx(1619,9): error TS2322: Type '(args: { originalOrderId: string; customer: Customer | null; }, baseUrl: string, apiAuth: () => Record<string, string>) => void' is not assignable to type '(args: { originalOrderId: string; customer: Customer | null; }) => void'.
+  Target signature provides too few arguments. Expected 3 or more, but got 1.
+src/components/pos/Cart.tsx(1623,15): error TS2304: Cannot find name 'suitSwapWizardOpen'.
+src/components/pos/Cart.tsx(1624,24): error TS2304: Cannot find name 'setSuitSwapWizardOpen'.
+src/components/pos/Cart.tsx(1631,17): error TS2304: Cannot find name 'weddingDrawerOpen'.
+src/components/pos/Cart.tsx(1633,11): error TS2304: Cannot find name 'setWeddingDrawerOpen'.
+src/components/pos/Cart.tsx(1634,11): error TS2304: Cannot find name 'setWeddingDrawerPreferGroupPay'.
+src/components/pos/Cart.tsx(1636,25): error TS2304: Cannot find name 'weddingDrawerPreferGroupPay'.
+src/components/pos/Cart.tsx(1637,41): error TS2304: Cannot find name 'setWeddingDrawerPreferGroupPay'.
+src/components/pos/Cart.tsx(1639,15): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(1648,11): error TS2304: Cannot find name 'setWeddingDrawerOpen'.
+src/components/pos/Cart.tsx(1698,15): error TS2304: Cannot find name 'isRmsPaymentCart'.
+src/components/pos/Cart.tsx(1707,11): error TS2304: Cannot find name 'setWeddingDrawerOpen'.
+src/components/pos/Cart.tsx(1757,8): error TS2304: Cannot find name 'intelligenceVariantId'.
+src/components/pos/Cart.tsx(1759,22): error TS2304: Cannot find name 'intelligenceVariantId'.
+src/components/pos/Cart.tsx(1760,26): error TS2304: Cannot find name 'setIntelligenceVariantId'.
+src/components/pos/Cart.tsx(1826,21): error TS2304: Cannot find name 'saleCashierCredential'.
+src/components/pos/Cart.tsx(1828,11): error TS2304: Cannot find name 'setSaleCashierCredential'.
+src/components/pos/Cart.tsx(1829,11): error TS2304: Cannot find name 'setSaleCashierError'.
+src/components/pos/Cart.tsx(1831,16): error TS2304: Cannot find name 'saleCashierError'.
+src/components/pos/Cart.tsx(1832,15): error TS2304: Cannot find name 'saleCashierBusy'.
+src/components/pos/Cart.tsx(1833,30): error TS2304: Cannot find name 'verifySaleCashier'.
+src/components/pos/Cart.tsx(1876,14): error TS2304: Cannot find name 'cartLineKey'.
+src/components/pos/Cart.tsx(1931,16): error TS2304: Cannot find name 'Info'.
+src/components/pos/Cart.tsx(1940,14): error TS2304: Cannot find name 'Trash2'.
+src/components/pos/Cart.tsx(2027,14): error TS2304: Cannot find name 'Gift'.
+src/components/pos/NexoCheckoutDrawer.tsx(11,3): error TS6133: 'Hash' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(18,3): error TS6133: 'Lock' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(21,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(22,3): error TS6133: 'ShieldAlert' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(23,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(25,3): error TS6133: 'Cpu' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(26,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/pos/NexoCheckoutDrawer.tsx(36,3): error TS2440: Import declaration conflicts with local declaration of 'CheckoutOperatorContext'.
+src/components/pos/NexoCheckoutDrawer.tsx(43,3): error TS2304: Cannot find name 'NexoTenderTab'.
+src/components/pos/NexoCheckoutDrawer.tsx(246,34): error TS2304: Cannot find name 'NexoTenderTab'.
+src/components/pos/NexoCheckoutDrawer.tsx(273,42): error TS2304: Cannot find name 'NexoTenderTab'.
+src/components/pos/NexoCheckoutDrawer.tsx(414,9): error TS7022: 'handleStripeSuccess' implicitly has type 'any' because it does not have a type annotation and is referenced directly or indirectly in its own initializer.
+src/components/pos/NexoCheckoutDrawer.tsx(449,48): error TS2448: Block-scoped variable 'handleStripeSuccess' used before its declaration.
+src/components/pos/PosSidebar.tsx(1,29): error TS6133: 'useEffect' is declared but its value is never read.
+src/components/pos/PosSidebar.tsx(64,10): error TS6133: 'hardwarePulse' is declared but its value is never read.
+src/components/pos/PosSidebar.tsx(64,25): error TS6133: 'setHardwarePulse' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(4,3): error TS6133: 'Bell' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(7,3): error TS6133: 'Heart' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(8,3): error TS6133: 'ListChecks' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(15,3): error TS6133: 'Sparkles' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(18,3): error TS6133: 'Clock' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(32,1): error TS6133: 'parseNotificationBundle' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(112,3): error TS6133: 'lifecycleStatus' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(115,3): error TS6133: 'onGoToTasks' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(136,10): error TS6133: 'xReport' is declared but its value is never read.
+src/components/pos/RegisterDashboard.tsx(325,167): error TS2339: Property 'title' does not exist on type 'NotificationRow | RushOrderRow'.
+  Property 'title' does not exist on type 'RushOrderRow'.
+src/components/pos/RegisterDashboard.tsx(454,22): error TS7031: Binding element 'label' implicitly has an 'any' type.
+src/components/pos/RegisterDashboard.tsx(454,29): error TS7031: Binding element 'value' implicitly has an 'any' type.
+src/components/qbo/QboWorkspace.tsx(1,10): error TS6133: 'Fragment' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(4,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(16,3): error TS6133: 'Layers' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(18,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(19,3): error TS6133: 'Target' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(20,3): error TS6133: 'FileText' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(21,3): error TS6133: 'AlertTriangle' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(24,3): error TS6133: 'Eye' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(25,3): error TS6133: 'Search' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(26,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(28,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(129,10): error TS6133: 'moneyJson' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(175,10): error TS6133: 'loading' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(188,10): error TS6133: 'accessLog' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(193,9): error TS6198: All destructured elements are unused.
+src/components/qbo/QboWorkspace.tsx(479,9): error TS6133: 'loadDrilldown' is declared but its value is never read.
+src/components/qbo/QboWorkspace.tsx(654,28): error TS2304: Cannot find name 'Save'.
+src/components/reports/ReportsWorkspace.tsx(4,3): error TS6133: 'BarChart3' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(6,3): error TS6133: 'Download' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(13,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(15,3): error TS6133: 'Command' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(16,3): error TS6133: 'X' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(23,3): error TS6133: 'LineChart' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(28,3): error TS6133: 'Globe' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(29,3): error TS6133: 'Truck' is declared but its value is never read.
+src/components/reports/ReportsWorkspace.tsx(337,29): error TS2304: Cannot find name 'ChevronRight'.
+src/components/reports/ReportsWorkspace.tsx(394,27): error TS2304: Cannot find name 'Calendar'.
+src/components/reports/ReportsWorkspace.tsx(406,27): error TS2304: Cannot find name 'Calendar'.
+src/components/reports/ReportsWorkspace.tsx(510,90): error TS6133: 'idx' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(10,3): error TS6133: 'Target' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(14,3): error TS6133: 'Lock' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(15,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(16,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(20,3): error TS6133: 'MapPin' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(22,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/scheduler/AppointmentModal.tsx(445,21): error TS2304: Cannot find name 'PlusCircle'.
+src/components/scheduler/AppointmentModal.tsx(571,19): error TS2304: Cannot find name 'RefreshCw'.
+src/components/scheduler/SchedulerWorkspace.tsx(20,3): error TS6133: 'Sparkles' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(22,3): error TS6133: 'ShieldCheck' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(23,3): error TS6133: 'ChevronDown' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(24,3): error TS6133: 'Layout' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(25,3): error TS6133: 'RefreshCw' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(27,3): error TS6133: 'MapPin' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(28,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/scheduler/SchedulerWorkspace.tsx(41,7): error TS6133: 'formatApptDate' is declared but its value is never read.
+src/components/settings/BugReportsSettingsPanel.tsx(16,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/settings/BugReportsSettingsPanel.tsx(18,3): error TS6133: 'ShieldAlert' is declared but its value is never read.
+src/components/settings/BugReportsSettingsPanel.tsx(22,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/BugReportsSettingsPanel.tsx(513,9): error TS2322: Type '{ isOpen: boolean; title: string; message: string; confirmText: string; variant: "danger"; onConfirm: () => void; onCancel: () => void; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/settings/BugReportsSettingsPanel.tsx(527,10): error TS6133: 'FileJson' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(4,3): error TS6133: 'Monitor' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(8,3): error TS6133: 'XCircle' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(9,3): error TS6133: 'Clock' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(12,3): error TS6133: 'Loader2' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(19,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(23,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(25,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(28,3): error TS6133: 'Key' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(29,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(30,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(131,9): error TS6133: 'variant' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(383,9): error TS6133: 'resolveIssue' is declared but its value is never read.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(690,117): error TS2304: Cannot find name 'ShieldAlert'.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(893,174): error TS2304: Cannot find name 'ShieldAlert'.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(972,9): error TS2322: Type '"warning"' is not assignable to type '"success" | "info" | "danger" | undefined'.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(982,9): error TS2322: Type '"primary"' is not assignable to type '"success" | "info" | "danger" | undefined'.
+src/components/settings/CounterpointSyncSettingsPanel.tsx(991,9): error TS2322: Type '{ isOpen: boolean; title: string; message: string; confirmText: string; variant: "danger"; onConfirm: () => 0 | null | undefined; onCancel: () => void; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/settings/HelpCenterSettingsPanel.tsx(4,3): error TS6133: 'RotateCcw' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(11,3): error TS6133: 'TerminalSquare' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(15,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(16,3): error TS6133: 'Database' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(17,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(18,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(19,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(20,3): error TS6133: 'LayoutDashboard' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(21,3): error TS6133: 'Inbox' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(22,3): error TS6133: 'Tags' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(23,3): error TS6133: 'CreditCard' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(24,3): error TS6133: 'Gift' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(25,3): error TS6133: 'Users' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(26,3): error TS6133: 'AlertTriangle' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(27,3): error TS6133: 'XCircle' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(30,3): error TS6133: 'History' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(31,3): error TS6133: 'Code' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(111,10): error TS6133: 'permissionCatalog' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(112,10): error TS6133: 'loadErr' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(116,10): error TS6133: 'detailBusy' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(131,10): error TS6133: 'opsStatus' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(137,34): error TS6133: 'setOpsFullReindexFallback' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(138,10): error TS6133: 'opsLastResult' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(139,10): error TS6133: 'opsLogs' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(140,10): error TS6133: 'fullSyncBusy' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(140,24): error TS6133: 'setFullSyncBusy' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(141,10): error TS6133: 'fullSyncConfirmOpen' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(141,31): error TS6133: 'setFullSyncConfirmOpen' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(142,10): error TS6133: 'fullSyncStage' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(142,25): error TS6133: 'setFullSyncStage' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(149,10): error TS6133: 'compactMode' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(149,23): error TS6133: 'setCompactMode' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(150,23): error TS6133: 'setLibrarySort' is declared but its value is never read.
+src/components/settings/HelpCenterSettingsPanel.tsx(700,34): error TS2304: Cannot find name 'Settings'.
+src/components/settings/HelpCenterSettingsPanel.tsx(878,9): error TS2322: Type '{ isOpen: boolean; title: string; message: string; confirmText: string; variant: "danger"; onConfirm: () => undefined; onCancel: () => void; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/settings/InsightsSettingsPanel.tsx(11,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/settings/InsightsSettingsPanel.tsx(16,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/settings/InsightsSettingsPanel.tsx(18,3): error TS6133: 'UserCheck' is declared but its value is never read.
+src/components/settings/MeilisearchSettingsPanel.tsx(3,3): error TS6133: 'Search' is declared but its value is never read.
+src/components/settings/MeilisearchSettingsPanel.tsx(5,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/settings/MeilisearchSettingsPanel.tsx(6,3): error TS6133: 'History' is declared but its value is never read.
+src/components/settings/MeilisearchSettingsPanel.tsx(12,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/settings/MeilisearchSettingsPanel.tsx(17,3): error TS6133: 'Server' is declared but its value is never read.
+src/components/settings/MeilisearchSettingsPanel.tsx(303,9): error TS2322: Type '{ isOpen: boolean; title: string; message: string; confirmText: string; danger: true; onConfirm: () => undefined; onClose: () => void; }' is not assignable to type 'IntrinsicAttributes & ConfirmationModalProps'.
+  Property 'confirmText' does not exist on type 'IntrinsicAttributes & ConfirmationModalProps'.
+src/components/settings/NuorderSettingsPanel.tsx(6,3): error TS6133: 'ArrowRightLeft' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(7,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(9,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(12,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(14,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(15,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(18,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(19,3): error TS6133: 'Terminal' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(20,3): error TS6133: 'Server' is declared but its value is never read.
+src/components/settings/NuorderSettingsPanel.tsx(21,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(15,3): error TS6133: 'ShoppingBag' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(18,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(19,3): error TS6133: 'Monitor' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(20,3): error TS6133: 'Smartphone' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(21,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(24,3): error TS6133: 'Edit3' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(27,3): error TS6133: 'Clock' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(28,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(30,3): error TS6133: 'Database' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(31,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(37,3): error TS6133: 'Settings' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(38,3): error TS6133: 'ShieldCheck' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(39,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(40,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/OnlineStoreSettingsPanel.tsx(160,41): error TS2339: Property 'getData' does not exist on type 'StoreStudioApi'.
+src/components/settings/OnlineStoreSettingsPanel.tsx(511,25): error TS2322: Type '{ key: number; project: unknown; onSave: () => undefined; apiRef: (api: any) => void; }' is not assignable to type 'IntrinsicAttributes & Props'.
+  Property 'project' does not exist on type 'IntrinsicAttributes & Props'.
+src/components/settings/OnlineStoreSettingsPanel.tsx(513,34): error TS7006: Parameter 'api' implicitly has an 'any' type.
+src/components/settings/OnlineStoreSettingsPanel.tsx(517,27): error TS2304: Cannot find name 'ShieldAlert'.
+src/components/settings/OnlineStoreSettingsPanel.tsx(528,26): error TS2304: Cannot find name 'Terminal'.
+src/components/settings/PodiumSettingsPanel.tsx(3,3): error TS6133: 'MessageSquare' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(5,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(6,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(7,3): error TS6133: 'Zap' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(9,3): error TS6133: 'Code' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(11,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(14,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(16,3): error TS6133: 'Smartphone' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(17,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(18,3): error TS6133: 'Database' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(19,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(72,7): error TS6133: 'PODIUM_TEMPLATE_DEFAULTS' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(79,7): error TS6133: 'PODIUM_EMAIL_TEMPLATE_DEFAULTS' is declared but its value is never read.
+src/components/settings/PodiumSettingsPanel.tsx(163,51): error TS2554: Expected 0 arguments, but got 1.
+src/components/settings/PodiumSettingsPanel.tsx(164,104): error TS2345: Argument of type 'string | null' is not assignable to parameter of type 'string | number | boolean'.
+  Type 'null' is not assignable to type 'string | number | boolean'.
+src/components/settings/PodiumSettingsPanel.tsx(221,54): error TS2304: Cannot find name 'smartphone'.
+src/components/settings/QuickBooksSettingsPanel.tsx(3,3): error TS6133: 'CheckCircle2' is declared but its value is never read.
+src/components/settings/QuickBooksSettingsPanel.tsx(5,3): error TS6133: 'ArrowUpRight' is declared but its value is never read.
+src/components/settings/RemoteAccessPanel.tsx(4,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/settings/RemoteAccessPanel.tsx(12,3): error TS6133: 'Activity' is declared but its value is never read.
+src/components/settings/RemoteAccessPanel.tsx(13,3): error TS6133: 'Globe' is declared but its value is never read.
+src/components/settings/RemoteAccessPanel.tsx(16,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/settings/RemoteAccessPanel.tsx(17,3): error TS6133: 'Info' is declared but its value is never read.
+src/components/settings/SettingsWorkspace.tsx(861,27): error TS2304: Cannot find name 'Activity'.
+src/components/settings/SettingsWorkspace.tsx(866,24): error TS2304: Cannot find name 'ArrowRight'.
+src/components/settings/SettingsWorkspace.tsx(1161,33): error TS2304: Cannot find name 'Activity'.
+src/components/settings/SettingsWorkspace.tsx(1163,33): error TS2304: Cannot find name 'Zap'.
+src/components/settings/SettingsWorkspace.tsx(1715,48): error TS7053: Element implicitly has an 'any' type because expression of type 'string | number | symbol' can't be used to index type '{ review_invites_enabled: boolean; send_review_invite_by_default: boolean; }'.
+  No index signature with a parameter of type 'string' was found on type '{ review_invites_enabled: boolean; send_review_invite_by_default: boolean; }'.
+src/components/settings/SettingsWorkspace.tsx(1715,83): error TS2304: Cannot find name 'ReviewPolicy'.
+src/components/settings/SettingsWorkspace.tsx(1719,134): error TS7053: Element implicitly has an 'any' type because expression of type 'string | number | symbol' can't be used to index type '{ review_invites_enabled: boolean; send_review_invite_by_default: boolean; }'.
+  No index signature with a parameter of type 'string' was found on type '{ review_invites_enabled: boolean; send_review_invite_by_default: boolean; }'.
+src/components/settings/SettingsWorkspace.tsx(1719,169): error TS2304: Cannot find name 'ReviewPolicy'.
+src/components/settings/StripeSettingsPanel.tsx(9,3): error TS6133: 'History' is declared but its value is never read.
+src/components/settings/StripeSettingsPanel.tsx(11,3): error TS6133: 'ExternalLink' is declared but its value is never read.
+src/components/settings/StripeSettingsPanel.tsx(12,3): error TS6133: 'Search' is declared but its value is never read.
+src/components/settings/StripeSettingsPanel.tsx(17,3): error TS6133: 'Receipt' is declared but its value is never read.
+src/components/settings/StripeSettingsPanel.tsx(18,3): error TS6133: 'ArrowRightLeft' is declared but its value is never read.
+src/components/settings/StripeSettingsPanel.tsx(20,3): error TS6133: 'ChevronLeft' is declared but its value is never read.
+src/components/settings/StripeSettingsPanel.tsx(47,9): error TS6133: 'toast' is declared but its value is never read.
+src/components/staff/CommissionPayoutsPanel.tsx(2,10): error TS6133: 'Receipt' is declared but its value is never read.
+src/components/staff/StaffAccessPanels.tsx(7,3): error TS6133: 'ChevronRight' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(11,3): error TS6133: 'ArrowRight' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(16,3): error TS6133: 'User' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(18,3): error TS6133: 'Layers' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(19,3): error TS6133: 'Sparkles' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(20,3): error TS6133: 'ClipboardList' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(22,3): error TS6133: 'Settings' is declared but its value is never read.
+src/components/staff/StaffTasksPanel.tsx(24,3): error TS6133: 'Terminal' is declared but its value is never read.
+src/components/tasks/RegisterTasksPanel.tsx(2,87): error TS6133: 'Command' is declared but its value is never read.
+src/components/tasks/TaskChecklistDrawer.tsx(5,3): error TS6133: 'CheckSquare' is declared but its value is never read.
+src/components/tasks/TaskChecklistDrawer.tsx(6,3): error TS6133: 'Square' is declared but its value is never read.
+src/components/tasks/TaskChecklistDrawer.tsx(8,3): error TS6133: 'Calendar' is declared but its value is never read.
+src/components/tasks/TaskChecklistDrawer.tsx(12,3): error TS6133: 'X' is declared but its value is never read.
+src/components/tasks/TaskChecklistDrawer.tsx(131,7): error TS2322: Type '{ children: Element; isOpen: boolean; onClose: () => void; title: string; className: string; subtitle: Element; }' is not assignable to type 'IntrinsicAttributes & DetailDrawerProps'.
+  Property 'className' does not exist on type 'IntrinsicAttributes & DetailDrawerProps'.
+src/hooks/useCartActions.ts(263,13): error TS2552: Cannot find name 'setSelectedCustomer'. Did you mean 'selectedCustomer'?
+src/hooks/useCartActions.ts(273,13): error TS2552: Cannot find name 'setSelectedCustomer'. Did you mean 'selectedCustomer'?
+src/hooks/useCartActions.ts(276,11): error TS2552: Cannot find name 'setSelectedCustomer'. Did you mean 'selectedCustomer'?
+src/hooks/useCartActions.ts(280,6): error TS2552: Cannot find name 'setSelectedCustomer'. Did you mean 'selectedCustomer'?
+src/hooks/useCartActions.ts(353,9): error TS6133: 'handleNumpadKey' is declared but its value is never read.

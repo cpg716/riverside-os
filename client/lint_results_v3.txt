@@ -1,0 +1,172 @@
+
+> riverside-pos@0.1.9 lint
+> eslint .
+
+
+/Users/cpg/riverside-os/client/src/App.tsx
+  681:31  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  681:31  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  960:5   error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  960:5   error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/customers/CustomersWorkspace.tsx
+  1027:13  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+  1028:15  error  `tabIndex` should only be declared on interactive elements                                      jsx-a11y/no-noninteractive-tabindex
+  1352:11  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  1352:11  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+  1502:15  error  A form label must be associated with a control                                                  jsx-a11y/label-has-associated-control
+  2323:15  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  2323:15  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/customers/ShipmentsHubSection.tsx
+  828:15  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/InventoryBulkBar.tsx
+   91:13  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  212:13  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  222:13  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/InventoryControlBoard.tsx
+   797:7   error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+   797:7   error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  1081:9   error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  1086:11  error  `tabIndex` should only be declared on interactive elements                                                                                                                                         jsx-a11y/no-noninteractive-tabindex
+  1340:17  error  A form label must be associated with a control                                                                                                                                                     jsx-a11y/label-has-associated-control
+  1353:17  error  A form label must be associated with a control                                                                                                                                                     jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/PhysicalInventoryWorkspace.tsx
+  579:19  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  601:21  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/ReceivingBay.tsx
+  721:13  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  737:13  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/UniversalImporter.tsx
+  430:15  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/VariationsBuilder.tsx
+  162:17  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  172:17  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/inventory/VariationsList.tsx
+  310:11  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  310:11  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  316:11  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  316:11  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  322:11  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  322:11  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/inventory/VendorHub.tsx
+  435:19  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  443:19  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/layout/Header.tsx
+  540:23  error  Elements with the 'option' interactive role must be focusable  jsx-a11y/interactive-supports-focus
+
+/Users/cpg/riverside-os/client/src/components/layout/PosShell.tsx
+  275:9  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  275:9  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/layout/RegisterRequiredModal.tsx
+  27:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  27:7  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/layout/Sidebar.tsx
+  189:15  error  `tabIndex` should only be declared on interactive elements  jsx-a11y/no-noninteractive-tabindex
+
+/Users/cpg/riverside-os/client/src/components/notifications/NotificationCenterDrawer.tsx
+  490:17  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/orders/AttachOrderToWeddingModal.tsx
+  153:15  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  211:19  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  221:19  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  231:19  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/orders/OrdersWorkspace.tsx
+  1096:11  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  1096:11  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+  1186:19  error  The autoFocus prop should not be used, as it can reduce usability and accessibility for users   jsx-a11y/no-autofocus
+
+/Users/cpg/riverside-os/client/src/components/pos/Cart.tsx
+  3751:9  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  3751:9  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  3791:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  3791:7  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/pos/CloseRegisterModal.tsx
+  355:15  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  361:17  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  614:15  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  618:15  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/pos/NexoCheckoutDrawer.tsx
+  838:19  error  A form label must be associated with a control                                                                                                                                                     jsx-a11y/label-has-associated-control
+  847:21  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  847:21  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/pos/PosExchangeWizard.tsx
+  217:21  error  The autoFocus prop should not be used, as it can reduce usability and accessibility for users  jsx-a11y/no-autofocus
+
+/Users/cpg/riverside-os/client/src/components/pos/PosSidebar.tsx
+  129:17  error  `tabIndex` should only be declared on interactive elements  jsx-a11y/no-noninteractive-tabindex
+
+/Users/cpg/riverside-os/client/src/components/pos/PosSuitSwapWizard.tsx
+  190:21  error  The autoFocus prop should not be used, as it can reduce usability and accessibility for users  jsx-a11y/no-autofocus
+
+/Users/cpg/riverside-os/client/src/components/pos/PriceOverrideModal.tsx
+  92:13  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/pos/ProcurementHub.tsx
+  235:5  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  235:5  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/pos/ProductIntelligenceDrawer.tsx
+  116:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  116:7  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/pos/RegisterCashAdjustModal.tsx
+  169:9  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  180:9  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  189:9  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/pos/RegisterDashboard.tsx
+  338:5  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  338:5  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/pos/RegisterOverlay.tsx
+  737:21  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+  771:21  error  A form label must be associated with a control  jsx-a11y/label-has-associated-control
+
+/Users/cpg/riverside-os/client/src/components/pos/RegisterShiftHandoffModal.tsx
+  82:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  82:7  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/pos/WeddingLookupDrawer.tsx
+  336:19  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  336:19  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/scheduler/SchedulerWorkspace.tsx
+  293:23  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  293:23  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  361:21  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  361:21  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  415:37  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  415:37  error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+  485:5   error  Visible, non-interactive elements with click handlers must have at least one keyboard listener                                                                                                     jsx-a11y/click-events-have-key-events
+  485:5   error  Avoid non-native interactive elements. If using native HTML is not possible, add an appropriate role and support for tabbing, mouse, keyboard, and touch inputs to an interactive content element  jsx-a11y/no-static-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/ui-shadcn/card.tsx
+  36:3  error  Headings must have content and the content must be accessible by a screen reader  jsx-a11y/heading-has-content
+
+/Users/cpg/riverside-os/client/src/components/ui/ConfirmationModal.tsx
+  63:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  63:7  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+
+/Users/cpg/riverside-os/client/src/components/ui/PromptModal.tsx
+  91:7  error  Visible, non-interactive elements with click handlers must have at least one keyboard listener  jsx-a11y/click-events-have-key-events
+  91:7  error  Non-interactive elements should not be assigned mouse or keyboard event listeners               jsx-a11y/no-noninteractive-element-interactions
+
+✖ 93 problems (93 errors, 0 warnings)
+

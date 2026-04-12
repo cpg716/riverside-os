@@ -1,0 +1,4 @@
+
+> riverside-pos@0.1.11 typecheck
+> tsc --noEmit
+
