@@ -13,7 +13,6 @@ use crate::shippo_api_token_from_env;
 use crate::DefaultParcel;
 use crate::ParcelInput;
 use crate::ShippingAddressInput;
-use crate::ShippingAddressInput::validate;
 use crate::ShippoError::{Api, InvalidAddress};
 use crate::parse_decimal_amount;
 
@@ -212,7 +211,7 @@ async fn fetch_live_rates(
         return Err(Api(format!("HTTP {status}: {text}")));
     }
 
-    let v: Value = resp
+    let v: serde_json::Value = resp
         .json()
         .await
         .map_err(|e| Api(e.to_string()))?;
@@ -417,10 +416,10 @@ pub async fn purchase_transaction_for_rate(
         return Err(Api(format!("HTTP {status}: {text}")));
     }
 
-    let v: Value = resp
-        .json()
+    let v: serde_json::Value = resp
+        .json::<serde_json::Value>()
         .await
-        .map_err(|e| Api(e.to_string()))?;
+        .map_err(|e| crate::ShippoError::Api(e.to_string()))?;
 
     let st = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
     if st == "ERROR" {
