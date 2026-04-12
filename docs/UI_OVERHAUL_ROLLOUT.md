@@ -32,3 +32,15 @@ Governance
 - CI gates must require lint/build success before merging.
 
 This document is designed to accompany the ongoing work on feat/ui-overhaul and its sub-branches.
+
+## Step 3: Quick QA Checklist (manual)
+- Set VITE_UI_OVERHAUL_ENABLED=true in your environment for the staging server.
+- Load the app and verify the placeholder UI renders (look for the header "New UI Overhaul — Placeholder").
+- Verify the skeleton cards render (three cards) and the small QA note badge is present.
+- Confirm that the baseline UI is still visible when the flag is off (toggle flag off and reload).
+- Record any visual diffs and report back with screenshots or notes in the PR.
+
+## Step 4: Stepwise automation plan (future)
+- Add a small unit test to cover gating paths (flag on renders placeholder, flag off renders old UI).
+- Add an integration test to verify the flag toggle path across environments.
+- Extend the placeholder gradually into a proper skeleton/UI components behind the flag.
