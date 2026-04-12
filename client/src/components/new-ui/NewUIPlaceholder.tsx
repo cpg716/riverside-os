@@ -1,4 +1,5 @@
 import React from 'react'
+import NewUISection from './NewUISection'
 
 // Lightweight placeholder component for the new UI path behind feature flag.
 // This is intentionally minimal to keep risk low while the overhaul is scoped and tested.
@@ -28,12 +29,15 @@ const NewUIPlaceholder: React.FC = () => {
           maxWidth: '900px',
           margin: '32px auto 0',
         }}
-      >
+        >
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} style={{ height: '120px', borderRadius: '8px', background: '#e5e7eb', position: 'relative' }}>
             <span style={{ position: 'absolute', bottom: 8, left: 8, fontSize: 12, color: '#374151' }}>Card {i + 1}</span>
           </div>
         ))}
+      </div>
+      <div style={{ marginTop: 24, display: 'flex', justifyContent: 'center', gap: 16 }}>
+        <NewUISection />
       </div>
       {/* Small inline tweak to help QA notice the new path without affecting layout */}
       <div data-testid="ui-overhaul-note" style={{ marginTop: 24, display: 'inline-block', padding: '6px 12px', borderRadius: 999, background: '#f3f4f6', border: '1px solid #e5e7eb', fontSize: 12, color: '#374151' }} aria-label="ui-overhaul-note">

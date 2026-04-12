@@ -25,9 +25,12 @@ jobs:
       - name: Build client
         run: npm run build
         working-directory: client
-      - name: Run UI Overhaul QA gating
-        run: node ./scripts/qa-ui-overhaul.js
-        working-directory: client
+      - name: Run UI Overhaul QA gating (JS script)
+        run: node ./client/scripts/qa-ui-overhaul.js
+        working-directory: ${{ github.workspace }}
+      - name: Run UI Overhaul QA gating (CI wrapper)
+        run: bash ./client/scripts/run-ui-overhaul-qa.sh
+        working-directory: ${{ github.workspace }}
 
   backend:
     runs-on: ubuntu-latest
