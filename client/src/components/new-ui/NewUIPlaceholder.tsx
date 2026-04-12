@@ -5,6 +5,11 @@ import React from 'react'
 const NewUIPlaceholder: React.FC = () => {
   return (
     <div data-testid="new-ui-container" style={{ padding: '2rem', textAlign: 'center' }}>
+      <div role="navigation" aria-label="new-ui-nav" style={{ display: 'flex', justifyContent: 'center', gap: 12, marginBottom: 16 }}>
+        {['Overview','Inventory','Checkout'].map((t,i)=> (
+          <span key={i} style={{ padding: '6px 12px', borderRadius: 999, background: '#e5e7eb', fontSize:12, color:'#374151' }}>{t}</span>
+        ))}
+      </div>
       <h1 style={{ marginBottom: '1rem' }}>New UI Overhaul — Placeholder</h1>
       <p style={{ color: '#555' }}>
         The new user interface is behind a feature flag and is currently under staged rollout.
