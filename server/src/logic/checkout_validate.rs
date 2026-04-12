@@ -109,7 +109,7 @@ pub async fn validate_checkout_lines_and_sum(
             let exp_local =
                 erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
             
-            // FIX: Use money_close for tax comparisons to avoid precision-based failures.
+            // Use money_close for all monetary comparisons to avoid precision issues
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
                 return Err(CheckoutValidateError::Invalid(format!(
                     "Tax per unit for variant {} does not match server calculation",
@@ -122,7 +122,6 @@ pub async fn validate_checkout_lines_and_sum(
             let exp_local =
                 erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
             
-            // FIX: Use money_close for tax comparisons to avoid precision-based failures.
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
                 return Err(CheckoutValidateError::Invalid(format!(
                     "Tax per unit for variant {} does not match server calculation",

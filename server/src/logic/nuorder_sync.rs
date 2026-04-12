@@ -108,7 +108,6 @@ async fn upsert_nuorder_product(
     // 1. Resolve or create vendor
     let brand_name = p.brand_name.as_deref().unwrap_or("NuORDER Brand");
 
-    // Primary resolution: try to find a vendor by this specific NuORDER brand ID
     let vendor_id: Option<Uuid> =
         sqlx::query_scalar("SELECT id FROM vendors WHERE nuorder_brand_id = $1")
             .bind(&p.brand_name)
@@ -119,7 +118,6 @@ async fn upsert_nuorder_product(
         info!("NuORDER brand {} resolved to vendor_id {}", brand_name, id);
         id
     } else {
-        // Fallback: upsert by name and link brand ID
         info!(
             "NuORDER brand {} search by ID {} failed; upserting by name",
             brand_name,
@@ -149,9 +147,21 @@ async fn upsert_nuorder_product(
 
     // 3. Upsert parent product
     let catalog_handle = p.style_number.as_deref().unwrap_or(&p.id);
-    let (product_id, is_new, last_img_sync): (Uuid, bool, Option<DateTime<Utc>>) = sqlx::query_as(
+    
+    // We use a simpler approach to detect if it's new: check existence before insert/update
+    let existing_product: Option<(Uuid, bool)> = sqlx::query_as(
         r#"
-        WITH upsert AS (
+        SELECT id, true FROM products WHERE catalog_handle = $1
+        "#
+    )
+    .bind(catalog_handle)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let (product_id, is_new, last_img_sync): (Uuid, bool, Option<DateTime<Utc>>) = if let Some((id, was_there)) = existing_product {
+        // It exists, we will update it
+        sqlx::query_as(
+            r#"
             INSERT INTO products (catalog_handle, name, brand, base_retail_price, base_cost, images, vendor_id, is_active)
             VALUES ($1, $2, $3, $4, $5, $6, $7, true)
             ON CONFLICT (catalog_handle) DO UPDATE SET
@@ -160,21 +170,45 @@ async fn upsert_nuorder_product(
                 base_retail_price = EXCLUDED.base_retail_price,
                 base_cost = EXCLUDED.base_cost,
                 vendor_id = EXCLUDED.vendor_id,
-                images = CASE WHEN array_length(products.images, 1) IS NULL THEN EXCLUDED.images ELSE products.images END
+                images = EXCLUDED.images
             RETURNING id, (xmax = 0) AS is_new, nuorder_last_image_sync_at
+            "#,
         )
-        SELECT id, is_new, nuorder_last_image_sync_at FROM upsert
-        "#,
-    )
-    .bind(catalog_handle)
-    .bind(&p.name)
-    .bind(brand_name)
-    .bind(p.retail_price.unwrap_or(Decimal::ZERO))
-    .bind(p.wholesale_price.unwrap_or(Decimal::ZERO))
-    .bind(&image_ids)
-    .bind(vendor_id)
-    .fetch_one(&mut *tx)
-    .await?;
+        .bind(catalog_handle)
+        .bind(&p.name)
+        .bind(brand_name)
+        .bind(p.retail_price.unwrap_or(Decimal::ZERO))
+        .bind(p.wholesale_price.unwrap_or(Decimal::ZERO))
+        .bind(&image_ids)
+        .bind(vendor_id)
+        .fetch_one(&mut *tx)
+        .await?
+    } else {
+        // It's new
+        sqlx::query_as(
+            r#"
+            INSERT INTO products (catalog_handle, name, brand, base_retail_price, base_cost, images, vendor_id, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, true)
+            ON CONFLICT (catalog_handle) DO UPDATE SET
+                name = EXCLUDED.name,
+                brand = EXCLUDED.brand,
+                base_retail_price = EXCLUDED.base_retail_price,
+                base_cost = EXCLUDED.base_cost,
+                vendor_id = EXCLUDED.vendor_id,
+                images = EXCLUDED.images
+            RETURNING id, (xmax = 0) AS is_new, nuorder_last_image_sync_at
+            "#,
+        )
+        .bind(catalog_handle)
+        .bind(&p.name)
+        .bind(brand_name)
+        .bind(p.retail_price.unwrap_or(Decimal::ZERO))
+        .bind(p.wholesale_price.unwrap_or(Decimal::ZERO))
+        .bind(&image_ids)
+        .bind(vendor_id)
+        .fetch_one(&mut *tx)
+        .await?
+    };
 
     // Image refresh logic: if never synced or images was empty
     if last_img_sync.is_none() && !image_ids.is_empty() {
