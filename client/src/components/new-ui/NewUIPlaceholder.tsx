@@ -4,7 +4,7 @@ import React from 'react'
 // This is intentionally minimal to keep risk low while the overhaul is scoped and tested.
 const NewUIPlaceholder: React.FC = () => {
   return (
-    <div style={{ padding: '2rem', textAlign: 'center' }}>
+    <div data-testid="new-ui-container" style={{ padding: '2rem', textAlign: 'center' }}>
       <h1 style={{ marginBottom: '1rem' }}>New UI Overhaul — Placeholder</h1>
       <p style={{ color: '#555' }}>
         The new user interface is behind a feature flag and is currently under staged rollout.
@@ -14,6 +14,7 @@ const NewUIPlaceholder: React.FC = () => {
       {/* Lightweight skeleton preview to give a sense of the new layout without impacting UX */}
       <div
         aria-label="new-ui-skeleton"
+        data-testid="new-ui-skeleton"
         style={{
           display: 'grid',
           gridTemplateColumns: 'repeat(3, 1fr)',
@@ -29,7 +30,7 @@ const NewUIPlaceholder: React.FC = () => {
         ))}
       </div>
       {/* Small inline tweak to help QA notice the new path without affecting layout */}
-      <div style={{ marginTop: 24, display: 'inline-block', padding: '6px 12px', borderRadius: 999, background: '#f3f4f6', border: '1px solid #e5e7eb', fontSize: 12, color: '#374151' }} aria-label="ui-overhaul-note">
+      <div data-testid="ui-overhaul-note" style={{ marginTop: 24, display: 'inline-block', padding: '6px 12px', borderRadius: 999, background: '#f3f4f6', border: '1px solid #e5e7eb', fontSize: 12, color: '#374151' }} aria-label="ui-overhaul-note">
         Preview mode: UI overhaul skeleton visible when flag is on.
       </div>
     </div>
