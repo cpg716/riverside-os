@@ -185,7 +185,7 @@ async fn fetch_live_rates(
         || from.zip.trim().is_empty()
     {
         return Err(InvalidAddress(
-            "Configure ship-from address in Settings before live Shippo rates".into(),
+            "Configure ship-from address in Settings before live Shippio rates".into(),
         ));
     }
 
@@ -212,7 +212,7 @@ async fn fetch_live_rates(
     }
 
     let v: serde_json::Value = resp
-        .json()
+        .json::<serde_json::Value>()
         .await
         .map_err(|e| Api(e.to_string()))?;
 
