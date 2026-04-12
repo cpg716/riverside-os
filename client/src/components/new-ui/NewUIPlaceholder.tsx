@@ -11,6 +11,27 @@ const NewUIPlaceholder: React.FC = () => {
         This placeholder confirms the override path is wired and can be expanded in small, controlled steps.
       </p>
       <p style={{ color: '#888' }}>Flag: UI_OVERHAUL_ENABLED is currently off by default.</p>
+      {/* Lightweight skeleton preview to give a sense of the new layout without impacting UX */}
+      <div
+        aria-label="new-ui-skeleton"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: '16px',
+          maxWidth: '900px',
+          margin: '32px auto 0',
+        }}
+      >
+        {Array.from({ length: 3 }).map((_, i) => (
+          <div key={i} style={{ height: '120px', borderRadius: '8px', background: '#e5e7eb', position: 'relative' }}>
+            <span style={{ position: 'absolute', bottom: 8, left: 8, fontSize: 12, color: '#374151' }}>Card {i + 1}</span>
+          </div>
+        ))}
+      </div>
+      {/* Small inline tweak to help QA notice the new path without affecting layout */}
+      <div style={{ marginTop: 24, display: 'inline-block', padding: '6px 12px', borderRadius: 999, background: '#f3f4f6', border: '1px solid #e5e7eb', fontSize: 12, color: '#374151' }} aria-label="ui-overhaul-note">
+        Preview mode: UI overhaul skeleton visible when flag is on.
+      </div>
     </div>
   )
 }
