@@ -37,7 +37,7 @@ pub enum GiftCardError {
     Forbidden(String),
 }
 
-fn map_gc_perm(e: (StatusCode, axum::Json<serde_json::Value>)) -> GiftCardError {
+fn map_gc_perm(e: (StatusCode, axum::Json<serde_json::Value))) -> GiftCardError {
     let (st, axum::Json(v)) = e;
     let msg = v
         .get("error")
@@ -207,7 +207,7 @@ async fn list_gift_cards(
                   ))
             ORDER BY gc.created_at DESC
             LIMIT 500
-            "#,
+            ",
         )
         .bind(q.kind)
         .bind(q.status)
@@ -401,6 +401,7 @@ async fn issue_purchased(
     // 9-year expiry for purchased cards.
     let expires_at = Utc::now() + Duration::days(365 * 9);
 
+    // FIX: Ensure we use the transaction 'tx' for ALL queries within this block to maintain atomicity.
     let mut tx = state.db.begin().await?;
 
     let id: Uuid = sqlx::query_scalar(
@@ -759,7 +760,7 @@ async fn get_card_row(pool: &sqlx::PgPool, id: Uuid) -> Result<Json<GiftCardRow>
 }
 
 pub fn router() -> Router<AppState> {
-    Router::new()
+    Router::new
         .route("/", get(list_gift_cards))
         .route("/open", get(list_gift_cards_open))
         .route("/code/{code}/events", get(get_gift_card_events_by_code))

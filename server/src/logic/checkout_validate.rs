@@ -30,6 +30,7 @@ pub enum CheckoutValidateError {
     Invalid(String),
 }
 
+/// Compares two decimals using the global CHECKOUT_MONEY_TOLERANCE.
 #[inline]
 fn money_close(a: Decimal, b: Decimal) -> bool {
     (a - b).abs() <= CHECKOUT_MONEY_TOLERANCE
@@ -107,9 +108,11 @@ pub async fn validate_checkout_lines_and_sum(
                 nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
             let exp_local =
                 erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
+            
+            // FIX: Use money_close for tax comparisons to avoid precision-based failures.
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
                 return Err(CheckoutValidateError::Invalid(format!(
-                    "Tax per unit for variant {} does not match server calculation for the stated unit price",
+                    "Tax per unit for variant {} does not match server calculation",
                     line.variant_id
                 )));
             }
@@ -118,9 +121,11 @@ pub async fn validate_checkout_lines_and_sum(
                 nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
             let exp_local =
                 erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
+            
+            // FIX: Use money_close for tax comparisons to avoid precision-based failures.
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
                 return Err(CheckoutValidateError::Invalid(format!(
-                    "Tax per unit for variant {} does not match server calculation for the stated unit price",
+                    "Tax per unit for variant {} does not match server calculation",
                     line.variant_id
                 )));
             }

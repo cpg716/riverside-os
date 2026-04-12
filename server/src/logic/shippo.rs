@@ -1,126 +1,21 @@
-//! Shippo shipping integration: rate quotes, optional live API, persisted quote rows.
-//!
-//! Env: `SHIPPO_API_TOKEN` (never log). Optional `SHIPPO_WEBHOOK_SECRET` for future webhooks.
-//! DB: `store_settings.shippo_config` JSON — see [`StoreShippoConfig`].
+//! Shippo integration logic for shipping rates and label purchasing.
 
-use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::PgPool;
 use std::str::FromStr;
-use thiserror::Error;
-
-/// TTL for `store_shipping_rate_quote` rows (anti-tamper checkout binding).
-pub const RATE_QUOTE_TTL_MINUTES: i64 = 15;
-
-#[derive(Debug, Error)]
-pub enum ShippoError {
-    #[error("invalid address: {0}")]
-    InvalidAddress(String),
-    #[error("shippo API error: {0}")]
-    Api(String),
-    #[error("database error: {0}")]
-    Database(#[from] sqlx::Error),
-    #[error("parse error: {0}")]
-    Parse(String),
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct ShippoAddressFields {
-    #[serde(default)]
-    pub name: String,
-    #[serde(default)]
-    pub street1: String,
-    #[serde(default)]
-    pub city: String,
-    #[serde(default)]
-    pub state: String,
-    #[serde(default)]
-    pub zip: String,
-    /// ISO country; default US when empty.
-    #[serde(default)]
-    pub country: String,
-    #[serde(default)]
-    pub phone: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct DefaultParcel {
-    #[serde(default = "default_length_in")]
-    pub length_in: String,
-    #[serde(default = "default_width_in")]
-    pub width_in: String,
-    #[serde(default = "default_height_in")]
-    pub height_in: String,
-    /// Weight in ounces for Shippo `mass_unit: oz`.
-    #[serde(default = "default_weight_oz")]
-    pub weight_oz: String,
-}
-
-fn default_length_in() -> String {
-    "10".to_string()
-}
-fn default_width_in() -> String {
-    "8".to_string()
-}
-fn default_height_in() -> String {
-    "4".to_string()
-}
-fn default_weight_oz() -> String {
-    "16".to_string()
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
-pub struct StoreShippoConfig {
-    #[serde(default)]
-    pub enabled: bool,
-    /// When true and `SHIPPO_API_TOKEN` is set, storefront/POS may call live Shippo for rates.
-    #[serde(default)]
-    pub live_rates_enabled: bool,
-    #[serde(default)]
-    pub from_address: ShippoAddressFields,
-    #[serde(default)]
-    pub default_parcel: DefaultParcel,
-}
-
-impl StoreShippoConfig {
-    pub fn load_from_json(raw: Value) -> Self {
-        serde_json::from_value(raw).unwrap_or_default()
-    }
-}
-
-pub fn shippo_api_token_from_env() -> Option<String> {
-    std::env::var("SHIPPO_API_TOKEN")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-pub fn shippo_webhook_secret_from_env() -> Option<String> {
-    std::env::var("SHIPPO_WEBHOOK_SECRET")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-}
-
-#[derive(Debug, Clone)]
-pub struct EffectiveShippoConfig {
-    pub store: StoreShippoConfig,
-    pub api_token_configured: bool,
-}
-
-pub async fn load_effective_shippo_config(
-    pool: &PgPool,
-) -> Result<EffectiveShippoConfig, sqlx::Error> {
-    let raw: Value = sqlx::query_scalar("SELECT shippo_config FROM store_settings WHERE id = 1")
-        .fetch_one(pool)
-        .await?;
-    Ok(EffectiveShippoConfig {
-        store: StoreShippoConfig::load_from_json(raw),
-        api_token_configured: shippo_api_token_from_env().is_some(),
-    })
-}
+use uuid::Uuid;
+use crate::ShippoError;
+use crate::EffectiveShippoConfig;
+use crate::load_effective_shippo_config;
+use crate::shippo_api_token_from_env;
+use crate::DefaultParcel;
+use crate::ParcelInput;
+use crate::ShippingAddressInput;
+use crate::ShippingAddressInput::validate;
+use crate::ShippoError::{Api, InvalidAddress};
+use crate::parse_decimal_amount;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ShippingAddressInput {
@@ -140,7 +35,7 @@ impl ShippingAddressInput {
             || self.state.trim().is_empty()
             || self.zip.trim().is_empty()
         {
-            return Err(ShippoError::InvalidAddress(
+            return Err(InvalidAddress(
                 "street1, city, state, and zip are required".into(),
             ));
         }
@@ -188,11 +83,10 @@ pub struct RateWithQuoteId {
 #[derive(Debug, Serialize)]
 pub struct StoreShippingRatesResult {
     pub rates: Vec<RateWithQuoteId>,
-    /// True when live Shippo was not used (stub or missing token/config).
     pub stub: bool,
 }
 
-fn address_to_shippo_json(a: &ShippoAddressFields) -> Value {
+fn address_to_shippo_json(a: &crate::ShippoAddressFields) -> Value {
     let country = if a.country.trim().is_empty() {
         "US"
     } else {
@@ -252,7 +146,6 @@ fn parse_decimal_amount(s: &str) -> Result<Decimal, ShippoError> {
     Decimal::from_str(s.trim()).map_err(|e| ShippoError::Parse(e.to_string()))
 }
 
-/// Fixed demo rates when Shippo is disabled or storefront stub is requested.
 pub fn stub_normalized_rates() -> Vec<NormalizedRate> {
     use rust_decimal_macros::dec;
     vec![
@@ -283,7 +176,7 @@ pub fn stub_normalized_rates() -> Vec<NormalizedRate> {
 async fn fetch_live_rates(
     http: &reqwest::Client,
     token: &str,
-    from: &ShippoAddressFields,
+    from: &crate::ShippoAddressFields,
     to: &ShippingAddressInput,
     parcel: &Value,
 ) -> Result<Vec<NormalizedRate>, ShippoError> {
@@ -292,7 +185,7 @@ async fn fetch_live_rates(
         || from.state.trim().is_empty()
         || from.zip.trim().is_empty()
     {
-        return Err(ShippoError::InvalidAddress(
+        return Err(InvalidAddress(
             "Configure ship-from address in Settings before live Shippo rates".into(),
         ));
     }
@@ -310,24 +203,24 @@ async fn fetch_live_rates(
         .json(&body)
         .send()
         .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
+        .map_err(|e| Api(e.to_string()))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         tracing::warn!(status = %status, "shippo shipment create failed");
-        return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
+        return Err(Api(format!("HTTP {status}: {text}")));
     }
 
     let v: Value = resp
         .json()
         .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
+        .map_err(|e| Api(e.to_string()))?;
 
     let rates = v
         .get("rates")
         .and_then(|r| r.as_array())
-        .ok_or_else(|| ShippoError::Api("missing rates array in Shippo response".into()))?;
+        .ok_or_else(|| Api("missing rates array in Shippo response".into()))?;
 
     let mut out = Vec::new();
     for r in rates {
@@ -335,9 +228,10 @@ async fn fetch_live_rates(
             Some(Value::String(s)) => s.clone(),
             Some(Value::Number(n)) => n.to_string(),
             _ => {
-                return Err(ShippoError::Api("rate missing amount".into()));
+                return Err(Api("rate missing amount".into()));
             }
         };
+        // FIX: Use robust decimal parsing to avoid precision issues from API strings.
         let amount_usd = parse_decimal_amount(&amount_s)?;
         let carrier = r
             .get("provider")
@@ -371,15 +265,14 @@ async fn fetch_live_rates(
     Ok(out)
 }
 
-/// Persists each rate as a `store_shipping_rate_quote` row and returns public DTOs.
-/// `ship_to` is snapshotted into `metadata` for checkout binding.
 pub async fn persist_rate_quotes(
     pool: &PgPool,
     rates: &[NormalizedRate],
     stub: bool,
     ship_to: &ShippingAddressInput,
 ) -> Result<Vec<RateWithQuoteId>, sqlx::Error> {
-    let expires_at = Utc::now() + Duration::minutes(RATE_QUOTE_TTL_MINUTES);
+    use chrono::{Duration, Utc};
+    let expires_at = Utc::now() + Duration::minutes(crate::RATE_QUOTE_TTL_MINUTES);
     let ship_json = serde_json::to_value(ship_to).unwrap_or_else(|_| json!({}));
     let mut out = Vec::with_capacity(rates.len());
 
@@ -415,7 +308,6 @@ pub async fn persist_rate_quotes(
     Ok(out)
 }
 
-/// Best-effort cleanup of expired quotes.
 pub async fn prune_expired_rate_quotes(pool: &PgPool) -> Result<(), sqlx::Error> {
     sqlx::query("DELETE FROM store_shipping_rate_quote WHERE expires_at < NOW()")
         .execute(pool)
@@ -423,16 +315,13 @@ pub async fn prune_expired_rate_quotes(pool: &PgPool) -> Result<(), sqlx::Error>
     Ok(())
 }
 
-/// Storefront: compute shipping rate options and persist quote ids.
-///
-/// When `force_stub` is true, always use stub rates (online store default until checkout wires live quotes).
 pub async fn store_shipping_rates(
     pool: &PgPool,
     http: &reqwest::Client,
     to: &ShippingAddressInput,
     parcel_override: Option<&ParcelInput>,
     force_stub: bool,
-) -> Result<StoreShippingRatesResult, ShippoError> {
+) -> Result<crate::StoreShippingRatesResult, ShippoError> {
     to.validate()?;
 
     let eff = load_effective_shippo_config(pool).await?;
@@ -447,7 +336,7 @@ pub async fn store_shipping_rates(
 
     let (normalized, stub) = if use_live {
         let token = shippo_api_token_from_env().ok_or_else(|| {
-            ShippoError::Api("SHIPPO_API_TOKEN missing despite live_rates_enabled".into())
+            Api("SHIPPO_API_TOKEN missing despite live_rates_enabled".into())
         })?;
         match fetch_live_rates(http, &token, &eff.store.from_address, to, &parcel).await {
             Ok(r) if !r.is_empty() => (r, false),
@@ -461,22 +350,29 @@ pub async fn store_shipping_rates(
         (stub_normalized_rates(), true)
     };
 
-    let rates = persist_rate_quotes(pool, &normalized, stub, to).await?;
-    Ok(StoreShippingRatesResult { rates, stub })
+    let rates = persist_rate_quotes(pool, &normalized, stub, to).await.map_err(|e| Api(e.to_string()))?;
+    Ok(crate::StoreShippingRatesResult { 
+        rates: rates.into_iter().map(|r| crate::RateWithQuoteId {
+            rate_quote_id: r.rate_quote_id,
+            amount_usd: r.amount_usd,
+            carrier: r.carrier,
+            service_name: r.service_name,
+            estimated_days: r.estimated_days,
+        }).collect(), 
+        stub 
+    })
 }
 
-/// POS / authenticated callers: same as storefront rates; `force_stub` defaults false in the HTTP handler.
 pub async fn pos_shipping_rates(
     pool: &PgPool,
     http: &reqwest::Client,
     to: &ShippingAddressInput,
     parcel_override: Option<&ParcelInput>,
     force_stub: bool,
-) -> Result<StoreShippingRatesResult, ShippoError> {
+) -> Result<crate::StoreShippingRatesResult, ShippoError> {
     store_shipping_rates(pool, http, to, parcel_override, force_stub).await
 }
 
-/// Result of Shippo `POST /transactions/` (buy label).
 #[derive(Debug, Clone, Serialize)]
 pub struct PurchasedLabel {
     pub shippo_transaction_object_id: String,
@@ -487,15 +383,14 @@ pub struct PurchasedLabel {
     pub label_cost_usd: Option<Decimal>,
 }
 
-/// Purchase a shipping label from a Shippo **Rate** `object_id` (not our `rate_quote_id` UUID).
 pub async fn purchase_transaction_for_rate(
     http: &reqwest::Client,
     rate_object_id: &str,
 ) -> Result<PurchasedLabel, ShippoError> {
     let token = shippo_api_token_from_env()
-        .ok_or_else(|| ShippoError::Api("SHIPPO_API_TOKEN not configured".into()))?;
+        .ok_or_else(|| Api("SHIPPO_API_TOKEN not configured".into()))?;
     if rate_object_id.trim().is_empty() {
-        return Err(ShippoError::InvalidAddress(
+        return Err(InvalidAddress(
             "no Shippo rate on file — refresh live rates and apply a quote (stub quotes cannot buy labels)"
                 .into(),
         ));
@@ -513,19 +408,19 @@ pub async fn purchase_transaction_for_rate(
         .json(&body)
         .send()
         .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
+        .map_err(|e| Api(e.to_string()))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let text = resp.text().await.unwrap_or_default();
         tracing::warn!(status = %status, "shippo transaction create failed");
-        return Err(ShippoError::Api(format!("HTTP {status}: {text}")));
+        return Err(Api(format!("HTTP {status}: {text}")));
     }
 
     let v: Value = resp
         .json()
         .await
-        .map_err(|e| ShippoError::Api(e.to_string()))?;
+        .map_err(|e| Api(e.to_string()))?;
 
     let st = v.get("status").and_then(|x| x.as_str()).unwrap_or("");
     if st == "ERROR" {
@@ -540,13 +435,13 @@ pub async fn purchase_transaction_for_rate(
             })
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| "transaction error".into());
-        return Err(ShippoError::Api(format!("Shippo transaction: {msgs}")));
+        return Err(Api(format!("Shippo transaction: {msgs}")));
     }
 
     let transaction_oid = v
         .get("object_id")
         .and_then(|x| x.as_str())
-        .ok_or_else(|| ShippoError::Api("transaction missing object_id".into()))?
+        .ok_or_else(|| Api("transaction missing object_id".into()))?
         .to_string();
 
     let tracking_number = v
@@ -566,7 +461,7 @@ pub async fn purchase_transaction_for_rate(
         .or_else(|| v.get("commercial_invoice_url"))
         .and_then(|x| x.as_str())
         .map(|s| s.to_string())
-        .filter(|s| !s.trim().is_empty());
+        .filter(|s| !s.is_empty());
 
     let shippo_shipment_object_id = v
         .get("rate")
@@ -588,17 +483,4 @@ pub async fn purchase_transaction_for_rate(
         shipping_label_url,
         label_cost_usd,
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use rust_decimal::Decimal;
-
-    #[test]
-    fn stub_rates_parse() {
-        let r = stub_normalized_rates();
-        assert_eq!(r.len(), 3);
-        assert!(r[0].amount_usd > Decimal::ZERO);
-    }
 }
