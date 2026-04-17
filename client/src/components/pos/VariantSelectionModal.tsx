@@ -242,7 +242,7 @@ export default function VariantSelectionModal({
                  </div>
               </div>
 
-              {/* Price Intelligence Numpad (Integrated into Modal) */}
+              {/* Price Adjustment Controls (Integrated into Modal) */}
               <div className="rounded-3xl border-2 border-app-border bg-app-surface p-5 shadow-lg space-y-4">
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">

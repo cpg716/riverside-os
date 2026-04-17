@@ -1,22 +1,23 @@
-//! Morning Compass aggregates + wedding activity log (audit trail).
+//! Registry Priority Feed aggregates + wedding activity log (audit trail).
 
 use crate::logic::staff_schedule;
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 use serde::Serialize;
+use serde_json::Value;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
-pub struct CompassStats {
+pub struct RegistryPriorityStats {
     pub needs_measure: i64,
     pub needs_order: i64,
     pub overdue_pickups: i64,
     pub rush_orders: i64,
 }
 
-/// Same shape as API `ActionRow` for dashboard lists.
+/// Same shape as API `RegistryActionRow` for dashboard lists.
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
-pub struct CompassActionRow {
+pub struct RegistryActionRow {
     pub wedding_party_id: Uuid,
     pub wedding_member_id: Uuid,
     pub party_name: String,
@@ -27,11 +28,11 @@ pub struct CompassActionRow {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct MorningCompassBundle {
-    pub stats: CompassStats,
-    pub needs_measure: Vec<CompassActionRow>,
-    pub needs_order: Vec<CompassActionRow>,
-    pub overdue_pickups: Vec<CompassActionRow>,
+pub struct RegistryPriorityFeedBundle {
+    pub stats: RegistryPriorityStats,
+    pub needs_measure: Vec<RegistryActionRow>,
+    pub needs_order: Vec<RegistryActionRow>,
+    pub overdue_pickups: Vec<RegistryActionRow>,
     pub rush_orders: Vec<RushOrderActionRow>,
     /// Salesperson / sales_support roster members scheduled to work **today** (store-local date); uses `staff_effective_working_day`. Empty if schema not migrated or on error.
     #[serde(default)]
@@ -48,9 +49,11 @@ pub struct RushOrderActionRow {
     pub is_rush: bool,
 }
 
-/// High-level counts for Morning Compass cards (90-day window for measure; active parties only).
-pub async fn get_morning_compass_stats(pool: &PgPool) -> Result<CompassStats, sqlx::Error> {
-    sqlx::query_as::<_, CompassStats>(
+/// High-level counts for Registry Priority Feed cards (90-day window for measure; active parties only).
+pub async fn get_registry_priority_stats(
+    pool: &PgPool,
+) -> Result<RegistryPriorityStats, sqlx::Error> {
+    sqlx::query_as::<_, RegistryPriorityStats>(
         r#"
         SELECT
             COUNT(*) FILTER (
@@ -80,8 +83,8 @@ pub async fn get_morning_compass_stats(pool: &PgPool) -> Result<CompassStats, sq
     .await
 }
 
-async fn list_needs_measure(pool: &PgPool) -> Result<Vec<CompassActionRow>, sqlx::Error> {
-    sqlx::query_as::<_, CompassActionRow>(&format!(
+async fn list_needs_measure(pool: &PgPool) -> Result<Vec<RegistryActionRow>, sqlx::Error> {
+    sqlx::query_as::<_, RegistryActionRow>(&format!(
         r#"
         SELECT
             wp.id AS wedding_party_id,
@@ -98,14 +101,14 @@ async fn list_needs_measure(pool: &PgPool) -> Result<Vec<CompassActionRow>, sqlx
           AND wp.event_date <= (CURRENT_DATE + INTERVAL '90 days')
           AND wm.measured IS NOT TRUE
         ORDER BY wp.event_date ASC, customer_name ASC
-        "#
+        "#,
     ))
     .fetch_all(pool)
     .await
 }
 
-async fn list_needs_order(pool: &PgPool) -> Result<Vec<CompassActionRow>, sqlx::Error> {
-    sqlx::query_as::<_, CompassActionRow>(&format!(
+async fn list_needs_order(pool: &PgPool) -> Result<Vec<RegistryActionRow>, sqlx::Error> {
+    sqlx::query_as::<_, RegistryActionRow>(&format!(
         r#"
         SELECT
             wp.id AS wedding_party_id,
@@ -122,14 +125,14 @@ async fn list_needs_order(pool: &PgPool) -> Result<Vec<CompassActionRow>, sqlx::
           AND wm.measured = TRUE
           AND wm.suit_ordered IS NOT TRUE
         ORDER BY wp.event_date ASC, customer_name ASC
-        "#
+        "#,
     ))
     .fetch_all(pool)
     .await
 }
 
-async fn list_overdue_pickups(pool: &PgPool) -> Result<Vec<CompassActionRow>, sqlx::Error> {
-    sqlx::query_as::<_, CompassActionRow>(&format!(
+async fn list_overdue_pickups(pool: &PgPool) -> Result<Vec<RegistryActionRow>, sqlx::Error> {
+    sqlx::query_as::<_, RegistryActionRow>(&format!(
         r#"
         SELECT
             wp.id AS wedding_party_id,
@@ -146,7 +149,7 @@ async fn list_overdue_pickups(pool: &PgPool) -> Result<Vec<CompassActionRow>, sq
           AND wp.event_date < CURRENT_DATE
           AND (wm.pickup_status IS NULL OR wm.pickup_status <> 'complete')
         ORDER BY wp.event_date ASC, customer_name ASC
-        "#
+        "#,
     ))
     .fetch_all(pool)
     .await
@@ -155,19 +158,21 @@ async fn list_overdue_pickups(pool: &PgPool) -> Result<Vec<CompassActionRow>, sq
 async fn list_rush_orders(pool: &PgPool) -> Result<Vec<RushOrderActionRow>, sqlx::Error> {
     sqlx::query_as::<_, RushOrderActionRow>(
         r#"
-        SELECT 
-            o.id AS transaction_id,
-            COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Customer') AS customer_name,
-            total_price::text AS total_price,
-            booked_at,
-            need_by_date,
-            is_rush
-        FROM transactions o
-        LEFT JOIN customers c ON c.id = o.customer_id
-        WHERE (o.is_rush = TRUE OR (o.need_by_date IS NOT NULL AND o.need_by_date <= (CURRENT_DATE + INTERVAL '3 days')))
-          AND o.status <> 'fulfilled'
-          AND o.status <> 'cancelled'
-        ORDER BY o.need_by_date ASC, o.booked_at DESC
+        SELECT
+            t.id AS transaction_id,
+            COALESCE(
+                NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
+                NULLIF(TRIM(t.counterpoint_customer_code), ''),
+                'Unknown'
+            ) AS customer_name,
+            t.total_price::text,
+            t.booked_at,
+            t.need_by_date,
+            t.is_rush
+        FROM transactions t
+        LEFT JOIN customers c ON c.id = t.customer_id
+        WHERE is_rush = TRUE OR (need_by_date IS NOT NULL AND need_by_date <= (CURRENT_DATE + INTERVAL '5 days'))
+        ORDER BY t.is_rush DESC, t.need_by_date ASC
         LIMIT 20
         "#,
     )
@@ -175,26 +180,21 @@ async fn list_rush_orders(pool: &PgPool) -> Result<Vec<RushOrderActionRow>, sqlx
     .await
 }
 
-pub async fn get_morning_compass_bundle(
+pub async fn get_registry_priority_feed_bundle(
     pool: &PgPool,
-) -> Result<MorningCompassBundle, sqlx::Error> {
-    let stats = get_morning_compass_stats(pool).await?;
-    let (needs_measure, needs_order, overdue_pickups, rush_orders) = tokio::try_join!(
-        list_needs_measure(pool),
-        list_needs_order(pool),
-        list_overdue_pickups(pool),
-        list_rush_orders(pool),
-    )?;
-    let today_floor_staff = staff_schedule::list_working_floor_staff_for_local_today(pool)
-        .await
-        .unwrap_or_else(|e| {
-            tracing::warn!(
-                error = %e,
-                "morning compass: today_floor_staff omitted (apply migration 57 if staff schedule is expected)"
-            );
-            Vec::new()
-        });
-    Ok(MorningCompassBundle {
+) -> Result<RegistryPriorityFeedBundle, sqlx::Error> {
+    let stats = get_registry_priority_stats(pool).await?;
+    let needs_measure = list_needs_measure(pool).await?;
+    let needs_order = list_needs_order(pool).await?;
+    let overdue_pickups = list_overdue_pickups(pool).await?;
+    let rush_orders = list_rush_orders(pool).await?;
+
+    let today_floor_staff = match staff_schedule::get_today_floor_roster(pool).await {
+        Ok(v) => v,
+        Err(_) => vec![],
+    };
+
+    Ok(RegistryPriorityFeedBundle {
         stats,
         needs_measure,
         needs_order,
@@ -204,24 +204,19 @@ pub async fn get_morning_compass_bundle(
     })
 }
 
-pub async fn insert_wedding_activity<'e, E>(
+/// Records a wedding-related activity in the centralized logout.
+pub async fn insert_wedding_activity<'a, E>(
     executor: E,
     wedding_party_id: Uuid,
     wedding_member_id: Option<Uuid>,
     actor_name: &str,
     action_type: &str,
     description: &str,
-    metadata: serde_json::Value,
+    metadata: Value,
 ) -> Result<(), sqlx::Error>
 where
-    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+    E: sqlx::Executor<'a, Database = sqlx::Postgres>,
 {
-    let actor = actor_name.trim();
-    let actor = if actor.is_empty() {
-        "Riverside POS"
-    } else {
-        actor
-    };
     sqlx::query(
         r#"
         INSERT INTO wedding_activity_log (
@@ -232,7 +227,7 @@ where
     )
     .bind(wedding_party_id)
     .bind(wedding_member_id)
-    .bind(actor)
+    .bind(actor_name)
     .bind(action_type)
     .bind(description)
     .bind(metadata)

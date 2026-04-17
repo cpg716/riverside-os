@@ -13,7 +13,7 @@ Hub-aligned routes use **`require_staff_perm_or_pos_session`** (`server/src/midd
 1. **Valid open register session** headers (`x-riverside-pos-session-id` + `x-riverside-pos-session-token`), or  
 2. **Authenticated staff** with a valid **Access PIN** and the required permission in **effective permissions** (`GET /api/staff/effective-permissions`).
 
-Many browse/search/create paths use **`require_customer_access`** (signed-in staff or valid POS register session). **Merge** (`POST /api/customers/merge`), **duplicate review queue** (list / enqueue / dismiss), **group membership** changes, and **store credit adjust** are gated by **dedicated permission keys** — see [`server/src/api/customers.rs`](../server/src/api/customers.rs) and [`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md).
+Many browse/search/create paths use **`require_customer_access`** (signed-in staff or valid POS register session). **Merge** (`POST /api/customers/merge`), **duplicate review queue** (list / enqueue / dismiss), **group membership** changes, and **store credit adjust** are gated by **dedicated permission keys** — see [`server/src/api/customers/`](../server/src/api/customers/) and [`docs/STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md).
 
 ---
 

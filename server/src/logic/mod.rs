@@ -2,6 +2,9 @@
 
 pub mod backups;
 pub mod bug_reports;
+pub mod checkout_allocations;
+pub mod checkout_incentives;
+pub mod checkout_inventory;
 pub mod checkout_validate;
 pub mod commission_payout;
 pub mod counterpoint_staging;

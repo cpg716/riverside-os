@@ -10,7 +10,6 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::auth::pins::log_staff_access;
-use crate::logic::checkout_validate;
 use crate::logic::customer_open_deposit;
 use crate::logic::gift_card_ops;
 use crate::logic::pos_rms_charge;
@@ -18,11 +17,13 @@ use crate::logic::pricing_limits;
 use crate::logic::sales_commission;
 use crate::logic::store_credit;
 use crate::logic::tasks;
-use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd};
 use crate::logic::transaction_fulfillment::persist_fulfillment;
 use crate::logic::transaction_recalc;
 use crate::logic::weather;
 use crate::logic::weddings as wedding_logic;
+use crate::logic::{
+    checkout_allocations, checkout_incentives, checkout_inventory, checkout_validate,
+};
 use crate::models::{
     DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus, DbTransactionCategory,
 };
@@ -142,43 +143,6 @@ pub struct CheckoutResponse {
 }
 
 #[derive(Debug)]
-pub struct ResolvedPaymentSplit {
-    pub method: String,
-    pub amount: Decimal,
-    pub gift_card_code: Option<String>,
-    pub metadata: serde_json::Value,
-    pub stripe_intent_id: Option<String>,
-    pub check_number: Option<String>,
-    pub merchant_fee: Decimal,
-    pub net_amount: Decimal,
-    pub card_brand: Option<String>,
-    pub card_last4: Option<String>,
-}
-
-fn takeaway_line_total_decimal(items: &[CheckoutItem]) -> Decimal {
-    let mut s = Decimal::ZERO;
-    for i in items {
-        if i.fulfillment != DbFulfillmentType::Takeaway {
-            continue;
-        }
-        s += (i.unit_price + i.state_tax + i.local_tax) * Decimal::from(i.quantity);
-    }
-    s.round_dp(2)
-}
-
-fn tender_sum_excluding_deposit_like(splits: &[ResolvedPaymentSplit]) -> Decimal {
-    let mut s = Decimal::ZERO;
-    for sp in splits {
-        let m = sp.method.trim().to_ascii_lowercase();
-        if m == "deposit_ledger" || m == "open_deposit" {
-            continue;
-        }
-        s += sp.amount;
-    }
-    s.round_dp(2)
-}
-
-#[derive(Debug)]
 pub enum CheckoutDone {
     Idempotent {
         transaction_id: Uuid,
@@ -202,343 +166,6 @@ async fn staff_id_active(pool: &PgPool, id: Uuid) -> Result<bool, CheckoutError>
             .fetch_one(pool)
             .await?;
     Ok(ok)
-}
-
-/// One bundle cart line becomes multiple component lines (inventory, tax, commission) using
-/// retail-weighted apportionment of the bundle unit price.
-async fn expand_bundle_checkout_items(
-    pool: &PgPool,
-    global_employee_markup: Decimal,
-    items: Vec<CheckoutItem>,
-) -> Result<Vec<CheckoutItem>, CheckoutError> {
-    let mut out = Vec::new();
-    for item in items {
-        let is_bundle: bool =
-            sqlx::query_scalar("SELECT COALESCE(is_bundle, false) FROM products WHERE id = $1")
-                .bind(item.product_id)
-                .fetch_optional(pool)
-                .await?
-                .unwrap_or(false);
-
-        if !is_bundle {
-            out.push(item);
-            continue;
-        }
-
-        if item.discount_event_id.is_some() {
-            return Err(CheckoutError::InvalidPayload(
-                "Discount events cannot be applied to bundle package lines".to_string(),
-            ));
-        }
-
-        let rows: Vec<(Uuid, i32)> = sqlx::query_as(
-            r#"
-            SELECT component_variant_id, quantity
-            FROM product_bundle_components
-            WHERE bundle_product_id = $1
-            "#,
-        )
-        .bind(item.product_id)
-        .fetch_all(pool)
-        .await?;
-
-        if rows.is_empty() {
-            return Err(CheckoutError::InvalidPayload(
-                "Bundle product has no components configured".to_string(),
-            ));
-        }
-
-        #[derive(Clone)]
-        struct Comp {
-            product_id: Uuid,
-            variant_id: Uuid,
-            comp_qty: i32,
-            retail: Decimal,
-            unit_cost: Decimal,
-            tax_category: crate::logic::tax::TaxCategory,
-        }
-
-        let mut comps: Vec<Comp> = Vec::new();
-        let mut w_sum = Decimal::ZERO;
-        for (comp_variant_id, comp_qty) in rows {
-            if comp_qty <= 0 {
-                return Err(CheckoutError::InvalidPayload(
-                    "Invalid bundle component quantity".to_string(),
-                ));
-            }
-            let pid: Uuid =
-                sqlx::query_scalar("SELECT product_id FROM product_variants WHERE id = $1")
-                    .bind(comp_variant_id)
-                    .fetch_optional(pool)
-                    .await?
-                    .ok_or_else(|| {
-                        CheckoutError::InvalidPayload(format!(
-                            "Bundle component variant {comp_variant_id} not found"
-                        ))
-                    })?;
-
-            let resolved =
-                inventory::fetch_variant_by_ids(pool, comp_variant_id, pid, global_employee_markup)
-                    .await
-                    .map_err(|e| match e {
-                        inventory::InventoryError::SkuNotFound(s) => {
-                            CheckoutError::InvalidPayload(format!("bundle component: {s}"))
-                        }
-                        inventory::InventoryError::AmbiguousProduct(m) => {
-                            CheckoutError::InvalidPayload(m)
-                        }
-                        inventory::InventoryError::Unauthorized(m) => {
-                            CheckoutError::InvalidPayload(m)
-                        }
-                        inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-                    })?;
-
-            let w = resolved.standard_retail_price * Decimal::from(comp_qty);
-            w_sum += w;
-            comps.push(Comp {
-                product_id: pid,
-                variant_id: comp_variant_id,
-                comp_qty,
-                retail: resolved.standard_retail_price,
-                unit_cost: resolved.unit_cost,
-                tax_category: resolved.tax_category,
-            });
-        }
-
-        if w_sum <= Decimal::ZERO {
-            return Err(CheckoutError::InvalidPayload(
-                "Bundle has zero retail weight; check component prices".to_string(),
-            ));
-        }
-
-        let target_total = (item.unit_price * Decimal::from(item.quantity)).round_dp(2);
-        let n = comps.len();
-        let mut extensions: Vec<Decimal> = Vec::with_capacity(n);
-        for (i, c) in comps.iter().enumerate() {
-            let raw = target_total * c.retail * Decimal::from(c.comp_qty) / w_sum;
-            if i + 1 == n {
-                let allocated: Decimal = extensions.iter().copied().sum();
-                extensions.push((target_total - allocated).max(Decimal::ZERO).round_dp(2));
-            } else {
-                extensions.push(raw.round_dp(2));
-            }
-        }
-
-        let parent_has_override = item
-            .price_override_reason
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
-
-        for (c, ext) in comps.into_iter().zip(extensions) {
-            let line_qty = c.comp_qty * item.quantity;
-            if line_qty <= 0 {
-                continue;
-            }
-            let unit_price = (ext / Decimal::from(line_qty)).round_dp(2);
-            let state_tax = nys_state_tax_usd(c.tax_category, unit_price, unit_price);
-            let local_tax = erie_local_tax_usd(c.tax_category, unit_price, unit_price);
-
-            let (price_override_reason, original_unit_price) = if parent_has_override {
-                (
-                    item.price_override_reason.clone(),
-                    Some(c.retail).or(item.original_unit_price),
-                )
-            } else {
-                (
-                    Some("Bundle package (apportioned)".to_string()),
-                    Some(c.retail),
-                )
-            };
-
-            out.push(CheckoutItem {
-                product_id: c.product_id,
-                variant_id: c.variant_id,
-                fulfillment: item.fulfillment,
-                quantity: line_qty,
-                unit_price,
-                original_unit_price,
-                price_override_reason,
-                unit_cost: c.unit_cost,
-                state_tax,
-                local_tax,
-                salesperson_id: item.salesperson_id,
-                discount_event_id: None,
-                gift_card_load_code: None,
-                custom_item_type: item.custom_item_type.clone(),
-                is_rush: item.is_rush,
-                need_by_date: item.need_by_date,
-                needs_gift_wrap: item.needs_gift_wrap,
-            });
-        }
-    }
-    Ok(out)
-}
-
-/// Builds normalized split rows and a human-readable label for wedding activity / receipts.
-fn resolve_payment_splits(
-    payload: &CheckoutRequest,
-) -> Result<(Vec<ResolvedPaymentSplit>, String), CheckoutError> {
-    let amount_paid = payload.amount_paid.round_dp(2);
-
-    if let Some(ref splits) = payload.payment_splits {
-        if !splits.is_empty() {
-            let mut out: Vec<ResolvedPaymentSplit> = Vec::new();
-            let mut sum = Decimal::ZERO;
-            let mut deposit_sum = Decimal::ZERO;
-            for line in splits {
-                let m = line.payment_method.trim();
-                if m.is_empty() || m.len() > 50 {
-                    return Err(CheckoutError::InvalidPayload(
-                        "each split needs payment_method (max 50 characters)".to_string(),
-                    ));
-                }
-                if m.eq_ignore_ascii_case("gift_card") {
-                    let st = line
-                        .sub_type
-                        .as_deref()
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .ok_or_else(|| {
-                            CheckoutError::InvalidPayload(
-                                "gift_card split requires sub_type (`paid_liability`, `loyalty_giveaway`, or `donated_giveaway`)".to_string(),
-                            )
-                        })?;
-                    if st != "paid_liability"
-                        && st != "loyalty_giveaway"
-                        && st != "donated_giveaway"
-                    {
-                        return Err(CheckoutError::InvalidPayload(
-                            "gift_card sub_type must be `paid_liability`, `loyalty_giveaway`, or `donated_giveaway`".to_string(),
-                        ));
-                    }
-                } else if line
-                    .sub_type
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .is_some()
-                {
-                    return Err(CheckoutError::InvalidPayload(
-                        "sub_type is only allowed for gift_card payment_method".to_string(),
-                    ));
-                }
-                let a = line.amount.round_dp(2);
-                if a <= Decimal::ZERO {
-                    return Err(CheckoutError::InvalidPayload(
-                        "split amounts must be positive".to_string(),
-                    ));
-                }
-                sum += a;
-                let applied_deposit_amount = line
-                    .applied_deposit_amount
-                    .unwrap_or(Decimal::ZERO)
-                    .round_dp(2);
-                if applied_deposit_amount < Decimal::ZERO {
-                    return Err(CheckoutError::InvalidPayload(
-                        "applied_deposit_amount cannot be negative".to_string(),
-                    ));
-                }
-                if applied_deposit_amount > a {
-                    return Err(CheckoutError::InvalidPayload(
-                        "applied_deposit_amount cannot exceed split amount".to_string(),
-                    ));
-                }
-                deposit_sum += applied_deposit_amount;
-                let gift_card_code = line
-                    .gift_card_code
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|s| !s.is_empty())
-                    .map(str::to_string);
-
-                let incoming_meta = line.metadata.clone().unwrap_or_else(|| json!({}));
-                let stripe_intent_id = incoming_meta
-                    .get("stripe_intent_id")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let card_brand = incoming_meta
-                    .get("card_brand")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let card_last4 = incoming_meta
-                    .get("card_last4")
-                    .and_then(|v| v.as_str())
-                    .map(|s| s.to_string());
-                let check_number = line.check_number.clone().or_else(|| {
-                    incoming_meta
-                        .get("check_number")
-                        .and_then(|v| v.as_str())
-                        .map(|s| s.to_string())
-                });
-
-                let fee = if stripe_intent_id.is_some() {
-                    estimate_stripe_fee(
-                        a,
-                        m.to_lowercase().contains("terminal")
-                            || m.to_lowercase().contains("present"),
-                    )
-                } else {
-                    Decimal::ZERO
-                };
-
-                out.push(ResolvedPaymentSplit {
-                    method: m.to_string(),
-                    amount: a,
-                    gift_card_code: gift_card_code.clone(),
-                    metadata: incoming_meta,
-                    stripe_intent_id,
-                    check_number,
-                    merchant_fee: fee,
-                    net_amount: a - fee,
-                    card_brand,
-                    card_last4,
-                });
-            }
-            if sum.round_dp(2) != amount_paid {
-                return Err(CheckoutError::InvalidPayload(
-                    "payment_splits must sum to amount_paid".to_string(),
-                ));
-            }
-            if deposit_sum > amount_paid {
-                return Err(CheckoutError::InvalidPayload(
-                    "sum(applied_deposit_amount) cannot exceed amount_paid".to_string(),
-                ));
-            }
-
-            let label = if out.len() == 1 {
-                out[0].method.clone()
-            } else {
-                out.iter()
-                    .map(|s| format!("{} ${}", s.method, s.amount))
-                    .collect::<Vec<_>>()
-                    .join(" + ")
-            };
-            return Ok((out, label));
-        }
-    }
-
-    let m = payload.payment_method.trim();
-    if m.is_empty() || m.len() > 50 {
-        return Err(CheckoutError::InvalidPayload(
-            "payment_method is required (max 50 characters)".to_string(),
-        ));
-    }
-    Ok((
-        vec![ResolvedPaymentSplit {
-            method: m.to_string(),
-            amount: amount_paid,
-            gift_card_code: None,
-            metadata: json!({}),
-            stripe_intent_id: None,
-            check_number: None,
-            merchant_fee: Decimal::ZERO,
-            net_amount: amount_paid,
-            card_brand: None,
-            card_last4: None,
-        }],
-        m.to_string(),
-    ))
 }
 
 pub async fn execute_checkout(
@@ -596,7 +223,7 @@ pub async fn execute_checkout(
         }
     }
 
-    payload.items = expand_bundle_checkout_items(
+    payload.items = checkout_inventory::expand_bundle_checkout_items(
         pool,
         global_employee_markup,
         std::mem::take(&mut payload.items),
@@ -765,145 +392,24 @@ pub async fn execute_checkout(
     let max_disc_pct =
         pricing_limits::max_discount_percent_for_staff(pool, payload.operator_staff_id).await?;
 
-    for item in &payload.items {
-        let has_ov = item
-            .price_override_reason
-            .as_ref()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(false);
-        if !has_ov {
-            continue;
-        }
-        let resolved = inventory::fetch_variant_by_ids(
-            pool,
-            item.variant_id,
-            item.product_id,
-            global_employee_markup,
-        )
-        .await
-        .map_err(|e| match e {
-            inventory::InventoryError::SkuNotFound(s) => {
-                CheckoutError::InvalidPayload(format!("checkout line: {s}"))
-            }
-            inventory::InventoryError::AmbiguousProduct(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-        })?;
-        let retail = resolved.standard_retail_price;
-        if retail <= Decimal::ZERO {
-            continue;
-        }
-        if item.unit_price >= retail {
-            continue;
-        }
-        let pct_off = ((retail - item.unit_price) / retail) * Decimal::from(100);
-        let tol = Decimal::new(5, 1);
-        if pct_off > max_disc_pct + tol {
-            return Err(CheckoutError::InvalidPayload(format!(
-                "Line discount {:.2}% exceeds role maximum {:.2}% for this register operator",
-                pct_off.round_dp(2),
-                max_disc_pct
-            )));
-        }
-    }
+    checkout_incentives::validate_role_discount_limits(
+        pool,
+        &payload.items,
+        max_disc_pct,
+        global_employee_markup,
+    )
+    .await?;
 
-    let mut discount_event_labels: HashMap<usize, String> = HashMap::new();
-    for (idx, item) in payload.items.iter().enumerate() {
-        let Some(eid) = item.discount_event_id else {
-            continue;
-        };
-        let resolved = inventory::fetch_variant_by_ids(
-            pool,
-            item.variant_id,
-            item.product_id,
-            global_employee_markup,
-        )
-        .await
-        .map_err(|e| match e {
-            inventory::InventoryError::SkuNotFound(s) => {
-                CheckoutError::InvalidPayload(format!("checkout line: {s}"))
-            }
-            inventory::InventoryError::AmbiguousProduct(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Unauthorized(m) => CheckoutError::InvalidPayload(m),
-            inventory::InventoryError::Database(d) => CheckoutError::Database(d),
-        })?;
-        if resolved.pos_line_kind.as_deref() == Some("rms_charge_payment") {
-            return Err(CheckoutError::InvalidPayload(
-                "Discount events cannot apply to RMS CHARGE PAYMENT".to_string(),
-            ));
-        }
-        if resolved.pos_line_kind.as_deref() == Some("pos_gift_card_load") {
-            return Err(CheckoutError::InvalidPayload(
-                "Discount events cannot apply to POS GIFT CARD LOAD".to_string(),
-            ));
-        }
-        let row: Option<(Decimal, String, bool)> = sqlx::query_as(
-            r#"
-            SELECT de.percent_off, de.receipt_label, de.is_active
-            FROM discount_events de
-            WHERE de.id = $1
-              AND de.starts_at <= now()
-              AND de.ends_at >= now()
-              AND (
-                (
-                  de.scope_type = 'variants'
-                  AND EXISTS (
-                    SELECT 1 FROM discount_event_variants dv
-                    WHERE dv.event_id = de.id AND dv.variant_id = $2
-                  )
-                )
-                OR (
-                  de.scope_type = 'category'
-                  AND de.scope_category_id IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1 FROM products p
-                    WHERE p.id = $3 AND p.category_id = de.scope_category_id
-                  )
-                )
-                OR (
-                  de.scope_type = 'vendor'
-                  AND de.scope_vendor_id IS NOT NULL
-                  AND EXISTS (
-                    SELECT 1 FROM products p
-                    WHERE p.id = $3 AND p.primary_vendor_id = de.scope_vendor_id
-                  )
-                )
-              )
-            "#,
-        )
-        .bind(eid)
-        .bind(item.variant_id)
-        .bind(item.product_id)
-        .fetch_optional(pool)
-        .await?;
-        let Some((pct_off, receipt_label, is_active)) = row else {
-            return Err(CheckoutError::InvalidPayload(
-                "discount_event_id is not valid for this variant, dates, or is inactive"
-                    .to_string(),
-            ));
-        };
-        if !is_active {
-            return Err(CheckoutError::InvalidPayload(
-                "discount event is not active".to_string(),
-            ));
-        }
-        let retail = resolved.standard_retail_price;
-        let expected_unit =
-            (retail * (Decimal::from(100) - pct_off) / Decimal::from(100)).round_dp(2);
-        if !checkout_validate::money_close_decimal(item.unit_price, expected_unit) {
-            return Err(CheckoutError::InvalidPayload(format!(
-                "unit price for variant {} does not match discount event {:.2}% off retail",
-                item.variant_id, pct_off
-            )));
-        }
-        discount_event_labels.insert(idx, receipt_label);
-    }
+    let discount_event_labels =
+        checkout_incentives::validate_discount_events(pool, &payload.items, global_employee_markup)
+            .await?;
 
-    let (payment_splits, payment_activity_label) = resolve_payment_splits(&payload)?;
+    let (payment_splits, payment_activity_label) =
+        checkout_allocations::resolve_payment_splits(&payload)?;
 
     let has_rms_charge = payment_splits
         .iter()
-        .any(|s| pos_rms_charge::is_rms_method(&s.method));
+        .any(|s| crate::logic::pos_rms_charge::is_rms_method(&s.method));
 
     for s in &payment_splits {
         if s.method.trim().eq_ignore_ascii_case("store_credit") && payload.customer_id.is_none() {
@@ -1054,8 +560,9 @@ pub async fn execute_checkout(
         ));
     }
 
-    let takeaway_total = takeaway_line_total_decimal(&payload.items);
-    let tender_ex_deposit = tender_sum_excluding_deposit_like(&payment_splits);
+    let takeaway_total = checkout_inventory::takeaway_line_total_decimal(&payload.items);
+    let tender_ex_deposit =
+        checkout_allocations::tender_sum_excluding_deposit_like(&payment_splits);
     if takeaway_total > Decimal::ZERO && tender_ex_deposit + tol < takeaway_total {
         return Err(CheckoutError::InvalidPayload(
             "Takeaway merchandise and tax must be paid in full with cash-equivalent tenders (deposit ledger and open deposit cannot satisfy takeaway-only amounts)."
@@ -1594,7 +1101,8 @@ pub async fn execute_checkout(
     }
 
     for (sid, staff_items) in salesperson_items {
-        let incentives = evaluate_combo_incentives(&mut tx, &staff_items).await?;
+        let incentives =
+            checkout_incentives::evaluate_combo_incentives(&mut tx, &staff_items).await?;
         for inc in incentives {
             sqlx::query(
                 r#"
@@ -2182,148 +1690,4 @@ pub async fn execute_checkout(
         amount_paid,
         total_price,
     })
-}
-
-#[derive(Debug, Serialize)]
-pub struct ComboSpiffReward {
-    pub product_id: Uuid,
-    pub variant_id: Uuid,
-    pub reward_amount: Decimal,
-    pub label: String,
-}
-
-/// Scans a salesperson's set of items for satisfied bundle rules (e.g. Suit + Tie + Shirt).
-/// Returns a list of rewards to be inserted as 0.00 lines.
-pub async fn evaluate_combo_incentives(
-    conn: &mut sqlx::PgConnection,
-    items: &[&CheckoutItem],
-) -> Result<Vec<ComboSpiffReward>, CheckoutError> {
-    let mut rewards = Vec::new();
-    if items.is_empty() {
-        return Ok(rewards);
-    }
-
-    // 1) Fetch all active combo rules
-    let rules: Vec<sqlx::types::JsonValue> = sqlx::query_scalar(
-        r#"
-        SELECT json_build_object(
-            'id', r.id,
-            'label', r.label,
-            'reward_amount', r.reward_amount,
-            'items', (
-                SELECT json_agg(json_build_object(
-                    'match_type', ri.match_type,
-                    'match_id', ri.match_id,
-                    'qty_required', ri.qty_required
-                ))
-                FROM commission_combo_rule_items ri
-                WHERE ri.rule_id = r.id
-            )
-        )
-        FROM commission_combo_rules r
-        WHERE r.is_active = TRUE
-        "#,
-    )
-    .fetch_all(&mut *conn)
-    .await
-    .map_err(CheckoutError::Database)?;
-
-    // 2) Map item counts for current salesperson
-    let mut cat_counts: HashMap<Uuid, i32> = HashMap::new();
-    let mut prod_counts: HashMap<Uuid, i32> = HashMap::new();
-    // Cache categories to avoid re-querying in inner loops
-    let mut item_cat_map: HashMap<Uuid, Uuid> = HashMap::new();
-
-    for item in items {
-        *prod_counts.entry(item.product_id).or_default() += item.quantity;
-        if let Some(cid) =
-            sqlx::query_scalar::<_, Uuid>("SELECT category_id FROM products WHERE id = $1")
-                .bind(item.product_id)
-                .fetch_optional(&mut *conn)
-                .await
-                .map_err(CheckoutError::Database)?
-        {
-            *cat_counts.entry(cid).or_default() += item.quantity;
-            item_cat_map.insert(item.product_id, cid);
-        }
-    }
-
-    // 3) Evaluate rules (repeatedly to catch multiple combos if per-bundle is allowed)
-    for rule_json in rules {
-        let rule_id = Uuid::parse_str(rule_json["id"].as_str().unwrap_or("")).unwrap_or_default();
-        let reward_val = rule_json["reward_amount"].as_f64().unwrap_or(0.0);
-        let reward_amount = Decimal::from_f64_retain(reward_val).unwrap_or(Decimal::ZERO);
-        let label = rule_json["label"].as_str().unwrap_or("SPIFF").to_string();
-        let requirements = rule_json["items"].as_array();
-
-        if let Some(reqs) = requirements {
-            loop {
-                let mut satisfied = true;
-                for req in reqs {
-                    let m_type = req["match_type"].as_str().unwrap_or("");
-                    let m_id =
-                        Uuid::parse_str(req["match_id"].as_str().unwrap_or("")).unwrap_or_default();
-                    let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
-
-                    let available = if m_type == "product" {
-                        prod_counts.get(&m_id).copied().unwrap_or(0)
-                    } else {
-                        cat_counts.get(&m_id).copied().unwrap_or(0)
-                    };
-
-                    if available < qty_req {
-                        satisfied = false;
-                        break;
-                    }
-                }
-
-                if satisfied {
-                    // Consume quantities
-                    for req in reqs {
-                        let m_type = req["match_type"].as_str().unwrap_or("");
-                        let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or(""))
-                            .unwrap_or_default();
-                        let qty_req = req["qty_required"].as_i64().unwrap_or(1) as i32;
-
-                        if m_type == "product" {
-                            prod_counts.entry(m_id).and_modify(|q| *q -= qty_req);
-                        } else {
-                            cat_counts.entry(m_id).and_modify(|q| *q -= qty_req);
-                        }
-                    }
-
-                    // Add reward line metadata. Use a placeholder variant/product context if needed.
-                    // For reporting, we'll use a generic "Promotional SPIFF" product_id if one exists,
-                    // or just use the rule_id as product_id (conceptually) if the schema allows.
-                    // Actually, let's use a fixed "SPIFF REWARD" product UUID or the rule_id.
-                    rewards.push(ComboSpiffReward {
-                        product_id: rule_id, // Use rule id as product context for now
-                        variant_id: rule_id,
-                        reward_amount,
-                        label: label.clone(),
-                    });
-                } else {
-                    break;
-                }
-            }
-        }
-    }
-
-    Ok(rewards)
-}
-
-/// Estimates Stripe processing fees to provide immediate net financial reporting.
-/// In-person (Terminal) defaults to 2.7% + $0.05. Online / Manual Entry defaults to 2.9% + $0.30.
-fn estimate_stripe_fee(amount: Decimal, is_terminal: bool) -> Decimal {
-    if is_terminal {
-        // 2.7% + 5 cents
-        let pct = amount * Decimal::new(27, 3); // 0.027
-        let fixed = Decimal::new(5, 2); // 0.05
-        (pct + fixed).round_dp(2)
-    } else {
-        // 2.9% + 30 cents
-        let pct = amount * Decimal::new(29, 3); // 0.029
-        let fixed = Decimal::new(30, 2); // 0.30
-        (pct + fixed).round_dp(2)
-    }
 }

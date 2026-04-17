@@ -9,6 +9,9 @@ export type RosOpenRegisterFromWmMember = {
   status: string;
   measured: boolean;
   suit_ordered: boolean;
+  received?: boolean | null;
+  fitting?: boolean | null;
+  pickup?: boolean | 'partial' | null;
   customer_id: string;
   customer_email?: string | null;
   customer_phone?: string | null;

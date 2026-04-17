@@ -24,7 +24,7 @@ The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillme
 
 ## API Integration
 
-The `GET /api/orders/fulfillment-queue` endpoint returns a summary of these counts and a ranked list of orders. 
+The `GET /api/transactions/fulfillment-queue` endpoint returns a summary of these counts and a ranked list of transactions.
 *   **Query Params**: `limit`, `offset`.
 *   **Permissions**: `orders.view`.
 
@@ -37,5 +37,5 @@ A high-density dashboard used in the **Operations** workspace.
 
 ## Operational Best Practices
 *   **Mid-Day**: Focused effort on **Rush** and **Due Soon** items.
-*   **Intelligence Check**: Review the **Wedding Health Heatmap** in the Wedding Manager to identify "silent failures" (missing measurements) before they hit the fulfillment queue.
+*   **Inventory Overview Check**: Review the **Wedding Health Heatmap** in the Wedding Manager to identify "silent failures" (missing measurements) before they hit the fulfillment queue.
 *   **Manager Review**: Check the **Blocked** filter weekly to prune dead orders.

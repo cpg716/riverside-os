@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { useCallback, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import PosSidebar, { type PosTabId } from "../pos/PosSidebar";
+import { PosWeddingWorkspace } from "../pos/PosWeddingWorkspace";
 import Cart from "../pos/Cart";
 import ProcurementHub from "../pos/ProcurementHub";
 import CloseRegisterModal from "../pos/CloseRegisterModal";
@@ -21,19 +22,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { LogOut, ShieldCheck, ShieldAlert, ShoppingCart } from "lucide-react";
 
 
-export interface SessionOpenedPayload {
-  cashierName: string;
-  cashierCode: string;
-  cashierAvatarKey: string;
-  floatAmount: number;
-  sessionId: string;
-  registerLane: number;
-  registerOrdinal: number;
-  lifecycleStatus: string;
-  role: string;
-  receiptTimezone?: string;
-  posApiToken?: string;
-}
+import { type SessionOpenedPayload } from "../pos/types";
 
 interface PosShellProps {
   activeTab: SidebarTabId;
@@ -101,7 +90,7 @@ export default function PosShell({
     if (t === "dashboard" || t === "register" || t === "tasks" || t === "inventory" || t === "weddings" || t === "alterations" || t === "reports" || t === "gift-cards" || t === "loyalty" || t === "layaways" || t === "settings") {
       return t as PosTabId;
     }
-    return "register";
+    return "dashboard";
   });
   const [managerMode, setManagerMode] = useState(false);
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
@@ -130,8 +119,15 @@ export default function PosShell({
 
     const pendingSku = pendingInventorySku?.trim() ?? "";
     const pending = pendingPosCustomer || pendingPosTransactionId || (pendingSku.length > 0 ? pendingSku : null) || pendingWeddingPosLink;
-    if (pending) { setActivePosTab("register"); } else { setActivePosTab("dashboard"); }
-  }, [isRegisterOpen, sessionId, pendingPosCustomer, pendingPosTransactionId, pendingInventorySku, pendingWeddingPosLink]);
+    if (pending) { 
+      setActivePosTab("register"); 
+    } else if (activePosTab === "register") {
+      // If we are already in the register (cart), and no pending objects arrived to pull us there,
+      // stay where we are instead of snapping to dashboard.
+    } else { 
+      setActivePosTab("dashboard"); 
+    }
+  }, [activePosTab, isRegisterOpen, sessionId, pendingPosCustomer, pendingPosTransactionId, pendingInventorySku, pendingWeddingPosLink]);
 
   useEffect(() => {
     if (activePosTab !== "alterations") return;
@@ -144,11 +140,12 @@ export default function PosShell({
     onSubSectionChange(activePosTab);
   }, [activePosTab, onSubSectionChange]);
 
-  const handleSessionOpenedWithAuth: typeof onSessionOpened = (p) => {
-    const code = p.cashierCode.trim();
-    if (code.length === 4) { setStaffCredentials(code, code); }
-    onSessionOpened(p);
-  };
+  const handleSessionOpenedWithAuth = useCallback(
+    (p: SessionOpenedPayload) => {
+      onSessionOpened(p);
+    },
+    [onSessionOpened],
+  );
 
   const handleAddItemFromHub = (sku: string) => {
     const s = sku.trim();
@@ -234,7 +231,7 @@ export default function PosShell({
               <RegisterDashboard registerOrdinal={registerOrdinal} cashierName={cashierName} onGoToRegister={() => setActivePosTab("register")} onGoToWeddings={() => setActivePosTab("weddings")} onOpenWeddingParty={onOpenWeddingParty} />
             ))}
 
-          {(activePosTab === "register" || activePosTab === "weddings") && (
+          {activePosTab === "register" && (
             <div className="relative flex min-h-0 flex-1 flex-col">
               {!isRegisterOpen ? ( <RegisterOverlay onSessionOpened={handleSessionOpenedWithAuth} /> ) : sessionId ? (
                 <Cart
@@ -247,16 +244,20 @@ export default function PosShell({
                   initialOrderId={pendingPosTransactionId}
                   onInitialOrderConsumed={clearPendingPosOrder}
                   managerMode={managerMode}
-                  initialWeddingLookupOpen={activePosTab === "weddings"}
                   initialWeddingPosLink={pendingWeddingPosLink}
                   onInitialWeddingPosLinkConsumed={clearPendingWeddingPosLink}
                   pendingInventorySku={pendingInventorySku}
                   onPendingInventorySkuConsumed={() => setPendingInventorySku(null)}
                   onSaleCompleted={() => setActivePosTab("register")}
                   onExitPosMode={onExitPosMode}
+                  onCancelSignIn={() => setActivePosTab("dashboard")}
                 />
               ) : null}
             </div>
+          )}
+
+          {activePosTab === "weddings" && (
+            <PosWeddingWorkspace />
           )}
 
           {activePosTab === "tasks" && isRegisterOpen && sessionId ? ( <RegisterTasksPanel /> ) : activePosTab === "tasks" ? (

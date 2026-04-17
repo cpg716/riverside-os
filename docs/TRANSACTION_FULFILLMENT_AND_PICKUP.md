@@ -160,7 +160,7 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 |------|---------|
 | `client/src/components/pos/TransactionLoadModal.tsx` | Customer transaction loader UI |
 | `client/src/components/pos/TransactionReviewModal.tsx` | Transaction review before payment |
-| `server/src/api/transactions.rs` | API: list_transactions, mark_transaction_pickup |
+| `server/src/api/transactions/` | API: list_transactions, mark_transaction_pickup |
 | `server/src/logic/transaction_recalc.rs` | Balance recalculation |
 | `server/src/logic/transaction_checkout.rs` | Checkout with fulfillment fields |
 | `migrations/142_transactions_and_fulfillment.sql` | stripe_payment_method_id column |

@@ -116,7 +116,7 @@ Make ROS consistently fast during real store pressure.
 
 ---
 
-## Pillar 3 — Manager Intelligence Layer (Power)
+## Pillar 3 — Manager Inventory Overview Layer (Power)
 Turn ROS into a daily decision engine, not just a system of record.
 
 **Goals**
@@ -181,7 +181,7 @@ Turn ROS into a daily decision engine, not just a system of record.
 
 ---
 
-## Phase 3 (Weeks 8–12): Intelligence and Prescriptive Actions
+## Phase 3 (Weeks 8–12): Inventory Overview and Prescriptive Actions
 
 **Objective:** make ROS proactively guide managers.
 
@@ -302,7 +302,7 @@ Turn ROS into a daily decision engine, not just a system of record.
 - **Team split (recommended):**
   - Track A: Reliability + observability
   - Track B: Workflow polish
-  - Track C: Intelligence layer
+  - Track C: Inventory Overview layer
 - **Release approach:** incremental behind feature flags where needed.
 - **Validation:** enforce lint/typecheck/build + targeted E2E + regression matrix updates.
 

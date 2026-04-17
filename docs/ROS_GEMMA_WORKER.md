@@ -1,6 +1,6 @@
 # ros-gemma — ROS-AI worker (loopback HTTP)
 
-> **Optional / historical (2026)** — The in-app **`/api/ai/*`** path and **`ai_doc_chunk`** table were **retired** (migration **78**). This worker is **not** required for shipped Help Center search. Any **new** local inference is **ROSIE** (**RiversideOS Intelligence Engine**) per **`docs/PLAN_LOCAL_LLM_HELP.md`** — not a revival of this worker as-is; see **`ROS_AI_INTEGRATION_PLAN.md`**.
+> **Optional / historical (2026)** — The in-app **`/api/ai/*`** path and **`ai_doc_chunk`** table were **retired** (migration **78**). This worker is **not** required for shipped Help Center search. Any **new** local inference is **ROSIE** (**RiversideOS Inventory Overview Engine**) per **`docs/PLAN_LOCAL_LLM_HELP.md`** — not a revival of this worker as-is; see **`ROS_AI_INTEGRATION_PLAN.md`**.
 
 **Purpose:** Small process that serves **`POST /v1/complete`** so **riverside-server** stays isolated from LLM memory and crashes.
 

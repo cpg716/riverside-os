@@ -13,8 +13,8 @@ Carefully adding new features from the overhaul stash while maintaining OLD UI s
 - **Next**: Wire into App.tsx with Cmd+K trigger
 - **Test**: Press Cmd+K, search works, navigation works
 
-### 2. InventoryIntelligencePanel
-- **File**: `client/src/components/inventory/InventoryIntelligencePanel.tsx`
+### 2. InventoryInventory OverviewPanel
+- **File**: `client/src/components/inventory/InventoryInventory OverviewPanel.tsx`
 - **Status**: Pending review
 - **Next**: Style check, wire into Inventory workspace
 

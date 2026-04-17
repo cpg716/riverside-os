@@ -525,7 +525,7 @@ pub async fn execute_counterpoint_inventory_batch(
         let r = sqlx::query(
             r#"
             UPDATE product_variants AS v
-            SET 
+            SET
                 stock_on_hand = u.soh,
                 cost_override = COALESCE(u.cost, v.cost_override)
             FROM UNNEST($1::text[], $2::int[], $3::numeric[]) AS u(key, soh, cost)
@@ -549,7 +549,7 @@ pub async fn execute_counterpoint_inventory_batch(
         let r = sqlx::query(
             r#"
             UPDATE product_variants AS v
-            SET 
+            SET
                 stock_on_hand = u.soh,
                 cost_override = COALESCE(u.cost, v.cost_override),
                 counterpoint_item_key = COALESCE(v.counterpoint_item_key, u.key)
@@ -2037,6 +2037,27 @@ pub async fn execute_counterpoint_ticket_batch(
     .into_iter()
     .collect();
 
+    // Self-heal: Discover any new payment codes in this batch and add to mapping table
+    let mut batch_pmt_codes = HashSet::new();
+    for tkt in &payload.rows {
+        for pmt in &tkt.payments {
+            let code = pmt.pmt_typ.trim().to_uppercase();
+            if !pmt_map.contains_key(&code) {
+                batch_pmt_codes.insert(code);
+            }
+        }
+    }
+    if !batch_pmt_codes.is_empty() {
+        for code in batch_pmt_codes {
+            sqlx::query(
+                "INSERT INTO counterpoint_payment_method_map (cp_pmt_typ, ros_method) VALUES ($1, 'cash') ON CONFLICT DO NOTHING"
+            )
+            .bind(&code)
+            .execute(pool)
+            .await?;
+        }
+    }
+
     // Batch pre-fetch variants to avoid per-line DB lookups (massive bottleneck for 13k+ tickets)
     let mut all_item_keys = HashSet::new();
     let mut all_skus = HashSet::new();
@@ -2099,8 +2120,8 @@ pub async fn execute_counterpoint_ticket_batch(
         // This handles cases where tickets have C- but DB doesn't, or vice versa
         let rows: Vec<(String, Uuid)> = sqlx::query_as(
             r#"
-            SELECT customer_code, id FROM customers 
-            WHERE customer_code = ANY($1) 
+            SELECT customer_code, id FROM customers
+            WHERE customer_code = ANY($1)
                OR customer_code IN (SELECT 'C-' || c FROM unnest($1::text[]) c)
                OR customer_code IN (SELECT substring(c from 3) FROM unnest($1::text[]) c WHERE c LIKE 'C-%')
             "#
@@ -2311,8 +2332,8 @@ pub async fn execute_counterpoint_ticket_batch(
             r#"
             INSERT INTO transactions (
                 customer_id, counterpoint_ticket_ref, counterpoint_customer_code,
-                is_counterpoint_import, status, booked_at, total_price, 
-                amount_paid, balance_due, processed_by_staff_id, 
+                is_counterpoint_import, status, booked_at, total_price,
+                amount_paid, balance_due, processed_by_staff_id,
                 primary_salesperson_id, notes
             )
             VALUES ($1, $2, $3, TRUE, $4::order_status, $5, $6, $7, $8, $9, $10, $11)
@@ -2348,10 +2369,7 @@ pub async fn execute_counterpoint_ticket_batch(
         }
 
         for pmt in &tkt.payments {
-            let method = pmt_map
-                .get(&pmt.pmt_typ.trim().to_uppercase())
-                .cloned()
-                .unwrap_or_else(|| "cash".to_string());
+            let method = resolve_payment_method(&mut tx, &pmt.pmt_typ).await;
 
             let txn_id: Uuid = sqlx::query_scalar(
                 r#"
@@ -2471,10 +2489,10 @@ pub async fn execute_counterpoint_ticket_batch(
                 state_tax, local_tax, applied_spiff, calculated_commission,
                 counterpoint_reason_code
             )
-            SELECT 
-                u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type, 
+            SELECT
+                u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type,
                 u.qty, u.price, u.cost, 0, 0, 0, 0, u.reason
-            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[]) 
+            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[])
               AS u(tid, pid, vid, sid, qty, price, cost, reason)
             "#,
         )
@@ -2699,6 +2717,35 @@ pub async fn execute_counterpoint_open_doc_batch(
     .into_iter()
     .collect();
 
+    let pmt_map: HashMap<String, String> = sqlx::query_as::<_, (String, String)>(
+        "SELECT cp_pmt_typ, ros_method FROM counterpoint_payment_method_map",
+    )
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .collect();
+
+    // Self-heal: Discover any new payment codes in this batch and add to mapping table
+    let mut batch_pmt_codes = HashSet::new();
+    for doc in &payload.rows {
+        for pmt in &doc.payments {
+            let code = pmt.pmt_typ.trim().to_uppercase();
+            if !pmt_map.contains_key(&code) {
+                batch_pmt_codes.insert(code);
+            }
+        }
+    }
+    if !batch_pmt_codes.is_empty() {
+        for code in batch_pmt_codes {
+            sqlx::query(
+                "INSERT INTO counterpoint_payment_method_map (cp_pmt_typ, ros_method) VALUES ($1, 'cash') ON CONFLICT DO NOTHING"
+            )
+            .bind(&code)
+            .execute(pool)
+            .await?;
+        }
+    }
+
     // Batch pre-fetch customer IDs
     let cust_codes: HashSet<String> = payload
         .rows
@@ -2713,8 +2760,8 @@ pub async fn execute_counterpoint_open_doc_batch(
         let codes: Vec<String> = cust_codes.into_iter().collect();
         let rows: Vec<(String, Uuid)> = sqlx::query_as(
             r#"
-            SELECT customer_code, id FROM customers 
-            WHERE customer_code = ANY($1) 
+            SELECT customer_code, id FROM customers
+            WHERE customer_code = ANY($1)
                OR customer_code IN (SELECT 'C-' || c FROM unnest($1::text[]) c)
                OR customer_code IN (SELECT substring(c from 3) FROM unnest($1::text[]) c WHERE c LIKE 'C-%')
             "#
@@ -2827,7 +2874,7 @@ pub async fn execute_counterpoint_open_doc_batch(
         let transaction_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO transactions (
-                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref, 
+                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref,
                 counterpoint_customer_code, is_counterpoint_import,
                 status, booked_at, total_price, amount_paid, balance_due,
                 processed_by_staff_id, primary_salesperson_id

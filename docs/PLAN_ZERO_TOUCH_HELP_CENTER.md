@@ -23,7 +23,7 @@ Transform the ROS Help Center from a static document repository into a **living,
 ### Phase 2: The Execution Phase (Stagehand Agent)
 - **Driver:** [Stagehand](https://stagehand.browserbase.com/) (Agentic Browser Automation).
 - **Mechanism:** Stagehand launches a headless ROS instance.
-- **Intelligence:** Unlike Playwright, Stagehand uses semantic vision/descriptors to find buttons. If the "Refund" button moves to a different corner, the agent finds it automatically.
+- **Inventory Overview:** Unlike Playwright, Stagehand uses semantic vision/descriptors to find buttons. If the "Refund" button moves to a different corner, the agent finds it automatically.
 - **Wait Policy:** Uses "Observe & Verify" to ensure the page has hydrated before triggering the camera.
 
 ### Phase 3: The Capture Phase (The Rust "Camera")

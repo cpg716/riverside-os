@@ -271,4 +271,28 @@ export const weddingApi = {
     if (!res.ok) throw new Error("Failed to search wedding products");
     return res.json();
   },
+
+  async getPartyFinancialContext(partyId: string, opts?: WeddingApiFetchOpts): Promise<{
+    members: Array<{
+      wedding_member_id: string;
+      order_count: number;
+      payment_count: number;
+      order_total: string;
+      paid_total: string;
+      balance_due: string;
+    }>;
+    lines: Array<{
+      kind: string;
+      fulfillment_profile: string | null;
+      amount: string;
+      created_at: string | null;
+      wedding_member_id: string | null;
+    }>;
+  }> {
+    const res = await fetch(`${baseUrl}/api/weddings/parties/${partyId}/financial-context`, {
+      headers: opts?.headers,
+    });
+    if (!res.ok) throw new Error("Failed to fetch party financial context");
+    return res.json();
+  },
 };

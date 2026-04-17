@@ -64,5 +64,11 @@ venv/
 # --- Runtime artifacts / backups ---
 server/backups/*.dump
 counterpoint-bridge/bridge-execution.log
+counterpoint-bridge/*.log
+server/*.log
+server/scratch/
+client/lint_errors*.json
+client/lint_errors*.txt
+client/lint_results*.txt
 # CocoIndex Code (ccc)
 /.cocoindex_code/

@@ -181,7 +181,7 @@ function WeddingPartyCustomersDrawer({
         onNavigateRegister={onNavigateRegister}
         onAddToWedding={onAddToWedding}
         onBookAppointment={onBookAppointment}
-        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+        onOpenOrderInBackoffice={onOpenTransactionInBackoffice}
         baseUrl={baseUrl}
       />
     );
@@ -281,7 +281,7 @@ function CustomerSearchDrawer({
       navigateAfterStartSale={navigateAfterAttach}
       onAddToWedding={onAddToWedding}
       onBookAppointment={onBookAppointment}
-      onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+      onOpenOrderInBackoffice={onOpenTransactionInBackoffice}
       baseUrl={baseUrl}
     />
   );

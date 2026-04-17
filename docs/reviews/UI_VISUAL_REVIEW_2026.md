@@ -22,7 +22,7 @@ This document details the visual standards and ergonomic design of the Riverside
 - **Touch Targets**: Minimum 44px targets for all critical POS interactions (`ui-touch-target`).
 - **Dashboard Visualization**:
     - Weather pulse for foot-traffic context.
-    - "Morning Compass" for priority coating.
+    - "Action Board" for priority coating.
     - Dark-mode optimized high-contrast numeric displays for dollar amounts.
 
 ## 4. UI Compliance

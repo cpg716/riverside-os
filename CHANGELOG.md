@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.2.0] — 2026-04-16
 ### Added
 - **Full-Width Workspace Modernization**: Transformed all primary workspaces (Orders, Customers, Inventory, etc.) into a high-performance, edge-to-edge layout. Deprecated nested scrolling in favor of native root document scrolling for a smoother "Pro" experience on 1080p, 1440p, and iPad 11 Pro screens.
+- **Wedding Registry Dashboard (POS)**: Modernized the POS Wedding section from a legacy lookup-only interface to a proactive **Wedding Registry Dashboard**. Features real-time operational metrics (Upcoming, Needs Attention), automatic list loading, and jargon-free retail terminology (Order Progress, Registry Details).
 - **Customer Relationship Hub Overhaul**: Modernized the Customer Profile UI with "WowDash" glassmorphism, financial KPIs (Lifetime Sales, Balance Due), and a tabbed interface distinguishing between financial Transactions and logistical Fulfillments.
 - **Sticky Navigation Enforcement**: Optimized `GlobalTopBar` and `Sidebar` with persistent sticky positioning to anchor navigation during root scrolling.
 - **Workspace Density Pass**: Refactored the Customers Workspace for high-density, full-page presentation.
@@ -20,7 +21,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Product Hub Layout**: Fixed a z-index surfacing issue in the inventory intelligence panel that obstructed navigation in specific viewports.
 
 ### Changed
+- **POS Wedding Registry Modernization**: Replaced search-only lookup with a proactive management dashboard. Added **Group Pay** (Split Deposit) multi-selection mode to the Registry drawer.
+- **Everyday Terminology Hardening**: Completed system-wide nomenclature audit to remove technical jargon (Node, Matrix, Context, Workflow) from POS Wedding interfaces.
+- **Operational Documentation Overhaul**: Updated `DEPOSIT_OPERATIONS.md`, `WEDDING_GROUP_PAY_AND_RETURNS.md`, and staff manuals to align with v0.2.0 "Registry" standards and modernized UI components.
 - **Repository Capacity Optimization**: Reclaimed ~38 GB of disk space by purging redundant Rust target artifacts and cleaning legacy log files.
+- **Terminology & Documentation Overhaul**: Conducted a comprehensive audit of user-facing UI strings in the POS Wedding section to remove technical jargon. Renamed "Wedding Manager" to **"Wedding Registry"** in POS and established a new, high-performance staff manual for registry-centric workflows.
 - **Documentation Alignment**: Synchronized `AGENTS.md`, `TRANSACTIONS_AND_WEDDING_ORDERS.md`, and `AI_REPORTING_DATA_CATALOG.md` with the latest financial integrity invariants and architectural renames.
 
 ### [0.2.0] — 2026-04-13 [In Progress]
@@ -59,7 +64,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Role-Based POS Authorization Bypass**: Implemented a dynamic permission-based skip for sensitive POS actions. Users with the `admin` role now automatically bypass manual PIN verification for **Order Attribution**, **Void All**, and **Large Price Overrides**.
   - **Auditable Manager Approvals**: Deployed the **Manager Approval Modal** for non-administrative staff. This allows any manager to authorize a high-risk action without changing the active cashier's session.
   - **System-Wide Authorization Logging**: Enhanced the `/api/auth/verify-pin` endpoint to record `authorize_action` and `authorize_metadata` in the `staff_access_log`.
-- **Modularized POS Architecture**: Successfully transitioned the monolithic POS Cart to a high-performance modular hook system (`useCartActions`, `useCartCheckout`, `usePosSearch`).
+- **Modularized POS & Backend Architecture**: 
+  - Decomposed the monolithic `transaction_checkout.rs` (2,400+ lines) into domain-specific sub-modules: `checkout_inventory.rs`, `checkout_incentives.rs`, and `checkout_allocations.rs`.
+  - Transitions the monolithic `Cart.tsx` into a high-performance modular component structure (`CartLedger`, `CartKeypad`, `CartToolRow`, `CartCheckoutButton`). 
+  - Resolved infinite hydration loops and `ERR_INSUFFICIENT_RESOURCES` failures through strict memoization and component isolation.
 - **RESTORED: Order Recall & Direct Pickup**: Fully restored the POS "Orders" recall functionality.
 - **RESTORED: Parked Sale Snapshotting**: Re-enabled the ability to "Park" active sales to the server. Added a new **"Park Sale"** button to the main Register tool row, complete with server-backed snapshots and auditable recall.
 - **RESTORED: Order Metadata Management**: Integrated the "Order Review" workflow into the checkout process.

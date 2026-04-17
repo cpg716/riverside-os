@@ -7,18 +7,18 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **403** | HTTP “forbidden”: almost always **missing permission**, not a random bug — see [ERROR-AND-TOAST-GUIDE.md](ERROR-AND-TOAST-GUIDE.md). |
 | **404 (API)** | “Not found” — often **no active register session** when the server expected one, or missing entity ID. |
 | **500 / 503** | Server or dependency failure — retry once, then escalate with time and screen — see [ERROR-AND-TOAST-GUIDE.md](ERROR-AND-TOAST-GUIDE.md). |
-| **Action Board** | Prioritized operational queue (formerly "Morning Compass") showing wedding tasks and alerts. |
+| **Registry Dashboard** | Prioritized operational queue (formerly "Action Board") showing wedding tasks and alerts. |
 | **Allocation** | Reserving physical units for a specific **Order** so they aren't sold to someone else. |
 | **Appointment** | A scheduled store visit; can be generic or linked to a specific wedding party. |
-| **Available stock** | What you can sell from inventory that is not already promised: on-hand minus **reserved** (see [abstracts/orders-and-stock.md](abstracts/orders-and-stock.md)). |
-| **Back Office** | Desktop-oriented shell: Operations, Inventory, Weddings, Settings, etc. Signed in with a **PIN**. |
+| **Available stock** | What you can sell from inventory that is not already promised: on-hand minus **reserved** (see [abstracts/orders-and-stock.md](abstracts/orders-and-stock.md)). Often labeled as **For Sale** in the UI. |
+| **Back Office** | Desktop-oriented shell: Operations, Inventory, Weddings, Settings, etc. Signed in with an **Access PIN**. |
 | **Bag Tag** | A 2x1 thermal label generated for individual items in an order (?mode=bag-tag). |
 | **Balance due** | Amount still owed on an order after payments and credits. |
 | **Business date** | The store’s calendar day for reporting, driven by **timezone** in receipt/settings — may differ from UTC midnight. |
 | **Card Vaulting** | Securely saving a customer's credit card in the Relationship Hub for future use (PCI-compliant via Stripe SetupIntents). |
 | **Catalog handle** | The primary identifier used to match Counterpoint items (`ITEM#`). |
 | **Checkout / Complete Sale** | Finalizing tenders so the order is paid (or partially paid per policy). |
-| **Control board** | Paged product list API used for large catalogs (Back Office **Inventory List** and POS **Inventory** browse). |
+| **Product List** | The high-density product list (Back Office **Inventory → Product List**) used for finding products and updating prices/stock. |
 | **Custom Item / MTM** | A garment booked with measurements and specific tailoring (Suits, Shirts). Search for SKU `CUSTOM` to trigger the picker. |
 | **Customer code** | Unique store-assigned ID for every customer profile; used for imports and matching. |
 | **Deposit (Open)** | A payment held on a customer account (unlinked to a specific order) that can be applied to future purchases. |
@@ -26,14 +26,14 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Discount event** | Time-boxed merchandising discount with eligible SKUs; may apply automatically at POS when rules match. |
 | **Disbursement (wedding)** | Splitting one payment across wedding party members’ order balances via the checkout payload — see [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md). |
 | **Employee Price** | A discounted price tier applied automatically when the attached customer is a linked staff member. |
-| **Operations Hub** | The primary **Operations** dashboard (Back Office) showing metrics, Action Board, and floor status. |
+| **Operations Hub** | The primary **Operations** dashboard (Back Office) showing metrics, Registry Dashboard, and floor status. |
 | **Fulfillment / pickup** | Marking lines or orders as physically given to the customer; may affect stock for **stocked** lines. |
 | **Gift card liability** | Value the store owes until the card is redeemed — finance cares about issuance and voids. |
-| **Inventory Brain** | Intelligence engine that identifies sales velocity and stock-rescue (clearance) opportunities. |
+| **Inventory Overview** | The primary dashboard in the **Inventory** section showing stock alerts, items needing reordering, and replenishment tasks. |
 | **Load more** | Fetches the **next page** of results; any screen using the **Control Board** pattern does not load the entire list at once. |
 | **Low Stock Flag** | A visual indicator marking variants that have dropped below a set threshold. |
 | **Meilisearch** | The engine providing "fuzzy" search, allowing for typos and partial matches across the catalog and help center. |
-| **Operations Hub** | (Formerly "Morning Compass") The operational center showing prioritized wedding queues, weather, and staff tasks. |
+| **Registry Dashboard** | (Formerly "Action Board") The operational center showing prioritized wedding queues, weather, and staff tasks. |
 | **Need By Date** | The hard customer deadline for an order or custom work. |
 | **Open order** | Order not fully paid and/or not fully picked up — appears in **Orders → Open Orders**. |
 | **Open register** | An active till session (**register session**) required for many POS money actions. |
@@ -53,7 +53,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Relationship Hub** | Back Office **Customers** slide-out for one profile: overview, wedding parties, history, timeline, measurements, and payments. |
 | **Reserved stock** | Units physically in the store but promised to an **Order** or **Custom Work** until pickup. |
 | **RMS / RMS90 / R2S** | The "house charge" financial ecosystem used for local account billing. |
-| **Rush Order** | An order explicitly marked as urgent, moving it to the top of the **Fulfillment Cockpit** and **Morning Compass**. |
+| **Rush Order** | An order explicitly marked as urgent, moving it to the top of the **Fulfillment Cockpit** and **Registry Dashboard**. |
 | **Satellite Lane** | A secondary register lane (iPad/BO) that attaches to Register #1 for a shared till session. |
 | **Shippo** | The carrier integration used for quoting shipping rates and generating tracking numbers. |
 | **Store Credit** | A balance held by a customer that can be used as a tender at checkout. |
@@ -77,4 +77,4 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 - [FAQ.md](FAQ.md)
 - [permissions-and-access.md](permissions-and-access.md)
 
-**Last reviewed:** 2026-04-13
+**Last reviewed:** 2026-04-17

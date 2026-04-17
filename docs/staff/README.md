@@ -66,7 +66,8 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | POS Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | POS Register (cart) | [pos-register-cart.md](pos-register-cart.md) |
 | POS Tasks | [pos-tasks.md](pos-tasks.md) |
-| POS Weddings | [pos-weddings.md](pos-weddings.md) |
+| POS Weddings (Quick Reference) | [pos-weddings.md](pos-weddings.md) |
+| POS Wedding Registry Dashboard (Full Manual) | [pos-wedding-registry.md](pos-wedding-registry.md) |
 | POS Alterations | [pos-alterations.md](pos-alterations.md) |
 | POS Inventory | [pos-inventory.md](pos-inventory.md) |
 | POS Reports | [pos-reports.md](pos-reports.md) |
@@ -150,7 +151,7 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 | Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | Register | [pos-register-cart.md](pos-register-cart.md) |
 | Tasks | [pos-tasks.md](pos-tasks.md) |
-| Weddings | [pos-weddings.md](pos-weddings.md) |
+| Wedding Registry | [pos-weddings.md](pos-weddings.md), [pos-wedding-registry.md](pos-wedding-registry.md) |
 | Alterations (shown only with **alterations.manage**) | [pos-alterations.md](pos-alterations.md) |
 | Inventory | [pos-inventory.md](pos-inventory.md) |
 | Reports | [pos-reports.md](pos-reports.md) |

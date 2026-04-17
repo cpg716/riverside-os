@@ -343,6 +343,20 @@ pub async fn upsert_count(
     .await
     .context("Failed to upsert count")?;
 
+    // Add to real-time scan stream for collaboration UI
+    sqlx::query(
+        r#"
+        INSERT INTO inventory_count_scan_stream (session_id, staff_id, variant_id, quantity, scanned_at)
+        VALUES ($1, $2, $3, $4, NOW())
+        "#,
+    )
+    .bind(session_id)
+    .bind(req.staff_id)
+    .bind(req.variant_id)
+    .bind(qty)
+    .execute(pool)
+    .await?;
+
     // Audit
     sqlx::query(
         r#"

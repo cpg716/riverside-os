@@ -38,8 +38,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing_with_optional_otel(server_log_ring.clone(), env_filter);
 
     // 2. Database Connection
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "postgres://postgres:password@localhost/riverside_os".to_string());
+    let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| {
+        "postgresql://postgres:password@localhost:5433/riverside_os".to_string()
+    });
 
     tracing::info!("Connecting to PostgreSQL...");
 

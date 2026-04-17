@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import { 
   type CartLineItem, 
   type Customer, 
@@ -220,10 +220,14 @@ export function useCartCheckout({
     pickupConfirmed, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
   ]);
 
-  return {
+  return useMemo(() => ({
     executeCheckout,
     checkoutBusy,
     lastTransactionId,
     setLastTransactionId
-  };
+  }), [
+    executeCheckout,
+    checkoutBusy,
+    lastTransactionId
+  ]);
 }

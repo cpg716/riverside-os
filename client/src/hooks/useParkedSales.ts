@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, useMemo } from "react";
 import { type Customer } from "../components/pos/CustomerSelector";
 import { 
   type CartLineItem, 
@@ -260,7 +260,7 @@ export function useParkedSales({
     }
   }, [sessionId, parkedCustomerPrompt]);
 
-  return {
+  return useMemo(() => ({
     parkedRows,
     parkedListOpen,
     setParkedListOpen,
@@ -273,5 +273,14 @@ export function useParkedSales({
     skipParkedPrompt,
     primaryDefaultedRef,
     skippedParkedForCustomerRef,
-  };
+  }), [
+    parkedRows,
+    parkedListOpen,
+    parkedCustomerPrompt,
+    refreshParkedSales,
+    recallParkedSale,
+    parkSale,
+    deleteParkedSale,
+    skipParkedPrompt,
+  ]);
 }

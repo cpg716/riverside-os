@@ -271,7 +271,7 @@ export default function CustomerSelector({
         </>
       );
       return (
-        <div className="rounded-xl bg-blue-600 px-2.5 py-2 text-white shadow-md">
+        <div className="rounded-xl bg-blue-600 px-2.5 py-1.5 text-white shadow-md">
           <div className="flex min-w-0 items-center gap-2">
             {onViewCustomer ? (
               <button
@@ -306,8 +306,8 @@ export default function CustomerSelector({
             </button>
           </div>
           {weddingMemberships.length > 0 ? (
-            <div className="mt-1.5 border-t border-white/15 pt-1.5">
-              <div className="flex max-h-14 flex-wrap gap-1 overflow-y-auto no-scrollbar">
+            <div className="mt-1 border-t border-white/15 pt-1">
+              <div className="flex max-h-12 flex-wrap gap-1 overflow-y-auto no-scrollbar">
                 {weddingMemberships.map((w) => (
                   <button
                     key={`${w.wedding_member_id}-${w.wedding_party_id}`}
@@ -388,7 +388,7 @@ export default function CustomerSelector({
   }
 
   return (
-    <div className="space-y-4">
+    <div className={`${variant === "posStrip" ? "space-y-2.5" : "space-y-4"}`}>
       {/* 1. Search Bar (Top) */}
       {!isAdding && (
         <div className="group relative">
@@ -398,7 +398,7 @@ export default function CustomerSelector({
           />
           <input
             placeholder="Search by name, phone, or email..."
-            className="ui-input w-full py-2.5 pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent"
+            className={`ui-input w-full pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent ${variant === "posStrip" ? "py-2" : "py-2.5"}`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
@@ -496,7 +496,7 @@ export default function CustomerSelector({
 
       {/* 2. Walk-in / Parked / Options Row */}
       {!query.trim() && (
-        <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className={`animate-in fade-in slide-in-from-top-2 duration-300 ${variant === "posStrip" ? "space-y-1.5" : "space-y-2"}`}>
            <div className="flex items-center justify-between gap-2 px-1">
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">Quick Actions</span>
              <button
@@ -510,12 +510,12 @@ export default function CustomerSelector({
           </div>
 
           {!isAdding && (
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-1 gap-1.5">
                {showWalkInOption && (
                 <button
                   type="button"
                   onClick={() => { onSelect(null); setQuery(""); }}
-                  className="group flex w-full items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-50/50 p-2.5 text-left transition-all hover:bg-amber-50 active:scale-[0.98] dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
+                  className="group flex w-full items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-50/50 p-2 text-left transition-all hover:bg-amber-50 active:scale-[0.98] dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20 group-hover:bg-amber-500 group-hover:text-white transition-colors">
                     <UserX size={16} />
@@ -535,7 +535,7 @@ export default function CustomerSelector({
                 <button
                   type="button"
                   onClick={() => onOpenParkedSales?.()}
-                  className="group flex w-full items-center gap-3 rounded-xl border border-app-accent/30 bg-app-accent/5 p-2.5 text-left transition-all hover:bg-app-accent/10 active:scale-[0.98]"
+                  className="group flex w-full items-center gap-3 rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 text-left transition-all hover:bg-app-accent/10 active:scale-[0.98]"
                 >
                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20 group-hover:bg-app-accent group-hover:text-white transition-colors">
                     <Clock size={16} />

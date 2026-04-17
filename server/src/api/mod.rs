@@ -18,6 +18,7 @@ pub mod hardware;
 pub mod help;
 pub mod insights;
 pub mod inventory;
+pub mod inventory_map;
 pub mod loyalty;
 pub mod metabase_proxy;
 pub mod notifications;
@@ -90,6 +91,7 @@ pub fn build_router() -> Router<AppState> {
     Router::new()
         .merge(metabase_proxy::router())
         .nest("/api/inventory", inventory::router())
+        .nest("/api/inventory/map", inventory_map::router())
         .nest("/api/inventory/physical", physical_inventory::router())
         .nest("/api/alterations", alterations::router())
         .nest("/api/insights", insights::router())

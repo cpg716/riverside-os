@@ -10,7 +10,7 @@ Riverside OS is a production retail POS/ERM platform for formalwear and wedding 
 
 The main shell component is a critical part of the application that manages UI state and renders content based on user interactions and application state. In v0.2.0, the **Persistent Top Bar** architecture was introduced as the universal navigation anchor, moving away from fragmented headers. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, the new Top Bar navigation, global search drawer, deep link handling, permissions and access control, theme mode, error handling, and navigation and routing.
 
-- **Terminology Note**: Avoid technical terms like "Node" in user-facing UI. Use **Register #[n]**.
+- **Terminology Note**: Avoid technical terms like "Node", "Matrix", "Context", or "Workflow" in user-facing UI. Use **Register #[n]**, **Registry Details**, **Order Progress**, etc.
 - **Access Status**: Use **Staff Access** (standard identity) and **Manager Access** (privileged override status).
 - **Identity**: Use **Access PIN** for the 4-digit credential. Internal **Employee Tracking IDs** are auto-assigned and not used for login.
 
@@ -121,11 +121,21 @@ Reference-only trees like **`NexoPOS-master/`**, **`odoo-19.0/`**, and **`rivers
 
 The main shell component is the central hub of Riverside OS. It manages global state (POS vs. Back Office), theme tokens (WowDash), and navigation routing.
 
-- **Conditional Rendering**: Renders `PosShell`, `InsightsShell`, or `WeddingShell` based on the active mode.
+- **Conditional Rendering**: Renders `PosShell`, `InsightsShell`, or `WeddingShell` (for registry dashboard) based on the active mode.
 - **WowDash Design System**:
   - Uses `backdrop-blur-md` and semi-transparent backgrounds for glassmorphism.
   - Standardized `DashboardStatsCard` and `DashboardGridCard` for all dashboards.
   - Primary Typography: **Inter** / **Outfit** sans-serif.
+- **Wedding Registry (v0.2.0+)**:
+  - Replaces "Wedding Manager" in the POS with a proactive **Registry Dashboard**.
+  - Uses everyday retail terminology: "Registry Dashboard", "Member Registry", "Order Progress".
+  - Strictly avoids technical jargon (e.g., "Matrix", "Context").
+- **Inventory Platform (v0.2.0+)**:
+  - Uses the **Inventory Overview** (formerly Intelligence) as the daily staff landing page.
+  - **Product List** (formerly Product Registry) uses high-density rows for 50k+ variant scalability.
+  - **Receive Items** (formerly Ingress/Receiving) uses a strict 4-step scanner-first wizard.
+  - **Damaged Items** and **Returns (RTV)** are standalone maintenance departments, not nested under "Count".
+  - **SKU Generation**: Uses sequential `B-XXXXX` patterns for variants linked to `I-XXXXX` parents.
 - **Permissions**: Every tab and sub-section check `useBackofficeAuth` and `useStaffPermissions` before mounting.
 - **Error Handling**: Uses global `ErrorOverlay` and `useToast` for all operational failures.
 - **Drawers & Modals**: Preferred for complex editing (e.g., `RelationshipHubDrawer`, `TaskChecklistDrawer`).
@@ -196,7 +206,12 @@ cargo sqlx prepare --workspace
 - Do not use `eprintln!`
 - Use structured `tracing::*` logs
 
-### UI discipline
+### Hooks & Memoization Invariants
+
+- **State Management Hooks**: Custom hooks that return state-management functions (e.g., `setLines`, `clearCart`) MUST wrap their return value in `useMemo`.
+- **Function Stability**: All functions returned by hooks intended for use in `useEffect` or other hooks must be wrapped in `useCallback`.
+- **Infinite Hydration Loops**: Components like `Cart.tsx` that interact with persistence layers (`useCartPersistence`) are extremely sensitive to dependency stability. v0.2.0 modularized the Cart into sub-components (`CartLedger`, `CartKeypad`, `CartToolRow`, `CartCheckoutButton`) to isolate state-heavy UI and resolve infinite hydration loops. An unstable function reference passed to a persistence hook WILL trigger an infinite hydration loop, leading to `ERR_INSUFFICIENT_RESOURCES`.
+- **State setters**: Always use change-detection guards in complex bootstrap effects to prevent cascading re-renders across the shell.
 
 - Never use `alert()`, `confirm()`, or `prompt()`
 - Use `useToast`, `ConfirmationModal`, `PromptModal`, or established drawer patterns
@@ -290,13 +305,14 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | SQL enums / DB-aligned types                 | `server/src/models/` + migrations                                                                                                                                  |
 | New UI screen / tab                          | `client/src/App.tsx`, `client/src/components/...`, `Sidebar.tsx` if new nav                                                                                        |
 | Reporting / Insights / Metabase              | `server/src/api/insights.rs`, `server/src/api/metabase_proxy.rs`, `client/src/components/reports/`, `client/src/components/layout/InsightsShell.tsx`               |
-| POS / checkout UX                            | `client/src/components/pos/`                                                                                                                                       |
+| POS / checkout UI                            | `client/src/components/pos/`, `client/src/components/pos/cart/` (`CartLedger.tsx`, `CartKeypad.tsx`, etc.)                                                         |
 | Register manager dashboard                   | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx`, `PosSidebar.tsx`, related server staff metrics                                                  |
+| Wedding Registry (POS)                       | `client/src/components/pos/PosWeddingWorkspace.tsx`, `WeddingDetailDrawer.tsx`, `useWeddingSync.ts`                                                                |
 | Till group / multi-lane register             | `server/src/api/sessions.rs`, `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, register gate context                                     |
 | Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx` |
 | Shell / layout / drawers                     | `client/src/components/layout/`                                                                                                                                    |
 | Customers CRM / Hub                          | `client/src/components/customers/`                                                                                                                                 |
-| Transactions / fulfillment / returns         | `server/src/api/transactions.rs`, `server/src/logic/`, `client/src/components/orders/`                                                                             |
+| Transactions / fulfillment / returns         | `server/src/api/transactions/`, `server/src/logic/checkout_*.rs` (Inventory, Incentives, Allocations), `client/src/components/orders/`                           |
 | Scheduler / appointments                     | `client/src/components/scheduler/`, `client/src/lib/weddingApi.ts`                                                                                                 |
 | Inventory / control board / importer         | `client/src/components/inventory/`, related server inventory routes                                                                                                |
 | Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI                                                                            |
@@ -485,7 +501,7 @@ The main shell component is the central hub of the application, responsible for 
 
 ### Operational Surfaces
 
-- **Operations Hub**: Replaces tactical terminology (Morning Dashboard). Focuses on trend visualization and the central Action Board.
+- **Operations Hub**: Replaces tactical terminology (Morning Dashboard). Focuses on trend visualization and the central Registry Dashboard.
 - **Opt-in Scheduling**: Staff (salesperson/support) only appear in "Team on Floor" if explicitly scheduled via `staff_weekly_availability` or day exceptions. Default is OFF.
 - **Responsive**: All operational surfaces must handle 1080p and 1440p using `DashboardGridCard`.
 
@@ -751,8 +767,8 @@ Use this section as a repo map and extended reference, not as the primary source
 - `docs/BRIDGE_SYNC_TROUBLESHOOTING.md`
 - `REMOTE_ACCESS_GUIDE.md`
 - `docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`
-- `INVENTORY_GUIDE.md`
-- `BACKUP_RESTORE_GUIDE.md`
+- `docs/INVENTORY_SCANNING_AND_COUNTS.md`
+- `docs/BACKUP_AND_RESTORE.md`
 - `docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`
 - `docs/CATALOG_IMPORT.md`
 - `docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`

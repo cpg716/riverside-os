@@ -48,14 +48,16 @@ export function BackofficeAuthProvider({
   useEffect(() => {
     const t = initialCode?.trim();
     if (!t) return;
-    setStaffCode(t);
-    const p = readPersistedBackofficeSession();
-    if (p?.staffCode === t) {
-      setStaffPin(p.staffPin);
-    } else {
-      setStaffPin("");
+    if (t !== staffCode) {
+      setStaffCode(t);
+      const p = readPersistedBackofficeSession();
+      if (p?.staffCode === t) {
+        setStaffPin(p.staffPin);
+      } else {
+        setStaffPin("");
+      }
     }
-  }, [initialCode]);
+  }, [initialCode, staffCode]);
 
   const backofficeHeaders = useCallback((): HeadersInit => {
     const h: Record<string, string> = {};

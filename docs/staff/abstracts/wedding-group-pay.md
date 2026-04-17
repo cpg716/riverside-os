@@ -1,22 +1,22 @@
-# Wedding group pay (staff abstract)
+# Wedding Registry: Group Pay (Staff Abstract)
 
 **Full detail:** [../../WEDDING_GROUP_PAY_AND_RETURNS.md](../../WEDDING_GROUP_PAY_AND_RETURNS.md).
 
 ---
 
-## What staff should remember
+## What Staff Should Remember
 
-1. When one person pays but **multiple** wedding members owe balances, the register sends **disbursements**: each entry names a **wedding member** and an **amount**.
-2. The system creates the **primary payment** for the payer and **allocations** for beneficiaries; **order balances** update through normal **recalc** — staff should **not** manually edit balances to mimic this.
-3. Disputes (“who paid for what”) are resolved with **receipts** and **order history**, not ad-hoc discounts, unless manager approves.
-
----
-
-## Where in the app
-
-- POS wedding / checkout context: [../pos-weddings.md](../pos-weddings.md).
-- Back Office parties and orders: [../weddings-back-office.md](../weddings-back-office.md).
+1. When one person pays for multiple wedding members, the register creates **Disbursements**: each entry links an **Amount** to a specific **Wedding Member**.
+2. The system automatically creates **Payment Allocations** for the beneficiary members. Their **Member Transactions** will update instantly — staff should **not** manually adjust balances or apply ad-hoc discounts to mimic this.
+3. Disputes (“who paid for what”) are resolved via the **Transaction History** for each member, which will show the exact payment allocation from the payer.
 
 ---
 
-**Last reviewed:** 2026-04-04
+## Where in the App
+
+- **POS Registry Dashboard / Checkout:** [../pos-weddings.md](../pos-weddings.md).
+- **Back-Office Registry Management:** [../weddings-back-office.md](../weddings-back-office.md).
+
+---
+
+**Last reviewed:** 2026-04-17 (v0.2.0 Registry Overhaul)

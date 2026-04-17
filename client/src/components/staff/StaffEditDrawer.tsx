@@ -665,7 +665,7 @@ export default function StaffEditDrawer({
               <section className="space-y-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
-                    Employee CRM Intelligence
+                    Staff Registry Analytics
                   </h3>
                   {staff.employee_customer_id && !detachEmployeeCustomer && (
                     <button

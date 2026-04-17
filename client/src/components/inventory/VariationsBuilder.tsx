@@ -71,10 +71,14 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
     const axisNames = Object.keys(parsed);
     const rows: GeneratedVariationRow[] = combos.map((row, idx) => {
       const values = axisNames.map((k) => row[k]);
+      // Use B- prefix for variants as per Riverside OS standard
+      const sku = `${skuPrefix}-${idx + 1}`.toUpperCase();
+      const variantSku = sku.startsWith("B-") ? sku : `B-${sku}`;
+      
       return {
         variation_values: row,
         variation_label: values.join(" / "),
-        sku: `${skuPrefix}-${idx + 1}`.toUpperCase(),
+        sku: variantSku,
         stock_on_hand: defaultStock,
       };
     });

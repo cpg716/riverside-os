@@ -1,8 +1,8 @@
-# Local multimodal help — **ROSIE** (RiversideOS Intelligence Engine)
+# Local multimodal help — **ROSIE** (RiversideOS Inventory Overview Engine)
 
 **Status:** **Active program** — architecture + **Help-only** maintainer automation (**nightly** AIDOCS/Playwright manual pipeline, `generate:help`, `ros_help`, and **Orphan Cleanup/Pruning**) ship **fully implemented**; conversational **Ask ROSIE** in the Help drawer may still roll out behind flags (verify routes in [`server/src/api/mod.rs`](../server/src/api/mod.rs)). **Last updated:** 2026-04-11.
 
-**Product name:** **ROSIE** = **RiversideOS Intelligence Engine**—orchestration + whitelisted **read** tools for answers autonomously build **only** the in-app Help Center (AIDOCS + Playwright → **`client/src/assets/docs/*-manual.md`**, **`client/src/assets/images/help/**`**, **`generate:help`**, **`ros_help`** reindex, and **help-scoped** embedding slices if used).
+**Product name:** **ROSIE** = **RiversideOS Inventory Overview Engine**—orchestration + whitelisted **read** tools for answers autonomously build **only** the in-app Help Center (AIDOCS + Playwright → **`client/src/assets/docs/*-manual.md`**, **`client/src/assets/images/help/**`**, **`generate:help`**, **`ros_help`** reindex, and **help-scoped** embedding slices if used).
 
 ## ROSIE mission: learn Riverside OS end-to-end, elevate staff and admin
 
@@ -136,7 +136,7 @@ Apply in order; **stop** at the first layer that answers authoritatively:
 Use as the non-droppable prefix for **production** ROSIE (local or hosted stub). Replace `{POLICY_PACK_VERSION}` at build time.
 
 ```
-You are ROSIE (RiversideOS Intelligence Engine)—assistive only. Your mission: help users learn Riverside OS, help staff use the product, help admins operate it responsibly, explain sales/inventory/finance via read tools and docs, and (for authorized roles) triage Bug Center items and SUGGEST code fixes as diffs for human review—never merge code yourself. You NEVER change business logic or store state. You do NOT execute SQL, write to Postgres, mutate orders/customers/inventory/payments/ledger rows, or bypass RBAC. You learn Riverside by docs, tool traces, and governed corpora—not by altering data. Numeric truth: only from tool JSON the Riverside Axum server returned. Procedures: cite docs/staff paths or help manual anchors.
+You are ROSIE (RiversideOS Inventory Overview Engine)—assistive only. Your mission: help users learn Riverside OS, help staff use the product, help admins operate it responsibly, explain sales/inventory/finance via read tools and docs, and (for authorized roles) triage Bug Center items and SUGGEST code fixes as diffs for human review—never merge code yourself. You NEVER change business logic or store state. You do NOT execute SQL, write to Postgres, mutate orders/customers/inventory/payments/ledger rows, or bypass RBAC. You learn Riverside by docs, tool traces, and governed corpora—not by altering data. Numeric truth: only from tool JSON the Riverside Axum server returned. Procedures: cite docs/staff paths or help manual anchors.
 
 Follow docs/AI_CONTEXT_FOR_ASSISTANTS.md invariants (money: rust_decimal; no PIN sharing; Metabase ≠ Riverside Admin for margin). Reporting: map questions to whitelisted read tools only; spec_id and params MUST match docs/AI_REPORTING_DATA_CATALOG.md §0 and §15 (basis booked vs recognition—ask if unclear).
 
@@ -163,7 +163,7 @@ Policy pack: {POLICY_PACK_VERSION}. If a tool returns 403, explain Missing permi
 
 ## LightRAG-style technical knowledge base (pgvector, stateless)
 
-**Architect hat:** Treat ROSIE’s **Intelligence Core** as a **stateless, high-fidelity technical KB**: every user turn is **retrieve → (optional) graph expand → generate** with **no long-lived conversational memory** in Postgres — only **versioned knowledge** rows (and optional **ephemeral** request logs for **audit**, not **RAG**).
+**Architect hat:** Treat ROSIE’s **Inventory Overview Core** as a **stateless, high-fidelity technical KB**: every user turn is **retrieve → (optional) graph expand → generate** with **no long-lived conversational memory** in Postgres — only **versioned knowledge** rows (and optional **ephemeral** request logs for **audit**, not **RAG**).
 
 ### Relationship to migration 78
 
@@ -438,7 +438,7 @@ Implement tools as **Rust functions** with fixed signatures. The model proposes 
 | `help_get_manual` | `GET /api/help/manuals/{manual_id}` | same | Citations should use **manual_id + section_slug** anchors. |
 | `store_sop_get` | `GET /api/staff/store-sop` | Authenticated staff | **Prefer before** contradicting global docs. |
 | `reporting_run` | Whitelisted GETs only | Per catalog row | **`spec_id`** MUST be one of: (a) **Curated** `report_id` from [`reportsCatalog.ts`](../client/src/lib/reportsCatalog.ts) / catalog §0 table, or (b) an **internal registry** key that maps 1:1 to a **single** documented **`GET`** path in [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §0–§1. Params: e.g. `from`, `to`, `basis`, `group_by`, `limit` — **only** keys the handler accepts. |
-| `order_summary` | `GET /api/orders/{id}` (and list if scoped) | `orders.view` + composite session rules | Narrow scope; no broad export unless product approves. |
+| `order_summary` | `GET /api/transactions/{id}` (and list if scoped) | `orders.view` + composite session rules | Narrow scope; no broad export unless product approves. |
 | `customer_hub_snapshot` | `GET /api/customers/{id}/hub` (+ timeline only if needed) | `customers.hub_view` + paths as routed | Do not expose merge/duplicate tools to autonomous loops. |
 | `wedding_actions` | `GET /api/weddings/actions` | `weddings.view` | **`party_balance_due`** is party-level; string decimal in JSON. |
 | `inventory_control_board` *(optional alias)* | `GET /api/inventory/control-board` or `GET /api/products/control-board` | **`catalog.view`** (typical) | Paged SKUs; **`search`**, **`product_id`**; does **not** replace fulfillment math—pair with `inventory_variant_intelligence` for **OH / reserved / available** semantics. |
@@ -459,7 +459,7 @@ Staff will ask ROSIE about **real store operations**, not only help prose. **Num
 | **SKU lookup / PLP-style search** | `inventory_control_board` or `GET /api/inventory/scan/{sku}` | Ranked search behavior: [`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md). |
 | **Qty on hand, reserved, available, special-order behavior** | `inventory_variant_intelligence` + server fields; **never** recompute `available = on_hand - reserved` in the model if the API returns it | **Authoritative model:** [`AGENTS.md`](../AGENTS.md) special-order / wedding stock rules; depth: [`INVENTORY_GUIDE.md`](../INVENTORY_GUIDE.md). |
 | **“On order” / PO lines** | Whitelist only if §0 documents a **procurement** read (e.g. PO list)—**`procurement.view`** | Do not conflate **PO open qty** with **on hand**. |
-| **OOS / low-stock / track flags** | Intelligence + control-board fields as returned by API | **OOS** is a **business/UI label** derived from **`available_stock`**, thresholds, and **`track_low_stock`**—cite API/staff docs, don’t guess thresholds. |
+| **OOS / low-stock / track flags** | Inventory Overview + control-board fields as returned by API | **OOS** is a **business/UI label** derived from **`available_stock`**, thresholds, and **`track_low_stock`**—cite API/staff docs, don’t guess thresholds. |
 | **Inventory movements / physical count** | `GET /api/inventory/physical/sessions*` when §0 row exists; **`physical_inventory.view`** | Session-scoped audit—[`INVENTORY_GUIDE.md`](../INVENTORY_GUIDE.md) physical inventory chapter; no invented variance without tool JSON. |
 
 **RAG priority:** For “**how do I**…” on register lane / Z / count workflows, **`docs/staff/*`** + in-app manuals win; for “**how many / what’s on hand**…”, **tool JSON** wins over prose.
@@ -502,7 +502,7 @@ Pick the **inference backend** first (llama.cpp vs candle/mistral.rs vs external
   - **Barge-in:** Starting speech or explicit **Stop speaking** **cancels TTS** immediately; never talk over the cashier without a clear state machine.
   - **States:** Distinct UI for **idle / listening / processing / speaking** (ROSIE orb or bar—`prefers-reduced-motion` safe).
   - **Settings:** **Help Center** or **Settings → Integrations**: voice on/off, mic permission hint, **no always-listening** on shared lanes unless policy allows.
-- **Visuals:** On-brand **data-theme** tokens only ([`ROS_UI_CONSISTENCY_PLAN.md`](ROS_UI_CONSISTENCY_PLAN.md)); distinct **ROSIE** identity (wordmark **ROSIE**, expand **RiversideOS Intelligence Engine** where space allows).
+- **Visuals:** On-brand **data-theme** tokens only ([`ROS_UI_CONSISTENCY_PLAN.md`](ROS_UI_CONSISTENCY_PLAN.md)); distinct **ROSIE** identity (wordmark **ROSIE**, expand **RiversideOS Inventory Overview Engine** where space allows).
 - **Flags / API:** Prefer **`VITE_ROSIE_HELP_ENABLED`** (client gate) and a **`POST /api/help/rosie/*`** (or `/api/rosie/*`) BFF **once implemented** — must mirror **help viewer** auth or stricter staff-only policy; **verify** routes in [`server/src/api/mod.rs`](../server/src/api/mod.rs) before docs claim ship. Phase A may **search-fuse** text only; **UI chrome** for voice (mic/speaker/disabled stub) should land early per **§ Phased roadmap**.
 - **Pairing doc:** Shipped Help Center plan + drawer behavior: [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md); staff-facing manual workflow: [`MANUAL_CREATION.md`](MANUAL_CREATION.md).
 
@@ -545,7 +545,7 @@ Indicative Axum/Tauri/CI surfaces: **`help_propose_manual_patch`** (**must rejec
 
 **Placement:** **`Settings → Integrations`**, a **`ROSIE` / Assistant subsection**, and/or **Help** drawer gear — **React** in **Tauri** + persisted prefs (local + optional **`store_settings`** JSON via **`settings.admin`** for fleet defaults).
 
-**Product naming:** Copy may use **persona** labels for **TTS only** (e.g. **Bella** = default / efficient; **Emma** = alternate timbre). **Canonical expansion** remains **RiversideOS Intelligence Engine** (not “Expert”) in spec and training docs.
+**Product naming:** Copy may use **persona** labels for **TTS only** (e.g. **Bella** = default / efficient; **Emma** = alternate timbre). **Canonical expansion** remains **RiversideOS Inventory Overview Engine** (not “Expert”) in spec and training docs.
 
 ### Suggested categories (calibrated to repo safety)
 
@@ -603,7 +603,7 @@ One short paragraph in [`Riverside_OS_Master_Specification.md`](../Riverside_OS_
 
 **Role:** You are the Lead AI Systems Architect for **RiversideOS (ROS)**, a custom, local-first retail OS built for bespoke tailoring and wedding management.
 
-**The Mission:** Architect the implementation of **ROSIE (RiversideOS Intelligence Engine)**. ROSIE is an in-app, voice-enabled, multimodal AI agent that lives inside the ROS Tauri 2 environment. She must "know every inch" of the code, docs, and live UI state to assist users and developers.
+**The Mission:** Architect the implementation of **ROSIE (RiversideOS Inventory Overview Engine)**. ROSIE is an in-app, voice-enabled, multimodal AI agent that lives inside the ROS Tauri 2 environment. She must "know every inch" of the code, docs, and live UI state to assist users and developers.
 
 **Hardware Environment (The Constraint):**
 

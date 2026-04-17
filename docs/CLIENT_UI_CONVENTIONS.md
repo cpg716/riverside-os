@@ -52,7 +52,7 @@ Located in `client/src/components/ui/`, these components serve as the foundation
   - **Props**: `title`, `value`, `trend`, `sparklineData`, `color`, `icon`.
 - **`DashboardGridCard`**: The standard container for daily action widgets.
   - **Features**: Standardized header with Icon + Title + Subtitle; support for footer actions and scrolling lists.
-  - **Usage**: Use for "Morning Compass", "Activity Feed", and "Floor Matrix" logic.
+  - **Usage**: Use for "Action Board", "Activity Feed", and "Floor Matrix" logic.
 
 ## Search and Lookup Components
 

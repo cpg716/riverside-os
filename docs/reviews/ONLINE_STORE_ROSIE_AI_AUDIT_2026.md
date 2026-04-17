@@ -32,7 +32,7 @@ The final pillar of Riverside OS bridges the gap between internal operations and
 - **Fallback Mode**: Includes a client-side substring search for offline or Meilisearch-disabled environments.
 
 ### 4.2 ROSIE AI Engine (In-Planning)
-- **Vision**: ROSIE (RiversideOS Intelligence Engine) is planned as a local LLM sidecar (`llama-server`) for Tauri and an Axum-proxied completion engine for the PWA.
+- **Vision**: ROSIE (RiversideOS Inventory Overview Engine) is planned as a local LLM sidecar (`llama-server`) for Tauri and an Axum-proxied completion engine for the PWA.
 - **Grounding**: The AI will be grounded in the existing Help Center manuals and the `AI_REPORTING_DATA_CATALOG.md` constitution, ensuring it handles financial data with the required precision.
 
 ## 5. Findings & Recommendations

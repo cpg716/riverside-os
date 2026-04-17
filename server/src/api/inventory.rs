@@ -55,7 +55,7 @@ pub fn router() -> Router<AppState> {
         .route("/control-board", get(products::list_control_board))
         .route("/batch-scan", post(batch_scan))
         .route("/recommendations", get(get_recommendations))
-        .route("/intelligence/{variant_id}", get(get_product_intelligence))
+        .route("/snapshot/{variant_id}", get(get_product_snapshot))
         .route("/wedding-products", get(list_wedding_products))
 }
 
@@ -92,7 +92,7 @@ pub struct BatchScanResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ProductIntelligence {
+pub struct ProductSnapshot {
     pub variant_id: Uuid,
     pub product_id: Uuid,
     pub sku: String,
@@ -305,9 +305,9 @@ async fn batch_scan(
         .into_response()
 }
 
-/// Detailed product data for POS "Intelligence" drawer.
+/// Detailed product data for POS "Snapshot" drawer.
 /// Aggregates inventory levels, open PO quantities, and sale history.
-async fn get_product_intelligence(
+async fn get_product_snapshot(
     State(state): State<AppState>,
     Path(variant_id): Path<Uuid>,
     headers: HeaderMap,
@@ -395,7 +395,7 @@ async fn get_product_intelligence(
     .await
     .unwrap_or(None);
 
-    Json(ProductIntelligence {
+    Json(ProductSnapshot {
         variant_id,
         product_id,
         sku,

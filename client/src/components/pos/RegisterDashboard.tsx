@@ -18,40 +18,19 @@ import {
   type NotificationRow,
 } from "../../context/NotificationCenterContextLogic";
 import {
-  buildMorningCompassQueue,
-  compassBandLabel,
-  type CompassActionRow,
-  type RushOrderRow,
-} from "../../lib/morningCompassQueue";
+  buildRegistryPriorityFeed,
+  registryBandLabel,
+  type RegistryActionRow,
+  type RegistryPriorityFeedBundle,
+} from "../../lib/registryPriorityFeed";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
-import CompassMemberDetailDrawer from "../operations/CompassMemberDetailDrawer";
+import RegistryMemberDetailDrawer from "../operations/RegistryMemberDetailDrawer";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import DashboardGridCard from "../ui/DashboardGridCard";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-interface CompassStats {
-  needs_measure: number;
-  needs_order: number;
-  overdue_pickups: number;
-  rush_orders: number;
-}
 
-interface TodayFloorStaffRow {
-  id: string;
-  full_name: string;
-  role: string;
-  avatar_key: string;
-}
-
-interface MorningCompassBundle {
-  stats: CompassStats;
-  needs_measure: CompassActionRow[];
-  needs_order: CompassActionRow[];
-  overdue_pickups: CompassActionRow[];
-  rush_orders: RushOrderRow[];
-  today_floor_staff?: TodayFloorStaffRow[];
-}
 
 interface ForecastDay {
   temp_high: number;
@@ -110,8 +89,8 @@ export default function RegisterDashboard({
   const [taskOpen, setTaskOpen] = useState<{ id: string; title_snapshot: string; due_date: string | null }[]>([]);
   const [taskDrawerId, setTaskDrawerId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<NotificationRow[]>([]);
-  const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
-  const [compassDrawerRow, setCompassDrawerRow] = useState<CompassActionRow | null>(null);
+  const [priorityFeed, setPriorityFeed] = useState<RegistryPriorityFeedBundle | null>(null);
+  const [registryMemberDrawerRow, setRegistryMemberDrawerRow] = useState<RegistryActionRow | null>(null);
   const [forecast, setForecast] = useState<WeatherForecastPayload | null>(null);
 
   const loadTasks = useCallback(async () => {
@@ -133,13 +112,13 @@ export default function RegisterDashboard({
     } catch { /* ignore */ }
   }, [apiAuth, hasPermission, permissionsLoaded]);
 
-  const loadCompass = useCallback(async () => {
-    if (!permissionsLoaded || !hasPermission("weddings.view")) { setCompass(null); return; }
+  const loadPriorityFeed = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("weddings.view")) { setPriorityFeed(null); return; }
     try {
-      const res = await fetch(`${baseUrl}/api/weddings/morning-compass`, { headers: apiAuth() });
+      const res = await fetch(`${baseUrl}/api/weddings/priority-feed-bundle`, { headers: apiAuth() });
       if (!res.ok) return;
-      const data = (await res.json()) as MorningCompassBundle;
-      setCompass({
+      const data = (await res.json()) as RegistryPriorityFeedBundle;
+      setPriorityFeed({
         stats: {
           needs_measure: Number(data.stats?.needs_measure ?? 0),
           needs_order: Number(data.stats?.needs_order ?? 0),
@@ -171,7 +150,7 @@ export default function RegisterDashboard({
   }, [loadTasks, loadWeather, refreshSignal]);
 
   useEffect(() => { void loadNotifications(); }, [loadNotifications, refreshSignal]);
-  useEffect(() => { void loadCompass(); }, [loadCompass, refreshSignal]);
+  useEffect(() => { void loadPriorityFeed(); }, [loadPriorityFeed, refreshSignal]);
 
   const notifAction = async (id: string, path: "read" | "complete" | "archive") => {
     try {
@@ -184,16 +163,16 @@ export default function RegisterDashboard({
   const headline = useMemo(() => roleHeadline(staffRole), [staffRole]);
 
   const suggestedQueue = useMemo(
-    () => buildMorningCompassQueue({
-      overduePickups: compass?.overdue_pickups ?? [],
-      needsOrder: compass?.needs_order ?? [],
-      needsMeasure: compass?.needs_measure ?? [],
-      rushOrders: compass?.rush_orders ?? [],
+    () => buildRegistryPriorityFeed({
+      overduePickups: priorityFeed?.overdue_pickups ?? [],
+      needsOrder: priorityFeed?.needs_order ?? [],
+      needsMeasure: priorityFeed?.needs_measure ?? [],
+      rushOrders: priorityFeed?.rush_orders ?? [],
       openTasks: taskOpen,
       notifications,
       limit: 7,
     }),
-    [compass, taskOpen, notifications],
+    [priorityFeed, taskOpen, notifications],
   );
 
   const todayWeather = forecast?.days?.[0];
@@ -201,7 +180,7 @@ export default function RegisterDashboard({
   const cond = (current?.condition ?? todayWeather?.condition ?? "").toLowerCase();
   const WxIcon = cond.includes("snow") ? Snowflake : cond.includes("rain") ? CloudRain : cond.includes("cloud") ? Cloud : Sun;
 
-  const stats = compass?.stats;
+  const stats = priorityFeed?.stats;
 
   return (
     <>
@@ -250,7 +229,7 @@ export default function RegisterDashboard({
                         <button
                           key={item.id}
                           onClick={() => {
-                            if (item.kind === "wedding") setCompassDrawerRow(item.row);
+                            if (item.kind === "wedding") setRegistryMemberDrawerRow(item.row);
                             else if (item.kind === "task") setTaskDrawerId(item.taskId);
                             else openDrawer();
                           }}
@@ -270,7 +249,7 @@ export default function RegisterDashboard({
                              </div>
                              <div className="text-left min-w-0">
                                <p className="text-sm font-bold text-app-text truncate group-hover/item:text-app-accent transition-colors">
-                                 {item.kind === "wedding" ? `${item.row.customer_name} · ${compassBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.id}
+                                 {item.kind === "wedding" ? `${item.row.customer_name} · ${registryBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.id}
                                </p>
                                <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider opacity-60">
                                  {item.kind === "wedding" ? `${item.row.party_name} · ${item.row.event_date}` : item.kind === "task" && item.dueDate ? item.dueDate : "General Protocol"}
@@ -367,11 +346,11 @@ export default function RegisterDashboard({
         </div>
       </div>
 
-      <CompassMemberDetailDrawer
-        row={compassDrawerRow}
-        onClose={() => setCompassDrawerRow(null)}
+      <RegistryMemberDetailDrawer
+        row={registryMemberDrawerRow}
+        onClose={() => setRegistryMemberDrawerRow(null)}
         onOpenFullParty={(partyId) => {
-          setCompassDrawerRow(null);
+          setRegistryMemberDrawerRow(null);
           onOpenWeddingParty?.(partyId);
         }}
       />

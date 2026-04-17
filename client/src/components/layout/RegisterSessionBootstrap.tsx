@@ -140,6 +140,7 @@ export default function RegisterSessionBootstrap({
    * undoing navigation (e.g. Reports, Staff). Still apply when a session just closed or credentials/role change.
    */
   const lastNoSessionShellKeyRef = useRef<string | null>(null);
+  const lastBootstrapDataRef = useRef<string | null>(null);
 
   const pollHeaders = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -185,23 +186,23 @@ export default function RegisterSessionBootstrap({
         | "role"
         | "receipt_timezone"
       >;
-      setRegisterLane(data.register_lane);
-      setRegisterOrdinal(data.register_ordinal);
-      setLifecycleStatus(data.lifecycle_status);
-      setCashierName(data.cashier_name);
-      setCashierCode(data.cashier_code);
-      setCashierAvatarKey(
+      if (data.register_lane !== undefined) setRegisterLane(data.register_lane);
+      if (data.register_ordinal !== undefined) setRegisterOrdinal(data.register_ordinal);
+      if (data.lifecycle_status) setLifecycleStatus(data.lifecycle_status);
+      if (data.cashier_name) setCashierName(data.cashier_name);
+      if (data.cashier_code) setCashierCode(data.cashier_code);
+      const ak =
         typeof data.cashier_avatar_key === "string" &&
           data.cashier_avatar_key.trim()
           ? data.cashier_avatar_key.trim()
-          : "ros_default",
-      );
-      setReceiptTimezone(
+          : "ros_default";
+      setCashierAvatarKey(ak);
+      const rz =
         typeof data.receipt_timezone === "string" &&
           data.receipt_timezone.trim()
           ? data.receipt_timezone.trim()
-          : "America/New_York",
-      );
+          : "America/New_York";
+      setReceiptTimezone(rz);
     } catch {
       /* ignore */
     }
@@ -249,24 +250,33 @@ export default function RegisterSessionBootstrap({
           const shouldApplyShell =
             lastShellApplySessionIdRef.current !== data.session_id;
           lastShellApplySessionIdRef.current = data.session_id;
-          setCashierName(data.cashier_name);
-          setCashierCode(data.cashier_code);
-          setCashierAvatarKey(
+          const dataStr = JSON.stringify(data);
+          if (lastBootstrapDataRef.current === dataStr) {
+            if (shouldApplyShell) {
+              applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
+            }
+            return;
+          }
+          lastBootstrapDataRef.current = dataStr;
+
+          if (data.cashier_name) setCashierName(data.cashier_name);
+          if (data.cashier_code) setCashierCode(data.cashier_code);
+          const ak =
             typeof data.cashier_avatar_key === "string" &&
               data.cashier_avatar_key.trim()
               ? data.cashier_avatar_key.trim()
-              : "ros_default",
-          );
+              : "ros_default";
+          setCashierAvatarKey(ak);
           setSessionId(data.session_id);
           setRegisterLane(data.register_lane);
           setRegisterOrdinal(data.register_ordinal);
           setLifecycleStatus(data.lifecycle_status);
-          setReceiptTimezone(
+          const rz =
             typeof data.receipt_timezone === "string" &&
               data.receipt_timezone.trim()
               ? data.receipt_timezone.trim()
-              : "America/New_York",
-          );
+              : "America/New_York";
+          setReceiptTimezone(rz);
           setIsRegisterOpen(true);
           syncPosRegisterSessionId(data.session_id);
           await hydratePosRegisterAuthIfNeeded({
@@ -290,6 +300,7 @@ export default function RegisterSessionBootstrap({
           ) {
             setRegisterPickSessions(body.open_sessions);
           }
+          lastBootstrapDataRef.current = null;
           lastShellApplySessionIdRef.current = null;
           setIsRegisterOpen(false);
           setSessionId(null);
@@ -301,9 +312,14 @@ export default function RegisterSessionBootstrap({
           setCashierAvatarKey(null);
           setReceiptTimezone("America/New_York");
           applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
+        } else if (res.status >= 500 || res.status === 408) {
+          // Transient server error: do NOT clear the session state. 
+          // This prevents infinite flip-flop loops in the shell when the network/server is under pressure.
+          return;
         } else {
           setRegisterPickSessions(null);
           const hadSession = lastShellApplySessionIdRef.current !== null;
+          lastBootstrapDataRef.current = null;
           lastShellApplySessionIdRef.current = null;
           setIsRegisterOpen(false);
           setSessionId(null);

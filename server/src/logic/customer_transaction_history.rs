@@ -14,6 +14,7 @@ pub struct CustomerTransactionHistoryQuery {
     pub to: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    pub record_scope: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +29,8 @@ pub struct CustomerTransactionHistoryItem {
     pub balance_due: Decimal,
     pub item_count: i64,
     pub is_fulfillment_order: bool,
+    pub is_counterpoint_import: bool,
+    pub counterpoint_customer_code: Option<String>,
     pub primary_salesperson_name: Option<String>,
 }
 
@@ -49,6 +52,8 @@ struct Row {
     balance_due: Decimal,
     item_count: i64,
     is_fulfillment_order: bool,
+    is_counterpoint_import: bool,
+    counterpoint_customer_code: Option<String>,
     primary_salesperson_name: Option<String>,
     total_count: i64,
 }
@@ -73,6 +78,8 @@ pub async fn query_customer_transaction_history(
             o.balance_due,
             COUNT(oi.id)::bigint AS item_count,
             EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = o.id AND fulfillment != 'takeaway') AS is_fulfillment_order,
+            o.is_counterpoint_import,
+            o.counterpoint_customer_code,
             ps.full_name AS primary_salesperson_name,
             COUNT(*) OVER()::bigint AS total_count
         FROM transactions o
@@ -101,6 +108,11 @@ pub async fn query_customer_transaction_history(
             qb.push("::timestamptz ");
         }
     }
+    if matches!(q.record_scope.as_deref(), Some("orders")) {
+        qb.push(
+            " AND EXISTS(SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.fulfillment != 'takeaway') ",
+        );
+    }
     qb.push(
         " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, ps.full_name ",
     );
@@ -124,6 +136,8 @@ pub async fn query_customer_transaction_history(
             balance_due: r.balance_due,
             item_count: r.item_count,
             is_fulfillment_order: r.is_fulfillment_order,
+            is_counterpoint_import: r.is_counterpoint_import,
+            counterpoint_customer_code: r.counterpoint_customer_code,
             primary_salesperson_name: r.primary_salesperson_name,
         })
         .collect();

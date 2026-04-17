@@ -47,7 +47,7 @@ Live rates run only when the store enables them **and** the token is present (se
 
 Implementation: **`server/src/api/shipments.rs`**, **`server/src/logic/shipment.rs`**, **`server/src/api/pos.rs`**, **`server/src/api/store.rs`**.
 
-**Checkout:** POS checkout with **ship** fulfillment creates or aligns a **`shipment`** row via **`insert_from_pos_order_tx`** (**`server/src/logic/order_checkout.rs`**). **Web** paid orders that ship should get the same treatment in the web checkout path when that flow is wired (backfill **75** already tags historical rows by **`sale_channel`**).
+**Checkout:** POS checkout with **ship** fulfillment creates or aligns a **`shipment`** row via **`insert_from_pos_order_tx`** (**`server/src/logic/transaction_checkout.rs`**). **Web** paid transactions that ship should get the same treatment in the web checkout path when that flow is wired (backfill **75** already tags historical rows by **`sale_channel`**).
 
 ---
 

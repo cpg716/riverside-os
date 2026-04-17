@@ -46,6 +46,11 @@ pub async fn list_working_floor_staff_for_local_today(
     list_working_floor_staff_for_date(pool, today).await
 }
 
+/// Alias for `list_working_floor_staff_for_local_today` to support legacy call sites.
+pub async fn get_today_floor_roster(pool: &PgPool) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
+    list_working_floor_staff_for_local_today(pool).await
+}
+
 pub async fn list_working_floor_staff_for_date(
     pool: &PgPool,
     d: NaiveDate,

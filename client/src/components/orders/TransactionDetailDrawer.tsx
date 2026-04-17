@@ -10,6 +10,7 @@ import {
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import OrderAttributionModal from "../pos/OrderAttributionModal";
 
 function fmtMoney(v: string | number): string {
   const cents = parseMoneyToCents(v);
@@ -72,6 +73,7 @@ export default function TransactionDetailDrawer({
   const [audit, setAudit] = useState<OrderAudit[]>([]);
   const [loading, setLoading] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [showAttributionModal, setShowAttributionModal] = useState(false);
 
   const load = useCallback(async () => {
     if (!orderId) return;
@@ -299,14 +301,23 @@ export default function TransactionDetailDrawer({
                 <Printer size={16} />
                 Reprint Receipt
               </button>
+              <button
+                type="button"
+                onClick={() => setShowAttributionModal(true)}
+                disabled={!detail}
+                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-amber-800 bg-amber-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:bg-amber-500 active:translate-y-0.5 disabled:opacity-50"
+              >
+                <User size={16} />
+                Edit Salesperson
+              </button>
               {onOpenTransactionInBackoffice && (
                 <button
                   type="button"
                   onClick={() => detail && onOpenTransactionInBackoffice(detail.order_id)}
-                  className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-accent/80 bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:opacity-90 active:translate-y-0.5"
+                  className="col-span-2 flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-accent/80 bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:opacity-90 active:translate-y-0.5"
                 >
                   <ExternalLink size={16} />
-                  Full Operations
+                  Open Order Workspace
                 </button>
               )}
             </div>
@@ -325,6 +336,16 @@ export default function TransactionDetailDrawer({
           getAuthHeaders={auth}
         />
       )}
+      {showAttributionModal && orderId ? (
+        <OrderAttributionModal
+          orderId={orderId}
+          onClose={() => setShowAttributionModal(false)}
+          onSaved={() => {
+            setShowAttributionModal(false);
+            void load();
+          }}
+        />
+      ) : null}
     </div>
   );
 }

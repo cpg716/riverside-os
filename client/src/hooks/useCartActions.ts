@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { 
   type CartLineItem, 
   type FulfillmentKind, 
@@ -11,7 +11,7 @@ import {
   type ActiveDiscountEvent
 } from "../components/pos/types";
 import { type Customer } from "../components/pos/CustomerSelector";
-import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
+import { type WeddingMember } from "../components/pos/types";
 import { centsToFixed2, parseMoneyToCents } from "../lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../lib/tax";
 import { playPosScanSuccess } from "../lib/posAudio";
@@ -49,6 +49,7 @@ interface UseCartActionsProps {
   setPickupConfirmed: (v: boolean) => void;
   baseUrl: string;
   apiAuth: () => Record<string, string>;
+  onNeedsSignIn: () => void;
 }
 
 export function useCartActions({
@@ -75,6 +76,7 @@ export function useCartActions({
   setPickupConfirmed,
   baseUrl,
   apiAuth,
+  onNeedsSignIn,
 }: UseCartActionsProps) {
   const [lines, setLines] = useState<CartLineItem[]>([]);
   const [selectedLineKey, setSelectedLineKey] = useState<string | null>(null);
@@ -83,11 +85,11 @@ export function useCartActions({
 
   const ensureSaleCashier = useCallback((): boolean => {
     if (!checkoutOperator) {
-      toast("Sign in as cashier on the register sign-in screen before performing this action.", "error");
+      onNeedsSignIn();
       return false;
     }
     return true;
-  }, [checkoutOperator, toast]);
+  }, [checkoutOperator, onNeedsSignIn]);
 
   const clearCart = useCallback(() => {
     setLines([]);
@@ -490,7 +492,7 @@ export function useCartActions({
     toast(`${event.receipt_label} applied`, "success");
   }, [selectedLineKey, lines, rmsPaymentMeta, toast]);
 
-  return {
+  return useMemo(() => ({
     lines,
     setLines,
     selectedLineKey,
@@ -512,5 +514,23 @@ export function useCartActions({
     handleLaserScan,
     handleSearchResultClick,
     onExchangeContinue,
-  };
+  }), [
+    lines,
+    selectedLineKey,
+    keypadMode,
+    keypadBuffer,
+    addItem,
+    addGiftCardLoadToCart,
+    removeLine,
+    updateLineFulfillment,
+    updateLineSalesperson,
+    updateLineGiftWrapStatus,
+    handleNumpadKey,
+    applyDiscountEvent,
+    ensureSaleCashier,
+    clearCart,
+    handleLaserScan,
+    handleSearchResultClick,
+    onExchangeContinue,
+  ]);
 }

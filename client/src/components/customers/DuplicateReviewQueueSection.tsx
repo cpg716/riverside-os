@@ -271,7 +271,7 @@ export default function DuplicateReviewQueueSection({
           onNavigateRegister={onNavigateRegister}
           onAddToWedding={onAddToWedding}
           onBookAppointment={onBookAppointment}
-          onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+          onOpenOrderInBackoffice={onOpenTransactionInBackoffice}
         />
       ) : null}
 

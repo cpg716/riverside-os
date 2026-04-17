@@ -1,46 +1,60 @@
 ---
 id: customers-workspace
 title: "Customer CRM Hub"
-order: 1005
-summary: "Manage your client relationships, track lifetime sales, monitor wedding party membership, and handle duplicate accounts."
+order: 1030
+summary: "Manage client relationships, track lifetime sales, monitor wedding party membership, and handle technical CRM tasks like duplicate merging."
 source: client/src/components/customers/CustomersWorkspace.tsx
-last_scanned: 2026-04-11
-tags: crm, customers, sales, duplicate-review
+last_scanned: 2026-04-17
+tags: customers, crm, relationships, hub, measurements, timeline, merge, rms
 ---
 
-# Customer CRM Hub
+# Customers (Back Office)
 
-The Customer CRM Hub is a high-density primary workstation for managing client relationships. It prioritizes financial transparency and operational speed, allowing for rapid lookup and management of large customer bases.
+_Audience: Sales and CRM staff._
 
-## High-Density Grid
+**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **RMS charge**, **Duplicate review**.
 
-The main display uses a high-density table grid designed for maximum information visibility:
-- **Member Focus**: Primary names and [Customer Codes](file:///docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md) are prominently displayed.
-- **Financial Pulse**: Real-time tracking of **Lifetime Sales** and current **Open Balance** (RMS Charge) is visible for every row.
-- **Wedding Identity**: Displays linked Wedding Party names directly in the grid for quick retail context.
-- **VIP & Activity**: Visual badges indicate loyalty standing and recent engagement.
+---
 
-## CRM Operations
+## How to use this area
 
-### Searching & Filtering
-- **Universal Search**: Use the top bar to search by name, phone, email, or customer code.
-- **Quick-Filters**: Narrow down by "With Open Balance," "Wedding Party Members," or "Recent Sign-ups."
+**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship Hub** (slideout drawer) is the core of the CRM, containing:
 
-### Customer Management Hub
-Click any row to open the **Customer Relationship Hub**. This slide-out panel provides a 360-degree view:
-- **Timeline**: Chronological history of all orders, returns, and point adjustments.
-- **Measurements**: Access specialized measurement vaults for custom work.
-- **Messaging**: Local Inbox for Podium SMS/Email threads.
-- **Shipments**: Track packages and generate new labels via Shippo.
+## All Customers Search
 
-### Duplicate Review
-Located in the sidebar, the **Duplicate Review** queue highlights potential account collisions based on name/phone/email matches. Staff can merge accounts here to maintain a clean CRM.
+1. **Customers** → **All Customers**.
+2. **Search** — name, phone digits, **customer_code**, or email fragment.
+3. Use **Load more** at the bottom for large result sets.
+4. Click a row to open the **Relationship Hub**.
 
-## Tips
+## Add Customer
 
-- **Load More**: The grid uses performance-optimized pagination. Click "Load More" at the bottom to continue browsing large lists.
-- **Balance Alerts**: Customers with significant open balances will be highlighted in the grid to facilitate collections during checkout.
+1. **Customers** → **Add Customer**.
+2. Complete **required** fields; **customer_code** is automatically server-assigned on create.
+3. **Save** and verify the success toast. Fix **red** inline validation if saving fails.
 
-> [!IMPORTANT]
-> Merging customers in the Duplicate Review queue is irreversible. Ensure you are merging the *correct* historical record into the primary account.
+## Relationship Hub Tabs
 
+- **Relationship**: Marketing opt-ins, **interaction timeline**, and partner linking (**Joint Couple Accounts**). Contact details (phone, email, address) are prominently displayed at the top of this tab for quick access. With `shipments.view` permission, shipping updates are automatically linked here.
+- **Joint Couple Accounts**: Link a partner (existing or new) for combined spend and loyalty views.
+- **Measurements**: Sizing vault for fittings. Always verify identity before reading aloud as this contains PII.
+- **Card Vault**: Securely manage Stripe card-on-file tokens. ROS only stores the last 4 digits and brand.
+- **Duplicate Review & Merge**: If two customers are selected, use the **Merge** tool to consolidate profiles. This uses the emerald "Finalize" button style to indicate a destructive action.
+
+## RMS Charge (Admin)
+
+1. **Customers** → **RMS charge**.
+2. Use this to reconcile **R2S activity** with the internal ledger.
+3. **Charge** rows come from POS RMS tenders; **Payment** rows come from register `RMS CHARGE PAYMENT` checkouts.
+
+## Troubleshooting
+
+| Symptom                       | Action                                                                |
+| :---------------------------- | :-------------------------------------------------------------------- |
+| **Search yields no results**  | Try phone number digits or a shorter name fragment.                   |
+| **"No permission" toast**     | Check your role for `customers.hub_view` or `customers.timeline`.     |
+| **Tab missing in Hub**        | Typically means `orders.view` or `customers.measurements` is missing. |
+| **Cannot edit VIP/Marketing** | Requires `customers.hub_edit` permission.                             |
+| **Contact info not showing**  | Verify customer profile has phone/email/address populated in backend. |
+
+**Last reviewed:** 2026-04-17

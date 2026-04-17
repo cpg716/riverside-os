@@ -14,6 +14,8 @@ POS **Inventory** is a **fast lookup**: **price**, **availability**, **SKU**, an
 
 The same tab implements **browse-and-add** to the cart (control-board search):
 
+**Terminology Sync**: The POS Inventory view uses the same data as the Back Office **Product List**. Terminology should remain consistent: use **Units** and **Available for Sale**.
+
 1. Type **at least two characters** in search; results debounce briefly.
 2. Tap a product: **one variant** adds to the cart immediately; **multiple variants** open a picker (sizes/options sorted for apparel).
 3. Tap **Add to sale** (emerald) on the correct variant.

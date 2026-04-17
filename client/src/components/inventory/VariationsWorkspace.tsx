@@ -1,13 +1,14 @@
 import React, { useState, useMemo, useCallback } from "react";
 import {
   LayoutGrid,
-  List,
   Search,
   Printer,
   SlidersHorizontal,
   ShieldAlert,
   DollarSign,
+  Plus,
 } from "lucide-react";
+import { VariantGeneratorModal } from "./VariantGeneratorModal";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -61,8 +62,6 @@ function naturalSort(a: string, b: string): number {
 
 export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   productId,
-  productTrackLowStock,
-
   productName,
   categoryName,
   variationAxes,
@@ -75,7 +74,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
-    () => mergedPosStaffHeaders(backofficeHeaders),
+    () => mergedPosStaffHeaders(backofficeHeaders() as Record<string, string>),
     [backofficeHeaders],
   );
 
@@ -106,7 +105,17 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const detectedAxes = useMemo(() => {
     const keys = new Set<string>();
     for (const v of variants) {
-      Object.keys(v.variation_values).forEach((k) => keys.add(k));
+      Object.keys(v.variation_values).forEach((k) => {
+        // Normalize names for detection
+        const nk = k.toLowerCase().trim();
+        if (nk === "size" || nk === "color" || nk === "fit") {
+           keys.add(k);
+        }
+      });
+    }
+    // Add any remaining keys
+    for (const v of variants) {
+       Object.keys(v.variation_values).forEach(k => keys.add(k));
     }
     return [...keys];
   }, [variants]);
@@ -266,59 +275,64 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
     }
   };
 
+  const [showGenerator, setShowGenerator] = useState(false);
+
   return (
-    <div className="flex flex-col gap-6 animate-in fade-in duration-500">
+    <div className="flex flex-col gap-4 animate-in fade-in duration-300">
       {/* Header Dashboard */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-xl font-black tracking-tight text-app-text flex items-center gap-3">
-            <span className="opacity-40 font-mono text-sm leading-none pt-1">
+        <div className="flex flex-col gap-0.5">
+          <h2 className="text-lg font-black tracking-tight text-app-text flex items-center gap-2">
+            <span className="opacity-40 font-mono text-xs">
               #{productId.slice(0, 8)}
             </span>
             {productName}
           </h2>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <div
-              className={`flex rounded-xl bg-app-surface shadow-sm border border-app-border p-1 ${viewMode === "grid" ? "ring-1 ring-app-accent/20" : ""}`}
+              className={`flex rounded-lg bg-app-surface border border-app-border p-0.5 ${viewMode === "grid" ? "ring-1 ring-app-accent/10" : ""}`}
             >
               <button
                 onClick={() => setViewMode("grid")}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "grid" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+                className={`flex h-7 w-7 items-center justify-center rounded-md transition-all ${viewMode === "grid" ? "bg-app-accent text-white shadow-md shadow-app-accent/20" : "text-app-text-muted hover:bg-app-surface-2"}`}
               >
-                <LayoutGrid size={16} />
+                <LayoutGrid size={14} />
               </button>
               <button
-                onClick={() => setViewMode("list")}
-                className={`flex h-8 w-8 items-center justify-center rounded-lg transition-all ${viewMode === "list" ? "bg-app-accent text-white shadow-lg shadow-app-accent/30" : "text-app-text-muted hover:bg-app-surface-2"}`}
+                onClick={() => setShowGenerator(true)}
+                className="h-9 px-4 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:border-app-accent hover:text-app-text transition-all flex items-center gap-2 group"
+                title="Create Size/Color Matrix"
               >
-                <List size={16} />
+                <Plus size={14} className="group-hover:text-app-accent transition-colors" />
+                <span className="text-[10px] font-black uppercase tracking-widest">Create Sizes</span>
               </button>
             </div>
-            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+            <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-50">
               {variants.length} SKU{variants.length !== 1 ? "s" : ""} ·{" "}
               {categoryName || "Uncategorized"}
             </p>
-            {productTrackLowStock && (
-              <span className="px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 text-[8px] font-black uppercase tracking-widest border border-amber-500/20">
-                Auto-Tracking
-              </span>
-            )}
           </div>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex gap-2">
           <div className="relative group">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-app-text-muted group-focus-within:text-app-accent transition-colors" />
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3 w-3 text-app-text-muted group-focus-within:text-app-accent transition-colors" />
             <input
               value={localSearch}
               onChange={(e) => setLocalSearch(e.target.value)}
-              placeholder="Filter variations..."
-              className="ui-input h-10 pl-10 w-48 bg-app-surface/50 border-app-border/40 focus:w-64 transition-all duration-300"
+              placeholder="Find SKU..."
+              className="ui-input h-9 pl-9 w-36 bg-app-surface/40 hover:bg-app-surface/60 border-app-border/40 focus:w-56 transition-all duration-300 text-xs"
             />
           </div>
-          <button className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-2 transition-colors">
+          <button 
+            onClick={() => setShowGenerator(true)}
+            className="flex items-center gap-2 rounded-lg bg-app-accent px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/10 hover:brightness-110 active:scale-95 transition-all"
+          >
+            <Plus size={14} />
+            <span>Gen Matrix</span>
+          </button>
+          <button className="flex items-center gap-2 rounded-lg border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:bg-app-surface-2 transition-colors">
             <Printer size={14} />
-            <span>Bulk Labels</span>
           </button>
         </div>
       </div>
@@ -340,9 +354,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                 {colKeys.map((ck) => (
                   <th
                     key={ck}
-                    className="border-b border-app-border bg-app-surface-2/95 backdrop-blur-md p-4 text-center"
+                    className="border-b border-app-border bg-app-surface-2/95 backdrop-blur-md p-2 text-center"
                   >
-                    <span className="text-[11px] font-black uppercase tracking-widest text-app-text">
+                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text opacity-70">
                       {ck}
                     </span>
                   </th>
@@ -352,8 +366,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
             <tbody>
               {rowKeys.map((rk) => (
                 <tr key={rk}>
-                  <td className="sticky left-0 z-20 border-b border-r border-app-border bg-app-surface/95 backdrop-blur-md p-4">
-                    <span className="text-sm font-black text-app-text">
+                  <td className="sticky left-0 z-20 border-b border-r border-app-border bg-app-surface/95 backdrop-blur-md p-2">
+                    <span className="text-xs font-black text-app-text opacity-80">
                       {rk}
                     </span>
                   </td>
@@ -363,13 +377,13 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                       return (
                         <td
                           key={ck}
-                          className="border-b border-app-border bg-app-surface-2/20"
+                          className="border-b border-app-border bg-app-surface-2/10"
                         />
                       );
                     return (
                       <td
                         key={ck}
-                        className="border-b border-app-border p-1.5 align-top"
+                        className="border-b border-app-border p-1 align-top"
                       >
                         <VariationGridCell
                           variant={v}
@@ -679,6 +693,18 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         }}
         onBatchTrackLow={handleBatchTrackLow}
       />
+
+      {/* Variant Generator Modal */}
+      {showGenerator && (
+        <VariantGeneratorModal
+          productId={productId}
+          productName={productName}
+          onClose={() => setShowGenerator(false)}
+          onGenerated={onVariantUpdated}
+          baseUrl={baseUrl}
+          apiAuth={apiAuth}
+        />
+      )}
     </div>
   );
 };

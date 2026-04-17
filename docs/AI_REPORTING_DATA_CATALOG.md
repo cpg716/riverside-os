@@ -22,7 +22,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 
 ### ROSIE (`PLAN_LOCAL_LLM_HELP.md`) — how this catalog is consumed
 
-**ROSIE** (**RiversideOS Intelligence Engine**) uses this file as the **executable allowlist** for numeric/analytic tools:
+**ROSIE** (**RiversideOS Inventory Overview Engine**) uses this file as the **executable allowlist** for numeric/analytic tools:
 
 - **`reporting_run`** (or equivalent) **`spec_id`** values **must** resolve to **one** row in **§0 Curated Reports** (`report_id` ↔ `GET` path) or to another **§0** GET row with an explicitly documented internal alias in server-side tool registry code.
 - **Parameters** passed to the executor **must** be a subset of the query keys described in §0 for that route (e.g. **`basis`**, **`from`**, **`to`**, **`group_by`**, **`limit`**). Reject unknown keys.
@@ -144,10 +144,10 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/orders/refunds/due` | Refund queue (**`orders.refund_process`**). |
 | GET | `/api/orders/{order_id}` | Order detail + lines + tenders (read auth: BO or register session). |
 | GET | `/api/orders/{order_id}/audit` | **`order_activity_log`** (see §7). |
-| GET | `/api/orders/{order_id}/receipt.zpl` | Receipt ZPL (reporting less common; label/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
-| GET | `/api/orders/{order_id}/receipt.html` | Merged Receipt Builder HTML (or placeholder if template unset). Same auth as order detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
-| POST | `/api/orders/{order_id}/receipt/send-email` | Podium **email** with inline HTML body; requires exported template. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
-| POST | `/api/orders/{order_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| GET | `/api/transactions/{transaction_id}/receipt.zpl` | Receipt ZPL (reporting less common; label/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
+| GET | `/api/transactions/{transaction_id}/receipt.html` | Merged Receipt Builder HTML (or placeholder if template unset). Same auth as transaction detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
+| POST | `/api/transactions/{transaction_id}/receipt/send-email` | Podium **email** with inline HTML body; requires exported template. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| POST | `/api/transactions/{transaction_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
 
 ### `/api/sessions/*`
 
@@ -423,7 +423,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Source | Route area | Typical permission | Useful fields / filters |
 |--------|------------|-------------------|-------------------------|
 | Order list / detail | `/api/orders/*` | [**`orders.view`**](docs/STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
-| **Order activity / audit** | `GET /api/orders/{order_id}/audit` | **`orders.view`** + same read auth as order (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per order, last 100) |
+| **Transaction activity / audit** | `GET /api/transactions/{transaction_id}/audit` | **`orders.view`** + same read auth as transaction (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per transaction, last 100) |
 | Refund queue | `/api/orders/*` | **`orders.refund_process`** | Open refund work |
 | Customer order history | `/api/customers/{id}/order-history` | Customer + order read paths | Timeline for one customer |
 | Sessions / X-report | `/api/sessions/*` | Register session + **`register.reports`** patterns | Tender mix, session-level reconciliation |
@@ -485,7 +485,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Party list / detail | `GET /api/weddings/parties`, `/parties/{id}` | **`weddings.view`** | Pagination + party record. |
 | Member | `GET /api/weddings/members/{id}` | **`weddings.view`** | Member + outfit context. |
 | Ledger / financial | `GET /api/weddings/parties/{id}/ledger`, `/financial-context` | **`weddings.view`** | Money owed, allocations context. |
-| Morning compass / activity | `GET /api/weddings/morning-compass`, `/activity-feed` | **`weddings.view`** + staff headers | Ops dashboards. |
+| Registry status / activity | `GET /api/weddings/morning-compass`, `/activity-feed` | **`weddings.view`** + staff headers | Ops dashboards. |
 | Actions catalog | `GET /api/weddings/actions` | **`weddings.view`** | **`needs_measure`** / **`needs_order`** rows; includes **`party_balance_due`** (party-level open order balance, string decimal). |
 | Appointments | `GET /api/weddings/appointments` | **`weddings.view`** | Store calendar rows. |
 | Live SSE | `GET /api/weddings/events` | Stream | **Do not** treat as tabular export (§0, §15). |
@@ -535,7 +535,7 @@ AGENTS.md notes **customer timeline** emits only **business** milestones for som
 
 ### Order-level audit
 
-Already listed in **§2**: `GET /api/orders/{order_id}/audit` → **`order_activity_log`**.
+Already listed in **§2**: `GET /api/transactions/{transaction_id}/audit` → **`order_activity_log`**.
 
 Additional **structured** audit may live on **order lines** (e.g. **price_override_audit** in checkout payload) — expose only via **order detail** / **line** APIs if surfaced; do not invent SQL.
 
@@ -725,7 +725,7 @@ Train on mapping **utterances** → **first API** (after permissions):
 | “**RMS** / R2S **charge** export” | **`GET /api/insights/rms-charges`** | **`insights.view`** |
 | “RMS list on **customer**” | **`GET /api/customers/rms-charge/records`** | **`customers.rms_charge`** |
 | “**Best sellers** / dead stock / slow movers” | **`GET /api/insights/best-sellers`**, **`dead-stock`** | **`insights.view`** |
-| “Open **orders** / refund queue / one order detail” | **`GET /api/orders/`**, **`/refunds/due`**, **`/{id}`** | **`orders.view`** / **`orders.refund_process`** |
+| “Open **transactions** / refund queue / one transaction detail” | **`GET /api/transactions/`**, **`/refunds/due`**, **`/{id}`** | **`orders.view`** / **`orders.refund_process`** |
 
 ### 15.6 Metabase vs REST (when the model should answer which)
 

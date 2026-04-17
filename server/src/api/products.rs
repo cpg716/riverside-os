@@ -161,6 +161,18 @@ pub struct CreateProductRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct BulkCreateVariantsRequest {
+    pub variants: Vec<BulkCreateVariantInput>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkCreateVariantInput {
+    pub variation_values: Value,
+    pub retail_price_override: Option<Decimal>,
+    pub cost_override: Option<Decimal>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CreateVariantInput {
     pub sku: String,
     pub variation_values: Value,
@@ -533,6 +545,7 @@ pub fn router() -> Router<AppState> {
         .route("/{product_id}/hub", get(get_product_hub))
         .route("/{product_id}/timeline", get(get_product_timeline))
         .route("/{product_id}/variants", get(list_variants))
+        .route("/{product_id}/variants/bulk", post(create_variants_bulk))
 }
 
 async fn require_catalog_perm(
@@ -779,6 +792,62 @@ async fn list_products(
     .await?;
 
     Ok(Json(rows))
+}
+
+async fn create_variants_bulk(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(product_id): Path<Uuid>,
+    Json(payload): Json<BulkCreateVariantsRequest>,
+) -> Result<StatusCode, ProductError> {
+    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
+
+    if payload.variants.is_empty() {
+        return Err(ProductError::InvalidPayload(
+            "at least one variant is required".to_string(),
+        ));
+    }
+
+    let product_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)")
+            .bind(product_id)
+            .fetch_one(&state.db)
+            .await?;
+    if !product_exists {
+        return Err(ProductError::ProductNotFound);
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    for variant in payload.variants {
+        // Generate sequential B-XXXXX SKU
+        let seq_num: i64 = sqlx::query_scalar("SELECT nextval('variant_sku_seq')")
+            .fetch_one(&mut *tx)
+            .await?;
+        let sku = format!("B-{seq_num}");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                product_id, sku, variation_values,
+                retail_price_override, cost_override, track_low_stock
+            )
+            VALUES ($1, $2, $3, $4, $5, true)
+            "#,
+        )
+        .bind(product_id)
+        .bind(sku)
+        .bind(variant.variation_values)
+        .bind(variant.retail_price_override)
+        .bind(variant.cost_override)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
+    spawn_meilisearch_product_resync(&state, product_id);
+
+    Ok(StatusCode::CREATED)
 }
 
 /// Control board JSON (also mounted at `GET /api/inventory/control-board`).

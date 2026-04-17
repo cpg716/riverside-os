@@ -6,6 +6,40 @@ on:
     branches: [main]
 
 jobs:
+  server-migrations:
+    name: Server Migrations Smoke
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: password
+          POSTGRES_DB: riverside_os
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d riverside_os"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgresql://postgres:password@localhost:5432/riverside_os
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install psql client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Apply SQL migrations on a fresh database
+        run: ./scripts/apply-migrations-psql.sh
+
+      - name: Verify latest migration ledger row exists
+        run: |
+          psql "$DATABASE_URL" -tAc \
+            "SELECT EXISTS(SELECT 1 FROM ros_schema_migrations WHERE version = '147_counterpoint_sync_record_counting.sql');" \
+            | grep -qx 't'
+
   client-lint:
     name: Client (React) Lint
     runs-on: ubuntu-latest

@@ -1,61 +1,64 @@
 ---
 id: loyalty-workspace
-title: "Loyalty Management Hub"
-order: 1043
-summary: "Manage the monthly reward cycle, customize fulfillment letters, and monitor loyalty program health."
+title: "Loyalty & Gift Cards"
+order: 1080
+summary: "Manage gift card liability, issue donative cards, oversee point economics, and configure reward program tiers."
 source: client/src/components/loyalty/LoyaltyWorkspace.tsx
-last_scanned: 2026-04-11
-tags: loyalty, rewards, fulfillment, analytics
+last_scanned: 2026-04-17
+tags: loyalty, gift-cards, rewards, points, liability, issuance
 ---
 
-# Loyalty Management Hub
+# Gift Cards and Loyalty (Back Office)
 
-The Loyalty Management Hub is a high-density control center for managing Riverside OS’s premium reward cycle. It is designed to track "Elite Pool" eligibility and facilitate professional physical fulfillment.
+_Audience: Managers and leads._
 
-## Executive Summary Strip
+**Where in ROS:** Back Office → **Gift Cards** and **Loyalty** tabs. 
 
-At the top of the workspace, the **Executive Summary Strip** provides real-time program health metrics:
-- **Points Vault**: Total points liability currently held by all customers.
-- **Elite Pool**: The number of members who have crossed the reward threshold and are awaiting redemption.
-- **Rewards Issued**: Total historical count of reward issuances.
-- **Retention Activity**: Count of manual adjustments performed by staff in the last 30 days.
+---
 
-## Monthly Elite Pool (Registry)
+## How to use these tabs
 
-This is the primary operational grid. It lists all customers who have reached the `loyalty_point_threshold` (e.g., 5,000 pts).
+Use **Gift Cards** for **liability management** (issuance, voids, balance tracking). Use **Loyalty** for **points economics** (adjustments, tier settings, and eligibility).
 
-### Fulfillment Workflow
-1. **Sync Elite Pool**: Use the "Sync" button to ensure the registry is up to date with the latest accruals.
-2. **Redeem Reward**: Click the **Redeem** button to open the redemption dialog. This will deduct the points and either apply the reward to a sale or load it onto a gift card.
-3. **Bulk Labels**: Use this action in the header to print standard mailing labels for every member currently in the pool.
+## Gift Cards Management
 
-## Issuance History (Fulfillment Tracking)
+### Card Inventory
+**Purpose**: Confirm card status and remaining balance.
+1. **Gift Cards** → **Card Inventory**.
+2. Search by **full code** or **last four**.
+3. View **issue date**, **initial value**, and the active/void status.
+4. **Voiding**: Only void cards following your store’s written SOP as it affects financial liability.
 
-Switch to the **History** tab to see a record of all recent reward issuances. 
-- Use the **Print Letter** icon to generate a 8.5x11 "Thank You" letter for the recipient.
-- Use the **Print Label** icon to reprint an address label for that specific issuance.
+### Issuance
+- **Issue Purchased**: Used after customer payment is collected. Verify the new card appears in inventory with the correct balance.
+- **Issue Donated**: Marketing or charity issuance (typically **manager-only**). Always record the reason for donation in the notes.
 
-## Program Settings & Letter Templates
+## Loyalty Program Management
 
-In the **Program Settings** tab, administrators can customize the reward rules and the physical fulfillment output.
+### Monthly Eligibility
+**Purpose**: Review who qualifies for periodic rewards.
+1. **Loyalty** → **Monthly Eligible**.
+2. Scan the list for qualified customers. Export only on secure machines due to PII.
+3. Coordinate outreach via email or SMS based on program rules.
 
-### Personalizing Reward Letters
-You can edit the "Thank You" letter text directly in the **Program Settings** tab. The editor supports real-time tag injection for personalization. Use the following dynamic tags to personalize the output:
-- `{{first_name}}`: Recipient's first name.
-- `{{last_name}}`: Recipient's last name.
-- `{{reward_amount}}`: The dollar value of the reward (e.g., $50.00).
-- `{{card_code}}`: The unique Gift Card code generated during redemption.
+### Adjusting Points
+**Purpose**: Correct mistakes or apply goodwill points with an audit trail.
+1. **Loyalty** → **Adjust Points**.
+2. Search for the customer and enter the **delta** (+/-) and a clearly stated **reason**.
+3. Save and advise the customer that the update will be reflected on their next POS visit.
 
-#### Fulfillment Workflow
-1. **Redeem**: Points are deducted and a reward (Gift Card or Sale Credit) is issued.
-2. **History**: Navigate to the History tab to find the issuance.
-3. **Print**: Click the **Print Letter** icon. Riverside OS merges the template with the member data for a ready-to-mail fulfillment packet.
+### Program Settings
+**Purpose**: High-impact configuration of **earn rates**, tiers, and caps.
+1. **Loyalty** → **Program Settings**.
+2. Change only one variable at a time and document broad changes before saving.
+3. Test tier changes with an internal test account first.
 
-## Tips
+## Troubleshooting
 
-- **Check the History**: Always check the History tab after a redemption to print the final fulfillment packet.
-- **Dynamic Thresholds**: Reward thresholds and amounts are global; changing them in settings will immediately update the Elite Pool registry.
+| Symptom | Action |
+| :--- | :--- |
+| **Card not found at POS** | Check for spaces or activation timing in Card Inventory. |
+| **Loyalty points incorrect** | Customer may need to re-sign in at the POS to refresh cached point totals. |
+| **Adjustment rejected** | Usually means the adjustment exceeds a program-defined rule or cap. |
 
-> [!IMPORTANT]
-> Printing letters requires a PDF-capable browser. Ensure pop-ups are allowed for `riverside-os` to enable the print preview window.
-
+**Last reviewed:** 2026-04-17

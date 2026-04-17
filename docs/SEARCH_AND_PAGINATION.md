@@ -84,7 +84,7 @@ When **`q`** is set and **`wedding_party_q`** is **not**, optional **Meilisearch
 
 | Param | Notes |
 |-------|--------|
-| `q`, `vip_only`, `balance_due_only`, `loyalty_pool_only`, `wedding_soon_only`, `wedding_party_q`, `wedding_within_days` | See `CustomerBrowseQuery` in `server/src/api/customers.rs` |
+| `q`, `vip_only`, `balance_due_only`, `loyalty_pool_only`, `wedding_soon_only`, `wedding_party_q`, `wedding_within_days` | See `CustomerBrowseQuery` in `server/src/api/customers/` |
 | `limit` | Default **300**, max **1000** |
 | `offset` | Default **0**, max **500_000** |
 
@@ -102,7 +102,7 @@ Quick directory search (POS, header, appointments, Wedding Manager, Register Loo
 
 **Clients (non-exhaustive):** `CustomerSelector.tsx` (POS; **Load more**), `Header.tsx` (**More customers**), `RegisterLookupHub.tsx` (loyalty lookup; multi-match picker + optional **Load more**), `scheduler/AppointmentModal.tsx`, `wedding-manager/.../AppointmentModal.jsx`, `weddingApi.searchCustomers(q, opts?)`, `wedding-manager/lib/api.js` `searchCustomers(q, opts)`.
 
-### `GET /api/customers/{id}/order-history`
+### `GET /api/customers/{id}/transaction-history`
 
 Per-customer order list (not a directory search). **`WHERE customer_id = :id`**, excludes cancelled orders, **`ORDER BY booked_at DESC`**, window **`COUNT(*) OVER()`** for **`total_count`**.
 
@@ -112,7 +112,7 @@ Per-customer order list (not a directory search). **`WHERE customer_id = :id`**,
 | `limit` | Default **50**, max **200** |
 | `offset` | Default **0** |
 
-**Clients:** `CustomerRelationshipHubDrawer.tsx` — **Orders** tab (**Apply range**, **Load more**). The tab is shown only when **`orders.view`** is in effective permissions; the API uses the same gate server-side (**[`docs/CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md)**).
+**Clients:** `CustomerRelationshipHubDrawer.tsx` — **Transactions** tab (**Apply range**, **Load more**). The tab is shown only when **`orders.view`** is in effective permissions; the API uses the same gate server-side (**[`docs/CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md)**).
 
 ---
 
@@ -122,18 +122,18 @@ Per-customer order list (not a directory search). **`WHERE customer_id = :id`**,
 |------|--------|--------|
 | Control board | `server/src/api/products.rs` — `list_control_board`; optional Meili: `logic/meilisearch_search.rs` | `InventoryControlBoard.tsx`, `Cart.tsx`, `ProcurementHub.tsx`, `Header.tsx` |
 | Store PLP search | `server/src/logic/store_catalog.rs` — `list_store_products`; `server/src/api/store.rs` | `PublicStorefront.tsx` — product list **`search`** + debounce |
-| Customer browse/search | `server/src/api/customers.rs` — `browse_customers`, `search_customers` | `CustomersWorkspace.tsx`, `CustomerSelector.tsx`, `Header.tsx`, appointment modals, `weddingApi.ts`, `api.js` |
-| Wedding party directory | `server/src/logic/wedding_queries.rs`, `server/src/api/weddings.rs` | Embedded Wedding Manager + APIs using party list **`search`** |
-| Orders list (BO) | `server/src/logic/order_list.rs`, `server/src/api/orders.rs` | `OrdersWorkspace.tsx` |
-| RMS charge list | `server/src/api/customers.rs` — RMS charge handler + optional **`q`** | `RmsChargeAdminSection.tsx` |
+| Customer browse/search | `server/src/api/customers/` — `browse_customers`, `search_customers` | `CustomersWorkspace.tsx`, `CustomerSelector.tsx`, `Header.tsx`, appointment modals, `weddingApi.ts`, `api.js` |
+| Wedding party directory | `server/src/logic/wedding_queries.rs`, `server/src/api/weddings/` | Embedded Wedding Manager + APIs using party list **`search`** |
+| Orders list (BO) | `server/src/logic/order_list.rs`, `server/src/api/transactions/` | `OrdersWorkspace.tsx` |
+| RMS charge list | `server/src/api/customers/` — RMS charge handler + optional **`q`** | `RmsChargeAdminSection.tsx` |
 | Meilisearch ops | `logic/meilisearch_sync.rs` — `reindex_all_meilisearch`; **`GET`/`POST /api/settings/meilisearch/*`** — `settings.rs` | **Settings → Integrations → Meilisearch**; **`scripts/ros-meilisearch-reindex-local.sh`** |
-| Customer order history | `server/src/logic/customer_order_history.rs`, `customers.rs` — `get_customer_order_history` (**`orders.view`** or POS session) | `CustomerRelationshipHubDrawer.tsx` (**Orders** tab) |
+| Customer transaction history | `server/src/logic/customer_transaction_history.rs`, `server/src/api/customers/` — `query_customer_transaction_history` (**`orders.view`** or POS session) | `CustomerRelationshipHubDrawer.tsx` (**Transactions** tab) |
 
 ---
 
 ## Related
 
-- **`INVENTORY_GUIDE.md`** — Scanning, physical counts, receiving (not the control-board SQL).
+- **`docs/INVENTORY_SCANNING_AND_COUNTS.md`** — Scanning, physical counts, receiving (not the control-board SQL).
 - **`docs/APPOINTMENTS_AND_CALENDAR.md`** — Appointment booking + customer search wiring.
 - **`docs/CATALOG_IMPORT.md`** — Bulk product CSV (`POST /api/products/import`), not control-board search; import completion triggers Meilisearch resync when configured.
 - **`docs/ONLINE_STORE.md`** — Public PLP **`search`** and storefront UX.

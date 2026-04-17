@@ -28,7 +28,7 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 | **Store-specific policy** | Live: **`GET /api/staff/store-sop`** (authenticated staff). Empty `markdown` means nothing configured. | Local rules: who approves voids, cash tolerance, manager phone, hours. **Prefer this over guessing** when the API is available. |
 | **Procedures & UI** | **`docs/staff/*`** indexed by [`staff/CORPUS.manifest.json`](staff/CORPUS.manifest.json) + hub [`staff/README.md`](staff/README.md) | “Where do I click?”, “How do I…”, POS vs Back Office, troubleshooting tables, EOD flow. |
 | **Live help retrieval (server)** | **`GET /api/help/search`** + **`PLAN_HELP_CENTER.md`**, [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) (historical **`ai_doc_chunk`** era) | Current: **`ros_help`** corpus, optional Meilisearch — **`docs/MANUAL_CREATION.md`**. Old doc describes pre-**78** chunking only. |
-| **ROSIE (planned local assistant)** | [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md), [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) | **ROSIE** = **RiversideOS Intelligence Engine**; future **Ask ROSIE** in Help Center; **not shipped**—same safety as help + reporting catalogs (**no** ad-hoc SQL). |
+| **ROSIE (planned local assistant)** | [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md), [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) | **ROSIE** = **RiversideOS Inventory Overview Engine**; future **Ask ROSIE** in Help Center; **not shipped**—same safety as help + reporting catalogs (**no** ad-hoc SQL). |
 | **Terms & quick routing** | [`staff/GLOSSARY.md`](staff/GLOSSARY.md), [`staff/FAQ.md`](staff/FAQ.md), [`staff/ERROR-AND-TOAST-GUIDE.md`](staff/ERROR-AND-TOAST-GUIDE.md) | Definitions, “403”, “Complete Sale grayed out”, intent → one deep link. |
 | **Permission keys & RBAC** | [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md) (also in corpus manifest) | “Why is my tab missing?”, which key gates refunds, catalog, settings. Pair with [`staff/permissions-and-access.md`](staff/permissions-and-access.md) for plain language. |
 | **Till group / lanes / combined Z** | [`TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md) + [`staff/register-tab-back-office.md`](staff/register-tab-back-office.md), [`staff/EOD-AND-OPEN-CLOSE.md`](staff/EOD-AND-OPEN-CLOSE.md) | “Why can’t Register #2 open?”, “Who runs Z?”, admin vs floor open flow, **`register.session_attach`**. Prefer **staff** articles for training tone; use **TILL_GROUP** for exact API/UI behavior. |
@@ -250,7 +250,7 @@ When the runtime supports **multiple tools** (help search, store SOP, insights G
 
 ## 13. ROSIE runtime contract (for implementers — ship aligned with `PLAN_LOCAL_LLM_HELP.md`)
 
-**ROSIE** (**RiversideOS Intelligence Engine**) is **assistive**: orchestration + **whitelisted** reads + citations — **not** an autonomous operator, **not** a SQL shell, **not** a substitute for manager judgment on refunds/voids/legal.
+**ROSIE** (**RiversideOS Inventory Overview Engine**) is **assistive**: orchestration + **whitelisted** reads + citations — **not** an autonomous operator, **not** a SQL shell, **not** a substitute for manager judgment on refunds/voids/legal.
 
 ### 13.1 Non-negotiables (embed in every ROSIE system prompt)
 

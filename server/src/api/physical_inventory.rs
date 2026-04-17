@@ -9,10 +9,9 @@ use axum::{
 };
 use serde::Deserialize;
 use serde_json::json;
-use sqlx::PgPool;
 use uuid::Uuid;
 
-use crate::api::AppState;
+use crate::api::{AppState, PgPool};
 use crate::auth::permissions::{PHYSICAL_INVENTORY_MUTATE, PHYSICAL_INVENTORY_VIEW};
 use crate::logic::physical_inventory::{self, AddCountRequest, CreateSessionRequest};
 use crate::middleware::require_staff_with_permission;
@@ -20,28 +19,31 @@ use crate::middleware::require_staff_with_permission;
 // ── Error type ────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
-pub struct PhysicalInventoryError(anyhow::Error);
+pub struct PhysicalInventoryError(pub anyhow::Error);
 
-impl<E: Into<anyhow::Error>> From<E> for PhysicalInventoryError {
-    fn from(e: E) -> Self {
-        PhysicalInventoryError(e.into())
+impl<E> From<E> for PhysicalInventoryError
+where
+    E: Into<anyhow::Error>,
+{
+    fn from(err: E) -> Self {
+        Self(err.into())
     }
 }
 
 impl IntoResponse for PhysicalInventoryError {
     fn into_response(self) -> Response {
-        let msg = self.0.to_string();
-        tracing::error!(error = %self.0, "Physical inventory error");
-        let status = if msg.contains("already exists")
-            || msg.contains("not found")
-            || msg.contains("must be in")
-            || msg.contains("scope must")
-            || msg.contains("category_ids required")
-        {
-            StatusCode::BAD_REQUEST
+        let err = self.0;
+        let msg = err.to_string();
+        tracing::error!(error = %err, "Inventory API error");
+
+        let status = if msg.contains("not found") || msg.contains("missing") {
+            StatusCode::NOT_FOUND
+        } else if msg.contains("permission") || msg.contains("auth") {
+            StatusCode::FORBIDDEN
         } else {
-            StatusCode::INTERNAL_SERVER_ERROR
+            StatusCode::BAD_REQUEST
         };
+
         (status, Json(json!({ "error": msg }))).into_response()
     }
 }
@@ -54,7 +56,9 @@ pub fn router() -> Router<AppState> {
         .route("/sessions/active", get(get_active_session))
         .route(
             "/sessions/{id}",
-            get(get_session).patch(patch_session).delete(cancel_session),
+            get(get_session)
+                .patch(patch_session)
+                .delete(handle_cancel_session),
         )
         .route("/sessions/{id}/counts", post(add_count))
         .route("/sessions/{id}/counts/{count_id}", patch(patch_count))
@@ -63,6 +67,7 @@ pub fn router() -> Router<AppState> {
             post(accept_variance),
         )
         .route("/sessions/{id}/review", get(get_review))
+        .route("/sessions/{id}/stream", get(get_scan_stream))
         .route("/sessions/{id}/move-to-review", post(move_to_review))
         .route("/sessions/{id}/save", post(save_session))
         .route("/sessions/{id}/publish", post(publish_session))
@@ -379,7 +384,7 @@ async fn publish_session(
     Ok(Json(json!(result)))
 }
 
-async fn cancel_session(
+async fn handle_cancel_session(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(id): Path<Uuid>,
@@ -387,6 +392,72 @@ async fn cancel_session(
     let staff = require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_MUTATE)
         .await
         .map_err(|_| anyhow::anyhow!("physical_inventory.mutate permission required"))?;
-    physical_inventory::cancel_session(&state.db, id, Some(staff.id)).await?;
-    Ok(Json(json!({ "status": "cancelled" })))
+
+    physical_inventory::cancel_session(&state.db, id, Some(staff.id))
+        .await
+        .map_err(PhysicalInventoryError::from)?;
+
+    Ok(Json(json!({"status": "cancelled"})))
+}
+
+#[derive(sqlx::FromRow)]
+struct CountStreamRow {
+    id: Uuid,
+    scanned_at: chrono::DateTime<chrono::Utc>,
+    quantity: i32,
+    staff_name: String,
+    product_name: String,
+    variation_label: Option<String>,
+    sku: String,
+}
+
+async fn get_scan_stream(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, PhysicalInventoryError> {
+    require_staff_with_permission(&state, &headers, PHYSICAL_INVENTORY_VIEW)
+        .await
+        .map_err(|_| anyhow::anyhow!("physical_inventory.view permission required"))?;
+
+    let rows = sqlx::query_as::<_, CountStreamRow>(
+        r#"
+        SELECT
+            ss.id,
+            ss.scanned_at,
+            ss.quantity,
+            st.first_name || ' ' || st.last_name AS staff_name,
+            p.name AS product_name,
+            pv.variation_label,
+            pv.sku
+        FROM inventory_count_scan_stream ss
+        JOIN staff st ON st.id = ss.staff_id
+        JOIN product_variants pv ON pv.id = ss.variant_id
+        JOIN products p ON p.id = pv.product_id
+        WHERE ss.session_id = $1
+        ORDER BY ss.scanned_at DESC
+        LIMIT 100
+        "#,
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await
+    .map_err(PhysicalInventoryError::from)?;
+
+    let stream = rows
+        .into_iter()
+        .map(|r| {
+            json!({
+                "id": r.id,
+                "scanned_at": r.scanned_at,
+                "quantity": r.quantity,
+                "staff_name": r.staff_name,
+                "product_name": r.product_name,
+                "variation_label": r.variation_label,
+                "sku": r.sku,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(json!({ "stream": stream })))
 }

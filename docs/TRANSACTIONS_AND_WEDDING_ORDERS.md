@@ -10,10 +10,11 @@ Riverside OS employs a decoupled **transaction-centric architecture** that separ
 ## User Interface (UI) Mapping
 
 To ensure clarity for staff, the Riverside OS interface uses standard industry terminology:
-- **Orders (Sidebar)**: High-level entry into logistical management.
-- **Order Management Hub**: The central fulfillment workspace where special, custom, and wedding orders are tracked through their logistical lifecycle. Uses a non-paginated, high-density wide-table registry for rapid operational management.
+- **Wedding Registry (Sidebar)**: High-level entry into wedding party management.
+- **Registry Dashboard**: The central hub for tracking party progress, measurements, and group payments.
+- **Order Fulfillment Hub**: The central logistical workspace where special, custom, and wedding orders are tracked through their logistical lifecycle. Uses a non-paginated, high-density wide-table registry for rapid operational management.
 - **Sales History**: The historical archive of all financial commitments, accessible as a secondary audit view within the POS or CRM contexts.
-- **Daily Sales**: Financial reporting focused on register sessions and tender counts.
+- **Staff Pulse**: Daily financial reporting focused on register sessions and tender counts.
 
 ## The Decoupling
 
@@ -54,8 +55,8 @@ Revenue recognition is strictly tied to the `fulfilled_at` timestamp on individu
 ## Wedding Orders
 
 Wedding transactions follow the exact same architecture but enforce group-level constraints:
-- They are tied to a `wedding_party`.
-- The financial `Transactions` can be paid for via "Group Pay" disbursements.
+- They are tied to a **Wedding Registry** party.
+- The financial `Transactions` can be paid for via "Group Pay" (Split Deposit) disbursements.
 - The logistical `Fulfillment Orders` still track the physical movement of the suits and rentals independently of who paid the balance.
 
 ### Wedding Member Nomenclature
@@ -72,6 +73,8 @@ When working in `transaction_checkout.rs` or other financial handlers, avoid sha
 
 - **Retail Transaction ID**: Represents the overall customer purchase (`transaction_id`).
 - **Payment Transaction ID**: Represents a specific payment event in `payment_transactions` (name this `payment_tx_id`).
+
+In v0.2.0, `transaction_checkout.rs` was refactored into a thin orchestrator that routes logic to domain-specific sub-modules: `checkout_inventory.rs`, `checkout_incentives.rs`, and `checkout_allocations.rs`. Ensure these modules maintain separate variable naming to prevent collision.
 
 Failure to maintain distinct naming leads to **Foreign Key violations** in the `payment_allocations` table, as the system may attempt to allocate a payment to its own ID rather than the parent retail transaction.
 

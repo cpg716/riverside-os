@@ -58,7 +58,7 @@ _Goal: Modernize "Sparse" pages and "Just-a-list" layouts. TOUCH EVERY PAGE._
 | **Tasks** | 1 (Star) | **COMPLETED** — Cinematic checklist with "Emerald terminal" completion effects. |
 | **POS Checkout** | 1 (Star) | **COMPLETED** — Touch-first h-16 targets; Zero-redundancy financials; Audited Tax Hardening; Deep-link navigation support; Stripe Power branding. |
 | **Settings** | 1 (Star) | **COMPLETED** — Convert integration forms to high-fidelity "Productivity Cards." |
-| **Morning Compass** | 2 (Modern) | Add "Shadow Force" priority scoring visuals; Pulse on "Due Soon." |
+| **Action Board** | 2 (Modern) | Add "Shadow Force" priority scoring visuals; Pulse on "Due Soon." |
 | **Wedding Manager** | 2 (Modern) | Sync JSX buttons with POS emerald/noir brand pattern. |
 | **Notifications** | 1 (Star) | **COMPLETED** — Cinematic "Inbox" with glassmorphic message previews. |
 | **Operations** | 2 (Modern) | High-level KPI "Glow" effects; Shimmer on active alerts. |

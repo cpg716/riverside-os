@@ -15,20 +15,9 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import StaffMiniSelector from "../ui/StaffMiniSelector";
 
-export interface SessionOpenedPayload {
-  cashierName: string;
-  cashierCode: string;
-  cashierAvatarKey: string;
-  floatAmount: number;
-  sessionId: string;
-  registerLane: number;
-  registerOrdinal: number;
-  lifecycleStatus: string;
-  role: string;
-  receiptTimezone?: string;
-  posApiToken?: string;
-}
+import { type SessionOpenedPayload } from "./types";
 
 interface RegisterOverlayProps {
   onSessionOpened: (payload: SessionOpenedPayload) => void;
@@ -103,21 +92,33 @@ export default function RegisterOverlay({
     useBackofficeAuth();
   const [credential, setCredential] = useState("");
   const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
+    return localStorage.getItem("ros_last_staff_id") || "";
+  });
 
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
+  const handleStaffChange = (id: string) => {
+    setSelectedStaffId(id);
+    localStorage.setItem("ros_last_staff_id", id);
+  };
+
   useEffect(() => {
+    let cancelled = false;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json();
           setRoster(data);
         }
       } catch (e) {
-        console.error("Roster load failed", e);
+        if (!cancelled) console.error("Roster load failed", e);
       }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [baseUrl]);
 
   const [registerLane, setRegisterLane] = useState(1);
@@ -339,6 +340,9 @@ export default function RegisterOverlay({
 
   const openWithCredential = async (code: string) => {
     const lane = registerLaneRef.current;
+    if (!selectedStaffId) {
+      throw new Error("Please select your name before entering your PIN.");
+    }
     if (lane > 1 && !primarySessionId) {
       throw new Error(
         linkStatus?.includes("Register #1")
@@ -346,6 +350,22 @@ export default function RegisterOverlay({
           : "Register #1 must be open before opening this lane.",
       );
     }
+
+    // Verify PIN ownership
+    const verifyRes = await fetch(`${baseUrl}/api/staff/effective-permissions`, {
+      headers: {
+        "x-riverside-staff-code": code,
+        "x-riverside-staff-pin": code,
+      },
+    });
+    if (!verifyRes.ok) {
+      throw new Error("Invalid PIN.");
+    }
+    const verifyData = await verifyRes.json();
+    if (verifyData.id && selectedStaffId !== verifyData.id) {
+      throw new Error("PIN belongs to another staff member.");
+    }
+
     const floatStr = centsToFixed2(parseMoneyToCents(openingFloatRef.current));
     const body: Record<string, unknown> = {
       cashier_code: code,
@@ -748,21 +768,15 @@ export default function RegisterOverlay({
                   <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted block text-center">
                     Staff Member
                   </label>
-                  <select
-                    className="ui-input w-full text-center font-bold"
-                    value={localStorage.getItem("ros_last_staff_id") || ""}
-                    onChange={(e) =>
-                      localStorage.setItem("ros_last_staff_id", e.target.value)
-                    }
-                  >
-                    <option value="">-- Choose Name --</option>
-                    {/* Note: Roster is loaded into a local state here too */}
-                    {roster.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {s.full_name}
-                      </option>
-                    ))}
-                  </select>
+                  <StaffMiniSelector
+                    staff={roster}
+                    selectedId={selectedStaffId}
+                    onSelect={handleStaffChange}
+                    placeholder="Select your name..."
+                    size="lg"
+                    showAvatar={true}
+                    className="w-full"
+                  />
                 </div>
 
                 <div className="space-y-4">

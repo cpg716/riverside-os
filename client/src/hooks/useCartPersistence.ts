@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import localforage from "localforage";
 import { type Customer } from "../components/pos/CustomerSelector";
-import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
+import { type WeddingMember } from "../components/pos/types";
 import { type CartLineItem, type FulfillmentKind } from "../components/pos/types";
 import { type PosShippingSelection } from "../components/pos/PosShippingModal";
 
@@ -13,7 +13,6 @@ interface PersistedSale {
   activeWeddingPartyName?: string;
   posShipping?: PosShippingSelection;
   primarySalespersonId?: string;
-  checkoutOperator?: { staffId: string; fullName: string };
 }
 
 interface UseCartPersistenceProps {
@@ -24,7 +23,6 @@ interface UseCartPersistenceProps {
   activeWeddingPartyName: string | null;
   posShipping: PosShippingSelection | null;
   primarySalespersonId: string;
-  checkoutOperator: { staffId: string; fullName: string } | null;
   setLines: (lines: CartLineItem[]) => void;
   setSelectedCustomer: (customer: Customer | null) => void;
   setActiveWeddingMember: (member: WeddingMember | null) => void;
@@ -43,7 +41,6 @@ export function useCartPersistence({
   activeWeddingPartyName,
   posShipping,
   primarySalespersonId,
-  checkoutOperator,
   setLines,
   setSelectedCustomer,
   setActiveWeddingMember,
@@ -110,13 +107,6 @@ export function useCartPersistence({
               setPrimarySalespersonId(ps.trim());
             }
 
-            const co = saved.checkoutOperator;
-            if (co?.staffId?.trim() && co?.fullName?.trim()) {
-              setCheckoutOperator({
-                staffId: co.staffId.trim(),
-                fullName: co.fullName.trim(),
-              });
-            }
           }
         } else if (saved && saved.sessionId !== sessionId) {
           clearCart();
@@ -151,7 +141,6 @@ export function useCartPersistence({
       activeWeddingPartyName: activeWeddingPartyName || undefined,
       posShipping: posShipping || undefined,
       primarySalespersonId: primarySalespersonId || undefined,
-      checkoutOperator: checkoutOperator || undefined,
     };
     void localforage.setItem("ros_pos_active_sale", sale);
   }, [
@@ -163,7 +152,6 @@ export function useCartPersistence({
     activeWeddingPartyName,
     posShipping,
     primarySalespersonId,
-    checkoutOperator,
   ]);
 
   return { saleHydrated };

@@ -1,35 +1,56 @@
 ---
 id: scheduler-workspace
-title: "Scheduler Workspace (scheduler)"
-order: 1085
-summary: "Auto-generated stub for client/src/components/scheduler/SchedulerWorkspace.tsx — replace with staff-facing help."
+title: "Appointments & Store Calendar"
+order: 1100
+summary: "Manage fittings, pickups, stylist blocks, and walk-ins. Coordinate store resources and resolve scheduling conflicts."
 source: client/src/components/scheduler/SchedulerWorkspace.tsx
-last_scanned: 2026-04-11
-tags: scheduler-workspace, component, auto-scaffold
+last_scanned: 2026-04-17
+tags: appointments, calendar, scheduler, fittings, rooms, stylists
 ---
 
-# Scheduler Workspace (scheduler)
+# Appointments (store calendar)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/scheduler/SchedulerWorkspace.tsx`._
-<!-- /help:component-source -->
+_Audience: Front desk and managers._
 
-## What this is
+**Where in ROS:** Back Office → **Appointments**. Subsections: **Scheduler**, **Conflicts**.
 
-Briefly describe what staff use this screen for.
+**Related permissions:** Tab visibility uses **weddings.view** (shared calendar infrastructure).
 
-## How to use it
+---
 
-1. 
-2. 
+## How to use this area
 
-## Tips
+**Appointments** is the **store schedule**: fittings, pickups, stylist blocks, **walk-ins**. A **wedding party** link is **optional** — many stores book **non-wedding** visits here.
 
-- 
+## Scheduler
 
-## Screenshots
+1. **Appointments** → **Scheduler**.
+2. Pick **date** and **resource** (room, chair, stylist).
+3. **New** → duration, **type**, **title/notes**.
+4. **Customer** search.
+5. Optionally link **wedding party** or **member** if the visit is party-related.
+6. **Save**; confirm on **week** view.
 
-Add PNGs under `../images/help/scheduler-workspace/` and embed them, for example:
+## Conflicts
 
-![Example](../images/help/scheduler-workspace/example.png)
+1. **Appointments** → **Conflicts**.
+2. Review **double-booked** resources or overlapping times.
+3. **Drag** or **edit** one booking to a free slot — or split **resources** if two staff can run parallel.
+4. Add **note** if conflict was **intentional** (e.g. shared fitting suite with stagger).
 
+## Weddings vs Appointments
+
+| Use Weddings Dashboard for... | Use Appointments Workspace for... |
+| :--- | :--- |
+| Party milestone tracking | General walk-ins / visits |
+| Consultant-focused party dates | Multi-department resource allocation |
+
+## Troubleshooting
+
+| Symptom | Action |
+| :--- | :--- |
+| **Customer not found** | Try broader search; use the Quick-add profile. |
+| **Slot won’t save** | Check minimum duration or blackout periods. |
+| **Conflict false positive** | Refresh the screen; check resource definitions. |
+
+**Last reviewed:** 2026-04-17

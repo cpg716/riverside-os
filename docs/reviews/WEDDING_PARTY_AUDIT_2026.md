@@ -23,7 +23,7 @@ Members progress through a strictly tracked lifecycle:
 
 ## 3. Operational Features
 
-### 3.1 Morning Compass (Mission Control)
+### 3.1 Action Board (Mission Control)
 The `/morning-compass` endpoint aggregates critical tasks for the day:
 - **Needs Measurements**: List of members with upcoming weddings who haven't been fitted.
 - **Needs Ordering**: Members with measurements but no style/order linked.

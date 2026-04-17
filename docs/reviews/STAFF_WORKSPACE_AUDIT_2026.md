@@ -34,7 +34,7 @@ The Staff Workspace is the operational "Control Center" for store human resource
 - **Dynamic Assignment**: Tasks can be assigned to individual staff or to a **Role**.
 - **Traceability**: The history view provides a clear record of who completed which checklist.
 
-### 2.6 Field Intelligence (Bug Reports)
+### 2.6 Field Inventory Overview (Bug Reports)
 - **Zero-Barrier Reporting**: Staff can trigger a "Bug Report" directly from the POS or Back Office.
 - **Contextual Payload**: Reports include a screenshot, client console logs, and a **server-side log snapshot**.
 

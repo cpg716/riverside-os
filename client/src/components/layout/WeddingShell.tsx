@@ -42,7 +42,7 @@ export default function WeddingShell({
         <Suspense
           fallback={
             <div className="flex min-h-[40vh] items-center justify-center p-8 text-center text-sm font-semibold text-app-text-muted">
-              Loading Wedding Manager…
+              Loading Wedding Registry…
             </div>
           }
         >

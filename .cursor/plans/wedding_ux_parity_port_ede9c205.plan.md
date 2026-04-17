@@ -73,13 +73,13 @@ flowchart LR
 
 - Replace the current slim `[WeddingWorkspace.tsx](client/src/components/weddings/WeddingWorkspace.tsx)` with a top-level shell modeled on `[riverside-wedding-manager/src/pages/Dashboard.jsx](riverside-wedding-manager/src/pages/Dashboard.jsx)`: header (logo + “system status”), primary tab strip (**Parties | Actions | Appointments | Order board | Reports**), filters (date range, salesperson, archived, search, pagination).
 - **Party drill-in**: when a party is selected, render a `**PartyDetail`**-equivalent full view (ported from `[PartyDetail.jsx](riverside-wedding-manager/src/components/PartyDetail.jsx)` structure), not a minimal ROS detail page—same sections and modals where data exists.
-- **Realtime badge**: legacy uses Socket.IO (`parties_updated`). For ROS v1, use **short-interval polling** or **refetch on window focus** plus “last updated” from latest `activity-feed` timestamp (already on `[GET /api/weddings/activity-feed](server/src/api/weddings.rs)`)—good enough for parity of “feels live” without adding WebSockets immediately.
+- **Realtime badge**: legacy uses Socket.IO (`parties_updated`). For ROS v1, use **short-interval polling** or **refetch on window focus** plus “last updated” from latest `activity-feed` timestamp (already on `[GET /api/weddings/activity-feed](server/src/api/weddings/)`)—good enough for parity of “feels live” without adding WebSockets immediately.
 
 ## API adapter and shape mapping
 
 - Add `[client/src/components/weddings/manager/weddingRosClient.ts](client/src/components/weddings/manager/weddingRosClient.ts)` (or similar) implementing **named functions** that mirror legacy `api.`* signatures where useful, internally calling ROS routes:
-  - Parties list/detail: map `[list_parties](server/src/api/weddings.rs)` + filters to legacy-style pagination object `{ data, pagination }`.
-  - Party update: legacy **PUT** → ROS **PATCH** `[update_party](server/src/api/weddings.rs)`.
+  - Parties list/detail: map `[list_parties](server/src/api/weddings/)` + filters to legacy-style pagination object `{ data, pagination }`.
+  - Party update: legacy **PUT** → ROS **PATCH** `[update_party](server/src/api/weddings/)`.
   - Member update: legacy **PUT** → ROS **PATCH** `members/:id`; include `actor_name` from `[App.tsx](client/src/App.tsx)` `cashierName` where the legacy UI expected `updatedBy`.
   - Appointments: map legacy `GET/POST/PUT/DELETE /appointments` to existing wedding appointment routes (verify field names; add adapter transforms only).
 - **Omit** all `[api.js](riverside-wedding-manager/src/lib/api.js)` paths under **Lightspeed**, **settings/database/**, **settings/logs**, **backup/restore**—no UI entry points (remove or never mount those components).
@@ -108,7 +108,7 @@ Add only what parity screens need (keep logic in `server/src/logic/` / services 
 
 - Pass `**cashierName`** and `**sessionId`** (from `[App.tsx](client/src/App.tsx)`) into the new wedding shell for `actor_name` on writes and future “who opened the till” context.
 - Keep **jump to register / open party from Cart** flows (`onOpenWeddingParty`, customer profile weddings) unchanged—only swap the weddings tab content to the new dashboard root.
-- Checkout already posts `wedding_member_id` + `actor_name` (`[orders.rs](server/src/api/orders.rs)`); order board should read the same underlying `wedding_members` / `orders` data model for consistency.
+- Checkout already posts `wedding_member_id` + `actor_name` (`server/src/api/transactions/`); order board should read the same underlying `wedding_members` / `transactions` data model for consistency.
 
 ## Execution order (suggested)
 

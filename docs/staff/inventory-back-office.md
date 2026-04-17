@@ -2,9 +2,9 @@
 
 **Audience:** Inventory leads, buyers, receivers.
 
-**Where in ROS:** Back Office → **Inventory**. Subsections: **Inventory List**, **Add Inventory**, **Receiving**, **Categories**, **Discount events**, **Import**, **Vendors**, **Physical count**.
+**Where in ROS:** Back Office → **Inventory**. Subsections: **Overview**, **Product List**, **Purchase Orders**, **Receive Items**, **Count Stock**, **Damaged Items**, **Returns**, **Store Map**, **Suppliers**, **Sales**, **Reports**, **System Settings**.
 
-**Related permissions:** **catalog.view** / **catalog.edit** for catalog surfaces. **procurement.view** / **procurement.mutate** for PO-style receiving. **physical_inventory.view** for **Physical count**.
+**Related permissions:** **catalog.view** / **catalog.edit** for catalog surfaces. **procurement.view** / **procurement.mutate** for PO-style receiving. **physical_inventory.view** for **Count Stock**. **maintenance.mutate** for **Damaged/Returns**.
 
 ---
 
@@ -16,10 +16,13 @@ Pick the subsection that matches the **job**, not the person: **look up** → **
 
 **Purpose:** Find SKUs fast, tweak price/stock fields you are allowed to edit, open **product hub** for matrix and history.
 
-1. Go to **Inventory** → **Inventory List**.
-2. Search by **SKU**, **style name**, or **vendor** per header fields.
-3. Use **Load more** for large catalogs — the server returns pages, not the whole world at once.
-4. Click a row or **hub** icon to open **Product hub** (general, matrix, history tabs).
+1. Go to **Inventory** → **Product List**.
+2. Search by **SKU**, **Name**, or **Supplier** in the top search bar.
+3. Use the **Load more** button for large catalogs — the system loads items in batches to keep the interface fast.
+4. Click a row to open the **Product Hub** for detailed stock management and the **Size Matrix**.
+
+**Size Matrix (Clothing):**
+Use the matrix grid to view stock levels across multiple sizes and colors at once. For new products, use the **Create Sizes** tool to automatically generate `B-XXXXX` SKUs for your entire size run.
 
 **Common pitfall:** Editing **on-hand** without understanding **reserved** stock for special orders — when unsure, read [INVENTORY_GUIDE.md](../../INVENTORY_GUIDE.md) or ask a lead.
 
@@ -29,9 +32,9 @@ Pick the subsection that matches the **job**, not the person: **look up** → **
 2. **Save** each step; do not close the browser mid-wizard.
 3. Verify the SKU appears in **Inventory List** search.
 
-## Receiving
+## Receive Items
 
-1. **Receiving** → open expected **PO** or **direct receipt** flow your store uses.
+1. **Receive Items** → open expected **PO** or **direct receipt** flow your store uses.
 2. Scan or enter **quantities** to match the packing slip.
 3. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
 4. Watch for messages about **reserved** stock for open special orders after posting.

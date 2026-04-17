@@ -62,7 +62,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 
 ## F. Offline and degraded operation
 
-- [x] **POS offline queue:** Documented in `client/src/lib/offlineQueue.ts`. **Queued:** checkout payload when offline. **Not queued:** session open/close, BO writes. **Flush:** on `online`, queue syncs to `/api/orders/checkout`.
+- [x] **POS offline queue:** Documented in `client/src/lib/offlineQueue.ts`. **Queued:** checkout payload when offline. **Not queued:** session open/close, BO writes. **Flush:** on `online`, queue syncs to `/api/transactions/checkout`.
 - [x] **User-visible copy:** Header **Offline Mode** / **Pending Syncs**; checkout offline toast; failed checkout / session bootstrap toasts reference Settings (General) for API URL. Production-only toast on initial session fetch failure (avoids dev noise).
 - [x] **Wedding / BO offline:** Mutations require API; no silent persistence beyond the POS checkout queue above.
 - [x] **Customer & inventory lookup (online):** POS **client search**, **customer picker**, and **fuzzy product search** call `/api/customers/*` and `/api/products/control-board` (or `/api/inventory/scan`). None of this is queued offline—only **checkout** is. On Tailscale / cellular, expect extra latency on first keystrokes; very large directories use **Load more** / paging (**`docs/SEARCH_AND_PAGINATION.md`**).

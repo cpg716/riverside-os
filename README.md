@@ -61,7 +61,7 @@ Environment variables:
 | `RIVERSIDE_MAX_BODY_BYTES` | _(unset)_ | Optional cap override for large **`POST /api/products/import`** bodies (`DEVELOPER.md`, **`docs/CATALOG_IMPORT.md`**) |
 | `RIVERSIDE_VISUAL_CROSSING_API_KEY` | _(unset)_ | Optional; overrides DB weather key — see **`docs/WEATHER_VISUAL_CROSSING.md`**, **`server/.env.example`** |
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
-| `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional; e.g. `http://127.0.0.1:7700` when **`docker compose`** **`meilisearch`** is up — enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`**, **`server/.env.example`** |
+| `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional; e.g. `http://127.0.0.1:7700` when **`docker compose`** **`meilisearch`** is up — enables fuzzy Product List, CRM, and transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`**, **`server/.env.example`** |
 | `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional; Meilisearch master/API key when the instance requires auth (match **`MEILI_MASTER_KEY`** in Compose for local dev) |
 | `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **Planned** (**ROSIE**): Axum BFF upstream for **`POST /api/help/rosie/v1/chat/completions`** — **`docs/PLAN_LOCAL_LLM_HELP.md`** § Ship decision |
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
@@ -78,7 +78,7 @@ cd client && npm run lint        # ESLint check
 cd client && npm run build       # tsc --noEmit + vite build
 ```
 
-**Reporting routes:** when adding **GET** APIs used by **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`ThingsBeforeLaunch.md`** § LLM). Booked vs recognition semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Ops model: **`docs/METABASE_REPORTING.md`**, **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**. Order and Wedding Order rules: **[`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`](docs/TRANSACTIONS_AND_WEDDING_ORDERS.md)**.
+**Reporting routes:** when adding **GET** APIs used by **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`docs/THINGS_BEFORE_LAUNCH.md`** § LLM). Booked vs recognition semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Ops model: **`docs/METABASE_REPORTING.md`**, **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**. Order and Wedding Order rules: **[`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`](docs/TRANSACTIONS_AND_WEDDING_ORDERS.md)**.
 
 ## E2E tests (Playwright)
 
@@ -106,7 +106,7 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Migrations
 
-Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files: **`00`–`143`** (see `migrations/`). Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**.
+Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files: **`00`–`147`** (see `migrations/`). Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**.
 
 | # | Highlights |
 |---|------------|
@@ -135,7 +135,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
 | `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint bridge, mapping, heartbeats | Ops / devs |
-| `docs/ORDERS_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
+| `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
 | `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |
 | `docs/PLAN_BUG_REPORTS.md` | In-app bug report architecture and triage | Devs / ops |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
@@ -144,11 +144,11 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/WISEPOS_E_SETUP_STRIPE.md` | Stripe Terminal WisePOS E reset and server-driven flow | Ops / devs |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |
 | `docs/CUSTOMER_HUB_AND_RBAC.md` | Joint accounts, financial redirection, CRM RBAC | Devs / ops |
-| `INVENTORY_GUIDE.md` | Scanning engine, physical inventory sessions | Ops / devs |
-| `BACKUP_RESTORE_GUIDE.md` | Maintenance, backups, cloud sync | Ops |
-| `Riverside_OS_Master_Specification.md` | Product requirements and vocabulary | Product / devs |
+| `docs/INVENTORY_SCANNING_AND_COUNTS.md` | Scanning engine, physical inventory sessions | Ops / devs |
+| `docs/BACKUP_AND_RESTORE.md` | Maintenance, backups, cloud sync | Ops |
+| `docs/PRODUCT_SPECIFICATION.md` | Product requirements and vocabulary | Product / devs |
 | `docs/RETIRED_DOCUMENT_SUMMARIES.md` | Ledger of removed docs | Maintainers |
-| `docs/INTELLIGENCE_LAYER_GUIDE.md` | Proactive risk & replenishment engines (logic, UI, API) | Developers / ops |
+| `docs/INVENTORY_OVERVIEW_GUIDE.md` | Proactive risk & replenishment engines (logic, UI, API) | Developers / ops |
 | `docs/PLAN_POST_V0.1.2_EVOLUTION.md` | Strategic growth (MTM Center, Alteration Forecast) | Product / Devs |
 | `docs/CASH_ROUNDING_OPERATIONS.md` | Swedish Rounding rules, cash checkout logic, and QBO mapping | Ops / devs |
 | `client/src/assets/docs/lockout-manual.md` | Restoration steps for locked-out staff and admins | Everyone |

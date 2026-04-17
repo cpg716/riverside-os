@@ -12,7 +12,7 @@ import AppointmentScheduler from '../components/AppointmentScheduler';
 import CalendarView from '../components/CalendarView';
 import AppointmentModal from '../components/AppointmentModal';
 
-import ActionDashboard from '../components/ActionDashboard';
+import RegistryDashboardPanel from '../components/RegistryDashboardPanel';
 import PartyList from '../components/PartyList';
 import PartyDetail from '../components/PartyDetail';
 import OrderDashboard from '../components/OrderDashboard';
@@ -318,28 +318,28 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'parties' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="Users" size={16} className={activeTab === 'parties' ? 'text-gold-400' : ''} />
-                                        Parties
+                                        Party Registry
                                     </button>
                                     <button type="button"
                                         onClick={() => setActiveTab('calendar')}
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'calendar' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="Calendar" size={16} className={activeTab === 'calendar' ? 'text-gold-400' : ''} />
-                                        Appointments
+                                        Registry Calendar
                                     </button>
                                     <button type="button"
                                         onClick={() => setActiveTab('health')}
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'health' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="Activity" size={16} className={activeTab === 'health' ? 'text-gold-400' : ''} />
-                                        Health
+                                        Registry Health
                                     </button>
                                     <button type="button"
                                         onClick={() => setActiveTab('reports')}
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'reports' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
                                         <Icon name="BarChart3" size={16} className={activeTab === 'reports' ? 'text-gold-400' : ''} />
-                                        Reports
+                                        Registry Reports
                                     </button>
                                 </div>
                             </div>
@@ -490,7 +490,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                     </div>
                                 </div>
 
-                                <ActionDashboard
+                                <RegistryDashboardPanel
                                     onMemberClick={(member, partyId, item) => {
                                         const party = parties.find(p => p.id === partyId);
                                         if (party) {

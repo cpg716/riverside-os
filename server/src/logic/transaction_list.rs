@@ -57,6 +57,7 @@ pub struct TransactionListRow {
     pub has_custom: bool,
     pub is_fulfillment_order: bool,
     pub status: DbOrderStatus,
+    pub is_counterpoint_import: bool,
     pub counterpoint_customer_code: Option<String>,
     pub total_count: i64,
 }
@@ -107,6 +108,7 @@ pub struct TransactionListResponse {
     pub has_layaway: bool,
     pub has_custom: bool,
     pub is_fulfillment_order: bool,
+    pub is_counterpoint_import: bool,
     pub counterpoint_customer_code: Option<String>,
 }
 
@@ -159,6 +161,7 @@ pub async fn query_paged_transactions(
             o.wedding_member_id,
             wm.wedding_party_id,
             o.status,
+            o.is_counterpoint_import,
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
             COALESCE(BOOL_OR(oi.fulfillment != 'takeaway'), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
@@ -258,7 +261,7 @@ pub async fn query_paged_transactions(
         }
     }
 
-    qb.push(" GROUP BY o.id, c.id, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, ps.full_name, o.status, o.counterpoint_customer_code ");
+    qb.push(" GROUP BY o.id, c.id, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, ps.full_name, o.status, o.is_counterpoint_import, o.counterpoint_customer_code ");
 
     if let Some(kf) = &q.kind_filter {
         if kf == "regular_order" {
@@ -332,6 +335,7 @@ pub async fn query_paged_transactions(
                 has_layaway: r.has_layaway,
                 has_custom: r.has_custom,
                 is_fulfillment_order: r.is_fulfillment_order,
+                is_counterpoint_import: r.is_counterpoint_import,
                 counterpoint_customer_code: r.counterpoint_customer_code,
             }
         })

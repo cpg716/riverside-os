@@ -99,6 +99,16 @@ interface ReviewSummary {
   total_surplus: number;
 }
 
+interface ScanStreamEntry {
+  id: string;
+  scanned_at: string;
+  quantity: number;
+  staff_name: string;
+  product_name: string;
+  variation_label: string | null;
+  sku: string;
+}
+
 interface ScanFeedback {
   type: "success" | "warning" | "error";
   message: string;
@@ -181,6 +191,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   const [editQty, setEditQty] = useState("");
   const [editNote, setEditNote] = useState("");
   const [reviewSearch, setReviewSearch] = useState("");
+  
+  // ── Collaborative Stream state
+  const [scanStream, setScanStream] = useState<ScanStreamEntry[]>([]);
   // Re-using ConfirmationModal for publish confirm as well
 
   // ── New Session form state
@@ -241,6 +254,17 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
     const data = (await res.json()) as { rows: ReviewRow[]; summary: ReviewSummary };
     setReviewRows(data.rows);
     setReviewSummary(data.summary);
+  }, [mergeH]);
+
+  const loadStream = useCallback(async (sessionId: string) => {
+    const res = await fetch(
+      `${BASE_URL}/api/inventory/physical/sessions/${sessionId}/stream`,
+      { headers: mergeH() }
+    );
+    if (res.ok) {
+      const data = await res.json() as { stream: ScanStreamEntry[] };
+      setScanStream(data.stream);
+    }
   }, [mergeH]);
 
   // ─────────────────────────────────────────────────────────────────────────────
@@ -465,11 +489,18 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   useEffect(() => {
     if (activeSession && phase === "counting") {
       void loadCounts(activeSession.id);
+      void loadStream(activeSession.id);
+
+      // Long-poll or short-poll for collaborative stream
+      const interval = setInterval(() => {
+        void loadStream(activeSession.id);
+      }, 5000);
+      return () => clearInterval(interval);
     }
     if (activeSession?.status === "reviewing" && phase === "review") {
       void loadReview(activeSession.id);
     }
-  }, [activeSession, phase, loadCounts, loadReview]);
+  }, [activeSession, phase, loadCounts, loadReview, loadStream]);
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Filtered views
@@ -554,7 +585,6 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           </div>
         )}
 
-        {/* Start new session */}
         {/* Start new session */}
         {!activeSession && (
           <DashboardGridCard 
@@ -856,6 +886,45 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                      Scanning automatically increments the count by <span className="text-app-accent">1</span>. To adjust large quantities, use the manual edit tool in Review phase.
                    </p>
                  </div>
+              </div>
+            </DashboardGridCard>
+
+            <DashboardGridCard
+              title="Global Activity Stream"
+              subtitle="Real-time multi-staff telemetry"
+              icon={TrendingUp}
+            >
+              <div className="space-y-4 max-h-[400px] overflow-y-auto no-scrollbar pr-2">
+                {scanStream.length === 0 ? (
+                  <div className="py-12 flex flex-col items-center justify-center opacity-40 text-center">
+                    <Loader2 className="animate-spin mb-3" size={24} />
+                    <p className="text-[10px] font-black uppercase tracking-[0.3em]">Awaiting Uplink...</p>
+                  </div>
+                ) : (
+                  scanStream.map((s, idx) => (
+                    <div 
+                      key={s.id} 
+                      className={`flex items-start gap-4 p-4 rounded-2xl border border-app-border bg-app-surface shadow-sm animate-in slide-in-from-right-4 duration-500`}
+                      style={{ animationDelay: `${idx * 50}ms` }}
+                    >
+                      <div className="h-10 w-10 shrink-0 rounded-xl bg-app-accent/10 border border-app-accent/20 flex items-center justify-center text-app-accent font-black text-xs italic">
+                         {s.staff_name.split(' ').map(n => n[0]).join('')}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                         <div className="flex items-center justify-between gap-2">
+                            <span className="text-[10px] font-black tracking-widest text-app-accent uppercase">{s.staff_name}</span>
+                            <span className="text-[9px] font-bold text-app-text-muted opacity-40">
+                              {new Date(s.scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                         </div>
+                         <p className="text-xs font-black text-app-text truncate mt-0.5">{s.product_name}</p>
+                         <p className="text-[10px] font-bold text-app-text-muted opacity-60">
+                           {s.variation_label || "Standard"} · <span className="text-app-accent">+{s.quantity}</span>
+                         </p>
+                      </div>
+                    </div>
+                  ))
+                )}
               </div>
             </DashboardGridCard>
           </div>

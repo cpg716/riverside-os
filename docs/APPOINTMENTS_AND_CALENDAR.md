@@ -20,7 +20,7 @@ Do not assume the sidebar calendar is “wedding-only”: staff should treat it 
 - `wedding_party_id` and `wedding_member_id` are **nullable** (previously required).
 - Adds **`customer_id`** → `customers(id)` (nullable) for CRM linkage without a party row.
 
-**`POST /api/weddings/appointments`** (`CreateAppointmentRequest` in `server/src/api/weddings.rs`):
+**`POST /api/weddings/appointments`** (`CreateAppointmentRequest` in `server/src/api/weddings/`):
 
 - **`wedding_member_id`**: optional. When set, party is derived from the member (party-linked appointment).
 - When **omitted**, at least **`customer_display_name` or `phone`** must be present (walk-in / general).

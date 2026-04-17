@@ -113,7 +113,7 @@ const InsightsSettingsPanel: React.FC = () => {
               <BarChart3 className="h-7 w-7" aria-hidden />
             </div>
             <div>
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Business Intelligence Layer</h3>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Metabase Insights Layer</h3>
               <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
                 Phase 2 reporting uses the <code className="font-mono text-[10px] bg-white/40 dark:bg-black/20 px-1 rounded">reporting</code> schema. 
                 Configure how the insights engine connects to the operational database.

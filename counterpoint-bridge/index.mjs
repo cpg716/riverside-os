@@ -1900,6 +1900,7 @@ async function syncTickets(pool) {
       const nr = normalizeRowKeys(row);
       const ref = String(nr.tkt_no ?? nr.ticket_ref ?? "").trim();
       if (!ref) continue;
+      if (!giftLookup[ref]) giftLookup[ref] = [];
       giftLookup[ref].push(nr);
     }
   }

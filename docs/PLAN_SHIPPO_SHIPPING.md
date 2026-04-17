@@ -185,4 +185,4 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 
 - [Shippo API documentation](https://goshippo.com/docs/)
 - [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)
-- [`server/src/logic/order_checkout.rs`](../server/src/logic/order_checkout.rs)
+- [`server/src/logic/transaction_checkout.rs`](../server/src/logic/transaction_checkout.rs)

@@ -737,16 +737,13 @@ export default function InventoryControlBoard({
     <button
       type="button"
       onClick={onClick}
-      className={`relative overflow-hidden rounded-xl border px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${
+      className={`relative overflow-hidden rounded-lg border px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-all duration-200 active:scale-95 ${
         active
-          ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
-          : "border-app-border bg-app-surface/40 text-app-text-muted hover:border-app-accent/50 hover:bg-app-surface-2 hover:text-app-text"
+          ? "border-app-accent bg-app-accent text-white shadow-md shadow-app-accent/10"
+          : "border-app-border bg-app-surface/20 text-app-text-muted hover:border-app-accent/30 hover:bg-app-surface-2 hover:text-app-text"
       }`}
     >
       <span className="relative z-10">{label}</span>
-      {active && (
-        <span className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 animate-shimmer" />
-      )}
     </button>
   );
 
@@ -786,12 +783,12 @@ export default function InventoryControlBoard({
           setTableFocus(true);
         }}
         onDoubleClick={() => openProductHub(row)}
-        className={`group relative flex items-center gap-4 px-6 py-4 transition-all duration-300 border-b border-app-border/10 ${
+        className={`group relative flex items-center gap-3 px-4 py-2 transition-all duration-200 border-b border-app-border/10 ${
           focused
-            ? "bg-app-accent/5 ring-1 ring-inset ring-app-accent/20 backdrop-blur-md"
+            ? "bg-app-accent/5 ring-1 ring-inset ring-app-accent/10 backdrop-blur-md"
             : isSelected
-              ? "bg-app-accent/10 backdrop-blur-md"
-              : "bg-transparent hover:bg-app-surface/30 hover:backdrop-blur-sm"
+              ? "bg-app-accent/5 backdrop-blur-md"
+              : "bg-transparent hover:bg-app-surface/20"
         }`}
       >
         {/* Selection Indicator */}
@@ -816,7 +813,7 @@ export default function InventoryControlBoard({
               </h3>
               {highValue && (
                 <span className="flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-amber-600 border border-amber-500/20">
-                  <Gem size={7} /> ASSET
+                  <Gem size={7} /> HIGH VALUE
                 </span>
               )}
             </div>
@@ -840,11 +837,11 @@ export default function InventoryControlBoard({
              <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-red-500' : low ? 'text-amber-500' : 'text-emerald-500'}`}>
                {totalSoh}
              </p>
-             <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">SOH UNITS</p>
+             <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">UNITS</p>
           </div>
           <div className="flex-1 max-w-[80px]">
             <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-[0.1em] text-app-text-muted mb-1 opacity-50">
-               <span>AVAIL</span>
+               <span>FOR SALE</span>
                <span>{row.variant_count}x</span>
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">

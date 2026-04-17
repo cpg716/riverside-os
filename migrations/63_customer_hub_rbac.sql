@@ -1,5 +1,5 @@
 -- Fine-grained Relationship Hub + aligned customer API surfaces.
--- Enforced in `server/src/api/customers.rs` via `require_staff_perm_or_pos_session`
+-- Enforced in `server/src/api/customers/` via `require_staff_perm_or_pos_session`
 -- (Back Office staff permission **or** open register POS session).
 
 INSERT INTO staff_role_permission (role, permission_key, allowed) VALUES

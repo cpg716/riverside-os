@@ -63,7 +63,7 @@ export const STAFF_PERMISSION_CATALOG: {
     group: "Settings",
   },
   { key: "gift_cards.manage", label: "Gift card issue, void, inventory", group: "Gift cards" },
-  { key: "weddings.view", label: "View weddings, compass, appointments", group: "Weddings" },
+  { key: "weddings.view", label: "View weddings, action board, appointments", group: "Weddings" },
   { key: "weddings.mutate", label: "Edit wedding parties & appointments", group: "Weddings" },
   { key: "register.reports", label: "Register Z/X reports & reconciliation (BO)", group: "Register" },
   {
@@ -91,7 +91,7 @@ export const STAFF_PERMISSION_CATALOG: {
     label: "Complete own recurring task checklists",
     group: "Tasks",
   },
-  { key: "inventory.view_cost", label: "View unit cost (POS intelligence)", group: "Inventory" },
+  { key: "inventory.view_cost", label: "View unit cost (POS inventory overview)", group: "Inventory" },
 ];
 
 export const STAFF_PERMISSION_KEYS = STAFF_PERMISSION_CATALOG.map((p) => p.key);

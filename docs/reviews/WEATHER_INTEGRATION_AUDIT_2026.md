@@ -15,7 +15,7 @@ The Weather Integration is a strategic ROI tool that correlates store performanc
 
 ### 2.2 Intelligent Fallback
 - **Mock Fallback**: If the API key is missing, the quota is reached, or the upstream service is down, the system shifts to **"Buffalo-style" deterministic mock data**.
-- **User Experience**: This ensures that dashboards (like the "Morning Compass") always show data, preventing UI breaks during connectivity issues.
+- **User Experience**: This ensures that dashboards (like the "Action Board") always show data, preventing UI breaks during connectivity issues.
 
 ## 3. Data Correlation & ROI
 

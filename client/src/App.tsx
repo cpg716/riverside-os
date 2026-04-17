@@ -482,7 +482,7 @@ function App() {
           "physical",
           "damaged",
           "rtv",
-          "intelligence",
+          "home",
         ]);
         setActiveSubSection(allowedI.has(sec) ? sec : "list");
         const pid = linkStr(link, "product_id");
@@ -794,7 +794,7 @@ function App() {
 
   return (
     <TopBarProvider>
-      <BackofficeAuthProvider initialCode={cashierCode}>
+      <BackofficeAuthProvider initialCode={null}>
       <RegisterGateProvider goToOpenRegister={goToOpenRegister}>
         <RegisterSessionBootstrap
           baseUrl={baseUrl}
@@ -814,7 +814,7 @@ function App() {
           metaRefreshRef={registerMetaRefreshRef}
         />
         {loading ? (
-          <div className="flex h-screen items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">
+          <div className="flex h-screen w-full items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">
             Loading Riverside POS…
           </div>
         ) : (
@@ -1508,10 +1508,10 @@ function AppMainColumn({
                     <CustomersWorkspace
                       activeSection={activeSubSection}
                       onNavigateSubSection={setActiveSubSection}
-                      onOpenWeddingParty={(id) => {
+                      onOpenWeddingParty={(id: string) => {
                         navigateWedding(id);
                       }}
-                      onStartSaleInPos={(c) => setPendingPosCustomer(c)}
+                      onStartSaleInPos={(c: Customer) => setPendingPosCustomer(c)}
                       onNavigateRegister={navigateRegister}
                       onAddToWedding={() => {
                         navigateWedding();

@@ -1,29 +1,43 @@
-# Wedding group pay and returns — operational notes
+# Wedding Registry: Group Pay and Returns — Operational Notes
 
-**Audience:** floor managers reconciling **one payer** covering multiple **member transactions** (disbursements) when a **line return** or **refund** happens.
+**Audience:** Floor staff and managers reconciling cases where **one payer** covers multiple **member transactions** (disbursements) and handling subsequent **returns** or **refunds**.
 
-## How group pay is stored
+## How Group Pay is Structured
 
-Checkout can attach **`wedding_disbursements`**: the register payment is allocated from the payer’s transaction to beneficiary transactions via **`payment_allocation`** rows. Each member transaction has its own **`transactions`** row and **`transaction_lines`**.
+At checkout, the system can attach **`wedding_disbursements`**. The payment is allocated from the payer’s primary transaction to beneficiary member transactions via **`payment_allocation`** entries. Each member retains their own internal **`transaction`** record for accounting and logistical purposes.
 
-**POS:** From the **payment ledger**, **Split deposit (wedding party)** opens **`WeddingLookupDrawer`** in **group pay** mode after you pick a party (same flow as **Wedding** → party → **Enter Group Pay**). Use it when splitting deposits or payouts across members before **Complete Sale**.
+**POS Workflow:** 
+1. From the **Payment Ledger** (Checkout Drawer), selecting **Configure Split Payer** opens the **Wedding Registry** in selection mode.
+2. Alternatively, from the **Wedding Registry** tab, select a party and tap **Enter Group Pay**.
+3. Select the members whose balances are being covered.
+4. Their balances are added to the cart as **Disbursements**.
+5. Use this workflow when one person is paying for deposits or final balances for several members at once.
 
-### Open deposit when a member has no open transaction
+### Open Deposit Account (Pre-Paid Credits)
 
-If a disbursement targets a **wedding member** who does **not** yet have an **open** transaction row for allocation, checkout **credits** that member’s **customer** with an **open deposit** (see **`customer_open_deposit_accounts`** / **`customer_open_deposit_ledger`**, migration **83**). It is not store credit; it is held until a later sale where the cashier applies tender **`open_deposit`** (or the balance is adjusted operationally). See **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (payment ledger / checkout rules).
+If a disbursement targets a **wedding member** who does **not** yet have an active transaction for allocation, the system credits that member’s account with an **Open Deposit**. 
 
-## Return the line on the correct transaction
+*   This is **not** store credit; it is a specific prepayment held on their registry account.
+*   When that member later starts their own sale, the register will automatically prompt to apply this held deposit.
+*   See **`docs/DEPOSIT_OPERATIONS.md`** for more on open deposits.
 
-**Line returns** (`POST /api/transactions/{id}/returns`) apply to **`transaction_lines` on that `transaction_id` only.** If the wrong member transaction is selected, return quantity and restock flags will not match the physical item or the customer’s balance story.
+## Handling Returns on Registry Transactions
 
-- In **Back Office → Transactions**, open the transaction that actually owns the line (member transaction), not only the payer’s receipt context.
-- After returns, **`recalc_transaction_totals`** runs per transaction; verify **balance due** on each linked member transaction if something looks off.
+**Line Returns** apply strictly to the specific items on a given transaction. To process a return correctly:
+
+1. Identify the specific **Member Transaction** that owns the item (do not use the payer's transaction unless they are the same person).
+2. Process the return via the **Returns & Exchanges** workflow.
+3. The system will automatically update the individual member's balance and restock the inventory.
 
 ## Refunds
 
-Refunds are processed against the **target transaction** with **`payment_allocations`** to that transaction. Complex cross-member refund routing is not automated: use **Transactions** + **refund queue** with the transaction that received the allocation you intend to reverse.
+Refunds are processed against the transaction where the payment was originally allocated. For complex "sponsored" payments:
+*   Use the **Transaction History** to identify the original allocation.
+*   Process the refund to the original tender used by the payer.
+*   The system will automatically restore the balance due to the beneficiary member's account.
 
-## Related
+## Related Documentation
 
-- Disbursement rules: **`AGENTS.md`** (Wedding Group Payments).
-- POS exchange flow: **`client/src/components/pos/PosExchangeWizard.tsx`** (wizard copy references this scenario).
+- Revenue Recognition: **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**
+- Register Dashboard: **`docs/REGISTER_DASHBOARD.md`**
+- Staff Manual: **`docs/staff/pos-wedding-registry.md`**

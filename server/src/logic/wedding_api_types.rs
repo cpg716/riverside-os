@@ -197,9 +197,9 @@ pub struct WeddingLedgerResponse {
 pub struct WeddingMemberFinancialRow {
     pub wedding_member_id: Uuid,
     pub customer_name: String,
-    pub transaction_count: i64,
+    pub order_count: i64,
     pub payment_count: i64,
-    pub transaction_total: Decimal,
+    pub order_total: Decimal,
     pub paid_total: Decimal,
     pub balance_due: Decimal,
     pub is_free_suit_promo: bool,

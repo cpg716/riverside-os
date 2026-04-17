@@ -87,12 +87,12 @@ For weddings, a single payer (often the groom or sponsor) can cover deposits for
 
 ### How It Works
 
-1. From the **Payment Ledger**, tap the blue **Split deposit (wedding party)** button.
-2. This opens the **Wedding Lookup Drawer** in group pay mode.
+1. From the **Payment Ledger**, tap the blue **Configure Split Payer** button.
+2. This opens the **Wedding Registry** details in selection mode.
 3. Select the wedding party and choose which members to include.
 4. Each member's `balance_due` is added to the cart total as a **disbursement**.
 5. Return to the payment ledger — the total now includes all member balances.
-6. Apply tenders to cover the combined amount and complete the sale.
+6. Apply tenders to cover the combined amount and **Finalize** the sale.
 
 ### Backend Handling
 

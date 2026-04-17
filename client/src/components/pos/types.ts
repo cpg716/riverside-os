@@ -1,5 +1,5 @@
 export type { Customer } from "./CustomerSelector";
-export type { WeddingMember } from "./WeddingLookupDrawer";
+export type { WeddingMember } from "../../hooks/useWeddingSync";
 
 export interface ResolvedSkuItem {
   product_id: string;
@@ -207,4 +207,17 @@ export interface CartTotals {
   shippingCents: number;
   takeawayDueCents: number;
   totalCents: number;
+}
+export interface SessionOpenedPayload {
+  cashierName: string;
+  cashierCode: string;
+  cashierAvatarKey: string;
+  floatAmount: number;
+  sessionId: string;
+  registerLane: number;
+  registerOrdinal: number;
+  lifecycleStatus: string;
+  role: string;
+  receiptTimezone?: string;
+  posApiToken?: string;
 }

@@ -45,3 +45,13 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 | **Why removed** | Deprecated in favor of real-time Register Dashboards and a single, unified Professional Z-Report. Mid-shift balancing is no longer a supported physical workflow. |
 | **Where content lives now** | [`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md), [`docs/REGISTER_DASHBOARD.md`](REGISTER_DASHBOARD.md), [`client/src/components/pos/zReportPrint.ts`](../client/src/components/pos/zReportPrint.ts) |
 | **Summary** | Legacy "X-Report" (mid-shift snapshot) was removed to ensure financial data is only reconciled at the close of the drawer shift. Real-time stats are now available on the Register Dashboard without requiring a physical printout. |
+
+### `PLAN_ACTION_BOARD_PREDICTIVE.md` (docs/)
+
+| Field | Content |
+|-------|---------|
+| **Former path** | `docs/PLAN_ACTION_BOARD_PREDICTIVE.md` |
+| **Date retired** | 2026-04-17 |
+| **Why removed** | Renamed to align with **Registry Dashboard** nomenclature in v0.2.0. |
+| **Where content lives now** | [`docs/PLAN_REGISTRY_DASHBOARD_PREDICTIVE.md`](PLAN_REGISTRY_DASHBOARD_PREDICTIVE.md) |
+| **Summary** | Strategic plan for the prioritized staff queue (Suggest next). Renamed to Registry Dashboard for consistency with daily retail terminology. |

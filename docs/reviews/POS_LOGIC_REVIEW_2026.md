@@ -21,7 +21,7 @@ This review covers the Point of Sale (POS) subsystem, focusing on checkout logic
 - **Settings Persistence**: Terminal-specific IP/Port and Auto-print settings are stored in LocalStorage for persistence across Tauri app restarts.
 
 ## 4. Operational Aids
-- **Morning Compass**: Analyzes wedding dates, task schedules, and notification counts to surface the "Next Best Action" for the salesperson at the start of the shift.
+- **Action Board**: Analyzes wedding dates, task schedules, and notification counts to surface the "Next Best Action" for the salesperson at the start of the shift.
 - **Manager Overrides**: Amber-tinted Manager Mode provides situational awareness of who has high-level permissions on the floor.
 
 ---

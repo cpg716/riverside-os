@@ -18,7 +18,7 @@ import {
   ThermometerSun
 } from "lucide-react";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
-import CompassMemberDetailDrawer from "./CompassMemberDetailDrawer";
+import RegistryMemberDetailDrawer from "./RegistryMemberDetailDrawer";
 import DashboardStatsCard from "../ui/DashboardStatsCard";
 import DashboardGridCard from "../ui/DashboardGridCard";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -35,38 +35,16 @@ import FulfillmentCommandCenter from "./FulfillmentCommandCenter";
 import ReviewsOperationsSection from "./ReviewsOperationsSection";
 import type { Customer } from "../pos/CustomerSelector";
 import {
-  buildMorningCompassQueue,
-  compassBandLabel,
-  type CompassActionRow,
-  type RushOrderRow,
-} from "../../lib/morningCompassQueue";
+  buildRegistryPriorityFeed,
+  registryBandLabel,
+  type RegistryActionRow,
+  type RegistryPriorityFeedBundle, // Added
+} from "../../lib/registryPriorityFeed";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-export type { CompassActionRow };
 
-interface CompassStats {
-  needs_measure: number;
-  needs_order: number;
-  overdue_pickups: number;
-  rush_orders?: number;
-}
 
-interface TodayFloorStaffRow {
-  id: string;
-  full_name: string;
-  role: string;
-  avatar_key: string;
-}
-
-interface MorningCompassBundle {
-  stats: CompassStats;
-  needs_measure: CompassActionRow[];
-  needs_order: CompassActionRow[];
-  overdue_pickups: CompassActionRow[];
-  rush_orders: RushOrderRow[];
-  today_floor_staff?: TodayFloorStaffRow[];
-}
 
 interface ActivityFeedEntry {
   id: string;
@@ -83,7 +61,7 @@ interface OperationalHomeProps {
   onOpenTransactionInBackoffice: (orderId: string) => void;
   /** Podium inbox row → open customer hub Messages. */
   onOpenInboxCustomer: (customer: Customer) => void;
-  /** Increment to refetch compass + activity (e.g. after wedding edits). */
+  /** Increment to refetch feed + activity (e.g. after wedding edits). */
   refreshSignal?: number;
   activeSection?: string;
   registerReportsDeepLinkTxnId?: string | null;
@@ -309,19 +287,19 @@ export default function OperationalHome({
     void loadNotifPreview();
   }, [loadNotifPreview, refreshSignal]);
 
-  const [compass, setCompass] = useState<MorningCompassBundle | null>(null);
+  const [priorityFeed, setPriorityFeed] = useState<RegistryPriorityFeedBundle | null>(null);
   const [activityFeed, setActivityFeed] = useState<ActivityFeedEntry[]>([]);
-  const [compassDrawerRow, setCompassDrawerRow] =
-    useState<CompassActionRow | null>(null);
+  const [registryMemberDrawerRow, setRegistryMemberDrawerRow] =
+    useState<RegistryActionRow | null>(null);
 
-  const loadMorningBoard = useCallback(async () => {
+  const loadPriorityFeed = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("weddings.view")) {
-      setCompass(null);
+      setPriorityFeed(null);
       setActivityFeed([]);
       return;
     }
     const [cRes, fRes] = await Promise.all([
-      fetch(`${baseUrl}/api/weddings/morning-compass`, {
+      fetch(`${baseUrl}/api/weddings/priority-feed-bundle`, {
         headers: taskAuth(),
       }),
       fetch(`${baseUrl}/api/weddings/activity-feed?limit=40`, {
@@ -329,14 +307,15 @@ export default function OperationalHome({
       }),
     ]);
     if (cRes.ok) {
-      const data = (await cRes.json()) as MorningCompassBundle;
+      const data = (await cRes.json()) as RegistryPriorityFeedBundle;
       if (data) {
-        setCompass({
+        setPriorityFeed({
           ...data,
           stats: {
             needs_measure: Number(data.stats?.needs_measure || 0),
             needs_order: Number(data.stats?.needs_order || 0),
             overdue_pickups: Number(data.stats?.overdue_pickups || 0),
+            rush_orders: Number(data.stats?.rush_orders || 0),
           },
           needs_measure: data.needs_measure || [],
           needs_order: data.needs_order || [],
@@ -351,26 +330,26 @@ export default function OperationalHome({
   }, [taskAuth, permissionsLoaded, hasPermission]);
 
   useEffect(() => {
-    void loadMorningBoard();
-    const interval = setInterval(loadMorningBoard, 60 * 1000); 
+    void loadPriorityFeed();
+    const interval = setInterval(loadPriorityFeed, 60 * 1000); 
     return () => clearInterval(interval);
-  }, [loadMorningBoard, refreshSignal]);
+  }, [loadPriorityFeed, refreshSignal]);
 
 
 
 
-  const suggestedMorningQueue = useMemo(
+  const suggestedQueue = useMemo(
     () =>
-      buildMorningCompassQueue({
-        overduePickups: compass?.overdue_pickups ?? [],
-        needsOrder: compass?.needs_order ?? [],
-        needsMeasure: compass?.needs_measure ?? [],
-        rushOrders: compass?.rush_orders ?? [],
+      buildRegistryPriorityFeed({
+        overduePickups: priorityFeed?.overdue_pickups ?? [],
+        needsOrder: priorityFeed?.needs_order ?? [],
+        needsMeasure: priorityFeed?.needs_measure ?? [],
+        rushOrders: priorityFeed?.rush_orders ?? [],
         openTasks: taskMeOpen,
         notifications: notifPreview,
         limit: 12,
       }),
-    [compass, taskMeOpen, notifPreview],
+    [priorityFeed, taskMeOpen, notifPreview],
   );
 
 
@@ -494,19 +473,19 @@ export default function OperationalHome({
          />
          <DashboardStatsCard
            title="Needs Measure"
-           value={compass?.stats.needs_measure ?? 0}
+           value={priorityFeed?.stats?.needs_measure ?? 0}
            icon={Ruler}
            color="orange"
          />
          <DashboardStatsCard
            title="Needs Order"
-           value={compass?.stats.needs_order ?? 0}
+           value={priorityFeed?.stats?.needs_order ?? 0}
            icon={ShoppingBag}
            color="purple"
          />
          <DashboardStatsCard
            title="Overdue"
-           value={compass?.stats.overdue_pickups ?? 0}
+           value={priorityFeed?.stats?.overdue_pickups ?? 0}
            icon={AlertCircle}
            color="rose"
          />
@@ -517,22 +496,22 @@ export default function OperationalHome({
         {/* Main Priorities */}
         <div className="xl:col-span-8 space-y-6">
           <DashboardGridCard
-            title="Action Board"
+            title="Registry Priority Feed"
             subtitle="Today's priority tasks and directives"
             icon={Zap}
           >
-            {suggestedMorningQueue.length === 0 ? (
+            {suggestedQueue.length === 0 ? (
                <div className="py-20 text-center opacity-30">
                   <Target size={48} className="mx-auto mb-4" />
                   <p className="font-semibold">All priorities cleared</p>
                </div>
             ) : (
                <div className="grid grid-cols-1 gap-3">
-                  {suggestedMorningQueue.slice(0, 8).map((item) => (
+                  {suggestedQueue.slice(0, 8).map((item) => (
                     <button
                       key={item.id}
                       onClick={() => {
-                        if (item.kind === "wedding") setCompassDrawerRow(item.row);
+                        if (item.kind === "wedding") setRegistryMemberDrawerRow(item.row);
                         else if (item.kind === "task") setTaskDrawerId(item.taskId);
                         else openDrawer();
                       }}
@@ -547,7 +526,7 @@ export default function OperationalHome({
                         </div>
                         <div className="text-left">
                            <p className="text-sm font-bold text-app-text">
-                              {item.kind === "wedding" ? `${item.row.customer_name} · ${compassBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.row.title}
+                              {item.kind === "wedding" ? `${item.row.customer_name} · ${registryBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.row.title}
                            </p>
                            <p className="text-[10px] font-medium text-app-text-muted">
                               {item.kind === "wedding" ? `${item.row.party_name} · ${item.row.event_date}` : item.kind === "task" && item.dueDate ? `Due: ${item.dueDate}` : 'General Status'}
@@ -598,10 +577,10 @@ export default function OperationalHome({
              icon={Users}
            >
               <div className="space-y-4">
-                 {(compass?.today_floor_staff ?? []).length === 0 ? (
+                 {(priorityFeed?.today_floor_staff ?? []).length === 0 ? (
                     <div className="py-12 text-center opacity-30 italic text-xs font-semibold">No staff scheduled for today</div>
                  ) : (
-                   compass?.today_floor_staff?.map((staff) => (
+                   priorityFeed?.today_floor_staff?.map((staff) => (
                       <div key={staff.id} className="flex items-center justify-between p-3 rounded-xl bg-app-bg/30">
                          <div className="flex items-center gap-3">
                             <img src={staffAvatarUrl(staff.avatar_key)} className="h-8 w-8 rounded-lg bg-app-accent/20" alt="" />
@@ -630,11 +609,11 @@ export default function OperationalHome({
           </div>
         </div>
 
-        <CompassMemberDetailDrawer
-          row={compassDrawerRow}
-          onClose={() => setCompassDrawerRow(null)}
+        <RegistryMemberDetailDrawer
+          row={registryMemberDrawerRow}
+          onClose={() => setRegistryMemberDrawerRow(null)}
           onOpenFullParty={(partyId) => {
-            setCompassDrawerRow(null);
+            setRegistryMemberDrawerRow(null);
             onOpenWeddingParty?.(partyId);
           }}
         />

@@ -33,17 +33,19 @@ export default function PosSaleCashierSignInOverlay({
 
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
-        if (res.ok) {
+        if (res.ok && !cancelled) {
           const data = await res.json();
           setRoster(data);
         }
       } catch (e) {
-        console.error("Could not load roster", e);
+        if (!cancelled) console.error("Could not load roster", e);
       }
     })();
+    return () => { cancelled = true; };
   }, [open]);
 
   const handleStaffChange = (id: string) => {

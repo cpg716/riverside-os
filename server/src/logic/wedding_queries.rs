@@ -445,7 +445,7 @@ pub async fn try_load_party_ledger(
                 FROM transactions o
                 JOIN wedding_members wm ON wm.id = o.wedding_member_id
                 WHERE wm.wedding_party_id = $1
-            ), 0) AS total_order_value,
+            ), 0) AS total_transaction_value,
             COALESCE((
                 SELECT SUM(pt.amount)
                 FROM payment_transactions pt

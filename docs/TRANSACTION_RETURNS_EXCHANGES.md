@@ -1,6 +1,6 @@
 # Transactions: refunds, line returns, exchanges, and post-sale adjustments
 
-Operational reference for **Back Office** and **register** flows after migrations **`36_transactions_rbac_permissions.sql`** and **`37_transaction_returns_and_exchange.sql`**. Optional idempotent replays use **`transactions.checkout_client_id`** from **`38_register_pos_token_and_checkout_idempotency.sql`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/transactions/TransactionsWorkspace.tsx`.
+Operational reference for **Back Office** and **register** flows after migrations **`36_transactions_rbac_permissions.sql`** and **`37_transaction_returns_and_exchange.sql`**. Optional idempotent replays use **`transactions.checkout_client_id`** from **`38_register_pos_token_and_checkout_idempotency.sql`**. Implementation lives in `server/src/api/transactions/`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/transactions/TransactionsWorkspace.tsx`.
 
 For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **special-transaction stock** (checkout vs PO vs pickup), see **`INVENTORY_GUIDE.md`** and **`AGENTS.md`**.
 

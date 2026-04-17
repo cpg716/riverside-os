@@ -1,45 +1,59 @@
 ---
 id: orders-workspace
 title: "Order Fulfillment Hub"
-order: 1049
+order: 1090
 summary: "Manage regular Orders, Wedding, and Custom orders. Monitor deposits, track pickups, and manage the fulfillment pipeline."
 source: client/src/components/orders/OrdersWorkspace.tsx
-last_scanned: 2026-04-11
-tags: orders, fulfillment, deposits, tracking
+last_scanned: 2026-04-17
+tags: orders, fulfillment, transactions, pickups, custom-mtm, weddings
 ---
 
-# Order Fulfillment Hub
+# Transactions & Fulfillment (Back Office)
 
-The Order Fulfillment Hub is a high-density primary workstation designed for managing the lifecycle of non-takeaway orders (Regular orders, Wedding parties, and Custom work). 
+_Audience: Sales support, managers._
 
-## Fulfillment Summary Strip
+**Where in ROS:** Back Office → **Transactions**. Subsections: **Open Transactions**, **All Transactions**.
 
-At the top of the hub, the **Fulfillment Summary Strip** provides real-time visibility into your pipeline:
-- **Total Booked**: The total value of all open orders currently in the system.
-- **Deposit Liability**: The amount of cash currently held as deposits for unfulfilled orders.
-- **Ready for Pickup**: Count and value of orders that have arrived and are awaiting customer notification/collection.
-- **Daily Pickups**: Fulfillment velocity for the current business day.
+---
 
-## High-Density Order Grid
+## How to use this area
 
-The revamped grid maximizes available screen space to allow staff to manage hundreds of open orders simultaneously.
-- **Rapid Identification**: High-contrast typography emphasizes Buyer Names and Order IDs.
-- **Status Badging**: Dynamic badges indicate if an order is `Ready for pickup`, `Partially paid`, or `Awaiting items`.
-- **Financial Details**: Direct visibility into "Amount Paid" vs "Balance Due" for every row.
-- **Inline Actions**: Instant access to "Print Receipt," "Send SMS Update," and "Mark Arrived."
+**Open Transactions** is your **action queue** (unpaid, not picked up, alteration holds, etc.). **All Transactions** is your **history** search for receipts, disputes, and CRM follow-up.
 
-## Order Lifecycle
+### The Three Fulfillment Types
 
-1. **Booking**: Orders are typically booked at the Register and appear here immediately.
-2. **Tracking**: Monitor the status of Order items as they arrive from vendors.
-3. **Notification**: Use the inline messaging tools to notify customers via Podium when their order is ready.
-4. **Fulfillment**: The lifecycle completes when the items are physically scanned out and the final balance is collected.
+1.  **Special Order**: Standard floor items that were out of stock. Fixed catalog pricing.
+2.  **Custom (MTM)**: Suits, shirts, or slacks where **price and cost vary with every order**. Ensure vendor costs are attached before final fulfillment.
+3.  **Wedding Order**: Items linked to a specific wedding party for group event tracking.
 
-## Tips
+## Open Transactions Queue
 
-- **Filtering**: Use the "Quick-Status" buttons to isolate orders that are `Ready for pickup` to batch-process your daily call list.
-- **Color Coding**: Orders with past-due fulfillment dates or negative balances will be highlighted with high-visibility warning borders.
+1. **Transactions** → **Open Transactions**.
+2. Sort or filter by **date**, **customer**, or **status**.
+3. Click a transaction to verify **lines**, **balance due**, and **customer** info.
+4. **Take payment**: Use the tender UI to confirm $0 balance or record a partial payment.
+5. **Pickup / Fulfill**: Complete **line checkoffs** to prevent partial fulfillment mistakes.
+6. **Attach Wedding**: Use this tool to link a standalone or imported transaction to a **Wedding Party**. This synchronizes it with the party's Registry Dashboard.
 
-> [!TIP]
-> Use the "Print Registry" button in the header to generate a physical paper manifest for end-of-day stockroom audits.
+## All Transactions (History)
 
+1. **Transactions** → **All Transactions**.
+2. Set your **date range** first to maintain performance.
+3. Search by **receipt number**, **customer name**, or **SKU**.
+4. Access **receipt copies**, the **audit log**, or **ZPL** label reprints.
+
+## Returns, Refunds, and Exchanges
+
+- Use the **return lines** or **exchange link** tools. Do not bypass refund queue rules.
+- **Void Sale**: Used for unpaid mistake carts. This is separate from a **Refund** after payment has been taken.
+
+## Troubleshooting
+
+| Symptom | Action |
+| :--- | :--- |
+| **Transaction not found** | Widen the date range; ensure you are in the correct store location. |
+| **Cannot refund (403)** | Requires `transactions.refund_process` permission. |
+| **Pickup blocked** | Usually means there is an unpaid line balance. Read the banner hint. |
+| **Balance incorrect** | Refresh the transaction; if it persists, contact the Finance lead. |
+
+**Last reviewed:** 2026-04-17

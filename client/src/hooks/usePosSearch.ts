@@ -163,12 +163,17 @@ export function usePosSearch({
     return Object.values(groups).sort((a,b) => a[0].name.localeCompare(b[0].name));
   }, [searchResults]);
 
-  return {
+  return useMemo(() => ({
     search,
     setSearch,
     searchResults,
     setSearchResults,
     groupedSearchResults,
     runSearch,
-  };
+  }), [
+    search,
+    searchResults,
+    groupedSearchResults,
+    runSearch,
+  ]);
 }

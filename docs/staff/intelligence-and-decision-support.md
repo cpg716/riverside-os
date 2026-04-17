@@ -1,21 +1,21 @@
-# Intelligence & Decision Support (ROS v0.2.0)
+# Inventory Overview & Support (ROS v0.2.0)
 
 **Audience:** Owners, Managers, and Inventory Leads.
 
 **Where in ROS:**
-- **Inventory Workspace** (Product Intelligence Drawer)
+- **Inventory Overview** (Landing page)
 - **Staff -> Commission Payouts** (Truth Trace)
 
 ---
 
-## 1. Product Intelligence Drawer
+## 1. Stock Overview
 
 **Purpose:** Rapid SKU resolution and context-aware inventory data.
 
-When شما scan an item or select a variant in the **Inventory Workspace**, the **Intelligence Drawer** provides:
+On the **Inventory Overview** page, you can see real-time alerts for:
 - **Velocity Metrics**: 45-day sales volume.
-- **Stock Status**: On-hand vs. Reserved.
-- **Auto-Resolve**: Automatic SKU fetching and fulfillment mapping for incoming stock.
+- **Notification Center**: Items needing manual review.
+- **Stock Status**: On-hand vs. Available for Sale.
 
 ---
 
@@ -51,13 +51,13 @@ In the **Wedding Manager** dashboard, a new **Health** tab provides a color-code
 
 ---
 
-## 4. Inventory Brain (Replenishment)
+## 4. Stock Alerts (Replenishment)
 
-**Purpose:** Data-driven reordering based on actual sales velocity, not just min/max guesses.
+**Purpose:** Data-driven reordering based on actual sales activity.
 
 ### Queues
-- **Replenishment**: Variants that will run out of stock in < 14 days based on 45-day sales patterns.
-- **Clearance**: Slow-moving inventory with high stock levels and 0 sales in the last 45 days.
+- **Reorder List**: Items that will run out of stock in < 14 days based on 45-day sales patterns.
+- **Review List**: Slow-moving inventory with high stock levels and 0 sales in the last 45 days.
 
 ---
 
