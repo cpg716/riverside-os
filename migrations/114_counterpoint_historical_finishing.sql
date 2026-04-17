@@ -2,10 +2,24 @@
 -- Enables Jan 2021 - Present reporting and customer service parity.
 
 -- 1) Standard notes on transactions (if missing from core)
-ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes TEXT;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'transactions') THEN
+        ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes TEXT;
+    ELSIF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'orders') THEN
+        ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
+    END IF;
+END $$;
 
 -- 2) Reason codes on items (Returns, Voids, Discounts)
-ALTER TABLE transaction_lines ADD COLUMN IF NOT EXISTS counterpoint_reason_code TEXT;
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'transaction_lines') THEN
+        ALTER TABLE transaction_lines ADD COLUMN IF NOT EXISTS counterpoint_reason_code TEXT;
+    ELSIF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_items') THEN
+        ALTER TABLE order_items ADD COLUMN IF NOT EXISTS counterpoint_reason_code TEXT;
+    END IF;
+END $$;
 
 -- 3) Historical Vendor Costing / Receiving History
 -- This table stores raw PO_RECVR_HIST data for gross margin analytics across the 2021-2026 period.
