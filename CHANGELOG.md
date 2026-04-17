@@ -5,13 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.0] — 2026-04-16 [In Progress]
+## [0.2.0] — 2026-04-16
 ### Added
 - **Full-Width Workspace Modernization**: Transformed all primary workspaces (Orders, Customers, Inventory, etc.) into a high-performance, edge-to-edge layout. Deprecated nested scrolling in favor of native root document scrolling for a smoother "Pro" experience on 1080p, 1440p, and iPad 11 Pro screens.
 - **Customer Relationship Hub Overhaul**: Modernized the Customer Profile UI with "WowDash" glassmorphism, financial KPIs (Lifetime Sales, Balance Due), and a tabbed interface distinguishing between financial Transactions and logistical Fulfillments.
 - **Sticky Navigation Enforcement**: Optimized `GlobalTopBar` and `Sidebar` with persistent sticky positioning to anchor navigation during root scrolling.
 - **Workspace Density Pass**: Refactored the Customers Workspace for high-density, full-page presentation.
 - **Zero-Error Hygiene**: Achieved a 100% clean TypeScript and linting state for the modernization baseline.
+
+### Fixed
+- **Checkout Shadowing Vulnerability**: Resolved a critical 500 Internal Server Error in `transaction_checkout.rs` caused by variable shadowing of `transaction_id`. Renamed inner payment records to `payment_tx_id` to ensure correct `payment_allocations` referencing.
+- **Case-Insensitive Tax Compliance**: Hardened `client/src/lib/tax.ts` and server-side logic to treat tax categories (e.g., "Clothing") as case-insensitive, ensuring consistent $110 NYS tax exemptions.
+- **Light Mode Visual Performance**: Resolved visibility and contrast regressions in POS slideouts ("Finalize Pricing", "Confirm Item") by replacing hardcoded white text with themed semantic tokens (`text-app-text`).
+- **Product Hub Layout**: Fixed a z-index surfacing issue in the inventory intelligence panel that obstructed navigation in specific viewports.
+
+### Changed
+- **Repository Capacity Optimization**: Reclaimed ~38 GB of disk space by purging redundant Rust target artifacts and cleaning legacy log files.
+- **Documentation Alignment**: Synchronized `AGENTS.md`, `TRANSACTIONS_AND_WEDDING_ORDERS.md`, and `AI_REPORTING_DATA_CATALOG.md` with the latest financial integrity invariants and architectural renames.
 
 ### [0.2.0] — 2026-04-13 [In Progress]
 ### Added
