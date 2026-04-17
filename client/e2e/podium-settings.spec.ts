@@ -78,17 +78,22 @@ test.describe("Settings Podium integration", () => {
         { timeout: 45_000 },
       )
       .toBeTruthy();
-    const settingsAside = page
-      .locator("aside")
-      .filter({
-        has: page.getByRole("heading", { level: 1, name: /system control/i }),
-      });
-    const integrationsButton = settingsAside
-      .getByRole("button", { name: /integrations/i })
-      .first();
-    await expect(integrationsButton).toBeVisible({ timeout: 20_000 });
-    await expect(integrationsButton).toBeEnabled();
-    const [pr] = await Promise.all([
+    const integrationsButton = page.getByRole("button", {
+      name: /^integrations$/i,
+    });
+    let pr: Awaited<ReturnType<typeof page.waitForResponse>> | null = null;
+    if (await integrationsButton.isVisible().catch(() => false)) {
+      await expect(integrationsButton).toBeEnabled();
+      await integrationsButton.click();
+    }
+    await expect(
+      page
+        .getByRole("heading", { name: /integrations & (bridges|hub)/i })
+        .first(),
+    ).toBeVisible({ timeout: 20_000 });
+    const podiumLaunch = page.getByRole("button", { name: /podium comms/i }).first();
+    await expect(podiumLaunch).toBeVisible({ timeout: 20_000 });
+    [pr] = await Promise.all([
       page
         .waitForResponse(
           (r) =>
@@ -98,7 +103,7 @@ test.describe("Settings Podium integration", () => {
           { timeout: 25_000 },
         )
         .catch(() => null),
-      integrationsButton.click(),
+      podiumLaunch.click(),
     ]);
     if (pr && !pr.ok()) {
       test.skip(
@@ -107,17 +112,10 @@ test.describe("Settings Podium integration", () => {
       );
     }
     await expect(
-      page
-        .getByRole("heading", { name: /integrations & (bridges|hub)/i })
-        .first(),
-    ).toBeVisible({ timeout: 20_000 });
-    const podium = page.getByTestId("podium-sms-settings-section");
-    await expect(podium).toBeVisible({ timeout: 25_000 });
-    await podium.scrollIntoViewIfNeeded();
+      page.getByRole("heading", { name: /podium integration/i }),
+    ).toBeVisible({ timeout: 25_000 });
     await expect(
-      page.getByRole("heading", {
-        name: /podium \(sms \+ email \+ web chat\)/i,
-      }),
-    ).toBeVisible();
+      page.getByRole("heading", { name: /podium communications/i }),
+    ).toBeVisible({ timeout: 25_000 });
   });
 });

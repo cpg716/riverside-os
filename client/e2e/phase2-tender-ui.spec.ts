@@ -20,41 +20,39 @@ import {
  *   E2E_BASE_URL="http://localhost:5173" npm run test:e2e -- e2e/phase2-tender-ui.spec.ts --workers=1
  */
 
-const base = () =>
-  (process.env.E2E_BASE_URL ?? "http://localhost:5173").replace(/\/$/, "");
-
 async function openPosRegisterSurface(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
   await signInToBackOffice(page);
-  await page.goto(`${base()}/pos`, { waitUntil: "domcontentloaded" });
+
+  const posButton = page
+    .getByRole("navigation", { name: "Main Navigation" })
+    .getByRole("button", { name: "POS", exact: true });
+  await expect(posButton).toBeVisible({ timeout: 15_000 });
+  await expect(posButton).toBeEnabled();
+  await posButton.click();
 
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   await expect(posNav).toBeVisible({ timeout: 20_000 });
 
   await ensurePosRegisterSessionOpen(page);
   const productSearch = page.getByTestId("pos-product-search");
-  if (await productSearch.isVisible().catch(() => false)) {
-    return;
-  }
+  const giftCardAction = page.getByTestId("pos-action-gift-card");
   const registerTab = page.getByTestId("pos-sidebar-tab-register");
-  await expect(registerTab).toBeVisible({ timeout: 15_000 });
-  await expect(registerTab).toBeEnabled();
-  await registerTab.click();
+  if (await registerTab.isVisible().catch(() => false)) {
+    await expect(registerTab).toBeEnabled();
+    await registerTab.click({ timeout: 5_000 }).catch(() => {});
+  }
   await ensurePosSaleCashierSignedIn(page);
 
-  await expect(productSearch).toBeVisible({
-    timeout: 25_000,
-  });
+  await expect(productSearch).toBeVisible({ timeout: 25_000 });
+  await expect(giftCardAction).toBeVisible({ timeout: 25_000 });
 }
 
 async function seedGiftCardCartLine(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
-  await page
-    .getByRole("button", { name: /gift card/i })
-    .first()
-    .click();
+  await page.getByTestId("pos-action-gift-card").click();
 
   const dialog = page.getByRole("dialog", { name: /gift card/i });
   await expect(dialog).toBeVisible({ timeout: 15_000 });
@@ -70,6 +68,18 @@ async function seedGiftCardCartLine(
   await expect(dialog).toBeHidden({ timeout: 20_000 });
 }
 
+async function openPaymentLedger(
+  page: Parameters<typeof test>[0]["page"],
+): Promise<void> {
+  const drawer = page.getByRole("dialog", { name: /checkout/i });
+  await page.getByRole("button", { name: /pay/i }).first().click();
+  const walkInDialog = page.getByRole("dialog", { name: /checkout as walk-in/i });
+  if (await walkInDialog.isVisible().catch(() => false)) {
+    await walkInDialog.getByRole("button", { name: /confirm walk-in/i }).click();
+  }
+  await expect(drawer).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe("Phase 2: POS tender UI smoke", () => {
   test("checkout drawer shows core tender tabs and complete-sale rail", async ({
     page,
@@ -81,9 +91,9 @@ test.describe("Phase 2: POS tender UI smoke", () => {
     await seedGiftCardCartLine(page);
 
     // Open checkout drawer from Pay CTA.
-    await page.getByRole("button", { name: /pay/i }).first().click();
+    await openPaymentLedger(page);
 
-    const drawer = page.getByRole("dialog", { name: /payment ledger/i });
+    const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
 
     // Core tabs should always be present.
@@ -103,7 +113,7 @@ test.describe("Phase 2: POS tender UI smoke", () => {
 
     // Complete sale button should exist (enabled state depends on ledger balance).
     await expect(
-      drawer.getByRole("button", { name: /complete sale/i }),
+      drawer.getByRole("button", { name: /finalize|complete sale/i }),
     ).toBeVisible();
 
     // Smoke-select a few tabs to validate switching works.
@@ -124,7 +134,7 @@ test.describe("Phase 2: POS tender UI smoke", () => {
     await page.getByPlaceholder("First Name").fill("E2E");
     await page.getByPlaceholder("Last Name").fill("Tender UI");
     await page.getByPlaceholder("Phone Number").fill("7165550123");
-    await page.getByRole("button", { name: /add & select client/i }).click();
+    await page.getByRole("button", { name: /add & select/i }).click();
 
     // Wait for customer to be attached to the sale strip.
     await expect(
@@ -134,9 +144,9 @@ test.describe("Phase 2: POS tender UI smoke", () => {
     // Ensure cart has a payable line (gift card load line is deterministic).
     await seedGiftCardCartLine(page);
 
-    await page.getByRole("button", { name: /pay/i }).first().click();
+    await openPaymentLedger(page);
 
-    const drawer = page.getByRole("dialog", { name: /payment ledger/i });
+    const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
 
     // Customer-dependent tabs:

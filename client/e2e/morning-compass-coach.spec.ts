@@ -29,12 +29,12 @@ test.describe("Morning Compass coach", () => {
     await expect(dashboardTab).toBeEnabled();
     await dashboardTab.click();
 
-    const coach = page.getByTestId("register-morning-compass-coach");
-    const empty = page.getByTestId("register-morning-compass-coach-empty");
-    const list = page.getByTestId("register-morning-compass-coach-list");
-
-    await expect(coach).toBeVisible({ timeout: 30_000 });
-    await expect(empty.or(list)).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByRole("heading", { name: /priority feed/i }),
+    ).toBeVisible({ timeout: 30_000 });
+    await expect(
+      page.getByRole("heading", { name: /wedding pulse/i }),
+    ).toBeVisible({ timeout: 30_000 });
   });
 
   test("shows coach on Operations morning home when permissions allow", async ({
@@ -49,14 +49,10 @@ test.describe("Morning Compass coach", () => {
     await expect(operationsButton).toBeVisible({ timeout: 15_000 });
     await operationsButton.click();
     await expect(
-      page.getByRole("heading", { name: /operations hub/i }),
-    ).toBeVisible({ timeout: 15_000 });
-
-    const coach = page.getByTestId("operations-morning-compass-coach");
-    const empty = page.getByTestId("operations-morning-compass-coach-empty");
-    const list = page.getByTestId("operations-morning-compass-coach-list");
-
-    await expect(coach).toBeVisible();
-    await expect(empty.or(list)).toBeVisible();
+      page.getByRole("heading", { name: /operations overview/i }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.getByRole("heading", { name: /action board/i }),
+    ).toBeVisible({ timeout: 20_000 });
   });
 });

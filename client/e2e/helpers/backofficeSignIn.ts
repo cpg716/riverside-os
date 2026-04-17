@@ -2,6 +2,39 @@ import { expect, type Page } from "@playwright/test";
 
 const SESSION_KEY = "ros.backoffice.session.v1";
 
+function e2eBackofficeStaffName(): string {
+  return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris Garcia";
+}
+
+async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRole"]>) {
+  const preferredName = e2eBackofficeStaffName();
+  const selectorButton = container
+    .getByText(/select your name/i)
+    .locator("xpath=following::button[1]");
+  if (!(await selectorButton.isVisible().catch(() => false))) {
+    return;
+  }
+  if ((await selectorButton.textContent())?.match(new RegExp(preferredName, "i"))) {
+    return;
+  }
+  await selectorButton.click();
+  const preferredOption = container.getByRole("button", {
+    name: new RegExp(preferredName, "i"),
+  });
+  if (await preferredOption.isVisible().catch(() => false)) {
+    await preferredOption.click();
+    return;
+  }
+  const options = container
+    .locator("button")
+    .filter({ has: container.locator("img") })
+    .filter({ hasNotText: /select staff member/i });
+  const optionCount = await options.count();
+  if (optionCount > 0) {
+    await options.nth(Math.min(1, optionCount - 1)).click();
+  }
+}
+
 /** Default seeded admin in `scripts/seed_staff_register_test.sql` + migration `53_default_admin_chris_g_pin.sql`. */
 export function e2eBackofficeStaffCode(): string {
   return process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
@@ -58,18 +91,13 @@ export async function signInToBackOffice(page: Page): Promise<void> {
   });
 
   if (!(await signInHeading.isVisible().catch(() => false))) {
-    await expect(mainNav).toBeVisible({ timeout: 15_000 });
     if (effectivePermAfterShellLoad) await effectivePermAfterShellLoad;
     else
-      await page.waitForLoadState("networkidle", { timeout: 25_000 }).catch(() => {});
+      await page.waitForLoadState("domcontentloaded", { timeout: 25_000 }).catch(() => {});
     return;
   }
 
-  // Select the first staff name if none is selected
-  const staffButtons = page.locator("button").filter({ has: page.locator("img") });
-  if (await staffButtons.count() > 0) {
-    await staffButtons.first().click();
-  }
+  await selectFirstStaffMember(page);
 
   const effectivePerm200 = page.waitForResponse(
     (r) =>

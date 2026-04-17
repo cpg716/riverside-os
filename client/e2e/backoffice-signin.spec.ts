@@ -52,17 +52,27 @@ test.describe("Back Office sign-in gate", () => {
       .getByRole("button", { name: /^operations(\s+bo)?$/i });
     await expect(operationsButton).toBeVisible({ timeout: 15_000 });
     await operationsButton.click();
-    await expect(
-      page.getByText(/operations activity|morning dashboard/i).first(),
-    ).toBeVisible({ timeout: 15_000 });
+    await expect
+      .poll(
+        async () =>
+          (await page
+            .getByRole("heading", { name: /operations overview/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page
+            .getByRole("heading", { name: /action board/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page.getByText(/live dashboard active/i).isVisible().catch(() => false)),
+        { timeout: 20_000 },
+      )
+      .toBeTruthy();
   });
 
   test("wrong code shows an error", async ({ page }) => {
     await clearBackofficeSession(page);
     await expect(
-      page.getByRole("heading", {
-        name: /sign in to (back office|riverside os)/i,
-      }),
+      page.getByRole("heading", { name: /^sign in$/i }),
     ).toBeVisible({ timeout: 20_000 });
 
     for (const digit of "9999") {

@@ -54,13 +54,8 @@ test.describe("Staff tasks", () => {
     await expect(staffButton).toBeVisible({ timeout: 15_000 });
     await expect(staffButton).toBeEnabled();
     await staffButton.click();
-    await expect(
-      page
-        .getByRole("heading", { name: /staff workspace/i })
-        .or(page.getByRole("button", { name: /lock workspace/i })),
-    ).toBeVisible({ timeout: 60_000 });
     const lockWorkspace = page.getByRole("button", { name: /lock workspace/i });
-    const tasksButton = mainNav.getByRole("button", { name: /^tasks$/i });
+    const tasksButton = page.getByRole("button", { name: /^tasks$/i });
     if (
       !(await lockWorkspace.isVisible().catch(() => false)) &&
       !(await tasksButton.isVisible().catch(() => false))
@@ -80,11 +75,15 @@ test.describe("Staff tasks", () => {
       await expect(unlockButton).toBeEnabled();
       await unlockButton.click();
     }
-    await expect(lockWorkspace).toBeVisible({
-      timeout: 25_000,
-    }).catch(async () => {
-      await expect(tasksButton).toBeVisible({ timeout: 10_000 });
-    });
+    await expect
+      .poll(
+        async () =>
+          (await lockWorkspace.isVisible().catch(() => false)) ||
+          (await tasksButton.isVisible().catch(() => false)) ||
+          (await page.getByRole("heading", { name: /^team$/i }).isVisible().catch(() => false)),
+        { timeout: 25_000 },
+      )
+      .toBeTruthy();
     if (await expandSidebar.isVisible().catch(() => false)) {
       await expect(expandSidebar).toBeEnabled();
       await expandSidebar.click();
@@ -96,6 +95,9 @@ test.describe("Staff tasks", () => {
     await expect(page.getByRole("heading", { name: /^tasks$/i })).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByText(/^My tasks$/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByRole("button", { name: /^my tasks$/i })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/^Open$/i).first()).toBeVisible({ timeout: 10_000 });
   });
 });

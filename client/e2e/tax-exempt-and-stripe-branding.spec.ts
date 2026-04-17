@@ -14,24 +14,33 @@ import {
  * - Ensure tax parity is visually reflected (struck-through taxes).
  */
 
-const base = () =>
-  (process.env.E2E_BASE_URL ?? "http://localhost:5173").replace(/\/$/, "");
-
 async function openPosRegisterSurface(
   page: Parameters<typeof test>[0]["page"],
 ): Promise<void> {
   await signInToBackOffice(page);
-  await page.goto(`${base()}/pos?tab=register`, { waitUntil: "domcontentloaded" });
+
+  const posButton = page
+    .getByRole("navigation", { name: "Main Navigation" })
+    .getByRole("button", { name: "POS", exact: true });
+  await expect(posButton).toBeVisible({ timeout: 15_000 });
+  await expect(posButton).toBeEnabled();
+  await posButton.click();
 
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   await expect(posNav).toBeVisible({ timeout: 20_000 });
 
   await ensurePosRegisterSessionOpen(page);
+  const productSearch = page.getByTestId("pos-product-search");
+  const giftCardAction = page.getByTestId("pos-action-gift-card");
+  const registerTab = page.getByTestId("pos-sidebar-tab-register");
+  if (await registerTab.isVisible().catch(() => false)) {
+    await expect(registerTab).toBeEnabled();
+    await registerTab.click({ timeout: 5_000 }).catch(() => {});
+  }
   await ensurePosSaleCashierSignedIn(page);
 
-  await expect(page.getByTestId("pos-product-search")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(productSearch).toBeVisible({ timeout: 30_000 });
+  await expect(giftCardAction).toBeVisible({ timeout: 30_000 });
 }
 
 async function addDummyItem(page: Parameters<typeof test>[0]["page"]): Promise<void> {
@@ -46,6 +55,18 @@ async function addDummyItem(page: Parameters<typeof test>[0]["page"]): Promise<v
   await expect(dialog).toBeHidden();
 }
 
+async function openPaymentLedger(
+  page: Parameters<typeof test>[0]["page"],
+): Promise<void> {
+  const drawer = page.getByRole("dialog", { name: /checkout/i });
+  await page.getByRole("button", { name: /pay/i }).first().click();
+  const walkInDialog = page.getByRole("dialog", { name: /checkout as walk-in/i });
+  if (await walkInDialog.isVisible().catch(() => false)) {
+    await walkInDialog.getByRole("button", { name: /confirm walk-in/i }).click();
+  }
+  await expect(drawer).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe("Tax Exempt and Stripe Branding", () => {
   test("checkout drawer uses STRIPE branding and supports audited tax exemption", async ({
     page,
@@ -56,9 +77,9 @@ test.describe("Tax Exempt and Stripe Branding", () => {
     await addDummyItem(page);
 
     // Open checkout drawer
-    await page.getByRole("button", { name: /pay/i }).first().click();
+    await openPaymentLedger(page);
 
-    const drawer = page.getByRole("dialog", { name: /payment ledger/i });
+    const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
 
     // 1. Verify Stripe Branding
@@ -83,15 +104,15 @@ test.describe("Tax Exempt and Stripe Branding", () => {
     // await expect(drawer.locator('text=$0.00')).toBeVisible();
 
     // 4. Verify linking a customer enables STRIPE VAULT branding
-    await drawer.getByRole("button", { name: /close/i }).click(); // Close drawer
+    await drawer.getByLabel("Close drawer").last().click();
     
     await page.getByRole("button", { name: /quick add/i }).click();
     await page.getByPlaceholder("First Name").fill("Audited");
     await page.getByPlaceholder("Last Name").fill("Customer");
     await page.getByPlaceholder("Phone Number").fill("7165559999");
-    await page.getByRole("button", { name: /add & select client/i }).click();
+    await page.getByRole("button", { name: /add & select/i }).click();
     
-    await page.getByRole("button", { name: /pay/i }).first().click();
+    await openPaymentLedger(page);
     await expect(drawer.getByRole("button", { name: /STRIPE VAULT/i })).toBeVisible();
   });
 });
