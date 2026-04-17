@@ -4,378 +4,422 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Countersync | Bridge Command Center</title>
-    <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <!-- Lucide Icons -->
-    <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- React & ReactDOM (UMD) -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <!-- Babel for JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
-        
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            font-family: 'Inter', sans-serif;
-            background-color: #0c0e12;
-            color: #e2e8f0;
+            font-family: 'Inter', -apple-system, system-ui, sans-serif;
+            background: #08090c;
+            color: #c8cdd5;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        /* ── Tokens ── */
+        :root {
+            --bg-0: #08090c;
+            --bg-1: #0f1117;
+            --bg-2: #161922;
+            --bg-3: #1e222e;
+            --border: rgba(255,255,255,0.06);
+            --border-hover: rgba(255,255,255,0.12);
+            --text: #e0e4ec;
+            --text-muted: #6b7280;
+            --text-dim: #3d4452;
+            --accent: #f97316;
+            --accent-dim: rgba(249,115,22,0.15);
+            --green: #22c55e;
+            --green-dim: rgba(34,197,94,0.12);
+            --red: #ef4444;
+            --red-dim: rgba(239,68,68,0.12);
+            --blue: #3b82f6;
+            --blue-dim: rgba(59,130,246,0.12);
+            --radius: 14px;
+            --radius-sm: 10px;
+        }
+
+        /* ── Layout ── */
+        .shell { display: flex; flex-direction: column; height: 100vh; padding: 16px; gap: 12px; }
+        .header { display: flex; align-items: center; justify-content: space-between; flex-shrink: 0; }
+        .header-left { display: flex; align-items: center; gap: 12px; }
+        .logo { width: 40px; height: 40px; border-radius: 12px; background: linear-gradient(135deg, #f97316 0%, #ea580c 100%); display: flex; align-items: center; justify-content: center; box-shadow: 0 8px 24px -6px rgba(249,115,22,0.35); }
+        .logo svg { width: 22px; height: 22px; color: #fff; }
+        .header-title { font-size: 16px; font-weight: 900; letter-spacing: -0.03em; color: #fff; text-transform: uppercase; }
+        .header-sub { font-size: 10px; color: var(--text-muted); font-weight: 500; }
+        
+        .status-chip {
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 6px 14px; border-radius: 999px;
+            font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+            border: 1px solid;
+        }
+        .status-chip.idle { background: var(--green-dim); border-color: rgba(34,197,94,0.2); color: var(--green); }
+        .status-chip.syncing { background: var(--accent-dim); border-color: rgba(249,115,22,0.25); color: var(--accent); }
+        .status-chip.error { background: var(--red-dim); border-color: rgba(239,68,68,0.2); color: var(--red); }
+        .status-dot { width: 7px; height: 7px; border-radius: 50%; }
+        .status-dot.idle { background: var(--green); }
+        .status-dot.syncing { background: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
+        .status-dot.error { background: var(--red); }
+
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── Main Grid ── */
+        .main { display: grid; grid-template-columns: 340px 1fr; gap: 12px; flex: 1; min-height: 0; }
+        
+        /* ── Cards ── */
+        .card {
+            background: var(--bg-1);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
             overflow: hidden;
         }
+        .card-header {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em;
+            color: var(--text-muted);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .card-body { padding: 16px; }
 
-        .glass-card {
-            background: rgba(23, 25, 35, 0.7);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.05);
+        /* ── Run Control ── */
+        .run-section { display: flex; flex-direction: column; gap: 12px; }
+        .run-btn {
+            width: 100%; padding: 14px 20px;
+            border: none; border-radius: var(--radius-sm); cursor: pointer;
+            font-family: inherit; font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em;
+            display: flex; align-items: center; justify-content: center; gap: 10px;
+            transition: all 0.15s ease; position: relative; overflow: hidden;
+        }
+        .run-btn svg { width: 18px; height: 18px; flex-shrink: 0; }
+        .run-btn.start { background: linear-gradient(135deg, #f97316, #ea580c); color: #fff; box-shadow: 0 8px 24px -6px rgba(249,115,22,0.4); }
+        .run-btn.start:hover { transform: translateY(-1px); box-shadow: 0 12px 32px -6px rgba(249,115,22,0.5); }
+        .run-btn.start:active { transform: scale(0.98); }
+        .run-btn.stop { background: var(--red-dim); color: var(--red); border: 1px solid rgba(239,68,68,0.2); }
+        .run-btn.stop:hover { background: rgba(239,68,68,0.2); }
+        .run-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+
+        .run-meta { display: flex; gap: 8px; flex-wrap: wrap; }
+        .run-meta-chip {
+            flex: 1; min-width: 90px;
+            padding: 10px 12px; border-radius: var(--radius-sm);
+            background: var(--bg-2); border: 1px solid var(--border);
+            text-align: center;
+        }
+        .run-meta-label { font-size: 8px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.14em; color: var(--text-dim); }
+        .run-meta-value { font-size: 16px; font-weight: 800; color: var(--text); margin-top: 2px; font-variant-numeric: tabular-nums; }
+        .run-meta-value.accent { color: var(--accent); }
+
+        /* ── Entity Grid ── */
+        .entity-grid { display: flex; flex-direction: column; gap: 4px; }
+        .entity-row {
+            display: grid; grid-template-columns: 6px 1fr auto auto auto;
+            align-items: center; gap: 10px;
+            padding: 8px 12px; border-radius: var(--radius-sm);
+            background: var(--bg-2); border: 1px solid var(--border);
+            cursor: pointer; transition: all 0.12s ease;
+            font-size: 11px;
+        }
+        .entity-row:hover { border-color: var(--border-hover); background: var(--bg-3); }
+        .entity-row.active { border-color: rgba(249,115,22,0.3); background: rgba(249,115,22,0.05); }
+        .entity-row.error-row { border-color: rgba(239,68,68,0.2); }
+        .entity-indicator { width: 6px; height: 6px; border-radius: 50%; }
+        .entity-indicator.done { background: var(--green); }
+        .entity-indicator.running { background: var(--accent); animation: pulse 1.2s infinite; }
+        .entity-indicator.failed { background: var(--red); }
+        .entity-indicator.waiting { background: var(--text-dim); }
+        .entity-name { font-weight: 700; color: var(--text); }
+        .entity-count { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-muted); font-size: 10px; }
+        .entity-time { font-size: 9px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+        .entity-pull-btn {
+            padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
+            background: var(--bg-1); color: var(--text-muted); font-size: 9px; font-weight: 700;
+            cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em;
+            transition: all 0.12s ease;
+        }
+        .entity-pull-btn:hover { background: var(--accent-dim); color: var(--accent); border-color: rgba(249,115,22,0.3); }
+        .entity-pull-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+        .entity-error-msg { grid-column: 2 / -1; font-size: 9px; color: var(--red); padding-top: 2px; word-break: break-all; }
+
+        /* ── Log Panel ── */
+        .log-panel { display: flex; flex-direction: column; min-height: 0; }
+        .log-scroll {
+            flex: 1; overflow-y: auto; padding: 12px 16px;
+            background: #000; border-radius: 0 0 var(--radius) var(--radius);
+            font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+            font-size: 10px; line-height: 1.7;
+        }
+        .log-line { display: flex; gap: 10px; }
+        .log-time { color: #333; flex-shrink: 0; }
+        .log-msg { word-break: break-all; }
+        .log-msg.err { color: #f87171; }
+        .log-msg.ok { color: #4ade80; font-weight: 600; }
+        .log-msg.info { color: #60a5fa; }
+        .log-msg.default { color: #94a3b8; }
+
+        .log-toolbar {
+            display: flex; align-items: center; gap: 8px;
+        }
+        .log-tool-btn {
+            padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+            background: transparent; color: var(--text-muted); font-size: 9px; font-weight: 700;
+            cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em;
+            transition: all 0.12s;
+        }
+        .log-tool-btn:hover { color: var(--accent); border-color: rgba(249,115,22,0.3); }
+
+        /* ── Footer ── */
+        .footer {
+            display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;
+            font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim);
+            padding-top: 8px; border-top: 1px solid var(--border);
         }
 
-        .status-pulse {
-            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
-        }
+        /* ── Scrollbar ── */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #222; border-radius: 3px; }
 
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: .5; }
-        }
-
-        .terminal-box {
-            background-color: #000;
-            font-family: 'SF Mono', 'Fira Code', monospace;
-        }
-
-        ::-webkit-scrollbar {
-            width: 6px;
-        }
-        ::-webkit-scrollbar-track {
-            background: #1a1c23;
-        }
-        ::-webkit-scrollbar-thumb {
-            background: #2d3748;
-            border-radius: 3px;
+        /* ── Responsive ── */
+        @media (max-width: 900px) {
+            .main { grid-template-columns: 1fr; }
         }
     </style>
 </head>
-<body class="h-screen flex flex-col p-4 gap-4">
-    <div id="root" class="flex-1 flex flex-col overflow-hidden"></div>
+<body>
+<div class="shell" id="app"></div>
 
-    <script type="text/babel">
-        const { useState, useEffect, useCallback, useMemo, useRef } = React;
+<script>
+// ── Minimal React-free reactive dashboard ──
+const BRIDGE = 'http://localhost:3002';
+let state = null;
+let autoScroll = true;
 
-        const BRIDGE_API = "http://localhost:3002";
-        const ROS_API = "http://localhost:3000";
+const ENTITIES = [
+    { key: 'staff', label: 'Staff', icon: '👤' },
+    { key: 'sales_rep_stubs', label: 'Sales Reps', icon: '🏷' },
+    { key: 'vendors', label: 'Vendors', icon: '🚚' },
+    { key: 'customers', label: 'Customers', icon: '👥' },
+    { key: 'store_credit_opening', label: 'Store Credits', icon: '💳' },
+    { key: 'customer_notes', label: 'Customer Notes', icon: '📝' },
+    { key: 'category_masters', label: 'Categories', icon: '📂' },
+    { key: 'catalog', label: 'Catalog', icon: '📦' },
+    { key: 'inventory', label: 'Inventory', icon: '📊' },
+    { key: 'vendor_items', label: 'Vendor Items', icon: '🔗' },
+    { key: 'gift_cards', label: 'Gift Cards', icon: '🎁' },
+    { key: 'tickets', label: 'Orders/Tickets', icon: '🧾' },
+    { key: 'open_docs', label: 'Open Docs', icon: '📄' },
+    { key: 'loyalty_hist', label: 'Loyalty History', icon: '⭐' },
+    { key: 'receiving_history', label: 'Receiving', icon: '📥' },
+];
 
-        const Icon = ({ name, className = "w-4 h-4" }) => {
-            useEffect(() => {
-                if (window.lucide) window.lucide.createIcons();
-            }, [name]);
-            return <i data-lucide={name} className={className}></i>;
-        };
+function fmtDuration(ms) {
+    if (!ms) return '—';
+    if (ms < 1000) return ms + 'ms';
+    if (ms < 60000) return (ms / 1000).toFixed(1) + 's';
+    return Math.floor(ms / 60000) + 'm ' + Math.round((ms % 60000) / 1000) + 's';
+}
 
-        const EntityButton = ({ name, icon, label, lastSync, onPull, disabled, isSyncing }) => {
-            const timeAgo = lastSync ? new Date(lastSync).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : 'Never';
-            const isActive = isSyncing === name;
-            
-            return (
-                <button 
-                    onClick={() => onPull(name)}
-                    disabled={disabled}
-                    className={`glass-card p-3 rounded-xl flex flex-col gap-2 text-left border-l-2 transition-all active:scale-[0.98] disabled:opacity-50 group ${
-                        isActive ? 'border-l-orange-500 bg-orange-600/5' : 'border-l-transparent hover:border-l-orange-500/50 hover:bg-white/5'
-                    }`}
-                >
-                    <div className="flex items-center justify-between">
-                        <div className={`p-1.5 rounded-lg ${isActive ? 'bg-orange-600 text-white' : 'bg-slate-800 text-slate-400 group-hover:text-orange-400'} transition-colors`}>
-                            <Icon name={icon} className="w-3.5 h-3.5" />
-                        </div>
-                        {isActive && <div className="w-1 h-1 bg-orange-500 rounded-full status-pulse"></div>}
-                    </div>
-                    <div>
-                        <div className="text-[9px] font-black uppercase tracking-widest text-slate-500">{label}</div>
-                        <div className="text-[8px] text-slate-600 font-mono mt-0.5">Last: {timeAgo}</div>
-                    </div>
-                </button>
-            );
-        };
+function fmtNum(n) {
+    if (n == null) return '—';
+    return Number(n).toLocaleString();
+}
 
-        const App = () => {
-            const [bridgeStatus, setBridgeStatus] = useState(null);
-            const [rosStatus, setRosStatus] = useState(null);
-            const [syncToken, setSyncToken] = useState(localStorage.getItem('ros_sync_token') || '');
-            const [isConfigMode, setIsConfigMode] = useState(!localStorage.getItem('ros_sync_token'));
-            const [polling, setPolling] = useState(true);
-            const scrollRef = useRef(null);
+function fmtTimeAgo(iso) {
+    if (!iso) return 'Never';
+    const d = new Date(iso);
+    const diff = Date.now() - d.getTime();
+    if (diff < 60000) return 'Just now';
+    if (diff < 3600000) return Math.floor(diff / 60000) + 'm ago';
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
-            const fetchData = useCallback(async () => {
-                try {
-                    const res = await fetch(`${BRIDGE_API}/api/status`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        setBridgeStatus(data);
-                    }
-                } catch (err) {
-                    setBridgeStatus({ error: "Bridge disconnected" });
-                }
+function logClass(msg) {
+    if (msg.includes('error') || msg.includes('fail') || msg.includes('warn')) return 'err';
+    if (msg.includes(' ok') || msg.includes('completed')) return 'ok';
+    if (msg.includes('starting') || msg.includes('Starting') || msg.includes('Sending')) return 'info';
+    return 'default';
+}
 
-                try {
-                    // Use Bridge Proxy to check Riverside status
-                    const res = await fetch(`${BRIDGE_API}/api/proxy/ros?path=/api/settings/counterpoint-sync/status`);
-                    if (res.ok) {
-                        const data = await res.json();
-                        setRosStatus(data);
-                    }
-                } catch (err) { }
-            }, []);
+function entityStatus(key) {
+    if (!state) return 'waiting';
+    if (state.currentEntity === key) return 'running';
+    const st = state.entityStats?.[key];
+    if (st?.error) return 'failed';
+    if (st?.lastSync) return 'done';
+    return 'waiting';
+}
 
-            useEffect(() => {
-                fetchData();
-                let interval;
-                if (polling) interval = setInterval(fetchData, 2000);
-                return () => clearInterval(interval);
-            }, [fetchData, polling]);
+async function triggerFull() {
+    await fetch(`${BRIDGE}/api/trigger-entity?name=full`);
+}
+async function triggerEntity(name) {
+    await fetch(`${BRIDGE}/api/trigger-entity?name=${name}`);
+}
 
-            useEffect(() => {
-                if (scrollRef.current) {
-                    scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-                }
-            }, [bridgeStatus?.logs]);
+function render() {
+    const s = state || {};
+    const isSyncing = !!s.isSyncing;
+    const chipClass = s.error ? 'error' : isSyncing ? 'syncing' : 'idle';
+    const chipLabel = s.error ? 'Offline' : isSyncing ? `Syncing ${(s.currentEntity || '').replace(/_/g, ' ')}` : 'Idle';
+    const totalRecords = s.totalRecordsLastRun || 0;
+    const lastDur = s.lastRunDurationMs;
+    const entityCount = Object.values(s.entityStats || {}).filter(e => e.lastSync && !e.error).length;
+    const errorCount = Object.values(s.entityStats || {}).filter(e => e.error).length;
 
-            const copyLogs = () => {
-                const text = bridgeStatus?.logs?.map(l => `[${l.time}] ${l.msg}`).join('\n');
-                if (text) {
-                    navigator.clipboard.writeText(text);
-                    alert("Logs copied to clipboard!");
-                }
-            };
-
-            const updateSettings = async (settings) => {
-                try {
-                    await fetch(`${BRIDGE_API}/api/settings`, {
-                        method: 'POST',
-                        body: JSON.stringify(settings)
-                    });
-                    fetchData();
-                } catch (err) {
-                    alert("Settings update failed: " + err.message);
-                }
-            };
-
-            const triggerPull = async (entity) => {
-                try {
-                    const url = `${BRIDGE_API}/api/trigger-entity?name=${entity}`;
-                    const res = await fetch(url);
-                    if (res.ok) fetchData();
-                } catch (err) {
-                    alert("Pull failed: " + err.message);
-                }
-            };
-
-            const triggerSyncAll = async () => {
-                try {
-                    const res = await fetch(`${BRIDGE_API}/api/trigger-entity?name=full`);
-                    const data = await res.json();
-                    if (data.status === 'triggered') {
-                        alert(`Full sync sequence started: ${data.queue}`);
-                    }
-                    fetchData();
-                } catch (err) {
-                    alert("Full sync failed: " + err.message);
-                }
-            };
-
-            if (false) { // Skip token screen, Bridge has its own token
-                return (
-                    <div className="flex-1 flex items-center justify-center bg-[#0c0e12]">
-                        <div className="glass-card rounded-3xl p-8 w-full max-w-sm border-orange-500/20">
-                            <form onSubmit={saveConfig} className="flex flex-col gap-6">
-                                <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded-xl bg-orange-500/20 flex items-center justify-center text-orange-500">
-                                        <Icon name="terminal" className="w-6 h-6" />
-                                    </div>
-                                    <h2 className="text-lg font-black uppercase tracking-tighter">Bridge Authority</h2>
-                                </div>
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-[9px] font-black uppercase tracking-widest text-slate-400 text-center">Security Access Token</label>
-                                    <input 
-                                        type="password" 
-                                        value={syncToken}
-                                        onChange={(e) => setSyncToken(e.target.value)}
-                                        className="bg-slate-900 border border-slate-700 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-orange-500/50 text-white font-mono"
-                                        placeholder="Enter Token"
-                                        required
-                                    />
-                                </div>
-                                <button type="submit" className="bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl py-3 px-6 transition-all shadow-lg shadow-orange-600/20 uppercase tracking-widest">
-                                    Unlock Command Center
-                                </button>
-                            </form>
-                        </div>
-                    </div>
-                );
-            }
-
-            return (
-                <div className="flex-1 flex flex-col gap-4 min-h-0">
-                    {/* Header */}
-                    <header className="flex items-center justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-orange-600 flex items-center justify-center text-white shadow-lg shadow-orange-600/30">
-                                <Icon name="zap" className="w-6 h-6 fill-current" />
-                            </div>
-                            <div>
-                                <h1 className="text-lg font-black uppercase tracking-tighter text-white">Bridge Command</h1>
-                                <p className="text-[10px] text-slate-500 font-medium">Data Sync Orchestration</p>
-                            </div>
-                        </div>
-                        
-                        <div className="flex items-center gap-3">
-                            <div className={`px-3 py-1.5 rounded-lg text-[9px] font-bold uppercase tracking-widest border transition-all flex items-center gap-2 ${bridgeStatus?.error ? 'bg-rose-400/10 border-rose-400/20 text-rose-400' : 'bg-emerald-400/10 border-emerald-400/20 text-emerald-400'}`}>
-                                <div className={`w-2 h-2 rounded-full ${bridgeStatus?.error ? 'bg-rose-400' : 'bg-emerald-400 status-pulse'}`}></div>
-                                {bridgeStatus?.error ? 'Bridge Offline' : 'Engine Ready'}
-                                {bridgeStatus?.isSyncing && <span className="ml-2 px-1.5 py-0.5 rounded bg-white/10 text-[8px]">SYNCING {bridgeStatus.currentEntity?.toUpperCase()}</span>}
-                            </div>
-                            <button onClick={() => setIsConfigMode(true)} className="w-8 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-700 flex items-center justify-center text-slate-400 transition-all">
-                                <Icon name="settings" className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </header>
-
-                    {/* Main Layout */}
-                    <div className="grid grid-cols-1 xl:grid-cols-4 gap-4 flex-1 min-h-0">
-                        
-                        {/* Section Controls */}
-                        <div className="xl:col-span-1 flex flex-col gap-4 min-h-0">
-                            <div className="glass-card rounded-2xl p-5 flex flex-col gap-5">
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Operation Mode</h3>
-                                <div className="flex flex-col gap-3">
-                                    <div className="flex items-center justify-between px-2">
-                                        <div className="flex flex-col gap-0.5">
-                                            <span className="text-[11px] font-bold text-slate-300">Continuous Sync</span>
-                                            <span className="text-[8px] text-slate-500 uppercase tracking-tighter">Every 15 Minutes</span>
-                                        </div>
-                                        <button 
-                                            onClick={() => updateSettings({ is_continuous: !bridgeStatus?.isContinuous })}
-                                            className={`w-9 h-5 rounded-full relative transition-colors ${bridgeStatus?.isContinuous ? 'bg-orange-600' : 'bg-slate-700'}`}
-                                        >
-                                            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${bridgeStatus?.isContinuous ? 'right-1' : 'left-1'}`}></div>
-                                        </button>
-                                    </div>
-                                    <p className="px-2 text-[9px] text-slate-600 italic leading-tight">
-                                        {bridgeStatus?.isContinuous 
-                                            ? "Bridge is active and listening for changes." 
-                                            : "Manual Mode: Continuous sync is paused."}
-                                    </p>
-                                </div>
-                            </div>
-
-                            <div className="glass-card rounded-2xl p-5 flex flex-col gap-5">
-                                <div>
-                                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-3">On-Demand Pulls</h3>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <EntityButton name="customers" icon="users" label="Customers" lastSync={bridgeStatus?.syncSummary?.customers} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="staff" icon="user-check" label="Staff" lastSync={bridgeStatus?.syncSummary?.staff} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="vendors" icon="truck" label="Vendors" lastSync={bridgeStatus?.syncSummary?.vendors} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="catalog" icon="database" label="Catalog" lastSync={bridgeStatus?.syncSummary?.catalog} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="inventory" icon="package" label="Inventory" lastSync={bridgeStatus?.syncSummary?.inventory} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="tickets" icon="file-text" label="Tickets" lastSync={bridgeStatus?.syncSummary?.tickets} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="loyalty_hist" icon="star" label="Loyalty Hist" lastSync={bridgeStatus?.syncSummary?.loyalty_hist} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                        <EntityButton name="receiving_history" icon="history" label="Receiving" lastSync={bridgeStatus?.syncSummary?.receiving_history} onPull={triggerPull} disabled={bridgeStatus?.isSyncing} isSyncing={bridgeStatus?.currentEntity} />
-                                    </div>
-                                </div>
-
-                                <div className="border-t border-white/5 pt-5">
-                                    <button 
-                                        onClick={triggerSyncAll}
-                                        className="w-full py-3 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg shadow-orange-600/20"
-                                    >
-                                        <Icon name="play" className="w-4 h-4 fill-current" />
-                                        FULL DATABASE SYNC
-                                    </button>
-                                </div>
-                            </div>
-
-                            <div className="glass-card rounded-2xl p-5 flex flex-col gap-4">
-                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400">Dependency Map</h3>
-                                <div className="flex flex-col gap-2">
-                                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-900/50 border border-white/5">
-                                        <div className="w-1 h-1 rounded-full bg-sky-400"></div>
-                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Inventory ➔ requires Catalog</span>
-                                    </div>
-                                    <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-slate-900/50 border border-white/5">
-                                        <div className="w-1 h-1 rounded-full bg-sky-400"></div>
-                                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-tight">Tickets ➔ requires Customers + Catalog</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        {/* Live Activity Feed */}
-                        <div className="xl:col-span-3 flex flex-col min-h-0">
-                            <div className="glass-card rounded-2xl p-1 flex-1 flex flex-col min-h-0">
-                                <div className="p-4 flex items-center justify-between border-b border-white/5">
-                                    <div className="flex items-center gap-2">
-                                        <div className="w-2 h-2 bg-orange-500 rounded-full animate-pulse"></div>
-                                        <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-200">Execution History & Logs</h3>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <button 
-                                            onClick={copyLogs}
-                                            className="text-[9px] font-bold uppercase tracking-widest text-slate-500 hover:text-orange-400 transition-colors flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-white/5"
-                                        >
-                                            <Icon name="copy" className="w-3 h-3" />
-                                            Copy Logs
-                                        </button>
-                                        <span className="text-[9px] text-slate-500 font-mono uppercase bg-black/40 px-2 py-0.5 rounded-full border border-white/5">
-                                            {bridgeStatus?.logs?.length || 0} active log lines
-                                        </span>
-                                    </div>
-                                </div>
-
-                                <div 
-                                    ref={scrollRef}
-                                    className="terminal-box rounded-xl m-2 flex-1 overflow-y-auto p-4 flex flex-col gap-1 shadow-inner border border-white/5"
-                                >
-                                    {bridgeStatus?.logs?.length === 0 && (
-                                        <div className="h-full flex flex-col items-center justify-center gap-3 text-slate-800 opacity-50 select-none">
-                                            <Icon name="terminal" className="w-12 h-12" />
-                                            <p className="text-[10px] font-mono tracking-widest">WAKING ENGINE...</p>
-                                        </div>
-                                    )}
-                                    {bridgeStatus?.logs?.map((log, i) => (
-                                        <div key={i} className="flex gap-3 group">
-                                            <span className="text-slate-700 font-mono text-[9px] shrink-0">{log.time}</span>
-                                            <span className={`font-mono text-[10px] break-all leading-normal ${
-                                                log.msg.includes('error') || log.msg.includes('failure') ? 'text-rose-400' : 
-                                                log.msg.includes('syncing') || log.msg.includes('To complete') ? 'text-sky-400' : 
-                                                log.msg.includes('ok') ? 'text-emerald-400 font-bold' : 'text-slate-300'
-                                            }`}>
-                                                {log.msg}
-                                            </span>
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    {/* Footer */}
-                    <footer className="flex justify-between items-center text-[9px] text-slate-600 uppercase font-black tracking-widest border-t border-white/5 pt-3">
-                        <div className="flex items-center gap-4">
-                            <span className="text-slate-500">Bridge Orchestrator v0.7.3</span>
-                            <span className="w-1 h-1 bg-slate-800 rounded-full"></span>
-                            <span>Node Environment (Production)</span>
-                        </div>
-                        <div className="flex gap-6">
-                            <span>Local: 3002</span>
-                            <span>Service: 3000</span>
-                        </div>
-                    </footer>
+    document.getElementById('app').innerHTML = `
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="logo">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
                 </div>
-            );
-        };
+                <div>
+                    <div class="header-title">Countersync</div>
+                    <div class="header-sub">Counterpoint → Riverside OS</div>
+                </div>
+            </div>
+            <div class="status-chip ${chipClass}">
+                <div class="status-dot ${chipClass}"></div>
+                ${chipLabel.toUpperCase()}
+            </div>
+        </header>
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
+        <!-- Main -->
+        <div class="main">
+            <!-- Left Rail -->
+            <div style="display:flex;flex-direction:column;gap:12px;min-height:0;overflow-y:auto;">
+                <!-- Run Control -->
+                <div class="card">
+                    <div class="card-header">Sync Control</div>
+                    <div class="card-body run-section">
+                        ${isSyncing 
+                            ? `<button class="run-btn stop" onclick="alert('Sync in progress — wait for completion or restart the bridge process.')">
+                                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"></rect></svg>
+                                SYNC IN PROGRESS…
+                               </button>`
+                            : `<button class="run-btn start" onclick="triggerFull()">
+                                <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                RUN FULL SYNC
+                               </button>`
+                        }
+                        <div class="run-meta">
+                            <div class="run-meta-chip">
+                                <div class="run-meta-label">Records</div>
+                                <div class="run-meta-value accent">${fmtNum(totalRecords)}</div>
+                            </div>
+                            <div class="run-meta-chip">
+                                <div class="run-meta-label">Duration</div>
+                                <div class="run-meta-value">${fmtDuration(lastDur)}</div>
+                            </div>
+                        </div>
+                        <div class="run-meta">
+                            <div class="run-meta-chip">
+                                <div class="run-meta-label">Entities OK</div>
+                                <div class="run-meta-value" style="color:var(--green)">${entityCount}</div>
+                            </div>
+                            <div class="run-meta-chip">
+                                <div class="run-meta-label">Errors</div>
+                                <div class="run-meta-value" style="color:${errorCount ? 'var(--red)' : 'var(--text-dim)'}">${errorCount}</div>
+                            </div>
+                        </div>
+                        ${s.lastRun ? `<div style="text-align:center;font-size:9px;color:var(--text-dim);margin-top:-4px;">Last run: ${fmtTimeAgo(s.lastRun)}</div>` : ''}
+                    </div>
+                </div>
+
+                <!-- Entity Breakdown -->
+                <div class="card" style="flex:1;min-height:0;display:flex;flex-direction:column;">
+                    <div class="card-header">Entity Breakdown</div>
+                    <div class="card-body entity-grid" style="overflow-y:auto;flex:1;padding:8px;">
+                        ${ENTITIES.map(e => {
+                            const st = (s.entityStats || {})[e.key] || {};
+                            const status = entityStatus(e.key);
+                            const count = st.recordCount;
+                            const dur = st.durationMs;
+                            const hasErr = !!st.error;
+                            return `
+                                <div class="entity-row ${status === 'running' ? 'active' : ''} ${hasErr ? 'error-row' : ''}">
+                                    <div class="entity-indicator ${status}"></div>
+                                    <div class="entity-name">${e.icon} ${e.label}</div>
+                                    <div class="entity-count">${count != null ? fmtNum(count) + ' rows' : ''}</div>
+                                    <div class="entity-time">${dur ? fmtDuration(dur) : ''}</div>
+                                    <button class="entity-pull-btn" onclick="triggerEntity('${e.key}')" ${isSyncing ? 'disabled' : ''}>Pull</button>
+                                    ${hasErr ? `<div class="entity-error-msg">${st.error.slice(0, 120)}</div>` : ''}
+                                </div>`;
+                        }).join('')}
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right: Log Panel -->
+            <div class="card log-panel">
+                <div class="card-header">
+                    <span>Execution Log</span>
+                    <div class="log-toolbar">
+                        <span style="font-size:9px;color:var(--text-dim);font-weight:600;letter-spacing:0;">${(s.logs || []).length} lines</span>
+                        <button class="log-tool-btn" onclick="copyLogs()">Copy</button>
+                        <button class="log-tool-btn" onclick="autoScroll=!autoScroll;this.style.color=autoScroll?'var(--green)':'var(--text-muted)'"style="color:var(--green)">Auto↓</button>
+                    </div>
+                </div>
+                <div class="log-scroll" id="logScroll">
+                    ${(s.logs || []).length === 0 
+                        ? `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:var(--text-dim);gap:8px;opacity:0.5;">
+                            <div style="font-size:32px;">⚡</div>
+                            <div style="font-size:10px;letter-spacing:0.15em;text-transform:uppercase;font-weight:700;">Waiting for sync…</div>
+                           </div>`
+                        : (s.logs || []).map(l => `
+                            <div class="log-line">
+                                <span class="log-time">${l.time}</span>
+                                <span class="log-msg ${logClass(l.msg)}">${escHtml(l.msg)}</span>
+                            </div>`).join('')
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <div>Countersync Bridge v0.7.3 · Node</div>
+            <div>Bridge :3002 · ROS :3000</div>
+        </footer>
+    `;
+
+    if (autoScroll) {
+        const el = document.getElementById('logScroll');
+        if (el) el.scrollTop = el.scrollHeight;
+    }
+}
+
+function escHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function copyLogs() {
+    const text = (state?.logs || []).map(l => `[${l.time}] ${l.msg}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+        // brief visual feedback
+        const btn = document.querySelector('.log-tool-btn');
+        if (btn) { const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(() => btn.textContent = orig, 1200); }
+    });
+}
+
+async function poll() {
+    try {
+        const res = await fetch(`${BRIDGE}/api/status`);
+        if (res.ok) state = await res.json();
+        else state = { error: 'Bridge unreachable' };
+    } catch {
+        state = { error: 'Bridge offline' };
+    }
+    render();
+}
+
+// Initial + polling
+poll();
+setInterval(poll, 2000);
+</script>
 </body>
 </html>

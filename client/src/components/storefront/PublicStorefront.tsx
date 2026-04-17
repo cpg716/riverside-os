@@ -497,7 +497,7 @@ function StoreAccountOrderDetailCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base font-mono text-sm">
+        <CardTitle className="font-mono text-sm">
           Order {detail.order_id.slice(0, 8)}…
         </CardTitle>
         <CardDescription>
@@ -1035,33 +1035,9 @@ function StoreAccountSection({
                 <p className="text-[11px] font-black uppercase tracking-widest text-storefront-muted-foreground">
                   Change password
                 </p>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="space-y-1">
-                    <Label htmlFor="sa-pw-cur">Current password</Label>
-                    <Input
-                      id="sa-pw-cur"
-                      type="password"
-                      autoComplete="current-password"
-                      value={pwCurrent}
-                      onChange={(e) => setPwCurrent(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <Label htmlFor="sa-pw-new">New password (min 8)</Label>
-                    <Input
-                      id="sa-pw-new"
-                      type="password"
-                      autoComplete="new-password"
-                      value={pwNew}
-                      onChange={(e) => setPwNew(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  disabled={pwBusy}
-                  onClick={() => {
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
                     void (async () => {
                       const t = readStoreAccountJwt();
                       if (!t) return;
@@ -1100,9 +1076,38 @@ function StoreAccountSection({
                       }
                     })();
                   }}
+                  className="space-y-4"
                 >
-                  {pwBusy ? "Updating…" : "Update password"}
-                </Button>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <Label htmlFor="sa-pw-cur">Current password</Label>
+                      <Input
+                        id="sa-pw-cur"
+                        type="password"
+                        autoComplete="current-password"
+                        value={pwCurrent}
+                        onChange={(e) => setPwCurrent(e.target.value)}
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <Label htmlFor="sa-pw-new">New password (min 8)</Label>
+                      <Input
+                        id="sa-pw-new"
+                        type="password"
+                        autoComplete="new-password"
+                        value={pwNew}
+                        onChange={(e) => setPwNew(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    disabled={pwBusy}
+                  >
+                    {pwBusy ? "Updating…" : "Update password"}
+                  </Button>
+                </form>
               </CardContent>
             ) : null}
           </Card>
@@ -1190,7 +1195,50 @@ function StoreAccountLoginForm({
         Back
       </Button>
       <h1 className="text-2xl font-black uppercase italic tracking-tight">Sign in</h1>
-      <div className="space-y-4">
+      <form 
+        onSubmit={(e) => {
+          e.preventDefault();
+          void (async () => {
+            setBusy(true);
+            try {
+              const res = await fetch(apiUrl(API_BASE, "/api/store/account/login"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password }),
+              });
+              const j = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                code?: string;
+                token?: string;
+              };
+              if (!res.ok) {
+                if (res.status === 429) {
+                  toast(j.error ?? "Too many requests.", "error");
+                  return;
+                }
+                if (j.code === "needs_activate") {
+                  toast(
+                    "Use Link password if we already have your email on file.",
+                    "info",
+                  );
+                } else {
+                  toast(j.error ?? "Sign-in failed.", "error");
+                }
+                return;
+              }
+              if (j.token) {
+                writeStoreAccountJwt(j.token);
+                onStoreAuthChange();
+                toast("Signed in.", "success");
+                navigate("/shop/account");
+              }
+            } finally {
+              setBusy(false);
+            }
+          })();
+        }}
+        className="space-y-4"
+      >
         <div className="space-y-2">
           <Label htmlFor="sa-login-email">Email</Label>
           <Input
@@ -1212,53 +1260,13 @@ function StoreAccountLoginForm({
           />
         </div>
         <Button
-          type="button"
+          type="submit"
           disabled={busy}
           className="w-full"
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              try {
-                const res = await fetch(apiUrl(API_BASE, "/api/store/account/login"), {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ email, password }),
-                });
-                const j = (await res.json().catch(() => ({}))) as {
-                  error?: string;
-                  code?: string;
-                  token?: string;
-                };
-                if (!res.ok) {
-                  if (res.status === 429) {
-                    toast(j.error ?? "Too many requests.", "error");
-                    return;
-                  }
-                  if (j.code === "needs_activate") {
-                    toast(
-                      "Use Link password if we already have your email on file.",
-                      "info",
-                    );
-                  } else {
-                    toast(j.error ?? "Sign-in failed.", "error");
-                  }
-                  return;
-                }
-                if (j.token) {
-                  writeStoreAccountJwt(j.token);
-                  onStoreAuthChange();
-                  toast("Signed in.", "success");
-                  navigate("/shop/account");
-                }
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
         >
           {busy ? "…" : "Sign in"}
         </Button>
-      </div>
+      </form>
     </div>
   );
 }
@@ -1285,7 +1293,50 @@ function StoreAccountRegisterForm({
         Back
       </Button>
       <h1 className="text-2xl font-black uppercase italic tracking-tight">Register</h1>
-      <div className="space-y-4">
+      <form 
+        onSubmit={(e) => {
+          e.preventDefault();
+          void (async () => {
+            setBusy(true);
+            try {
+              const res = await fetch(apiUrl(API_BASE, "/api/store/account/register"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  email,
+                  password,
+                  first_name: firstName,
+                  last_name: lastName,
+                  phone: phone.trim() ? phone : null,
+                }),
+              });
+              const j = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                code?: string;
+                token?: string;
+              };
+              if (!res.ok) {
+                if (res.status === 429) {
+                  toast(j.error ?? "Too many requests.", "error");
+                  return;
+                }
+                toast(j.error ?? "Registration failed.", "error");
+                if (j.code === "use_activate") navigate("/shop/account/link");
+                return;
+              }
+              if (j.token) {
+                writeStoreAccountJwt(j.token);
+                onStoreAuthChange();
+                toast("Account created.", "success");
+                navigate("/shop/account");
+              }
+            } finally {
+              setBusy(false);
+            }
+          })();
+        }}
+        className="space-y-4"
+      >
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
             <Label htmlFor="sa-reg-fn">First name</Label>
@@ -1334,53 +1385,13 @@ function StoreAccountRegisterForm({
           />
         </div>
         <Button
-          type="button"
+          type="submit"
           disabled={busy}
           className="w-full"
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              try {
-                const res = await fetch(apiUrl(API_BASE, "/api/store/account/register"), {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    email,
-                    password,
-                    first_name: firstName,
-                    last_name: lastName,
-                    phone: phone.trim() ? phone : null,
-                  }),
-                });
-                const j = (await res.json().catch(() => ({}))) as {
-                  error?: string;
-                  code?: string;
-                  token?: string;
-                };
-                if (!res.ok) {
-                  if (res.status === 429) {
-                    toast(j.error ?? "Too many requests.", "error");
-                    return;
-                  }
-                  toast(j.error ?? "Registration failed.", "error");
-                  if (j.code === "use_activate") navigate("/shop/account/link");
-                  return;
-                }
-                if (j.token) {
-                  writeStoreAccountJwt(j.token);
-                  onStoreAuthChange();
-                  toast("Account created.", "success");
-                  navigate("/shop/account");
-                }
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
         >
           {busy ? "…" : "Create account"}
         </Button>
-      </div>
+      </form>
     </div>
   );
 }
@@ -1408,7 +1419,44 @@ function StoreAccountLinkForm({
         Use the same email we have on your in-store customer profile. This creates online sign-in
         without duplicating your record.
       </p>
-      <div className="space-y-4">
+      <form 
+        onSubmit={(e) => {
+          e.preventDefault();
+          void (async () => {
+            setBusy(true);
+            try {
+              const res = await fetch(apiUrl(API_BASE, "/api/store/account/activate"), {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ email, password }),
+              });
+              const j = (await res.json().catch(() => ({}))) as {
+                error?: string;
+                code?: string;
+                token?: string;
+              };
+              if (!res.ok) {
+                if (res.status === 429) {
+                  toast(j.error ?? "Too many requests.", "error");
+                  return;
+                }
+                toast(j.error ?? "Could not link password.", "error");
+                if (j.code === "use_login") navigate("/shop/account/login");
+                return;
+              }
+              if (j.token) {
+                writeStoreAccountJwt(j.token);
+                onStoreAuthChange();
+                toast("Online access enabled.", "success");
+                navigate("/shop/account");
+              }
+            } finally {
+              setBusy(false);
+            }
+          })();
+        }}
+        className="space-y-4"
+      >
         <div className="space-y-2">
           <Label htmlFor="sa-link-email">Email</Label>
           <Input
@@ -1430,47 +1478,13 @@ function StoreAccountLinkForm({
           />
         </div>
         <Button
-          type="button"
+          type="submit"
           disabled={busy}
           className="w-full"
-          onClick={() => {
-            void (async () => {
-              setBusy(true);
-              try {
-                const res = await fetch(apiUrl(API_BASE, "/api/store/account/activate"), {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ email, password }),
-                });
-                const j = (await res.json().catch(() => ({}))) as {
-                  error?: string;
-                  code?: string;
-                  token?: string;
-                };
-                if (!res.ok) {
-                  if (res.status === 429) {
-                    toast(j.error ?? "Too many requests.", "error");
-                    return;
-                  }
-                  toast(j.error ?? "Could not link password.", "error");
-                  if (j.code === "use_login") navigate("/shop/account/login");
-                  return;
-                }
-                if (j.token) {
-                  writeStoreAccountJwt(j.token);
-                  onStoreAuthChange();
-                  toast("Online access enabled.", "success");
-                  navigate("/shop/account");
-                }
-              } finally {
-                setBusy(false);
-              }
-            })();
-          }}
         >
           {busy ? "…" : "Save password"}
         </Button>
-      </div>
+      </form>
     </div>
   );
 }

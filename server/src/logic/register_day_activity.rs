@@ -30,6 +30,7 @@ pub struct ActivityItemDetail {
     pub sku: String,
     pub quantity: i32,
     pub price: String,
+    pub reg_price: Option<String>,
     pub product_id: Uuid,
 }
 
@@ -42,7 +43,7 @@ pub struct RegisterActivityItem {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub wedding_party_id: Option<Uuid>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,6 +68,19 @@ pub struct RegisterActivityItem {
     pub stripe_fees_total: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub net_amount: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub customer_code: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deposits_paid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub balance_due: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fulfillment_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction_total: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -98,6 +112,10 @@ pub struct RegisterDaySummary {
     pub stripe_fees_total: String,
     /// subtotal + tax - fees (or similar net definition).
     pub net_sales: String,
+    /// Total payments received in cash ($0.00 format)
+    pub cash_collected: String,
+    /// Total payments received towards unfulfilled orders or as partial payments.
+    pub deposits_collected: String,
     pub activities: Vec<RegisterActivityItem>,
 }
 
@@ -323,7 +341,7 @@ const ORDER_SESSION_FILTER: &str = r#"
               SELECT 1
               FROM payment_allocations pa
               INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-              WHERE pa.target_order_id = o.id
+              WHERE pa.target_transaction_id = o.id
                 AND pt.session_id = $3
                 AND pa.amount_allocated > 0
             )
@@ -371,15 +389,15 @@ pub async fn fetch_register_day_summary(
             COALESCE(SUM(ln.line_subtotal), 0::numeric) AS subtotal_no_tax,
             COALESCE(SUM(ln.line_tax), 0::numeric) AS tax_total,
             COUNT(DISTINCT o.id) FILTER (WHERE o.sale_channel = 'web')::bigint AS web_count
-        FROM orders o
+        FROM transactions o
         INNER JOIN (
             SELECT
-                order_id,
+                transaction_id,
                 SUM((quantity::numeric) * oi.unit_price)::numeric(14,2) AS line_subtotal,
                 SUM(oi.state_tax + oi.local_tax)::numeric(14,2) AS line_tax
-            FROM order_items oi
-            GROUP BY order_id
-        ) ln ON ln.order_id = o.id
+            FROM transaction_lines oi
+            GROUP BY transaction_id
+        ) ln ON ln.transaction_id = o.id
         WHERE {order_in_range}
         {ORDER_SESSION_FILTER}
         "#,
@@ -402,7 +420,7 @@ pub async fn fetch_register_day_summary(
         let pickup_sql = format!(
             r#"
             SELECT COUNT(DISTINCT o.id)::bigint
-            FROM orders o
+            FROM transactions o
             WHERE o.status::text = 'fulfilled'
               AND o.fulfilled_at IS NOT NULL
               AND o.fulfilled_at >= $1
@@ -430,8 +448,8 @@ pub async fn fetch_register_day_summary(
     let special_sql = format!(
         r#"
         SELECT COUNT(DISTINCT o.id)::bigint
-        FROM orders o
-        INNER JOIN order_items oi ON oi.order_id = o.id
+        FROM transactions o
+        INNER JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
           AND oi.fulfillment::text IN ('special_order', 'custom')
         {ORDER_SESSION_FILTER}
@@ -449,7 +467,7 @@ pub async fn fetch_register_day_summary(
     let fee_sql = r#"
         SELECT COALESCE(SUM(pt.merchant_fee), 0)::numeric(14,2)
         FROM payment_transactions pt
-        WHERE pt.occurred_at >= $1 AND pt.occurred_at < $2
+        WHERE pt.created_at >= $1 AND pt.created_at < $2
           AND pt.status = 'success'
           AND ($3::uuid IS NULL OR pt.session_id = $3)
         "#
@@ -492,23 +510,77 @@ pub async fn fetch_register_day_summary(
     .await?;
     let new_wedding_parties_count = wed_row.0;
 
+    // --- Cash and Deposits Dashboard Metrics ---
+    let cash_row: (Option<Decimal>,) = sqlx::query_as(
+        r#"
+        SELECT SUM(amount)::numeric(14,2)
+        FROM payment_transactions
+        WHERE created_at >= $1 AND created_at < $2
+          AND status = 'success'
+          AND payment_method = 'cash'
+          AND ($3::uuid IS NULL OR session_id = $3)
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_one(pool)
+    .await?;
+    let cash_collected = cash_row.0.unwrap_or(Decimal::ZERO);
+
+    // Definition of 'Deposit' for dashboard: Payments allocated to orders booked today that aren't takeaway,
+    // OR any payment received today where the order was already existing (pre-payment/balance payment).
+    let deposit_row: (Option<Decimal>,) = sqlx::query_as(
+        r#"
+        SELECT SUM(pa.amount_allocated)::numeric(14,2)
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        INNER JOIN transactions o ON o.id = pa.target_transaction_id
+        WHERE pt.created_at >= $1 AND pt.created_at < $2
+          AND pt.status = 'success'
+          AND ($3::uuid IS NULL OR pt.session_id = $3)
+          AND (
+            -- Case 1: Order booked today and HAS at least one item that is NOT immediately fulfilled takeaway
+            (o.booked_at >= $1 AND o.booked_at < $2 AND EXISTS (
+                SELECT 1 FROM transaction_lines oi WHERE oi.transaction_id = o.id AND oi.fulfillment::text <> 'takeaway'
+            ))
+            OR
+            -- Case 2: Partial payment on any order (total > paid)
+            (o.total_price > (SELECT SUM(pa2.amount_allocated) FROM payment_allocations pa2 WHERE pa2.target_transaction_id = o.id))
+            OR
+            -- Case 3: Order was booked BEFORE today (balance payment on old liability)
+            (o.booked_at < $1)
+          )
+        "#,
+    )
+    .bind(start_utc)
+    .bind(end_utc)
+    .bind(register_session_id)
+    .fetch_one(pool)
+    .await?;
+    let deposits_collected = deposit_row.0.unwrap_or(Decimal::ZERO);
+
     // --- Activity feed (merge in Rust) ---
     #[derive(sqlx::FromRow)]
     struct SaleAct {
-        order_id: Uuid,
+        transaction_id: Uuid,
         booked_at: chrono::DateTime<Utc>,
         total_price: Decimal,
         tax_total: Decimal,
+        wedding_party_id: Option<Uuid>,
         party_name: Option<String>,
         customer_first: Option<String>,
         customer_last: Option<String>,
-        has_special: bool,
+        customer_code: Option<String>,
         is_takeaway: bool,
         channel: String,
         pay: Option<String>,
         items_json: Option<serde_json::Value>,
         stripe_fees: Option<Decimal>,
         net_amount: Option<Decimal>,
+        amount_paid_in_window: Option<Decimal>,
+        total_paid_ever: Option<Decimal>,
+        fulfillment_type: Option<String>,
     }
 
     let sale_ts = match basis {
@@ -527,55 +599,79 @@ pub async fn fetch_register_day_summary(
     let sales_sql = format!(
         r#"
         SELECT
-            o.id AS order_id,
+            o.id AS transaction_id,
             {sale_ts} AS booked_at,
             o.total_price,
             COALESCE(SUM(oi.state_tax + oi.local_tax), 0)::numeric(14,2) AS tax_total,
+            wp.id AS wedding_party_id,
             wp.party_name,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
-            BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) AS has_special,
+            c.customer_code,
             BOOL_AND(oi.fulfillment::text = 'takeaway') AS is_takeaway,
             o.sale_channel::text AS channel,
             (
                 SELECT STRING_AGG(DISTINCT pt.payment_method, ', ' ORDER BY pt.payment_method)
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pa.target_order_id = o.id
+                WHERE pa.target_transaction_id = o.id
             ) AS pay,
             (
                 SELECT SUM(pt.merchant_fee)
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pa.target_order_id = o.id
+                WHERE pa.target_transaction_id = o.id
             ) AS stripe_fees,
             (
                 SELECT SUM(pt.net_amount)
                 FROM payment_allocations pa
                 INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                WHERE pa.target_order_id = o.id
+                WHERE pa.target_transaction_id = o.id
             ) AS net_amount,
+            (
+                SELECT SUM(pa.amount_allocated)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = o.id
+                  AND pt.created_at >= $1 AND pt.created_at < $2
+                  AND pt.status = 'success'
+            ) AS amount_paid_in_window,
+            (
+                SELECT SUM(pa.amount_allocated)
+                FROM payment_allocations pa
+                INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                WHERE pa.target_transaction_id = o.id
+                  AND pt.status = 'success'
+            ) AS total_paid_ever,
+            o.total_price AS sales_total_booked,
+            (
+                SELECT STRING_AGG(DISTINCT oi2.fulfillment::text, ', ')
+                FROM transaction_lines oi2
+                WHERE oi2.transaction_id = o.id
+            ) AS fulfillment_type,
             (
                 SELECT jsonb_agg(jsonb_build_object(
                     'name', px.name,
                     'sku', pvx.sku,
                     'quantity', oix.quantity,
                     'price', oix.unit_price::text,
-                    'product_id', px.id
+                    'reg_price', COALESCE(pvx.retail_price_override, px.base_retail_price)::text,
+                    'product_id', px.id,
+                    'fulfillment', oix.fulfillment::text
                 ))
-                FROM order_items oix
+                FROM transaction_lines oix
                 INNER JOIN products px ON px.id = oix.product_id
                 INNER JOIN product_variants pvx ON pvx.id = oix.variant_id
-                WHERE oix.order_id = o.id
+                WHERE oix.transaction_id = o.id
             ) AS items_json
-        FROM orders o
+        FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-        LEFT JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE {order_in_range}
         {ORDER_SESSION_FILTER}
-        GROUP BY o.id, {sale_ts}, o.total_price, wp.party_name, c.first_name, c.last_name, o.sale_channel::text
+        GROUP BY o.id, {sale_ts}, o.total_price, wp.id, wp.party_name, c.first_name, c.last_name, c.customer_code, o.sale_channel::text
         ORDER BY {sale_order_by}
         LIMIT 120
         "#
@@ -586,107 +682,6 @@ pub async fn fetch_register_day_summary(
         .bind(register_session_id)
         .fetch_all(pool)
         .await?;
-
-    #[derive(sqlx::FromRow)]
-    struct PickupAct {
-        order_id: Uuid,
-        fulfilled_at: chrono::DateTime<Utc>,
-        total_price: Decimal,
-        party_name: Option<String>,
-        customer_first: Option<String>,
-        customer_last: Option<String>,
-    }
-
-    let pickups: Vec<PickupAct> = if matches!(basis, ReportBasis::Booked) {
-        sqlx::query_as(
-            r#"
-            SELECT DISTINCT ON (o.id)
-                o.id AS order_id,
-                o.fulfilled_at AS fulfilled_at,
-                o.total_price,
-                wp.party_name,
-                c.first_name AS customer_first,
-                c.last_name AS customer_last
-            FROM orders o
-            LEFT JOIN customers c ON c.id = o.customer_id
-            LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
-            LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-            WHERE o.status::text = 'fulfilled'
-              AND o.fulfilled_at IS NOT NULL
-              AND o.fulfilled_at >= $1
-              AND o.fulfilled_at < $2
-              AND (
-                $3::uuid IS NULL
-                OR EXISTS (
-                  SELECT 1
-                  FROM payment_allocations pa
-                  INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                  WHERE pa.target_order_id = o.id
-                    AND pt.session_id = $3
-                    AND pa.amount_allocated > 0
-                )
-              )
-            ORDER BY o.id, o.fulfilled_at DESC
-            LIMIT 80
-            "#,
-        )
-        .bind(start_utc)
-        .bind(end_utc)
-        .bind(register_session_id)
-        .fetch_all(pool)
-        .await?
-    } else {
-        Vec::new()
-    };
-
-    #[derive(sqlx::FromRow)]
-    struct WedAct {
-        id: Uuid,
-        created_at: chrono::DateTime<Utc>,
-        party_name: String,
-    }
-
-    let weddings: Vec<WedAct> = sqlx::query_as(
-        r#"
-        SELECT id, created_at, party_name
-        FROM wedding_parties
-        WHERE (created_at AT TIME ZONE $1)::date >= $2::date
-          AND (created_at AT TIME ZONE $1)::date <= $3::date
-        ORDER BY created_at DESC
-        LIMIT 60
-        "#,
-    )
-    .bind(&tz_name)
-    .bind(from_l)
-    .bind(to_l)
-    .fetch_all(pool)
-    .await?;
-
-    #[derive(sqlx::FromRow)]
-    struct ApptAct {
-        id: Uuid,
-        starts_at: chrono::DateTime<Utc>,
-        notes: Option<String>,
-        party_name: Option<String>,
-    }
-
-    let appts: Vec<ApptAct> = sqlx::query_as(
-        r#"
-        SELECT wa.id, wa.starts_at, wa.notes, wp.party_name
-        FROM wedding_appointments wa
-        LEFT JOIN wedding_members wm ON wm.id = wa.wedding_member_id
-        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-        WHERE (wa.starts_at AT TIME ZONE $1)::date >= $2::date
-          AND (wa.starts_at AT TIME ZONE $1)::date <= $3::date
-        ORDER BY wa.starts_at DESC
-        LIMIT 80
-        "#,
-    )
-    .bind(&tz_name)
-    .bind(from_l)
-    .bind(to_l)
-    .fetch_all(pool)
-    .await?;
 
     let mut activities: Vec<RegisterActivityItem> = Vec::new();
 
@@ -711,24 +706,8 @@ pub async fn fetch_register_day_summary(
 
     for s in sales {
         let title = match basis {
-            ReportBasis::Completed => {
-                if s.channel.trim() == "web" {
-                    "Online order — recognized".to_string()
-                } else if s.has_special {
-                    "Completed — included order".to_string()
-                } else {
-                    "Completed (recognized)".to_string()
-                }
-            }
-            ReportBasis::Booked => {
-                if s.channel.trim() == "web" {
-                    "Online order".to_string()
-                } else if s.has_special {
-                    "Sale — includes order".to_string()
-                } else {
-                    "Sale".to_string()
-                }
-            }
+            ReportBasis::Completed => "Order Taken (Fulfilled)".to_string(),
+            ReportBasis::Booked => "Order Booked (Sale)".to_string(),
         };
         let sale_kind = if matches!(basis, ReportBasis::Completed) {
             "completed"
@@ -739,8 +718,44 @@ pub async fn fetch_register_day_summary(
             .items_json
             .and_then(|v| serde_json::from_value::<Vec<ActivityItemDetail>>(v).ok());
 
+        let customer_full = match (
+            s.customer_first
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+            s.customer_last
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty()),
+        ) {
+            (Some(f), Some(l)) => Some(format!("{f} {l}")),
+            (Some(f), None) => Some(f.to_string()),
+            (None, Some(l)) => Some(l.to_string()),
+            _ => {
+                if let Some(p) = s
+                    .party_name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    Some(p.to_string())
+                } else {
+                    s.customer_code.clone()
+                }
+            }
+        };
+
+        let deposits = s
+            .amount_paid_in_window
+            .filter(|&a| a > Decimal::ZERO)
+            .map(money_label);
+        let balance = s.total_paid_ever.map(|paid| {
+            let due = s.total_price - paid;
+            money_label(due.max(Decimal::ZERO))
+        });
+
         activities.push(RegisterActivityItem {
-            id: format!("{sale_kind}:{}", s.order_id),
+            id: format!("{sale_kind}:{}", s.transaction_id),
             kind: sale_kind.to_string(),
             occurred_at: s.booked_at,
             title,
@@ -749,8 +764,8 @@ pub async fn fetch_register_day_summary(
                 s.customer_first.as_deref(),
                 s.customer_last.as_deref(),
             ),
-            order_id: Some(s.order_id),
-            wedding_party_id: None,
+            transaction_id: Some(s.transaction_id),
+            wedding_party_id: s.wedding_party_id,
             amount_label: Some(format!("${}", money_label(s.total_price))),
             payment_summary: s.pay,
             sales_total: Some(money_label(s.total_price)),
@@ -761,79 +776,12 @@ pub async fn fetch_register_day_summary(
             items,
             stripe_fees_total: s.stripe_fees.map(money_label),
             net_amount: s.net_amount.map(money_label),
-        });
-    }
-
-    for p in pickups {
-        activities.push(RegisterActivityItem {
-            id: format!("pickup:{}", p.order_id),
-            kind: "pickup".to_string(),
-            occurred_at: p.fulfilled_at,
-            title: "Pickup / fulfilled".to_string(),
-            subtitle: customer_label(
-                p.party_name.as_deref(),
-                p.customer_first.as_deref(),
-                p.customer_last.as_deref(),
-            ),
-            order_id: Some(p.order_id),
-            wedding_party_id: None,
-            amount_label: Some(format!("${}", money_label(p.total_price))),
-            payment_summary: None,
-            sales_total: Some(money_label(p.total_price)),
-            tax_total: None,
-            is_takeaway: Some(false),
-            channel: None,
-            items: None,
-            stripe_fees_total: None,
-            net_amount: None,
-            wedding_party_name: None,
-        });
-    }
-
-    for w in weddings {
-        activities.push(RegisterActivityItem {
-            id: format!("wedding:{}", w.id),
-            kind: "wedding_party".to_string(),
-            occurred_at: w.created_at,
-            title: "New wedding party".to_string(),
-            subtitle: Some(w.party_name.clone()),
-            order_id: None,
-            wedding_party_id: Some(w.id),
-            amount_label: None,
-            payment_summary: None,
-            sales_total: None,
-            tax_total: None,
-            is_takeaway: None,
-            channel: None,
-            items: None,
-            stripe_fees_total: None,
-            net_amount: None,
-            wedding_party_name: None,
-        });
-    }
-
-    for a in appts {
-        activities.push(RegisterActivityItem {
-            id: format!("appt:{}", a.id),
-            kind: "appointment".to_string(),
-            occurred_at: a.starts_at,
-            title: "Appointment".to_string(),
-            subtitle: a
-                .party_name
-                .filter(|s| !s.trim().is_empty())
-                .or_else(|| a.notes.clone().filter(|s| !s.trim().is_empty())),
-            order_id: None,
-            wedding_party_id: None,
-            amount_label: None,
-            payment_summary: None,
-            sales_total: None,
-            tax_total: None,
-            is_takeaway: None,
-            channel: None,
-            items: None,
-            stripe_fees_total: None,
-            net_amount: None,
-            wedding_party_name: None,
+            customer_name: customer_full,
+            customer_code: s.customer_code,
+            deposits_paid: deposits,
+            balance_due: balance,
+            fulfillment_type: s.fulfillment_type,
+            transaction_total: s.amount_paid_in_window.map(money_label),
         });
     }
 
@@ -860,6 +808,8 @@ pub async fn fetch_register_day_summary(
         new_wedding_parties_count,
         stripe_fees_total: money_label(stripe_fees),
         net_sales: money_label(subtotal + tax_total - stripe_fees),
+        cash_collected: money_label(cash_collected),
+        deposits_collected: money_label(deposits_collected),
         activities,
     })
 }

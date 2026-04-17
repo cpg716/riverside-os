@@ -15,10 +15,11 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::api::orders::{
-    load_order_detail, OrderDetailResponse, OrderError, OrderFinancialSummary,
-};
 use crate::api::store_account_rate::store_account_client_key;
+use crate::api::transactions::{
+    load_transaction_detail, TransactionDetailResponse, TransactionError,
+    TransactionFinancialSummary,
+};
 use crate::api::AppState;
 use crate::auth::store_customer_jwt::{
     sign_store_customer_token, verify_store_customer_token, StoreCustomerJwtError,
@@ -26,8 +27,8 @@ use crate::auth::store_customer_jwt::{
 use crate::auth::store_customer_password::{
     hash_customer_password, verify_customer_password, StoreCustomerPasswordError,
 };
-use crate::logic::customer_order_history::{
-    query_customer_order_history, CustomerOrderHistoryQuery,
+use crate::logic::customer_transaction_history::{
+    query_customer_transaction_history, CustomerTransactionHistoryQuery,
 };
 use crate::logic::customers::{insert_customer_in_tx, CustomerCreatedSource, InsertCustomerParams};
 use crate::logic::store_customer_account::{
@@ -191,8 +192,8 @@ struct StoreAccountOrderLineJson {
 }
 
 #[derive(Debug, Serialize)]
-struct StoreAccountOrderDetailResponse {
-    pub order_id: Uuid,
+struct StoreAccountTransactionDetailResponse {
+    pub transaction_id: Uuid,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
     pub sale_channel: DbSaleChannel,
@@ -206,14 +207,14 @@ struct StoreAccountOrderDetailResponse {
     pub tracking_url_provider: Option<String>,
     pub payment_methods_summary: String,
     pub primary_salesperson_name: Option<String>,
-    pub financial_summary: OrderFinancialSummary,
+    pub financial_summary: TransactionFinancialSummary,
     pub items: Vec<StoreAccountOrderLineJson>,
 }
 
-fn map_store_order_detail(
-    d: OrderDetailResponse,
+fn map_store_transaction_detail(
+    d: TransactionDetailResponse,
     sale_channel: DbSaleChannel,
-) -> StoreAccountOrderDetailResponse {
+) -> StoreAccountTransactionDetailResponse {
     let items = d
         .items
         .into_iter()
@@ -232,8 +233,8 @@ fn map_store_order_detail(
         })
         .collect();
 
-    StoreAccountOrderDetailResponse {
-        order_id: d.order_id,
+    StoreAccountTransactionDetailResponse {
+        transaction_id: d.transaction_id,
         booked_at: d.booked_at,
         status: d.status,
         sale_channel,
@@ -920,9 +921,9 @@ async fn post_store_account_change_password(
     (StatusCode::OK, Json(json!({ "status": "updated" }))).into_response()
 }
 
-async fn get_store_account_order_detail(
+async fn get_store_account_transaction_detail(
     State(state): State<AppState>,
-    Path(order_id): Path<Uuid>,
+    Path(transaction_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> impl IntoResponse {
     let cid = match bearer_customer_id(&headers, &state.store_customer_jwt_secret) {
@@ -940,9 +941,9 @@ async fn get_store_account_order_detail(
     }
 
     let sale_channel: Option<DbSaleChannel> = match sqlx::query_scalar(
-        "SELECT sale_channel FROM orders WHERE id = $1 AND customer_id = $2",
+        "SELECT sale_channel FROM transactions WHERE id = $1 AND customer_id = $2",
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(cid)
     .fetch_optional(&state.db)
     .await
@@ -966,9 +967,9 @@ async fn get_store_account_order_detail(
             .into_response();
     };
 
-    let detail = match load_order_detail(&state.db, order_id).await {
+    let detail = match load_transaction_detail(&state.db, transaction_id).await {
         Ok(d) => d,
-        Err(OrderError::NotFound) => {
+        Err(TransactionError::NotFound) => {
             return (
                 StatusCode::NOT_FOUND,
                 Json(json!({ "error": "order not found" })),
@@ -985,14 +986,14 @@ async fn get_store_account_order_detail(
         }
     };
 
-    let out = map_store_order_detail(detail, sc);
+    let out = map_store_transaction_detail(detail, sc);
     (StatusCode::OK, Json(out)).into_response()
 }
 
-async fn get_store_account_orders(
+async fn get_store_account_transactions(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Query(q): Query<CustomerOrderHistoryQuery>,
+    Query(q): Query<CustomerTransactionHistoryQuery>,
 ) -> impl IntoResponse {
     let cid = match bearer_customer_id(&headers, &state.store_customer_jwt_secret) {
         Ok(id) => id,
@@ -1007,7 +1008,7 @@ async fn get_store_account_orders(
     if let Err(r) = check_authed_rate(&state, cid, "orders_list").await {
         return r;
     }
-    match query_customer_order_history(&state.db, cid, &q).await {
+    match query_customer_transaction_history(&state.db, cid, &q).await {
         Ok(res) => (StatusCode::OK, Json(res)).into_response(),
         Err(e) => {
             tracing::error!(error = %e, "store account orders");
@@ -1030,6 +1031,9 @@ pub fn router() -> Router<AppState> {
             "/me",
             get(get_store_account_me).patch(patch_store_account_me),
         )
-        .route("/orders/{order_id}", get(get_store_account_order_detail))
-        .route("/orders", get(get_store_account_orders))
+        .route(
+            "/orders/{transaction_id}",
+            get(get_store_account_transaction_detail),
+        )
+        .route("/orders", get(get_store_account_transactions))
 }

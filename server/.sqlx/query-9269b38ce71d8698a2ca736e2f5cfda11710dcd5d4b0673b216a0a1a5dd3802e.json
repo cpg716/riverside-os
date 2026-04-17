@@ -1,0 +1,58 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        WITH velocity AS (\n            SELECT \n                oi.variant_id,\n                SUM(oi.quantity)::float / 45.0 as daily_velocity,\n                COUNT(DISTINCT o.id) as sale_frequency\n            FROM transaction_lines oi\n            INNER JOIN transactions o ON o.id = oi.transaction_id\n            WHERE o.status != 'cancelled'\n              AND o.booked_at >= $1\n            GROUP BY oi.variant_id\n        )\n        SELECT \n            pv.id as variant_id,\n            p.id as product_id,\n            pv.sku,\n            p.name as product_name,\n            pv.stock_on_hand,\n            COALESCE(v.daily_velocity, 0.0) as velocity_daily,\n            COALESCE(v.sale_frequency, 0) as sale_frequency\n        FROM product_variants pv\n        INNER JOIN products p ON p.id = pv.product_id\n        LEFT JOIN velocity v ON v.variant_id = pv.id\n        WHERE p.is_active = TRUE\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "variant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "product_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "sku",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "product_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "stock_on_hand",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 5,
+        "name": "velocity_daily",
+        "type_info": "Float8"
+      },
+      {
+        "ordinal": 6,
+        "name": "sale_frequency",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "9269b38ce71d8698a2ca736e2f5cfda11710dcd5d4b0673b216a0a1a5dd3802e"
+}

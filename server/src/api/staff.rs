@@ -110,9 +110,17 @@ pub struct VerifyCashierResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct LegacyVerifyPinRequest {
+    pub pin: String,
+    pub staff_id: Option<Uuid>,
+    pub role: Option<String>,
+    pub authorize_action: Option<String>,
+    pub authorize_metadata: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct PatchStaffRequest {
     pub full_name: Option<String>,
-    pub cashier_code: Option<String>,
     pub role: Option<DbStaffRole>,
     pub is_active: Option<bool>,
     pub base_commission_rate: Option<Decimal>,
@@ -130,6 +138,8 @@ pub struct PatchStaffRequest {
     /// When true, clear `employee_customer_id` (wins over `employee_customer_id`).
     #[serde(default)]
     pub detach_employee_customer: bool,
+    #[serde(default)]
+    pub cashier_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -238,6 +248,8 @@ pub fn router() -> Router<AppState> {
         .route("/list-for-pos", get(list_for_pos))
         .route("/verify-cashier-code", post(verify_cashier_code))
         .route("/effective-permissions", get(effective_permissions_self))
+        .route("/verify-pin", post(legacy_verify_pin))
+        .route("/avatar/{id}", get(get_staff_avatar))
         .route("/self/avatar", patch(self_patch_staff_avatar))
         .route("/self/pricing-limits", get(self_pricing_limits))
         .route("/self/register-metrics", get(self_register_metrics))
@@ -273,6 +285,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/admin/{staff_id}/set-pin", post(admin_set_pin))
         .route("/admin/{staff_id}", patch(admin_patch_staff))
+        .route("/admin", post(admin_create_staff))
         // New Commission Rules API (SPIFFs and Overrides)
         .route(
             "/commissions/rules",
@@ -513,6 +526,46 @@ async fn verify_cashier_code(
     }))
 }
 
+pub async fn legacy_verify_pin(
+    State(state): State<AppState>,
+    Json(body): Json<LegacyVerifyPinRequest>,
+) -> Result<Json<VerifyCashierResponse>, StaffApiError> {
+    let code = body.pin.trim();
+    if !is_valid_staff_credential(code) {
+        return Err(StaffApiError::InvalidCode);
+    }
+
+    let staff = if let Some(sid) = body.staff_id {
+        pins::authenticate_staff_by_id(&state.db, sid, Some(code))
+            .await
+            .map_err(|_| StaffApiError::InvalidCode)?
+    } else if body.role.as_deref() == Some("Admin") {
+        pins::authenticate_admin(&state.db, code, None)
+            .await
+            .map_err(|_| StaffApiError::InvalidCode)?
+    } else {
+        pins::authenticate_pos_staff(&state.db, code, None)
+            .await
+            .map_err(|_| StaffApiError::InvalidCode)?
+    };
+
+    if let Some(action) = body.authorize_action {
+        let meta = body.authorize_metadata.unwrap_or_else(|| json!({}));
+        let _ = pins::log_staff_access(&state.db, staff.id, &action, meta).await;
+    }
+
+    Ok(Json(VerifyCashierResponse {
+        staff_id: staff.id,
+        full_name: staff.full_name,
+        role: staff.role,
+        avatar_key: staff.avatar_key,
+    }))
+}
+
+pub fn auth_router() -> Router<AppState> {
+    Router::new().route("/verify-pin", post(legacy_verify_pin))
+}
+
 async fn admin_access_log(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -570,8 +623,8 @@ async fn admin_roster(
                     SUM((oi.unit_price * oi.quantity)::numeric(14, 2)),
                     0
                 )::numeric(14, 2)
-                FROM order_items oi
-                INNER JOIN orders o ON o.id = oi.order_id
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
                 WHERE oi.salesperson_id = s.id
                   AND o.status::text NOT IN ('cancelled')
                   AND o.booked_at >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
@@ -678,7 +731,7 @@ async fn admin_patch_staff(
         }
         if !is_valid_staff_credential(t) {
             return Err(StaffApiError::InvalidPayload(
-                "cashier_code must be exactly 4 digits".to_string(),
+                "PIN must be exactly 4 digits".to_string(),
             ));
         }
     }
@@ -841,21 +894,36 @@ async fn admin_set_pin(
         .bind(staff_id)
         .fetch_optional(&state.db)
         .await?;
-    let Some(badge) = badge else {
+    let Some(_badge) = badge else {
         return Err(StaffApiError::InvalidPayload("staff not found".to_string()));
     };
     let pin_t = body.pin.trim();
-    if pin_t != badge.trim() {
+    if !pins::is_valid_staff_credential(pin_t) {
         return Err(StaffApiError::InvalidPayload(
-            "PIN must match this staff member's 4-digit cashier code".to_string(),
+            "PIN must be exactly 4 digits".to_string(),
         ));
     }
 
-    let hashed = hash_pin(&body.pin)
-        .map_err(|_| StaffApiError::InvalidPayload("PIN must be exactly 4 digits".to_string()))?;
+    // Check for duplicate cashier code
+    let dup: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1 AND id <> $2)",
+    )
+    .bind(pin_t)
+    .bind(staff_id)
+    .fetch_one(&state.db)
+    .await?;
+    if dup {
+        return Err(StaffApiError::InvalidPayload(
+            "This PIN is already in use by another staff member".to_string(),
+        ));
+    }
 
-    let n = sqlx::query("UPDATE staff SET pin_hash = $1 WHERE id = $2")
+    let hashed = hash_pin(pin_t)
+        .map_err(|_| StaffApiError::InvalidPayload("PIN hashing failed".to_string()))?;
+
+    let n = sqlx::query("UPDATE staff SET pin_hash = $1, cashier_code = $2 WHERE id = $3")
         .bind(&hashed)
+        .bind(pin_t)
         .bind(staff_id)
         .execute(&state.db)
         .await?
@@ -1529,4 +1597,173 @@ async fn delete_commission_combo(
     .await;
 
     Ok(Json(json!({ "status": "deleted" })))
+}
+
+async fn admin_create_staff(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchStaffRequest>,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_EDIT)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let name = body
+        .full_name
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| StaffApiError::InvalidPayload("full_name is required".to_string()))?;
+
+    let code = match body.cashier_code.as_ref().map(|s| s.trim()) {
+        Some(c) if !c.is_empty() => c.to_string(),
+        _ => {
+            // Auto-generate a unique numeric ID for the Staff Tracking ID
+            let mut next_code: i32 = sqlx::query_scalar(
+                "SELECT COALESCE(MAX(cashier_code::int), 1000) + 1 FROM staff WHERE cashier_code ~ '^[0-9]+$'"
+            ).fetch_one(&state.db).await?;
+
+            // Safety: ensure it is truly unique (in case of non-numeric gaps)
+            while sqlx::query_scalar::<_, bool>(
+                "SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1)",
+            )
+            .bind(next_code.to_string())
+            .fetch_one(&state.db)
+            .await?
+            {
+                next_code += 1;
+            }
+            next_code.to_string()
+        }
+    };
+
+    if !pins::is_valid_staff_credential(&code) && body.cashier_code.is_some() {
+        return Err(StaffApiError::InvalidPayload(
+            "Custom Staff ID must be exactly 4 digits".to_string(),
+        ));
+    }
+
+    let initial_pin = body
+        .cashier_code
+        .as_ref()
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| "1234".to_string());
+    let pin_hash = hash_pin(&initial_pin)
+        .map_err(|_| StaffApiError::InvalidPayload("could not hash initial PIN".to_string()))?;
+
+    let base_rate = body.base_commission_rate.unwrap_or(Decimal::new(200, 4)); // 2%
+    let max_disc = body.max_discount_percent.unwrap_or(Decimal::new(30, 0)); // 30%
+
+    let role = body.role.unwrap_or(DbStaffRole::Salesperson);
+
+    let mut tx = state.db.begin().await?;
+
+    let new_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO staff (
+            full_name, cashier_code, pin_hash, role, is_active, 
+            base_commission_rate, phone, email, avatar_key, max_discount_percent,
+            employment_start_date, employment_end_date, employee_customer_id
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+        RETURNING id
+        "#,
+    )
+    .bind(name)
+    .bind(code)
+    .bind(pin_hash)
+    .bind(role)
+    .bind(body.is_active.unwrap_or(true))
+    .bind(base_rate)
+    .bind(
+        body.phone
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(
+        body.email
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty()),
+    )
+    .bind(
+        body.avatar_key
+            .as_ref()
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("ros_default"),
+    )
+    .bind(max_disc)
+    .bind(body.employment_start_date)
+    .bind(body.employment_end_date)
+    .bind(body.employee_customer_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    // Auto-apply role defaults for permissions
+    sqlx::query(
+        r#"
+        INSERT INTO staff_permission (staff_id, permission_key, allowed)
+        SELECT $1, p.permission_key, true
+        FROM staff_role_permission p
+        WHERE p.role = $2 AND p.allowed = true
+        "#,
+    )
+    .bind(new_id)
+    .bind(role)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    spawn_meilisearch_staff_upsert(&state, new_id);
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "admin_staff_create",
+        json!({ "new_id": new_id, "name": name }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "created", "id": new_id })))
+}
+
+async fn get_staff_avatar(Path(id): Path<String>, State(state): State<AppState>) -> Response {
+    let key = if id == "ros_default" {
+        "ros_default".to_string()
+    } else if let Ok(uid) = Uuid::parse_str(&id) {
+        match sqlx::query_scalar::<_, String>("SELECT avatar_key FROM staff WHERE id = $1")
+            .bind(uid)
+            .fetch_one(&state.db)
+            .await
+        {
+            Ok(k) => k,
+            Err(_) => "ros_default".to_string(),
+        }
+    } else {
+        "ros_default".to_string()
+    };
+
+    // We check both the direct path and the sibling path (up one level)
+    // because the server may be running from the repo root or from the 'server/' directory.
+    let paths = vec![
+        format!("client/public/staff-avatars/{}.svg", key),
+        format!("../client/public/staff-avatars/{}.svg", key),
+        format!("client/dist/staff-avatars/{}.svg", key),
+        format!("../client/dist/staff-avatars/{}.svg", key),
+    ];
+
+    for path in paths {
+        if let Ok(data) = tokio::fs::read(&path).await {
+            return Response::builder()
+                .header("Content-Type", "image/svg+xml")
+                .header("Cache-Control", "public, max-age=3600")
+                .body(axum::body::Body::from(data))
+                .unwrap_or_else(|_| StatusCode::INTERNAL_SERVER_ERROR.into_response());
+        }
+    }
+
+    StatusCode::NOT_FOUND.into_response()
 }

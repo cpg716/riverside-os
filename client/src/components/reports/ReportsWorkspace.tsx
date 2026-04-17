@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowRight, BarChart3, ChevronLeft, Download, RefreshCw } from "lucide-react";
+import { ArrowRight, BarChart3, ChevronLeft, Download, RefreshCw, Printer } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
@@ -11,6 +11,7 @@ import {
 } from "../../lib/reportsCatalog";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+import { openProfessionalTablePrint } from "../pos/zReportPrint";
 
 function ymd(d: Date): string {
   const y = d.getFullYear();
@@ -443,6 +444,21 @@ export default function ReportsWorkspace({
                   >
                     <Download className="h-4 w-4" aria-hidden />
                     Download CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      openProfessionalTablePrint({
+                        title: selected.title,
+                        subtitle: `${from} to ${to} (${basis} basis${groupBy ? `, grouped by ${groupBy}` : ""})`,
+                        columns: keysFromRows(tableRows),
+                        rows: tableRows
+                      });
+                    }}
+                    className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl border-emerald-500/30 px-3 py-2 text-xs font-bold uppercase text-emerald-700 hover:bg-emerald-500 hover:text-white"
+                  >
+                    <Printer className="h-4 w-4" aria-hidden />
+                    Print Report
                   </button>
                 </div>
               ) : null}

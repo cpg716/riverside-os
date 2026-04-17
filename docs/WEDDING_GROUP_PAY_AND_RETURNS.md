@@ -1,27 +1,27 @@
 # Wedding group pay and returns — operational notes
 
-**Audience:** floor managers reconciling **one payer** covering multiple **member orders** (disbursements) when a **line return** or **refund** happens.
+**Audience:** floor managers reconciling **one payer** covering multiple **member transactions** (disbursements) when a **line return** or **refund** happens.
 
 ## How group pay is stored
 
-Checkout can attach **`wedding_disbursements`**: the register payment is allocated from the payer’s transaction to beneficiary orders via **`payment_allocation`** rows. Each member order has its own **`orders`** row and **`order_items`**.
+Checkout can attach **`wedding_disbursements`**: the register payment is allocated from the payer’s transaction to beneficiary transactions via **`payment_allocation`** rows. Each member transaction has its own **`transactions`** row and **`transaction_lines`**.
 
 **POS:** From the **payment ledger**, **Split deposit (wedding party)** opens **`WeddingLookupDrawer`** in **group pay** mode after you pick a party (same flow as **Wedding** → party → **Enter Group Pay**). Use it when splitting deposits or payouts across members before **Complete Sale**.
 
-### Open deposit when a member has no open order
+### Open deposit when a member has no open transaction
 
-If a disbursement targets a **wedding member** who does **not** yet have an **open** order row for allocation, checkout **credits** that member’s **customer** with an **open deposit** (see **`customer_open_deposit_accounts`** / **`customer_open_deposit_ledger`**, migration **83**). It is not store credit; it is held until a later sale where the cashier applies tender **`open_deposit`** (or the balance is adjusted operationally). See **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (payment ledger / checkout rules).
+If a disbursement targets a **wedding member** who does **not** yet have an **open** transaction row for allocation, checkout **credits** that member’s **customer** with an **open deposit** (see **`customer_open_deposit_accounts`** / **`customer_open_deposit_ledger`**, migration **83**). It is not store credit; it is held until a later sale where the cashier applies tender **`open_deposit`** (or the balance is adjusted operationally). See **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (payment ledger / checkout rules).
 
-## Return the line on the correct order
+## Return the line on the correct transaction
 
-**Line returns** (`POST /api/orders/{id}/returns`) apply to **`order_items` on that `order_id` only.** If the wrong member order is selected, return quantity and restock flags will not match the physical item or the customer’s balance story.
+**Line returns** (`POST /api/transactions/{id}/returns`) apply to **`transaction_lines` on that `transaction_id` only.** If the wrong member transaction is selected, return quantity and restock flags will not match the physical item or the customer’s balance story.
 
-- In **Back Office → Orders**, open the order that actually owns the line (member order), not only the payer’s receipt context.
-- After returns, **`recalc_order_totals`** runs per order; verify **balance due** on each linked member order if something looks off.
+- In **Back Office → Transactions**, open the transaction that actually owns the line (member transaction), not only the payer’s receipt context.
+- After returns, **`recalc_transaction_totals`** runs per transaction; verify **balance due** on each linked member transaction if something looks off.
 
 ## Refunds
 
-Refunds are processed against the **target order** with **`payment_allocations`** to that order. Complex cross-member refund routing is not automated: use **Orders** + **refund queue** with the order that received the allocation you intend to reverse.
+Refunds are processed against the **target transaction** with **`payment_allocations`** to that transaction. Complex cross-member refund routing is not automated: use **Transactions** + **refund queue** with the transaction that received the allocation you intend to reverse.
 
 ## Related
 

@@ -43,7 +43,7 @@ test.describe("Morning Compass coach", () => {
 
     await page.getByRole("button", { name: /operations/i }).click();
     await expect(
-      page.getByRole("heading", { name: /morning dashboard/i }),
+      page.getByRole("heading", { name: /operations hub/i }),
     ).toBeVisible({ timeout: 15_000 });
 
     const coach = page.getByTestId("operations-morning-compass-coach");

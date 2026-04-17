@@ -1,30 +1,64 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import Sidebar from "./components/layout/Sidebar";
-import { type SidebarTabId, SIDEBAR_SUB_SECTIONS } from "./components/layout/sidebarSections";
-import Header, { type BreadcrumbSegment } from "./components/layout/Header";
+import {
+  type SidebarTabId,
+  SIDEBAR_SUB_SECTIONS,
+} from "./components/layout/sidebarSections";
+import GlobalTopBar from "./components/layout/GlobalTopBar";
+import { TopBarProvider } from "./context/TopBarContext";
+import type { BreadcrumbSegment } from "./components/layout/GlobalTopBar";
 import PosShell from "./components/layout/PosShell";
 import WeddingShell from "./components/layout/WeddingShell";
 import InsightsShell from "./components/layout/InsightsShell";
 import GlobalSearchDrawerHost, {
   type GlobalSearchDrawerState,
 } from "./components/layout/GlobalSearchDrawers";
-const CommissionManagerWorkspace = lazy(() => import("./components/staff/CommissionManagerWorkspace"));
+const CommissionManagerWorkspace = lazy(
+  () => import("./components/staff/CommissionManagerWorkspace"),
+);
 import CloseRegisterModal from "./components/pos/CloseRegisterModal";
 import CustomersWorkspace from "./components/customers/CustomersWorkspace";
 import OperationalHome from "./components/operations/OperationalHome";
-import type { Customer } from "./components/pos/CustomerSelector";
+// CommandPalette removed
+import { type Customer } from "./components/pos/types";
 
-const InventoryWorkspace = lazy(() => import("./components/inventory/InventoryWorkspace"));
+const InventoryWorkspace = lazy(
+  () => import("./components/inventory/InventoryWorkspace"),
+);
 const QboWorkspace = lazy(() => import("./components/qbo/QboWorkspace"));
-const WeddingManagerApp = lazy(() => import("./components/wedding-manager/WeddingManagerApp"));
-const OrdersWorkspace = lazy(() => import("./components/orders/OrdersWorkspace"));
-const AlterationsWorkspace = lazy(() => import("./components/alterations/AlterationsWorkspace"));
+const WeddingManagerApp = lazy(
+  () => import("./components/wedding-manager/WeddingManagerApp"),
+);
+const OrdersWorkspace = lazy(
+  () => import("./components/orders/OrdersWorkspace"),
+);
+const AlterationsWorkspace = lazy(
+  () => import("./components/alterations/AlterationsWorkspace"),
+);
 const StaffWorkspace = lazy(() => import("./components/staff/StaffWorkspace"));
-const GiftCardsWorkspace = lazy(() => import("./components/gift-cards/GiftCardsWorkspace"));
-const LoyaltyWorkspace = lazy(() => import("./components/loyalty/LoyaltyWorkspace"));
-const SettingsWorkspace = lazy(() => import("./components/settings/SettingsWorkspace"));
-const SchedulerWorkspace = lazy(() => import("./components/scheduler/SchedulerWorkspace"));
-const ReportsWorkspace = lazy(() => import("./components/reports/ReportsWorkspace"));
+const GiftCardsWorkspace = lazy(
+  () => import("./components/gift-cards/GiftCardsWorkspace"),
+);
+const LoyaltyWorkspace = lazy(
+  () => import("./components/loyalty/LoyaltyWorkspace"),
+);
+const SettingsWorkspace = lazy(
+  () => import("./components/settings/SettingsWorkspace"),
+);
+const SchedulerWorkspace = lazy(
+  () => import("./components/scheduler/SchedulerWorkspace"),
+);
+const ReportsWorkspace = lazy(
+  () => import("./components/reports/ReportsWorkspace"),
+);
 import {
   ROS_OPEN_REGISTER_FROM_WM,
   type RosOpenRegisterFromWmDetail,
@@ -44,7 +78,7 @@ import { BackofficeAuthProvider } from "./context/BackofficeAuthContext";
 import { useBackofficeAuth } from "./context/BackofficeAuthContextLogic";
 import { RegisterGateProvider } from "./context/RegisterGateContext";
 import { NotificationCenterProvider } from "./context/NotificationCenterContext";
-import { type NotificationDeepLink } from "./context/NotificationCenterContextLogic";
+import { type NotificationDeepLink, linkStr } from "./context/NotificationCenterContextLogic";
 import WeddingManagerAuthBridge from "./components/wedding-manager/WeddingManagerAuthBridge";
 import { ShoppingCart, ArrowRight } from "lucide-react";
 import { useToast } from "./components/ui/ToastProviderLogic";
@@ -55,7 +89,7 @@ import {
   setPosRegisterAuth,
 } from "./lib/posRegisterAuth";
 
-type ThemeMode = "light" | "dark" | "system";
+export type ThemeMode = "light" | "dark" | "system";
 
 function App() {
   const { toast } = useToast();
@@ -64,7 +98,9 @@ function App() {
   const [weddingMode, setWeddingMode] = useState(false);
   const [insightsMode, setInsightsMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [activeSubSection, setActiveSubSection] = useState<string>(() => SIDEBAR_SUB_SECTIONS["home"][0].id);
+  const [activeSubSection, setActiveSubSection] = useState<string>(
+    () => SIDEBAR_SUB_SECTIONS["home"][0].id,
+  );
   const [isRegisterOpen, setIsRegisterOpen] = useState(false);
   const [cashierName, setCashierName] = useState<string | null>(null);
   const [cashierAvatarKey, setCashierAvatarKey] = useState<string | null>(null);
@@ -75,37 +111,64 @@ function App() {
   const [lifecycleStatus, setLifecycleStatus] = useState<string | null>(null);
   const [receiptTimezone, setReceiptTimezone] = useState("America/New_York");
   const [loading, setLoading] = useState(true);
+  // Only log on actual state change or mount to reduce console noise
+  const prevRef = useRef({ tab: activeTab, sub: activeSubSection });
+  useEffect(() => {
+    if (prevRef.current.tab !== activeTab || prevRef.current.sub !== activeSubSection) {
+      console.log(`[ROS App] Navigation: ${activeTab} > ${activeSubSection}`);
+      prevRef.current = { tab: activeTab, sub: activeSubSection };
+    }
+  }, [activeTab, activeSubSection]);
+
   const [showCloseModal, setShowCloseModal] = useState(false);
-  const [pendingPosCustomer, setPendingPosCustomer] = useState<Customer | null>(null);
-  const [pendingPosOrderId, setPendingPosOrderId] = useState<string | null>(null);
-  const [ordersDeepLinkOrderId, setOrdersDeepLinkOrderId] = useState<string | null>(null);
-  const [pendingWeddingPosLink, setPendingWeddingPosLink] = useState<RosOpenRegisterFromWmDetail | null>(null);
-  const [pendingWmPartyId, setPendingWmPartyId] = useState<string | null>(null);
-  const [alterationsDeepLinkId, setAlterationsDeepLinkId] = useState<string | null>(null);
-  const [procurementDeepLinkPoId, setProcurementDeepLinkPoId] = useState<string | null>(null);
-  const [inventoryProductHubProductId, setInventoryProductHubProductId] = useState<
+  const [pendingPosCustomer, setPendingPosCustomer] = useState<Customer | null>(
+    null,
+  );
+  const [pendingPosTransactionId, setPendingPosTransactionId] = useState<string | null>(
+    null,
+  );
+  const [transactionsDeepLinkTxnId, setTransactionsDeepLinkTxnId] = useState<
     string | null
   >(null);
-  const [qboDeepLinkSyncLogId, setQboDeepLinkSyncLogId] = useState<string | null>(null);
+  const [pendingWeddingPosLink, setPendingWeddingPosLink] =
+    useState<RosOpenRegisterFromWmDetail | null>(null);
+  const [pendingWmPartyId, setPendingWmPartyId] = useState<string | null>(null);
+  const [alterationsDeepLinkId, setAlterationsDeepLinkId] = useState<
+    string | null
+  >(null);
+  const [procurementDeepLinkPoId, setProcurementDeepLinkPoId] = useState<
+    string | null
+  >(null);
+  const [inventoryProductHubProductId, setInventoryProductHubProductId] =
+    useState<string | null>(null);
+  const [qboDeepLinkSyncLogId, setQboDeepLinkSyncLogId] = useState<
+    string | null
+  >(null);
   const [staffTasksFocusInstanceId, setStaffTasksFocusInstanceId] = useState<
     string | null
   >(null);
-  const [customersMessagingFocusCustomerId, setCustomersMessagingFocusCustomerId] =
+  const [
+    customersMessagingFocusCustomerId,
+    setCustomersMessagingFocusCustomerId,
+  ] = useState<string | null>(null);
+  const [customersMessagingFocusHubTab, setCustomersMessagingFocusHubTab] =
     useState<string | null>(null);
-  const [customersMessagingFocusHubTab, setCustomersMessagingFocusHubTab] = useState<
-    string | null
-  >(null);
-  const [globalSearchDrawer, setGlobalSearchDrawer] = useState<GlobalSearchDrawerState | null>(null);
+  const [globalSearchDrawer, setGlobalSearchDrawer] =
+    useState<GlobalSearchDrawerState | null>(null);
   const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
     const saved = window.localStorage.getItem("ros.theme.mode");
-    if (saved === "light" || saved === "dark" || saved === "system") return saved;
+    if (saved === "light" || saved === "dark" || saved === "system")
+      return saved;
     return "light";
   });
   const [refreshSignal, setRefreshSignal] = useState(0);
-  const [registerReportsDeepLinkOrderId, setRegisterReportsDeepLinkOrderId] = useState<string | null>(null);
+  const [registerReportsDeepLinkTxnId, setRegisterReportsDeepLinkTxnId] =
+    useState<string | null>(null);
+  const [bugReportsDeepLinkId, setBugReportsDeepLinkId] = useState<
+    string | null
+  >(null);
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
-
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
   const registerMetaRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
@@ -134,10 +197,10 @@ function App() {
   }, [activeTab]);
 
   useEffect(() => {
-    if (!ordersDeepLinkOrderId) return;
+    if (!transactionsDeepLinkTxnId) return;
     if (activeTab !== "orders") return;
     setActiveSubSection("all");
-  }, [ordersDeepLinkOrderId, activeTab]);
+  }, [transactionsDeepLinkTxnId, activeTab]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -247,9 +310,18 @@ function App() {
     clearPosRegisterAuth();
   };
 
-  const clearPendingPosCustomer = useCallback(() => setPendingPosCustomer(null), []);
-  const clearPendingPosOrder = useCallback(() => setPendingPosOrderId(null), []);
-  const clearPendingWeddingPosLink = useCallback(() => setPendingWeddingPosLink(null), []);
+  const clearPendingPosCustomer = useCallback(
+    () => setPendingPosCustomer(null),
+    [],
+  );
+  const clearPendingPosOrder = useCallback(
+    () => setPendingPosTransactionId(null),
+    [],
+  );
+  const clearPendingWeddingPosLink = useCallback(
+    () => setPendingWeddingPosLink(null),
+    [],
+  );
 
   useEffect(() => {
     const handler = (e: Event) => {
@@ -261,8 +333,15 @@ function App() {
       setWeddingMode(false);
       setPosMode(true);
     };
-    window.addEventListener(ROS_OPEN_REGISTER_FROM_WM, handler as EventListener);
-    return () => window.removeEventListener(ROS_OPEN_REGISTER_FROM_WM, handler as EventListener);
+    window.addEventListener(
+      ROS_OPEN_REGISTER_FROM_WM,
+      handler as EventListener,
+    );
+    return () =>
+      window.removeEventListener(
+        ROS_OPEN_REGISTER_FROM_WM,
+        handler as EventListener,
+      );
   }, []);
 
   const navigateRegister = useCallback(() => {
@@ -295,214 +374,286 @@ function App() {
     setCustomersMessagingFocusHubTab("messages");
   }, []);
 
-  const handleNotificationNavigate = useCallback((link: NotificationDeepLink) => {
-    const t = link.type;
-    setInsightsMode(false);
-    if (t === "staff_tasks" && link.instance_id?.trim()) {
-      setStaffTasksFocusInstanceId(link.instance_id.trim());
+  const handleNotificationNavigate = useCallback(
+    (link: NotificationDeepLink) => {
+      console.log("[App] handleNotificationNavigate:", link);
+      const t = link.type;
+
+      setInsightsMode(false);
       setPosMode(false);
       setWeddingMode(false);
-      setActiveTab("staff");
-      setActiveSubSection("tasks");
-      return;
-    }
-    if (t === "order" && link.order_id) {
-      setOrdersDeepLinkOrderId(link.order_id);
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("orders");
-      return;
-    }
-    if (t === "wedding_party" && link.party_id) {
-      navigateWedding(link.party_id);
-      return;
-    }
-    if (t === "alteration" && link.alteration_id) {
-      setAlterationsDeepLinkId(link.alteration_id);
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("alterations");
-      return;
-    }
-    if (t === "purchase_order" && link.po_id) {
-      setProcurementDeepLinkPoId(link.po_id);
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("inventory");
-      setActiveSubSection("receiving");
-      return;
-    }
-    if (t === "qbo_staging" && link.sync_log_id) {
-      setQboDeepLinkSyncLogId(link.sync_log_id);
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("qbo");
-      setActiveSubSection("staging");
-      return;
-    }
-    if (t === "orders") {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("orders");
-      const sub = link.subsection?.trim();
-      setActiveSubSection(sub === "all" ? "all" : "open");
-      return;
-    }
-    if (t === "settings" && link.section) {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("settings");
-      const sec = link.section.trim();
-      const allowed = new Set([
-        "profile",
-        "general",
-        "backups",
-        "printing",
-        "integrations",
-        "counterpoint",
-        "online-store",
-        "help-center",
-        "bug-reports",
-        "meilisearch",
-      ]);
-      setActiveSubSection(allowed.has(sec) ? sec : "general");
-      return;
-    }
-    if (t === "inventory" && link.section) {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("inventory");
-      const sec = link.section.trim();
-      const allowed = new Set([
-        "list",
-        "add",
-        "receiving",
-        "categories",
-        "discount_events",
-        "import",
-        "vendors",
-        "physical",
-      ]);
-      setActiveSubSection(allowed.has(sec) ? sec : "list");
-      const pid = link.product_id?.trim();
-      if (pid) {
-        setInventoryProductHubProductId(pid);
-      }
-      return;
-    }
-    if (t === "dashboard" && link.subsection) {
-      setPosMode(false);
-      setWeddingMode(false);
-      const sub = link.subsection.trim();
-      if (sub === "payouts") {
-        setInsightsMode(false);
-        setActiveTab("staff");
-        setActiveSubSection("commission-payouts");
+
+      // 1. Task instance focus
+      const instanceId = linkStr(link, "instance_id");
+      if (t === "staff_tasks" && instanceId) {
+        setStaffTasksFocusInstanceId(instanceId);
+        setActiveTab("home");
+        setActiveSubSection("dashboard");
         return;
       }
-      setActiveTab("dashboard");
-      setInsightsMode(true);
-      return;
-    }
-    if (t === "register") {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("register");
-      return;
-    }
-    if (t === "home" && link.subsection) {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("home");
-      const sub = link.subsection.trim();
-      const allowedHome = new Set(["dashboard", "inbox", "reviews", "daily-sales"]);
-      // Legacy deep links used "activity"; content now lives on Dashboard.
-      const normalizedSub = sub === "activity" ? "dashboard" : sub;
-      setActiveSubSection(allowedHome.has(normalizedSub) ? normalizedSub : "dashboard");
-      return;
-    }
-    if (t === "customers" && link.subsection) {
-      setPosMode(false);
-      setWeddingMode(false);
-      const subRaw = link.subsection.trim();
-      if (subRaw === "messaging") {
-        const cid = link.customer_id?.trim();
-        if (cid) {
-          setActiveTab("customers");
-          setActiveSubSection("all");
-          setCustomersMessagingFocusCustomerId(cid);
-          setCustomersMessagingFocusHubTab(link.hub_tab?.trim() ?? "messages");
-        } else {
-          setActiveTab("home");
-          setActiveSubSection("inbox");
+
+      // 2. Specific item focus (Orders, Alterations, POs, QBO log)
+      const orderId = linkStr(link, "order_id");
+      if (t === "order" && orderId) {
+        setTransactionsDeepLinkTxnId(orderId);
+        setActiveTab("orders");
+        setActiveSubSection("open");
+        return;
+      }
+      const partyId = linkStr(link, "party_id");
+      if (t === "wedding_party" && partyId) {
+        navigateWedding(partyId);
+        return;
+      }
+      const alterationId = linkStr(link, "alteration_id");
+      if (t === "alteration" && alterationId) {
+        setAlterationsDeepLinkId(alterationId);
+        setActiveTab("alterations");
+        setActiveSubSection("queue");
+        return;
+      }
+      const poId = linkStr(link, "po_id");
+      if (t === "purchase_order" && poId) {
+        setProcurementDeepLinkPoId(poId);
+        setActiveTab("inventory");
+        setActiveSubSection("purchase_orders");
+        return;
+      }
+      const syncLogId = linkStr(link, "sync_log_id");
+      if (t === "qbo_staging" && syncLogId) {
+        setQboDeepLinkSyncLogId(syncLogId);
+        setActiveTab("qbo");
+        setActiveSubSection("staging");
+        return;
+      }
+
+      // 3. Tab-based landing (with optional subsections)
+      if (t === "orders") {
+        setActiveTab("orders");
+        const sub = linkStr(link, "subsection") || "open";
+        setActiveSubSection(sub === "all" ? "all" : "open");
+        return;
+      }
+
+      if (t === "settings") {
+        setActiveTab("settings");
+        const sec = linkStr(link, "section") || "general";
+        const allowed = new Set([
+          "profile",
+          "general",
+          "printing",
+          "receipt-builder",
+          "staff-access-defaults",
+          "integrations",
+          "nuorder",
+          "counterpoint",
+          "remote-access",
+          "online-store",
+          "help-center",
+          "backups",
+          "bug-reports",
+          "meilisearch",
+          "stripe",
+          "quickbooks",
+          "weather",
+          "podium",
+          "insights",
+        ]);
+        setActiveSubSection(allowed.has(sec) ? sec : "general");
+        const bugId = linkStr(link, "bug_report_id");
+        if (bugId) {
+          setBugReportsDeepLinkId(bugId);
         }
         return;
       }
-      setActiveTab("customers");
-      const allowedCustomers = new Set([
-        "all",
-        "add",
-        "ship",
-        "rms-charge",
-        "duplicate-review",
-      ]);
-      setActiveSubSection(allowedCustomers.has(subRaw) ? subRaw : "all");
-      const cid = link.customer_id?.trim();
-      if (cid) {
-        setCustomersMessagingFocusCustomerId(cid);
-        setCustomersMessagingFocusHubTab(link.hub_tab?.trim() ?? null);
-      }
-      return;
-    }
-    if (t === "appointments" && link.section) {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("appointments");
-      const sec = link.section.trim();
-      setActiveSubSection(sec === "conflicts" ? "conflicts" : "scheduler");
-      return;
-    }
-    if (t === "qbo" && link.section) {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("qbo");
-      const sec = link.section.trim();
-      const allowedQ = new Set(["connection", "staging", "history"]);
-      setActiveSubSection(allowedQ.has(sec) ? sec : "staging");
-      return;
-    }
-    if (t === "staff" && link.section) {
-      setPosMode(false);
-      setWeddingMode(false);
-      const sec = link.section.trim();
-      const toSettingsAccess = new Set(["roles", "discounts", "access", "pins"]);
-      if (toSettingsAccess.has(sec)) {
-        setActiveTab("settings");
-        setActiveSubSection("staff-access-defaults");
+
+      if (t === "inventory") {
+        setActiveTab("inventory");
+        const sec = linkStr(link, "section") || "list";
+        const allowedI = new Set([
+          "list",
+          "purchase_orders",
+          "receiving",
+          "vendors",
+          "add",
+          "categories",
+          "discount_events",
+          "import",
+          "physical",
+          "damaged",
+          "rtv",
+          "intelligence",
+        ]);
+        setActiveSubSection(allowedI.has(sec) ? sec : "list");
+        const pid = linkStr(link, "product_id");
+        if (pid) setInventoryProductHubProductId(pid);
         return;
       }
-      setActiveTab("staff");
-      const allowedS = new Set([
-        "team",
-        "tasks",
-        "schedule",
-        "commission",
-        "commission-payouts",
-        "audit",
-      ]);
-      setActiveSubSection(allowedS.has(sec) ? sec : "team");
-      return;
-    }
-    if (t === "gift-cards" && link.section) {
-      setPosMode(false);
-      setWeddingMode(false);
-      setActiveTab("gift-cards");
-      const sec = link.section.trim();
-      const allowedG = new Set(["inventory", "issue-purchased", "issue-donated"]);
-      setActiveSubSection(allowedG.has(sec) ? sec : "inventory");
-      return;
-    }
-  }, [navigateWedding]);
+
+      if (t === "dashboard") {
+        setActiveTab("home");
+        const sec = linkStr(link, "subsection") || "dashboard";
+        const allowedD = new Set([
+          "dashboard",
+          "fulfillment",
+          "inbox",
+          "reviews",
+          "daily-sales",
+          "payouts",
+          "morning_digest",
+        ]);
+        setActiveSubSection(allowedD.has(sec) ? sec : "dashboard");
+        return;
+      }
+
+      if (t === "register") {
+        setActiveTab("register");
+        setActiveSubSection("floor");
+        return;
+      }
+
+      if (t === "home") {
+        setActiveTab("home");
+        const sub = linkStr(link, "subsection") || "dashboard";
+        const allowedHome = new Set([
+          "dashboard",
+          "fulfillment",
+          "inbox",
+          "reviews",
+          "daily-sales",
+          "payouts",
+          "morning_digest",
+        ]);
+        const normalizedSub = sub === "activity" ? "dashboard" : sub;
+        setActiveSubSection(
+          allowedHome.has(normalizedSub) ? normalizedSub : "dashboard",
+        );
+        const homeOrderId = linkStr(link, "order_id");
+        if (homeOrderId) {
+          setRegisterReportsDeepLinkTxnId(homeOrderId);
+        }
+        return;
+      }
+
+      if (t === "weddings") {
+        setActiveTab("weddings");
+        setWeddingMode(true);
+        const sec = linkStr(link, "section") || "action-board";
+        const allowedW = new Set(["action-board", "parties", "calendar"]);
+        setActiveSubSection(allowedW.has(sec) ? sec : "action-board");
+        const wPartyId = linkStr(link, "party_id");
+        if (wPartyId) setPendingWmPartyId(wPartyId);
+        return;
+      }
+
+      if (t === "customers" || t === "layaways") {
+        setActiveTab("customers");
+        const subRaw =
+          t === "layaways" ? "layaways" : linkStr(link, "subsection") || "all";
+        if (subRaw === "messaging") {
+          const cid = linkStr(link, "customer_id");
+          if (cid) {
+            setActiveSubSection("all");
+            setCustomersMessagingFocusCustomerId(cid);
+            setCustomersMessagingFocusHubTab(
+              linkStr(link, "hub_tab") || "messages",
+            );
+          } else {
+            setActiveTab("home");
+            setActiveSubSection("inbox");
+          }
+          return;
+        }
+        const allowedCustomers = new Set([
+          "all",
+          "add",
+          "layaways",
+          "ship",
+          "rms-charge",
+          "duplicate-review",
+        ]);
+        setActiveSubSection(allowedCustomers.has(subRaw) ? subRaw : "all");
+        const custId = linkStr(link, "customer_id");
+        if (custId) {
+          setCustomersMessagingFocusCustomerId(custId);
+          setCustomersMessagingFocusHubTab(linkStr(link, "hub_tab") || null);
+        }
+        return;
+      }
+
+      if (t === "appointments") {
+        setActiveTab("appointments");
+        const sec = linkStr(link, "section") || "scheduler";
+        setActiveSubSection(sec === "conflicts" ? "conflicts" : "scheduler");
+        return;
+      }
+
+      if (t === "qbo") {
+        setActiveTab("qbo");
+        const sec = linkStr(link, "section") || "staging";
+        const allowedQ = new Set([
+          "connection",
+          "mappings",
+          "staging",
+          "history",
+        ]);
+        setActiveSubSection(allowedQ.has(sec) ? sec : "staging");
+        return;
+      }
+
+      if (t === "staff") {
+        const sec = linkStr(link, "section") || "team";
+        const toSettingsAccess = new Set([
+          "roles",
+          "discounts",
+          "access",
+          "pins",
+        ]);
+        if (toSettingsAccess.has(sec)) {
+          setActiveTab("settings");
+          setActiveSubSection("staff-access-defaults");
+        } else {
+          setActiveTab("staff");
+          const allowedS = new Set([
+            "team",
+            "tasks",
+            "schedule",
+            "commission",
+            "commission-payouts",
+            "audit",
+          ]);
+          setActiveSubSection(allowedS.has(sec) ? sec : "team");
+        }
+        return;
+      }
+
+      if (t === "gift-cards") {
+        setActiveTab("gift-cards");
+        const sec = linkStr(link, "section") || "inventory";
+        const allowedG = new Set([
+          "inventory",
+          "issue-purchased",
+          "issue-donated",
+        ]);
+        setActiveSubSection(allowedG.has(sec) ? sec : "inventory");
+        return;
+      }
+
+      if (t === "loyalty") {
+        setActiveTab("loyalty");
+        const sec = linkStr(link, "section") || "eligible";
+        const allowedL = new Set(["eligible", "history", "adjust", "settings"]);
+        setActiveSubSection(allowedL.has(sec) ? sec : "eligible");
+        return;
+      }
+
+      if (t === "reports") {
+        setActiveTab("reports");
+        return;
+      }
+    },
+    [navigateWedding],
+  );
 
   const navigateDashboard = useCallback(() => {
     setPosMode(false);
@@ -516,264 +667,591 @@ function App() {
   }, []);
 
   const triggerDashboardRefresh = useCallback(() => {
-    setRefreshSignal(s => s + 1);
+    setRefreshSignal((s) => s + 1);
   }, []);
 
   const breadcrumbSegments: BreadcrumbSegment[] = useMemo(() => {
-    const subLabel = SIDEBAR_SUB_SECTIONS[activeTab].find(s => s.id === activeSubSection)?.label;
-    if (activeTab === "home") return [{ label: "Operations" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "register") return [{ label: "POS" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "weddings") return [{ label: "Weddings" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "customers") return [{ label: "Customers" }, ...(subLabel ? [{ label: subLabel }] : [])];
+    const subLabel = SIDEBAR_SUB_SECTIONS[activeTab].find(
+      (s) => s.id === activeSubSection,
+    )?.label;
+    
+    const baseClick = () => {
+      if (activeTab === "home") return;
+      setActiveTab("home");
+    };
+
+    const tabClick = () => {
+      const subs = SIDEBAR_SUB_SECTIONS[activeTab];
+      if (subs.length > 0 && activeSubSection !== subs[0].id) {
+        setActiveSubSection(subs[0].id);
+      }
+    };
+
+    if (activeTab === "home")
+      return [
+        { label: "Operations", onClick: baseClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "register")
+      return [
+        { label: "POS", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : [])
+      ];
+    if (activeTab === "weddings")
+      return [
+        { label: "Weddings", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "customers")
+      return [
+        { label: "Customers", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
     if (activeTab === "alterations")
-      return [{ label: "Alterations" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "orders") return [{ label: "Orders" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "inventory") return [{ label: "Inventory" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "settings") return [{ label: "Settings" }];
-    if (activeTab === "reports") return [{ label: "Reports" }];
-    if (activeTab === "dashboard") return [{ label: "Insights" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "staff") return [{ label: "Staff" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    if (activeTab === "qbo") return [{ label: "QBO Bridge" }, ...(subLabel ? [{ label: subLabel }] : [])];
-    return [{ label: activeTab }];
+      return [
+        { label: "Alterations", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "orders")
+      return [
+        { label: "Orders", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : [])
+      ];
+    if (activeTab === "inventory")
+      return [
+        { label: "Inventory", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "settings") return [{ label: "Settings", onClick: tabClick }];
+    if (activeTab === "reports") return [{ label: "Reports", onClick: tabClick }];
+    if (activeTab === "dashboard")
+      return [
+        { label: "Insights", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "staff")
+      return [{ label: "Staff", onClick: tabClick }, ...(subLabel ? [{ label: subLabel }] : [])];
+    if (activeTab === "qbo")
+      return [
+        { label: "QBO Bridge", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "gift-cards")
+      return [
+        { label: "Gift Cards", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "loyalty")
+      return [
+        { label: "Loyalty", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    if (activeTab === "appointments")
+      return [
+        { label: "Appointments", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
+    return [
+      {
+        label: (activeTab as string)
+          .split("-")
+          .map((w: string) => w.charAt(0).toUpperCase() + w.slice(1))
+          .join(" "),
+        onClick: tabClick,
+      },
+    ];
   }, [activeTab, activeSubSection]);
 
+  const onWorkspaceClick = useCallback(() => {
+    if (window.innerWidth < 1024) setSidebarCollapsed(true);
+  }, []);
+
+  const onOpenTransactionInBackoffice = useCallback((orderId: string) => {
+    setTransactionsDeepLinkTxnId(orderId);
+    setActiveTab("orders");
+    setActiveSubSection("all");
+    setPosMode(false);
+  }, []);
+
+  const onOpenMetabaseExplore = useCallback(() => {
+    setInsightsMode(true);
+    setActiveTab("dashboard");
+  }, []);
+
+  const onNavigateRegisterReports = useCallback(
+    (transactionId?: string) => {
+      setActiveTab("home");
+      setActiveSubSection("daily-sales");
+      if (transactionId) setRegisterReportsDeepLinkTxnId(transactionId);
+    },
+    [],
+  );
+
+  const onNavigateCommissionPayouts = useCallback(() => {
+    setActiveTab("staff");
+    setActiveSubSection("commission-payouts");
+  }, []);
+
   return (
-    <BackofficeAuthProvider initialCode={cashierCode}>
-    <RegisterGateProvider goToOpenRegister={goToOpenRegister}>
-    <RegisterSessionBootstrap
-      baseUrl={baseUrl}
-      toast={toast}
-      setLoading={setLoading}
-      setCashierName={setCashierName}
-      setCashierCode={setCashierCode}
-      setCashierAvatarKey={setCashierAvatarKey}
-      setSessionId={setSessionId}
-      setRegisterLane={setRegisterLane}
-      setRegisterOrdinal={setRegisterOrdinal}
-      setLifecycleStatus={setLifecycleStatus}
-      setReceiptTimezone={setReceiptTimezone}
-      setIsRegisterOpen={setIsRegisterOpen}
-      setActiveTab={setActiveTab}
-      setPosMode={setPosMode}
-      metaRefreshRef={registerMetaRefreshRef}
-    />
-    {loading ? (
-      <div className="flex h-screen items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">Loading Riverside POS…</div>
-    ) : (
-    <NotificationCenterProvider onNavigate={handleNotificationNavigate}>
-    <WeddingManagerAuthBridge />
-    <InsightsAccessSync
-      insightsMode={insightsMode}
-      setInsightsMode={setInsightsMode}
-      setActiveTab={setActiveTab}
-    />
-    {posMode ? (
-    <PosShell
-      activeTab={activeTab}
-      onTabChange={(tab) => {
-        const posTabs: SidebarTabId[] = [
-          "register",
-          "customers",
-          "orders",
-          "alterations",
-        ];
-        if (!posTabs.includes(tab)) {
-          setPosMode(false);
-          triggerDashboardRefresh();
-        }
-        setActiveTab(tab);
-      }}
-      onExitPosMode={() => { 
-        navigateDashboard();
-        setSidebarCollapsed(false); 
-        triggerDashboardRefresh();
-      }}
-      isRegisterOpen={isRegisterOpen}
-      cashierName={cashierName}
-      cashierAvatarKey={cashierAvatarKey}
-      cashierCode={cashierCode}
-      registerOrdinal={registerOrdinal}
-      registerLane={registerLane}
-      lifecycleStatus={lifecycleStatus}
-      sessionId={sessionId}
-      receiptTimezone={receiptTimezone}
-      pendingPosCustomer={pendingPosCustomer}
-      pendingPosOrderId={pendingPosOrderId}
-      setPendingPosOrderId={setPendingPosOrderId}
-      setPendingPosCustomer={setPendingPosCustomer}
-      clearPendingPosCustomer={clearPendingPosCustomer}
-      clearPendingPosOrder={clearPendingPosOrder}
-      pendingWeddingPosLink={pendingWeddingPosLink}
-      clearPendingWeddingPosLink={clearPendingWeddingPosLink}
-      onSessionOpened={handleSessionOpened}
-      showCloseModal={showCloseModal}
-      setShowCloseModal={setShowCloseModal}
-      handleSessionClosed={handleSessionClosed}
-      refreshOpenSessionMeta={refreshOpenSessionMeta}
-      onRegisterReconcilingBegun={onRegisterReconcilingBegun}
-      themeMode={themeMode}
-      onThemeModeChange={setThemeMode}
-      onOpenHelp={() => setHelpDrawerOpen(true)}
-      onOpenBugReport={() => setBugReportOpen(true)}
-      onOpenWeddingParty={(partyId) => navigateWedding(partyId)}
-    />
-    ) : insightsMode ? (
-    <InsightsShell
-      actorLabel={cashierName}
-      onExitInsightsMode={() => {
-        setInsightsMode(false);
-        setSidebarCollapsed(false);
-        setActiveTab("home");
-        triggerDashboardRefresh();
-      }}
-    />
-    ) : weddingMode ? (
-    <WeddingShell
-      actorLabel={cashierName}
-      initialPartyId={pendingWmPartyId}
-      onInitialPartyConsumed={clearPendingWmPartyId}
-      onExitWeddingMode={() => { 
-        setWeddingMode(false); 
-        setSidebarCollapsed(false); 
-        setActiveTab("home"); 
-        setPendingWmPartyId(null);
-        triggerDashboardRefresh();
-      }}
-      themeMode={themeMode}
-      onThemeModeChange={setThemeMode}
-    />
-    ) : (
-    <BackofficeSignInGate>
-    <div className="ui-shell-root font-sans antialiased">
-      <div className="ui-shell-board">
-        <Sidebar
-          activeTab={activeTab}
-          onTabChange={(tab) => {
-            if (tab === "register") {
-              setPosMode(true);
-            }
-            if (tab === "weddings") {
-              setPosMode(false);
-              setWeddingMode(true);
-            } else {
-              setWeddingMode(false);
-            }
-            if (tab === "dashboard") {
-              setInsightsMode(true);
-              setPosMode(false);
-            } else {
-              setInsightsMode(false);
-            }
-            setActiveTab(tab);
-            if (window.innerWidth < 1024) setSidebarCollapsed(true);
-          }}
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={() => setSidebarCollapsed(c => !c)}
-          activeSubSection={activeSubSection}
-          onSubSectionChange={(section) => {
-            if (window.innerWidth < 1024) setSidebarCollapsed(true);
-            setActiveSubSection(section);
-          }}
-          cashierName={cashierName}
-          cashierAvatarKey={cashierAvatarKey}
-          isRegisterOpen={isRegisterOpen}
+    <TopBarProvider>
+      <BackofficeAuthProvider initialCode={cashierCode}>
+      <RegisterGateProvider goToOpenRegister={goToOpenRegister}>
+        <RegisterSessionBootstrap
+          baseUrl={baseUrl}
+          toast={toast}
+          setLoading={setLoading}
+          setCashierName={setCashierName}
+          setCashierCode={setCashierCode}
+          setCashierAvatarKey={setCashierAvatarKey}
+          setSessionId={setSessionId}
+          setRegisterLane={setRegisterLane}
+          setRegisterOrdinal={setRegisterOrdinal}
+          setLifecycleStatus={setLifecycleStatus}
+          setReceiptTimezone={setReceiptTimezone}
+          setIsRegisterOpen={setIsRegisterOpen}
+          setActiveTab={setActiveTab}
+          setPosMode={setPosMode}
+          metaRefreshRef={registerMetaRefreshRef}
         />
-        {!sidebarCollapsed && <div className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden transition-opacity" onClick={() => setSidebarCollapsed(true)} />}
-        <ShellBackdropProvider>
-          <AppMainColumn
-            onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        {loading ? (
+          <div className="flex h-screen items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">
+            Loading Riverside POS…
+          </div>
+        ) : (
+        <NotificationCenterProvider onNavigate={handleNotificationNavigate}>
+          <WeddingManagerAuthBridge />
+          <InsightsAccessSync
+            insightsMode={insightsMode}
+            setInsightsMode={setInsightsMode}
+            setActiveTab={setActiveTab}
+          />
+          <AppShell
             activeTab={activeTab}
             setActiveTab={setActiveTab}
+            posMode={posMode}
+            setPosMode={setPosMode}
+            weddingMode={weddingMode}
+            setWeddingMode={setWeddingMode}
+            insightsMode={insightsMode}
+            setInsightsMode={setInsightsMode}
+            sidebarCollapsed={sidebarCollapsed}
+            setSidebarCollapsed={setSidebarCollapsed}
             activeSubSection={activeSubSection}
             setActiveSubSection={setActiveSubSection}
-            onWorkspaceClick={() => { if (!sidebarCollapsed) setSidebarCollapsed(true); }}
-            breadcrumbSegments={breadcrumbSegments}
+            isRegisterOpen={isRegisterOpen}
             cashierName={cashierName}
-            registerOrdinal={registerOrdinal}
+            cashierAvatarKey={cashierAvatarKey}
+            cashierCode={cashierCode}
+            sessionId={sessionId}
             registerLane={registerLane}
-            setShowCloseModal={setShowCloseModal}
+            registerOrdinal={registerOrdinal}
+            lifecycleStatus={lifecycleStatus}
+            receiptTimezone={receiptTimezone}
+            breadcrumbSegments={breadcrumbSegments}
+            themeMode={themeMode}
+            setThemeMode={setThemeMode}
             navigateRegister={navigateRegister}
+            navigateDashboard={navigateDashboard}
             navigateWedding={navigateWedding}
             pendingWmPartyId={pendingWmPartyId}
             onClearPendingWmPartyId={clearPendingWmPartyId}
-            setPendingPosCustomer={setPendingPosCustomer}
-            setPendingPosOrderId={setPendingPosOrderId}
-            ordersDeepLinkOrderId={ordersDeepLinkOrderId}
-            onOrdersDeepLinkConsumed={() => setOrdersDeepLinkOrderId(null)}
-            onOpenOrderInBackoffice={(orderId) => {
-              setOrdersDeepLinkOrderId(orderId);
-              setActiveTab("orders");
-            }}
-            setGlobalSearchDrawer={setGlobalSearchDrawer}
-            globalSearchDrawer={globalSearchDrawer}
-            sessionId={sessionId}
-            onRegisterReconcilingBegun={onRegisterReconcilingBegun}
+            handleSessionOpened={handleSessionOpened}
             handleSessionClosed={handleSessionClosed}
             showCloseModal={showCloseModal}
+            setShowCloseModal={setShowCloseModal}
             refreshOpenSessionMeta={refreshOpenSessionMeta}
-            themeMode={themeMode}
-            setThemeMode={setThemeMode}
-            setPosMode={setPosMode}
-            setInsightsMode={setInsightsMode}
-            isRegisterOpen={isRegisterOpen}
+            onRegisterReconcilingBegun={onRegisterReconcilingBegun}
+            pendingPosCustomer={pendingPosCustomer}
+            setPendingPosCustomer={setPendingPosCustomer}
+            pendingPosTransactionId={pendingPosTransactionId}
+            setPendingPosTransactionId={setPendingPosTransactionId}
+            clearPendingPosCustomer={clearPendingPosCustomer}
+            clearPendingPosOrder={clearPendingPosOrder}
+            pendingWeddingPosLink={pendingWeddingPosLink}
+            clearPendingWeddingPosLink={clearPendingWeddingPosLink}
+            transactionsDeepLinkTxnId={transactionsDeepLinkTxnId}
+            setTransactionsDeepLinkTxnId={setTransactionsDeepLinkTxnId}
+            onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+            globalSearchDrawer={globalSearchDrawer}
+            setGlobalSearchDrawer={setGlobalSearchDrawer}
             refreshSignal={refreshSignal}
+            triggerDashboardRefresh={triggerDashboardRefresh}
             alterationsDeepLinkId={alterationsDeepLinkId}
-            onAlterationsDeepLinkConsumed={() => setAlterationsDeepLinkId(null)}
+            setAlterationsDeepLinkId={setAlterationsDeepLinkId}
             procurementDeepLinkPoId={procurementDeepLinkPoId}
-            onProcurementDeepLinkConsumed={() => setProcurementDeepLinkPoId(null)}
+            setProcurementDeepLinkPoId={setProcurementDeepLinkPoId}
             inventoryProductHubProductId={inventoryProductHubProductId}
-            onInventoryProductHubConsumed={() => setInventoryProductHubProductId(null)}
+            setInventoryProductHubProductId={setInventoryProductHubProductId}
             qboDeepLinkSyncLogId={qboDeepLinkSyncLogId}
-            onQboDeepLinkConsumed={() => setQboDeepLinkSyncLogId(null)}
+            setQboDeepLinkSyncLogId={setQboDeepLinkSyncLogId}
             staffTasksFocusInstanceId={staffTasksFocusInstanceId}
-            onStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
-            onOpenHelp={() => setHelpDrawerOpen(true)}
-            onOpenBugReport={() => setBugReportOpen(true)}
+            setStaffTasksFocusInstanceId={setStaffTasksFocusInstanceId}
+            handleStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
             customersMessagingFocusCustomerId={customersMessagingFocusCustomerId}
+            setCustomersMessagingFocusCustomerId={setCustomersMessagingFocusCustomerId}
             customersMessagingFocusHubTab={customersMessagingFocusHubTab}
-            onCustomersMessagingFocusConsumed={() => {
-              setCustomersMessagingFocusCustomerId(null);
-              setCustomersMessagingFocusHubTab(null);
-            }}
-            onOpenCustomerHubFromInbox={openCustomerHubFromInbox}
-            onOpenMetabaseExplore={() => {
-              setInsightsMode(true);
-              setActiveTab("dashboard");
-            }}
-            onNavigateRegisterReports={(transactionId) => {
-              if (transactionId) setRegisterReportsDeepLinkOrderId(transactionId);
-              setActiveTab("home");
-              setActiveSubSection("daily-sales");
-            }}
-            onNavigateCommissionPayouts={() => {
-              setActiveTab("staff");
-              setActiveSubSection("commission-payouts");
-            }}
-            registerReportsDeepLinkOrderId={registerReportsDeepLinkOrderId}
-            setRegisterReportsDeepLinkOrderId={setRegisterReportsDeepLinkOrderId}
+            setCustomersMessagingFocusHubTab={setCustomersMessagingFocusHubTab}
+            openCustomerHubFromInbox={openCustomerHubFromInbox}
+            onOpenMetabaseExplore={onOpenMetabaseExplore}
+            onNavigateRegisterReports={onNavigateRegisterReports}
+            onNavigateCommissionPayouts={onNavigateCommissionPayouts}
+            registerReportsDeepLinkTxnId={registerReportsDeepLinkTxnId}
+            setRegisterReportsDeepLinkTxnId={setRegisterReportsDeepLinkTxnId}
+            bugReportsDeepLinkId={bugReportsDeepLinkId}
+            setBugReportsDeepLinkId={setBugReportsDeepLinkId}
+            onWorkspaceClick={onWorkspaceClick}
+            helpDrawerOpen={helpDrawerOpen}
+            setHelpDrawerOpen={setHelpDrawerOpen}
+            bugReportOpen={bugReportOpen}
+            setBugReportOpen={setBugReportOpen}
           />
-        </ShellBackdropProvider>
-      </div>
-    </div>
-    </BackofficeSignInGate>
-    )}
-    <HelpCenterDrawer isOpen={helpDrawerOpen} onClose={() => setHelpDrawerOpen(false)} />
-    <BugReportFlow
-      isOpen={bugReportOpen}
-      onClose={() => setBugReportOpen(false)}
-      navigationContext={{
-        active_tab: activeTab,
-        active_sub_section: activeSubSection,
-        pos_mode: posMode,
-        wedding_mode: weddingMode,
-        insights_mode: insightsMode,
-        register_session_id: sessionId,
-      }}
-    />
-    </NotificationCenterProvider>
-    )}
+        </NotificationCenterProvider>
+      )}
     </RegisterGateProvider>
     </BackofficeAuthProvider>
+    </TopBarProvider>
+  );
+}
+
+interface PosSessionInfo {
+  cashierName: string;
+  cashierCode: string;
+  cashierAvatarKey: string;
+  floatAmount: number;
+  sessionId: string;
+  registerLane: number;
+  registerOrdinal: number;
+  lifecycleStatus: string;
+  role: string;
+  receiptTimezone?: string;
+  posApiToken?: string;
+}
+
+interface AppShellProps {
+  activeTab: SidebarTabId;
+  setActiveTab: (tab: SidebarTabId) => void;
+  posMode: boolean;
+  setPosMode: (v: boolean) => void;
+  weddingMode: boolean;
+  setWeddingMode: (v: boolean) => void;
+  insightsMode: boolean;
+  setInsightsMode: (v: boolean) => void;
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (v: boolean) => void;
+  activeSubSection: string;
+  setActiveSubSection: (id: string) => void;
+  isRegisterOpen: boolean;
+  cashierName: string | null;
+  cashierAvatarKey: string | null;
+  cashierCode: string | null;
+  sessionId: string | null;
+  registerLane: number | null;
+  registerOrdinal: number | null;
+  lifecycleStatus: string | null;
+  receiptTimezone: string | null;
+  breadcrumbSegments: BreadcrumbSegment[];
+  themeMode: ThemeMode;
+  setThemeMode: (m: ThemeMode) => void;
+  navigateRegister: () => void;
+  navigateDashboard: () => void;
+  navigateWedding: (partyId?: string | null) => void;
+  pendingWmPartyId: string | null;
+  onClearPendingWmPartyId: () => void;
+  handleSessionOpened: (p: PosSessionInfo) => void;
+  handleSessionClosed: () => void;
+  showCloseModal: boolean;
+  setShowCloseModal: (v: boolean) => void;
+  refreshOpenSessionMeta: () => Promise<void>;
+  onRegisterReconcilingBegun: () => void;
+  pendingPosCustomer: Customer | null;
+  setPendingPosCustomer: (c: Customer | null) => void;
+  pendingPosTransactionId: string | null;
+  setPendingPosTransactionId: (id: string | null) => void;
+  clearPendingPosCustomer: () => void;
+  clearPendingPosOrder: () => void;
+  pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
+  clearPendingWeddingPosLink: () => void;
+  transactionsDeepLinkTxnId: string | null;
+  setTransactionsDeepLinkTxnId: (id: string | null) => void;
+  onOpenTransactionInBackoffice: (transactionId: string) => void;
+  globalSearchDrawer: GlobalSearchDrawerState | null;
+  setGlobalSearchDrawer: (s: GlobalSearchDrawerState | null) => void;
+  refreshSignal: number;
+  triggerDashboardRefresh: () => void;
+  alterationsDeepLinkId: string | null;
+  setAlterationsDeepLinkId: (id: string | null) => void;
+  procurementDeepLinkPoId: string | null;
+  setProcurementDeepLinkPoId: (id: string | null) => void;
+  inventoryProductHubProductId: string | null;
+  setInventoryProductHubProductId: (id: string | null) => void;
+  qboDeepLinkSyncLogId: string | null;
+  setQboDeepLinkSyncLogId: (id: string | null) => void;
+  staffTasksFocusInstanceId: string | null;
+  setStaffTasksFocusInstanceId: (id: string | null) => void;
+  handleStaffTasksFocusConsumed: () => void;
+  customersMessagingFocusCustomerId: string | null;
+  setCustomersMessagingFocusCustomerId: (id: string | null) => void;
+  customersMessagingFocusHubTab: string | null;
+  setCustomersMessagingFocusHubTab: (tab: string | null) => void;
+  openCustomerHubFromInbox: (c: Customer) => void;
+  onOpenMetabaseExplore: () => void;
+  onNavigateRegisterReports: (transactionId?: string) => void;
+  onNavigateCommissionPayouts: () => void;
+  registerReportsDeepLinkTxnId: string | null;
+  setRegisterReportsDeepLinkTxnId: (id: string | null) => void;
+  bugReportsDeepLinkId: string | null;
+  setBugReportsDeepLinkId: (id: string | null) => void;
+  onWorkspaceClick: () => void;
+  helpDrawerOpen: boolean;
+  setHelpDrawerOpen: (v: boolean) => void;
+  bugReportOpen: boolean;
+  setBugReportOpen: (v: boolean) => void;
+}
+
+function AppShell(props: AppShellProps) {
+  const { staffCode, permissionsLoaded, permissions } = useBackofficeAuth();
+  const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
+
+  const content = (
+    <>
+      <div className="flex flex-1">
+        {props.posMode ? (
+          <PosShell
+            activeTab={props.activeTab}
+            onTabChange={(tab: SidebarTabId) => {
+              const posTabs: SidebarTabId[] = [
+                "register",
+                "customers",
+                "orders",
+                "alterations",
+              ];
+              if (!posTabs.includes(tab)) {
+                props.setPosMode(false);
+                props.triggerDashboardRefresh();
+              }
+              props.setActiveTab(tab);
+            }}
+            collapsed={props.sidebarCollapsed}
+            onToggleCollapse={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
+            onSubSectionChange={props.setActiveSubSection}
+            onExitPosMode={() => {
+              props.navigateDashboard();
+              props.setSidebarCollapsed(false);
+              props.triggerDashboardRefresh();
+            }}
+            isRegisterOpen={props.isRegisterOpen}
+            cashierName={props.cashierName}
+            cashierCode={props.cashierCode}
+            registerOrdinal={props.registerOrdinal}
+            registerLane={props.registerLane}
+            lifecycleStatus={props.lifecycleStatus}
+            sessionId={props.sessionId}
+            receiptTimezone={props.receiptTimezone ?? "UTC"}
+            pendingPosCustomer={props.pendingPosCustomer}
+            pendingPosTransactionId={props.pendingPosTransactionId}
+            setPendingPosTransactionId={props.setPendingPosTransactionId}
+            setPendingPosCustomer={props.setPendingPosCustomer}
+            clearPendingPosCustomer={props.clearPendingPosCustomer}
+            clearPendingPosOrder={props.clearPendingPosOrder}
+            pendingWeddingPosLink={props.pendingWeddingPosLink}
+            clearPendingWeddingPosLink={props.clearPendingWeddingPosLink}
+            onSessionOpened={props.handleSessionOpened}
+            showCloseModal={props.showCloseModal}
+            setShowCloseModal={props.setShowCloseModal}
+            handleSessionClosed={props.handleSessionClosed}
+            refreshOpenSessionMeta={props.refreshOpenSessionMeta}
+            onRegisterReconcilingBegun={props.onRegisterReconcilingBegun}
+            onOpenWeddingParty={(partyId: string) => props.navigateWedding(partyId)}
+          />
+        ) : props.insightsMode ? (
+          <InsightsShell
+            onExitInsightsMode={() => {
+              props.setInsightsMode(false);
+              props.setSidebarCollapsed(false);
+              props.setActiveTab("home");
+              props.triggerDashboardRefresh();
+            }}
+          />
+        ) : props.weddingMode ? (
+          <WeddingShell
+            actorLabel={props.cashierName}
+            initialPartyId={props.pendingWmPartyId}
+            onInitialPartyConsumed={props.onClearPendingWmPartyId}
+            onExitWeddingMode={() => {
+              props.setWeddingMode(false);
+              props.setSidebarCollapsed(false);
+              props.setActiveTab("home");
+              props.triggerDashboardRefresh();
+            }}
+          />
+        ) : (
+          <BackofficeSignInGate>
+            <div className="flex flex-1">
+              <Sidebar
+                activeTab={props.activeTab}
+                onTabChange={(tab) => {
+                  if (tab === "register") {
+                    props.setPosMode(true);
+                  }
+                  if (tab === "weddings") {
+                    props.setPosMode(false);
+                    props.setWeddingMode(true);
+                  } else {
+                    props.setWeddingMode(false);
+                  }
+                  if (tab === "dashboard") {
+                    props.setInsightsMode(true);
+                    props.setPosMode(false);
+                  } else {
+                    props.setInsightsMode(false);
+                  }
+                  props.setActiveTab(tab);
+                  if (window.innerWidth < 1024) props.setSidebarCollapsed(true);
+                }}
+                collapsed={props.sidebarCollapsed}
+                onToggleCollapse={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
+                activeSubSection={props.activeSubSection}
+                onSubSectionChange={(section) => {
+                  if (window.innerWidth < 1024) props.setSidebarCollapsed(true);
+                  props.setActiveSubSection(section);
+                }}
+              />
+              {!props.sidebarCollapsed && (
+                <button
+                  type="button"
+                  className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden transition-opacity w-full h-full border-none p-0 cursor-default focus:outline-none"
+                  onClick={() => props.setSidebarCollapsed(true)}
+                  aria-label="Close sidebar"
+                  tabIndex={-1}
+                />
+              )}
+              <ShellBackdropProvider>
+                <AppMainColumn
+                  activeTab={props.activeTab}
+                  setActiveTab={props.setActiveTab}
+                  activeSubSection={props.activeSubSection}
+                  setActiveSubSection={props.setActiveSubSection}
+                  onWorkspaceClick={props.onWorkspaceClick}
+                  navigateRegister={props.navigateRegister}
+                  navigateWedding={props.navigateWedding}
+                  pendingWmPartyId={props.pendingWmPartyId}
+                  onClearPendingWmPartyId={props.onClearPendingWmPartyId}
+                  setPendingPosCustomer={props.setPendingPosCustomer}
+                  setPendingPosTransactionId={props.setPendingPosTransactionId}
+                  transactionsDeepLinkTxnId={props.transactionsDeepLinkTxnId}
+                  onTransactionsDeepLinkConsumed={() => props.setTransactionsDeepLinkTxnId(null)}
+                  onOpenTransactionInBackoffice={props.onOpenTransactionInBackoffice}
+                  setGlobalSearchDrawer={props.setGlobalSearchDrawer}
+                  globalSearchDrawer={props.globalSearchDrawer}
+                  cashierName={props.cashierName}
+                  setPosMode={props.setPosMode}
+                  setInsightsMode={props.setInsightsMode}
+                  isRegisterOpen={props.isRegisterOpen}
+                  refreshSignal={props.refreshSignal}
+                  alterationsDeepLinkId={props.alterationsDeepLinkId}
+                  onAlterationsDeepLinkConsumed={() => props.setAlterationsDeepLinkId(null)}
+                  procurementDeepLinkPoId={props.procurementDeepLinkPoId}
+                  onProcurementDeepLinkConsumed={() => props.setProcurementDeepLinkPoId(null)}
+                  inventoryProductHubProductId={props.inventoryProductHubProductId}
+                  onInventoryProductHubConsumed={() => props.setInventoryProductHubProductId(null)}
+                  qboDeepLinkSyncLogId={props.qboDeepLinkSyncLogId}
+                  onQboDeepLinkConsumed={() => props.setQboDeepLinkSyncLogId(null)}
+                  staffTasksFocusInstanceId={props.staffTasksFocusInstanceId}
+                  onStaffTasksFocusConsumed={props.handleStaffTasksFocusConsumed}
+                  customersMessagingFocusCustomerId={props.customersMessagingFocusCustomerId}
+                  customersMessagingFocusHubTab={props.customersMessagingFocusHubTab}
+                  onCustomersMessagingFocusConsumed={() => {
+                    props.setCustomersMessagingFocusCustomerId(null);
+                    props.setCustomersMessagingFocusHubTab(null);
+                  }}
+                  onOpenCustomerHubFromInbox={props.openCustomerHubFromInbox}
+                  onOpenMetabaseExplore={props.onOpenMetabaseExplore}
+                  onNavigateRegisterReports={props.onNavigateRegisterReports}
+                  onNavigateCommissionPayouts={props.onNavigateCommissionPayouts}
+                  registerReportsDeepLinkTxnId={props.registerReportsDeepLinkTxnId}
+                  setRegisterReportsDeepLinkTxnId={props.setRegisterReportsDeepLinkTxnId}
+                  bugReportsDeepLinkId={props.bugReportsDeepLinkId}
+                  setBugReportsDeepLinkId={props.setBugReportsDeepLinkId}
+                />
+              </ShellBackdropProvider>
+            </div>
+          </BackofficeSignInGate>
+        )}
+      </div>
+
+      <HelpCenterDrawer
+        isOpen={props.helpDrawerOpen}
+        onClose={() => props.setHelpDrawerOpen(false)}
+      />
+
+      <BugReportFlow
+        isOpen={props.bugReportOpen}
+        onClose={() => props.setBugReportOpen(false)}
+        navigationContext={{
+          active_tab: props.activeTab,
+          active_sub_section: props.activeSubSection,
+          pos_mode: props.posMode,
+          wedding_mode: props.weddingMode,
+          insights_mode: props.insightsMode,
+          register_session_id: props.sessionId,
+        }}
+      />
+
+      {props.showCloseModal &&
+        props.sessionId &&
+        (props.registerLane === 1 || props.registerLane == null) && (
+          <CloseRegisterModal
+            sessionId={props.sessionId}
+            cashierName={props.cashierName}
+            registerLane={props.registerLane}
+            registerOrdinal={props.registerOrdinal}
+            onReconcilingBegun={props.onRegisterReconcilingBegun}
+            onCloseComplete={props.handleSessionClosed}
+            onCancel={() => {
+              props.setShowCloseModal(false);
+              props.refreshOpenSessionMeta();
+            }}
+          />
+        )}
+    </>
+  );
+
+  if (!isAuthenticated) {
+    return (
+      <div className="flex flex-col min-h-screen bg-app-bg">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col min-h-screen bg-app-bg antialiased font-sans">
+      <GlobalTopBar
+        segments={props.breadcrumbSegments}
+        onNavigateRegister={props.navigateRegister}
+        onSelectCustomerForPos={(c: Customer) => props.setPendingPosCustomer(c)}
+        onSearchOpenCustomerDrawer={(c: Customer) =>
+          props.setGlobalSearchDrawer({ kind: "customer", customer: c })
+        }
+        onSearchOpenProductDrawer={(sku: string, hintName?: string) =>
+          props.setGlobalSearchDrawer({ kind: "product", sku, hintName })
+        }
+        onSearchOpenWeddingPartyCustomers={(partyQuery: string) =>
+          props.setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })
+        }
+        onToggleSidebar={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
+        isRegisterOpen={props.isRegisterOpen}
+        onOpenHelp={() => props.setHelpDrawerOpen(true)}
+        onOpenBugReport={() => props.setBugReportOpen(true)}
+        themeMode={props.themeMode}
+        onThemeToggle={() =>
+          props.setThemeMode(props.themeMode === "light" ? "dark" : "light")
+        }
+        cashierName={props.cashierName}
+        cashierAvatarKey={props.cashierAvatarKey}
+      />
+      {content}
+    </div>
   );
 }
 
@@ -793,7 +1271,13 @@ function InsightsAccessSync({
       setInsightsMode(false);
       setActiveTab("home");
     }
-  }, [insightsMode, permissionsLoaded, hasPermission, setInsightsMode, setActiveTab]);
+  }, [
+    insightsMode,
+    permissionsLoaded,
+    hasPermission,
+    setInsightsMode,
+    setActiveTab,
+  ]);
   return null;
 }
 
@@ -803,30 +1287,18 @@ type AppMainColumnProps = {
   activeSubSection: string;
   setActiveSubSection: (id: string) => void;
   onWorkspaceClick: () => void;
-  breadcrumbSegments: BreadcrumbSegment[];
-  cashierName: string | null;
-  registerLane: number | null;
-  registerOrdinal: number | null;
-  setShowCloseModal: (v: boolean) => void;
   navigateRegister: () => void;
   navigateWedding: (partyId?: string | null) => void;
   pendingWmPartyId: string | null;
   onClearPendingWmPartyId: () => void;
   setPendingPosCustomer: (c: Customer | null) => void;
-  setPendingPosOrderId: (orderId: string | null) => void;
-  ordersDeepLinkOrderId: string | null;
-  onOrdersDeepLinkConsumed: () => void;
-  onOpenOrderInBackoffice: (orderId: string) => void;
+  setPendingPosTransactionId: (orderId: string | null) => void;
+  transactionsDeepLinkTxnId: string | null;
+  onTransactionsDeepLinkConsumed: () => void;
+  onOpenTransactionInBackoffice: (orderId: string) => void;
   setGlobalSearchDrawer: (s: GlobalSearchDrawerState | null) => void;
   globalSearchDrawer: GlobalSearchDrawerState | null;
-  sessionId: string | null;
-  showCloseModal: boolean;
-  handleSessionClosed: () => void;
-  refreshOpenSessionMeta: () => Promise<void>;
-  onRegisterReconcilingBegun: () => void;
-  themeMode: ThemeMode;
-  setThemeMode: (mode: ThemeMode) => void;
-  onToggleSidebar: () => void;
+  cashierName: string | null;
   setPosMode: (v: boolean) => void;
   setInsightsMode: (v: boolean) => void;
   isRegisterOpen: boolean;
@@ -841,8 +1313,6 @@ type AppMainColumnProps = {
   onQboDeepLinkConsumed: () => void;
   staffTasksFocusInstanceId: string | null;
   onStaffTasksFocusConsumed: () => void;
-  onOpenHelp: () => void;
-  onOpenBugReport: () => void;
   customersMessagingFocusCustomerId: string | null;
   customersMessagingFocusHubTab: string | null;
   onCustomersMessagingFocusConsumed: () => void;
@@ -850,8 +1320,10 @@ type AppMainColumnProps = {
   onOpenMetabaseExplore: () => void;
   onNavigateRegisterReports: (transactionId?: string) => void;
   onNavigateCommissionPayouts: () => void;
-  registerReportsDeepLinkOrderId: string | null;
-  setRegisterReportsDeepLinkOrderId: (id: string | null) => void;
+  registerReportsDeepLinkTxnId: string | null;
+  setRegisterReportsDeepLinkTxnId: (id: string | null) => void;
+  bugReportsDeepLinkId: string | null;
+  setBugReportsDeepLinkId: (id: string | null) => void;
 };
 
 function AppMainColumn({
@@ -860,30 +1332,18 @@ function AppMainColumn({
   activeSubSection,
   setActiveSubSection,
   onWorkspaceClick,
-  breadcrumbSegments,
-  cashierName,
-  registerLane,
-  registerOrdinal,
-  setShowCloseModal,
   navigateRegister,
   navigateWedding,
   pendingWmPartyId,
   onClearPendingWmPartyId,
   setPendingPosCustomer,
-  setPendingPosOrderId,
-  ordersDeepLinkOrderId,
-  onOrdersDeepLinkConsumed,
-  onOpenOrderInBackoffice,
+  setPendingPosTransactionId,
+  transactionsDeepLinkTxnId,
+  onTransactionsDeepLinkConsumed,
+  onOpenTransactionInBackoffice,
   setGlobalSearchDrawer,
   globalSearchDrawer,
-  sessionId,
-  showCloseModal,
-  handleSessionClosed,
-  refreshOpenSessionMeta,
-  onRegisterReconcilingBegun,
-  themeMode,
-  setThemeMode,
-  onToggleSidebar,
+  cashierName,
   setPosMode,
   setInsightsMode,
   isRegisterOpen,
@@ -898,8 +1358,6 @@ function AppMainColumn({
   onQboDeepLinkConsumed,
   staffTasksFocusInstanceId,
   onStaffTasksFocusConsumed,
-  onOpenHelp,
-  onOpenBugReport,
   customersMessagingFocusCustomerId,
   customersMessagingFocusHubTab,
   onCustomersMessagingFocusConsumed,
@@ -907,8 +1365,10 @@ function AppMainColumn({
   onOpenMetabaseExplore,
   onNavigateRegisterReports,
   onNavigateCommissionPayouts,
-  registerReportsDeepLinkOrderId,
-  setRegisterReportsDeepLinkOrderId,
+  registerReportsDeepLinkTxnId,
+  setRegisterReportsDeepLinkTxnId,
+  bugReportsDeepLinkId,
+  setBugReportsDeepLinkId,
 }: AppMainColumnProps) {
   const { hasPermission, permissionsLoaded } = useBackofficeAuth();
   const shellDepth = useShellBackdropDepth();
@@ -921,18 +1381,32 @@ function AppMainColumn({
       if (activeTab === "dashboard") setInsightsMode(false);
       setActiveTab("home");
     }
-  }, [activeTab, hasPermission, permissionsLoaded, setActiveTab, setInsightsMode]);
+  }, [
+    activeTab,
+    hasPermission,
+    permissionsLoaded,
+    setActiveTab,
+    setInsightsMode,
+  ]);
 
   useEffect(() => {
     if (!permissionsLoaded) return;
     const subs = SIDEBAR_SUB_SECTIONS[activeTab];
     if (!subs?.length) return;
-    if (subSectionVisible(activeTab, activeSubSection, hasPermission, permissionsLoaded)) {
+    if (
+      subSectionVisible(
+        activeTab,
+        activeSubSection,
+        hasPermission,
+        permissionsLoaded,
+      )
+    ) {
       return;
     }
     const first =
-      subs.find((s) => subSectionVisible(activeTab, s.id, hasPermission, permissionsLoaded)) ??
-      subs[0];
+      subs.find((s) =>
+        subSectionVisible(activeTab, s.id, hasPermission, permissionsLoaded),
+      ) ?? subs[0];
     if (first && first.id !== activeSubSection) {
       setActiveSubSection(first.id);
     }
@@ -944,27 +1418,35 @@ function AppMainColumn({
     setActiveSubSection,
   ]);
 
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      const el = e.target as HTMLElement | null;
-      if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
-      if (e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "i" || e.key === "I") { e.preventDefault(); setActiveTab("inventory"); }
-      else if (e.key === "c" || e.key === "C") { e.preventDefault(); setActiveTab("customers"); }
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [setActiveTab]);
-
   return (
     <div
-      className={`relative flex min-w-0 flex-1 flex-col overflow-hidden ${activeTab === "register" || activeTab === "customers" || activeTab === "alterations" || activeTab === "orders" ? "density-compact" : "density-standard"}`}
+      role="presentation"
+      className={`relative flex min-w-0 flex-1 flex-col ${activeTab === "register" || activeTab === "customers" || activeTab === "alterations" || activeTab === "orders" ? "density-compact" : "density-standard"}`}
       onClick={onWorkspaceClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          onWorkspaceClick();
+        }
+      }}
     >
-  <Header segments={breadcrumbSegments} onNavigateRegister={navigateRegister} onSelectCustomerForPos={(c) => setPendingPosCustomer(c)} onSearchOpenCustomerDrawer={(c) => setGlobalSearchDrawer({ kind: "customer", customer: c })} onSearchOpenProductDrawer={(sku, hintName) => setGlobalSearchDrawer({ kind: "product", sku, hintName })} onSearchOpenWeddingPartyCustomers={(partyQuery) => setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })} onToggleSidebar={onToggleSidebar} isRegisterOpen={isRegisterOpen} onOpenHelp={onOpenHelp} onOpenBugReport={onOpenBugReport} />
-      <GlobalSearchDrawerHost state={globalSearchDrawer} onClose={() => setGlobalSearchDrawer(null)} onOpenWeddingParty={(id: string) => { navigateWedding(id); }} onUseCustomerInRegister={(c) => setPendingPosCustomer(c)} onNavigateRegister={navigateRegister} onAddCustomerToWedding={() => { navigateWedding(); }} onBookCustomerAppointment={() => setActiveTab("appointments")} onOpenOrderInBackoffice={onOpenOrderInBackoffice} />
-      <div className="relative flex min-h-0 flex-1 flex-col p-4">
-        <div className={`relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface transition-all duration-300 ease-standard ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : "shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]"}`}>
+      <GlobalSearchDrawerHost
+        state={globalSearchDrawer}
+        onClose={() => setGlobalSearchDrawer(null)}
+        onOpenWeddingParty={(id: string) => {
+          navigateWedding(id);
+        }}
+        onUseCustomerInRegister={(c) => setPendingPosCustomer(c)}
+        onNavigateRegister={navigateRegister}
+        onAddCustomerToWedding={() => {
+          navigateWedding();
+        }}
+        onBookCustomerAppointment={() => setActiveTab("appointments")}
+        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+      />
+      <div className={`relative flex flex-1 flex-col ${activeTab === "alterations" ? "p-4" : "p-0"}`}>
+        <div
+          className={`relative flex flex-1 flex-col transition-all duration-300 ease-standard ${activeTab === "alterations" ? "min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]" : "bg-app-surface"} ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : ""}`}
+        >
           <Suspense
             fallback={
               <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 p-8 text-center text-sm font-semibold text-app-text-muted">
@@ -972,152 +1454,210 @@ function AppMainColumn({
               </div>
             }
           >
-          <div key={activeTab} className="workspace-snap flex min-h-0 flex-1 flex-col overflow-hidden">
-            {(() => {
-              if (activeTab === "home")
-                return (
-                  <OperationalHome
-                    refreshSignal={refreshSignal}
-                    activeSection={activeSubSection}
-                    onOpenWeddingParty={(id) => {
-                      navigateWedding(id);
-                    }}
-                    onOpenOrderInBackoffice={onOpenOrderInBackoffice}
-                    onOpenInboxCustomer={onOpenCustomerHubFromInbox}
-                    registerReportsDeepLinkOrderId={registerReportsDeepLinkOrderId}
-                    onRegisterReportsDeepLinkConsumed={() => setRegisterReportsDeepLinkOrderId(null)}
-                  />
-                );
-              if (activeTab === "inventory")
-                return (
-                  <InventoryWorkspace
-                    activeSection={activeSubSection}
-                    procurementDeepLinkPoId={procurementDeepLinkPoId}
-                    onProcurementDeepLinkConsumed={onProcurementDeepLinkConsumed}
-                    openProductHubProductId={inventoryProductHubProductId}
-                    onProductHubDeepLinkConsumed={onInventoryProductHubConsumed}
-                  />
-                );
-              if (activeTab === "orders") return <OrdersWorkspace activeSection={activeSubSection} deepLinkOrderId={ordersDeepLinkOrderId} onDeepLinkOrderConsumed={onOrdersDeepLinkConsumed} onOpenInRegister={(orderId) => { setPendingPosOrderId(orderId); navigateRegister(); }} />;
-              if (activeTab === "customers")
-                return (
-                  <CustomersWorkspace
-                    activeSection={activeSubSection}
-                    onNavigateSubSection={setActiveSubSection}
-                    onOpenWeddingParty={(id) => {
-                      navigateWedding(id);
-                    }}
-                    onStartSaleInPos={(c) => setPendingPosCustomer(c)}
-                    onNavigateRegister={navigateRegister}
-                    onAddToWedding={() => {
-                      navigateWedding();
-                    }}
-                    onBookAppointment={() => setActiveTab("appointments")}
-                    onOpenOrderInBackoffice={onOpenOrderInBackoffice}
-                    messagingFocusCustomerId={customersMessagingFocusCustomerId}
-                    messagingFocusHubTab={customersMessagingFocusHubTab ?? undefined}
-                    onMessagingFocusConsumed={onCustomersMessagingFocusConsumed}
-                  />
-                );
-              if (activeTab === "alterations")
-                return (
-                  <AlterationsWorkspace
-                    highlightAlterationId={alterationsDeepLinkId}
-                    onHighlightConsumed={onAlterationsDeepLinkConsumed}
-                  />
-                );
-              if (activeTab === "weddings") return <WeddingManagerApp rosActorName={cashierName} initialPartyId={pendingWmPartyId} onInitialPartyConsumed={onClearPendingWmPartyId} />;
-              if (activeTab === "appointments") return <SchedulerWorkspace activeSection={activeSubSection} />;
-              if (activeTab === "register") return (
-                <div className="flex flex-1 flex-col items-center justify-center p-12 text-center bg-app-surface">
-                  <div className="mb-6 h-20 w-20 rounded-[2.5rem] bg-[linear-gradient(135deg,var(--app-accent),#f472b6)] flex items-center justify-center text-white shadow-2xl shadow-app-accent/20">
-                     <ShoppingCart size={36} strokeWidth={2.5} />
-                  </div>
-                  <h2 className="text-3xl font-black tracking-tighter text-app-text sm:text-4xl mb-3 uppercase italic">
-                    POS
-                  </h2>
-                  <p className="mb-10 max-w-md text-sm font-bold uppercase leading-relaxed tracking-widest text-app-text-muted opacity-70">
-                    Selling, dashboard & lane tools
-                    <br />
-                    <span className="text-[10px] text-app-accent opacity-100">
-                      Register is the active sale screen inside POS.
-                    </span>
-                  </p>
-                  <button 
-                    type="button"
-                    onClick={() => setPosMode(true)}
-                    className={`group relative flex min-h-[52px] touch-manipulation items-center gap-4 rounded-full px-8 py-5 text-[11px] font-black uppercase tracking-[0.2em] transition-all active:scale-95 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.3)] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] sm:min-h-14 sm:px-10 ${isRegisterOpen ? 'bg-app-accent text-white' : 'bg-app-text text-app-surface'}`}
-                  >
-                    <span className="relative z-10">
-                      {isRegisterOpen ? "Return to POS" : "Enter POS"}
-                    </span>
-                    <div className={`flex h-8 w-8 items-center justify-center rounded-full transition-transform group-hover:translate-x-1 ${isRegisterOpen ? 'bg-white text-app-accent' : 'bg-app-accent text-white'}`}>
-                      <ArrowRight size={16} />
+            <div
+              key={activeTab}
+              className={`workspace-snap flex flex-1 flex-col ${activeTab === "alterations" ? "min-h-0 overflow-hidden" : ""}`}
+            >
+              {(() => {
+                if (activeTab === "home")
+                  return (
+                    <OperationalHome
+                      refreshSignal={refreshSignal}
+                      activeSection={activeSubSection}
+                      onOpenWeddingParty={(id) => {
+                        navigateWedding(id);
+                      }}
+                      onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+                      onOpenInboxCustomer={onOpenCustomerHubFromInbox}
+                      registerReportsDeepLinkTxnId={
+                        registerReportsDeepLinkTxnId
+                      }
+                      onRegisterReportsDeepLinkTxnConsumed={() =>
+                        setRegisterReportsDeepLinkTxnId(null)
+                      }
+                    />
+                  );
+                if (activeTab === "inventory")
+                  return (
+                    <InventoryWorkspace
+                      activeSection={activeSubSection}
+                      procurementDeepLinkPoId={procurementDeepLinkPoId}
+                      onProcurementDeepLinkConsumed={
+                        onProcurementDeepLinkConsumed
+                      }
+                      openProductHubProductId={inventoryProductHubProductId}
+                      onProductHubDeepLinkConsumed={
+                        onInventoryProductHubConsumed
+                      }
+                    />
+                  );
+                if (activeTab === "orders")
+                  return (
+                    <OrdersWorkspace
+                      activeSection={activeSubSection}
+                      deepLinkTxnId={transactionsDeepLinkTxnId}
+                      onDeepLinkTxnConsumed={onTransactionsDeepLinkConsumed}
+                      onOpenInRegister={(orderId) => {
+                        setPendingPosTransactionId(orderId);
+                        navigateRegister();
+                      }}
+                    />
+                  );
+                if (activeTab === "customers")
+                  return (
+                    <CustomersWorkspace
+                      activeSection={activeSubSection}
+                      onNavigateSubSection={setActiveSubSection}
+                      onOpenWeddingParty={(id) => {
+                        navigateWedding(id);
+                      }}
+                      onStartSaleInPos={(c) => setPendingPosCustomer(c)}
+                      onNavigateRegister={navigateRegister}
+                      onAddToWedding={() => {
+                        navigateWedding();
+                      }}
+                      onBookAppointment={() => setActiveTab("appointments")}
+                      onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+                      messagingFocusCustomerId={
+                        customersMessagingFocusCustomerId
+                      }
+                      messagingFocusHubTab={
+                        customersMessagingFocusHubTab ?? undefined
+                      }
+                      onMessagingFocusConsumed={
+                        onCustomersMessagingFocusConsumed
+                      }
+                    />
+                  );
+                if (activeTab === "alterations")
+                  return (
+                    <AlterationsWorkspace
+                      highlightAlterationId={alterationsDeepLinkId}
+                      onHighlightConsumed={onAlterationsDeepLinkConsumed}
+                    />
+                  );
+                if (activeTab === "weddings")
+                  return (
+                    <WeddingManagerApp
+                      rosActorName={cashierName}
+                      initialPartyId={pendingWmPartyId}
+                      onInitialPartyConsumed={onClearPendingWmPartyId}
+                    />
+                  );
+                if (activeTab === "appointments")
+                  return (
+                    <SchedulerWorkspace activeSection={activeSubSection} />
+                  );
+                if (activeTab === "register")
+                  return (
+                    <div className="flex flex-1 flex-col items-center justify-center p-12 text-center bg-app-surface">
+                      <div className="mb-6 h-20 w-20 rounded-[2.5rem] bg-[linear-gradient(135deg,var(--app-accent),#f472b6)] flex items-center justify-center text-white shadow-2xl shadow-app-accent/20">
+                        <ShoppingCart size={36} strokeWidth={2.5} />
+                      </div>
+                      <h2 className="text-3xl font-black tracking-tighter text-app-text sm:text-4xl mb-3 uppercase italic">
+                        POS
+                      </h2>
+                      <p className="mb-10 max-w-md text-sm font-bold uppercase leading-relaxed tracking-widest text-app-text-muted opacity-70">
+                        Selling, dashboard & lane tools
+                        <br />
+                        <span className="text-[10px] text-app-accent opacity-100">
+                          Register is the active sale screen inside POS.
+                        </span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => setPosMode(true)}
+                        className={`group relative flex min-h-[52px] touch-manipulation items-center gap-4 rounded-full px-8 py-5 text-[11px] font-black uppercase tracking-[0.2em] transition-all active:scale-95 shadow-[0_20px_40px_-12px_rgba(0,0,0,0.3)] hover:shadow-[0_25px_50px_-12px_rgba(0,0,0,0.4)] sm:min-h-14 sm:px-10 ${isRegisterOpen ? "bg-app-accent text-white" : "bg-app-text text-app-surface"}`}
+                      >
+                        <span className="relative z-10">
+                          {isRegisterOpen ? "Return to POS" : "Enter POS"}
+                        </span>
+                        <div
+                          className={`flex h-8 w-8 items-center justify-center rounded-full transition-transform group-hover:translate-x-1 ${isRegisterOpen ? "bg-white text-app-accent" : "bg-app-accent text-white"}`}
+                        >
+                          <ArrowRight size={16} />
+                        </div>
+                      </button>
                     </div>
-                  </button>
-                </div>
-              );
-              if (activeTab === "gift-cards") return <GiftCardsWorkspace activeSection={activeSubSection} />;
-              if (activeTab === "loyalty") return <LoyaltyWorkspace activeSection={activeSubSection} />;
-              if (activeTab === "reports") {
+                  );
+                if (activeTab === "gift-cards")
+                  return (
+                    <GiftCardsWorkspace activeSection={activeSubSection} />
+                  );
+                if (activeTab === "loyalty")
+                  return <LoyaltyWorkspace activeSection={activeSubSection} />;
+                if (activeTab === "reports") {
+                  return (
+                    <ReportsWorkspace
+                      onOpenMetabaseExplore={onOpenMetabaseExplore}
+                      onNavigateRegisterReports={onNavigateRegisterReports}
+                      onNavigateCommissionPayouts={onNavigateCommissionPayouts}
+                    />
+                  );
+                }
+                if (
+                  activeTab === "staff" &&
+                  activeSubSection === "commission-manager"
+                ) {
+                  return <CommissionManagerWorkspace />;
+                }
+                if (activeTab === "dashboard") {
+                  return (
+                    <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-app-text-muted">
+                      <p>
+                        Open Insights from the sidebar to load Metabase in full
+                        view.
+                      </p>
+                    </div>
+                  );
+                }
+                if (activeTab === "staff")
+                  return (
+                    <StaffWorkspace
+                      activeSection={activeSubSection}
+                      tasksFocusInstanceId={staffTasksFocusInstanceId}
+                      onTasksFocusConsumed={onStaffTasksFocusConsumed}
+                    />
+                  );
+                if (activeTab === "qbo")
+                  return (
+                    <QboWorkspace
+                      activeSection={activeSubSection}
+                      deepLinkSyncLogId={qboDeepLinkSyncLogId}
+                      onDeepLinkSyncLogConsumed={onQboDeepLinkConsumed}
+                    />
+                  );
+                if (activeTab === "settings")
+                  return (
+                    <SettingsWorkspace
+                      onOpenQbo={() => {
+                        setActiveTab("qbo");
+                        setActiveSubSection("staging");
+                      }}
+                      settingsActiveSection={activeSubSection}
+                      onSettingsSectionNavigate={setActiveSubSection}
+                      bugReportsDeepLinkId={bugReportsDeepLinkId}
+                      onBugReportsDeepLinkConsumed={() =>
+                        setBugReportsDeepLinkId(null)
+                      }
+                    />
+                  );
+
                 return (
-                  <ReportsWorkspace
-                    onOpenMetabaseExplore={onOpenMetabaseExplore}
-                    onNavigateRegisterReports={onNavigateRegisterReports}
-                    onNavigateCommissionPayouts={onNavigateCommissionPayouts}
-                  />
-                );
-              }
-              if (activeTab === "staff" && activeSubSection === "commission-manager") {
-                return <CommissionManagerWorkspace />;
-              }
-              if (activeTab === "dashboard") {
-                return (
-                  <div className="flex flex-1 flex-col items-center justify-center p-8 text-center text-sm text-app-text-muted">
-                    <p>Open Insights from the sidebar to load Metabase in full view.</p>
+                  <div className="flex flex-1 items-center justify-center p-8 text-center font-medium text-app-text-muted">
+                    <p>
+                      <span className="font-semibold text-app-text">
+                        {activeTab}
+                      </span>{" "}
+                      module coming soon.
+                    </p>
                   </div>
                 );
-              }
-              if (activeTab === "staff")
-                return (
-                  <StaffWorkspace
-                    activeSection={activeSubSection}
-                    tasksFocusInstanceId={staffTasksFocusInstanceId}
-                    onTasksFocusConsumed={onStaffTasksFocusConsumed}
-                  />
-                );
-              if (activeTab === "qbo")
-                return (
-                  <QboWorkspace
-                    activeSection={activeSubSection}
-                    deepLinkSyncLogId={qboDeepLinkSyncLogId}
-                    onDeepLinkSyncLogConsumed={onQboDeepLinkConsumed}
-                  />
-                );
-              if (activeTab === "settings")
-                return (
-                  <SettingsWorkspace
-                    themeMode={themeMode}
-                    onThemeChange={setThemeMode}
-                    onOpenQbo={() => setActiveTab("qbo")}
-                    settingsActiveSection={activeSubSection}
-                    onSettingsSectionNavigate={setActiveSubSection}
-                  />
-                );
-              
-              return (
-                <div className="flex flex-1 items-center justify-center p-8 text-center font-medium text-app-text-muted">
-                  <p><span className="font-semibold text-app-text">{activeTab}</span> module coming soon.</p>
-                </div>
-              );
-            })()}
-          </div>
+              })()}
+            </div>
           </Suspense>
         </div>
       </div>
-      {showCloseModal && sessionId && (registerLane === 1 || registerLane == null) && (
-        <CloseRegisterModal sessionId={sessionId} cashierName={cashierName} registerLane={registerLane} registerOrdinal={registerOrdinal} onReconcilingBegun={onRegisterReconcilingBegun} onCloseComplete={handleSessionClosed} onCancel={() => { setShowCloseModal(false); refreshOpenSessionMeta(); }} />
-      )}
     </div>
   );
 }

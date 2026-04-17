@@ -54,7 +54,9 @@ pub fn router() -> Router<AppState> {
         .route("/scan-resolve", get(scan_resolve))
         .route("/control-board", get(products::list_control_board))
         .route("/batch-scan", post(batch_scan))
+        .route("/recommendations", get(get_recommendations))
         .route("/intelligence/{variant_id}", get(get_product_intelligence))
+        .route("/wedding-products", get(list_wedding_products))
 }
 
 // ── DTOs ─────────────────────────────────────────────────────────────────────
@@ -381,8 +383,8 @@ async fn get_product_intelligence(
     let last_sale_date: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_scalar(
         r#"
         SELECT o.booked_at
-        FROM order_items oi
-        JOIN orders o ON oi.order_id = o.id
+        FROM transaction_lines oi
+        JOIN transactions o ON oi.transaction_id = o.id
         WHERE oi.variant_id = $1
         ORDER BY o.booked_at DESC
         LIMIT 1
@@ -408,4 +410,118 @@ async fn get_product_intelligence(
         last_sale_date,
     })
     .into_response()
+}
+
+async fn get_recommendations(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    if let Err((st, body)) =
+        middleware::require_staff_perm_or_pos_session(&state, &headers, CATALOG_VIEW).await
+    {
+        return (st, body).into_response();
+    }
+    match crate::logic::inventory_brain::query_inventory_recommendations(&state.db).await {
+        Ok(recs) => (StatusCode::OK, Json(recs)).into_response(),
+        Err(e) => {
+            tracing::error!(error = %e, "Inventory recommendations query failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "Failed to fetch inventory recommendations" })),
+            )
+                .into_response()
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct WeddingProductsQuery {
+    pub q: Option<String>,
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WeddingProductRow {
+    pub variant_id: Uuid,
+    pub product_id: Uuid,
+    pub sku: String,
+    pub name: String,
+    pub variation_label: Option<String>,
+    pub retail_price: Decimal,
+    pub stock_on_hand: i32,
+}
+
+async fn list_wedding_products(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<WeddingProductsQuery>,
+) -> impl IntoResponse {
+    if let Err((st, body)) =
+        middleware::require_staff_perm_or_pos_session(&state, &headers, CATALOG_VIEW).await
+    {
+        return (st, body).into_response();
+    }
+
+    let limit = q.limit.unwrap_or(50).clamp(1, 100);
+    let offset = q.offset.unwrap_or(0).max(0);
+    let search = q.q.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty());
+
+    let rows: Vec<WeddingProductRow> = if let Some(search_term) = search {
+        let pattern = format!(
+            "%{}%",
+            search_term.replace('\\', "\\\\").replace('%', "\\%")
+        );
+        sqlx::query_as(
+            r#"
+            SELECT 
+                v.id as variant_id,
+                p.id as product_id,
+                v.sku,
+                p.name,
+                v.variation_label,
+                COALESCE(v.retail_price_override, p.base_retail_price) as retail_price,
+                v.stock_on_hand
+            FROM product_variants v
+            JOIN products p ON v.product_id = p.id
+            WHERE p.is_active = TRUE
+              AND v.is_active = TRUE
+              AND (p.name ILIKE $1 ESCAPE '\' OR v.sku ILIKE $1 ESCAPE '\' OR v.variation_label ILIKE $1 ESCAPE '\')
+            ORDER BY p.name ASC, v.sku ASC
+            LIMIT $2 OFFSET $3
+            "#,
+        )
+        .bind(&pattern)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    } else {
+        sqlx::query_as(
+            r#"
+            SELECT 
+                v.id as variant_id,
+                p.id as product_id,
+                v.sku,
+                p.name,
+                v.variation_label,
+                COALESCE(v.retail_price_override, p.base_retail_price) as retail_price,
+                v.stock_on_hand
+            FROM product_variants v
+            JOIN products p ON v.product_id = p.id
+            WHERE p.is_active = TRUE
+              AND v.is_active = TRUE
+            ORDER BY p.name ASC, v.sku ASC
+            LIMIT $1 OFFSET $2
+            "#,
+        )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&state.db)
+        .await
+        .unwrap_or_default()
+    };
+
+    (StatusCode::OK, Json(rows)).into_response()
 }

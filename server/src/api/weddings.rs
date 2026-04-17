@@ -305,6 +305,12 @@ pub struct CreatePartyRequest {
     pub accessories: Option<serde_json::Value>,
     #[serde(default)]
     pub actor_name: Option<String>,
+    /// ROS customer ID for groom (if searching/linking an existing customer)
+    pub groom_customer_id: Option<Uuid>,
+    /// ROS customer ID for bride (if searching/linking an existing customer)
+    pub bride_customer_id: Option<Uuid>,
+    /// Base suit variant for the party (can be overridden per member)
+    pub base_suit_variant_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -363,6 +369,17 @@ pub enum CreateMemberRequest {
         actor_name: Option<String>,
     },
     QuickCreateCustomer(Box<QuickCreateMemberBody>),
+    SimpleCreate {
+        first_name: String,
+        last_name: String,
+        phone: Option<String>,
+        role: Option<String>,
+        notes: Option<String>,
+        /// Original name from import (before ROS customer link)
+        import_customer_name: Option<String>,
+        /// Original phone from import (before ROS customer link)
+        import_customer_phone: Option<String>,
+    },
 }
 
 #[derive(Debug, Deserialize)]
@@ -443,13 +460,22 @@ pub struct UpdateAppointmentRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct AppointmentsQuery {
-    pub from: Option<chrono::DateTime<chrono::Utc>>,
-    pub to: Option<chrono::DateTime<chrono::Utc>>,
+    pub from: Option<String>,
+    pub to: Option<String>,
+}
+
+fn parse_datetime(s: &str) -> Result<chrono::DateTime<chrono::Utc>, WeddingError> {
+    chrono::DateTime::parse_from_rfc3339(s)
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .or_else(|_| {
+            chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S").map(|ndt| ndt.and_utc())
+        })
+        .map_err(|_| WeddingError::BadRequest("Invalid date format".into()))
 }
 
 #[derive(Debug, Deserialize)]
 pub struct AttachOrderRequest {
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
     pub wedding_party_id: Option<Uuid>,
     pub new_party_info: Option<CreatePartyRequest>,
     pub role: String,
@@ -487,6 +513,7 @@ pub fn router() -> Router<AppState> {
             get(get_party_financial_context),
         )
         .route("/parties/{party_id}/restore", post(restore_party))
+        .route("/parties/{party_id}/health", get(get_health))
         .route("/parties/{party_id}/members", post(add_member))
         .route(
             "/parties/{party_id}",
@@ -558,15 +585,137 @@ async fn insert_party_and_respond(
 
     let party_type = body.party_type.as_deref().unwrap_or("Wedding").to_string();
 
+    // Handle groom and bride customer creation/linking
+    let groom_customer_id = if let Some(gcid) = body.groom_customer_id {
+        // Link to existing customer
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+                .bind(gcid)
+                .fetch_one(&state.db)
+                .await?;
+        if !exists {
+            return Err(WeddingError::BadRequest("groom customer not found".into()));
+        }
+        Some(gcid)
+    } else if !gp.is_empty() || !groom.is_empty() {
+        // Create/update groom customer by phone or name
+        let customer_id = Uuid::new_v4();
+        let first = groom.split_whitespace().next().unwrap_or(groom);
+        let last = groom
+            .split_whitespace()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let last = if last.is_empty() {
+            "Groom".to_string()
+        } else {
+            last
+        };
+        let _phone_clean = gpc.clone();
+
+        let cid: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO customers (id, first_name, last_name, phone, customer_code, created_source, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
+            ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
+            RETURNING id
+            "#,
+        )
+        .bind(customer_id)
+        .bind(first)
+        .bind(&last)
+        .bind(gp)
+        .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
+        .fetch_one(&state.db)
+        .await?;
+        Some(cid)
+    } else {
+        None
+    };
+
+    let bride_customer_id = if let Some(bcid) = body.bride_customer_id {
+        // Link to existing customer
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+                .bind(bcid)
+                .fetch_one(&state.db)
+                .await?;
+        if !exists {
+            return Err(WeddingError::BadRequest("bride customer not found".into()));
+        }
+        Some(bcid)
+    } else if !bp.is_empty()
+        || body
+            .bride_name
+            .as_ref()
+            .map(|s| !s.is_empty())
+            .unwrap_or(false)
+    {
+        // Create/update bride customer by phone or name
+        let customer_id = Uuid::new_v4();
+        let bride_name = body.bride_name.as_deref().unwrap_or("").trim();
+        let first = bride_name.split_whitespace().next().unwrap_or("Bride");
+        let last = bride_name
+            .split_whitespace()
+            .skip(1)
+            .collect::<Vec<_>>()
+            .join(" ");
+        let last = if last.is_empty() {
+            "Bride".to_string()
+        } else {
+            last
+        };
+
+        let cid: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO customers (id, first_name, last_name, phone, customer_code, created_source, created_at)
+            VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
+            ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
+            RETURNING id
+            "#,
+        )
+        .bind(customer_id)
+        .bind(first)
+        .bind(&last)
+        .bind(bp)
+        .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
+        .fetch_one(&state.db)
+        .await?;
+        Some(cid)
+    } else {
+        None
+    };
+
+    // Create couple link if both groom and bride exist
+    let couple_id = if let (Some(gid), Some(bid)) = (groom_customer_id, bride_customer_id) {
+        let couple = Uuid::new_v4();
+        sqlx::query(
+            r#"
+            UPDATE customers SET couple_id = $1, couple_primary_id = $1, couple_linked_at = NOW()
+            WHERE id IN ($2, $3)
+            "#,
+        )
+        .bind(couple)
+        .bind(gid)
+        .bind(bid)
+        .execute(&state.db)
+        .await
+        .ok();
+        Some(couple)
+    } else {
+        None
+    };
+
     let id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO wedding_parties (
             party_name, groom_name, event_date, venue, notes,
             party_type, sign_up_date, salesperson, style_info, price_info,
             groom_phone, groom_email, bride_name, bride_phone, bride_email,
-            accessories, groom_phone_clean, bride_phone_clean, is_deleted
+            accessories, groom_phone_clean, bride_phone_clean, is_deleted,
+            suit_variant_id
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,FALSE)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,FALSE,$19)
         RETURNING id
         "#,
     )
@@ -588,8 +737,35 @@ async fn insert_party_and_respond(
     .bind(acc)
     .bind(&gpc)
     .bind(&bpc)
+    .bind(body.base_suit_variant_id)
     .fetch_one(&state.db)
     .await?;
+
+    // Add groom as party member
+    if let Some(gcid) = groom_customer_id {
+        let max_idx: Option<i32> = sqlx::query_scalar(
+            "SELECT MAX(member_index) FROM wedding_members WHERE wedding_party_id = $1",
+        )
+        .bind(id)
+        .fetch_one(&state.db)
+        .await?;
+        let next_idx = max_idx.unwrap_or(0) + 1;
+        let _: Uuid = sqlx::query_scalar(
+            r#"
+            INSERT INTO wedding_members (wedding_party_id, customer_id, role, status, member_index)
+            VALUES ($1, $2, 'Groom', 'active', $3)
+            RETURNING id
+            "#,
+        )
+        .bind(id)
+        .bind(gcid)
+        .bind(next_idx)
+        .fetch_one(&state.db)
+        .await?;
+    }
+
+    // NOTE: Bride is NOT a party member - just party info (stored in wedding_parties table)
+    // Bride info: bride_name, bride_phone, bride_email - stored but not created as member
 
     let party = fetch_party_row_optional(&state.db, id)
         .await?
@@ -606,7 +782,7 @@ async fn insert_party_and_respond(
         &actor,
         "NOTE",
         "Wedding party created",
-        json!({ "party_type": party_type }),
+        json!({ "party_type": party_type, "couple_id": couple_id }),
     )
     .await
     {
@@ -878,7 +1054,7 @@ async fn add_member(
         return Err(WeddingError::PartyNotFound);
     }
 
-    let (customer_id, role, notes, log_actor) = match body {
+    let (customer_id, role, notes, log_actor, import_name, import_phone) = match body {
         CreateMemberRequest::LinkExisting {
             customer_id,
             role,
@@ -893,7 +1069,76 @@ async fn add_member(
             if !cust {
                 return Err(WeddingError::BadRequest("customer not found".into()));
             }
-            (customer_id, role, notes, actor_name)
+            // Linked existing customers are verified
+            (customer_id, role, notes, actor_name, None, None)
+        }
+        CreateMemberRequest::SimpleCreate {
+            first_name,
+            last_name,
+            phone,
+            role,
+            notes,
+            import_customer_name,
+            import_customer_phone,
+        } => {
+            let first = first_name.trim();
+            let last = last_name.trim();
+            if first.is_empty() || last.is_empty() {
+                return Err(WeddingError::BadRequest(
+                    "first_name and last_name are required".into(),
+                ));
+            }
+            let phone = phone
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(ToOwned::to_owned);
+            let customer_id = Uuid::new_v4();
+
+            // Try to find existing customer by phone
+            let existing_by_phone: Option<Uuid> = if let Some(ref p) = phone {
+                sqlx::query_scalar("SELECT id FROM customers WHERE phone = $1")
+                    .bind(p)
+                    .fetch_optional(&state.db)
+                    .await
+                    .ok()
+                    .flatten()
+            } else {
+                None
+            };
+
+            let (cid, _is_verified) = if let Some(existing_id) = existing_by_phone {
+                // Found existing customer by phone - this is a verified match
+                (existing_id, true)
+            } else {
+                // Create new customer
+                let new_id: Uuid = match sqlx::query_scalar(
+                    r#"
+                    INSERT INTO customers (id, first_name, last_name, phone, customer_code, created_source, created_at)
+                    VALUES ($1, $2, $3, $4, $5, 'wedding_import', NOW())
+                    ON CONFLICT (phone) WHERE phone IS NOT NULL DO UPDATE SET first_name = EXCLUDED.first_name, last_name = EXCLUDED.last_name
+                    RETURNING id
+                    "#,
+                )
+                .bind(customer_id)
+                .bind(first)
+                .bind(last)
+                .bind(&phone)
+                .bind(format!("Wedding-{}", &customer_id.to_string()[..8]))
+                .fetch_one(&state.db)
+                .await
+                {
+                    Ok(id) => id,
+                    Err(e) => return Err(WeddingError::Database(e)),
+                };
+                (new_id, false) // New customers are not verified yet
+            };
+
+            // Store import tracking info
+            let import_name = import_customer_name.or_else(|| Some(format!("{first} {last}")));
+            let import_phone = import_customer_phone.or_else(|| phone.clone());
+
+            (cid, role, notes, None, import_name, import_phone)
         }
         CreateMemberRequest::QuickCreateCustomer(boxed) => {
             let QuickCreateMemberBody {
@@ -1005,7 +1250,8 @@ async fn add_member(
                 }
                 WeddingError::Database(e)
             })?;
-            (cid, role, notes, actor_name)
+            // QuickCreateCustomer - assume verified when creating full profile
+            (cid, role, notes, actor_name, None, None)
         }
     };
 
@@ -1023,12 +1269,16 @@ async fn add_member(
         .unwrap_or("Member")
         .to_string();
 
+    // Determine if verified based on import info
+    let is_verified = import_name.is_none() && import_phone.is_none();
+
     let member_id: Uuid = match sqlx::query_scalar(
         r#"
         INSERT INTO wedding_members (
-            wedding_party_id, customer_id, role, status, notes, member_index
+            wedding_party_id, customer_id, role, status, notes, member_index,
+            customer_verified, import_customer_name, import_customer_phone
         )
-        VALUES ($1, $2, $3, 'prospect', $4, $5)
+        VALUES ($1, $2, $3, 'prospect', $4, $5, $6, $7, $8)
         RETURNING id
         "#,
     )
@@ -1037,6 +1287,9 @@ async fn add_member(
     .bind(&role)
     .bind(&notes)
     .bind(next_idx)
+    .bind(is_verified)
+    .bind(&import_name)
+    .bind(&import_phone)
     .fetch_one(&state.db)
     .await
     {
@@ -1288,7 +1541,9 @@ async fn list_appointments(
     Query(q): Query<AppointmentsQuery>,
 ) -> Result<Json<Vec<AppointmentRow>>, WeddingError> {
     require_weddings_view(&state, &headers).await?;
-    let rows = list_appointments_filtered(&state.db, q.from, q.to).await?;
+    let from_dt = q.from.as_ref().map(|s| parse_datetime(s)).transpose()?;
+    let to_dt = q.to.as_ref().map(|s| parse_datetime(s)).transpose()?;
+    let rows = list_appointments_filtered(&state.db, from_dt, to_dt).await?;
     Ok(Json(rows))
 }
 
@@ -1756,8 +2011,8 @@ async fn post_attach_order(
 
     // 1. Validate Order and get Customer
     let order_info: Option<(Option<Uuid>, Option<Uuid>)> =
-        sqlx::query_as("SELECT customer_id, wedding_member_id FROM orders WHERE id = $1")
-            .bind(body.order_id)
+        sqlx::query_as("SELECT customer_id, wedding_member_id FROM transactions WHERE id = $1")
+            .bind(body.transaction_id)
             .fetch_optional(&mut *tx)
             .await?;
 
@@ -1866,7 +2121,7 @@ async fn post_attach_order(
     let member_id: Uuid = match sqlx::query_scalar(
         r#"
         INSERT INTO wedding_members (
-            wedding_party_id, customer_id, role, status, member_index, order_id
+            wedding_party_id, customer_id, role, status, member_index, transaction_id
         )
         VALUES ($1, $2, $3, 'prospect', $4, $5)
         RETURNING id
@@ -1876,7 +2131,7 @@ async fn post_attach_order(
     .bind(customer_id)
     .bind(role)
     .bind(next_idx)
-    .bind(body.order_id)
+    .bind(body.transaction_id)
     .fetch_one(&mut *tx)
     .await
     {
@@ -1894,21 +2149,21 @@ async fn post_attach_order(
     };
 
     // 4. Update Order
-    sqlx::query("UPDATE orders SET wedding_member_id = $1 WHERE id = $2")
+    sqlx::query("UPDATE transactions SET wedding_member_id = $1 WHERE id = $2")
         .bind(member_id)
-        .bind(body.order_id)
+        .bind(body.transaction_id)
         .execute(&mut *tx)
         .await?;
 
     // 5. Update Order Items to 'wedding_order'
     sqlx::query(
         r#"
-        UPDATE order_items 
+        UPDATE transaction_lines 
         SET fulfillment = 'wedding_order'
-        WHERE order_id = $1 AND fulfillment = 'special_order'
+        WHERE transaction_id = $1 AND fulfillment = 'special_order'
         "#,
     )
-    .bind(body.order_id)
+    .bind(body.transaction_id)
     .execute(&mut *tx)
     .await?;
 
@@ -1921,7 +2176,7 @@ async fn post_attach_order(
         &actor,
         "STATUS_CHANGE",
         &format!("Order attached to wedding party (role: {role})"),
-        json!({ "order_id": body.order_id, "wedding_member_id": member_id }),
+        json!({ "transaction_id": body.transaction_id, "wedding_member_id": member_id }),
     )
     .await
     {
@@ -1938,10 +2193,11 @@ async fn post_attach_order(
     spawn_meilisearch_wedding_party(&state, party_id);
     crate::logic::meilisearch_sync::spawn_meili({
         let state = state.clone();
-        let oid = body.order_id;
+        let oid = body.transaction_id;
         async move {
             if let Some(c) = &state.meilisearch {
-                crate::logic::meilisearch_sync::upsert_order_document(c, &state.db, oid).await;
+                crate::logic::meilisearch_sync::upsert_transaction_document(c, &state.db, oid)
+                    .await;
             }
         }
     });
@@ -1950,4 +2206,16 @@ async fn post_attach_order(
         .await?
         .ok_or(WeddingError::MemberNotFound)?;
     Ok(Json(member))
+}
+
+async fn get_health(
+    State(state): State<AppState>,
+    Path(party_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<crate::logic::wedding_health::WeddingHealthScore>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let score = crate::logic::wedding_health::calculate_wedding_health(&state.db, party_id)
+        .await
+        .map_err(WeddingError::Database)?;
+    Ok(Json(score))
 }

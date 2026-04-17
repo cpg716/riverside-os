@@ -5,6 +5,8 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import VariantSearchInput, { VariantSearchResult } from "../ui/VariantSearchInput";
+import { Truck, ListFilter, Sparkles, Plus } from "lucide-react";
+import DashboardGridCard from "../ui/DashboardGridCard";
 
 interface PurchaseOrder {
   id: string;
@@ -199,7 +201,7 @@ export default function PurchaseOrderPanel({
       : selected.status !== "draft");
 
   return (
-    <div className="relative space-y-4">
+    <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
       {receivingPoId && (
         <ReceivingBay
           poId={receivingPoId}
@@ -210,15 +212,21 @@ export default function PurchaseOrderPanel({
           }}
         />
       )}
-      <section className="rounded-xl border border-app-border bg-app-surface p-4">
-        <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-app-text">
-          Purchase Orders
-        </h3>
-        <div className="flex flex-wrap gap-2">
+      <div className="px-2">
+        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Procurement Pipeline</h3>
+        <h2 className="text-2xl font-black tracking-tight text-app-text">Registry & Receiving</h2>
+      </div>
+
+      <DashboardGridCard 
+        title="Active Purchase Orders"
+        subtitle={`${orders.length} orders in registry`}
+        icon={ListFilter}
+      >
+        <div className="flex items-center gap-3 mb-6">
           <select
             value={vendorId}
             onChange={(e) => setVendorId(e.target.value)}
-            className="ui-input"
+            className="h-10 min-w-[180px] rounded-xl bg-app-surface/40 border border-app-border px-4 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
           >
             {vendors.map((v) => (
               <option key={v.id} value={v.id}>
@@ -229,128 +237,181 @@ export default function PurchaseOrderPanel({
           <button
             type="button"
             onClick={createDraft}
-            className="ui-btn-primary text-sm normal-case tracking-normal font-bold"
+            className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all"
           >
-            Create Draft PO
+            <Plus size={14} /> Draft PO
           </button>
           <button
             type="button"
             onClick={() => void createDirectInvoice()}
-            className="rounded border border-app-accent-2/40 bg-app-accent-2/10 px-3 py-2 text-sm font-bold text-app-text"
+            className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent-2/10 border border-app-accent-2/20 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-accent-2/20 transition-all active:scale-95"
           >
-            Direct invoice
-          </button>
-          <button
-            type="button"
-            disabled={!selectedPo || !canOpenReceiving}
-            onClick={() => selectedPo && setReceivingPoId(selectedPo)}
-            className="rounded border border-app-accent-2/35 bg-app-accent-2/10 px-3 py-2 text-sm font-bold text-app-accent-2 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Receiving bay
+            <Sparkles size={14} /> Invoice
           </button>
         </div>
-        <div className="mt-3 rounded border border-app-border">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-app-surface-2">
-              <tr>
-                <th className="px-2 py-2">PO #</th>
-                <th className="px-2 py-2">Vendor</th>
-                <th className="px-2 py-2">Kind</th>
-                <th className="px-2 py-2">Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {orders.map((o) => (
-                <tr
-                  key={o.id}
-                  className={`cursor-pointer border-t border-app-border ${
-                    selectedPo === o.id ? "bg-app-accent-2/10" : ""
-                  }`}
-                  onClick={() => setSelectedPo(o.id)}
-                >
-                  <td className="px-2 py-2 font-mono">{o.po_number}</td>
-                  <td className="px-2 py-2">{o.vendor_name}</td>
-                  <td className="px-2 py-2 font-mono text-[10px] uppercase text-app-text-muted">
-                    {o.po_kind ?? "standard"}
-                  </td>
-                  <td className="px-2 py-2 uppercase">{o.status}</td>
+        <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-app-surface/40 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                <tr>
+                  <th className="px-6 py-4">Serial #</th>
+                  <th className="px-6 py-4">Supplier</th>
+                  <th className="px-6 py-4">Classification</th>
+                  <th className="px-6 py-4">Current Status</th>
+                  <th className="px-6 py-4 text-right">Action</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-app-border/40">
+                {orders.map((o) => (
+                  <tr
+                    key={o.id}
+                    className={`group cursor-pointer transition-all ${
+                      selectedPo === o.id ? "bg-app-accent/10" : "hover:bg-app-surface/20"
+                    }`}
+                    onClick={() => setSelectedPo(o.id)}
+                  >
+                    <td className="px-6 py-4 font-mono font-black text-app-accent">{o.po_number}</td>
+                    <td className="px-6 py-4 font-bold text-app-text">{o.vendor_name}</td>
+                    <td className="px-6 py-4">
+                      <span className="rounded-lg bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                        {o.po_kind ?? "standard"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4">
+                       <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest shadow-sm ${
+                         o.status === 'draft' ? 'bg-app-surface-2 text-app-text-muted border border-app-border' :
+                         o.status === 'submitted' ? 'bg-app-accent/10 text-app-accent border border-app-accent/20' :
+                         o.status === 'closed' ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' :
+                         'bg-red-500/10 text-red-500 border border-red-500/20'
+                       }`}>
+                         <div className={`h-1.5 w-1.5 rounded-full ${
+                           o.status === 'draft' ? 'bg-app-text-muted' :
+                           o.status === 'submitted' ? 'bg-app-accent' :
+                           o.status === 'closed' ? 'bg-emerald-500' :
+                           'bg-red-500'
+                         }`} />
+                         {o.status}
+                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                       <button
+                         type="button"
+                         disabled={selectedPo !== o.id || !canOpenReceiving}
+                         onClick={(e) => {
+                           e.stopPropagation();
+                           setReceivingPoId(o.id);
+                         }}
+                         className="inline-flex h-8 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-[9px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 hover:brightness-110 disabled:opacity-0 transition-all active:scale-95"
+                       >
+                         <Truck size={12} /> Receive
+                       </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </section>
+      </DashboardGridCard>
 
-      <section className="rounded-xl border border-app-border bg-app-surface p-4">
-        <h3 className="mb-3 text-sm font-black uppercase tracking-wider text-app-text">
-          Add PO line / Quick receive
-        </h3>
-        <div className="grid gap-2 md:grid-cols-4">
-          <VariantSearchInput
-            onSelect={(v: VariantSearchResult) => setVariantId(v.variant_id)}
-            placeholder="Search products by name or SKU…"
-            className="md:col-span-2"
-          />
-          <input
-            type="number"
-            value={qty}
-            onChange={(e) => setQty(Number.parseInt(e.target.value || "1", 10))}
-            className="ui-input py-2 text-xs"
-          />
-          <input
-            type="number"
-            step="0.01"
-            value={unitCost}
-            onChange={(e) => setUnitCost(e.target.value)}
-            className="ui-input py-2 text-xs"
-            placeholder="Unit cost"
-          />
+      <DashboardGridCard 
+        title="Quick Injection & Recovery"
+        subtitle={selected ? `Active Context: ${selected.po_number}` : 'Select a PO to inject lines'}
+        icon={Sparkles}
+      >
+        <div className="grid gap-6 md:grid-cols-[1fr_1fr_120px_160px]">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Resource Search</label>
+            <VariantSearchInput
+              onSelect={(v: VariantSearchResult) => setVariantId(v.variant_id)}
+              placeholder="Filter by SKU or Product name..."
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Unit Cost (USD)</label>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.01"
+                value={unitCost}
+                onChange={(e) => setUnitCost(e.target.value)}
+                className="w-full h-12 bg-app-surface shadow-inner border border-app-border rounded-2xl px-10 text-sm font-black focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
+              />
+              <span className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted opacity-40 font-black">$</span>
+            </div>
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Quantity</label>
+            <input
+              type="number"
+              value={qty}
+              onChange={(e) => setQty(Number.parseInt(e.target.value || "1", 10))}
+              className="w-full h-12 bg-app-surface shadow-inner border border-app-border rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
+            />
+          </div>
+          <div className="flex flex-col justify-end">
+            <button
+              type="button"
+              disabled={!selectedPo || !variantId}
+              onClick={addLine}
+              className="h-12 rounded-2xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
+            >
+              Add Logic Line
+            </button>
+          </div>
         </div>
-        <button
-          type="button"
-          onClick={addLine}
-          className="ui-btn-primary mt-2 text-xs normal-case tracking-normal font-bold"
-        >
-          Add line
-        </button>
 
-        <div className="mt-4 grid gap-2 md:grid-cols-4 border-t border-app-border pt-4">
-          <input
-            value={invoiceNo}
-            onChange={(e) => setInvoiceNo(e.target.value)}
-            placeholder="Invoice #"
-            className="ui-input py-2 text-xs"
-          />
-          <input
-            value={receiveLineId}
-            onChange={(e) => setReceiveLineId(e.target.value)}
-            placeholder="PO Line ID"
-            className="ui-input py-2 text-xs font-mono"
-          />
-          <input
-            value={receiveQty}
-            onChange={(e) => setReceiveQty(Number.parseInt(e.target.value || "1", 10))}
-            type="number"
-            placeholder="Qty received now"
-            className="ui-input py-2 text-xs"
-          />
-          <input
-            value={freightTotal}
-            onChange={(e) => setFreightTotal(e.target.value)}
-            step="0.01"
-            type="number"
-            placeholder="Freight total"
-            className="ui-input py-2 text-xs"
-          />
-          <button
-            type="button"
-            onClick={receive}
-            className="rounded bg-emerald-600 px-3 py-2 text-xs font-bold text-white shadow-sm hover:brightness-110 transition-all"
-          >
-            Quick Receive
-          </button>
+        <div className="mt-10 grid gap-6 md:grid-cols-[1fr_180px_120px_160px_180px] border-t border-app-border/40 pt-10">
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Invoice Descriptor</label>
+            <input
+              value={invoiceNo}
+              onChange={(e) => setInvoiceNo(e.target.value)}
+              placeholder="Invoice Serial..."
+              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Line Pointer</label>
+            <input
+              value={receiveLineId}
+              onChange={(e) => setReceiveLineId(e.target.value)}
+              placeholder="UUID or ID..."
+              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-mono focus:ring-2 focus:ring-app-accent/20 transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Volume</label>
+            <input
+              value={receiveQty}
+              onChange={(e) => setReceiveQty(Number.parseInt(e.target.value || "1", 10))}
+              type="number"
+              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
+            />
+          </div>
+          <div className="space-y-2">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Freight (USD)</label>
+            <input
+              value={freightTotal}
+              onChange={(e) => setFreightTotal(e.target.value)}
+              step="0.01"
+              type="number"
+              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
+            />
+          </div>
+          <div className="flex flex-col justify-end">
+            <button
+              type="button"
+              disabled={!selectedPo || !receiveLineId || !canOpenReceiving}
+              onClick={receive}
+              className="h-12 rounded-2xl bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
+            >
+              Direct Receiving
+            </button>
+          </div>
         </div>
-      </section>
+      </DashboardGridCard>
+
 
       {nonInventoryNeeds.length > 0 && (
         <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300">

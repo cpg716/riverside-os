@@ -31,6 +31,7 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 | Scenario | Expect |
 |----------|--------|
 | Deposit release on fulfill date | Category split uses **effective** net per category (post-return) |
+| **New Deposit Inflow** | Payments on unfulfilled orders today must correctly credit `liability_deposit` to balance the cash debit. |
 
 ## Regression checks
 

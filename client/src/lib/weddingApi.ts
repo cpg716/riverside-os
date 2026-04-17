@@ -248,4 +248,27 @@ export const weddingApi = {
       .filter(Boolean);
     return [...new Set(names)].sort((a, b) => a.localeCompare(b));
   },
+
+  /** Search inventory for wedding suit products */
+  async searchWeddingProducts(
+    params: { q?: string; limit?: number; offset?: number; headers?: Record<string, string> } = {},
+  ): Promise<{
+    variant_id: string;
+    product_id: string;
+    sku: string;
+    name: string;
+    variation_label: string | null;
+    retail_price: string;
+    stock_on_hand: number;
+  }[]> {
+    const q = new URLSearchParams();
+    if (params.q) q.set("q", params.q);
+    if (params.limit) q.set("limit", String(params.limit));
+    if (params.offset) q.set("offset", String(params.offset));
+    const res = await fetch(`${baseUrl}/api/inventory/wedding-products?${q}`, {
+      headers: params.headers,
+    });
+    if (!res.ok) throw new Error("Failed to search wedding products");
+    return res.json();
+  },
 };

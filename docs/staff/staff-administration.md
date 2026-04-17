@@ -19,10 +19,14 @@ Use **Staff** for **people** (roster, PIN on profile, per-person access, per-per
 **Purpose:** People records tied to sign-in and the register.
 
 1. **Staff** → **Team**.
-2. Open **Edit** on a person: **full name**, **cashier code**, **role**, active flag, **base commission %**, **max line discount %** (this individual), **employment** dates, **linked employee customer** (CRM code) for employee pricing / reporting, **phone/email**, **avatar**.
-3. **Access (this person):** with **staff.manage_access**, toggle keys; **Apply role defaults** copies **Settings** templates for that person’s **role**. **Save** persists profile and permission changes.
-4. **PIN:** with **staff.manage_pins**, enter a new PIN in the modal (**must match** that person’s four-digit cashier code).
-5. **Deactivate** leavers instead of deleting — preserves **audit** history.
+2. **Add Staff:** Click **+ Add Staff** in the header (requires **staff.manage**).
+3. **Initial Setup:** Provide a **Full Name** and a **4-digit Staff Code**.
+4. **Initial PIN:** The system defaults the person's initial PIN to match their **Staff Code**. They can change it later via the **Edit profile** sidebar or via an admin reset.
+5. **Role Defaults:** Selecting a role (e.g., Salesperson) automatically applies the default permissions and discount caps defined in **Settings**.
+6. **Edit profile:** Open **Edit** on a person to modify **name**, **role**, active flag, **commission %**, **discount caps**, **linked CRM profile**, etc.
+7. **Access (this person):** with **staff.manage_access**, toggle keys; **Apply role defaults** copies **Settings** templates for that person’s **role**. **Save** persists profile and permission changes.
+8. **PIN:** with **staff.manage_pins**, enter a new PIN in the modal (**must match** that person’s four-digit cashier code).
+9. **Deactivate** leavers instead of deleting — preserves **audit** history.
 
 ## Tasks
 

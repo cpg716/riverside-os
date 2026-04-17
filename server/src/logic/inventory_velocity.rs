@@ -1,4 +1,4 @@
-//! Best-sellers and dead-stock aggregate queries (order_items × orders with report basis).
+//! Best-sellers and dead-stock aggregate queries (transaction_lines × orders with report basis).
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -52,8 +52,8 @@ pub async fn fetch_best_sellers(
               (SUM((oi.unit_price * oi.quantity)::numeric) / NULLIF(SUM(oi.quantity)::numeric, 0))::numeric(14, 2)
             ELSE 0::numeric(14, 2)
           END AS avg_unit_price
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
         INNER JOIN products p ON p.id = pv.product_id
         WHERE p.is_active = true
@@ -87,8 +87,8 @@ pub async fn fetch_dead_stock(
           SELECT
             oi.variant_id,
             SUM(oi.quantity)::bigint AS units_sold
-          FROM order_items oi
-          INNER JOIN orders o ON o.id = oi.order_id
+          FROM transaction_lines oi
+          INNER JOIN transactions o ON o.id = oi.transaction_id
           INNER JOIN product_variants pv2 ON pv2.id = oi.variant_id
           INNER JOIN products p2 ON p2.id = pv2.product_id
           WHERE p2.is_active = true

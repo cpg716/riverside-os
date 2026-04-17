@@ -55,7 +55,7 @@ pub async fn staff_attributed_sales_store_day(
     let row: (i64, Option<Decimal>) = sqlx::query_as(
         r#"
         WITH paid_orders_today AS (
-            SELECT DISTINCT pa.target_order_id AS order_id
+            SELECT DISTINCT pa.target_transaction_id AS transaction_id
             FROM payment_transactions pt
             INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
             WHERE (pt.created_at AT TIME ZONE $2)::date
@@ -64,8 +64,8 @@ pub async fn staff_attributed_sales_store_day(
         SELECT
             COUNT(*)::bigint,
             COALESCE(SUM(oi.quantity::numeric * oi.unit_price), 0)::numeric(14, 2)
-        FROM order_items oi
-        INNER JOIN paid_orders_today po ON po.order_id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN paid_orders_today po ON po.transaction_id = oi.transaction_id
         WHERE oi.salesperson_id = $1
         "#,
     )

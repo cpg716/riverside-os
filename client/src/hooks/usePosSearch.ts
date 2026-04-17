@@ -113,6 +113,7 @@ export function usePosSearch({
             stock_on_hand: r.stock_on_hand || 0,
             state_tax: r.state_tax || 0,
             local_tax: r.local_tax || 0,
+            tax_category: r.tax_category as "clothing" | "footwear" | "other",
           }));
           collected.push(...(mapped as SearchResult[]));
         }

@@ -1,6 +1,6 @@
 # Register (POS) dashboard
 
-POS-Core surface for floor staff when a till session is open: **metrics, tasks, notifications, wedding pulse, weather**, and a fast path to **Register (Cart)**. Admins continue to use **Back Office → Operations** ([`OperationalHome`](../client/src/components/operations/OperationalHome.tsx)) as their primary dashboard; this doc covers the **embedded POS** experience only.
+POS-Core surface for floor staff when a till session is open: **metrics, priority feed, notifications, wedding pulse, weather**, and a fast path to **Register (Cart)**. Admins continue to use **Back Office → Operations** ([`OperationalHome`](../client/src/components/operations/OperationalHome.tsx)) as their primary dashboard; this doc covers the **embedded POS** experience only.
 
 ## Navigation and default tab
 
@@ -12,12 +12,20 @@ POS-Core surface for floor staff when a till session is open: **metrics, tasks, 
 
 [`client/src/components/pos/RegisterDashboard.tsx`](../client/src/components/pos/RegisterDashboard.tsx)
 
+Re-designed in v0.2.0 using the **WowDash** layout system (`DashboardStatsCard` and `DashboardGridCard`).
+
+| Block | Source | Notes |
+|-------|--------|-------|
+| **Performance Stats** | `GET /api/staff/self/register-metrics` | Use `DashboardStatsCard` with sparklines and color signals. |
+| **Priority Feed** | `MorningCompassQueue` ranker | Use `DashboardGridCard` framing; overdue pick/needs measure. |
+| **Active Personnel** | `today_floor_staff` | Integrated status signals. |
+| **Notifications** | Bell inbox sink | Short preview rows with immediate action labels. |
+
 | Block | Source | Permission / role |
 |-------|--------|-------------------|
-| Headline | `staffRole` + name from context | `admin` / `salesperson` / `sales_support` labels |
+| Headline | `staffRole` + name from context | **Register Manager** for admins; salesperson otherwise |
 | Weather | `GET /api/weather/forecast` | Public (no RBAC) |
 | **Attributed sales (store day)** | `GET /api/staff/self/register-metrics` | **Salesperson** and **sales_support** only (by `staffRole`); logs **`register_metrics_view`** in `staff_access_log` |
-| Session tenders | `GET /api/sessions/{id}/x-report` | **`register.reports`** + merged auth; **X-report is per session (lane)**. **Z / close register** is **lane 1 only** when multiple lanes share a **`till_close_group_id`** — see **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**. |
 | Wedding pulse | `GET /api/weddings/morning-compass` | **`weddings.view`**; staff headers via **`mergedPosStaffHeaders`** |
 | Tasks | `GET /api/tasks/me` | **`tasks.complete`** |
 | Notifications | `GET /api/notifications` + read / complete / archive | **`notifications.view`**; **short** preview lines (**bundles** show a count + “open inbox” — full list expands in the bell drawer). **Open inbox** for the drawer. Automated kinds include backup alerts, integration health, **`task_due_soon_bundle`**, **`rms_r2s_charge`** (Sales Support: **submit** R2S after RMS / RMS90 **charge** tender — migration **68**). R2S **payment** collections use **Staff → Tasks** ad-hocs (**69**) — see **`docs/PLAN_NOTIFICATION_CENTER.md`**, **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`**, and **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
@@ -49,14 +57,14 @@ The **embedded Wedding Manager** ([`WeddingManagerAuthBridge`](../client/src/com
 
 System retention jobs still archive stale rows by age; user dismiss is immediate inbox hide with audit.
 
-## Predictive Morning Compass
+## Predictive Priority Feed (Morning Compass)
 
-**Suggested next** (register default tab): ranked queue from wedding compass queues (overdue pickup → needs order → needs measure), **open tasks** (due / overdue weighting), and **notification** preview (critical kinds boosted). Tapping a wedding row opens **[`CompassMemberDetailDrawer`](../client/src/components/operations/CompassMemberDetailDrawer.tsx)**; **Open full party** exits POS to the wedding workspace. Tasks open **`TaskChecklistDrawer`**; notifications open the bell inbox. Rules live in **[`client/src/lib/morningCompassQueue.ts`](../client/src/lib/morningCompassQueue.ts)** (client-side ranker; no ML). Operations **Morning Dashboard** uses the same queue with a wider limit. Product note: **[`docs/PLAN_MORNING_COMPASS_PREDICTIVE.md`](./PLAN_MORNING_COMPASS_PREDICTIVE.md)**.
+**Suggested next** (register default tab): ranked queue from wedding compass queues (overdue pickup → needs order → needs measure), **open tasks** (due / overdue weighting), and **notification** preview (critical kinds boosted). Managed via **`DashboardGridCard`** layout. Tapping a wedding row opens **[`CompassMemberDetailDrawer`](../client/src/components/operations/CompassMemberDetailDrawer.tsx)**; **Open full party** exits POS to the wedding workspace. Tasks open **`TaskChecklistDrawer`**; notifications open the bell inbox. Rules live in **[`client/src/lib/morningCompassQueue.ts`](../client/src/lib/morningCompassQueue.ts)** (client-side ranker; no ML). Operations **Operations Hub** uses the same queue with a wider limit. Product note: **[`docs/PLAN_MORNING_COMPASS_PREDICTIVE.md`](./PLAN_MORNING_COMPASS_PREDICTIVE.md)**.
 
 ## Related docs
 
-- **[`docs/STAFF_PERMISSIONS.md`](./STAFF_PERMISSIONS.md)** — RBAC keys (`weddings.view`, `notifications.view`, `register.reports`, `tasks.complete`).
-- **[`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](./TILL_GROUP_AND_REGISTER_OPEN.md)** — Multi-lane till, combined Z-close, X vs Z scope.
+- **[`docs/STAFF_PERMISSIONS.md`](./STAFF_PERMISSIONS.md)** — RBAC keys (`weddings.view`, `notifications.view`, `tasks.complete`).
+- **[`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](./TILL_GROUP_AND_REGISTER_OPEN.md)** — Multi-lane till, combined Z-close.
 - **[`docs/PLAN_NOTIFICATION_CENTER.md`](./PLAN_NOTIFICATION_CENTER.md)** — inbox, read/complete/archive, generators.
 - **[`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](./STAFF_TASKS_AND_REGISTER_SHIFT.md)** — `/api/tasks/me`, POS Tasks tab.
 - **[`docs/STAFF_SCHEDULE_AND_CALENDAR.md`](./STAFF_SCHEDULE_AND_CALENDAR.md)** — **`today_floor_staff`** on morning compass.

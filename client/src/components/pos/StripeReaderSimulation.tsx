@@ -135,8 +135,8 @@ export default function StripeReaderSimulation({
                     <CreditCard size={32} />
                 </div>
                 <div>
-                    <p className="text-2xl font-black text-white italic tracking-tighter">${centsToFixed2(amountCents)}</p>
-                    <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">Insert / Tap Card</p>
+                    <p className="text-2xl font-black text-white italic tracking-tighter">${centsToFixed2(Math.abs(amountCents))}</p>
+                    <p className="mt-1 text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">{amountCents < 0 ? "TAP TO RECEIVE CREDIT" : "Insert / Tap Card"}</p>
                 </div>
                 </>
               )}
@@ -149,9 +149,9 @@ export default function StripeReaderSimulation({
                  <Loader2 className="text-blue-500 animate-spin" size={24} />
               </div>
               <p className="text-lg font-black tabular-nums text-white/90">
-                ${centsToFixed2(amountCents)}
+                ${centsToFixed2(Math.abs(amountCents))}
               </p>
-              <p className="text-sm font-black uppercase tracking-widest text-blue-400">Authorizing{dots}</p>
+              <p className="text-sm font-black uppercase tracking-widest text-blue-400">{amountCents < 0 ? "Crediting" : "Authorizing"}{dots}</p>
             </>
           )}
 
@@ -196,7 +196,7 @@ export default function StripeReaderSimulation({
                 disabled={cardNumber.length < 15}
                 className="col-span-2 h-14 rounded-2xl bg-blue-600 text-white font-black uppercase tracking-widest text-xs hover:bg-blue-500 disabled:opacity-30 transition-all flex items-center justify-center gap-2"
             >
-                Process Charge — ${centsToFixed2(amountCents)}
+                {amountCents < 0 ? "Process Credit" : "Process Charge"} — ${centsToFixed2(Math.abs(amountCents))}
                 <CheckCircle2 size={16} />
             </button>
           )}

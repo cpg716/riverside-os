@@ -31,7 +31,7 @@ pub struct AlterationOrderRow {
     pub status: String,
     pub due_at: Option<DateTime<Utc>>,
     pub notes: Option<String>,
-    pub linked_order_id: Option<Uuid>,
+    pub linked_transaction_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -48,7 +48,7 @@ pub struct CreateAlterationBody {
     pub wedding_member_id: Option<Uuid>,
     pub due_at: Option<DateTime<Utc>>,
     pub notes: Option<String>,
-    pub linked_order_id: Option<Uuid>,
+    pub linked_transaction_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -130,7 +130,7 @@ async fn list_alterations(
                 r#"
                 SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
                        c.customer_code, a.wedding_member_id, a.status::text AS status,
-                       a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+                       a.due_at, a.notes, a.linked_transaction_id, a.created_at, a.updated_at
                 FROM alteration_orders a
                 LEFT JOIN customers c ON a.customer_id = c.id
                 WHERE a.customer_id = $1 AND a.status::text = $2
@@ -147,7 +147,7 @@ async fn list_alterations(
                 r#"
                 SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
                        c.customer_code, a.wedding_member_id, a.status::text AS status,
-                       a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+                       a.due_at, a.notes, a.linked_transaction_id, a.created_at, a.updated_at
                 FROM alteration_orders a
                 LEFT JOIN customers c ON a.customer_id = c.id
                 WHERE a.customer_id = $1
@@ -164,7 +164,7 @@ async fn list_alterations(
             r#"
             SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
                    c.customer_code, a.wedding_member_id, a.status::text AS status,
-                   a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+                   a.due_at, a.notes, a.linked_transaction_id, a.created_at, a.updated_at
             FROM alteration_orders a
             LEFT JOIN customers c ON a.customer_id = c.id
             WHERE a.status::text = $1
@@ -180,7 +180,7 @@ async fn list_alterations(
             r#"
             SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
                    c.customer_code, a.wedding_member_id, a.status::text AS status,
-                   a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+                   a.due_at, a.notes, a.linked_transaction_id, a.created_at, a.updated_at
             FROM alteration_orders a
             LEFT JOIN customers c ON a.customer_id = c.id
             ORDER BY a.created_at DESC
@@ -214,7 +214,7 @@ async fn create_alteration(
     let id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO alteration_orders (
-            customer_id, wedding_member_id, due_at, notes, linked_order_id
+            customer_id, wedding_member_id, due_at, notes, linked_transaction_id
         )
         VALUES ($1, $2, $3, $4, $5)
         RETURNING id
@@ -229,7 +229,7 @@ async fn create_alteration(
             .map(|s| s.trim())
             .filter(|s| !s.is_empty()),
     )
-    .bind(body.linked_order_id)
+    .bind(body.linked_transaction_id)
     .fetch_one(&state.db)
     .await?;
 
@@ -237,7 +237,7 @@ async fn create_alteration(
         r#"
         SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
                c.customer_code, a.wedding_member_id, a.status::text AS status,
-               a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+               a.due_at, a.notes, a.linked_transaction_id, a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
         WHERE a.id = $1
@@ -307,7 +307,7 @@ async fn patch_alteration(
         r#"
         SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
                c.customer_code, a.wedding_member_id, a.status::text AS status,
-               a.due_at, a.notes, a.linked_order_id, a.created_at, a.updated_at
+               a.due_at, a.notes, a.linked_transaction_id, a.created_at, a.updated_at
         FROM alteration_orders a
         LEFT JOIN customers c ON a.customer_id = c.id
         WHERE a.id = $1

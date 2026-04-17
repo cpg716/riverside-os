@@ -1,21 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Bell,
-  Clock,
-  ListChecks,
+  Activity,
+  AlertCircle,
+  ChevronRight,
+  Target,
+  TrendingUp,
+  Zap,
+  ShieldCheck,
   Ruler,
   ShoppingBag,
   Sun,
   Cloud,
   CloudRain,
   Snowflake,
-  ThermometerSun,
   Users,
   Wind,
+  ThermometerSun
 } from "lucide-react";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import CompassMemberDetailDrawer from "./CompassMemberDetailDrawer";
-import DetailDrawer from "../layout/DetailDrawer";
+import DashboardStatsCard from "../ui/DashboardStatsCard";
+import DashboardGridCard from "../ui/DashboardGridCard";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   useNotificationCenter,
@@ -24,9 +29,10 @@ import {
 } from "../../context/NotificationCenterContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
-import ReviewsOperationsSection from "./ReviewsOperationsSection";
 import PodiumMessagingInboxSection from "../customers/PodiumMessagingInboxSection";
 import RegisterReports from "../pos/RegisterReports";
+import FulfillmentCommandCenter from "./FulfillmentCommandCenter";
+import ReviewsOperationsSection from "./ReviewsOperationsSection";
 import type { Customer } from "../pos/CustomerSelector";
 import {
   buildMorningCompassQueue,
@@ -43,6 +49,7 @@ interface CompassStats {
   needs_measure: number;
   needs_order: number;
   overdue_pickups: number;
+  rush_orders?: number;
 }
 
 interface TodayFloorStaffRow {
@@ -73,39 +80,22 @@ interface ActivityFeedEntry {
 
 interface OperationalHomeProps {
   onOpenWeddingParty: (partyId: string) => void;
-  onOpenOrderInBackoffice: (orderId: string) => void;
+  onOpenTransactionInBackoffice: (orderId: string) => void;
   /** Podium inbox row → open customer hub Messages. */
   onOpenInboxCustomer: (customer: Customer) => void;
   /** Increment to refetch compass + activity (e.g. after wedding edits). */
   refreshSignal?: number;
   activeSection?: string;
-  registerReportsDeepLinkOrderId?: string | null;
-  onRegisterReportsDeepLinkConsumed?: () => void;
+  registerReportsDeepLinkTxnId?: string | null;
+  onRegisterReportsDeepLinkTxnConsumed?: () => void;
 }
 
-type CompassQueueKind = "overdue" | "measure" | "order";
 
 function floorRoleLabel(role: string): string {
-  if (role === "sales_support") return "Sales support";
   if (role === "salesperson") return "Salesperson";
   return role.replace(/_/g, " ");
 }
 
-function uniquePulseRows(c: MorningCompassBundle): CompassActionRow[] {
-  const seen = new Set<string>();
-  const out: CompassActionRow[] = [];
-  const merged = [
-    ...(c.overdue_pickups || []),
-    ...(c.needs_measure || []),
-    ...(c.needs_order || []),
-  ];
-  for (const r of merged) {
-    if (seen.has(r.wedding_member_id)) continue;
-    seen.add(r.wedding_member_id);
-    out.push(r);
-  }
-  return out.slice(0, 16);
-}
 
 interface ForecastDay {
   date: string;
@@ -162,114 +152,72 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
   const isSnow = condition.includes("snow");
   const isCloudy = condition.includes("cloudy");
 
-  const gradientClass = isSnow
-    ? "bg-[linear-gradient(135deg,#f0f9ff_0%,#e0f2fe_100%)] text-blue-900 border-blue-200"
-    : isRain
-      ? "bg-[linear-gradient(135deg,#f0fdf4_0%,#dcfce7_100%)] text-emerald-900 border-emerald-200"
-      : isCloudy
-        ? "border-app-border bg-[linear-gradient(135deg,var(--app-bg)_0%,var(--app-surface-2)_100%)] text-app-text"
-        : "bg-[linear-gradient(135deg,#fffbeb_0%,#fef3c7_100%)] text-amber-900 border-amber-200";
-
   const Icon = isSnow ? Snowflake : isRain ? CloudRain : isCloudy ? Cloud : Sun;
+
 
   return (
     <div
-      className={`mb-5 flex flex-col sm:flex-row items-stretch gap-0 rounded-[24px] border ${gradientClass} overflow-hidden shadow-sm animate-workspace-snap`}
+      className={cn(
+        "relative mb-8 rounded-2xl border border-app-border bg-app-surface p-6 shadow-sm overflow-hidden",
+        "bg-gradient-to-br from-app-surface to-app-surface/50"
+      )}
     >
-      <div className="flex-1 p-6 flex items-center gap-6">
-        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface/50 shadow-inner dark:bg-app-surface-2/40">
-          <Icon
-            size={32}
-            className={
-              isSnow
-                ? "text-blue-500"
-                : isRain
-                  ? "text-emerald-500"
-                  : isCloudy
-                    ? "text-app-text-muted"
-                    : "text-amber-500"
-            }
-          />
-        </div>
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-0.5">
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">
-              Buffalo, NY
-            </span>
-            <div className="h-1 w-1 rounded-full bg-current opacity-30" />
-            <span className="text-[10px] font-black uppercase tracking-[0.2em] opacity-60">
-              Today
-            </span>
+      <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+        <div className="flex items-center gap-6">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-app-accent/10 border border-app-accent/20 text-app-accent">
+            <Icon size={32} />
           </div>
-          <h3 className="text-2xl font-black tracking-tight leading-none mb-1">
-            {current != null ? (
-              <>
-                {current.temp.toFixed(0)}°
-                <span className="text-sm opacity-40 font-bold">
-                  {" "}
-                  now
-                  <span className="mx-1 opacity-30">·</span>
-                  {today.temp_high.toFixed(0)}° / {today.temp_low.toFixed(0)}°
-                </span>
-              </>
-            ) : (
-              <>
-                {today.temp_high.toFixed(0)}°
-                <span className="text-sm opacity-40">
-                  {" "}
-                  / {today.temp_low.toFixed(0)}°
-                </span>
-              </>
-            )}
-          </h3>
-          <p className="text-sm font-bold opacity-70">
-            {current != null && Math.abs(current.feels_like - current.temp) >= 1
-              ? `Feels like ${current.feels_like.toFixed(0)}° · `
-              : ""}
-            {current?.condition ?? today.condition}
-            {current != null && current.wind_mph != null && current.wind_mph > 0
-              ? ` · Wind ${current.wind_mph.toFixed(0)} mph`
-              : ""}
-            {" · "}
-            {today.precipitation_inches > 0
-              ? `${today.precipitation_inches}"`
-              : "no"}{" "}
-            precip today
-          </p>
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
+              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </div>
+            <h3 className="text-4xl font-bold tracking-tight text-app-text leading-none">
+              {current != null ? `${current.temp.toFixed(0)}°` : `${today.temp_high.toFixed(0)}°`}
+              <span className="text-base font-medium text-app-text-muted ml-3">
+                {condition.charAt(0).toUpperCase() + condition.slice(1)}
+              </span>
+            </h3>
+            <p className="text-xs font-medium text-app-text-muted">
+              {today.temp_high.toFixed(0)}° / {today.temp_low.toFixed(0)}° · {today.precipitation_inches > 0 ? `${today.precipitation_inches}"` : "0"} Precip
+            </p>
+          </div>
         </div>
-      </div>
 
-      <div className="w-full sm:w-[240px] bg-app-surface/40 border-l border-current/5 p-6 flex items-center gap-5 dark:bg-app-surface-2/30">
-        <div className="flex-1">
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50 mb-1">
-            Tomorrow
-          </p>
-          <div className="flex items-center gap-2">
-            <span className="text-lg font-black">
-              {tomorrow.temp_high.toFixed(0)}°
-            </span>
-            <span className="text-xs font-bold opacity-40">
-              {tomorrow.condition}
-            </span>
+        <div className="flex items-center gap-8 px-6 py-4 rounded-xl bg-app-bg/50 border border-app-border w-full md:w-auto">
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted mb-1">Tomorrow</p>
+            <div className="flex items-center gap-3">
+              <span className="text-2xl font-bold text-app-text">{tomorrow.temp_high.toFixed(0)}°</span>
+              <span className="text-xs font-medium text-app-text-muted truncate max-w-[100px]">{tomorrow.condition}</span>
+            </div>
+          </div>
+          <div className="h-8 w-[1px] bg-app-border" />
+          <div className="flex flex-col items-center gap-1 opacity-40">
+            <Wind size={14} />
+            <ThermometerSun size={14} />
           </div>
         </div>
-        <div className="flex flex-col items-end gap-1">
-          <Wind size={16} className="opacity-30" />
-          <ThermometerSun size={16} className="opacity-30" />
-        </div>
       </div>
+      
+      {/* Background decoration */}
+      <div className="absolute -right-10 -top-10 size-40 rounded-full bg-app-accent/5 blur-3xl" />
     </div>
   );
 }
 
+function cn(...inputs: (string | boolean | undefined | null | Record<string, boolean>)[]) {
+  return inputs.filter(Boolean).join(" ");
+}
+
 export default function OperationalHome({
   onOpenWeddingParty,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
   onOpenInboxCustomer,
   refreshSignal = 0,
   activeSection,
-  registerReportsDeepLinkOrderId,
-  onRegisterReportsDeepLinkConsumed,
+  registerReportsDeepLinkTxnId,
+  onRegisterReportsDeepLinkTxnConsumed,
 }: OperationalHomeProps) {
   const { backofficeHeaders, hasPermission, permissionsLoaded } =
     useBackofficeAuth();
@@ -283,8 +231,6 @@ export default function OperationalHome({
     [backofficeHeaders],
   );
 
-  const canViewWeddingBoard =
-    permissionsLoaded && hasPermission("weddings.view");
 
   const loadTasksMe = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("tasks.complete")) return;
@@ -312,11 +258,36 @@ export default function OperationalHome({
 
   const notifOpt = useNotificationCenterOptional();
   const refreshNotifUnread = notifOpt?.refreshUnread;
-  const { openDrawer: openNotificationDrawer } = useNotificationCenter();
+  const { openDrawer } = useNotificationCenter();
   useEffect(() => {
     if (activeSection === "inbox" && refreshNotifUnread)
       void refreshNotifUnread();
   }, [activeSection, refreshNotifUnread]);
+  const [salesHistory, setSalesHistory] = useState<{ value: number }[]>([]);
+  const loadSalesHistory = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("insights.view")) return;
+    try {
+      const today = new Date();
+      const thirtyDaysAgo = new Date();
+      thirtyDaysAgo.setDate(today.getDate() - 30);
+      
+      const from = thirtyDaysAgo.toISOString().split('T')[0];
+      const to = today.toISOString().split('T')[0];
+      
+      const res = await fetch(`${baseUrl}/api/insights/sales-pivot?group_by=date&basis=sale&from=${from}&to=${to}`, {
+        headers: taskAuth(),
+      });
+      if (res.ok) {
+        const data = await res.json() as { rows: { gross_revenue: string }[] };
+        const history = data.rows.map((r) => ({ value: Number(r.gross_revenue) })).reverse();
+        setSalesHistory(history);
+      }
+    } catch { /* ignore */ }
+  }, [permissionsLoaded, hasPermission, taskAuth]);
+
+  useEffect(() => {
+    void loadSalesHistory();
+  }, [loadSalesHistory, refreshSignal]);
 
   const [notifPreview, setNotifPreview] = useState<NotificationRow[]>([]);
   const loadNotifPreview = useCallback(async () => {
@@ -342,7 +313,6 @@ export default function OperationalHome({
   const [activityFeed, setActivityFeed] = useState<ActivityFeedEntry[]>([]);
   const [compassDrawerRow, setCompassDrawerRow] =
     useState<CompassActionRow | null>(null);
-  const [queueDrawer, setQueueDrawer] = useState<CompassQueueKind | null>(null);
 
   const loadMorningBoard = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("weddings.view")) {
@@ -382,35 +352,12 @@ export default function OperationalHome({
 
   useEffect(() => {
     void loadMorningBoard();
-    const interval = setInterval(loadMorningBoard, 60 * 1000); // 1 min auto-refresh
+    const interval = setInterval(loadMorningBoard, 60 * 1000); 
     return () => clearInterval(interval);
   }, [loadMorningBoard, refreshSignal]);
 
-  const queueMeta = useMemo(() => {
-    if (!queueDrawer || !compass) return null;
-    if (queueDrawer === "overdue")
-      return {
-        title: "Overdue pickups",
-        subtitle: "Past event · not picked up",
-        rows: compass.overdue_pickups,
-      };
-    if (queueDrawer === "measure")
-      return {
-        title: "Needs measure",
-        subtitle: "Within window · not measured",
-        rows: compass.needs_measure,
-      };
-    return {
-      title: "Needs order",
-      subtitle: "Measured · vendor PO pending",
-      rows: compass.needs_order,
-    };
-  }, [queueDrawer, compass]);
 
-  const pulseRows = useMemo(
-    () => (compass ? uniquePulseRows(compass) : []),
-    [compass],
-  );
+
 
   const suggestedMorningQueue = useMemo(
     () =>
@@ -426,34 +373,26 @@ export default function OperationalHome({
     [compass, taskMeOpen, notifPreview],
   );
 
-  const showOperationsMorningCoach =
-    permissionsLoaded &&
-    (canViewWeddingBoard ||
-      hasPermission("tasks.complete") ||
-      hasPermission("notifications.view"));
 
   if (activeSection === "daily-sales") {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-transparent p-3 sm:p-6">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] sm:rounded-[28px] border border-app-border bg-app-surface">
+      <div className="flex flex-1 flex-col bg-transparent">
+        <div className="flex flex-1 flex-col bg-app-surface">
           {!permissionsLoaded ? (
-            <p className="p-6 text-sm text-app-text-muted">Loading…</p>
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Synchronizing Ledger...</div>
           ) : !hasPermission("register.reports") ? (
-            <div className="p-6">
-              <p className="text-sm text-app-text-muted">
-                You need the{" "}
-                <span className="font-semibold text-app-text">
-                  register.reports
-                </span>{" "}
-                permission to view register and daily sales activity.
-              </p>
+            <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
+               <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
+                 Access restricted. Directive <span className="text-app-text">register.reports</span> is required to access the daily sales matrix.
+               </p>
             </div>
           ) : (
             <RegisterReports
               sessionId={null}
               onOpenWeddingParty={onOpenWeddingParty}
-              deepLinkTransactionId={registerReportsDeepLinkOrderId}
-              onDeepLinkConsumed={onRegisterReportsDeepLinkConsumed}
+              deepLinkTransactionId={registerReportsDeepLinkTxnId}
+              onDeepLinkConsumed={onRegisterReportsDeepLinkTxnConsumed}
             />
           )}
         </div>
@@ -463,18 +402,15 @@ export default function OperationalHome({
 
   if (activeSection === "inbox") {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-transparent p-3 sm:p-6">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[20px] sm:rounded-[28px] border border-app-border bg-app-surface">
+      <div className="flex flex-1 flex-col bg-transparent">
+        <div className="flex flex-1 flex-col bg-app-surface">
           {!permissionsLoaded ? (
-            <p className="p-6 text-sm text-app-text-muted">Loading…</p>
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Communication Portal...</div>
           ) : !hasPermission("customers.hub_view") ? (
-            <div className="p-6">
-              <p className="text-sm text-app-text-muted">
-                You need the{" "}
-                <span className="font-semibold text-app-text">
-                  customers.hub_view
-                </span>{" "}
-                permission to use the inbox.
+            <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
+              <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+              <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
+                Access restricted. Directive <span className="text-app-text">customers.hub_view</span> is required for inbox orchestration.
               </p>
             </div>
           ) : (
@@ -487,31 +423,22 @@ export default function OperationalHome({
     );
   }
 
-  if (activeSection === "reviews") {
+  if (activeSection === "fulfillment") {
     return (
-      <div className="flex h-full min-h-0 flex-col bg-transparent p-3 sm:p-6">
-        <div className="min-h-0 flex-1 overflow-auto rounded-[20px] sm:rounded-[28px] border border-app-border bg-app-surface p-4 sm:p-7">
-          <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-                Operations
-              </p>
-              <h2 className="text-2xl font-black tracking-tight text-app-text">
-                Reviews
-              </h2>
-            </div>
-          </div>
+      <div className="flex flex-1 flex-col bg-transparent">
+        <div className="flex flex-1 flex-col bg-app-surface">
           {!permissionsLoaded ? (
-            <p className="text-sm text-app-text-muted">Loading…</p>
-          ) : !hasPermission("reviews.view") ? (
-            <p className="text-sm text-app-text-muted">
-              You need the{" "}
-              <span className="font-semibold text-app-text">reviews.view</span>{" "}
-              permission to see this list.
-            </p>
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Initializing Fulfillment Command Center...</div>
+          ) : !hasPermission("orders.view") ? (
+            <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
+              <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+              <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
+                Access restricted. Directive <span className="text-app-text">orders.view</span> is required to monitor the fulfillment stream.
+              </p>
+            </div>
           ) : (
-            <ReviewsOperationsSection
-              onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+            <FulfillmentCommandCenter
+              onOpenTransaction={onOpenTransactionInBackoffice}
               refreshSignal={refreshSignal}
             />
           )}
@@ -520,435 +447,207 @@ export default function OperationalHome({
     );
   }
 
-  return (
-    <div className="flex h-full min-h-0 flex-col bg-transparent p-3 sm:p-6">
-      <CompassMemberDetailDrawer
-        row={compassDrawerRow}
-        onClose={() => setCompassDrawerRow(null)}
-        onOpenFullParty={onOpenWeddingParty}
-      />
-
-      <TaskChecklistDrawer
-        open={taskDrawerId !== null}
-        instanceId={taskDrawerId}
-        authHeaders={taskAuth}
-        onClose={() => setTaskDrawerId(null)}
-        onUpdated={() => void loadTasksMe()}
-      />
-
-      <DetailDrawer
-        isOpen={queueDrawer !== null && queueMeta !== null}
-        onClose={() => setQueueDrawer(null)}
-        title={queueMeta?.title ?? ""}
-        subtitle={queueMeta?.subtitle}
-      >
-        {!queueMeta ? null : queueMeta.rows.length === 0 ? (
-          <p className="text-sm text-app-text-muted">Nothing in this queue.</p>
-        ) : (
-          <ul className="space-y-2">
-            {queueMeta.rows.map((r) => (
-              <li key={r.wedding_member_id}>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setQueueDrawer(null);
-                    setCompassDrawerRow(r);
-                  }}
-                  className="group flex w-full items-center justify-between gap-3 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-left shadow-sm transition-all hover:bg-app-surface"
-                >
-                  <div className="min-w-0">
-                    <p className="font-black uppercase tracking-tight text-app-text">
-                      {r.customer_name} · {r.role}
-                    </p>
-                    <p className="text-xs text-app-text-muted">
-                      {r.party_name} · {r.event_date}
-                    </p>
-                  </div>
-                  <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted opacity-0 transition-opacity group-hover:opacity-100">
-                    Open
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </DetailDrawer>
-
-      <div className="min-h-0 flex-1 overflow-auto rounded-[20px] sm:rounded-[28px] border border-app-border bg-app-surface p-4 sm:p-7">
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-              Operations
-            </p>
-            <h2 className="text-2xl font-black tracking-tight text-app-text">
-              Morning Dashboard
-            </h2>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="ui-pill bg-app-surface-2 text-app-text-muted">
-              Live updates (1m)
-            </span>
-          </div>
+  if (activeSection === "reviews") {
+    return (
+      <div className="flex flex-1 flex-col bg-transparent">
+        <div className="flex flex-1 flex-col bg-app-surface">
+          {!permissionsLoaded ? (
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Consulting Public Sentiment...</div>
+          ) : !hasPermission("reviews.view") ? (
+            <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
+              <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+              <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
+                Access restricted. Directive <span className="text-app-text">reviews.view</span> is required to monitor social proof.
+              </p>
+            </div>
+          ) : (
+            <ReviewsOperationsSection
+              onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+            />
+          )}
         </div>
+      </div>
+    );
+  }
 
-        {showOperationsMorningCoach ? (
-          <section
-            data-testid="operations-morning-compass-coach"
-            className="mb-5 rounded-2xl border border-app-accent/30 bg-[linear-gradient(135deg,color-mix(in_srgb,var(--app-accent)_14%,var(--app-surface-2)),var(--app-surface))] p-4 sm:p-5"
+  const renderDashboard = () => (
+    <div className="space-y-8 animate-in fade-in duration-500">
+      
+      <div className="flex flex-wrap items-center justify-between gap-6 mb-8">
+        <div className="space-y-1">
+          <h2 className="text-3xl font-bold tracking-tight text-app-text">Operations Overview</h2>
+          <p className="text-sm font-medium text-app-text-muted">Real-time snapshots of your store operations</p>
+        </div>
+        <div className="flex items-center gap-3">
+           <div className="h-2 w-2 rounded-full bg-emerald-500" />
+           <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Live Dashboard Active</span>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+         <DashboardStatsCard
+           title="Sales (30d)"
+           value={salesHistory.length > 0 ? `$${salesHistory.reduce((acc, curr) => acc + curr.value, 0).toLocaleString()}` : "$0"}
+           icon={TrendingUp}
+           sparklineData={salesHistory}
+           color="blue"
+         />
+         <DashboardStatsCard
+           title="Needs Measure"
+           value={compass?.stats.needs_measure ?? 0}
+           icon={Ruler}
+           color="orange"
+         />
+         <DashboardStatsCard
+           title="Needs Order"
+           value={compass?.stats.needs_order ?? 0}
+           icon={ShoppingBag}
+           color="purple"
+         />
+         <DashboardStatsCard
+           title="Overdue"
+           value={compass?.stats.overdue_pickups ?? 0}
+           icon={AlertCircle}
+           color="rose"
+         />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        
+        {/* Main Priorities */}
+        <div className="xl:col-span-8 space-y-6">
+          <DashboardGridCard
+            title="Action Board"
+            subtitle="Today's priority tasks and directives"
+            icon={Zap}
           >
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-black uppercase tracking-wide text-app-text">
-                Suggested next
-              </h3>
-              <span className="text-[10px] font-semibold text-app-text-muted">
-                Ranked from weddings, tasks, and inbox (explainable rules — not
-                predictions).
-              </span>
-            </div>
             {suggestedMorningQueue.length === 0 ? (
-              <p
-                data-testid="operations-morning-compass-coach-empty"
-                className="text-sm font-semibold text-app-text-muted"
-              >
-                No prioritized actions right now.
-              </p>
+               <div className="py-20 text-center opacity-30">
+                  <Target size={48} className="mx-auto mb-4" />
+                  <p className="font-semibold">All priorities cleared</p>
+               </div>
             ) : (
-              <ul
-                className="grid gap-2 sm:grid-cols-2"
-                data-testid="operations-morning-compass-coach-list"
-              >
-                {suggestedMorningQueue.map((item) => (
-                  <li key={item.id}>
+               <div className="grid grid-cols-1 gap-3">
+                  {suggestedMorningQueue.slice(0, 8).map((item) => (
                     <button
-                      type="button"
-                      data-testid={`operations-morning-compass-coach-item-${item.kind}`}
+                      key={item.id}
                       onClick={() => {
-                        if (item.kind === "wedding")
-                          setCompassDrawerRow(item.row);
-                        else if (item.kind === "task")
-                          setTaskDrawerId(item.taskId);
-                        else openNotificationDrawer();
+                        if (item.kind === "wedding") setCompassDrawerRow(item.row);
+                        else if (item.kind === "task") setTaskDrawerId(item.taskId);
+                        else openDrawer();
                       }}
-                      className="flex h-full w-full items-start gap-3 rounded-2xl border border-app-border bg-app-surface/95 px-4 py-3 text-left shadow-sm transition hover:border-app-accent/45"
+                      className="flex items-center justify-between p-4 rounded-xl border border-app-border bg-app-bg/50 hover:bg-app-bg transition-all"
                     >
-                      <span
-                        className={`mt-0.5 shrink-0 rounded-lg px-2 py-0.5 text-[10px] font-black uppercase tracking-wide ${
-                          item.tier === "urgent"
-                            ? "bg-red-500/15 text-red-800 dark:text-red-200"
-                            : item.tier === "soon"
-                              ? "bg-amber-500/15 text-amber-900 dark:text-amber-100"
-                              : "bg-app-surface-2 text-app-text-muted"
-                        }`}
-                      >
-                        {item.tier === "urgent"
-                          ? "Now"
-                          : item.tier === "soon"
-                            ? "Soon"
-                            : "FYI"}
-                      </span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block font-bold leading-snug text-app-text">
-                          {item.kind === "wedding"
-                            ? `${item.row.customer_name} · ${compassBandLabel(item.band)}`
-                            : item.kind === "task"
-                              ? item.title
-                              : item.kind === "rush_order"
-                                ? `${item.row.customer_name} · rush order`
-                                : item.row.title}
-                        </span>
-                        <span className="mt-1 block text-xs font-semibold text-app-text-muted">
-                          {item.kind === "wedding"
-                            ? `${item.row.party_name} · event ${item.row.event_date}`
-                            : item.kind === "task"
-                              ? item.dueDate
-                                ? `Due ${item.dueDate}`
-                                : "Staff task"
-                              : "Notification inbox"}
-                        </span>
-                      </span>
-                      {item.kind === "notification" ? (
-                        <Bell
-                          className="mt-1 h-4 w-4 shrink-0 text-app-accent"
-                          aria-hidden
-                        />
-                      ) : null}
+                      <div className="flex items-center gap-4">
+                        <div className={cn(
+                          "flex h-8 w-8 items-center justify-center rounded-lg border",
+                          item.tier === 'urgent' ? "bg-rose-500/10 border-rose-500/20 text-rose-500" : "bg-app-accent/10 border-app-accent/20 text-app-accent"
+                        )}>
+                           <Zap size={16} />
+                        </div>
+                        <div className="text-left">
+                           <p className="text-sm font-bold text-app-text">
+                              {item.kind === "wedding" ? `${item.row.customer_name} · ${compassBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.row.title}
+                           </p>
+                           <p className="text-[10px] font-medium text-app-text-muted">
+                              {item.kind === "wedding" ? `${item.row.party_name} · ${item.row.event_date}` : item.kind === "task" && item.dueDate ? `Due: ${item.dueDate}` : 'General Status'}
+                           </p>
+                        </div>
+                      </div>
+                      <ChevronRight size={18} className="text-app-text-muted opacity-40" />
                     </button>
-                  </li>
-                ))}
-              </ul>
+                  ))}
+               </div>
             )}
-          </section>
-        ) : null}
+          </DashboardGridCard>
 
-        <div className="mb-5 rounded-2xl border border-app-border bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent-2)_24%,var(--app-surface-2)),color-mix(in_srgb,var(--app-accent)_12%,var(--app-surface-2)))] p-4">
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
-            Executive pulse strip
-          </p>
-          <p className="mt-1 text-sm font-semibold text-app-text">
-            Critical queue metrics and throughput are refreshed continuously for
-            floor operations.
-          </p>
+          {/* Activity Feed */}
+          <DashboardGridCard
+            title="Recent Activity"
+            subtitle="Store floor and order events"
+            icon={Activity}
+          >
+            <div className="space-y-6">
+               {activityFeed.slice(0, 10).map((act) => (
+                 <div key={act.id} className="flex gap-4 group/act">
+                   <div className="mt-1">
+                      <div className="h-8 w-8 rounded-full bg-app-accent/10 flex items-center justify-center text-app-accent">
+                         <Users size={14} />
+                      </div>
+                   </div>
+                   <div className="flex-1 space-y-1">
+                      <p className="text-xs font-bold text-app-text group-hover/act:text-app-accent transition-colors">
+                        {act.actor_name} <span className="font-medium text-app-text-muted">performed</span> {act.action_type.replace(/_/g, ' ')}
+                      </p>
+                      <p className="text-[10px] text-app-text-muted leading-relaxed">{act.description}</p>
+                      <p className="text-[9px] font-bold text-app-text-muted/60">{new Date(act.created_at).toLocaleTimeString()}</p>
+                   </div>
+                 </div>
+               ))}
+            </div>
+          </DashboardGridCard>
         </div>
 
-        {compass ? (
-          <section className="mb-5 rounded-2xl border border-app-border bg-app-surface-2 p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <Users
-                className="h-[18px] w-[18px] text-app-accent"
-                aria-hidden
-              />
-              <h3 className="text-sm font-black text-app-text">
-                Today&apos;s floor team
-              </h3>
-              <span className="ui-pill bg-app-surface text-app-text-muted">
-                {(compass.today_floor_staff ?? []).length} scheduled
-              </span>
-            </div>
-            <p className="mb-3 text-xs text-app-text-muted">
-              Store-local today from Staff → Schedule (salesperson &amp; sales
-              support). Refreshes with the morning board.
-            </p>
-            {(compass.today_floor_staff ?? []).length === 0 ? (
-              <p className="text-sm text-app-text-muted">
-                No floor staff on the schedule for today, or schedule data is
-                not available yet.
-              </p>
-            ) : (
-              <ul className="flex flex-wrap gap-3">
-                {(compass.today_floor_staff ?? []).map((s) => (
-                  <li
-                    key={s.id}
-                    className="flex min-w-0 max-w-full items-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2"
-                  >
-                    <img
-                      src={staffAvatarUrl(s.avatar_key)}
-                      alt=""
-                      className="h-9 w-9 shrink-0 rounded-full border border-app-border object-cover"
-                    />
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-bold text-app-text">
-                        {s.full_name}
-                      </p>
-                      <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
-                        {floorRoleLabel(s.role)}
-                      </p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ) : null}
+        {/* Floor Management */}
+        <div className="xl:col-span-4 space-y-6">
+           <WeatherDashboardWidget refreshSignal={refreshSignal} />
 
-        {permissionsLoaded && hasPermission("tasks.complete") ? (
-          <section className="mb-5 rounded-2xl border border-app-border bg-app-surface-2 p-4">
-            <div className="mb-2 flex items-center gap-2">
-              <ListChecks className="text-app-accent" size={18} />
-              <h3 className="text-sm font-black text-app-text">My tasks</h3>
-              <span className="ui-pill bg-app-surface text-app-text-muted">
-                {taskMeOpen.length} open
-              </span>
-            </div>
-            {taskMeOpen.length === 0 ? (
-              <p className="text-sm text-app-text-muted">
-                No open tasks right now.
-              </p>
-            ) : (
-              <ul className="mt-2 space-y-2">
-                {taskMeOpen.slice(0, 5).map((t) => (
-                  <li key={t.id}>
-                    <button
-                      type="button"
-                      onClick={() => setTaskDrawerId(t.id)}
-                      className="flex w-full items-center justify-between gap-2 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-left text-sm"
-                    >
-                      <span className="font-semibold text-app-text">
-                        {t.title_snapshot}
-                      </span>
-                      <span className="text-[10px] text-app-text-muted">
-                        {t.due_date ?? "—"}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
-        ) : null}
-
-        {canViewWeddingBoard ? (
-          <div className="mb-5 grid grid-cols-1 gap-4 md:grid-cols-3">
-            <button
-              type="button"
-              onClick={() => setQueueDrawer("measure")}
-              className="rounded-2xl border border-[#e6dbff] bg-[#f6f1ff] p-4 text-left"
-            >
-              <div className="mb-2 flex items-center gap-2 text-[#6e4bb3]">
-                <Ruler size={16} />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">
-                  Needs measure
-                </span>
+           <DashboardGridCard
+             title="Team on Floor"
+             subtitle="Active personnel status"
+             icon={Users}
+           >
+              <div className="space-y-4">
+                 {(compass?.today_floor_staff ?? []).length === 0 ? (
+                    <div className="py-12 text-center opacity-30 italic text-xs font-semibold">No staff scheduled for today</div>
+                 ) : (
+                   compass?.today_floor_staff?.map((staff) => (
+                      <div key={staff.id} className="flex items-center justify-between p-3 rounded-xl bg-app-bg/30">
+                         <div className="flex items-center gap-3">
+                            <img src={staffAvatarUrl(staff.avatar_key)} className="h-8 w-8 rounded-lg bg-app-accent/20" alt="" />
+                            <div>
+                               <p className="text-xs font-bold text-app-text">{staff.full_name}</p>
+                               <p className="text-[9px] font-medium text-app-text-muted">{floorRoleLabel(staff.role)}</p>
+                            </div>
+                         </div>
+                         <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                      </div>
+                   ))
+                 )}
               </div>
-              <p className="text-4xl font-black text-[#3e2d66]">
-                {compass?.stats.needs_measure ?? 0}
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setQueueDrawer("order")}
-              className="rounded-2xl border border-[#cfe7ef] bg-[#e8f5fa] p-4 text-left"
-            >
-              <div className="mb-2 flex items-center gap-2 text-[#2f6d86]">
-                <ShoppingBag size={16} />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">
-                  Needs order
-                </span>
-              </div>
-              <p className="text-4xl font-black text-[#1d4b5d]">
-                {compass?.stats.needs_order ?? 0}
-              </p>
-            </button>
-            <button
-              type="button"
-              onClick={() => setQueueDrawer("overdue")}
-              className="rounded-2xl border border-[#ffe2c7] bg-[#fff1e4] p-4 text-left"
-            >
-              <div className="mb-2 flex items-center gap-2 text-[#a0602b]">
-                <Clock size={16} />
-                <span className="text-[11px] font-black uppercase tracking-[0.14em]">
-                  Overdue pickup
-                </span>
-              </div>
-              <p className="text-4xl font-black text-[#6d3e18]">
-                {compass?.stats.overdue_pickups ?? 0}
-              </p>
-            </button>
-          </div>
-        ) : permissionsLoaded ? (
-          <p className="mb-5 rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm text-app-text-muted">
-            Wedding queue metrics and activity feed require the{" "}
-            <span className="font-semibold text-app-text">weddings.view</span>{" "}
-            permission.
-          </p>
-        ) : null}
-
-        <WeatherDashboardWidget refreshSignal={refreshSignal} />
-
-        <div className="ui-section-stack">
-          <section className="ui-zone-primary p-5">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-6">
-              <div className="min-w-[300px] flex-1">
-                <h3 className="mb-4 text-sm font-black text-app-text">
-                  Urgent actions
-                </h3>
-                {!canViewWeddingBoard ? (
-                  <p className="text-sm text-app-text-muted">
-                    Wedding queue data requires the{" "}
-                    <span className="font-semibold text-app-text">
-                      weddings.view
-                    </span>{" "}
-                    permission.
-                  </p>
-                ) : !compass ? (
-                  <p className="text-sm text-app-text-muted">Loading...</p>
-                ) : pulseRows.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">
-                    No urgent members.
-                  </p>
-                ) : (
-                  <table className="w-full text-left text-sm">
-                    <thead className="text-[10px] font-black uppercase tracking-[0.14em] text-app-text-muted">
-                      <tr>
-                        <th className="py-2">Customer / Role</th>
-                        <th className="py-2">Party / Event</th>
-                        <th className="py-2 text-right">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pulseRows.map((r) => (
-                        <tr
-                          key={r.wedding_member_id}
-                          className="border-t border-app-border"
-                        >
-                          <td className="py-2.5">
-                            <p className="font-semibold text-app-text">
-                              {r.customer_name}
-                            </p>
-                            <p className="text-[11px] text-app-text-muted">
-                              {r.role}
-                            </p>
-                          </td>
-                          <td className="py-2.5 text-app-text-muted">
-                            <p className="text-app-text-muted">
-                              {r.party_name}
-                            </p>
-                            <p className="text-[11px] text-app-text-muted">
-                              {r.event_date}
-                            </p>
-                          </td>
-                          <td className="py-2.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => setCompassDrawerRow(r)}
-                              className="ui-btn-secondary px-3 py-1.5"
-                            >
-                              Open
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-
-              <div className="min-w-[300px] flex-1 border-l border-app-border pl-6">
-                <h3 className="mb-4 text-sm font-black text-app-text">
-                  Global activity feed
-                </h3>
-                {!canViewWeddingBoard ? (
-                  <p className="text-sm text-app-text-muted">
-                    Activity feed requires the{" "}
-                    <span className="font-semibold text-app-text">
-                      weddings.view
-                    </span>{" "}
-                    permission.
-                  </p>
-                ) : activityFeed.length === 0 ? (
-                  <p className="text-sm text-app-text-muted">
-                    No activity yet.
-                  </p>
-                ) : (
-                  <ul className="space-y-4">
-                    {activityFeed.map((ev) => (
-                      <li
-                        key={ev.id}
-                        className="border-b border-app-border pb-3 text-sm last:border-0 last:pb-0"
-                      >
-                        <p className="font-semibold text-app-text">
-                          {ev.actor_name}{" "}
-                          <span className="px-1 font-normal text-app-text-muted">
-                            did
-                          </span>{" "}
-                          {ev.action_type}
-                        </p>
-                        <p className="mt-0.5 text-app-text-muted">
-                          {ev.description}
-                        </p>
-                        <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                          {new Date(ev.created_at).toLocaleString()} ·{" "}
-                          {ev.party_name}{" "}
-                          {ev.member_name ? `(${ev.member_name})` : ""}
-                        </p>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            </div>
-          </section>
+           </DashboardGridCard>
         </div>
       </div>
     </div>
   );
+
+  if (activeSection === "dashboard" || !activeSection) {
+    return (
+      <>
+        <div className="flex flex-1 flex-col bg-transparent">
+          <div className="flex-1 p-6 sm:p-12">
+            {renderDashboard()}
+          </div>
+        </div>
+
+        <CompassMemberDetailDrawer
+          row={compassDrawerRow}
+          onClose={() => setCompassDrawerRow(null)}
+          onOpenFullParty={(partyId) => {
+            setCompassDrawerRow(null);
+            onOpenWeddingParty?.(partyId);
+          }}
+        />
+
+        <TaskChecklistDrawer
+          open={taskDrawerId != null}
+          instanceId={taskDrawerId}
+          authHeaders={taskAuth}
+          onClose={() => setTaskDrawerId(null)}
+          onUpdated={() => void loadTasksMe()}
+        />
+
+      </>
+    );
+  }
 }

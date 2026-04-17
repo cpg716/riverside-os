@@ -1,12 +1,21 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import type { TaxCategory } from "../../lib/tax";
 
 interface CustomItemPromptModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConfirm: (data: { itemType: string; price: string; needByDate: string | null; isRush: boolean; needsGiftWrap: boolean }) => void;
+  onConfirm: (data: { 
+    itemType: string; 
+    price: string; 
+    cost: string;
+    needByDate: string | null; 
+    isRush: boolean; 
+    needsGiftWrap: boolean;
+    taxCategory: TaxCategory;
+  }) => void;
 }
 
-const ITEM_TYPES = ["SUITS", "SPORT COAT", "SLACKS", "INDIVIDUALIZED SHIRTS"];
+const ITEM_TYPES = ["SUITS", "SPORT COAT", "SLACKS", "INDIVIDUALIZED SHIRTS", "OTHER"];
 
 export default function CustomItemPromptModal({
   isOpen,
@@ -15,20 +24,34 @@ export default function CustomItemPromptModal({
 }: CustomItemPromptModalProps) {
   const [itemType, setItemType] = useState(ITEM_TYPES[0]);
   const [price, setPrice] = useState("");
+  const [cost, setCost] = useState("");
   const [needByDate, setNeedByDate] = useState("");
   const [isRush, setIsRush] = useState(false);
   const [needsGiftWrap, setNeedsGiftWrap] = useState(false);
+  const [taxCategory, setTaxCategory] = useState<TaxCategory>("clothing");
+
+  // Sync tax category when item type changes
+  useEffect(() => {
+    if (itemType === "OTHER") {
+      setTaxCategory("other");
+    } else {
+      setTaxCategory("clothing");
+    }
+  }, [itemType]);
 
   const handleConfirm = () => {
     onConfirm({
       itemType,
       price: price || "0.00",
+      cost: cost || "0.00",
       needByDate: needByDate || null,
       isRush,
       needsGiftWrap,
+      taxCategory,
     });
     // Reset
     setPrice("");
+    setCost("");
     setNeedByDate("");
     setIsRush(false);
     setNeedsGiftWrap(false);
@@ -75,6 +98,29 @@ export default function CustomItemPromptModal({
             </div>
           </div>
 
+          {/* Tax Category Override (Visible if OTHER) */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Tax Classification
+            </label>
+            <div className="flex gap-2">
+              {(["clothing", "footwear", "other"] as TaxCategory[]).map((cat) => (
+                <button
+                  key={cat}
+                  type="button"
+                  onClick={() => setTaxCategory(cat)}
+                  className={`flex-1 rounded-lg border px-2 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
+                    taxCategory === cat
+                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-600"
+                      : "border-app-border bg-app-surface-2 text-app-text-muted"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Price */}
           <div className="space-y-1.5">
             <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -86,6 +132,20 @@ export default function CustomItemPromptModal({
               onChange={(e) => setPrice(e.target.value)}
               placeholder="0.00"
               className="ui-input h-12 w-full text-lg font-black tabular-nums tracking-tight"
+            />
+          </div>
+
+          {/* Cost */}
+          <div className="space-y-1.5">
+            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Vendor Cost ($)
+            </label>
+            <input
+              type="text"
+              value={cost}
+              onChange={(e) => setCost(e.target.value)}
+              placeholder="0.00"
+              className="ui-input h-12 w-full text-lg font-black tabular-nums tracking-tight border-amber-200/50"
             />
           </div>
 
@@ -102,53 +162,55 @@ export default function CustomItemPromptModal({
             />
           </div>
 
-          {/* Rush Order */}
-          <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text">
-                Rush Order
-              </span>
-              <span className="text-[10px] font-bold text-red-600">
-                Mark as URGENT
-              </span>
-            </div>
-            <div
-              onClick={() => setIsRush(!isRush)}
-              className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                isRush ? "bg-red-600" : "bg-zinc-300 dark:bg-zinc-700"
-              }`}
-            >
+          <div className="grid grid-cols-2 gap-2">
+            {/* Rush Order */}
+            <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                  Rush
+                </span>
+                <span className="text-[10px] font-bold text-red-600">
+                  URGENT
+                </span>
+              </div>
               <div
-                className={`absolute left-1 top-1 h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
-                  isRush ? "translate-x-5" : "translate-x-0"
+                onClick={() => setIsRush(!isRush)}
+                className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                  isRush ? "bg-red-600" : "bg-zinc-300 dark:bg-zinc-700"
                 }`}
-              />
-            </div>
-          </label>
+              >
+                <div
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
+                    isRush ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </div>
+            </label>
 
-          {/* Gift Wrap */}
-          <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
-            <div className="flex flex-col">
-              <span className="text-[10px] font-black uppercase tracking-widest text-app-text">
-                Gift Wrap
-              </span>
-              <span className="text-[10px] font-bold text-emerald-600">
-                Needs packaging
-              </span>
-            </div>
-            <div
-              onClick={() => setNeedsGiftWrap(!needsGiftWrap)}
-              className={`relative h-6 w-11 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
-                needsGiftWrap ? "bg-emerald-600" : "bg-zinc-300 dark:bg-zinc-700"
-              }`}
-            >
+            {/* Gift Wrap */}
+            <label className="flex cursor-pointer items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
+              <div className="flex flex-col">
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                  Wrap
+                </span>
+                <span className="text-[10px] font-bold text-emerald-600">
+                  DECO
+                </span>
+              </div>
               <div
-                className={`absolute left-1 top-1 h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
-                  needsGiftWrap ? "translate-x-5" : "translate-x-0"
+                onClick={() => setNeedsGiftWrap(!needsGiftWrap)}
+                className={`relative h-5 w-9 shrink-0 cursor-pointer rounded-full transition-colors duration-200 ease-in-out ${
+                  needsGiftWrap ? "bg-emerald-600" : "bg-zinc-300 dark:bg-zinc-700"
                 }`}
-              />
-            </div>
-          </label>
+              >
+                <div
+                  className={`absolute left-0.5 top-0.5 h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
+                    needsGiftWrap ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </div>
+            </label>
+          </div>
         </div>
 
         <div className="flex gap-2 border-t border-app-border bg-app-surface-2 p-4">

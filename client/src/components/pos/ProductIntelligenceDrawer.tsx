@@ -154,22 +154,22 @@ export default function ProductIntelligenceDrawer({
             ) : data ? (
               <div className="space-y-6 p-6">
                 {/* 1. Identity & Selection (TOP) */}
-                <div className="relative overflow-hidden rounded-3xl bg-app-text p-6 text-white shadow-xl">
-                   <div className="absolute -right-4 -top-4 opacity-10">
+                <div className="relative overflow-hidden rounded-3xl bg-app-surface-2 border border-app-border p-6 shadow-xl">
+                   <div className="absolute -right-4 -top-4 opacity-10 text-app-text">
                       <Package size={120} strokeWidth={1} />
                    </div>
                    <div className="relative z-10 space-y-3">
                       <div className="flex flex-wrap gap-2">
-                        <span className="rounded-full bg-white/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-white/80 ring-1 ring-white/20">
+                        <span className="rounded-full bg-app-surface-3 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted ring-1 ring-app-border">
                           SKU: {data.sku}
                         </span>
                         {data.variation_label && (
-                          <span className="rounded-full bg-emerald-500/20 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-emerald-400 ring-1 ring-emerald-500/30">
+                          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-[0.2em] text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20">
                             {data.variation_label}
                           </span>
                         )}
                       </div>
-                      <h3 className="text-2xl font-black leading-tight tracking-tight uppercase italic">{data.name}</h3>
+                      <h3 className="text-2xl font-black leading-tight tracking-tight uppercase italic text-app-text">{data.name}</h3>
                    </div>
                 </div>
 

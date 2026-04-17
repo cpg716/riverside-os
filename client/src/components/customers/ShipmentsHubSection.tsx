@@ -47,7 +47,7 @@ interface ShipmentsHubSectionProps {
   /** When set, list is restricted to this customer (hub tab). */
   customerIdFilter?: string | null;
   embedded?: boolean;
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
   /** When set (e.g. from hub timeline), load this shipment detail; parent should clear via `onOpenShipmentIdConsumed`. */
   openShipmentId?: string | null;
   onOpenShipmentIdConsumed?: () => void;
@@ -74,7 +74,7 @@ export default function ShipmentsHubSection({
   baseUrl = defaultBase,
   customerIdFilter = null,
   embedded = false,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
   openShipmentId = null,
   onOpenShipmentIdConsumed,
 }: ShipmentsHubSectionProps) {
@@ -618,11 +618,11 @@ export default function ShipmentsHubSection({
                     <span className="font-mono">
                       {String(detail.shipment.order_id).slice(0, 8)}…
                     </span>
-                    {onOpenOrderInBackoffice ? (
+                    {onOpenTransactionInBackoffice ? (
                       <button
                         type="button"
                         onClick={() =>
-                          onOpenOrderInBackoffice(
+                          onOpenTransactionInBackoffice(
                             String(detail.shipment.order_id),
                           )
                         }

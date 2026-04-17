@@ -24,11 +24,17 @@ pub const FULL_COMBINED_SALES_TAX_RATE: Decimal = dec!(0.0875);
 pub const LOCAL_ONLY_COMBINED_SALES_TAX_RATE: Decimal = dec!(0.0475);
 
 /// Product tax classification for Publication 718-C.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
+)]
+#[sqlx(type_name = "tax_category", rename_all = "lowercase")]
+#[serde(rename_all = "lowercase")]
 pub enum TaxCategory {
     Clothing,
     Footwear,
-    /// Any category that is not clothing or footwear (full state + local).
+    Accessory,
+    Service,
+    /// Any other category (mapped to full state + local).
     Other,
 }
 

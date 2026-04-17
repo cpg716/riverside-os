@@ -54,7 +54,7 @@ pub async fn merge_preview(
     }
 
     let orders: i64 =
-        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM orders WHERE customer_id = $1")
+        sqlx::query_scalar("SELECT COUNT(*)::bigint FROM transactions WHERE customer_id = $1")
             .bind(slave)
             .fetch_one(pool)
             .await?;

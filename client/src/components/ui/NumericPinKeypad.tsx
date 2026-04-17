@@ -1,6 +1,21 @@
+import { useEffect, useCallback } from "react";
+
 /** Touch-friendly 0–9 entry for a single 4-digit staff credential (same value used everywhere). */
 
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "del"] as const;
+const KEYS = [
+  "1",
+  "2",
+  "3",
+  "4",
+  "5",
+  "6",
+  "7",
+  "8",
+  "9",
+  ".",
+  "0",
+  "del",
+] as const;
 
 export function PinDots({
   length,
@@ -12,10 +27,7 @@ export function PinDots({
   className?: string;
 }) {
   return (
-    <div
-      className={`flex justify-center gap-3 ${className}`}
-      aria-hidden
-    >
+    <div className={`flex justify-center gap-3 ${className}`} aria-hidden>
       {Array.from({ length: maxDigits }, (_, i) => (
         <div
           key={i}
@@ -31,41 +43,72 @@ export function PinDots({
 export default function NumericPinKeypad({
   value,
   onChange,
+  onEnter,
   maxDigits = 4,
   disabled = false,
   className = "",
   compact = false,
+  showDecimal = false,
 }: {
   value: string;
   onChange: (next: string) => void;
+  onEnter?: () => void;
   maxDigits?: number;
   disabled?: boolean;
   className?: string;
   /** Denser keys for POS payment drawer (1080p zero-scroll). */
   compact?: boolean;
+  showDecimal?: boolean;
 }) {
-  const press = (k: string) => {
+  const press = useCallback(
+    (k: string) => {
+      if (disabled) return;
+      if (k === "del" || k === "Backspace") {
+        onChange(value.slice(0, -1));
+        return;
+      }
+      if (k === ".") {
+        if (!showDecimal) return;
+        if (value.includes(".")) return;
+        onChange(value + k);
+        return;
+      }
+      if (!k || !/^\d$/.test(k)) return;
+      if (value.length >= maxDigits) return;
+      onChange(value + k);
+    },
+    [disabled, value, maxDigits, onChange, showDecimal],
+  );
+
+  useEffect(() => {
     if (disabled) return;
-    if (k === "del") {
-      onChange(value.slice(0, -1));
-      return;
-    }
-    if (!k || !/^\d$/.test(k)) return;
-    if (value.length >= maxDigits) return;
-    onChange(value + k);
-  };
+    const handleDown = (e: KeyboardEvent) => {
+      if ((e.key >= "0" && e.key <= "9") || (e.key === "." && showDecimal)) {
+        press(e.key);
+      } else if (e.key === "Backspace") {
+        press("del");
+      } else if (e.key === "Enter" && value.length === maxDigits && onEnter) {
+        onEnter();
+      }
+    };
+    window.addEventListener("keydown", handleDown);
+    return () => window.removeEventListener("keydown", handleDown);
+  }, [disabled, value, maxDigits, onEnter, press, showDecimal]);
 
   const gap = compact ? "gap-1" : "gap-2 sm:gap-3";
   const cell = compact
     ? "min-h-11 rounded-lg text-lg"
-    : "min-h-[52px] rounded-2xl text-xl";
+    : "min-h-16 rounded-2xl text-2xl";
 
   return (
     <div className={className}>
       <div className={`grid grid-cols-3 ${gap}`}>
         {KEYS.map((k) =>
-          k === "" ? (
-            <div key="spacer" className={compact ? "min-h-11" : "min-h-[52px]"} />
+          k === "." && !showDecimal ? (
+            <div
+              key="spacer"
+              className={compact ? "min-h-11" : "min-h-[52px]"}
+            />
           ) : (
             <button
               key={k}

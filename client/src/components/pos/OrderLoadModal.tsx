@@ -13,7 +13,7 @@ interface CustomerOrder {
   need_by_date: string | null;
 }
 
-interface OrderItem {
+export interface OrderItem {
   order_item_id: string;
   product_id: string;
   variant_id: string;
@@ -24,6 +24,8 @@ interface OrderItem {
   unit_price: string;
   fulfillment: string;
   is_fulfilled: boolean;
+  is_rush?: boolean;
+  need_by_date?: string | null;
 }
 
 interface OrderLoadModalProps {
@@ -55,7 +57,7 @@ export default function OrderLoadModal({
 
   const loadOrderItems = (orderId: string) => {
     setViewingItemsOrderId(orderId);
-    fetch(`${baseUrl}/api/orders/order-items/${orderId}`, {
+    fetch(`${baseUrl}/api/transactions/items/${orderId}`, {
       headers: apiAuth(),
     })
       .then((r) => r.json())
@@ -71,7 +73,7 @@ export default function OrderLoadModal({
   useEffect(() => {
     if (!isOpen || !customerId) return;
     setLoading(true);
-    fetch(`${baseUrl}/api/orders/by-customer/${customerId}`, {
+    fetch(`${baseUrl}/api/transactions/by-customer/${customerId}`, {
       headers: apiAuth(),
     })
       .then((r) => r.json())

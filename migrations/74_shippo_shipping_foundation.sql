@@ -1,6 +1,10 @@
 -- Shippo shipping foundation: order ship metadata, persisted rate quotes, Settings JSON.
 
-CREATE TYPE order_fulfillment_method AS ENUM ('pickup', 'ship');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_fulfillment_method') THEN
+        CREATE TYPE order_fulfillment_method AS ENUM ('pickup', 'ship');
+    END IF;
+END $$;
 
 ALTER TABLE orders
     ADD COLUMN IF NOT EXISTS fulfillment_method order_fulfillment_method NOT NULL DEFAULT 'pickup',

@@ -41,7 +41,7 @@ function nonAdminHeaders(): Record<string, string> {
 function utcIsoDaysAgo(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString();
+  return d.toISOString().split("T")[0]; // YYYY-MM-DD
 }
 
 type AdminManualRow = {
@@ -290,7 +290,7 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
     request,
   }) => {
     const from = encodeURIComponent(utcIsoDaysAgo(30));
-    const to = encodeURIComponent(new Date().toISOString());
+    const to = encodeURIComponent(new Date().toISOString().split("T")[0]);
 
     const taxRes = await request.get(
       `${apiBase()}/api/insights/nys-tax-audit?from=${from}&to=${to}`,

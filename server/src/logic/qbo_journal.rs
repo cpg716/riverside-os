@@ -1,7 +1,7 @@
 //! Proposed daily journal lines for QBO staging (mapping-first, review before push).
 //!
 //! Refunds: negative `payment_transactions` aggregate as **credits** to tender accounts (cash out).
-//! Fulfillment-day revenue/COGS/tax use **effective** line qty (sold minus `order_return_lines`).
+//! Fulfillment-day revenue/COGS/tax use **effective** line qty (sold minus `transaction_return_lines`).
 //! Returns recorded on `activity_date` add contra-revenue, tax, and (when restocked) COGS reversal
 //! so refund-day journals stay balanced. See `docs/QBO_JOURNAL_TEST_MATRIX.md`.
 
@@ -58,17 +58,17 @@ async fn qbo_map_name(
     Ok(row)
 }
 
-/// `order_items` plus returned qty per line (matches `order_recalc` effective qty).
-const OI_EFFECTIVE_JOIN: &str = r#"
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+/// `transaction_lines` plus returned qty per line (matches `order_recalc` effective qty).
+const TL_EFFECTIVE_JOIN: &str = r#"
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN (
-            SELECT order_item_id, SUM(quantity_returned)::int AS returned
-            FROM order_return_lines
-            GROUP BY order_item_id
-        ) orl ON orl.order_item_id = oi.id
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
     "#;
 
 async fn ledger_fallback(
@@ -113,16 +113,16 @@ async fn qbo_map_with_misc_fallback(
 }
 
 /// Build a proposed journal for fulfilled-recognition day (UTC calendar date).
-/// MVP: takeaway-style recognition only — fulfilled orders with `fulfilled_at` on `activity_date`.
+/// MVP: takeaway-style recognition only — fulfilled transactions with `fulfilled_at` on `activity_date`.
 /// Deposits, partial pickups, and loyalty gift cards are flagged in `warnings`.
 pub async fn propose_daily_journal(
     pool: &PgPool,
     activity_date: NaiveDate,
 ) -> Result<JournalProposal, sqlx::Error> {
     let mut warnings: Vec<String> = vec![
-        "MVP journal: uses fulfilled orders on this UTC date only. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync.".to_string(),
+        "MVP journal: uses fulfilled transactions on this UTC date only. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync.".to_string(),
         "Gift card: paid-card redemptions debit `liability_gift_card` / default; loyalty/giveaway redemptions debit `expense_loyalty` / default when checkout `sub_type` metadata is present. Unmapped cases fall back to tender mapping.".to_string(),
-        "Revenue/COGS/tax for fulfilled orders use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate fulfillment-day nets.".to_string(),
+        "Revenue/COGS/tax for fulfilled transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate fulfillment-day nets.".to_string(),
     ];
 
     #[derive(sqlx::FromRow)]
@@ -144,10 +144,10 @@ pub async fn propose_daily_journal(
             SUM((oi.unit_cost * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS cogs_ext,
             SUM((oi.state_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS tax_state,
             SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS tax_local
-        {OI_EFFECTIVE_JOIN}
-        WHERE o.status::text NOT IN ('cancelled')
-          AND o.fulfilled_at IS NOT NULL
-          AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+        {TL_EFFECTIVE_JOIN}
+        WHERE o.is_forfeited = false
+          AND oi.fulfilled_at IS NOT NULL
+          AND (oi.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
         GROUP BY p.category_id, c.name
@@ -181,7 +181,43 @@ pub async fn propose_daily_journal(
     .fetch_all(pool)
     .await?;
 
+    let rounding_total: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(rounding_adjustment), 0)::numeric(14, 2)
+        FROM transactions
+        WHERE (booked_at AT TIME ZONE 'UTC')::date = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
     let mut lines: Vec<JournalLine> = Vec::new();
+
+    if !rounding_total.is_zero() {
+        if let Some((aid, aname)) = ledger_fallback(pool, "CASH_ROUNDING").await? {
+            let abs_amt = rounding_total.abs().round_dp(2);
+            // rounding_adjustment is (RoundedCash - ExactPrice)
+            // If RoundedCash > ExactPrice, adjustment is positive (Income/Credit)
+            // If RoundedCash < ExactPrice, adjustment is negative (Expense/Debit)
+            let (debit, credit) = if rounding_total > Decimal::ZERO {
+                (Decimal::ZERO, abs_amt)
+            } else {
+                (abs_amt, Decimal::ZERO)
+            };
+
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit,
+                credit,
+                memo: "Swedish Rounding Adjustments (Cash)".to_string(),
+                detail: vec![
+                    serde_json::json!({ "kind": "cash_rounding", "amount": rounding_total }),
+                ],
+            });
+        }
+    }
 
     #[derive(sqlx::FromRow)]
     struct SuitSwapEv {
@@ -535,9 +571,9 @@ pub async fn propose_daily_journal(
                     ELSE 0::numeric
                 END
             ) AS cogs_restock
-        FROM order_return_lines orl
-        INNER JOIN order_items oi ON oi.id = orl.order_item_id
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_return_lines orl
+        INNER JOIN transaction_lines oi ON oi.id = orl.transaction_line_id
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         WHERE o.status::text NOT IN ('cancelled')
@@ -671,47 +707,47 @@ pub async fn propose_daily_journal(
         release_amount: Option<Decimal>,
     }
 
-    // For fulfilled orders, release previously held customer deposits into recognized revenue.
+    // For fulfilled transactions, release previously held customer deposits into recognized revenue.
     let deposit_release_rows: Vec<DepositReleaseAgg> = sqlx::query_as(
         r#"
-        WITH fulfilled_orders AS (
+        WITH fulfilled_transactions AS (
             SELECT o.id
-            FROM orders o
+            FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
               AND o.fulfilled_at IS NOT NULL
               AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
         ),
         order_deposit AS (
             SELECT
-                pa.target_order_id AS order_id,
+                pa.target_transaction_id AS transaction_id,
                 COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
             FROM payment_allocations pa
-            INNER JOIN fulfilled_orders fo ON fo.id = pa.target_order_id
-            GROUP BY pa.target_order_id
+            INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
+            GROUP BY pa.target_transaction_id
         ),
         category_net AS (
             SELECT
-                oi.order_id,
+                oi.transaction_id,
                 p.category_id,
                 c.name AS category_name,
                 SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)) AS cat_net
-            FROM order_items oi
+            FROM transaction_lines oi
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN (
-                SELECT order_item_id, SUM(quantity_returned)::int AS returned
-                FROM order_return_lines
-                GROUP BY order_item_id
-            ) orl ON orl.order_item_id = oi.id
-            INNER JOIN fulfilled_orders fo ON fo.id = oi.order_id
-            GROUP BY oi.order_id, p.category_id, c.name
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            INNER JOIN fulfilled_transactions fo ON fo.id = oi.transaction_id
+            GROUP BY oi.transaction_id, p.category_id, c.name
         ),
         order_net AS (
-            SELECT order_id, SUM(cat_net)::numeric(14,2) AS order_net
+            SELECT transaction_id, SUM(cat_net)::numeric(14,2) AS order_net
             FROM category_net
-            GROUP BY order_id
+            GROUP BY transaction_id
         )
         SELECT
             cn.category_id,
@@ -724,8 +760,8 @@ pub async fn propose_daily_journal(
                 END
             )::numeric(14,2) AS release_amount
         FROM category_net cn
-        INNER JOIN order_net onet ON onet.order_id = cn.order_id
-        INNER JOIN order_deposit od ON od.order_id = cn.order_id
+        INNER JOIN order_net onet ON onet.transaction_id = cn.transaction_id
+        INNER JOIN order_deposit od ON od.transaction_id = cn.transaction_id
         WHERE od.deposit_total > 0
         GROUP BY cn.category_id, cn.category_name
         "#,
@@ -737,53 +773,53 @@ pub async fn propose_daily_journal(
     // Day-level verification: total releasable allocations should closely match deposit signals.
     let (deposit_total_day, release_total_day): (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
         r#"
-        WITH fulfilled_orders AS (
+        WITH fulfilled_transactions AS (
             SELECT o.id
-            FROM orders o
+            FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
               AND o.fulfilled_at IS NOT NULL
               AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
         ),
         order_deposit AS (
             SELECT
-                pa.target_order_id AS order_id,
+                pa.target_transaction_id AS transaction_id,
                 COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
             FROM payment_allocations pa
-            INNER JOIN fulfilled_orders fo ON fo.id = pa.target_order_id
-            GROUP BY pa.target_order_id
+            INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
+            GROUP BY pa.target_transaction_id
         ),
         category_net AS (
             SELECT
-                oi.order_id,
+                oi.transaction_id,
                 SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)) AS cat_net
-            FROM order_items oi
+            FROM transaction_lines oi
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
             LEFT JOIN (
-                SELECT order_item_id, SUM(quantity_returned)::int AS returned
-                FROM order_return_lines
-                GROUP BY order_item_id
-            ) orl ON orl.order_item_id = oi.id
-            INNER JOIN fulfilled_orders fo ON fo.id = oi.order_id
-            GROUP BY oi.order_id, oi.product_id
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            INNER JOIN fulfilled_transactions fo ON fo.id = oi.transaction_id
+            GROUP BY oi.transaction_id, oi.product_id
         ),
         order_net AS (
-            SELECT order_id, SUM(cat_net)::numeric(14,2) AS order_net
+            SELECT transaction_id, SUM(cat_net)::numeric(14,2) AS order_net
             FROM category_net
-            GROUP BY order_id
+            GROUP BY transaction_id
         ),
         alloc AS (
             SELECT
-                cn.order_id,
+                cn.transaction_id,
                 CASE
                     WHEN onet.order_net > 0
                         THEN ROUND(od.deposit_total * (cn.cat_net / onet.order_net), 2)
                     ELSE 0::numeric
                 END AS alloc_amt
             FROM category_net cn
-            INNER JOIN order_net onet ON onet.order_id = cn.order_id
-            INNER JOIN order_deposit od ON od.order_id = cn.order_id
+            INNER JOIN order_net onet ON onet.transaction_id = cn.transaction_id
+            INNER JOIN order_deposit od ON od.transaction_id = cn.transaction_id
         )
         SELECT
             (SELECT COALESCE(SUM(deposit_total), 0::numeric) FROM order_deposit) AS deposit_total_day,
@@ -805,45 +841,45 @@ pub async fn propose_daily_journal(
     // Proportionality verification: detect per-order rounding drift from category splits.
     let drift_rows: Vec<(Uuid, Decimal)> = sqlx::query_as(
         r#"
-        WITH fulfilled_orders AS (
+        WITH fulfilled_transactions AS (
             SELECT o.id
-            FROM orders o
+            FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
               AND o.fulfilled_at IS NOT NULL
               AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
         ),
         order_deposit AS (
             SELECT
-                pa.target_order_id AS order_id,
+                pa.target_transaction_id AS transaction_id,
                 COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
             FROM payment_allocations pa
-            INNER JOIN fulfilled_orders fo ON fo.id = pa.target_order_id
-            GROUP BY pa.target_order_id
+            INNER JOIN fulfilled_transactions fo ON fo.id = pa.target_transaction_id
+            GROUP BY pa.target_transaction_id
         ),
         category_net AS (
             SELECT
-                oi.order_id,
+                oi.transaction_id,
                 SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14,2)) AS cat_net
-            FROM order_items oi
+            FROM transaction_lines oi
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
             LEFT JOIN (
-                SELECT order_item_id, SUM(quantity_returned)::int AS returned
-                FROM order_return_lines
-                GROUP BY order_item_id
-            ) orl ON orl.order_item_id = oi.id
-            INNER JOIN fulfilled_orders fo ON fo.id = oi.order_id
-            GROUP BY oi.order_id, oi.product_id
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            INNER JOIN fulfilled_transactions fo ON fo.id = oi.transaction_id
+            GROUP BY oi.transaction_id, oi.product_id
         ),
         order_net AS (
-            SELECT order_id, SUM(cat_net)::numeric(14,2) AS order_net
+            SELECT transaction_id, SUM(cat_net)::numeric(14,2) AS order_net
             FROM category_net
-            GROUP BY order_id
+            GROUP BY transaction_id
         ),
         alloc AS (
             SELECT
-                cn.order_id,
+                cn.transaction_id,
                 CASE
                     WHEN onet.order_net > 0
                         THEN ROUND(od.deposit_total * (cn.cat_net / onet.order_net), 2)
@@ -851,14 +887,14 @@ pub async fn propose_daily_journal(
                 END AS alloc_amt,
                 od.deposit_total
             FROM category_net cn
-            INNER JOIN order_net onet ON onet.order_id = cn.order_id
-            INNER JOIN order_deposit od ON od.order_id = cn.order_id
+            INNER JOIN order_net onet ON onet.transaction_id = cn.transaction_id
+            INNER JOIN order_deposit od ON od.transaction_id = cn.transaction_id
         )
         SELECT
-            order_id,
+            transaction_id,
             ABS(MAX(deposit_total) - SUM(alloc_amt))::numeric(14,2) AS drift
         FROM alloc
-        GROUP BY order_id
+        GROUP BY transaction_id
         HAVING ABS(MAX(deposit_total) - SUM(alloc_amt)) > 0.01
         "#,
     )
@@ -872,7 +908,7 @@ pub async fn propose_daily_journal(
             .max()
             .unwrap_or(Decimal::ZERO);
         warnings.push(format!(
-            "Deposit release proportionality drift detected on {} orders (max ${:.2}); review category splits for rounding.",
+            "Deposit release proportionality drift detected on {} transactions (max ${:.2}); review category splits for rounding.",
             drift_rows.len(),
             max_drift
         ));
@@ -1064,6 +1100,53 @@ pub async fn propose_daily_journal(
         }
     }
 
+    // 4.5. New Deposits: payments today for transactions NOT fulfilled today (liability increase).
+    let deposit_inflow: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(pt.amount), 0)::numeric(14,2)
+        FROM payment_transactions pt
+        INNER JOIN transactions o ON o.id = pt.transaction_id
+        WHERE (pt.created_at AT TIME ZONE 'UTC')::date = $1::date
+          AND (o.fulfilled_at IS NULL OR (o.fulfilled_at AT TIME ZONE 'UTC')::date > $1::date)
+          AND o.status::text NOT IN ('cancelled')
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    if !deposit_inflow.is_zero() {
+        if let Some((lid, lnm)) =
+            qbo_map_with_misc_fallback(pool, "liability_deposit", "default", None).await?
+        {
+            let abs_in = deposit_inflow.abs();
+            let (debit, credit) = if deposit_inflow > Decimal::ZERO {
+                (Decimal::ZERO, abs_in)
+            } else {
+                (abs_in, Decimal::ZERO)
+            };
+            lines.push(JournalLine {
+                qbo_account_id: lid,
+                qbo_account_name: lnm,
+                debit,
+                credit,
+                memo: if deposit_inflow > Decimal::ZERO {
+                    "New deposits received (liability increase)".to_string()
+                } else {
+                    "Deposit refund / reversal (liability decrease)".to_string()
+                },
+                detail: vec![serde_json::json!({
+                    "kind": "new_deposit_inflow",
+                    "amount": deposit_inflow
+                })],
+            });
+        } else {
+            warnings.push(format!(
+                "New deposits of ${deposit_inflow} detected but no `liability_deposit` mapping; inflow credit omitted."
+            ));
+        }
+    }
+
     // 5. Forfeitures: recognize retained deposits for layaways cancelled as forfeited.
     #[derive(sqlx::FromRow)]
     struct ForfeitAgg {
@@ -1072,7 +1155,7 @@ pub async fn propose_daily_journal(
     let forfeit_row: ForfeitAgg = sqlx::query_as(
         r#"
         SELECT SUM(amount_paid)::numeric(14,2) AS total_forfeited
-        FROM orders
+        FROM transactions
         WHERE is_forfeited = TRUE
           AND (forfeited_at AT TIME ZONE 'UTC')::date = $1::date
         "#,
@@ -1120,7 +1203,7 @@ pub async fn propose_daily_journal(
     let rms_payment_net: Decimal = sqlx::query_scalar(&format!(
         r#"
         SELECT COALESCE(SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)), 0)::numeric(14, 2)
-        {OI_EFFECTIVE_JOIN}
+        {TL_EFFECTIVE_JOIN}
         WHERE o.status::text NOT IN ('cancelled')
           AND o.fulfilled_at IS NOT NULL
           AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date

@@ -560,7 +560,13 @@ export default function QboWorkspace({
               OAuth client from Intuit Developer. Secrets are stored server-side
               (encrypt in production). Realm ID is your QBO company id.
             </p>
-            <div className="mt-4 space-y-3">
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void saveCredentials();
+              }}
+              className="mt-4 space-y-3"
+            >
               <label className="block text-[10px] font-black uppercase text-app-text-muted">
                 Realm ID (company)
                 <input
@@ -600,15 +606,14 @@ export default function QboWorkspace({
                 />
                 Sandbox environment
               </label>
-            </div>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void saveCredentials()}
-              className="ui-btn-primary mt-5 w-full rounded-2xl py-3 disabled:opacity-50"
-            >
-              Save connection
-            </button>
+              <button
+                type="submit"
+                disabled={busy}
+                className="ui-btn-primary mt-5 w-full rounded-2xl py-3 disabled:opacity-50"
+              >
+                Save connection
+              </button>
+            </form>
             <button
               type="button"
               disabled={!connectionReady}

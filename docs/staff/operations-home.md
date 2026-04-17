@@ -10,19 +10,18 @@
 
 ## How to use this area
 
-**Operations** is the **start-of-day** screen when you are in Back Office (not POS). **Dashboard** pulls together **what needs attention** (coach strip, queues, floor team, weather) plus **urgent wedding actions** and a **global activity feed** at the bottom of the page.
+**Operations Hub** is the **start-of-day** screen when you are in Back Office (not POS). **Dashboard** pulls together **what needs attention** (Action Board, floor team, weather) plus **sales performance trends** and a **recent activity feed**.
 
 ## Dashboard
 
 1. **Operations** → **Dashboard**.
 2. Scan blocks **top to bottom**:
-   - **Suggested next** — ranked from weddings, tasks, and inbox (when your role allows).
-   - **Today’s floor team** — from **Staff → Schedule** when configured.
-   - **Wedding pulse / compass** tiles — requires **weddings.view**; hidden if role lacks it.
-   - **My tasks** — opens checklist items for you (**tasks.complete**).
-   - **Weather** — customer and staffing context.
-   - **Urgent actions** — table of members needing attention (**weddings.view**).
-   - **Global activity feed** — recent wedding-related events (**weddings.view**).
+   - **Action Board** — ranked from weddings, tasks, and inbox (when your role allows).
+   - **Performance Metrics** — real-time sales revenue visualized with trend sparklines.
+   - **Team on Floor** — from **Staff → Schedule** when configured.
+   - **Task List** — opens checklist items for you (**tasks.complete**).
+   - **Weather Hub** — customer and staffing context with condition signals.
+   - **Recent Activity** — live store and wedding events feed (**weddings.view**).
 3. Use shortcuts to **POS**, **Orders**, or **Weddings** if tiles exist.
 
 **If a block is missing:** assume **permission** or **not configured** before assuming a bug.
@@ -74,4 +73,4 @@
 - [../STAFF_SCHEDULE_AND_CALENDAR.md](../STAFF_SCHEDULE_AND_CALENDAR.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Pass)

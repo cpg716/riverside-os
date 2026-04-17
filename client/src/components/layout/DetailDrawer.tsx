@@ -90,7 +90,7 @@ export default function DetailDrawer({
                   {title}
                 </h2>
                 {subtitle ? (
-                  <div className="mt-1 text-xs font-semibold leading-snug tracking-normal text-app-text-muted normal-case">
+                  <div className="mt-1 text-xs font-semibold leading-snug tracking-normal text-app-text/70 normal-case">
                     {subtitle}
                   </div>
                 ) : null}

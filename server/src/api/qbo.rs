@@ -158,7 +158,7 @@ pub struct DrilldownQuery {
 
 #[derive(Debug, Serialize)]
 pub struct DrilldownContributor {
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
     pub amount: rust_decimal::Decimal,
 }
 
@@ -1077,14 +1077,14 @@ async fn staging_drilldown(
         let rows: Vec<(Uuid, rust_decimal::Decimal)> = sqlx::query_as(
             r#"
             SELECT
-                pa.target_order_id AS order_id,
+                pa.target_transaction_id AS transaction_id,
                 SUM(pa.amount_allocated)::numeric(14,2) AS amount
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
             WHERE (pt.created_at AT TIME ZONE 'UTC')::date = $1::date
               AND pt.payment_method = $2
               AND ($3::text IS NULL OR NULLIF(TRIM(COALESCE(pt.metadata->>'sub_type', '')), '') = $3)
-            GROUP BY pa.target_order_id
+            GROUP BY pa.target_transaction_id
             ORDER BY amount DESC
             "#,
         )
@@ -1095,7 +1095,10 @@ async fn staging_drilldown(
         .await?;
         contributors = rows
             .into_iter()
-            .map(|(order_id, amount)| DrilldownContributor { order_id, amount })
+            .map(|(transaction_id, amount)| DrilldownContributor {
+                transaction_id,
+                amount,
+            })
             .collect();
     } else if detail0.get("net_sales").is_some() {
         let category_id = detail0
@@ -1109,15 +1112,15 @@ async fn staging_drilldown(
             sqlx::query_as(
                 r#"
                 SELECT
-                    oi.order_id,
+                    oi.transaction_id,
                     SUM((oi.unit_price * oi.quantity)::numeric(14,2)) AS amount
-                FROM order_items oi
-                INNER JOIN orders o ON o.id = oi.order_id
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
                 WHERE o.fulfilled_at IS NOT NULL
                   AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
                   AND p.category_id = $2
-                GROUP BY oi.order_id
+                GROUP BY oi.transaction_id
                 ORDER BY amount DESC
                 "#,
             )
@@ -1129,15 +1132,15 @@ async fn staging_drilldown(
             sqlx::query_as(
                 r#"
                 SELECT
-                    oi.order_id,
+                    oi.transaction_id,
                     SUM((oi.unit_price * oi.quantity)::numeric(14,2)) AS amount
-                FROM order_items oi
-                INNER JOIN orders o ON o.id = oi.order_id
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
                 WHERE o.fulfilled_at IS NOT NULL
                   AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
                   AND p.category_id IS NULL
-                GROUP BY oi.order_id
+                GROUP BY oi.transaction_id
                 ORDER BY amount DESC
                 "#,
             )
@@ -1147,7 +1150,10 @@ async fn staging_drilldown(
         };
         contributors = rows
             .into_iter()
-            .map(|(order_id, amount)| DrilldownContributor { order_id, amount })
+            .map(|(transaction_id, amount)| DrilldownContributor {
+                transaction_id,
+                amount,
+            })
             .collect();
     } else if detail0.get("release_amount").is_some() {
         let category_id = detail0.get("category_id").and_then(|v| v.as_str());
@@ -1159,39 +1165,39 @@ async fn staging_drilldown(
                 r#"
                 WITH fulfilled_orders AS (
                     SELECT id
-                    FROM orders
+                    FROM transactions
                     WHERE fulfilled_at IS NOT NULL
                       AND (fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
                 ),
                 order_deposit AS (
                     SELECT
-                        pa.target_order_id AS order_id,
+                        pa.target_transaction_id AS transaction_id,
                         COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0::numeric) AS deposit_total
                     FROM payment_allocations pa
-                    INNER JOIN fulfilled_orders fo ON fo.id = pa.target_order_id
-                    GROUP BY pa.target_order_id
+                    INNER JOIN fulfilled_orders fo ON fo.id = pa.target_transaction_id
+                    GROUP BY pa.target_transaction_id
                 ),
                 category_net AS (
                     SELECT
-                        oi.order_id,
+                        oi.transaction_id,
                         p.category_id,
                         SUM((oi.unit_price * oi.quantity)::numeric(14,2)) AS cat_net
-                    FROM order_items oi
+                    FROM transaction_lines oi
                     INNER JOIN products p ON p.id = oi.product_id
-                    INNER JOIN fulfilled_orders fo ON fo.id = oi.order_id
-                    GROUP BY oi.order_id, p.category_id
+                    INNER JOIN fulfilled_orders fo ON fo.id = oi.transaction_id
+                    GROUP BY oi.transaction_id, p.category_id
                 ),
                 order_net AS (
-                    SELECT order_id, SUM(cat_net)::numeric(14,2) AS order_net
+                    SELECT transaction_id, SUM(cat_net)::numeric(14,2) AS order_net
                     FROM category_net
-                    GROUP BY order_id
+                    GROUP BY transaction_id
                 )
                 SELECT
-                    cn.order_id,
+                    cn.transaction_id,
                     ROUND(od.deposit_total * (cn.cat_net / NULLIF(onet.order_net, 0)), 2)::numeric(14,2) AS amount
                 FROM category_net cn
-                INNER JOIN order_net onet ON onet.order_id = cn.order_id
-                INNER JOIN order_deposit od ON od.order_id = cn.order_id
+                INNER JOIN order_net onet ON onet.transaction_id = cn.transaction_id
+                INNER JOIN order_deposit od ON od.transaction_id = cn.transaction_id
                 WHERE cn.category_id = $2
                   AND od.deposit_total > 0
                 ORDER BY amount DESC
@@ -1206,7 +1212,10 @@ async fn staging_drilldown(
         };
         contributors = rows
             .into_iter()
-            .map(|(order_id, amount)| DrilldownContributor { order_id, amount })
+            .map(|(transaction_id, amount)| DrilldownContributor {
+                transaction_id,
+                amount,
+            })
             .collect();
     }
 

@@ -63,11 +63,11 @@ test.describe("API auth gates", () => {
     expect([401, 403]).toContain(res.status());
   });
 
-  test("GET /api/customers/{id}/order-history without staff returns 401", async ({
+  test("GET /api/customers/{id}/transaction-history without staff returns 401", async ({
     request,
   }) => {
     const res = await request.get(
-      `${apiBase()}/api/customers/00000000-0000-0000-0000-000000000000/order-history`,
+      `${apiBase()}/api/customers/00000000-0000-0000-0000-000000000000/transaction-history`,
     );
     expect(res.status()).toBe(401);
   });

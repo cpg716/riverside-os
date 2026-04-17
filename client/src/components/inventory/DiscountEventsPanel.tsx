@@ -5,8 +5,6 @@ import VariantSearchInput, {
   VariantSearchResult,
 } from "../ui/VariantSearchInput";
 import {
-  Ticket,
-  Clock3,
   BarChart3,
   Plus,
   Zap,
@@ -16,7 +14,9 @@ import {
   CheckCircle2,
   AlertCircle,
   Settings2,
+  Clock3,
 } from "lucide-react";
+import DashboardGridCard from "../ui/DashboardGridCard";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -280,99 +280,68 @@ export default function DiscountEventsPanel() {
     );
 
   return (
-    <div className="flex h-full flex-col gap-8 bg-app-surface p-6 overflow-hidden">
-      <header className="flex items-center justify-between">
+    <div className="flex h-full flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+      <div className="flex items-center justify-between px-2">
         <div>
-          <h2 className="text-3xl font-black italic tracking-tighter text-app-text uppercase flex items-center gap-3">
-            <Ticket size={32} className="text-app-accent" />
-            Strategic Promotions
-          </h2>
-          <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-            Dynamic markdown engine and performance auditing
-          </p>
+          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Yield Management</h3>
+          <h2 className="text-2xl font-black tracking-tight text-app-text">Strategic Promotions</h2>
         </div>
-      </header>
+      </div>
 
       <main className="grid min-h-0 flex-1 gap-8 lg:grid-cols-[1fr_400px]">
-        <div className="flex flex-col gap-8 overflow-y-auto no-scrollbar pb-20">
+        <div className="flex flex-col gap-8 overflow-y-auto no-scrollbar pb-20 px-2">
           {/* ANALYTICS SNAPSHOT */}
-          <section className="rounded-[2.5rem] border border-app-border bg-app-surface-2 p-8 shadow-inner">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3 text-app-text-muted">
-                <BarChart3 size={18} />
-                <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                  Promotion Performance
-                </h4>
-              </div>
-              <div className="flex items-center gap-3">
-                <input
-                  type="date"
-                  value={usageFrom}
-                  onChange={(e) => setUsageFrom(e.target.value)}
-                  className="ui-input h-10 w-36 text-[10px] font-black uppercase"
-                />
-                <ArrowRight size={14} className="text-app-text-muted" />
-                <input
-                  type="date"
-                  value={usageTo}
-                  onChange={(e) => setUsageTo(e.target.value)}
-                  className="ui-input h-10 w-36 text-[10px] font-black uppercase"
-                />
-              </div>
+          <DashboardGridCard 
+            title="Promotion Performance"
+            subtitle="Historical Audit"
+            icon={BarChart3}
+          >
+            <div className="inline-flex items-center gap-3 mb-6 bg-app-surface/40 p-3 rounded-2xl border border-app-border/40 self-start">
+              <input
+                type="date"
+                value={usageFrom}
+                onChange={(e) => setUsageFrom(e.target.value)}
+                className="h-9 w-32 rounded-xl bg-app-surface/60 border border-app-border px-3 text-[10px] font-black uppercase tracking-widest focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
+              />
+              <ArrowRight size={14} className="text-app-text-muted opacity-40" />
+              <input
+                type="date"
+                value={usageTo}
+                onChange={(e) => setUsageTo(e.target.value)}
+                className="h-9 w-32 rounded-xl bg-app-surface/60 border border-app-border px-3 text-[10px] font-black uppercase tracking-widest focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
+              />
             </div>
 
-            <div className="rounded-3xl border border-app-border bg-app-surface overflow-hidden shadow-sm">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-app-surface-2 border-b border-app-border">
-                  <tr>
-                    <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted">
-                      Event Label
-                    </th>
-                    <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted">
-                      Volume
-                    </th>
-                    <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted">
-                      Units
-                    </th>
-                    <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted">
-                      Capture
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-app-border/40">
-                  {usageRows.map((u) => (
-                    <tr
-                      key={u.event_id}
-                      className="hover:bg-app-surface-2/50 transition-colors"
-                    >
-                      <td className="px-6 py-4 font-black uppercase italic text-app-text">
-                        {u.event_name}
-                      </td>
-                      <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">
-                        {u.line_count} lines
-                      </td>
-                      <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">
-                        {u.units_sold}
-                      </td>
-                      <td className="px-6 py-4 text-right font-mono font-black text-emerald-600">
-                        ${u.subtotal_sum}
-                      </td>
-                    </tr>
-                  ))}
-                  {usageRows.length === 0 && (
+            <div className="overflow-hidden rounded-2xl border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-app-surface/40 border-b border-app-border/40">
                     <tr>
-                      <td
-                        colSpan={4}
-                        className="px-6 py-12 text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40"
-                      >
-                        No historical data in window
-                      </td>
+                      <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted opacity-60">Event Label</th>
+                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Volume</th>
+                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Units</th>
+                      <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">Capture</th>
                     </tr>
-                  )}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-app-border/40">
+                    {usageRows.map((u) => (
+                      <tr key={u.event_id} className="hover:bg-app-surface/20 transition-colors group">
+                        <td className="px-6 py-4 font-black uppercase italic tracking-tight text-app-text group-hover:text-app-accent transition-colors">{u.event_name}</td>
+                        <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.line_count} <span className="text-[10px] opacity-40">LNS</span></td>
+                        <td className="px-6 py-4 text-right font-mono font-bold text-app-text-muted">{u.units_sold}</td>
+                        <td className="px-6 py-4 text-right font-mono font-black text-emerald-500">${u.subtotal_sum}</td>
+                      </tr>
+                    ))}
+                    {usageRows.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="px-6 py-12 text-center text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-20">No historical data in window</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </section>
+          </DashboardGridCard>
 
           {/* ACTIVE PROMOTIONS LIST */}
           <section className="space-y-4">
@@ -644,7 +613,7 @@ export default function DiscountEventsPanel() {
                                 `${baseUrl}/api/discount-events/${sel}/variants/${v.variant_id}`,
                                 {
                                   method: "DELETE",
-                                  headers: backofficeHeaders(),
+                                  headers: backofficeHeaders() as Record<string, string>,
                                 },
                               );
                               void loadVars(sel!);

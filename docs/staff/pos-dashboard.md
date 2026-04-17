@@ -10,7 +10,7 @@
 
 ## How to use this screen
 
-This is your **shift overview** before you jump into the cart. Scan top-to-bottom: **weather** (if shown), **your numbers** (if your role shows them), **wedding pulse**, **tasks**, **notifications**, and shortcuts back to **Register**.
+This is your **shift overview** before you jump into the cart. Scan top-to-bottom: **your performance** (if your role shows them), **Priority Feed** (urgent weddings/tasks), **notifications**, and shortcuts back to **Register**.
 
 ## When you land here
 
@@ -24,14 +24,11 @@ You see a message to **open the register**. Dashboard metrics tied to the sessio
 
 | Block | You use it to… | If missing |
 |-------|----------------|------------|
-| **Headline / role** | Confirm you are signed in as expected | Sign out/in |
-| **Weather** | Small talk / plan for pickups | Ignore if blank — not all stores configure |
-| **Attributed sales** | See your **lines / gross** for the **store calendar day** | Normal for some roles — not a bug |
-| **Session tenders / X-report** | Mid-shift tender check (**X** is per lane; **Z** is on **Register #1** when using a till group) | Needs **register.reports** + session rules — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)** |
-| **Wedding pulse** | See today’s wedding pressure | Needs **weddings.view** |
-| **Tasks** | Open **My tasks** checklist | Needs **tasks.complete** |
-| **Rush Orders** | See how many orders require immediate fulfillment | Priority tracking for "Need By" dates |
-| **Notifications** | Short preview; **open bell** for the full inbox. **Bundled** alerts (many SKUs, tasks, etc.) show **one compact row**—tap it in the drawer to **expand** the list, then tap a line to open that item | Needs **notifications.view** |
+| **Headline / role** | Confirm you are signed in as **Register Manager** or salesperson | Sign out/in |
+| **Performance Stats** | See your **lines / gross** visualized with trend lines | Normal for some roles — not a bug |
+| **Priority Feed** | See urgent wedding pickups, measurements, or order deadlines | Needs **weddings.view** |
+| **Task List** | Open your assigned checklist for the day | Needs **tasks.complete** |
+| **Recent Activity** | Observe real-time store events and team updates | Needs **notifications.view** |
 
 ## Common tasks
 
@@ -75,4 +72,4 @@ You see a message to **open the register**. Dashboard metrics tied to the sessio
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Update)

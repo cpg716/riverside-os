@@ -31,9 +31,6 @@
 
 ---
 
-## Mid-shift (optional)
-
-- **X-report / session tenders** (if your role has **register.reports**): [pos-reports.md](pos-reports.md), [pos-dashboard.md](pos-dashboard.md).
 - **Shift handoff** without closing drawer: [../STAFF_TASKS_AND_REGISTER_SHIFT.md](../STAFF_TASKS_AND_REGISTER_SHIFT.md).
 
 ---
@@ -41,9 +38,10 @@
 ## Close register
 
 1. Finish or park sales per policy — no abandoned tenders.
-2. Run **close / Z** on **Register #1** when your store uses a **till group** (satellite **#2+** lanes do not have their own Z-close in POS — one **Z** closes every lane in the shift). Mid-shift reads may use **X-report** per lane — [pos-reports.md](pos-reports.md), **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
-3. **Cash:** count and reconcile per **dual control** SOP; discrepancies → manager immediately ([STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md)).
-4. **Close register** in software when SOP says (may differ from simply exiting POS).
+2. Run **close / Z** on **Register #1** when your store uses a **till group** (satellite **#2+** lanes do not have their own Z-close in POS — one **Z** closes every lane in the shift).
+3. **Professional Z-Report**: The closing report will automatically route to your assigned **Report Station** (Full-Page/Audit) rather than the receipt printer.
+4. **Cash:** count and reconcile per **dual control** SOP; discrepancies → manager immediately ([STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md)).
+5. **Close register** in software when SOP says (may differ from simply exiting POS).
 
 ---
 

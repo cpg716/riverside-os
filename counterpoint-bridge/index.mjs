@@ -21,7 +21,7 @@ const logToDashboard = (msg) => {
     LOG_BACKLOG.push(entry);
     if (LOG_BACKLOG.length > 200) LOG_BACKLOG.shift();
     console.log(`[${entry.time}] ${msg}`);
-    
+
     // Write to persistent log file
     try {
         const logFile = path.join(__dirname, 'bridge-execution.log');
@@ -36,9 +36,20 @@ const BRIDGE_STATE = {
     isSyncing: false,
     currentEntity: null,
     lastRun: null,
+    lastRunDurationMs: null,
     error: null,
-    syncSummary: {} // Track which entities have completed successfully
+    syncSummary: {}, // Track which entities have completed successfully
+    entityStats: {}, // { lastSync: ISO, durationMs: number, error: string | null }
+    totalRecordsLastRun: 0,
+    abortRequested: false,
+    recentEvents: [], // [{ type: 'error'|'complete'|'start', entity: string, message: string, time: ISO, durationMs: number }]
 };
+
+function pushEvent(type, entity, message, meta = {}) {
+    const ev = { type, entity, message, time: new Date().toISOString(), ...meta };
+    BRIDGE_STATE.recentEvents.unshift(ev);
+    if (BRIDGE_STATE.recentEvents.length > 50) BRIDGE_STATE.recentEvents.pop();
+}
 
 const ENTITY_DEPENDENCIES = {
     'inventory': ['catalog'],
@@ -60,8 +71,8 @@ const startLocalServer = () => {
 
         if (req.url === '/api/status') {
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ 
-                ...BRIDGE_STATE, 
+            res.end(JSON.stringify({
+                ...BRIDGE_STATE,
                 logs: LOG_BACKLOG,
                 runOnce: process.env.RUN_ONCE === "1"
             }));
@@ -91,7 +102,7 @@ const startLocalServer = () => {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const rosPath = url.searchParams.get('path');
             const method = url.searchParams.get('method') || 'GET';
-            
+
             if (!rosPath) {
                 res.writeHead(400);
                 res.end("Missing 'path' parameter");
@@ -127,18 +138,31 @@ const startLocalServer = () => {
             } else {
                 proxyReq.end();
             }
+        } else if (req.url === '/api/stop') {
+            logToDashboard("Manual Sync Abort Requested.");
+            BRIDGE_STATE.abortRequested = true;
+            pushEvent('abort', null, 'Sync abort requested by user');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: true }));
         } else if (req.url.startsWith('/api/trigger-entity')) {
             const url = new URL(req.url, `http://${req.headers.host}`);
             const entity = url.searchParams.get('name');
             logToDashboard(`Manual trigger: Targeted pull for [${entity}] requested`);
-            
+
             if (entity === 'full') {
                 (async () => {
                     BRIDGE_STATE.isSyncing = true;
+                    BRIDGE_STATE.abortRequested = false;
+                    pushEvent('start', null, 'Full sync started (manual)');
                     logToDashboard("[sync] Starting full sync sequence...");
                     const steps = getOrderedSyncSteps();
                     for (const step of steps) {
                         if (!step.on) continue;
+                        if (BRIDGE_STATE.abortRequested) {
+                            logToDashboard('[sync] Aborted by user');
+                            pushEvent('abort', step.label, 'Sync aborted before this entity');
+                            break;
+                        }
                         BRIDGE_STATE.currentEntity = step.label;
                         logToDashboard(`[${step.label}] starting sync...`);
                         await sendHeartbeat("syncing", step.hb);
@@ -148,9 +172,12 @@ const startLocalServer = () => {
                     }
                     BRIDGE_STATE.isSyncing = false;
                     BRIDGE_STATE.currentEntity = null;
+                    BRIDGE_STATE.abortRequested = false;
                     logToDashboard("[sync] Full sync sequence completed.");
                 })().catch(err => {
                     BRIDGE_STATE.isSyncing = false;
+                    BRIDGE_STATE.abortRequested = false;
+                    pushEvent('error', null, err.message);
                     logToDashboard(`Sync error: ${err.message}`);
                 });
                 res.end(JSON.stringify({ status: 'triggered', queue: 'all' }));
@@ -160,13 +187,18 @@ const startLocalServer = () => {
             // Resolve dependencies
             const deps = ENTITY_DEPENDENCIES[entity] || [];
             const toRun = [...deps, entity];
-            
+
             logToDashboard(`[dependency-check] To complete [${entity}], we will run: ${toRun.join(' -> ')}`);
-            
+
             (async () => {
                 BRIDGE_STATE.isSyncing = true;
+                BRIDGE_STATE.abortRequested = false;
                 const steps = getOrderedSyncSteps();
                 for (const target of toRun) {
+                    if (BRIDGE_STATE.abortRequested) {
+                        logToDashboard('[sync] Aborted by user');
+                        break;
+                    }
                     const step = steps.find(s => s.label === target);
                     if (step) {
                         BRIDGE_STATE.currentEntity = step.label;
@@ -179,9 +211,12 @@ const startLocalServer = () => {
                 }
                 BRIDGE_STATE.isSyncing = false;
                 BRIDGE_STATE.currentEntity = null;
+                BRIDGE_STATE.abortRequested = false;
                 logToDashboard(`[sync] Targeted pull for ${entity} finished.`);
             })().catch(err => {
                 BRIDGE_STATE.isSyncing = false;
+                BRIDGE_STATE.abortRequested = false;
+                pushEvent('error', entity, err.message);
                 logToDashboard(`Sync error: ${err.message}`);
             });
 
@@ -233,14 +268,12 @@ const CP_IMPORT_SINCE = (process.env.CP_IMPORT_SINCE ?? "2021-01-01").trim();
 // Helper to get the starting date for queries (either .env default or last success)
 function getSyncAnchorDate(entityKey) {
   const state = readState();
-  const lastDate = state[`${entityKey}_last_date`];
-  return lastDate || CP_IMPORT_SINCE;
+  return state[`${entityKey}_last_date`] || CP_IMPORT_SINCE;
 }
 
-/** Replaces __CP_IMPORT_SINCE__ with anchor date */
+/** Legacy signature, now acts as pass-through so queries retain the placeholder until execution. */
 function expandImportSince(sqlText, anchorDate = CP_IMPORT_SINCE) {
-  if (sqlText == null) return "";
-  return String(sqlText).replace(/__CP_IMPORT_SINCE__/g, anchorDate);
+  return String(sqlText ?? "");
 }
 
 /**
@@ -456,13 +489,26 @@ const SYNC_RELAXED_DEPENDENCIES =
   String(process.env.COUNTERPOINT_SYNC_RELAXED ?? "").toLowerCase() === "true";
 
 /** Effective SQL after optional auto-schema + maximal preset (rebuilt after SQL connect in sync mode). */
-let effectiveSql = {};
+let _effectiveSqlBase = {};
+let effectiveSql = new Proxy(_effectiveSqlBase, {
+  set(target, prop, val) {
+    target[prop] = val;
+    return true;
+  },
+  get(target, prop) {
+    const val = target[prop];
+    if (typeof val === 'string') {
+      return val.replace(/__CP_IMPORT_SINCE__/g, getSyncAnchorDate(prop));
+    }
+    return val;
+  }
+});
 /** When true, POST `/api/sync/counterpoint/staging` with `{ entity, payload }` (from ROS health). */
 let rosStagingEnabled = false;
 let bridgeHostnameCached = "";
 
 function initEffectiveSqlFromConstants() {
-  effectiveSql = {
+  Object.assign(effectiveSql, {
     customers: CP_CUSTOMERS_QUERY,
     inventory: CP_INVENTORY_QUERY,
     catalog: CP_CATALOG_QUERY,
@@ -489,7 +535,7 @@ function initEffectiveSqlFromConstants() {
     receiving_history: CP_RECEIVING_HISTORY_QUERY,
     ticket_notes: CP_TICKET_NOTES_QUERY,
     vendors_fast_simple: CP_VENDORS_FAST_QUERY || CP_VENDORS_QUERY_SIMPLE,
-  };
+  });
 }
 initEffectiveSqlFromConstants();
 
@@ -1226,7 +1272,7 @@ async function syncReceivingHistory(pool) {
     const RECV_BATCH = 50;
     const CONCURRENCY = 2;
     const pendingRequests = [];
-    
+
     console.info(`[receiving_history] sending ${rows.length} rows (batch=${RECV_BATCH}, parallel=${CONCURRENCY})...`);
 
     for (let i = 0; i < rows.length; i += RECV_BATCH) {
@@ -1263,6 +1309,7 @@ async function syncReceivingHistory(pool) {
       }
     }
     await Promise.all(pendingRequests);
+    return rows.length;
   } catch (err) {
     console.error("[receiving_history] sync failed:", err?.message ?? err);
   }
@@ -1314,7 +1361,7 @@ function mapInventoryRow(r) {
 
 function mapCatalogRow(r, cellRows) {
   const itemNo = String(r.item_no ?? r.sku ?? "").trim();
-  
+
   // Filter out redundant "dummy" or "parent-only" variations that lack real dimension data
   const validCells = (cellRows ?? []).filter(c => {
     const sku = String(c.sku ?? "").trim();
@@ -1326,7 +1373,7 @@ function mapCatalogRow(r, cellRows) {
   });
 
   const isGrid = String(r.is_grid ?? r.is_grd ?? "N").toUpperCase() === "Y" || validCells.length > 0;
-  
+
   return {
     item_no: itemNo,
     product_identity: itemNo,
@@ -1470,7 +1517,7 @@ async function syncCustomers(pool) {
   const MAX_CONCURRENCY = 5;
   logToDashboard(`[customers] SQL returned ${rows.length} customer(s)`);
   console.info("[customers] SQL returned", rows.length, "customer(s); sending with parallel-concurrency=2");
-  
+
   const mapped = rows.map((row) => mapCustomerRow(normalizeRowKeys(row))).filter((r) => r.cust_no);
   const pendingRequests = [];
   let inFlight = 0;
@@ -1504,6 +1551,7 @@ async function syncCustomers(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return mapped.length;
 }
 
 async function syncInventory(pool) {
@@ -1516,13 +1564,10 @@ async function syncInventory(pool) {
   const rows = result.recordset ?? [];
   logToDashboard(`[inventory] SQL returned ${rows.length} item(s)`);
   const mapped = rows.map((row) => mapInventoryRow(normalizeRowKeys(row))).filter((r) => r.sku);
-  
-  const INV_BATCH = 50; 
+
+  const INV_BATCH = 400;
   const MAX_CONCURRENCY = 5;
   const pendingRequests = [];
-  let inFlight = 0;
-
-  console.info(`[inventory] processing ${mapped.length} rows (batch=${INV_BATCH}, parallel=${MAX_CONCURRENCY})...`);
 
   for (let i = 0; i < mapped.length; i += INV_BATCH) {
     const chunk = mapped.slice(i, i + INV_BATCH);
@@ -1550,6 +1595,7 @@ async function syncInventory(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return mapped.length;
 }
 
 function mapCategoryMasterRow(r) {
@@ -1582,6 +1628,7 @@ async function syncCategoryMasters(pool) {
     const summary = await rosPost("category_masters", body);
     console.info("[category_masters] batch", summary);
   }
+  return rows.length;
 }
 
 async function syncCatalog(pool) {
@@ -1602,10 +1649,10 @@ async function syncCatalog(pool) {
         const parentKey = String(nr.parent_item_no ?? nr.item_no ?? "").trim();
         const ckey = String(nr.counterpoint_item_key ?? nr.sku ?? "").trim();
         const dedupeKey = `${parentKey}|${ckey}`;
-        
+
         if (!cellKeyIsValid(nr) || seenCells.has(dedupeKey)) continue;
         seenCells.add(dedupeKey);
-        
+
         if (!cellLookup[parentKey]) cellLookup[parentKey] = [];
         cellLookup[parentKey].push(nr);
       }
@@ -1627,10 +1674,10 @@ async function syncCatalog(pool) {
     return true;
   }
 
-  const CATALOG_BATCH_SIZE = parseInt(process.env.BATCH_SIZE || "50");
-  const MAX_CONCURRENCY = parseInt(process.env.CONCURRENCY || "2");
+  const CATALOG_BATCH_SIZE = 400;
+  const MAX_CONCURRENCY = 4;
   console.info(`[catalog] Starting ingest (batch=${CATALOG_BATCH_SIZE}, max_parallel=${MAX_CONCURRENCY})...`);
-  
+
   const state = readState();
   const processedItemNos = new Set();
   let batchBuffer = [];
@@ -1658,13 +1705,13 @@ async function syncCatalog(pool) {
       processedItemNos.add(itemNo);
 
       const mapped = mapCatalogRow(normalized, cellLookup[itemNo] ?? []);
-      
+
       if (mapped.item_no) {
         batchBuffer.push(mapped);
         if (batchBuffer.length >= CATALOG_BATCH_SIZE) {
           const chunk = [...batchBuffer];
           batchBuffer = [];
-          
+
           const last = chunk[chunk.length - 1].item_no;
           inFlight++;
           if (inFlight >= MAX_CONCURRENCY) request.pause();
@@ -1711,7 +1758,7 @@ async function syncCatalog(pool) {
         await Promise.all(pendingRequests);
         logToDashboard(`[catalog] finished. ${totalProcessed} items synced (SQL gave ${totalRowsReceived} rows, skipped ${skippedDuplicates} duplicates).`);
         console.info(`[catalog] finished. ${totalProcessed} total items synced.`);
-        resolve();
+        resolve(totalProcessed);
       } catch (e) {
         reject(e);
       }
@@ -1785,6 +1832,7 @@ async function syncGiftCards(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return mapped.length;
 }
 
 async function syncTickets(pool) {
@@ -1793,6 +1841,7 @@ async function syncTickets(pool) {
     return;
   }
 
+  console.info(`[tickets] Executing SQL: ${effectiveSql.tickets}`);
   const headerResult = await pool.request().query(effectiveSql.tickets);
   const headerRows = (headerResult.recordset ?? []).map((r) => normalizeRowKeys(r));
   if (headerRows.length === 0) {
@@ -1912,14 +1961,16 @@ async function syncTickets(pool) {
   }).filter((r) => r.ticket_ref);
 
   logToDashboard(`[tickets] SQL returned ${mapped.length} ticket(s)`);
-  console.info("[tickets] Processing mapped headers (parallel-concurrency=5)...");
-  const state = readState();
-  const CONCURRENCY = 2;
-  const pendingRequests = [];
-  let inFlight = 0;
+  const recordCount = mapped.length;
+  const TICKET_BATCH = Math.max(1, Number.parseInt(process.env.TICKET_BATCH_SIZE ?? "200", 10));
+  const TICKET_CONCURRENCY = Math.max(1, Number.parseInt(process.env.TICKET_CONCURRENCY ?? "4", 10));
 
-  for (let i = 0; i < mapped.length; i += BATCH) {
-    const chunk = mapped.slice(i, i + BATCH);
+  console.info(`[tickets] Processing mapped headers (batch=${TICKET_BATCH}, concurrency=${TICKET_CONCURRENCY})...`);
+  const state = readState();
+  const pendingRequests = [];
+
+  for (let i = 0; i < mapped.length; i += TICKET_BATCH) {
+    const chunk = mapped.slice(i, i + TICKET_BATCH);
     const last = chunk[chunk.length - 1]?.ticket_ref;
     const body = {
       rows: chunk,
@@ -1942,11 +1993,12 @@ async function syncTickets(pool) {
       });
 
     pendingRequests.push(promise);
-    if (pendingRequests.length >= CONCURRENCY) {
+    if (pendingRequests.length >= TICKET_CONCURRENCY) {
       await Promise.race(pendingRequests);
     }
   }
   await Promise.all(pendingRequests);
+  return recordCount;
 }
 
 async function syncStoreCreditOpening(pool) {
@@ -2010,6 +2062,7 @@ async function syncStoreCreditOpening(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return mapped.length;
 }
 
 async function syncOpenDocs(pool) {
@@ -2071,7 +2124,8 @@ async function syncOpenDocs(pool) {
     })
     .filter((r) => r.doc_ref);
 
-  logToDashboard(`[open_docs] SQL returned ${mapped.length} doc(s)`);
+  const recordCount = mapped.length;
+  logToDashboard(`[open_docs] SQL returned ${recordCount} doc(s)`);
   console.info("[open_docs] Sending items (parallel-concurrency=5)...");
   const state = readState();
   const CONCURRENCY = 2;
@@ -2107,6 +2161,7 @@ async function syncOpenDocs(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return recordCount;
 }
 
 async function syncLoyaltyHist(pool) {
@@ -2143,8 +2198,9 @@ async function syncLoyaltyHist(pool) {
     return;
   }
 
-  logToDashboard(`[loyalty_hist] SQL returned ${mapped.length} record(s)`);
-  console.info("[loyalty_hist] SQL returned", mapped.length, "row(s); sending with parallel-concurrency=5");
+  const recordCount = mapped.length;
+  logToDashboard(`[loyalty_hist] SQL returned ${recordCount} record(s)`);
+  console.info("[loyalty_hist] SQL returned", recordCount, "row(s); sending with parallel-concurrency=5");
 
   const CONCURRENCY = 2;
   const pendingRequests = [];
@@ -2155,7 +2211,7 @@ async function syncLoyaltyHist(pool) {
       rows: chunk,
       sync: { entity: "loyalty_hist", cursor: String(i + chunk.length) },
     };
-    
+
     const promise = rosPost("loyalty_hist", body)
       .then((summary) => {
         console.info("[loyalty_hist] batch", summary);
@@ -2173,6 +2229,7 @@ async function syncLoyaltyHist(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return recordCount;
 }
 
 async function syncVendorItems(pool) {
@@ -2194,7 +2251,7 @@ async function syncVendorItems(pool) {
       vend_cost: r.vend_cost != null ? String(r.vend_cost) : undefined,
     }))
     .filter((r) => r.vend_no && r.item_no);
-    
+
   if (mapped.length === 0) {
     console.info("[vendor_items] no valid rows");
     return;
@@ -2210,7 +2267,7 @@ async function syncVendorItems(pool) {
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const body = { rows: chunk, sync: { entity: "vendor_items", cursor: String(i + chunk.length) } };
-    
+
     const promise = rosPost("vendor_items", body).then(summary => {
       console.info("[vendor_items] batch", summary);
       state.vendor_items_cursor = String(i + chunk.length);
@@ -2225,6 +2282,7 @@ async function syncVendorItems(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return mapped.length;
 }
 
 async function syncVendors(pool) {
@@ -2260,8 +2318,9 @@ async function syncVendors(pool) {
     }))
     .filter((r) => r.vend_no);
 
-  logToDashboard(`[vendors] SQL returned ${rows.length} vendor(s)`);
-  console.info("[vendors] SQL returned", mapped.length, "vendor(s); sending with parallel-concurrency=2");
+  const recordCount = mapped.length;
+  logToDashboard(`[vendors] SQL returned ${recordCount} record(s)`);
+  console.info("[vendors] SQL returned", recordCount, "row(s); sending with parallel-concurrency=2");
 
   const CONCURRENCY = 2;
   const pendingRequests = [];
@@ -2271,10 +2330,12 @@ async function syncVendors(pool) {
     const chunk = mapped.slice(i, i + BATCH);
     const last = chunk[chunk.length - 1]?.vend_no;
     const body = { rows: chunk, sync: { entity: "vendors", cursor: last } };
-    
+
     const promise = rosPost("vendors", body).then(summary => {
       console.info("[vendors] batch", summary);
       if (last) { state.vendors_cursor = last; writeState(state); }
+    }).catch(err => {
+      console.error("[vendors] batch failed:", err.message);
     }).finally(() => {
       pendingRequests.splice(pendingRequests.indexOf(promise), 1);
     });
@@ -2285,6 +2346,7 @@ async function syncVendors(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return recordCount;
 }
 
 async function syncCustomerNotes(pool) {
@@ -2307,7 +2369,7 @@ async function syncCustomerNotes(pool) {
       user_id: r.user_id ?? r.usr_id ?? undefined,
     }))
     .filter((r) => r.cust_no && r.note_text);
-    
+
   console.info("[customer_notes] SQL returned", mapped.length, "note(s); sending with parallel-concurrency=5");
 
   const CONCURRENCY = 2;
@@ -2317,7 +2379,7 @@ async function syncCustomerNotes(pool) {
   for (let i = 0; i < mapped.length; i += BATCH) {
     const chunk = mapped.slice(i, i + BATCH);
     const body = { rows: chunk, sync: { entity: "customer_notes", cursor: String(i + chunk.length) } };
-    
+
     const promise = rosPost("customer_notes", body).then(summary => {
       console.info("[customer_notes] batch", summary);
       state.customer_notes_cursor = String(i + chunk.length);
@@ -2332,6 +2394,7 @@ async function syncCustomerNotes(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return mapped.length;
 }
 
 async function syncStaff(pool) {
@@ -2407,7 +2470,7 @@ async function syncStaff(pool) {
   for (let i = 0; i < allRows.length; i += BATCH) {
     const chunk = allRows.slice(i, i + BATCH);
     const body = { rows: chunk, sync: { entity: "staff", cursor: String(i + chunk.length) } };
-    
+
     const promise = rosPost("staff", body).then(summary => {
       console.info("[staff] batch", summary);
       state.staff_cursor = String(i + chunk.length);
@@ -2422,6 +2485,7 @@ async function syncStaff(pool) {
     }
   }
   await Promise.all(pendingRequests);
+  return allRows.length;
 }
 
 /**
@@ -2459,6 +2523,7 @@ async function syncSalesRepStubs(pool) {
     sync: { entity: "sales_rep_stubs", cursor: String(codes.length) },
   });
   console.info("[sales_rep_stubs] batch", summary);
+  return codes.length;
 }
 
 function collectSchemaEntries(recordset) {
@@ -2770,11 +2835,43 @@ async function waitForDiscoverClose() {
 
 /** Isolate entity failures so one bad SQL query does not hide which entity failed. */
 async function runSyncEntity(entityLabel, fn) {
+  const t0 = Date.now();
   try {
-    await fn();
+    const result = await fn();
+    const count = typeof result === 'number' ? result : (BRIDGE_STATE.entityStats[entityLabel]?.recordCount ?? 0);
+    const dur = Date.now() - t0;
+
+    const state = readState();
+    // Only advance the anchor date if we pulled something, OR if it's already set.
+    // This prevents a failed/empty initial run from locking us to "today".
+    if (count > 0 || state[`${entityLabel}_last_date`]) {
+      const dt = new Date(Date.now() - (86400000 * 2));
+      const dtStr = dt.getFullYear() + "-" + String(dt.getMonth() + 1).padStart(2, '0') + "-" + String(dt.getDate()).padStart(2, '0');
+      state[`${entityLabel}_last_date`] = dtStr;
+      state.global_last_date = dtStr;
+      writeState(state);
+    }
+
+    BRIDGE_STATE.entityStats[entityLabel] = {
+      ...BRIDGE_STATE.entityStats[entityLabel],
+      lastSync: new Date().toISOString(),
+      durationMs: dur,
+      recordCount: count,
+      error: null,
+    };
+    BRIDGE_STATE.totalRecordsLastRun += count;
+    pushEvent('complete', entityLabel, `Synced successfully`, { durationMs: dur, recordCount: count });
   } catch (e) {
     const msg = e?.message ?? String(e);
-    console.error(`[${entityLabel}] sync failed:`, msg);
+    const dur = Date.now() - t0;
+
+    BRIDGE_STATE.entityStats[entityLabel] = {
+      ...BRIDGE_STATE.entityStats[entityLabel],
+      lastSync: new Date().toISOString(),
+      error: msg,
+      durationMs: dur,
+    };
+    pushEvent('error', entityLabel, msg, { durationMs: dur });
   }
 }
 
@@ -2851,7 +2948,7 @@ async function main() {
     process.exit(1);
   }
   bridgeHostnameCached = (await import("node:os")).hostname();
-  
+
   // Start the Bridge Command Dashboard (Port 3001)
   startLocalServer();
 
@@ -2866,7 +2963,7 @@ async function main() {
   const pool = createSqlPool();
   ACTIVE_POOL = pool;
   pool.on("error", (err) => console.error("SQL pool error", err));
-  
+
   let connected = false;
   let attempts = 0;
   const MAX_ATTEMPTS = 20;
@@ -2963,12 +3060,20 @@ async function main() {
     }
 
     BRIDGE_STATE.isSyncing = true;
-    BRIDGE_STATE.lastRun = new Date().toISOString();
+    BRIDGE_STATE.abortRequested = false;
+    BRIDGE_STATE.totalRecordsLastRun = 0;
+    const tStart = Date.now();
+    pushEvent('start', null, 'Auto-sync cycle started');
 
     try {
       for (const step of orderedSyncSteps) {
         if (!step.on) continue;
-        
+        if (BRIDGE_STATE.abortRequested) {
+          logToDashboard('[sync] Aborted by user');
+          pushEvent('abort', step.label, 'Sync aborted by user');
+          break;
+        }
+
         // If it's a manual request for a specific entity, skip others
         if (hasPendingRequest && hbResp.pending_request_entity && hbResp.pending_request_entity !== step.label) {
             continue;
@@ -2980,6 +3085,11 @@ async function main() {
         await runSyncEntity(step.label, step.run);
         logToDashboard(`[${step.label}] ok`);
       }
+
+      const cycleDur = Date.now() - tStart;
+      BRIDGE_STATE.lastRunDurationMs = cycleDur;
+      BRIDGE_STATE.lastRun = new Date().toISOString();
+      pushEvent('complete', null, 'Auto-sync cycle complete', { durationMs: cycleDur });
 
       if (hasPendingRequest) {
         try {
@@ -3033,4 +3143,3 @@ main().catch(async (e) => {
   }
   process.exit(1);
 });
-

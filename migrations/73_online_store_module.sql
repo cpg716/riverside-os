@@ -1,6 +1,10 @@
 -- Online store: web catalog flags, sale channel, CMS pages, coupons, destination tax v1.
 
-CREATE TYPE sale_channel AS ENUM ('register', 'web');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'sale_channel') THEN
+        CREATE TYPE sale_channel AS ENUM ('register', 'web');
+    END IF;
+END $$;
 
 ALTER TABLE orders
     ADD COLUMN IF NOT EXISTS sale_channel sale_channel NOT NULL DEFAULT 'register';
@@ -30,7 +34,11 @@ CREATE TABLE store_pages (
 
 CREATE UNIQUE INDEX store_pages_slug_lower_uidx ON store_pages (lower(slug));
 
-CREATE TYPE store_coupon_kind AS ENUM ('percent', 'fixed_amount', 'free_shipping');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'store_coupon_kind') THEN
+        CREATE TYPE store_coupon_kind AS ENUM ('percent', 'fixed_amount', 'free_shipping');
+    END IF;
+END $$;
 
 CREATE TABLE store_coupons (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

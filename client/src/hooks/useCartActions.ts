@@ -13,6 +13,7 @@ import {
 import { type Customer } from "../components/pos/CustomerSelector";
 import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
 import { centsToFixed2, parseMoneyToCents } from "../lib/money";
+import { calculateNysErieTaxStringsForUnit } from "../lib/tax";
 import { playPosScanSuccess } from "../lib/posAudio";
 
 function newCartRowId(): string {
@@ -46,7 +47,6 @@ interface UseCartActionsProps {
   setCheckoutDepositLedger: (v: string) => void;
   setPosShipping: (v: PosShippingSelection | null) => void;
   setPickupConfirmed: (v: boolean) => void;
-  setSaleEpoch: (v: (e: number) => number) => void;
   baseUrl: string;
   apiAuth: () => Record<string, string>;
 }
@@ -73,7 +73,6 @@ export function useCartActions({
   setCheckoutDepositLedger,
   setPosShipping,
   setPickupConfirmed,
-  setSaleEpoch,
   baseUrl,
   apiAuth,
 }: UseCartActionsProps) {
@@ -103,7 +102,6 @@ export function useCartActions({
     setPosShipping(null);
     setPrimarySalespersonId("");
     setPickupConfirmed(false);
-    setSaleEpoch((e) => e + 1);
   }, [
     setSearch, 
     setSearchResults, 
@@ -114,11 +112,10 @@ export function useCartActions({
     setCheckoutDepositLedger, 
     setPosShipping, 
     setPrimarySalespersonId, 
-    setPickupConfirmed, 
-    setSaleEpoch
+    setPickupConfirmed,
   ]);
 
-  const addItem = useCallback((item: ResolvedSkuItem, priceOverride?: string) => {
+  const addItem = useCallback((item: ResolvedSkuItem, priceOverride?: string, fulfillmentOverride?: FulfillmentKind) => {
     if (!checkoutOperator) {
       toast("Sign in as cashier on the register sign-in screen before adding items.", "error");
       return;
@@ -172,7 +169,7 @@ export function useCartActions({
       const newLine: CartLineItem = {
         ...item,
         quantity: 1,
-        fulfillment: "takeaway",
+        fulfillment: fulfillmentOverride || "takeaway",
         cart_row_id: newCartRowId(),
       };
 
@@ -191,17 +188,21 @@ export function useCartActions({
         item.employee_price != null &&
         String(item.employee_price).trim() !== "";
       if (cartUsesEmployeePrice) {
-        newLine.standard_retail_price = centsToFixed2(
-          parseMoneyToCents(item.employee_price as string | number),
-        );
+        const empCents = parseMoneyToCents(item.employee_price as string | number);
+        const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(item.tax_category || "other", empCents);
+        newLine.standard_retail_price = centsToFixed2(empCents);
+        newLine.state_tax = stateTax;
+        newLine.local_tax = localTax;
         newLine.original_unit_price = undefined;
         newLine.price_override_reason = undefined;
       }
 
       if (priceOverride) {
-        newLine.standard_retail_price = centsToFixed2(
-          parseMoneyToCents(priceOverride),
-        );
+        const overrideCents = parseMoneyToCents(priceOverride);
+        const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(item.tax_category || "other", overrideCents);
+        newLine.standard_retail_price = centsToFixed2(overrideCents);
+        newLine.state_tax = stateTax;
+        newLine.local_tax = localTax;
         newLine.original_unit_price = centsToFixed2(
           parseMoneyToCents(item.standard_retail_price),
         );
@@ -394,10 +395,16 @@ export function useCartActions({
         }
         setLines(prev => prev.map(l => {
           if (l.cart_row_id !== selectedLineKey) return l;
+          const oldPrice = parseMoneyToCents(l.original_unit_price || l.standard_retail_price);
+          
+          const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(l.tax_category || "other", amt);
+          
           return {
             ...l,
             standard_retail_price: centsToFixed2(amt),
-            original_unit_price: l.original_unit_price ?? centsToFixed2(parseMoneyToCents(l.standard_retail_price)),
+            state_tax: stateTax,
+            local_tax: localTax,
+            original_unit_price: l.original_unit_price ?? centsToFixed2(oldPrice),
             price_override_reason: "Manual Override"
           };
         }));
@@ -406,11 +413,39 @@ export function useCartActions({
       return;
     }
 
-    if (key === "%" || key === "$") {
-      // Toggle mode
-      setKeypadMode(key === "%" ? "qty" : "price"); // In ROS POS, % usually switches to QTY mode or a specific discount mode
-      // Logic from legacy POS indicates % is often used for QTY or specific % discounts. 
-      // For now, let's keep it simple: $ for price, % for qty (or as per project standards).
+    if (key === "%") {
+      if (!selectedLineKey || !keypadBuffer) return;
+      const line = lines.find(l => l.cart_row_id === selectedLineKey);
+      if (!line) return;
+      
+      const pct = parseFloat(keypadBuffer);
+      if (isNaN(pct) || pct <= 0) {
+        toast("Invalid discount percentage", "error");
+        return;
+      }
+      
+      const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
+      const nextCents = Math.round(baseCents * (1 - pct / 100));
+      const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
+
+      setLines(prev => prev.map(l => {
+        if (l.cart_row_id !== selectedLineKey) return l;
+        return {
+          ...l,
+          standard_retail_price: centsToFixed2(nextCents),
+          state_tax: stateTax,
+          local_tax: localTax,
+          original_unit_price: l.original_unit_price ?? centsToFixed2(baseCents),
+          price_override_reason: `Manual ${pct}% Off`
+        };
+      }));
+      setKeypadBuffer("");
+      toast(`${pct}% discount applied`, "success");
+      return;
+    }
+
+    if (key === "$") {
+      setKeypadMode("price");
       return;
     }
 
@@ -439,11 +474,15 @@ export function useCartActions({
     const baseCents = parseMoneyToCents(line.original_unit_price || line.standard_retail_price);
     const nextCents = Math.round(baseCents * (1 - pct / 100));
 
+    const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(line.tax_category || "other", nextCents);
+
     setLines(prev => prev.map(l => {
       if (l.cart_row_id !== selectedLineKey) return l;
       return {
         ...l,
         standard_retail_price: centsToFixed2(nextCents),
+        state_tax: stateTax,
+        local_tax: localTax,
         original_unit_price: l.original_unit_price ?? centsToFixed2(baseCents),
         discount_event_id: event.id
       };

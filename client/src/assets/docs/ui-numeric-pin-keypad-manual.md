@@ -14,22 +14,21 @@ tags: ui-numeric-pin-keypad, component, auto-scaffold
 _Linked component: `client/src/components/ui/NumericPinKeypad.tsx`._
 <!-- /help:component-source -->
 
-## What this is
+# Numeric PIN Keypad
 
-Briefly describe what staff use this screen for.
+The Numeric PIN Keypad is the primary way staff authenticate for sales, register openings, and security-gated actions.
+
+## Features
+- **Large Touch Targets**: Designed for high-speed entry on tablets and touch-screen registers.
+- **Privacy Dots**: As you type, the system displays emerald "dots" to confirm entry without revealing the PIN to customers.
+- **Haptic/Visual Feedback**: Buttons glow briefly when tapped to confirm successful input.
 
 ## How to use it
+1. Select your name on the login screen if required.
+2. Tap the numbers for your 4-digit code.
+3. Tap **Enter** (the checkmark or "Continue" button) to submit.
+4. Use the **Clear** button (delete icon) if you make a mistake.
 
-1. 
-2. 
-
-## Tips
-
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/ui-numeric-pin-keypad/` and embed them, for example:
-
-![Example](../images/help/ui-numeric-pin-keypad/example.png)
+> [!IMPORTANT]
+> PIN codes are always exactly 4 digits. If the keypad doesn't respond to higher numbers, you have already reached the limit for that field.
 

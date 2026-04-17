@@ -114,7 +114,13 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
         <p className="text-sm text-app-text-muted mt-2 font-medium">Configure live weather snapshots for the dashboard and Golden Rule logs.</p>
       </header>
 
-      <section className="ui-card p-8 max-w-4xl border-sky-500/20 bg-gradient-to-br from-sky-500/5 to-transparent shadow-xl">
+      <form 
+        onSubmit={(e) => {
+          e.preventDefault();
+          void saveWeatherSettings();
+        }}
+        className="ui-card p-8 max-w-4xl border-sky-500/20 bg-gradient-to-br from-sky-500/5 to-transparent shadow-xl"
+      >
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-600 shadow-inner">
@@ -221,9 +227,8 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
 
         <div className="mt-10 flex flex-wrap items-center gap-4">
           <button
-            type="button"
+            type="submit"
             disabled={busy}
-            onClick={() => void saveWeatherSettings()}
             className="ui-btn-primary h-12 px-8 text-[11px] font-black uppercase tracking-[0.2em] shadow-lg shadow-sky-500/20 hover:scale-[1.02] transition-all"
           >
             {busy ? "Applying..." : "Commite configuration"}
@@ -240,7 +245,7 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
             </button>
           )}
         </div>
-      </section>
+      </form>
     </div>
   );
 };

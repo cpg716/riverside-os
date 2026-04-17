@@ -17,7 +17,7 @@ pub enum FulfillmentUrgency {
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct FulfillmentQueueItem {
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
     pub order_short_id: String,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
@@ -41,7 +41,7 @@ pub async fn query_fulfillment_queue(
         r#"
         WITH order_stats AS (
             SELECT 
-                o.id AS order_id,
+                o.id AS transaction_id,
                 o.booked_at,
                 o.status,
                 o.balance_due,
@@ -53,15 +53,15 @@ pub async fn query_fulfillment_queue(
                 COUNT(oi.id) FILTER (WHERE oi.is_fulfilled) AS fulfilled_items,
                 BOOL_OR(oi.is_rush) AS was_rush,
                 MIN(oi.need_by_date) AS earliest_deadline
-            FROM orders o
+            FROM transactions o
             LEFT JOIN customers c ON c.id = o.customer_id
-            LEFT JOIN order_items oi ON oi.order_id = o.id
+            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
             LEFT JOIN wedding_parties wp ON wp.id = o.wedding_id
             WHERE o.status IN ('open', 'pending_measurement')
             GROUP BY o.id, c.id, wp.id
         )
         SELECT 
-            order_id,
+            transaction_id,
             booked_at,
             status AS "status: DbOrderStatus",
             customer_id,
@@ -102,8 +102,8 @@ pub async fn query_fulfillment_queue(
         }
 
         FulfillmentQueueItem {
-            order_id: r.order_id,
-            order_short_id: r.order_id.to_string()[..8].to_string(), 
+            transaction_id: r.transaction_id,
+            order_short_id: r.transaction_id.to_string()[..8].to_string(), 
             booked_at,
             status: r.status.unwrap_or(DbOrderStatus::Open),
             customer_id: r.customer_id,

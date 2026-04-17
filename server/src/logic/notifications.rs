@@ -125,6 +125,69 @@ pub async fn upsert_app_notification_by_dedupe(
     .await
 }
 
+/// Incremental bundle: if unread notification exists for `dedupe_key`, append to its `deep_link.items`.
+/// Automatically sets kind="notification_bundle" and builds a "N items" title.
+#[allow(clippy::too_many_arguments)]
+pub async fn upsert_bundle_item(
+    pool: &PgPool,
+    bundle_kind: &str,
+    bundle_title_prefix: &str,
+    item_title: &str,
+    item_subtitle: &str,
+    item_deep_link: Value,
+    source: &str,
+    audience: Value,
+    dedupe_key: &str,
+) -> Result<Uuid, sqlx::Error> {
+    let existing: Option<(Uuid, Value)> = sqlx::query_as(
+        r#"SELECT id, deep_link FROM app_notification WHERE dedupe_key = $1 LIMIT 1"#,
+    )
+    .bind(dedupe_key)
+    .fetch_optional(pool)
+    .await?;
+
+    let mut items = if let Some((_, ref dl)) = existing {
+        dl.get("items")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+    } else {
+        vec![]
+    };
+
+    items.push(json!({
+        "title": item_title,
+        "subtitle": item_subtitle,
+        "deep_link": item_deep_link,
+    }));
+
+    let n = items.len();
+    let title = if n == 1 {
+        format!("{bundle_title_prefix}: {item_title}")
+    } else {
+        format!("{bundle_title_prefix} ({n} items)")
+    };
+    let body = format!("You have {n} pending updates. Expand to view all.");
+
+    let deep = json!({
+        "type": "notification_bundle",
+        "bundle_kind": bundle_kind,
+        "items": items,
+    });
+
+    upsert_app_notification_by_dedupe(
+        pool,
+        "notification_bundle",
+        &title,
+        &body,
+        deep,
+        source,
+        audience,
+        dedupe_key,
+    )
+    .await
+}
+
 /// Remove a canonical notification (inbox rows cascade).
 pub async fn delete_app_notification_by_dedupe(
     pool: &PgPool,
@@ -196,7 +259,7 @@ fn dedupe_sorted(mut ids: Vec<Uuid>) -> Vec<Uuid> {
 /// Admin + staff tied to an order (same rules as notification generators).
 pub async fn staff_ids_for_order_scoped(
     pool: &PgPool,
-    order_id: Uuid,
+    transaction_id: Uuid,
 ) -> Result<Vec<Uuid>, sqlx::Error> {
     let rows: Vec<(Uuid, DbStaffRole)> =
         sqlx::query_as(r#"SELECT id, role FROM staff WHERE is_active = TRUE"#)
@@ -204,8 +267,8 @@ pub async fn staff_ids_for_order_scoped(
             .await?;
     let mut out = Vec::new();
     let primary: Option<Uuid> =
-        sqlx::query_scalar(r#"SELECT primary_salesperson_id FROM orders WHERE id = $1"#)
-            .bind(order_id)
+        sqlx::query_scalar(r#"SELECT primary_salesperson_id FROM transactions WHERE id = $1"#)
+            .bind(transaction_id)
             .fetch_optional(pool)
             .await?;
 
@@ -221,9 +284,9 @@ pub async fn staff_ids_for_order_scoped(
                 continue;
             }
             let attributed: bool = sqlx::query_scalar(
-                r#"SELECT EXISTS(SELECT 1 FROM order_items WHERE order_id = $1 AND salesperson_id = $2)"#,
+                r#"SELECT EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = $1 AND salesperson_id = $2)"#,
             )
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(id)
             .fetch_one(pool)
             .await?;
@@ -773,14 +836,14 @@ pub async fn emit_customer_merge_completed(
 
 pub async fn emit_order_fully_fulfilled(
     pool: &PgPool,
-    order_id: Uuid,
+    transaction_id: Uuid,
     order_ref: &str,
 ) -> Result<(), sqlx::Error> {
-    let dedupe = format!("order_fully_fulfilled:{order_id}");
+    let dedupe = format!("order_fully_fulfilled:{transaction_id}");
     let title = format!("Order fully fulfilled: {order_ref}");
     let body = "All lines are fulfilled — pickup/fulfillment is complete for this order.";
-    let deep = json!({ "type": "order", "order_id": order_id.to_string() });
-    let staff = staff_ids_for_order_scoped(pool, order_id).await?;
+    let deep = json!({ "type": "order", "transaction_id": transaction_id.to_string() });
+    let staff = staff_ids_for_order_scoped(pool, transaction_id).await?;
     if staff.is_empty() {
         return Ok(());
     }
@@ -859,7 +922,7 @@ pub async fn emit_nuorder_sync_finished(
     let title = format!("NuORDER {sync_type} sync finished");
     let body = format!("Sync completed successfully. Created: {created}, Updated: {updated}.");
     let dedupe = format!("nuorder_sync_done:{sync_log_id}");
-    let deep = json!({ "type": "settings", "subsection": "nuorder" });
+    let deep = json!({ "type": "settings", "section": "nuorder" });
 
     let Some(nid) = insert_app_notification_deduped(
         pool,
@@ -888,7 +951,7 @@ pub async fn emit_nuorder_sync_failed(
     let title = format!("NuORDER {sync_type} sync failed");
     let body = format!("Error: {error}");
     let dedupe = format!("nuorder_sync_failed:{sync_log_id}");
-    let deep = json!({ "type": "settings", "subsection": "nuorder" });
+    let deep = json!({ "type": "settings", "section": "nuorder" });
 
     let Some(nid) = insert_app_notification_deduped(
         pool,

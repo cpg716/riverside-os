@@ -1,44 +1,87 @@
 # Riverside OS (ROS) AI System Instructions
 
 > [!IMPORTANT]
-> This is a private, proprietary POS for **Riverside Men's Shop**.
-> **Revenue Recognition (Finance)**: Recognized on **Date of Pickup** (Fulfilled).
-> **Booked Reporting (Activity)**: Tracked on **Date of Order Creation** (Booked).
+> Riverside OS is a private, proprietary POS/ERM for Riverside Men's Shop.
+> This is an existing production-oriented codebase. Prefer understanding and extending current patterns over introducing new abstractions.
 
-## Behavioral Pillars (See AI_RULES.md for full details)
+## Core Operating Rules
 
-### 1. Gatekeeper Protocol (VC & Validation)
-*   **Pre-Commit**: Run `cargo fmt --check` and `npm run lint`. Verify compilation.
-*   **Commit Blocking**: ABORT commit if tests/checks fail. Fix first.
-*   **E2E Enforcement**: Remind user to run `npm run test:e2e` for any checkout or revenue logic changes.
-*   **Windows Parity**: All paths and commands must be Windows-compatible.
+### 1. Safety and change discipline
+- Prefer small, focused, production-safe patches over broad rewrites.
+- Trace bugs to the likely source of truth before fixing symptoms.
+- Be explicit about assumptions, downstream effects, and business-risk areas.
+- If requirements are unclear, do not invent critical financial, tax, fulfillment, or auth behavior.
 
-### 2. Database & Migrations
-*   **No Direct Schema Edits**: Always use numbered SQL files in `migrations/`.
-*   **Up Logic**: Migrations must have clear apply logic. Rollback plans are mandatory for complex changes.
-*   **No Destructive Actions**: `DROP`/`DELETE` requires triple confirmation.
+### 2. Validation and quality gates
+- Before considering work complete, run:
+  - `cargo fmt`
+  - `npm run lint`
+  - `npm run typecheck`
+- Verify compilation for changed areas.
+- If checks fail, stop and report the failures before proceeding.
+- For checkout, deposits, fulfillment, tax, or revenue-recognition changes, remind the user to run:
+  - `npm run test:e2e`
+- Prefer Playwright runs with `--workers=1` for full-suite stability when relevant.
 
-### 3. Staff Manual Alignment
-*   **Sync Requirement**: Cross-reference `docs/staff/` for UI changes.
-*   **The Prompt**: Ask: *"Should we draft an update for the staff manual based on this new feature?"*
+### 3. Database and migrations
+- Never edit schema directly. Always use numbered SQL files in `migrations/`.
+- Migrations must be idempotent where applicable.
+- If changing views and the column shape changes, use `DROP VIEW IF EXISTS` before recreation.
+- For complex schema or data migrations, include:
+  - apply plan
+  - rollback plan
+  - risk notes
+- Never propose destructive `DROP` or broad `DELETE` operations without explicit user approval.
 
-### 4. Tech Stack Lock-in
-*   **Server**: Rust (Axum 0.8+, sqlx 0.8). Logic in `server/src/logic/`. Money in `rust_decimal`. Use `{id}` for Axum path parameters.
-*   **UI**: React 19, TypeScript, Tailwind, Tauri 2. Use `ui-*` primitives.
-*   **QA**: Playwright (`--workers=1`).
+### 4. Rust / backend rules
+- Backend stack: Rust + Axum 0.8+ + sqlx.
+- Keep handlers thin.
+- Put business logic in `server/src/logic/` or `server/src/services/`.
+- Use `rust_decimal` for all money values. Never use floats for currency, tax, balances, or reporting.
+- Use `{id}` style Axum path parameters.
+- `Router::with_state(...)` belongs in top-level `main.rs` only.
+- Prefer domain-specific error handling. Do not collapse expected failures into generic 500s.
+- If changing `query!` / sqlx macros, run:
+  - `cargo sqlx prepare --workspace`
 
-## Tech Context & File Map
-- `DEVELOPER.md` — App architecture & runbooks.
-- `AGENTS.md` — AI-specific invariants (CI compliance, SQLx prepare).
-- `docs/REPORTING_BOOKED_AND_RECOGNITION.md` — Financial logic baseline.
-- `docs/E2E_REGRESSION_MATRIX.md` — Test coverage map.
+### 5. Frontend / UX rules
+- Frontend stack: React 19 + TypeScript + Tailwind + Tauri 2.
+- Preserve the distinction between:
+  - `POS-Core` = fast, dense, cashier-first
+  - `BackOffice` = detailed, reviewable, management-first
+- Never use browser `alert()`, `confirm()`, or `prompt()`.
+- Use toast notifications, `ConfirmationModal`, `PromptModal`, or established drawer patterns.
+- Prefer existing `ui-*` primitives and project patterns before creating new UI patterns.
 
-## Strict Rules
-1. **Money**: ALWAYS use `rust_decimal`. NEVER floats.
-2. **Axum**: `Router::with_state` at top-level `main.rs` only.
-3. **Errors**: Domain-specific mapping via `thiserror`. No generic 500s.
-4. **UX**: Preserve `POS-Core` (speed) vs `BackOffice` (detail) surface intent.
-5. **Zero-Dialog**: No `alert()`/`confirm()`/`prompt()`. Use `Toast` or `ConfirmationModal`.
-6. **SQLx**: Run `cargo sqlx prepare` whenever changing `query!` macros to keep CI green.
-7. **NYS Tax (718-C)**: Clothing/Footwear < $110 = 4.75% (State Exempt); Else 8.75%. Calculated at line-item level.
-8. **Stripe Power (PCI)**: ROS never handles raw card data. Use Stripe Elements & `SetupIntents`. Only store non-sensitive metadata (last4, brand, expiry).
+### 6. Business-critical invariants
+- Revenue recognition is based on **pickup / fulfillment**, not initial order creation.
+- Booked reporting is based on **date of order creation**.
+- Tax must be calculated at the **line-item level**.
+- Follow the existing Riverside OS tax implementation exactly; do not reinterpret tax law from scratch.
+- For money, tax, deposits, and reporting, preserve strict parity between backend logic and UI behavior.
+
+### 7. Payments / security
+- Riverside OS never handles raw card data directly.
+- Use Stripe Elements and SetupIntents for secure card flows.
+- Only non-sensitive metadata may be stored, such as:
+  - last4
+  - brand
+  - expiry
+
+### 8. Documentation alignment
+- Cross-reference `AGENTS.md`, `DEVELOPER.md`, and the relevant domain docs before large or risky changes.
+- If a change affects a user-visible workflow, recommend updating the matching staff manual in `docs/staff/`.
+- Do not interrupt every task with a manual-update question; raise it when the workflow actually changed.
+
+## High-Signal Reference Files
+- `AGENTS.md` — repo invariants, workflow rules, migration discipline
+- `DEVELOPER.md` — architecture, runbooks, major module map
+- `docs/REPORTING_BOOKED_AND_RECOGNITION.md` — reporting and recognition baseline
+- `docs/E2E_REGRESSION_MATRIX.md` — Playwright coverage map
+
+## Final behavior
+- Follow existing code patterns first.
+- Keep business logic centralized.
+- Avoid unnecessary dependencies.
+- Call out migrations, tests, docs, and downstream files that need updating.
+- Optimize for correctness, maintainability, auditability, and CI safety.

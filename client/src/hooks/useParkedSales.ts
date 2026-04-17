@@ -9,7 +9,9 @@ import {
   fetchParkedSales, 
   recallParkedSaleOnServer, 
   deleteParkedSaleOnServer,
-  type ServerParkedSale 
+  createParkedSale,
+  type ServerParkedSale,
+  type ParkedCartPayload
 } from "../lib/posParkedSales";
 
 // Simple helper to ensure cart row IDs (can move to posUtils later if needed)
@@ -35,6 +37,11 @@ interface UseParkedSalesProps {
   setActiveWeddingPartyName: (n: string | null) => void;
   setDisbursementMembers: (m: WeddingMember[]) => void;
   setPrimarySalespersonId: (id: string) => void;
+  primarySalespersonId: string;
+  clearCart: () => void;
+  activeWeddingMember: WeddingMember | null;
+  activeWeddingPartyName: string | null;
+  disbursementMembers: WeddingMember[];
 }
 
 export function useParkedSales({
@@ -52,6 +59,11 @@ export function useParkedSales({
   setActiveWeddingPartyName,
   setDisbursementMembers,
   setPrimarySalespersonId,
+  primarySalespersonId,
+  clearCart,
+  activeWeddingMember,
+  activeWeddingPartyName,
+  disbursementMembers,
 }: UseParkedSalesProps) {
   const [parkedRows, setParkedRows] = useState<ServerParkedSale[]>([]);
   const [parkedListOpen, setParkedListOpen] = useState(false);
@@ -170,6 +182,54 @@ export function useParkedSales({
     setActiveWeddingPartyName, setDisbursementMembers, setPrimarySalespersonId, refreshParkedSales
   ]);
 
+  const parkSale = useCallback(async (label: string = "Untitled Sale") => {
+    if (lines.length === 0) {
+      toast("Cart is empty", "error");
+      return;
+    }
+    if (!selectedCustomer) {
+      toast("Link a customer to this sale before parking.", "error");
+      return;
+    }
+    const tok = await ensurePosTokenForSession();
+    if (!tok) {
+      toast("Register session token missing. Join register first.", "error");
+      return;
+    }
+    const actor = await resolveActorStaffId();
+    if (!actor) {
+      toast("Sign in to park sales.", "error");
+      return;
+    }
+
+    const payload: ParkedCartPayload = {
+      lines,
+      selectedCustomer,
+      activeWeddingMember,
+      activeWeddingPartyName,
+      disbursementMembers,
+      primarySalespersonId: primarySalespersonId.trim() || null,
+    };
+
+    try {
+      await createParkedSale(baseUrl, sessionId, apiAuth, {
+        parked_by_staff_id: actor,
+        label: label.trim() || "Untitled Sale",
+        customer_id: selectedCustomer?.id ?? null,
+        payload_json: payload,
+      });
+      toast("Sale parked on server.", "success");
+      clearCart();
+      await refreshParkedSales();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Park failed", "error");
+    }
+  }, [
+    lines, sessionId, baseUrl, apiAuth, selectedCustomer, activeWeddingMember, 
+    activeWeddingPartyName, disbursementMembers, primarySalespersonId, 
+    ensurePosTokenForSession, resolveActorStaffId, clearCart, refreshParkedSales, toast
+  ]);
+
   const deleteParkedSale = useCallback(async (parkId: string) => {
     const tok = await ensurePosTokenForSession();
     if (!tok) return;
@@ -208,6 +268,7 @@ export function useParkedSales({
     setParkedCustomerPrompt,
     refreshParkedSales,
     recallParkedSale,
+    parkSale,
     deleteParkedSale,
     skipParkedPrompt,
     primaryDefaultedRef,

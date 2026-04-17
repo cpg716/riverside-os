@@ -19,7 +19,7 @@ pub async fn credit_gift_card_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     code: &str,
     amount: Decimal,
-    order_id: Uuid,
+    transaction_id: Uuid,
     session_id: Uuid,
 ) -> Result<(), GiftCardOpError> {
     if amount <= Decimal::ZERO {
@@ -55,14 +55,14 @@ pub async fn credit_gift_card_in_tx(
     sqlx::query(
         r#"
         INSERT INTO gift_card_events
-            (gift_card_id, event_kind, amount, balance_after, order_id, session_id)
+            (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
         VALUES ($1, 'loaded', $2, $3, $4, $5)
         "#,
     )
     .bind(card_id)
     .bind(amount)
     .bind(new_balance)
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(session_id)
     .execute(&mut **tx)
     .await?;
@@ -70,14 +70,14 @@ pub async fn credit_gift_card_in_tx(
     Ok(())
 }
 
-/// Apply purchased-card load inside a transaction. `order_id_for_events` is `Some` when tied to checkout.
+/// Apply purchased-card load inside a transaction. `transaction_id_for_events` is `Some` when tied to checkout.
 pub async fn pos_load_purchased_in_tx(
     tx: &mut Transaction<'_, Postgres>,
     code: &str,
     amount: Decimal,
     customer_id: Option<Uuid>,
     session_id: Option<Uuid>,
-    order_id_for_events: Option<Uuid>,
+    transaction_id_for_events: Option<Uuid>,
 ) -> Result<Uuid, GiftCardOpError> {
     let code = code.trim();
     if code.is_empty() {
@@ -143,13 +143,13 @@ pub async fn pos_load_purchased_in_tx(
             sqlx::query(
                 r#"
                 INSERT INTO gift_card_events
-                    (gift_card_id, event_kind, amount, balance_after, order_id, session_id)
+                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
                 VALUES ($1, 'issued', $2, $2, $3, $4)
                 "#,
             )
             .bind(id)
             .bind(amount)
-            .bind(order_id_for_events)
+            .bind(transaction_id_for_events)
             .bind(session_id)
             .execute(&mut **tx)
             .await?;
@@ -174,14 +174,14 @@ pub async fn pos_load_purchased_in_tx(
             sqlx::query(
                 r#"
                 INSERT INTO gift_card_events
-                    (gift_card_id, event_kind, amount, balance_after, order_id, session_id)
+                    (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
                 VALUES ($1, 'loaded', $2, $3, $4, $5)
                 "#,
             )
             .bind(id)
             .bind(amount)
             .bind(new_balance)
-            .bind(order_id_for_events)
+            .bind(transaction_id_for_events)
             .bind(session_id)
             .execute(&mut **tx)
             .await?;
@@ -193,7 +193,7 @@ pub async fn pos_load_purchased_in_tx(
             r#"
             INSERT INTO gift_cards
                 (code, card_kind, card_status, current_balance, original_value,
-                 is_liability, expires_at, customer_id, issued_session_id, issued_order_id, notes)
+                 is_liability, expires_at, customer_id, issued_session_id, issued_transaction_id, notes)
             VALUES ($1, 'purchased', 'active', $2, $2, TRUE, $3, $4, $5, NULL, NULL)
             RETURNING id
             "#,
@@ -209,13 +209,13 @@ pub async fn pos_load_purchased_in_tx(
         sqlx::query(
             r#"
             INSERT INTO gift_card_events
-                (gift_card_id, event_kind, amount, balance_after, order_id, session_id)
+                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
             VALUES ($1, 'issued', $2, $2, $3, $4)
             "#,
         )
         .bind(new_id)
         .bind(amount)
-        .bind(order_id_for_events)
+        .bind(transaction_id_for_events)
         .bind(session_id)
         .execute(&mut **tx)
         .await?;
@@ -226,7 +226,7 @@ pub async fn pos_load_purchased_in_tx(
     Ok(card_id)
 }
 
-/// Register / API: load outside checkout (no `order_id` on events). Prefer cart line + checkout.
+/// Register / API: load outside checkout (no `transaction_id` on events). Prefer cart line + checkout.
 pub async fn pos_load_purchased_card(
     pool: &PgPool,
     code: &str,

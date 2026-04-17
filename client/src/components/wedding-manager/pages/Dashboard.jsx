@@ -17,6 +17,7 @@ import PartyList from '../components/PartyList';
 import PartyDetail from '../components/PartyDetail';
 import OrderDashboard from '../components/OrderDashboard';
 import ReportsDashboard from '../components/ReportsDashboard';
+import WeddingHealthHeatmap from '../components/WeddingHealthHeatmap';
 import { useModal } from '../hooks/useModal';
 
 const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
@@ -274,8 +275,8 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
     // Render Main Dashboard
     // Render Main Dashboard
     return (
-        <div className="min-h-screen bg-app-surface-2 p-0 md:p-8 transition-colors duration-300 relative print:p-0 print:bg-app-surface overflow-x-hidden">
-            <div className="max-w-7xl mx-auto print:max-w-none print:w-full">
+        <div className="min-h-full bg-app-surface-2 p-0 transition-colors duration-300 relative print:p-0 print:bg-app-surface overflow-x-hidden">
+            <div className="max-w-7xl mx-auto px-4 py-8 sm:px-8 print:max-w-none print:w-full">
                 {selectedParty ? (
                     <PartyDetail
                         party={selectedParty}
@@ -295,7 +296,7 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                 ) : (
                     <>
                         {/* Header */}
-                        <div className="flex flex-col lg:flex-row justify-between items-center mb-8 gap-4 bg-app-surface p-4 sm:p-6 rounded-xl shadow-sm border border-app-border transition-all print:hidden mx-2 sm:mx-4 lg:mx-0">
+                        <div className="flex flex-col lg:flex-row justify-between items-center mb-8 gap-4 bg-app-surface p-4 sm:p-8 rounded-3xl border border-app-border transition-all print:hidden">
                             <div className="flex flex-col items-start gap-1">
                                 <div className="h-16 md:h-20 flex-shrink-0">
                                     <img src={logo} alt="Riverside Men's Shop" className="h-full w-auto object-contain rounded-lg" />
@@ -327,6 +328,13 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                                         Appointments
                                     </button>
                                     <button type="button"
+                                        onClick={() => setActiveTab('health')}
+                                        className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'health' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
+                                    >
+                                        <Icon name="Activity" size={16} className={activeTab === 'health' ? 'text-gold-400' : ''} />
+                                        Health
+                                    </button>
+                                    <button type="button"
                                         onClick={() => setActiveTab('reports')}
                                         className={`px-3 sm:px-6 py-2 sm:py-2.5 text-xs sm:text-sm font-extrabold rounded-lg transition-all duration-200 flex items-center gap-1.5 sm:gap-2 ${activeTab === 'reports' ? 'bg-navy-900 text-white shadow-md transform scale-105' : 'text-app-text-muted hover:text-app-text hover:bg-app-border/50'}`}
                                     >
@@ -354,7 +362,11 @@ const Dashboard = ({ initialPartyId = null, onInitialPartyConsumed }) => {
                             </div>
                         </div>
 
-                        {activeTab === 'reports' ? (
+                        {activeTab === 'health' ? (
+                            <div className="px-4 md:px-0">
+                                <WeddingHealthHeatmap onPartyClick={handlePartyClick} />
+                            </div>
+                        ) : activeTab === 'reports' ? (
                             <div className="px-4 md:px-0">
                                 <ReportsDashboard />
                             </div>

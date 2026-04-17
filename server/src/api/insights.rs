@@ -260,8 +260,8 @@ pub async fn run_sales_pivot(
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 o.customer_id AS customer_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
             LEFT JOIN customers cust ON cust.id = o.customer_id
             LEFT JOIN categories c ON c.id = p.category_id
@@ -311,8 +311,8 @@ pub async fn run_sales_pivot(
                     COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
                     {date_key} AS sale_day,
                     NULL::uuid AS customer_id
-                FROM order_items oi
-                INNER JOIN orders o ON o.id = oi.order_id
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
                 LEFT JOIN categories c ON c.id = p.category_id
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
@@ -364,8 +364,8 @@ pub async fn run_sales_pivot(
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 NULL::uuid AS customer_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
@@ -493,8 +493,8 @@ async fn commission_ledger(
                 ),
                 0
             )::numeric(14, 2) AS paid_out_commission
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         LEFT JOIN staff st ON st.id = oi.salesperson_id
         WHERE o.status::text NOT IN ('cancelled')
         GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
@@ -530,6 +530,92 @@ async fn commission_ledger(
         ORDER BY realized_pending_payout DESC, unpaid_commission DESC
         "#,
     ))
+    .bind(start)
+    .bind(end)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(rows))
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct CommissionLineRow {
+    pub transaction_line_id: Uuid,
+    pub transaction_id: Uuid,
+    pub order_short_id: String,
+    pub booked_at: DateTime<Utc>,
+    pub product_name: String,
+    pub unit_price: Decimal,
+    pub quantity: Decimal,
+    pub line_gross: Decimal,
+    pub calculated_commission: Decimal,
+    pub is_fulfilled: bool,
+    pub fulfilled_at: Option<DateTime<Utc>>,
+    pub is_finalized: bool,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommissionLinesQuery {
+    pub staff_id: Option<Uuid>,
+    #[serde(flatten)]
+    pub range: DateRangeQuery,
+}
+
+async fn commission_lines(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<CommissionLinesQuery>,
+) -> Result<Json<Vec<CommissionLineRow>>, InsightsError> {
+    require_staff_with_permission(&state, &headers, INSIGHTS_VIEW)
+        .await
+        .map_err(|(s, _)| {
+            if s == StatusCode::FORBIDDEN {
+                InsightsError::Forbidden("insights.view permission required".to_string())
+            } else {
+                InsightsError::Unauthorized(
+                    "staff credentials required (x-riverside-staff-code and PIN if set)"
+                        .to_string(),
+                )
+            }
+        })?;
+
+    let (start, end) = range_bounds(&q.range);
+    let rec = ORDER_RECOGNITION_TS_SQL.trim();
+
+    let rows = sqlx::query_as::<_, CommissionLineRow>(&format!(
+        r#"
+        SELECT
+            oi.id AS transaction_line_id,
+            o.id AS transaction_id,
+            o.short_id AS order_short_id,
+            o.booked_at,
+            p.name AS product_name,
+            oi.unit_price,
+            oi.quantity,
+            (oi.unit_price * oi.quantity)::numeric(14, 2) AS line_gross,
+            oi.calculated_commission::numeric(14, 2) AS calculated_commission,
+            oi.is_fulfilled,
+            ({rec}) AS fulfilled_at,
+            oi.commission_payout_finalized_at IS NOT NULL AS is_finalized
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
+        INNER JOIN products p ON p.id = oi.product_id
+        WHERE o.status::text NOT IN ('cancelled')
+          AND (
+            (oi.salesperson_id = $1)
+            OR ($1 IS NULL AND oi.salesperson_id IS NULL)
+          )
+          AND (
+              -- Case 1: Pipeline (booked in range)
+              (o.booked_at >= $2 AND o.booked_at < $3)
+              OR
+              -- Case 2: Recognition (fulfilled in range)
+              (({rec}) IS NOT NULL AND ({rec}) >= $2 AND ({rec}) < $3)
+          )
+        ORDER BY o.booked_at DESC
+        "#
+    ))
+    .bind(q.staff_id)
     .bind(start)
     .bind(end)
     .fetch_all(&state.db)
@@ -740,8 +826,8 @@ async fn nys_tax_audit(
             )::numeric(14, 2) AS standard_path_net,
             COALESCE(SUM(oi.state_tax::numeric), 0)::numeric(14, 2) AS total_state_tax,
             COALESCE(SUM(oi.local_tax::numeric), 0)::numeric(14, 2) AS total_local_tax
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         WHERE {order_filter}
@@ -838,8 +924,8 @@ async fn staff_performance(
                 ),
                 0
             )::numeric(14, 2) AS high_value_net_revenue
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         LEFT JOIN staff st ON st.id = oi.salesperson_id
         WHERE o.status::text NOT IN ('cancelled')
         GROUP BY st.id, st.full_name
@@ -887,8 +973,8 @@ async fn staff_performance(
             oi.salesperson_id AS staff_id,
             {date_key_sql} AS sale_day,
             COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14,2) AS revenue
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE {momentum_order_filter}
         GROUP BY oi.salesperson_id, {date_key_sql}
         "#
@@ -937,7 +1023,7 @@ pub struct RmsChargeReportRow {
     pub id: Uuid,
     pub record_kind: String,
     pub created_at: DateTime<Utc>,
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
     pub register_session_id: Uuid,
     pub customer_id: Option<Uuid>,
     pub payment_method: String,
@@ -977,7 +1063,7 @@ async fn rms_charges_report(
             r.id,
             r.record_kind,
             r.created_at,
-            r.order_id,
+            r.transaction_id,
             r.register_session_id,
             r.customer_id,
             r.payment_method,
@@ -991,7 +1077,7 @@ async fn rms_charges_report(
             o.amount_paid AS order_amount_paid,
             NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name_live
         FROM pos_rms_charge_record r
-        LEFT JOIN orders o ON o.id = r.order_id
+        LEFT JOIN transactions o ON o.id = r.transaction_id
         LEFT JOIN customers c ON c.id = r.customer_id
         WHERE r.created_at >= $1 AND r.created_at < $2
         ORDER BY r.created_at DESC
@@ -1161,12 +1247,12 @@ async fn register_session_history(
             rs.discrepancy,
             (
                 SELECT COALESCE(SUM(o.total_price), 0)::numeric(14,2)
-                FROM orders o
+                FROM transactions o
                 WHERE EXISTS (
                     SELECT 1
                     FROM payment_allocations pa
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-                    WHERE pa.target_order_id = o.id
+                    WHERE pa.target_transaction_id = o.id
                       AND pt.session_id = rs.id
                       AND pa.amount_allocated > 0
                 )
@@ -1221,8 +1307,8 @@ async fn register_override_mix(
         SELECT
             COALESCE(NULLIF(TRIM(oi.size_specs->>'price_override_reason'), ''), '(unset)') AS reason,
             COUNT(*)::bigint AS line_count
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE {order_filter}
           AND oi.size_specs ? 'price_override_reason'
         GROUP BY 1
@@ -1453,7 +1539,7 @@ async fn wedding_health_summary(
         r#"
         SELECT COUNT(*)::bigint
         FROM wedding_members
-        WHERE order_id IS NULL
+        WHERE transaction_id IS NULL
         "#,
     )
     .fetch_one(&state.db)
@@ -1463,7 +1549,7 @@ async fn wedding_health_summary(
         r#"
         SELECT COUNT(*)::bigint
         FROM wedding_members wm
-        INNER JOIN orders o ON o.id = wm.order_id
+        INNER JOIN transactions o ON o.id = wm.transaction_id
         WHERE o.status <> 'cancelled'::order_status
           AND o.balance_due > 0
         "#,
@@ -1526,6 +1612,56 @@ async fn metabase_launch_resolve(
             .fetch_one(&state.db)
             .await?;
     let cfg = StoreInsightsConfig::from_json_value(cfg_raw);
+
+    // --- SHARED AUTH LOGIC (Metabase OSS Workaround) ---
+    // If JWT is not enabled or available, we try the "Silent Shared Auth" via background login.
+    let admin_email = std::env::var("RIVERSIDE_METABASE_ADMIN_EMAIL").unwrap_or_default();
+    let staff_email = std::env::var("RIVERSIDE_METABASE_STAFF_EMAIL").unwrap_or_default();
+
+    if !cfg.metabase_jwt_sso_enabled && !admin_email.is_empty() && !staff_email.is_empty() {
+        let (email, pass) = if staff.role == DbStaffRole::Admin {
+            (
+                admin_email,
+                std::env::var("RIVERSIDE_METABASE_ADMIN_PASSWORD").unwrap_or_default(),
+            )
+        } else {
+            (
+                staff_email,
+                std::env::var("RIVERSIDE_METABASE_STAFF_PASSWORD").unwrap_or_default(),
+            )
+        };
+
+        if !pass.is_empty() {
+            let upstream = std::env::var("RIVERSIDE_METABASE_UPSTREAM")
+                .unwrap_or_else(|_| "http://127.0.0.1:3001".to_string());
+            let login_url = format!("{}/api/session", upstream.trim_end_matches('/'));
+
+            let login_res = state
+                .http_client
+                .post(&login_url)
+                .json(&serde_json::json!({ "username": email, "password": pass }))
+                .send()
+                .await;
+
+            if let Ok(res) = login_res {
+                if res.status().is_success() {
+                    if let Ok(data) = res.json::<serde_json::Value>().await {
+                        if let Some(session_id) = data.get("id").and_then(|id| id.as_str()) {
+                            // We return the session ID. The frontend shell or proxy will ensure it's used.
+                            // To make it seamless, we return a special launch source that the proxy recognizes.
+                            let rt = urlencoding::encode(return_to);
+                            let iframe_src = format!(
+                                "/metabase/?metabase_session_id={session_id}&return_to={rt}"
+                            );
+                            return Ok(Json(
+                                json!({ "iframe_src": iframe_src, "session_id": session_id }),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     let secret = std::env::var("RIVERSIDE_METABASE_JWT_SECRET").unwrap_or_default();
     let secret_trim = secret.trim();
@@ -1658,12 +1794,12 @@ async fn get_merchant_activity(
 
     let txs: Vec<MerchantTransaction> = sqlx::query_as(
         r#"
-        SELECT id, occurred_at, amount, merchant_fee, net_amount, payment_method, 
+        SELECT id, created_at AS occurred_at, amount, merchant_fee, net_amount, payment_method, 
                card_brand, card_last4, stripe_intent_id, status::text
         FROM payment_transactions
-        WHERE occurred_at >= $1 AND occurred_at < $2
+        WHERE created_at >= $1 AND created_at < $2
           AND stripe_intent_id IS NOT NULL
-        ORDER BY occurred_at DESC
+        ORDER BY created_at DESC
         "#,
     )
     .bind(start)
@@ -1689,6 +1825,30 @@ async fn get_merchant_activity(
     }))
 }
 
+async fn commission_trace(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(line_id): Path<Uuid>,
+) -> Result<Json<crate::logic::commission_trace::CommissionTrace>, InsightsError> {
+    require_staff_with_permission(&state, &headers, INSIGHTS_VIEW)
+        .await
+        .map_err(|(s, _)| {
+            if s == StatusCode::FORBIDDEN {
+                InsightsError::Forbidden("insights.view permission required".to_string())
+            } else {
+                InsightsError::Unauthorized(
+                    "staff credentials required (x-riverside-staff-code and PIN if set)"
+                        .to_string(),
+                )
+            }
+        })?;
+
+    let trace = crate::logic::commission_trace::query_commission_trace(&state.db, line_id)
+        .await
+        .map_err(InsightsError::BadRequest)?;
+    Ok(Json(trace))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route(
@@ -1708,6 +1868,8 @@ pub fn router() -> Router<AppState> {
         .route("/margin-pivot", get(margin_pivot))
         .route("/commission-ledger", get(commission_ledger))
         .route("/commission-finalize", post(commission_finalize))
+        .route("/commission-lines", get(commission_lines))
+        .route("/commission-trace/{line_id}", get(commission_trace))
         .route("/rms-charges", get(rms_charges_report))
         .route("/register-day-activity", get(register_day_activity_summary))
         .route("/register-sessions", get(register_session_history))

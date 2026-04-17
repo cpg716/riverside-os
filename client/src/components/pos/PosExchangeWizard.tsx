@@ -79,7 +79,7 @@ export default function PosExchangeWizard({
   const loadOrder = async (id: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/orders/${encodeURIComponent(id)}?${sessionQs}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${encodeURIComponent(id)}?${sessionQs}`, {
         headers: apiAuth(),
       });
       if (!res.ok) {
@@ -131,7 +131,7 @@ export default function PosExchangeWizard({
     setSubmitting(true);
     try {
       const res = await fetch(
-        `${baseUrl}/api/orders/${encodeURIComponent(detail.order_id)}/returns?${sessionQs}`,
+        `${baseUrl}/api/transactions/${encodeURIComponent(detail.order_id)}/returns?${sessionQs}`,
         {
           method: "POST",
           headers: jsonHeaders(apiAuth()),

@@ -127,7 +127,7 @@ export default function CustomerSearchInput({
                        <User size={14} className="text-app-text-muted" />
                     </div>
                     <div className="flex flex-col min-w-0">
-                       <span className="text-sm font-bold text-app-text truncate">
+                       <span className="text-sm font-black text-app-text">
                          {c.first_name} {c.last_name}
                        </span>
                        <span className="text-[10px] text-app-text-muted truncate">

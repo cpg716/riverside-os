@@ -220,6 +220,7 @@ async fn cp_customers(
                 "customers",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -254,6 +255,7 @@ async fn cp_inventory(
                 "inventory",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -295,6 +297,7 @@ async fn cp_category_masters(
                 "category_masters",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -332,6 +335,7 @@ async fn cp_catalog(
                 "catalog",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -368,6 +372,7 @@ async fn cp_gift_cards(
                 "gift_cards",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -389,8 +394,8 @@ async fn cp_tickets(
             tracing::info!(
                 entity = "tickets",
                 batch_size = n,
-                orders_created = summary.orders_created,
-                orders_skipped = summary.orders_skipped_existing,
+                orders_created = summary.transactions_created,
+                orders_skipped = summary.transactions_skipped_existing,
                 items = summary.line_items_created,
                 payments = summary.payments_created,
                 gift_payments = summary.gift_payments_created,
@@ -406,6 +411,7 @@ async fn cp_tickets(
                 "tickets",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -447,6 +453,7 @@ async fn cp_store_credit_opening(
                 "store_credit_opening",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -468,8 +475,8 @@ async fn cp_open_docs(
             tracing::info!(
                 entity = "open_docs",
                 batch_size = n,
-                orders_created = summary.orders_created,
-                orders_skipped = summary.orders_skipped_existing,
+                orders_created = summary.transactions_created,
+                orders_skipped = summary.transactions_skipped_existing,
                 items = summary.line_items_created,
                 payments = summary.payments_created,
                 skipped = summary.skipped,
@@ -489,6 +496,7 @@ async fn cp_open_docs(
                 "open_docs",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -523,6 +531,7 @@ async fn cp_vendors(
                 "vendors",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -556,6 +565,7 @@ async fn cp_customer_notes(
                 "customer_notes",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -590,6 +600,7 @@ async fn cp_loyalty_hist(
                 "loyalty_hist",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -626,6 +637,7 @@ async fn cp_receiving_history(
                 "receiving_history",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -660,6 +672,7 @@ async fn cp_vendor_items(
                 "vendor_items",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -701,6 +714,7 @@ async fn cp_sales_rep_stubs(
                 "sales_rep_stubs",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -736,6 +750,7 @@ async fn cp_staff(
                 "staff",
                 None,
                 false,
+                None,
                 Some(&e.to_string()),
             )
             .await;
@@ -1118,6 +1133,7 @@ pub fn router() -> Router<AppState> {
             .route("/health", get(cp_health))
             .route("/heartbeat", post(cp_heartbeat))
             .route("/request/ack", post(cp_ack_request))
+            .route("/ack-request", post(cp_ack_request))
             .route("/request/complete", post(cp_complete_request))
             .route("/customers", post(cp_customers))
             .route("/inventory", post(cp_inventory))

@@ -28,9 +28,9 @@ export async function signInToBackOffice(page: Page): Promise<void> {
     );
   }
 
-  /** Unified staff gate (`BackofficeSignInGate`) uses "Riverside OS"; older copy was "Back Office". */
+  /** Unified staff gate (`BackofficeSignInGate`) h1 is "Sign in". */
   const signInHeading = page.getByRole("heading", {
-    name: /sign in to (back office|riverside os)/i,
+    name: /^sign in$/i,
   });
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
 
@@ -63,6 +63,12 @@ export async function signInToBackOffice(page: Page): Promise<void> {
     else
       await page.waitForLoadState("networkidle", { timeout: 25_000 }).catch(() => {});
     return;
+  }
+
+  // Select the first staff name if none is selected
+  const staffButtons = page.locator("button").filter({ has: page.locator("img") });
+  if (await staffButtons.count() > 0) {
+    await staffButtons.first().click({ force: true });
   }
 
   const effectivePerm200 = page.waitForResponse(

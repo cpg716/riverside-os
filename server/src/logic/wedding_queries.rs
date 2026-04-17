@@ -40,7 +40,11 @@ fn party_select_sql() -> &'static str {
             wp.groom_phone_clean,
             wp.bride_phone_clean,
             wp.is_deleted,
-            wp.suit_variant_id
+            wp.suit_variant_id,
+            CASE WHEN wp.suit_variant_id IS NULL THEN NULL
+                 WHEN EXISTS(SELECT 1 FROM product_variants pv JOIN products p ON pv.product_id = p.id WHERE pv.id = wp.suit_variant_id AND p.is_active = TRUE) THEN TRUE
+                 ELSE FALSE
+            END AS suit_inventory_verified
         FROM wedding_parties wp
     "#
 }
@@ -61,7 +65,7 @@ pub async fn load_members_for_party(
             c.phone AS customer_phone,
             wm.role,
             wm.status,
-            wm.order_id,
+            wm.transaction_id,
             wm.notes,
             wm.member_index,
             wm.oot,
@@ -87,7 +91,10 @@ pub async fn load_members_for_party(
             wm.ordered_po,
             wm.stock_info,
             wm.suit_variant_id,
-            wm.is_free_suit_promo
+            wm.is_free_suit_promo,
+            wm.customer_verified,
+            wm.import_customer_name,
+            wm.import_customer_phone
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
@@ -359,7 +366,7 @@ pub async fn query_wedding_actions(
             wp.event_date,
             COALESCE((
                 SELECT SUM(o.balance_due)
-                FROM orders o
+                FROM transactions o
                 JOIN wedding_members wm2 ON wm2.id = o.wedding_member_id
                 WHERE wm2.wedding_party_id = wp.id
             ), 0)::numeric AS party_balance_due
@@ -390,7 +397,7 @@ pub async fn query_wedding_actions(
             wp.event_date,
             COALESCE((
                 SELECT SUM(o2.balance_due)
-                FROM orders o2
+                FROM transactions o2
                 JOIN wedding_members wm2 ON wm2.id = o2.wedding_member_id
                 WHERE wm2.wedding_party_id = wp.id
             ), 0)::numeric AS party_balance_due
@@ -398,7 +405,7 @@ pub async fn query_wedding_actions(
         JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         JOIN customers c ON c.id = wm.customer_id
         LEFT JOIN customer_measurements cm ON cm.customer_id = wm.customer_id
-        LEFT JOIN orders o ON o.wedding_member_id = wm.id
+        LEFT JOIN transactions o ON o.wedding_member_id = wm.id
         WHERE (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
           AND wp.event_date <= (CURRENT_DATE + make_interval(days => $1::int))
           AND (cm.customer_id IS NOT NULL OR wm.measured = TRUE)
@@ -435,7 +442,7 @@ pub async fn try_load_party_ledger(
             $1::uuid AS wedding_party_id,
             COALESCE((
                 SELECT SUM(o.total_price)
-                FROM orders o
+                FROM transactions o
                 JOIN wedding_members wm ON wm.id = o.wedding_member_id
                 WHERE wm.wedding_party_id = $1
             ), 0) AS total_order_value,
@@ -447,7 +454,7 @@ pub async fn try_load_party_ledger(
             ), 0) AS total_paid,
             COALESCE((
                 SELECT SUM(o.balance_due)
-                FROM orders o
+                FROM transactions o
                 JOIN wedding_members wm ON wm.id = o.wedding_member_id
                 WHERE wm.wedding_party_id = $1
             ), 0) AS balance_due
@@ -460,7 +467,7 @@ pub async fn try_load_party_ledger(
     let lines = sqlx::query_as::<_, WeddingLedgerLine>(
         r#"
         SELECT
-            o.id AS order_id,
+            o.id AS transaction_id,
             NULL::uuid AS payment_tx_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
             wm.id AS wedding_member_id,
@@ -469,35 +476,35 @@ pub async fn try_load_party_ledger(
             o.booked_at AS created_at,
             (
                 SELECT CASE
-                    WHEN NOT EXISTS (SELECT 1 FROM order_items oi2 WHERE oi2.order_id = o.id) THEN NULL::text
+                    WHEN NOT EXISTS (SELECT 1 FROM transaction_lines oi2 WHERE oi2.transaction_id = o.id) THEN NULL::text
                     WHEN NOT EXISTS (
-                        SELECT 1 FROM order_items oi2
-                        WHERE oi2.order_id = o.id AND oi2.fulfillment::text <> 'takeaway'
+                        SELECT 1 FROM transaction_lines oi2
+                        WHERE oi2.transaction_id = o.id AND oi2.fulfillment::text <> 'takeaway'
                     ) THEN 'takeaway'
                     WHEN EXISTS (
-                        SELECT 1 FROM order_items oi2
-                        WHERE oi2.order_id = o.id AND oi2.fulfillment::text = 'takeaway'
+                        SELECT 1 FROM transaction_lines oi2
+                        WHERE oi2.transaction_id = o.id AND oi2.fulfillment::text = 'takeaway'
                     ) AND EXISTS (
-                        SELECT 1 FROM order_items oi2
-                        WHERE oi2.order_id = o.id AND oi2.fulfillment::text <> 'takeaway'
+                        SELECT 1 FROM transaction_lines oi2
+                        WHERE oi2.transaction_id = o.id AND oi2.fulfillment::text <> 'takeaway'
                     ) THEN 'mixed'
                     WHEN (
                         SELECT COUNT(DISTINCT oi2.fulfillment)
-                        FROM order_items oi2
-                        WHERE oi2.order_id = o.id AND oi2.fulfillment::text <> 'takeaway'
+                        FROM transaction_lines oi2
+                        WHERE oi2.transaction_id = o.id AND oi2.fulfillment::text <> 'takeaway'
                     ) > 1 THEN 'mixed'
                     WHEN EXISTS (
-                        SELECT 1 FROM order_items oi2
-                        WHERE oi2.order_id = o.id AND oi2.fulfillment::text = 'wedding_order'
+                        SELECT 1 FROM transaction_lines oi2
+                        WHERE oi2.transaction_id = o.id AND oi2.fulfillment::text = 'wedding_order'
                     ) THEN 'wedding_order'
                     WHEN EXISTS (
-                        SELECT 1 FROM order_items oi2
-                        WHERE oi2.order_id = o.id AND oi2.fulfillment::text IN ('special_order', 'custom')
+                        SELECT 1 FROM transaction_lines oi2
+                        WHERE oi2.transaction_id = o.id AND oi2.fulfillment::text IN ('special_order', 'custom')
                     ) THEN 'special_order'
                     ELSE 'other'
                 END
             ) AS fulfillment_profile
-        FROM orders o
+        FROM transactions o
         JOIN wedding_members wm ON wm.id = o.wedding_member_id
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
@@ -505,17 +512,17 @@ pub async fn try_load_party_ledger(
         UNION ALL
 
         SELECT
-            NULL::uuid AS order_id,
+            NULL::uuid AS transaction_id,
             pt.id AS payment_tx_id,
             'Group Payout'::text AS customer_name,
-            pa.target_order_id AS wedding_member_id,
+            pa.target_transaction_id AS wedding_member_id,
             'payment'::text AS kind,
             pa.amount_allocated AS amount,
             pt.created_at AS created_at,
             NULL::text AS fulfillment_profile
         FROM payment_allocations pa
         JOIN payment_transactions pt ON pt.id = pa.transaction_id
-        JOIN orders o ON o.id = pa.target_order_id
+        JOIN transactions o ON o.id = pa.target_transaction_id
         JOIN wedding_members wm ON wm.id = o.wedding_member_id
         WHERE wm.wedding_party_id = $1
           AND pa.metadata->>'kind' = 'wedding_group_disbursement'
@@ -523,7 +530,7 @@ pub async fn try_load_party_ledger(
         UNION ALL
 
         SELECT
-            NULL::uuid AS order_id,
+            NULL::uuid AS transaction_id,
             pt.id AS payment_tx_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
             wm.id AS wedding_member_id,
@@ -561,11 +568,11 @@ pub async fn try_load_party_financial_context(
         SELECT
             wm.id AS wedding_member_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Unknown') AS customer_name,
-            COALESCE((SELECT COUNT(*) FROM orders o WHERE o.wedding_member_id = wm.id), 0) AS order_count,
+            COALESCE((SELECT COUNT(*) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS order_count,
             COALESCE((SELECT COUNT(*) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS payment_count,
-            COALESCE((SELECT SUM(o.total_price) FROM orders o WHERE o.wedding_member_id = wm.id), 0) AS order_total,
+            COALESCE((SELECT SUM(o.total_price) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS order_total,
             COALESCE((SELECT SUM(pt.amount) FROM payment_transactions pt WHERE pt.wedding_member_id = wm.id), 0) AS paid_total,
-            COALESCE((SELECT SUM(o.balance_due) FROM orders o WHERE o.wedding_member_id = wm.id), 0) AS balance_due,
+            COALESCE((SELECT SUM(o.balance_due) FROM transactions o WHERE o.wedding_member_id = wm.id), 0) AS balance_due,
             wm.is_free_suit_promo
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
@@ -594,8 +601,8 @@ pub async fn try_load_party_financial_context(
             (
               SELECT COUNT(DISTINCT wm2.id)::int
               FROM wedding_members wm2
-              JOIN orders o2 ON o2.wedding_member_id = wm2.id
-              JOIN order_items oi2 ON oi2.order_id = o2.id
+              JOIN transactions o2 ON o2.wedding_member_id = wm2.id
+              JOIN transaction_lines oi2 ON oi2.transaction_id = o2.id
               WHERE wm2.wedding_party_id = $1
                 AND o2.status <> 'cancelled'
                 AND oi2.fulfillment::text = 'wedding_order'
@@ -670,7 +677,7 @@ pub async fn fetch_member_optional(
             c.phone AS customer_phone,
             wm.role,
             wm.status,
-            wm.order_id,
+            wm.transaction_id,
             wm.notes,
             wm.member_index,
             wm.oot,

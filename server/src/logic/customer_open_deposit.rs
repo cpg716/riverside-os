@@ -23,7 +23,7 @@ pub struct CustomerOpenDepositLedgerRow {
     pub amount: Decimal,
     pub balance_after: Decimal,
     pub reason: String,
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub payer_display_name: Option<String>,
     pub created_at: DateTime<Utc>,
 }
@@ -74,7 +74,7 @@ pub async fn fetch_summary(
 
     let ledger = sqlx::query_as::<_, CustomerOpenDepositLedgerRow>(
         r#"
-        SELECT l.id, l.amount, l.balance_after, l.reason, l.order_id, l.payer_display_name, l.created_at
+        SELECT l.id, l.amount, l.balance_after, l.reason, l.transaction_id, l.payer_display_name, l.created_at
         FROM customer_open_deposit_ledger l
         JOIN customer_open_deposit_accounts a ON a.id = l.account_id
         WHERE a.customer_id = $1
@@ -124,7 +124,7 @@ pub async fn credit_party_split(
     payer_customer_id: Option<Uuid>,
     payer_display_name: Option<&str>,
     wedding_party_id: Option<Uuid>,
-    source_order_id: Uuid,
+    source_transaction_id: Uuid,
 ) -> Result<(), CustomerOpenDepositError> {
     if amount <= Decimal::ZERO {
         return Ok(());
@@ -152,7 +152,7 @@ pub async fn credit_party_split(
     sqlx::query(
         r#"
         INSERT INTO customer_open_deposit_ledger (
-            account_id, amount, balance_after, reason, order_id,
+            account_id, amount, balance_after, reason, transaction_id,
             payer_customer_id, payer_display_name, wedding_party_id
         )
         VALUES ($1, $2, $3, 'party_split_deposit', $4, $5, $6, $7)
@@ -161,7 +161,7 @@ pub async fn credit_party_split(
     .bind(account_id)
     .bind(amount)
     .bind(new_bal)
-    .bind(source_order_id)
+    .bind(source_transaction_id)
     .bind(payer_customer_id)
     .bind(payer_display_name)
     .bind(wedding_party_id)
@@ -175,7 +175,7 @@ pub async fn apply_checkout_redemption(
     tx: &mut Transaction<'_, Postgres>,
     customer_id: Uuid,
     amount: Decimal,
-    order_id: Uuid,
+    transaction_id: Uuid,
 ) -> Result<(), CustomerOpenDepositError> {
     if amount <= Decimal::ZERO {
         return Ok(());
@@ -208,7 +208,7 @@ pub async fn apply_checkout_redemption(
     sqlx::query(
         r#"
         INSERT INTO customer_open_deposit_ledger (
-            account_id, amount, balance_after, reason, order_id,
+            account_id, amount, balance_after, reason, transaction_id,
             payer_customer_id, payer_display_name, wedding_party_id
         )
         VALUES ($1, $2, $3, 'checkout_redemption', $4, NULL, NULL, NULL)
@@ -217,7 +217,7 @@ pub async fn apply_checkout_redemption(
     .bind(account_id)
     .bind(-amount)
     .bind(new_bal)
-    .bind(order_id)
+    .bind(transaction_id)
     .execute(&mut **tx)
     .await?;
 

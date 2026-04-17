@@ -141,7 +141,7 @@ export default function VariantSelectionModal({
       isOpen={!!product}
       onClose={onClose}
       title={product.name}
-      subtitle={isSelectionComplete ? "Finalize Pricing" : `Step ${currentStepIndex + 1}: ${attributeSteps[currentStepIndex]}`}
+      subtitle={isSelectionComplete ? <span className="text-app-text font-black uppercase tracking-widest text-[10px]">Finalize Pricing</span> : `Step ${currentStepIndex + 1}: ${attributeSteps[currentStepIndex]}`}
       titleClassName="text-app-text font-black tracking-tighter italic uppercase truncate pr-8"
       noPadding
       panelMaxClassName="max-w-xl"
@@ -187,8 +187,8 @@ export default function VariantSelectionModal({
            {selections.length > 0 && (
              <div className="flex flex-wrap gap-2">
                {selections.map((sel, i) => (
-                 <div key={i} className="flex items-center gap-1.5 rounded-full border border-white/20 bg-app-text px-3 py-1 shadow-sm">
-                   <span className="text-[9px] font-black uppercase tracking-widest text-white/80">{sel}</span>
+                 <div key={i} className="flex items-center gap-1.5 rounded-full border border-app-border bg-app-surface-2 px-3 py-1 shadow-sm">
+                   <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{sel}</span>
                  </div>
                ))}
                {selections.length < attributeSteps.length && (
@@ -223,21 +223,21 @@ export default function VariantSelectionModal({
               </div>
             </div>
           ) : (
-            <div className="animate-in zoom-in-95 duration-500 space-y-6 pb-20">
+            <div className="animate-in zoom-in-95 duration-500 space-y-4 pb-4">
               {/* Product Confirmation Identity (Ultra-Condensed) */}
-              <div className="relative overflow-hidden rounded-2xl bg-app-text p-3 text-white shadow-lg">
-                 <div className="absolute -right-1 -top-1 opacity-5">
+               <div className="relative overflow-hidden rounded-2xl bg-app-surface-2 border border-app-border p-3 shadow-lg">
+                 <div className="absolute -right-1 -top-1 opacity-5 text-app-text">
                     <Package size={60} strokeWidth={1} />
                  </div>
                  <div className="relative z-10 flex items-center justify-between">
                     <div>
-                       <span className="inline-block rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-400 ring-1 ring-emerald-500/30 mb-0.5 whitespace-nowrap">
+                       <span className="inline-block rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-emerald-600 dark:text-emerald-400 ring-1 ring-emerald-500/20 mb-0.5 whitespace-nowrap">
                           {finalVariant?.sku}
                        </span>
-                       <h3 className="text-base font-black leading-none tracking-tight uppercase italic">{product.name}</h3>
+                       <h3 className="text-base font-black leading-none tracking-tight uppercase italic text-app-text">{product.name}</h3>
                     </div>
                     <div className="text-right flex-shrink-0">
-                       <p className="text-[10px] font-bold uppercase tracking-widest text-white/70">{finalVariant?.variation_label}</p>
+                       <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">{finalVariant?.variation_label}</p>
                     </div>
                  </div>
               </div>
@@ -247,15 +247,15 @@ export default function VariantSelectionModal({
                  <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5 text-app-text">
                        <CircleDollarSign size={14} />
-                       <span className="text-[9px] font-black uppercase tracking-widest">Adjust Price</span>
+                       <span className="text-[10px] font-black uppercase tracking-widest text-app-text">Adjust Price</span>
                     </div>
                     {priceOverride && (
                        <button onClick={() => setPriceOverride("")} className="text-[9px] font-black text-red-500 hover:underline uppercase tracking-tighter">Reset</button>
                     )}
                  </div>
                  
-                 <div className="flex h-12 items-center justify-center rounded-2xl bg-app-text px-6 ring-2 ring-black/40 transition-all shadow-inner">
-                    <span className={`text-2xl font-black tabular-nums transition-colors ${priceOverride ? "text-white" : "text-white/45"}`}>
+                 <div className="flex h-12 items-center justify-center rounded-2xl bg-app-surface-2 px-6 ring-2 ring-app-border transition-all shadow-inner overflow-hidden">
+                    <span className={`text-2xl font-black tabular-nums transition-colors ${priceOverride ? "text-app-text" : "text-app-text-muted opacity-50"}`}>
                       $
                       {priceOverride ||
                         centsToFixed2(
@@ -270,7 +270,7 @@ export default function VariantSelectionModal({
                          <button 
                            key={k} 
                            onClick={() => handleNumpadKey(k)}
-                           className={`flex h-12 items-center justify-center rounded-xl text-lg font-black transition-all active:scale-90 ${k === 'CLR' ? 'bg-app-surface-2 text-app-text-muted' : 'bg-app-surface shadow-sm ring-1 ring-app-border text-app-text hover:ring-app-text'}`}
+                           className={`flex h-16 items-center justify-center rounded-xl text-xl font-black transition-all active:scale-90 ${k === 'CLR' ? 'bg-app-surface-2 text-app-text-muted' : 'bg-app-surface shadow-sm ring-1 ring-app-border text-app-text hover:ring-app-text'}`}
                          >
                            {k}
                          </button>
@@ -279,16 +279,16 @@ export default function VariantSelectionModal({
                     <div className="grid grid-cols-1 gap-2">
                        <button 
                          onClick={() => handleNumpadKey("%")}
-                         className="flex flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
+                         className="flex h-16 flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
                        >
-                         <span className="text-xs font-black">%</span>
+                         <span className="text-sm font-black">%</span>
                          <span className="text-[9px] font-bold uppercase opacity-80">Disc</span>
                        </button>
                        <button 
                          onClick={() => handleNumpadKey("$")}
-                         className="flex flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
+                         className="flex h-16 flex-col items-center justify-center rounded-xl bg-indigo-600 text-white shadow-xl active:scale-90 hover:bg-indigo-500 transition-all"
                        >
-                         <span className="text-xs font-black">$</span>
+                         <span className="text-sm font-black">$</span>
                          <span className="text-[9px] font-bold uppercase opacity-80">Price</span>
                        </button>
                     </div>

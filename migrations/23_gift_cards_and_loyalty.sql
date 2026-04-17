@@ -4,14 +4,19 @@
 -- ──────────────────────────────────────────────────────────────────────────────
 -- 1) Card-kind enum
 -- ──────────────────────────────────────────────────────────────────────────────
+-- ──────────────────────────────────────────────────────────────────────────────
+-- 1) Card-kind enum
+-- ──────────────────────────────────────────────────────────────────────────────
 DO $$ BEGIN
-    CREATE TYPE gift_card_kind AS ENUM ('purchased', 'loyalty_reward', 'donated_giveaway');
-EXCEPTION WHEN duplicate_object THEN null;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'gift_card_kind') THEN
+        CREATE TYPE gift_card_kind AS ENUM ('purchased', 'loyalty_reward', 'donated_giveaway');
+    END IF;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE gift_card_status AS ENUM ('active', 'depleted', 'void');
-EXCEPTION WHEN duplicate_object THEN null;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'gift_card_status') THEN
+        CREATE TYPE gift_card_status AS ENUM ('active', 'depleted', 'void');
+    END IF;
 END $$;
 
 -- ──────────────────────────────────────────────────────────────────────────────

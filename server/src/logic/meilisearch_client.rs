@@ -12,7 +12,7 @@ pub const INDEX_VARIANTS: &str = "ros_variants";
 pub const INDEX_STORE_PRODUCTS: &str = "ros_store_products";
 pub const INDEX_CUSTOMERS: &str = "ros_customers";
 pub const INDEX_WEDDING_PARTIES: &str = "ros_wedding_parties";
-pub const INDEX_ORDERS: &str = "ros_orders";
+pub const INDEX_TRANSACTIONS: &str = "ros_transactions";
 /// In-app help manuals (markdown chunks).
 pub const INDEX_HELP: &str = "ros_help";
 pub const INDEX_STAFF: &str = "ros_staff";
@@ -125,8 +125,8 @@ pub async fn ensure_wedding_parties_index_settings(client: &Client) -> Result<()
     Ok(())
 }
 
-pub async fn ensure_orders_index_settings(client: &Client) -> Result<(), MeiliError> {
-    let index = client.index(INDEX_ORDERS);
+pub async fn ensure_transactions_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_TRANSACTIONS);
     wait_task_ok(
         client,
         index.set_searchable_attributes(["search_text"]).await?,
@@ -236,7 +236,7 @@ pub async fn ensure_all_meilisearch_index_settings(client: &Client) -> Result<()
     ensure_store_products_index_settings(client).await?;
     ensure_customers_index_settings(client).await?;
     ensure_wedding_parties_index_settings(client).await?;
-    ensure_orders_index_settings(client).await?;
+    ensure_transactions_index_settings(client).await?;
     ensure_help_index_settings(client).await?;
     ensure_staff_index_settings(client).await?;
     ensure_vendors_index_settings(client).await?;

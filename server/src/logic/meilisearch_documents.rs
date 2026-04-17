@@ -40,8 +40,9 @@ pub struct WeddingPartyDoc {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct OrderDoc {
+pub struct TransactionDoc {
     pub id: String,
+    pub display_id: String,
     /// Open / pending_measurement when true (for default orders list filter).
     pub status_open: bool,
     pub search_text: String,

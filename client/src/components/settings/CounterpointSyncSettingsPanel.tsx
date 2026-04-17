@@ -1,8 +1,9 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw,
   Monitor,
   Play,
+  Square,
   CheckCircle2,
   AlertTriangle,
   XCircle,
@@ -16,6 +17,13 @@ import {
   Gift,
   Users,
   LayoutDashboard,
+  Zap,
+  Database,
+  Package,
+  FileText,
+  Star,
+  Truck,
+  Hash,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -28,6 +36,7 @@ interface EntityRunRow {
   cursor_value: string | null;
   last_ok_at: string | null;
   last_error: string | null;
+  records_processed: number | null;
   updated_at: string;
 }
 
@@ -54,6 +63,75 @@ interface SyncStatusResponse {
   token_configured: boolean;
   counterpoint_staging_enabled?: boolean;
   staging_pending_count?: number;
+}
+
+/* ── Bridge live status from :3002 ── */
+const BRIDGE_LOCAL_URL = "http://localhost:3002";
+
+interface BridgeEntityStat {
+  lastSync?: string;
+  recordCount?: number;
+  durationMs?: number;
+  error?: string | null;
+}
+
+interface BridgeLiveStatus {
+  isSyncing: boolean;
+  isContinuous: boolean;
+  currentEntity: string | null;
+  lastRun: string | null;
+  lastRunDurationMs: number | null;
+  totalRecordsLastRun: number;
+  abortRequested: boolean;
+  entityStats: Record<string, BridgeEntityStat>;
+  syncSummary: Record<string, string>;
+  recentEvents: BridgeEvent[];
+  error?: string;
+}
+
+interface BridgeEvent {
+  type: "error" | "warning" | "complete" | "start" | "abort";
+  entity: string | null;
+  message: string;
+  time: string;
+  durationMs?: number;
+  recordCount?: number;
+  totalRecords?: number;
+}
+
+const ENTITY_DISPLAY: { key: string; label: string; icon: typeof Zap }[] = [
+  { key: "staff", label: "Staff", icon: Users },
+  { key: "vendors", label: "Vendors", icon: Truck },
+  { key: "customers", label: "Customers", icon: Users },
+  { key: "store_credit_opening", label: "Store Credits", icon: CreditCard },
+  { key: "category_masters", label: "Categories", icon: Tags },
+  { key: "catalog", label: "Catalog", icon: Database },
+  { key: "inventory", label: "Inventory", icon: Package },
+  { key: "vendor_items", label: "Vendor Items", icon: Hash },
+  { key: "gift_cards", label: "Gift Cards", icon: Gift },
+  { key: "tickets", label: "Orders / Tickets", icon: FileText },
+  { key: "open_docs", label: "Open Docs", icon: FileText },
+  { key: "loyalty_hist", label: "Loyalty History", icon: Star },
+];
+
+function fmtDuration(ms: number | null | undefined): string {
+  if (!ms) return "—";
+  if (ms < 1000) return `${ms}ms`;
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+  return `${Math.floor(ms / 60000)}m ${Math.round((ms % 60000) / 1000)}s`;
+}
+
+function fmtNum(n: number | null | undefined): string {
+  if (n == null) return "—";
+  return n.toLocaleString();
+}
+
+function fmtTimeAgo(iso: string | null | undefined): string {
+  if (!iso) return "Never";
+  const diff = Date.now() - new Date(iso).getTime();
+  if (diff < 60000) return "Just now";
+  if (diff < 3600000) return `${Math.floor(diff / 60000)}m ago`;
+  return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 interface StagingBatchRow {
@@ -130,7 +208,6 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [tab, setTab] = useState<HubTab>("status");
   const [status, setStatus] = useState<SyncStatusResponse | null>(null);
   const [loading, setLoading] = useState(false);
-  const [requestRunBusy, setRequestRunBusy] = useState(false);
   const [batches, setBatches] = useState<StagingBatchRow[]>([]);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [selectedPayload, setSelectedPayload] = useState<unknown>(null);
@@ -147,6 +224,64 @@ export default function CounterpointSyncSettingsPanel(props?: {
   const [staffRows, setStaffRows] = useState<StaffMapRow[]>([]);
   const [categoryOptions, setCategoryOptions] = useState<CategoryOption[]>([]);
   const [mapsLoading, setMapsLoading] = useState(false);
+
+  /* ── Bridge live status ── */
+  const [bridgeLive, setBridgeLive] = useState<BridgeLiveStatus | null>(null);
+  const [bridgeOnline, setBridgeOnline] = useState(false);
+  const [bridgeFailCount, setBridgeFailCount] = useState(0);
+  const bridgePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const fetchBridgeLive = useCallback(async () => {
+    try {
+      const res = await fetch(`${BRIDGE_LOCAL_URL}/api/status`, {
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const data = (await res.json()) as BridgeLiveStatus;
+        setBridgeLive(data);
+        setBridgeOnline(true);
+        setBridgeFailCount(0);
+      } else {
+        setBridgeOnline(false);
+        setBridgeFailCount((f) => f + 1);
+      }
+    } catch {
+      setBridgeOnline(false);
+      setBridgeFailCount((f) => f + 1);
+    }
+  }, []);
+
+  // Poll bridge every 3s when on status tab, up to 3 failures
+  useEffect(() => {
+    if (tab !== "status" || bridgeFailCount >= 3) return;
+    void fetchBridgeLive();
+    bridgePollRef.current = setInterval(() => {
+      void fetchBridgeLive();
+    }, 3000);
+    return () => {
+      if (bridgePollRef.current) clearInterval(bridgePollRef.current);
+    };
+  }, [tab, fetchBridgeLive, bridgeFailCount]);
+
+  const triggerBridgeSync = useCallback(async (entity?: string) => {
+    try {
+      await fetch(`${BRIDGE_LOCAL_URL}/api/trigger-entity?name=${entity ?? "full"}`);
+      toast(entity ? `Pulling ${entity}…` : "Full sync started.", "success");
+      setTimeout(() => void fetchBridgeLive(), 1000);
+    } catch {
+      toast("Could not reach bridge at localhost:3002", "error");
+    }
+  }, [toast, fetchBridgeLive]);
+
+  const stopBridgeSync = useCallback(async () => {
+    try {
+      await fetch(`${BRIDGE_LOCAL_URL}/api/stop`);
+      toast("Stop requested — will halt after current entity finishes.", "info");
+      setTimeout(() => void fetchBridgeLive(), 1000);
+    } catch {
+      toast("Could not reach bridge at localhost:3002", "error");
+    }
+  }, [toast, fetchBridgeLive]);
 
   const fetchStatus = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -265,30 +400,6 @@ export default function CounterpointSyncSettingsPanel(props?: {
     })();
   }, [selectedBatchId, baseUrl, backofficeHeaders, toast]);
 
-  const requestRun = async () => {
-    setRequestRunBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/counterpoint-sync/request-run`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({ entity: null }),
-      });
-      if (res.ok) {
-        toast("Sync run requested. The bridge will pick it up on next heartbeat.", "success");
-        await fetchStatus();
-      } else {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Could not request sync run", "error");
-      }
-    } catch {
-      toast("Could not request sync run", "error");
-    } finally {
-      setRequestRunBusy(false);
-    }
-  };
 
   const setStagingEnabled = async (enabled: boolean) => {
     setStagingToggleBusy(true);
@@ -608,119 +719,305 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
       {tab === "status" && (
         <>
-          {status ? (
+          {/* ── Bridge Live Status ── */}
+          {bridgeOnline && bridgeLive ? (
             <>
-              {stagingOn ? (
-                <div
-                  className="rounded-xl border-2 border-amber-500/55 bg-amber-500/10 dark:bg-amber-500/15 p-4 mb-4"
-                  role="status"
-                >
-                  <p className="text-xs font-black uppercase tracking-widest text-amber-900 dark:text-amber-100 mb-2">
-                    Bulk import checklist
-                  </p>
-                  <p className="text-xs text-amber-950/90 dark:text-amber-50/90 leading-relaxed">
-                    Staging is <span className="font-bold">on</span>: the bridge only drops rows into the Inbound
-                    queue until someone clicks Apply for each batch. For a full Counterpoint migration, turn staging{" "}
-                    <span className="font-bold">off</span> so every batch writes straight to customers, catalog, and
-                    orders. Use staging when you intentionally want to inspect JSON before applying.
-                  </p>
-                  {pendingN > 0 ? (
-                    <p className="text-xs font-bold text-amber-900 dark:text-amber-100 mt-2">
-                      {pendingN} pending batch(es) — open Inbound queue to Apply, or turn staging off and re-run the
-                      bridge for direct import.
-                    </p>
-                  ) : null}
+              {/* Run Control */}
+              <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 mb-4">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
+                      bridgeLive.isSyncing
+                        ? "bg-orange-500/20 text-orange-500"
+                        : "bg-emerald-500/15 text-emerald-500"
+                    }`}>
+                      {bridgeLive.isSyncing ? (
+                        <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                      ) : (
+                        <Zap className="h-5 w-5" aria-hidden />
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-black uppercase tracking-widest">
+                        {bridgeLive.isSyncing ? (
+                          <span className="text-orange-500">
+                            Syncing{bridgeLive.currentEntity ? ` — ${bridgeLive.currentEntity.replace(/_/g, " ")}` : ""}
+                          </span>
+                        ) : (
+                          <span className="text-emerald-500">Bridge Idle</span>
+                        )}
+                      </p>
+                      <p className="text-[10px] text-app-text-muted mt-0.5">
+                        {bridgeLive.lastRun ? `Last run: ${fmtTimeAgo(bridgeLive.lastRun)}` : "No runs yet"}
+                        {bridgeLive.lastRunDurationMs ? ` · ${fmtDuration(bridgeLive.lastRunDurationMs)}` : ""}
+                        {bridgeLive.totalRecordsLastRun ? ` · ${fmtNum(bridgeLive.totalRecordsLastRun)} records` : ""}
+                      </p>
+                    </div>
+                  </div>
+                  {bridgeLive.isSyncing ? (
+                    <button
+                      type="button"
+                      disabled={bridgeLive.abortRequested}
+                      onClick={() => void stopBridgeSync()}
+                      className="px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                    >
+                      <Square className="h-3.5 w-3.5" aria-hidden />
+                      {bridgeLive.abortRequested ? "Stopping…" : "Stop Sync"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => void triggerBridgeSync()}
+                      className="ui-btn-primary px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 shadow-lg"
+                    >
+                      <Play className="h-3.5 w-3.5" aria-hidden />
+                      Run Full Sync
+                    </button>
+                  )}
                 </div>
-              ) : (
-                <div className="rounded-xl border border-emerald-500/35 bg-emerald-500/5 p-3 mb-4 text-xs text-app-text leading-relaxed">
-                  <span className="font-bold text-emerald-700 dark:text-emerald-300">Direct import.</span> The bridge
-                  applies each batch to live tables. This is the right mode for a full Counterpoint load; keep staging
-                  off unless you need the review queue.
+
+                {/* Summary stats */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Total Records</p>
+                    <p className="text-lg font-black text-app-accent tabular-nums">{fmtNum(bridgeLive.totalRecordsLastRun || 0)}</p>
+                  </div>
+                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Duration</p>
+                    <p className="text-lg font-black text-app-text tabular-nums">{fmtDuration(bridgeLive.lastRunDurationMs)}</p>
+                  </div>
+                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Entities OK</p>
+                    <p className="text-lg font-black text-emerald-500 tabular-nums">
+                      {Object.values(bridgeLive.entityStats || {}).filter(s => s.lastSync && !s.error).length}
+                    </p>
+                  </div>
+                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Errors</p>
+                    <p className={`text-lg font-black tabular-nums ${Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length ? "text-red-500" : "text-app-text-muted"}`}>
+                      {Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Entity Breakdown */}
+              <div className="mb-6">
+                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
+                  Entity breakdown
+                </h4>
+                <div className="rounded-xl border border-app-border overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
+                        <th className="px-4 py-2 w-6"></th>
+                        <th className="px-4 py-2">Entity</th>
+                        <th className="px-4 py-2 text-right">Records</th>
+                        <th className="px-4 py-2 text-right">Duration</th>
+                        <th className="px-4 py-2">Last sync</th>
+                        <th className="px-4 py-2">Status</th>
+                        <th className="px-4 py-2 w-16"></th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-app-border">
+                      {ENTITY_DISPLAY.map(({ key, label, icon: Icon }) => {
+                        const stat = bridgeLive?.entityStats?.[key];
+                        const isRunning = bridgeLive.currentEntity === key;
+                        const hasError = !!stat?.error;
+                        const isDone = !!stat?.lastSync && !hasError;
+                        return (
+                          <tr
+                            key={key}
+                            className={`transition-colors ${
+                              isRunning ? "bg-orange-500/5" : hasError ? "bg-red-500/5" : "hover:bg-app-surface/20"
+                            }`}
+                          >
+                            <td className="px-4 py-2.5">
+                              <div className={`w-2 h-2 rounded-full ${
+                                isRunning ? "bg-orange-500 animate-pulse" :
+                                hasError ? "bg-red-500" :
+                                isDone ? "bg-emerald-500" :
+                                "bg-app-border"
+                              }`} />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <span className="inline-flex items-center gap-2 font-bold text-app-text">
+                                <Icon className="h-3.5 w-3.5 text-app-text-muted" aria-hidden />
+                                {label}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums font-semibold">
+                              {stat?.recordCount != null ? fmtNum(stat.recordCount) : "—"}
+                            </td>
+                            <td className="px-4 py-2.5 text-right tabular-nums text-app-text-muted">
+                              {stat?.durationMs != null ? fmtDuration(stat.durationMs) : "—"}
+                            </td>
+                            <td className="px-4 py-2.5 text-app-text-muted text-[10px]">
+                              {stat?.lastSync ? fmtTimeAgo(stat.lastSync) : "—"}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              {isRunning ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-500">
+                                  <Loader2 className="h-3 w-3 animate-spin" /> Running
+                                </span>
+                              ) : hasError ? (
+                                <span className="text-[10px] font-bold text-red-500 max-w-[200px] truncate block" title={stat?.error ?? ""}>
+                                  {stat?.error?.slice(0, 60)}
+                                </span>
+                              ) : isDone ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-500">
+                                  <CheckCircle2 className="h-3 w-3" /> OK
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-app-text-muted">Waiting</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <button
+                                type="button"
+                                disabled={bridgeLive.isSyncing}
+                                onClick={() => void triggerBridgeSync(key)}
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-app-border bg-app-surface-1/50 text-[9px] font-black uppercase tracking-widest hover:bg-app-surface-2 transition-colors disabled:opacity-50"
+                              >
+                                <RefreshCw className="h-3 w-3 text-app-text-muted" />
+                                Sync
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Event Feed */}
+              {bridgeLive.recentEvents?.length > 0 && (
+                <div className="mb-6">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
+                    Recent bridge events
+                  </h4>
+                  <div className="rounded-xl border border-app-border bg-app-surface-2/30 overflow-hidden max-h-[300px] overflow-y-auto">
+                    <table className="w-full text-left text-[10px]">
+                      <tbody className="divide-y divide-app-border">
+                        {[...bridgeLive.recentEvents].reverse().map((evt, idx) => {
+                          const isErr = evt.type === "error";
+                          const isWarn = evt.type === "warning";
+                          const isStart = evt.type === "start";
+                          const isAbort = evt.type === "abort";
+                          return (
+                            <tr key={idx} className="hover:bg-app-surface-2/50 transition-colors">
+                              <td className="px-3 py-2 w-20 text-app-text-muted font-mono whitespace-nowrap">
+                                {new Date(evt.time).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                              </td>
+                              <td className="px-3 py-2 w-32 font-bold text-app-text truncate">
+                                {evt.entity ?? "system"}
+                              </td>
+                              <td className={`px-3 py-2 ${isErr ? "text-red-500 font-bold" : isWarn ? "text-amber-500 font-bold" : isStart ? "text-emerald-500 font-bold" : isAbort ? "text-orange-500 font-bold" : "text-app-text-muted"}`}>
+                                {evt.message}
+                                {evt.recordCount != null ? ` (${fmtNum(evt.recordCount)} records)` : ""}
+                                {evt.totalRecords != null ? ` (${fmtNum(evt.totalRecords)} records total)` : ""}
+                                {evt.durationMs != null ? ` in ${fmtDuration(evt.durationMs)}` : ""}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
               )}
-
-              <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 mb-4 flex flex-wrap items-center gap-4">
-                {stateIcon(status.windows_sync_state)}
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm font-black uppercase tracking-widest">
-                    <span className={stateColor(status.windows_sync_state)}>
-                      {status.windows_sync_state.toUpperCase()}
-                    </span>
-                    {status.bridge_phase === "syncing" && status.current_entity && (
-                      <span className="ml-2 text-app-text-muted font-bold normal-case text-xs">
-                        syncing {status.current_entity}
-                      </span>
-                    )}
+            </>
+          ) : (
+            <>
+              {/* Bridge Offline UI (Manual Retry) */}
+              {!bridgeOnline && bridgeFailCount >= 3 && (
+                <div className="rounded-xl border border-red-500/20 bg-red-500/5 p-6 mb-4 text-center">
+                  <WifiOff className="h-10 w-10 text-red-500/50 mx-auto mb-3" />
+                  <p className="font-bold text-app-text">Bridge unreachable at localhost:3002</p>
+                  <p className="text-xs text-app-text-muted mt-1 mb-4">
+                    Automatic checking stopped after 3 attempts.
                   </p>
-                  {status.offline_reason && (
-                    <p className="text-xs text-red-600 mt-1">{status.offline_reason}</p>
-                  )}
-                  <p className="text-[10px] text-app-text-muted mt-1 font-mono">
-                    {status.bridge_hostname && (
-                      <span className="mr-3">Host: {status.bridge_hostname}</span>
-                    )}
-                    {status.bridge_version && <span className="mr-3">v{status.bridge_version}</span>}
-                    {status.last_seen_at && (
-                      <span>Last seen: {formatDate(status.last_seen_at)}</span>
-                    )}
-                  </p>
-                </div>
-                {!status.token_configured && (
-                  <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">
-                    COUNTERPOINT_SYNC_TOKEN not set
-                  </span>
-                )}
-              </div>
-
-              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-6 space-y-3">
-                <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Inbound staging mode
-                </h4>
-                <p className="text-xs text-app-text-muted">
-                  When on, the Windows bridge sends each batch to the review queue instead of applying
-                  immediately. Health check reports this flag so the bridge switches without editing
-                  its .env.
-                </p>
-                <div className="flex flex-wrap items-center gap-3">
-                  <span
-                    className={`text-xs font-bold ${stagingOn ? "text-emerald-600" : "text-app-text-muted"}`}
-                  >
-                    {stagingOn ? "Staging is ON" : "Staging is OFF (direct import)"}
-                  </span>
                   <button
                     type="button"
-                    disabled={stagingToggleBusy}
                     onClick={() => {
-                      if (stagingOn) setConfirmStagingOff(true);
-                      else void setStagingEnabled(true);
+                      setBridgeFailCount(0);
                     }}
-                    className={
-                      stagingOn
-                        ? "ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-                        : "ui-btn-primary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
-                    }
+                    className="ui-btn-secondary px-6 py-2 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
                   >
-                    {stagingOn ? "Turn staging off" : "Turn staging on"}
+                    <RefreshCw className="h-4 w-4" />
+                    Reconnect to Bridge
                   </button>
                 </div>
+              )}
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 mb-4 flex items-start gap-3">
+                <WifiOff className="h-5 w-5 text-amber-500 shrink-0 mt-0.5" aria-hidden />
+                <div className="text-xs">
+                  <p className="font-bold text-app-text">Bridge not reachable at localhost:3002</p>
+                  <p className="text-app-text-muted mt-1">Start the Counterpoint bridge to see live sync status, record counts, and run controls.</p>
+                </div>
               </div>
+            </>
+          )}
 
-              <div className="mb-6 flex flex-wrap items-center gap-3">
+          {/* ── ROS Server Status (existing) ── */}
+          {status ? (
+            <>
+              {/* Staging mode */}
+              <div className="rounded-xl border border-app-border bg-app-surface-2/40 p-4 mb-4 space-y-3">
+                <div className="flex flex-wrap items-center justify-between">
+                  <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Inbound staging mode
+                  </h4>
+                  <span className={`text-xs font-bold ${stagingOn ? "text-emerald-600" : "text-app-text-muted"}`}>
+                    {stagingOn ? "ON" : "OFF (direct import)"}
+                  </span>
+                </div>
+                <p className="text-xs text-app-text-muted">
+                  When on, the bridge queues batches for review. When off, data writes directly to live tables.
+                </p>
                 <button
                   type="button"
-                  disabled={requestRunBusy || !status.token_configured}
-                  onClick={() => void requestRun()}
-                  className="ui-btn-primary px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2"
+                  disabled={stagingToggleBusy}
+                  onClick={() => {
+                    if (stagingOn) setConfirmStagingOff(true);
+                    else void setStagingEnabled(true);
+                  }}
+                  className={
+                    stagingOn
+                      ? "ui-btn-secondary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                      : "ui-btn-primary px-4 py-2 text-[10px] font-black uppercase tracking-widest"
+                  }
                 >
-                  <Play className="h-3.5 w-3.5" aria-hidden />
-                  {requestRunBusy ? "Requesting…" : "Request sync run"}
+                  {stagingOn ? "Turn staging off" : "Turn staging on"}
                 </button>
               </div>
 
+              {/* Server bridge meta */}
+              <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 mb-4 flex flex-wrap items-center gap-4">
+                {stateIcon(status.windows_sync_state)}
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-black uppercase tracking-widest">
+                    <span className={stateColor(status.windows_sync_state)}>
+                      Server: {status.windows_sync_state.toUpperCase()}
+                    </span>
+                  </p>
+                  <p className="text-[10px] text-app-text-muted mt-1 font-mono">
+                    {status.bridge_hostname && <span className="mr-3">Host: {status.bridge_hostname}</span>}
+                    {status.bridge_version && <span className="mr-3">v{status.bridge_version}</span>}
+                    {status.last_seen_at && <span>Last heartbeat: {formatDate(status.last_seen_at)}</span>}
+                  </p>
+                </div>
+                {!status.token_configured && (
+                  <span className="ui-pill bg-amber-500/15 text-amber-800 text-[9px]">COUNTERPOINT_SYNC_TOKEN not set</span>
+                )}
+              </div>
+
+              {/* Server entity history */}
               {status.entity_runs.length > 0 && (
                 <div className="mb-6">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
-                    Entity sync history
+                    Server sync history
                   </h4>
                   <div className="rounded-xl border border-app-border overflow-x-auto">
                     <table className="w-full text-left text-xs min-w-[640px]">
@@ -728,6 +1025,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                         <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
                           <th className="px-4 py-2">Entity</th>
                           <th className="px-4 py-2">Last OK</th>
+                          <th className="px-4 py-2">Records</th>
                           <th className="px-4 py-2">Last error</th>
                           <th className="px-4 py-2">Cursor</th>
                         </tr>
@@ -747,10 +1045,15 @@ export default function CounterpointSyncSettingsPanel(props?: {
                               </span>
                             </td>
                             <td className="px-4 py-2.5">
+                               {run.records_processed != null ? (
+                                 <span className="font-bold text-app-text tabular-nums">{fmtNum(run.records_processed)}</span>
+                               ) : (
+                                 <span className="text-app-text-muted">—</span>
+                               )}
+                            </td>
+                            <td className="px-4 py-2.5">
                               {run.last_error ? (
-                                <span className="text-red-600 font-mono text-[10px] break-all">
-                                  {run.last_error}
-                                </span>
+                                <span className="text-red-600 font-mono text-[10px] break-all">{run.last_error}</span>
                               ) : (
                                 <span className="text-app-text-muted">—</span>
                               )}
@@ -766,6 +1069,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 </div>
               )}
 
+              {/* Issues */}
               {status.recent_issues.length > 0 && (
                 <div>
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-3">
@@ -785,14 +1089,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
                         <div className="min-w-0 flex-1 text-xs">
                           <span className="font-bold text-app-text">{issue.entity}</span>
                           {issue.external_key && (
-                            <span className="ml-2 font-mono text-[10px] text-app-text-muted">
-                              {issue.external_key}
-                            </span>
+                            <span className="ml-2 font-mono text-[10px] text-app-text-muted">{issue.external_key}</span>
                           )}
                           <p className="text-app-text-muted mt-0.5">{issue.message}</p>
-                          <p className="text-[10px] text-app-text-muted mt-0.5">
-                            {formatDate(issue.created_at)}
-                          </p>
+                          <p className="text-[10px] text-app-text-muted mt-0.5">{formatDate(issue.created_at)}</p>
                         </div>
                         <button
                           type="button"

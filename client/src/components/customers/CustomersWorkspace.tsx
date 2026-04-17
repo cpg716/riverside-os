@@ -24,10 +24,11 @@ import {
   X as CloseIcon,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
-import CustomerRelationshipHubDrawer from "./CustomerRelationshipHubDrawer";
+import { CustomerRelationshipHubDrawer } from "./CustomerRelationshipHubDrawer";
 import DuplicateReviewQueueSection from "./DuplicateReviewQueueSection";
 import RmsChargeAdminSection from "./RmsChargeAdminSection";
 import ShipmentsHubSection from "./ShipmentsHubSection";
+import LayawayWorkspace from "../pos/LayawayWorkspace";
 import DetailDrawer from "../layout/DetailDrawer";
 import FloatingBulkBar from "../ui/FloatingBulkBar";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -79,7 +80,7 @@ interface CustomersWorkspaceProps {
   onAddToWedding: () => void;
   onBookAppointment: () => void;
   /** Open Back Office Orders with this order selected (requires orders.view). */
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
   activeSection?: string;
   /** Reset sidebar subsection (e.g. after closing Add Customer from sidebar "add"). */
   onNavigateSubSection?: (id: string) => void;
@@ -139,7 +140,7 @@ export default function CustomersWorkspace({
   onNavigateRegister,
   onAddToWedding,
   onBookAppointment,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
   activeSection,
   onNavigateSubSection,
   messagingFocusCustomerId,
@@ -780,7 +781,15 @@ export default function CustomersWorkspace({
       );
     }
     return (
-      <ShipmentsHubSection onOpenOrderInBackoffice={onOpenOrderInBackoffice} />
+      <ShipmentsHubSection onOpenTransactionInBackoffice={onOpenTransactionInBackoffice} />
+    );
+  }
+
+  if (activeSection === "layaways") {
+    return (
+      <div className="ui-page flex h-full flex-col overflow-hidden">
+        <LayawayWorkspace onOpenTransaction={onOpenTransactionInBackoffice} />
+      </div>
     );
   }
 
@@ -803,7 +812,7 @@ export default function CustomersWorkspace({
     }
     return (
       <RmsChargeAdminSection
-        onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
     );
   }
@@ -833,14 +842,14 @@ export default function CustomersWorkspace({
         onNavigateRegister={onNavigateRegister}
         onAddToWedding={onAddToWedding}
         onBookAppointment={onBookAppointment}
-        onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
     );
   }
 
   return (
-    <div className="ui-page p-0 bg-transparent flex flex-col h-full overflow-hidden">
-      <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+    <div className="ui-page flex-1 p-0 bg-transparent flex flex-col">
+      <div className="flex flex-1 flex-col bg-transparent">
         {/* Pipeline Strip */}
         <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
           {[
@@ -898,8 +907,8 @@ export default function CustomersWorkspace({
           ))}
         </div>
 
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
+        <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
+          <div className="flex flex-col rounded-3xl border border-app-border bg-app-surface shadow-xl">
             {/* Toolbar */}
             <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2/30 px-5 py-4 backdrop-blur-xl">
               <div className="relative group min-w-[300px] flex-1">
@@ -1031,7 +1040,7 @@ export default function CustomersWorkspace({
               onFocus={() => _setTableFocus(true)}
               onBlur={() => _setTableFocus(false)}
               onKeyDown={onTableKeyDown}
-              className="ui-table-shell min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto outline-none"
+              className="ui-table-shell min-w-0 outline-none"
             >
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
@@ -1462,7 +1471,7 @@ export default function CustomersWorkspace({
           navigateAfterStartSale
           onAddToWedding={onAddToWedding}
           onBookAppointment={onBookAppointment}
-          onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+          onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
           baseUrl={baseUrl}
         />
       ) : null}

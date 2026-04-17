@@ -3,13 +3,13 @@
  *
  * **Queued:** completed checkout payloads when `navigator.onLine` is false (see `Cart`).
  * **Not queued:** cart edits, session open/close, back-office mutations — those require API access.
- * **Flush:** on `online` event, `flushCheckoutQueue` POSTs each item to `/api/orders/checkout`.
+ * **Flush:** on `online` event, `flushCheckoutQueue` POSTs each item to `/api/transactions/checkout`.
  * Header shows **Offline Mode** / **Pending Syncs** via `useOfflineSync`.
  * **4xx handling:** client errors dequeue the item so the queue cannot wedge forever; invalid payloads must be re-run manually. Successful replays use `checkout_client_id` idempotency on the server.
  */
 import localforage from "localforage";
 import { useEffect, useState, useCallback } from "react";
-import type { CheckoutPayload } from "../components/pos/Cart";
+import type { CheckoutPayload } from "../components/pos/types";
 import { headersSafeForOfflinePersist } from "./posRegisterAuth";
 
 // Define the shape of our queued objects for resilience
@@ -79,7 +79,7 @@ export async function flushCheckoutQueue(
       const live = getLiveAuthHeaders?.() ?? {};
       const stored = item.authHeaders ?? {};
       const auth = { ...stored, ...live };
-      const response = await fetch(`${baseUrl}/api/orders/checkout`, {
+      const response = await fetch(`${baseUrl}/api/transactions/checkout`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

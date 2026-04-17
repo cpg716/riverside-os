@@ -21,7 +21,6 @@ pub mod inventory;
 pub mod loyalty;
 pub mod metabase_proxy;
 pub mod notifications;
-pub mod orders;
 pub mod payments;
 pub mod physical_inventory;
 pub mod pos;
@@ -40,6 +39,7 @@ pub mod store;
 pub mod store_account;
 pub mod store_account_rate;
 pub mod tasks;
+pub mod transactions;
 pub mod vendors;
 pub mod weather;
 pub mod webhooks;
@@ -93,13 +93,16 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/inventory/physical", physical_inventory::router())
         .nest("/api/alterations", alterations::router())
         .nest("/api/insights", insights::router())
-        .nest("/api/orders", orders::router())
+        .nest("/api/transactions", transactions::router())
         .nest("/api/categories", categories::router())
         .nest("/api/products", products::router())
         .nest("/api/discount-events", discount_events::router())
         .nest("/api/purchase-orders", purchase_orders::router())
         .nest("/api/qbo", qbo::router())
-        .nest("/api/auth/qbo", qbo::auth_router())
+        .nest(
+            "/api/auth",
+            staff::auth_router().nest("/qbo", qbo::auth_router()),
+        )
         .nest("/api/vendors", vendors::router())
         .nest(
             "/api/sessions",

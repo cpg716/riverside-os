@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, override_rate, fixed_spiff_amount, match_type\n        FROM commission_rules\n        WHERE is_active = TRUE\n          AND (start_date IS NULL OR start_date <= now())\n          AND (end_date IS NULL OR end_date >= now())\n          AND (\n            (match_type = 'variant' AND match_id = $1)\n            OR (match_type = 'product' AND match_id = $2)\n            OR (match_type = 'category' AND match_id = $3)\n          )\n        ORDER BY \n          CASE match_type \n            WHEN 'variant' THEN 1 \n            WHEN 'product' THEN 2 \n            WHEN 'category' THEN 3 \n          END ASC\n        LIMIT 1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "override_rate",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 2,
+        "name": "fixed_spiff_amount",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 3,
+        "name": "match_type",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "b29875bdb6cb275f27f8fe3a81949c8f4cca5191e8d56e610687149e07d7b888"
+}

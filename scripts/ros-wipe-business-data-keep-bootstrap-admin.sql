@@ -106,9 +106,10 @@ DELETE FROM discount_event_usage;
 DELETE FROM discount_event_variants;
 DELETE FROM discount_events;
 
--- Payments & sales core (order delete cascades to many children)
+-- Payments & sales core (transaction delete cascades to many children)
 DELETE FROM payment_transactions;
-DELETE FROM orders;
+DELETE FROM transactions;
+DELETE FROM fulfillment_orders;
 
 DELETE FROM register_sessions;
 

@@ -1,7 +1,7 @@
 {
   "name": "riverside-pos",
   "private": true,
-  "version": "0.1.9",
+  "version": "0.2.0",
   "type": "module",
   "scripts": {
     "generate:help": "node scripts/generate-help-manifest.mjs",
@@ -21,6 +21,7 @@
     "test:e2e:high-risk": "playwright test e2e/high-risk-regressions.spec.ts --workers=1",
     "test:e2e:phase2": "playwright test e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1",
     "test:e2e:tender": "playwright test e2e/tender-matrix-contract.spec.ts --workers=1",
+    "test:e2e:v020": "playwright test e2e/tax-exempt-and-stripe-branding.spec.ts --workers=1",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:update-snapshots": "playwright test --update-snapshots",
     "tauri": "tauri",

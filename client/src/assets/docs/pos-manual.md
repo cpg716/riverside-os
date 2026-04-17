@@ -12,6 +12,18 @@ This guide covers day-to-day use of the in-store register: opening the till, the
 
 ---
 
+## Cashier Sign-In
+
+To ensure sales are attributed to the correct staff member, Riverside OS uses a **touch-grid sign-in** system.
+
+1. **Select Your Name**: When starting a sale or changing sessions, tap your avatar/name from the scrollable grid.
+2. **Enter PIN**: Type your 4-digit code.
+3. **Continue**: Unlock the register.
+
+If you are already logged in but a different staff member needs to ring a sale, they can tap the **Lock** or **User** icon to bring up the sign-in overlay without closing the current register session.
+
+---
+
 ## Open the register workspace
 
 **Option A — from the main menu:** Sign in, then select **Register POS** in the left rail. The screen switches to the register layout (narrow POS sidebar and register tools).
@@ -72,6 +84,7 @@ Inventory and bookkeeping follow server rules for takeaway vs order vs wedding l
 1. When the cart is correct, select **Proceed to Payment**.
 2. If you are not using a saved customer, confirm **walk-in** when asked.
 3. The **Payment ledger** side panel opens. Enter amounts on the keypad, then **Apply payment** for each tender (card, cash, gift card, etc.) the way you were trained.
+    - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
 4. On **Order / Wedding** sales, the ledger may show **Deposit release** — use **Apply deposit** below **Apply payment** when your store records a deposit on the keypad. **Split deposit (wedding party)** opens wedding lookup in group-pay mode to allocate amounts across members. **Takeaway** items (walk out today) must be covered with regular tenders first; deposit and **open deposit** apply to order balances, not unpaid takeaway. If the linked customer has a **party deposit** waiting, you may be asked to apply it to this sale.
 5. When the sale is balanced (or deposit-only when the UI allows, including mixed takeaway + order lines once takeaway is paid), finish using **Complete Sale**.
 6. Close the panel with **Close drawer** when you are done.

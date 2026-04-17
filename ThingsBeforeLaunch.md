@@ -9,10 +9,9 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ## Database and migrations
 
 - [x] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
-- [x] **All migrations applied** in numeric order through the latest **`migrations/NN_*.sql`** (repo tracks **00–131** as of 2026-04; includes Stripe integration migrations **`129_stripe_high_level_integration.sql`**, **`130_stripe_reporting_reconciliation.sql`**, **`131_stripe_vault_and_credits.sql`**, plus **`128_commission_spiff_program.sql`** and **`01b_utility_functions.sql`**). **Docker dev:** `./scripts/apply-migrations-docker.sh` from repo root (ledger in **`ros_schema_migrations`**). **Drift / QA:** `./scripts/migration-status-docker.sh` vs **`scripts/ros_migration_build_probes.sql`**. **Prod:** run the same ordered DDL + ledger procedure your ops use; do not skip files.
-- [x] **Final Migration Consistency Check:** Confirm ledger is at **131** and no mismatches exist in critical schema probes (e.g. `is_internal` on `order_items`, Stripe vault/credit tables, and reporting reconciliation columns).
-- [ ] **SQLx query metadata freshness:** run `cargo sqlx prepare` after any `query!`/`query_as!` macro changes and ensure `.sqlx` artifacts are committed for CI parity.
-- [ ] **Staff RBAC schema (migration 97):** Confirm **`staff_permission`**, **`staff.max_discount_percent`**, employment / **`employee_customer_id`** columns exist or the server will fail startup / staff routes — **`docs/STAFF_PERMISSIONS.md`**.
+- [x] **Final Migration Consistency check (v0.2.0):** Run `./scripts/migration-status-docker.sh` and ensure migrations through **143** are applied and all probe statuses are **ok** (including the **Schema Repair Baseline** and **Transaction Refactor**). Confirm ledger matches repo head.
+- [x] **Authentication Endpoint Verification:** Verify that the POS `Cart.tsx` uses the modern `/api/staff/verify-cashier-code` endpoint and the legacy `/api/auth/verify-pin` correctly handles manager overrides (v0.2.0 Stabilization).
+- [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
 - [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
 
 ---
@@ -32,6 +31,10 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Receipt settings:** Store name, **IANA timezone** (drives receipts, register “store day,” and **`reporting`** business dates — Settings → Receipt).
 - [ ] **Staff roster:** Roles and permissions; **change default/bootstrap credentials** if the DB still uses dev seeds (**`docs/STAFF_PERMISSIONS.md`**, migration **53** on greenfield). After migration **97**, effective Back Office keys live in **`staff_permission`**; role-wide templates are under **Settings → Staff access defaults**.
 - [ ] **Commission Roster (v0.1.8):** Audit Sales Rep base rates in the **Staff -> Commission** ledger and initialize overrides for high-priority products/variants — **`docs/COMMISSION_AND_SPIFF_OPERATIONS.md`**.
+- [ ] **Staff Identity & UI Logic (v0.2.0):**
+  - [ ] **Top Bar Resolution:** Confirm `GlobalTopBar` correctly displays the Back-Office avatar when signed in.
+  - [ ] **POS Context:** Confirm active `cashierName` and `cashierAvatarKey` take precedence in the Top Bar during an open register session.
+  - [ ] **Redundancy Audit:** Confirm `PosSidebar` and other child shells NO LONGER contain staff profile cards (centralized in Top Bar).
 
 ---
 
@@ -133,9 +136,11 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 **Pair with Riverside:** **`DEVELOPER.md`** — **Back Office → Reports** (curated **`/api/insights/*`** tiles; **Margin pivot** = **Riverside Admin role** API-enforced). **Insights** = Metabase iframe — enforce sensitivity with Metabase accounts below.
 
-- [ ] **Postgres:** **`reporting`** views require **`90`**, **`96`**, **`106`**, and **`107`** (margin / cost columns on **`reporting.order_lines`** for Metabase admin content); the live app needs **all** migrations through latest (**`DEVELOPER.md`**). Role **`metabase_ro`** exists with a **strong password** (`ALTER ROLE ... PASSWORD`).
+- [ ] **Postgres:** **`reporting`** views require **`90`**, **`96`**, **`106`**, **`107`**, and **`143`** (Transaction vs Fulfillment refactor). Migration **143** provides `transactions_core` and `fulfillment_orders_core` views. Role **`metabase_ro`** exists with a **strong password** (`ALTER ROLE ... PASSWORD`).
 - [ ] **Metabase connection:** DB **`riverside_os`**, user **`metabase_ro`**, schema **`reporting`** only; sync schema after deploy.
-- [ ] **Booked vs completed (revenue / tax / commission alignment):** Use **`reporting.orders_core` / `reporting.order_lines`**: **`order_business_date`** = sale booked day; **`order_recognition_at`** / **`order_recognition_business_date`** = completed-revenue day (**pickup / in-store takeaway:** `fulfilled_at`; **ship:** first `label_purchased` or manual **in_transit** / **delivered** note on **`shipment_event`** — same rules as **`/api/insights`** NYS audit + commission finalize). For day totals: **`daily_order_totals`** = booked; **`daily_order_totals_recognized`** = completed. Replicate or filter in Metabase questions accordingly.
+- [ ] **Booked vs completed (revenue / tax / commission alignment):** Use **`reporting.transactions_core` / `reporting.order_lines`** (now pointing to `transaction_lines` via shim): **`booked_business_date`** = sale booked day; **`recognition_at`** / **`recognition_business_date`** = completed-revenue day.
+- [ ] **Fulfillment Log:** Use **`reporting.fulfillment_orders_core`** to track logistical status of Special/Custom/Wedding orders in Metabase.
+- [ ] **Legacy Compatibility:** Verify that `reporting.orders_core` and `reporting.order_lines` (shims) still function for existing v0.1.x dashboards.
 - [ ] **Online store backlog:** Full “picked up vs shipped” product workflow (customer-visible states, optional dedicated **`shipped_at`**, carrier webhooks) is **not** fully built; recognition for ship rows depends on shipment hub events today — extend when **`/shop`** fulfillment is hardened (**`docs/ONLINE_STORE.md`**, **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**).
 - [ ] **Metabase logins — Staff vs Admin (required for margin / private cuts):**
   - [ ] Create at least **two Metabase groups** (e.g. **Reporting – Staff** and **Reporting – Admin**, or use Metabase **Administrators** for the second).
@@ -202,8 +207,8 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [x] **Selector:** Popup to pick item type (SUITS, SPORT COAT, SLACKS, INDIVIDUALIZED SHIRTS).
   - [x] **Variable Pricing:** Cashier enters `SALE` price at the time of order.
   - [x] **Deposit:** Flow must handle taking a deposit (partial payment) for these custom lines.
-  - [x] **Persistence:** Backend logic updated to persist `custom_item_type`, `is_rush`, and `need_by_date` in checkout items.
-  - [ ] **Cost Linkage:** Upon receiving the physical item, connect vendor `COST` to the specific order line for margin tracking.
+  - [x] **Persistence:** Backend logic updated to persist `custom_item_type`, `is_rush`, and `need_by_date` in `transaction_lines`.
+  - [x] **Cost Capture (v0.2.0):** Mandatory Vendor Cost entry at point-of-sale for Custom SKU items implemented.
 - [x] **Rush Order & Urgency:**
   - [x] **Urgent Flag:** Ability to mark an order as "RUSH".
   - [x] **Deadline:** Mandatory `NEED BY DATE` for rush items.
@@ -222,6 +227,54 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Hardware Stress Test:** Validate thermal printing from multiple registers simultaneously.
 - [ ] **Offline Drill:** Staff training on manual overrides and credit card procedures if internet/Tailscale is down.
 - [ ] **Final DB Scrub:** Purge all "Test" records (customers, tickets) before the first day of real operations.
+
+---
+
+## Financial Integrity & "Source of Truth" Baseline
+
+**Paramount Requirement:** Financial data must be 100% exact. Every dollar and unit must be traceable to a specific transaction, staff member, and timestamp.
+
+### 1. The "Truth Trace" Invariant
+- [ ] **Audit Trail Integrity:** Confirm that all commission payouts, inventory adjustments, and price overrides carry a human-readable `reason` or `trace` log (**`AGENTS.md`**).
+- [ ] **Immutability:** Verify that completed `orders` cannot be edited; errors must be corrected via `returns` or `exchanges` with cross-linked IDs.
+- [ ] **Checkout Idempotency:** Test "Double-Click" on Place Order; confirm `orders.checkout_client_id` prevents duplicate charges/decrementing.
+
+### 2. Tax & Compliance
+- [ ] **NYC/NYS Clothing Threshold:** Verify $110 rule (tax-free under $110 for specific categories) with mixed carts (Taxable vs Non-Taxable items).
+- [ ] **Shipping Taxability:** Confirm shipping tax rules match the destination state/county policy.
+- [ ] **Refund Logic:** Ensure tax is correctly calculated and returned on partial returns.
+
+### 3. Inventory Valuation & Costing
+- [ ] **Cost Capture at Checkout:** Confirm `order_items.unit_cost` is non-null and frozen at the moment of sale to prevent historical cost drift from affecting margin reports.
+- [ ] **Inventory Reconciliation:** Perform a blind-count of 20 high-velocity SKUs and verify they match the system `stock_on_hand` exactly.
+- [ ] **Receiving Bay Hardening:** Verify that posting inventory from the Receiving Bay is a single, atomic operation that cannot be partially interrupted.
+
+### 4. Liability Management (Deposits & Gift Cards)
+- [ ] **Double-Spending Prevention:** Run concurrent checkout tests for the same Gift Card on two registers; confirm transaction isolation.
+- [ ] **Deposit Forfeiture Audit:** Verify QBO mappings for `income_forfeited_deposit` hit the correct ledger.
+
+---
+
+## Decision Support & Intelligence
+- [ ] **Wedding Health Audit:** Manually verify 5 "Critical" health scores against the 40/40/20 formula to ensure no false-negatives (Risk mitigation).
+- [ ] **Inventory Brain v2 Stress Test:** Verify that "Restock" recommendations align with actual sale-velocity vs lead-time constraints.
+- [ ] **Commission Truth Trace walkthrough:** Hand-verify 3 complex commission traces (Variant + Category override combos) with the Store Manager.
+- [ ] **Margin Pivot Baseline:** Confirm that `reporting.order_lines` `gross_margin` accurately subtracts `unit_cost` and discounts pre-tax.
+- [ ] **Wedding Liability:** Confirm that party deposits are correctly aggregated at the wedding project level for the EOD snapshot.
+
+### 5. Commission & SPIFF Accuracy
+- [ ] **Attribution Integrity:** Confirm that order-level salesperson attribution correctly flows to all line items unless explicitly overridden.
+- [ ] **Split-Commission Drill:** Test a 50/50 split order and verify both staff members' ledgers reflect the exact 0.5 ratio of the net margin.
+- [ ] **Payout Verification:** Compare a 1-week test period of POS activity against the **Commission Payout Report**; confirm 0.00 discrepancy.
+
+### 6. QuickBooks Online (QBO) Reconciliation
+- [ ] **Account Mapping Audit:** Verify all 20+ GL mappings (Sales, Tax, COGS, Assets, Liabilities) are initialized in the production environment.
+- [ ] **Staging Verification:** Confirm all QBO "Draft" entries require manager approval before final ledger impact.
+- [ ] **Z-Close Balance:** Confirm the POS Z-Report totals match the QBO Journal Entry daily summary to the penny.
+- [ ] **Fulfillment Urgency Audit:** Manually verify that "Rush" and "Due Soon" tags in the Fulfillment Command Center correctly trigger based on `is_rush` flags and `wedding_parties.event_date` to prevent missed deadlines.
+- [ ] **Merchant Activity Mapping:** Confirm that the insights dashboard correctly maps `created_at` from `payment_transactions` for Stripe reconciliation drills.
+- [ ] **Discount Event Visibility:** Verify that active promotions populate the POS Cart and apply correctly to subtotals, ensuring no manual price overrides are required for standard sales.
+- [ ] **Zero-Dash-Error Baseline:** Confirm that the Insights, Register Activity, and Fulfillment Queue dashboards return 200 OK without console errors on every load.
 ---
 
 ## Pre-Launch Polish & Possible Features
@@ -359,6 +412,9 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] Payment intent/tender path failure blocks transactions.
 - [ ] Critical auth/RBAC failure grants or denies core access incorrectly.
 - [ ] Production API unavailable or persistent 5xx on core flows.
+- [ ] **Financial Discrepancy:** Any mismatch between POS Cart totals and Payment Terminal captured amount.
+- [ ] **Tax Engine Error:** Incorrect tax applied to a live transaction (e.g. NYC threshold failure).
+- [ ] **Inventory Ghosting:** Sale completes but inventory does not decrement (or double-decrements).
 
 ### Rollback Execution Checklist
 - [ ] Launch commander calls rollback and records timestamp/reason.

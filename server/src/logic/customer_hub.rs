@@ -30,9 +30,10 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
         sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(total_price), 0)::DECIMAL(14, 2)
-            FROM orders
+            FROM transactions
             WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
               AND status != 'cancelled'::order_status
+              AND booked_at >= '2018-01-01'
             "#,
         )
         .bind(cid)
@@ -42,9 +43,10 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
         sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(total_price), 0)::DECIMAL(14, 2)
-            FROM orders
+            FROM transactions
             WHERE customer_id = $1
               AND status != 'cancelled'::order_status
+              AND booked_at >= '2018-01-01'
             "#,
         )
         .bind(customer_id)
@@ -56,7 +58,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
         sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(balance_due), 0)::DECIMAL(14, 2)
-            FROM orders
+            FROM transactions
             WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
               AND status = 'open'::order_status
               AND balance_due > 0
@@ -69,7 +71,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
         sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(balance_due), 0)::DECIMAL(14, 2)
-            FROM orders
+            FROM transactions
             WHERE customer_id = $1
               AND status = 'open'::order_status
               AND balance_due > 0
@@ -112,7 +114,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
         sqlx::query_scalar(
             r#"
             SELECT MAX(ts) FROM (
-                SELECT MAX(booked_at) AS ts FROM orders WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
+                SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
                 SELECT MAX(created_at) FROM payment_transactions WHERE payer_id IN (SELECT id FROM customers WHERE couple_id = $1)
                 UNION ALL
@@ -143,7 +145,7 @@ pub async fn fetch_hub_stats(pool: &PgPool, customer_id: Uuid) -> Result<HubStat
         sqlx::query_scalar(
             r#"
             SELECT MAX(ts) FROM (
-                SELECT MAX(booked_at) AS ts FROM orders WHERE customer_id = $1
+                SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id = $1
                 UNION ALL
                 SELECT MAX(created_at) FROM payment_transactions WHERE payer_id = $1
                 UNION ALL

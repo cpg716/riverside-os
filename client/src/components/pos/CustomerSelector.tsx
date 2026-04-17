@@ -2,13 +2,12 @@ import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX } from "lucide-react";
+import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX, Clock } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import type { WeddingMembership } from "./customerProfileTypes";
 
 export interface Customer {
   id: string;
-  /** Present for all server-backed customers; may be missing on older persisted cart state. */
   customer_code?: string;
   first_name: string;
   last_name: string;
@@ -27,14 +26,13 @@ interface CustomerSelectorProps {
   weddingMemberships: WeddingMembership[];
   onOpenWeddingParty?: (partyId: string) => void;
   onSelect: (customer: Customer | null) => void;
-  /** Open customer detail drawer without selecting (POS quick-peek). */
   onViewCustomer?: (customer: Customer) => void;
   /** Register: dense single-row customer chip + optional measurements control. */
   variant?: "default" | "posStrip";
-  /** When `variant="posStrip"` and a customer is selected, show vault/measurements control. */
   onOpenMeasurements?: () => void;
-  /** Show a prominent "Walk-in" option in the search dropdown (payment rail variant). */
   showWalkInOption?: boolean;
+  hasParkedSales?: boolean;
+  onOpenParkedSales?: () => void;
 }
 
 interface ApiErrorBody {
@@ -52,6 +50,8 @@ export default function CustomerSelector({
   variant = "default",
   onOpenMeasurements,
   showWalkInOption = false,
+  hasParkedSales = false,
+  onOpenParkedSales,
 }: CustomerSelectorProps) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -223,7 +223,7 @@ export default function CustomerSelector({
       const data = (await res.json()) as Customer;
       onSelect(data);
       if (data.customer_code) {
-        toast(`Customer added — code ${data.customer_code}`, "success");
+        toast(`Customer added \u2014 code ${data.customer_code}`, "success");
       } else {
         toast("Customer added", "success");
       }
@@ -262,7 +262,7 @@ export default function CustomerSelector({
             </div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-bold uppercase tracking-widest text-blue-100/95">
               <span className="rounded bg-white/20 px-1 py-0.5">Active</span>
-              <span className="tabular-nums">{selectedCustomer.customer_code || "—"}</span>
+              <span className="tabular-nums">{selectedCustomer.customer_code || "\u2014"}</span>
               {selectedCustomer.phone ? (
                 <span className="tabular-nums opacity-90">{selectedCustomer.phone}</span>
               ) : null}
@@ -317,7 +317,7 @@ export default function CustomerSelector({
                   >
                     <Gem size={11} className="shrink-0 text-app-accent" />
                     <span className="truncate">{w.party_name}</span>
-                    <span className="shrink-0 text-app-text-muted">· {w.event_date}</span>
+                    <span className="shrink-0 text-app-text-muted">\u00b7 {w.event_date}</span>
                   </button>
                 ))}
               </div>
@@ -339,7 +339,7 @@ export default function CustomerSelector({
                 {selectedCustomer.first_name} {selectedCustomer.last_name}
               </div>
               <div className="mt-0.5 truncate text-[10px] font-bold uppercase tracking-widest text-blue-100/90">
-                {selectedCustomer.customer_code || "—"}
+                {selectedCustomer.customer_code || "\u2014"}
               </div>
               <div className="flex items-center gap-3 mt-1.5 opacity-80">
                 <span className="text-[10px] font-bold uppercase tracking-widest bg-white/20 px-1.5 py-0.5 rounded-md">
@@ -377,7 +377,7 @@ export default function CustomerSelector({
                 >
                   <Gem size={12} className="shrink-0 text-app-accent" />
                   <span className="max-w-[140px] truncate">{w.party_name}</span>
-                  <span className="text-app-text-muted">· {w.event_date}</span>
+                  <span className="text-app-text-muted">\u00b7 {w.event_date}</span>
                 </button>
               ))}
             </div>
@@ -388,185 +388,9 @@ export default function CustomerSelector({
   }
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between gap-2 px-0.5">
-        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-          {showWalkInOption ? "Customer" : "Client Search"}
-        </span>
-        <div className="flex items-center gap-2">
-          {showWalkInOption ? (
-            <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-700 ring-1 ring-amber-500/25">
-              Walk-in
-            </span>
-          ) : null}
-          <button
-            type="button"
-            onClick={() => setIsAdding((v) => !v)}
-            className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-800"
-          >
-            {isAdding ? <X size={14} /> : <UserPlus size={14} />}
-            {isAdding ? "Cancel" : "Quick Add"}
-          </button>
-        </div>
-      </div>
-
-      {isAdding ? (
-        <form
-          onSubmit={handleQuickAdd}
-          className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
-        >
-          <div className="grid grid-cols-2 gap-2">
-            <input
-              required
-              placeholder="First Name"
-              className="ui-input w-full rounded-lg p-2 text-sm"
-              value={newCustomer.first_name}
-              onChange={(e) =>
-                setNewCustomer((prev) => ({
-                  ...prev,
-                  first_name: e.target.value,
-                }))
-              }
-            />
-            <input
-              required
-              placeholder="Last Name"
-              className="ui-input w-full rounded-lg p-2 text-sm"
-              value={newCustomer.last_name}
-              onChange={(e) =>
-                setNewCustomer((prev) => ({
-                  ...prev,
-                  last_name: e.target.value,
-                }))
-              }
-            />
-          </div>
-          <input
-            placeholder="Phone Number"
-            className="ui-input w-full rounded-lg p-2 text-sm"
-            value={newCustomer.phone}
-            onChange={(e) =>
-              setNewCustomer((prev) => ({
-                ...prev,
-                phone: e.target.value,
-              }))
-            }
-          />
-          <input
-            placeholder="Email (optional)"
-            className="ui-input w-full rounded-lg p-2 text-sm"
-            value={newCustomer.email}
-            onChange={(e) =>
-              setNewCustomer((prev) => ({
-                ...prev,
-                email: e.target.value,
-              }))
-            }
-          />
-          <input
-            placeholder="Street address"
-            className="ui-input w-full rounded-lg p-2 text-sm"
-            value={newCustomer.address_line1}
-            onChange={(e) =>
-              setNewCustomer((prev) => ({
-                ...prev,
-                address_line1: e.target.value,
-              }))
-            }
-          />
-          <div className="grid grid-cols-3 gap-2">
-            <input
-              placeholder="City"
-              className="ui-input w-full rounded-lg p-2 text-sm"
-              value={newCustomer.city}
-              onChange={(e) =>
-                setNewCustomer((prev) => ({ ...prev, city: e.target.value }))
-              }
-            />
-            <input
-              placeholder="ST"
-              className="ui-input w-full rounded-lg p-2 text-sm"
-              value={newCustomer.state}
-              onChange={(e) =>
-                setNewCustomer((prev) => ({ ...prev, state: e.target.value }))
-              }
-            />
-            <input
-              placeholder="ZIP"
-              className="ui-input w-full rounded-lg p-2 text-sm"
-              value={newCustomer.postal_code}
-              onChange={(e) =>
-                setNewCustomer((prev) => ({
-                  ...prev,
-                  postal_code: e.target.value,
-                }))
-              }
-            />
-          </div>
-          <div className="rounded-lg border border-app-border bg-app-surface-2 p-3 text-xs">
-            <p className="mb-2 font-bold text-app-text">Marketing only</p>
-            <label className="mb-1 flex items-center justify-between gap-2">
-              Promo email
-              <select
-                value={newCustomer.marketing_email_opt_in ? "yes" : "no"}
-                onChange={(e) =>
-                  setNewCustomer((prev) => ({
-                    ...prev,
-                    marketing_email_opt_in: e.target.value === "yes",
-                  }))
-                }
-                className="ui-input rounded px-1 py-0.5 text-xs"
-              >
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </select>
-            </label>
-            <label className="flex items-center justify-between gap-2">
-              Promo text
-              <select
-                value={newCustomer.marketing_sms_opt_in ? "yes" : "no"}
-                onChange={(e) =>
-                  setNewCustomer((prev) => ({
-                    ...prev,
-                    marketing_sms_opt_in: e.target.value === "yes",
-                  }))
-                }
-                className="ui-input rounded px-1 py-0.5 text-xs"
-              >
-                <option value="no">No</option>
-                <option value="yes">Yes</option>
-              </select>
-            </label>
-          </div>
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full rounded-lg bg-app-accent py-2 text-sm font-bold text-white transition-colors hover:bg-black disabled:opacity-50"
-          >
-            {loading ? "Adding..." : "Add & Select Client"}
-          </button>
-        </form>
-      ) : (
-        <div className="space-y-1.5">
-        {showWalkInOption && !query.trim() ? (
-          <button
-            type="button"
-            onClick={() => { onSelect(null); setQuery(""); }}
-            className="flex w-full items-center gap-2.5 rounded-xl border-2 border-amber-400/40 bg-amber-50/70 px-3 py-2 text-left transition-all hover:bg-amber-100 active:scale-[0.98] dark:border-amber-500/25 dark:bg-amber-500/10 dark:hover:bg-amber-500/20"
-          >
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400">
-              <UserX size={14} />
-            </div>
-            <div>
-              <div className="text-[11px] font-black uppercase italic tracking-tight text-amber-900 dark:text-amber-200">
-                Walk-in Sale
-              </div>
-              <div className="text-[9px] font-bold uppercase tracking-widest text-amber-700/70 dark:text-amber-400/70">
-                No account · no loyalty · no orders
-              </div>
-            </div>
-          </button>
-        ) : null}
+    <div className="space-y-4">
+      {/* 1. Search Bar (Top) */}
+      {!isAdding && (
         <div className="group relative">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted transition-colors group-focus-within:text-app-accent"
@@ -574,133 +398,204 @@ export default function CustomerSelector({
           />
           <input
             placeholder="Search by name, phone, or email..."
-            className="ui-input w-full py-2.5 pl-9 pr-4 transition-all"
+            className="ui-input w-full py-2.5 pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
           />
 
           {query.trim().length >= 2 && (
-            <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(70vh,28rem)] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-xl">
-              <div className="max-h-[min(65vh,26rem)] overflow-y-auto">
-              {/* Walk-in option — shown only in payment-rail mode */}
-              {showWalkInOption ? (
-                <button
-                  type="button"
-                  onClick={() => { onSelect(null); setQuery(""); setResults([]); }}
-                  className="flex w-full items-center gap-3 border-b border-amber-200/60 bg-amber-50/80 px-4 py-3 text-left transition-colors hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:hover:bg-amber-500/20"
-                >
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400">
-                    <UserX size={16} />
-                  </div>
-                  <div>
-                    <div className="text-sm font-black uppercase italic tracking-tight text-amber-900 dark:text-amber-200">
-                      Walk-in Sale
-                    </div>
-                    <div className="text-[9px] font-bold uppercase tracking-widest text-amber-700/80 dark:text-amber-400/80">
-                      No account · no loyalty · no orders
-                    </div>
-                  </div>
-                </button>
-              ) : null}
-              <div className="border-b border-app-border p-2">
-                <button
-                  type="button"
-                  onClick={() => setPartyFilterMode((v) => !v)}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${
-                    partyFilterMode
-                      ? "border-app-accent/40 bg-app-accent/15 text-app-text"
-                      : "border-app-border bg-app-surface-2 text-app-text"
-                  }`}
-                >
-                  <Gem size={11} aria-hidden />
-                  {partyFilterMode
-                    ? `Party filter on: "${query.trim()}"`
-                    : `Search by wedding party: "${query.trim()}"`}
-                </button>
-              </div>
-              {searchBusy && (
-                <div className="p-3 text-sm text-app-text-muted">Searching…</div>
-              )}
-              {!searchBusy && results.length === 0 && (
-                <div className="p-3 text-sm text-app-text-muted">
-                  No customers found
-                </div>
-              )}
-              {!searchBusy &&
-                results.map((customer) => (
-                  <div
-                    key={customer.id}
-                    className="group relative flex items-stretch justify-between gap-2 border-b border-app-border/50 last:border-0"
-                  >
-                    <button
-                      type="button"
-                      onClick={() => onSelect(customer)}
-                      className="min-w-0 flex-1 p-4 text-left transition-colors hover:bg-app-surface-2"
-                    >
-                      <div className="font-bold text-app-text">
-                        {customer.first_name} {customer.last_name}
+            <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-[min(70vh,28rem)] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-xl shadow-black/20">
+               <div className="max-h-[min(65vh,26rem)] overflow-y-auto no-scrollbar">
+               {showWalkInOption && (
+                 <button
+                   type="button"
+                   onClick={() => { onSelect(null); setQuery(""); setResults([]); }}
+                   className="flex w-full items-center gap-3 border-b border-amber-200/60 bg-amber-50/80 px-4 py-3 text-left transition-colors hover:bg-amber-100 dark:border-amber-500/20 dark:bg-amber-500/10 dark:hover:bg-amber-500/20"
+                 >
+                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-500/20 text-amber-700 dark:text-amber-400">
+                     <UserX size={16} />
+                   </div>
+                   <div>
+                     <div className="text-sm font-black uppercase italic tracking-tight text-amber-900 dark:text-amber-200">
+                       Walk-in Sale
+                     </div>
+                     <div className="text-[9px] font-bold uppercase tracking-widest text-amber-700/80 dark:text-amber-400/80">
+                       No account \u00b7 no loyalty \u00b7 no orders
+                     </div>
+                   </div>
+                 </button>
+               )}
+               <div className="border-b border-app-border p-2">
+                 <button
+                   type="button"
+                   onClick={() => setPartyFilterMode((v) => !v)}
+                   className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest ${
+                     partyFilterMode
+                       ? "border-app-accent/40 bg-app-accent/15 text-app-text"
+                       : "border-app-border bg-app-surface-2 text-app-text"
+                   }`}
+                 >
+                   <Gem size={11} aria-hidden />
+                   {partyFilterMode
+                     ? `Party filter on`
+                     : `Search by wedding party`}
+                 </button>
+               </div>
+               {searchBusy && (
+                 <div className="p-3 text-sm text-app-text-muted">Searching\u2026</div>
+               )}
+               {!searchBusy && results.length === 0 && (
+                 <div className="p-3 text-sm text-app-text-muted">
+                   No customers found
+                 </div>
+               )}
+               {!searchBusy &&
+                 results.map((customer) => (
+                   <div
+                     key={customer.id}
+                     className="group relative flex items-stretch justify-between gap-2 border-b border-app-border/50 last:border-0"
+                   >
+                     <button
+                       type="button"
+                       onClick={() => onSelect(customer)}
+                       className="min-w-0 flex-1 p-4 text-left transition-colors hover:bg-app-surface-2"
+                     >
+                       <div className="font-bold text-app-text">
+                         {customer.first_name} {customer.last_name}
+                       </div>
+                       <div className="text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
+                         {customer.customer_code || "\u2014"}
+                         {customer.company_name ? ` \u00b7 ${customer.company_name}` : ""}
+                       </div>
+                       <div className="text-xs text-app-text-muted">
+                         {customer.phone ?? customer.email ?? "No contact info"}
+                       </div>
+                     </button>
+                      <div className="flex shrink-0 items-center pr-3">
+                         <CheckCircle2 size={18} className="text-app-border group-hover:text-app-accent transition-colors" />
                       </div>
-                      <div className="text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
-                        {customer.customer_code || "—"}
-                        {customer.company_name ? ` · ${customer.company_name}` : ""}
-                      </div>
-                      <div className="text-xs text-app-text-muted">
-                        {customer.phone ?? customer.email ?? "No contact info"}
-                      </div>
-                      {customer.wedding_active ? (
-                        <div className="mt-1 inline-flex items-center gap-1 rounded-full border border-app-accent/35 bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-app-accent">
-                          <Gem size={11} aria-hidden />
-                          {customer.wedding_party_name ?? "Wedding active"}
-                        </div>
-                      ) : null}
-                      {customer.couple_id ? (
-                        <div className="mt-1 ml-1 inline-flex items-center gap-1 rounded-full border border-pink-500/35 bg-pink-500/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-widest text-pink-600">
-                          <Search size={11} aria-hidden className="opacity-70" />
-                          Joint Account
-                        </div>
-                      ) : null}
-                    </button>
-                    <div className="pointer-events-none flex shrink-0 items-center pr-2 opacity-0 transition-opacity duration-200 group-hover:pointer-events-auto group-hover:opacity-100">
-                      <div className="flex flex-col gap-1 rounded-l-xl border border-app-border/90 bg-app-surface/95 px-2 py-2 shadow-md backdrop-blur-md">
-                        <button
-                          type="button"
-                          onClick={() => onSelect(customer)}
-                          className="whitespace-nowrap rounded-lg px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-app-text transition-colors hover:bg-app-surface-2"
-                        >
-                          Select
-                        </button>
-                        {onViewCustomer ? (
-                          <button
-                            type="button"
-                            onClick={() => onViewCustomer(customer)}
-                            className="whitespace-nowrap rounded-lg px-2 py-1.5 text-[10px] font-bold uppercase tracking-[0.15em] text-app-text transition-colors hover:bg-app-surface-2"
-                          >
-                            View
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="pointer-events-none flex items-center pr-3 text-app-border group-hover:hidden">
-                      <CheckCircle2 size={18} aria-hidden />
-                    </div>
-                  </div>
-                ))}
-              {hasMore ? (
-                <div className="border-t border-app-border p-2">
-                  <button
-                    type="button"
-                    disabled={loadingMore || searchBusy}
-                    onClick={() => void loadMoreResults()}
-                    className="w-full rounded-lg border border-app-border bg-app-surface-2 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 disabled:opacity-50"
-                  >
-                    {loadingMore ? "Loading…" : "Load more"}
-                  </button>
-                </div>
-              ) : null}
-              </div>
+                   </div>
+                 ))}
+               {hasMore && (
+                 <div className="border-t border-app-border p-2">
+                   <button
+                     type="button"
+                     disabled={loadingMore || searchBusy}
+                     onClick={() => void loadMoreResults()}
+                     className="w-full rounded-lg border border-app-border bg-app-surface-2 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 disabled:opacity-50"
+                   >
+                     {loadingMore ? "Loading\u2026" : "Load more"}
+                   </button>
+                 </div>
+               )}
+               </div>
             </div>
           )}
         </div>
+      )}
+
+      {/* 2. Walk-in / Parked / Options Row */}
+      {!query.trim() && (
+        <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-300">
+           <div className="flex items-center justify-between gap-2 px-1">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">Quick Actions</span>
+             <button
+                type="button"
+                onClick={() => setIsAdding((v) => !v)}
+                className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 transition-colors"
+              >
+                {isAdding ? <X size={14} /> : <UserPlus size={14} />}
+                {isAdding ? "Cancel" : "Quick Add Client"}
+              </button>
+          </div>
+
+          {!isAdding && (
+            <div className="grid grid-cols-1 gap-2">
+               {showWalkInOption && (
+                <button
+                  type="button"
+                  onClick={() => { onSelect(null); setQuery(""); }}
+                  className="group flex w-full items-center gap-3 rounded-xl border border-amber-500/30 bg-amber-50/50 p-2.5 text-left transition-all hover:bg-amber-50 active:scale-[0.98] dark:bg-amber-500/5 dark:hover:bg-amber-500/10"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20 group-hover:bg-amber-500 group-hover:text-white transition-colors">
+                    <UserX size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-black uppercase tracking-tight text-amber-900 dark:text-amber-200">
+                      Walk-in Sale
+                    </div>
+                    <div className="truncate text-[9px] font-bold uppercase tracking-widest text-amber-700/60 dark:text-amber-400/60">
+                      Standard checkout without account
+                    </div>
+                  </div>
+                </button>
+              )}
+
+              {hasParkedSales && (
+                <button
+                  type="button"
+                  onClick={() => onOpenParkedSales?.()}
+                  className="group flex w-full items-center gap-3 rounded-xl border border-app-accent/30 bg-app-accent/5 p-2.5 text-left transition-all hover:bg-app-accent/10 active:scale-[0.98]"
+                >
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20 group-hover:bg-app-accent group-hover:text-white transition-colors">
+                    <Clock size={16} />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[11px] font-black uppercase tracking-tight text-app-text">
+                      Parked Sales ({hasParkedSales ? "Active" : "None"})
+                    </div>
+                    <div className="truncate text-[9px] font-bold uppercase tracking-widest text-app-accent">
+                      Recall or manage snapshots
+                    </div>
+                  </div>
+                </button>
+              )}
+            </div>
+          )}
+
+          {isAdding && (
+            <form
+              onSubmit={handleQuickAdd}
+              className="space-y-3 rounded-2xl border-2 border-app-border bg-app-surface p-4 shadow-xl animate-in zoom-in-95 duration-200"
+            >
+               {/* Simplified Quick Add Form for POS */}
+               <div className="grid grid-cols-2 gap-2">
+                  <input
+                    required
+                    placeholder="First Name"
+                    className="ui-input h-10 px-3 text-sm font-bold"
+                    value={newCustomer.first_name}
+                    onChange={(e) => setNewCustomer(p => ({ ...p, first_name: e.target.value }))}
+                  />
+                  <input
+                    required
+                    placeholder="Last Name"
+                    className="ui-input h-10 px-3 text-sm font-bold"
+                    value={newCustomer.last_name}
+                    onChange={(e) => setNewCustomer(p => ({ ...p, last_name: e.target.value }))}
+                  />
+               </div>
+               <input
+                  placeholder="Phone Number"
+                  className="ui-input h-10 w-full px-3 text-sm font-bold tabular-nums"
+                  value={newCustomer.phone}
+                  onChange={(e) => setNewCustomer(p => ({ ...p, phone: e.target.value }))}
+               />
+               <input
+                  placeholder="Email (optional)"
+                  className="ui-input h-10 w-full px-3 text-sm font-bold"
+                  value={newCustomer.email}
+                  onChange={(e) => setNewCustomer(p => ({ ...p, email: e.target.value }))}
+               />
+               <button
+                  type="submit"
+                  disabled={loading}
+                  className="ui-btn-primary w-full h-11 text-xs font-black uppercase tracking-widest shadow-lg shadow-app-accent/20"
+               >
+                  {loading ? "Adding..." : "Add & Select"}
+               </button>
+            </form>
+          )}
         </div>
       )}
     </div>

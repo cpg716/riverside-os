@@ -2,8 +2,92 @@
 
 All notable changes to this project will be documented in this file.
 
-The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.2.0] — 2026-04-16
+### Added
+- **Full-Width Workspace Modernization**: Transformed all primary workspaces (Orders, Customers, Inventory, etc.) into a high-performance, edge-to-edge layout. Deprecated nested scrolling in favor of native root document scrolling for a smoother "Pro" experience on 1080p, 1440p, and iPad 11 Pro screens.
+- **Customer Relationship Hub Overhaul**: Modernized the Customer Profile UI with "WowDash" glassmorphism, financial KPIs (Lifetime Sales, Balance Due), and a tabbed interface distinguishing between financial Transactions and logistical Fulfillments.
+- **Sticky Navigation Enforcement**: Optimized `GlobalTopBar` and `Sidebar` with persistent sticky positioning to anchor navigation during root scrolling.
+- **Workspace Density Pass**: Refactored the Customers Workspace for high-density, full-page presentation.
+- **Zero-Error Hygiene**: Achieved a 100% clean TypeScript and linting state for the modernization baseline.
+
+### Fixed
+- **Checkout Shadowing Vulnerability**: Resolved a critical 500 Internal Server Error in `transaction_checkout.rs` caused by variable shadowing of `transaction_id`. Renamed inner payment records to `payment_tx_id` to ensure correct `payment_allocations` referencing.
+- **Case-Insensitive Tax Compliance**: Hardened `client/src/lib/tax.ts` and server-side logic to treat tax categories (e.g., "Clothing") as case-insensitive, ensuring consistent $110 NYS tax exemptions.
+- **Light Mode Visual Performance**: Resolved visibility and contrast regressions in POS slideouts ("Finalize Pricing", "Confirm Item") by replacing hardcoded white text with themed semantic tokens (`text-app-text`).
+- **Product Hub Layout**: Fixed a z-index surfacing issue in the inventory intelligence panel that obstructed navigation in specific viewports.
+
+### Changed
+- **Repository Capacity Optimization**: Reclaimed ~38 GB of disk space by purging redundant Rust target artifacts and cleaning legacy log files.
+- **Documentation Alignment**: Synchronized `AGENTS.md`, `TRANSACTIONS_AND_WEDDING_ORDERS.md`, and `AI_REPORTING_DATA_CATALOG.md` with the latest financial integrity invariants and architectural renames.
+
+### [0.2.0] — 2026-04-13 [In Progress]
+### Added
+- **Professional Reporting Architecture**: High-fidelity Letter/A4 audit documents (Z-Reports, Daily Sales) with decoupled hardware routing (System Print station).
+- **Privacy Standard (Receipt Naming)**: Masked "First Name + Last Initial" format on all customer receipts.
+- **Persistent Top Bar Architecture**: Introduced a universal, touch-friendly navigation anchor across all shells. Features persistent staff identity, universal breadcrumbs, centered search lookup, and a centralized "System Actions" group (Help, Bug Reports, Notifications, Theme).
+- **Transaction-Centric Backend Refactor**: 
+  - Systematic renaming of "Orders" to **"Transactions"** throughout the backend logic, API, and database models.
+  - Standardized on `transaction_id` and `transaction_lines` to decouple financial ledger entries from logistical fulfillment objects.
+  - Refactored core modules: `order_checkout` -> `transaction_checkout`, `order_list` -> `transaction_list`, etc.
+  - Migration 142 formally established the `transactions` table and the new helper `fulfillment_orders` logistical registry.
+- **Migration Invariant**: Mandatory `DROP VIEW IF EXISTS` for view-altering migrations.
+- **Reporting Stabilization (Migration 143)**: Established the `reporting.transactions_core` and `reporting.fulfillment_orders_core` views as the new stable baseline for auditable financial and logistical reporting.
+- **Avatar Path Resolution**: Robust multi-path resolution for staff portraits.
+- **Audit Recovery**: New manual and emergency PIN reset scripts.
+- **Layaway Manager (v2)**: 
+  - Restored and hardened the **Layaway Manager** in POS with robust URL construction.
+  - Integrated a centralized **Layaway Manager** workspace into the Back Office **Customers** section.
+  - Resolved backend SQL decoding errors in order list.
+- **Financial Accuracy (QBO Deposits)**: 
+  - Automatically captures **New Deposit Inflows** (Credit Liability) for payments.
+  - Ensured balanced journal cycle for all deposit lifecycle states.
+- **Staff Lifecycle Management**: Implemented an "Add Staff" action in the Back Office roster, complete with an auditable creation API (`POST /api/staff/admin`) and automatic role-default application.
+- **Optimized Administration UI**: Refactored the Staff Edit slideout using a search-first, high-density layout with robust sticky navigation and resolved visual regressions in the CRM search dropdown.
+
+### Fixed
+- **Schema Stabilizer**: Repaired table references in migration 135.
+- **Authentication UX**: Restored **Full Names** for internal identification screens.
+- **Build & Linting**: Fixed float ambiguities and reporting TypeScript types.
+### Added
+- **Unified PIN Authentication & UX (Auditable Authorization)**: 
+  - Systematic terminology migration from legacy "Cashier Code" to **"PIN"** across the entire UI and backend.
+  - **Persistent Identity Selection**: Integrated user roster dropdowns into all primary authentication gates (Back Office and POS). Selection is preserved via `localStorage`.
+  - **Global Hardware Support**: Unified `NumericPinKeypad` with global keyboard listeners (0-9, Backspace, Enter) for rapid entry.
+  - **Role-Based POS Authorization Bypass**: Implemented a dynamic permission-based skip for sensitive POS actions. Users with the `admin` role now automatically bypass manual PIN verification for **Order Attribution**, **Void All**, and **Large Price Overrides**.
+  - **Auditable Manager Approvals**: Deployed the **Manager Approval Modal** for non-administrative staff. This allows any manager to authorize a high-risk action without changing the active cashier's session.
+  - **System-Wide Authorization Logging**: Enhanced the `/api/auth/verify-pin` endpoint to record `authorize_action` and `authorize_metadata` in the `staff_access_log`.
+- **Modularized POS Architecture**: Successfully transitioned the monolithic POS Cart to a high-performance modular hook system (`useCartActions`, `useCartCheckout`, `usePosSearch`).
+- **RESTORED: Order Recall & Direct Pickup**: Fully restored the POS "Orders" recall functionality.
+- **RESTORED: Parked Sale Snapshotting**: Re-enabled the ability to "Park" active sales to the server. Added a new **"Park Sale"** button to the main Register tool row, complete with server-backed snapshots and auditable recall.
+- **RESTORED: Order Metadata Management**: Integrated the "Order Review" workflow into the checkout process.
+- **Enhanced Cart Visualization**: Added real-time indicators to the Cart line items for **Rush** (Zap) and **Due Date** (Clock).
+- **RESTORED: Intelligence & Decision Support Layer**: Finalized the integration of production-grade decision engines (Wedding Health, Inventory Brain v2, Truth Trace).
+- **Simplified Register Standard**: Reduced complexity by limiting physical terminal lanes to exactly 3:
+  - **Register #1 (Main)**: Controls the primary cash drawer and reconciliation.
+  - **Register #2 (iPad)**: Reserved for mobile satellite sales.
+  - **Register #3 (Back Office)**: Reserved for administrative activities and Headquarter sales.
+- **Automatic Session Expansion**: Opening Register #1 now automatically initializes zero-float satellite sessions for Register #2 and #3, eliminating the need to manually open satellite lanes.
+- **Admin Lane Default**: The Back Office POS entry now correctly defaults to Register #3 when the main drawer is active.
+- **X-Report Deprecation**: Finalized the removal of legacy mid-shift snapshots in favor of real-time dashboards and unified Z-reconciliation.
+- **Documentation Overhaul**: Synchronized all staff manuals and engineering guides with the new 3-register model.
+
+### Changed
+- **UI Normalization Sweep**: Reverted "Cinematic GUI" experimental styles (extreme rounding and 8px borders) to the production-grade design baseline (28px rounding, 2px borders).
+- **Documentation Overhaul**: Synchronized all project documentation (`README.md`, `DEVELOPER.md`, `AGENTS.md`) and staff manuals with the current state of the application.
+- **Modularized Cart State**: Centralized POS state management in the `useCartActions` hook.
+
+### Fixed
+- **Structural Build Errors**: Resolved 100+ blocking TypeScript errors introduced during the v0.2.0 transition.
+- **Operations & Dashboard Stabilization**: 
+  - **`RegisterDashboard.tsx`**: Removed orphaned `xReport` state and fetcher logic. Optimized `lucide-react` imports and removed unused props (`lifecycleStatus`, `onGoToTasks`). Fixed unsafe `any` type in Morning Compass queue mapping to properly handle `rush_order` and `task` kinds.
+  - **`OperationalHome.tsx`**: Cleaned up unused Lucide icons (`Clock`, `ListChecks`, `Sparkles`) and removed the abandoned `pulseRows` variable to eliminate linting warnings.
+  - **`WeddingHealthHeatmap.tsx`**: Hardened the component with explicit interfaces (`WmParty`, `PartyWithHealth`) and resolved "module not found" errors by updating `api.d.ts` and adding `Icon.d.ts`. Removed unused `catch` variables.
+
+### Removed
+- **Redundant Auth Gates**: Eliminated legacy PIN unlock overlays in `StaffWorkspace.tsx` that were redundant with the top-level Back Office gate.
 
 ## [0.1.9] — 2026-04-11
 ### Added

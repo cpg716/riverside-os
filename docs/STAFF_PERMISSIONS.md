@@ -12,11 +12,10 @@ For high-level architecture, see **`DEVELOPER.md`**. For agent-oriented invarian
 
 ## Sign-in model (4-digit staff credential)
 
-- **Single credential:** Staff use one **four-digit** code. It is stored as `staff.cashier_code`; when `pin_hash` is set, the server expects the same digits as `x-riverside-staff-pin` (see `server/src/auth/pins.rs`).
-- **Back Office gate:** The shell shows **Sign in to Back Office** until valid credentials load permissions (`BackofficeSignInGate`, `client/src/components/layout/BackofficeSignInGate.tsx`). **Opening the register is not required** for Back Office work; POS/checkout still needs an open register session where the API enforces it. After sign-in, permissions from the gate’s **`effective-permissions`** response are applied via **`adoptPermissionsFromServer`**; **`refreshPermissions`** only empties permissions on **401/403**, not on transient errors (avoids clearing a good session if the second fetch fails). The same response includes **`full_name`** and **`avatar_key`** (bundled portrait slug; see migration **54**).
-- **Self-service profile icon:** Any authenticated staff may **`PATCH /api/staff/self/avatar`** with `{ "avatar_key": "..." }` (server allowlist). Admins can also set **`avatar_key`** via **`PATCH /api/staff/admin/{id}`** when editing a user (**`staff.edit`**).
-- **Persisted session:** `sessionStorage` key `ros.backoffice.session.v1` (see `backofficeSessionPersistence.ts`). Cleared by **Switch staff** in the header (when the register is closed), **Staff → Lock workspace**, or sign-out flows.
-- **Bootstrap admin:** `scripts/seed_staff_register_test.sql` plus migration **`53_default_admin_chris_g_pin.sql`** — Chris G, code `1234`, admin role, Argon2 hash of `1234`.
+- **Single credential (Access PIN):** Staff use one **four-digit Access PIN**. Access is initiated via an identity dropdown followed by PIN entry. The server securely hashes this PIN (`pin_hash`); the internal `cashier_code` (Employee Tracking ID) is background-linked for reporting but is **not** used by the user for login.
+- **Back Office gate:** The shell shows **Sign in to Back Office** until valid credentials load permissions (`BackofficeSignInGate`). **Opening the register is not required** for Back Office work. After sign-in, permissions from the **`effective-permissions`** response are applied.
+- **Auto-assigned Tracking ID**: The 4-digit numeric identifier used for receipts and audit logs is **auto-assigned** by the system during staff creation. It is visible in the **Economics** tab of the staff profile but is not required for daily operations.
+- **Bootstrap admin:** Chris G, initial PIN `1234`.
 - **Dev register bypass:** `VITE_REGISTER_AUTH_BYPASS=true` skips the register keypad for local/E2E (see `RegisterOverlay.tsx`).
 
 ---
@@ -58,13 +57,13 @@ Operational behavior (refund queue, returns, register session bypass): **`docs/O
 | `loyalty.program_settings` | `GET`/`PATCH` loyalty settings, monthly eligible (PII). |
 | `weddings.view` | Read wedding routes (SSE, lists, GET party/member, ledger, financial context). |
 | `weddings.mutate` | Create/update/delete parties, members, appointments, restore. |
-| `register.reports` | Back Office access to Z/X report and reconciliation JSON **without** POS session token (alternative to session secret on device). |
+| `register.reports` | Back Office access to register reconciliation and cash adjustment APIs without a POS session token. |
 | `register.open_drawer` | Back Office **paid-in / paid-out** drawer adjustments (`POST /api/sessions/{id}/adjustments`) **without** matching POS session token; open register devices still use session headers. Seeded in migration **50**. |
 | `register.shift_handoff` | **`POST /api/sessions/{id}/shift-primary`** — set **register shift primary** (`shift_primary_staff_id`) without closing the drawer; valid POS session token for that session **or** this permission from Back Office. Seeded in migration **55**. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
 | `register.session_attach` | **`GET /api/sessions/list-open`** and **`POST /api/sessions/{id}/attach`** — pick or join an open lane when several registers are in use (migration **66**). Satellite open UI also calls **list-open** to link lane 2+ to an open **Register #1** in the same **`till_close_group_id`** (migration **67**). |
 | `orders.suit_component_swap` | **`POST /api/orders/{id}/items/{line}/suit-swap`** — inventory-aware variant replacement on a line. Seeded in migration **50**. |
 
-**Till close group (migration 67):** Open **Register #1** creates a new **`till_close_group_id`** (one physical drawer: float, paid in/out, expected/actual cash). **Satellite lanes (2+)** must send **`primary_session_id`** of an open **lane 1** session and use **`opening_float` = 0**; cash tenders on satellites roll into the primary’s Z. **Z-close / `close_session`** runs only on **lane 1** and closes **all** open sessions in the group in one transaction with a shared **`z_report_json`**. **X-report** stays per-session. **Admin** entering POS open flow: if **Register #1** is not open, the UI asks whether **they** open **#1** (opening cashier) or **another terminal** opens **#1** first (**Check again** polls **`list-open`**). With **#1** already open, **admin** defaults to **Register #2** for Back Office-style POS use (no float); they can still pick **#1** from the dropdown. **Lane 2+** has no separate close control in POS. Back Office **Orders → Process refund** shows **Go to POS** when no till is open (**`GET /api/sessions/current`** **404**). Full detail: **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**.
+**Till close group (migration 67):** Open **Register #1** creates a new **`till_close_group_id`** (one physical drawer: float, paid in/out, expected/actual cash). **Satellite lanes (2+)** must send **`primary_session_id`** of an open **lane 1** session and use **`opening_float` = 0**; cash tenders on satellites roll into the primary’s Z. **Z-close / `close_session`** runs only on **lane 1** and closes **all** open sessions in the group in one transaction with a shared **`z_report_json`**. **Admin** entering POS open flow: if **Register #1** is not open, the UI asks whether **they** open **#1** (opening cashier) or **another terminal** opens **#1** first (**Check again** polls **`list-open`**). With **#1** already open, **admin** defaults to **Register #2** for Back Office-style POS use (no float); they can still pick **#1** from the dropdown. **Lane 2+** has no separate close control in POS. Back Office **Orders → Process refund** shows **Go to POS** when no till is open (**`GET /api/sessions/current`** **404**). Full detail: **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**.
 
 ### Staff recurring tasks (migration **56**)
 
@@ -91,9 +90,10 @@ Role defaults: **admin** = all **true**; **salesperson** = narrow (e.g. `catalog
 
 ## Effective permissions
 
-1. Authenticate with **`authenticate_pos_staff`** (four-digit **cashier code**; when `pin_hash` is set, PIN must be the **same four digits**).
-2. If **`DbStaffRole::Admin`**, the effective set is **the full catalog** (`ALL_PERMISSION_KEYS` in Rust). **`staff_permission`** is not consulted (prevents accidental lockout).
-3. Otherwise, effective keys are exactly those in **`staff_permission`** for that **`staff_id`** with **`allowed = true`**. Role templates (**`staff_role_permission`**) apply only when an operator runs **Apply role defaults** or when seeds/backfill populate **`staff_permission`**.
+1. Authenticate with **`authenticate_staff_by_id`** (using the staff UUID and their 4-digit **Access PIN**).
+2. If **`DbStaffRole::Admin`**, the effective set is **the full catalog**.
+3. Otherwise, effective keys are loaded from **`staff_permission`**.
+4. The background **Employee Tracking ID** (`cashier_code`) remains stored for printed receipt attribution and audit trails but is not part of the primary login handshake.
 
 ```mermaid
 flowchart LR
@@ -135,7 +135,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | Key | Typical use |
 |-----|-------------|
 | `staff.view` | View staff roster / hub. |
-| `staff.edit` | Edit staff profile fields (name, code, role, active, contacts). |
+| `staff.edit` | Create new staff and edit existing profile fields (name, code, role, active, contacts). |
 | `staff.manage_pins` | Set or change staff PINs. |
 | `staff.manage_commission` | Commission Manager: rules, SPIFFs, combos, and category overrides. |
 | `staff.view_audit` | Staff access log. |
@@ -166,7 +166,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `customers.couple_manage` | Link/unlink Joint Couple partners and create Joint accounts. |
 | `weddings.view` | Weddings workspace read APIs. |
 | `weddings.mutate` | Weddings workspace writes. |
-| `register.reports` | Register reconciliation / X-Z style reports from BO without POS token. |
+| `register.reports` | Register reconciliation / Z-style reports from BO without POS token. |
 | `register.shift_handoff` | Change register shift primary without closing session — **`POST /api/sessions/{id}/shift-primary`**. |
 | `tasks.manage` | Staff task templates, assignments, admin history / team views; complete others’ instances. |
 | `tasks.view_team` | Open team board of peers’ open task instances. |

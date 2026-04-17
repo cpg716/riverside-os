@@ -80,7 +80,7 @@ pub fn merge_receipt_studio_html(
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref = order
-        .order_id
+        .transaction_id
         .simple()
         .to_string()
         .chars()
@@ -90,11 +90,7 @@ pub fn merge_receipt_studio_html(
     let customer = order
         .customer
         .as_ref()
-        .map(|c| {
-            format!("{} {}", c.first_name.trim(), c.last_name.trim())
-                .trim()
-                .to_string()
-        })
+        .map(|c| c.display_name.clone())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "—".to_string());
 
@@ -125,7 +121,7 @@ pub fn merge_receipt_studio_html(
     replace_all(
         &mut out,
         "{{ROS_ORDER_ID_FULL}}",
-        &html_escape(&order.order_id.to_string()),
+        &html_escape(&order.transaction_id.to_string()),
     );
     replace_all(
         &mut out,
@@ -198,7 +194,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
     use chrono::Utc;
 
     ReceiptOrderForZpl {
-        order_id: Uuid::nil(),
+        transaction_id: Uuid::nil(),
         booked_at: Utc::now(),
         status: DbOrderStatus::Open,
         total_price: Decimal::new(19950, 2),
@@ -206,8 +202,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
         customer: Some(crate::logic::receipt_zpl::ReceiptCustomerLine {
-            first_name: "Alex".to_string(),
-            last_name: "Rivera".to_string(),
+            display_name: "Alex R.".to_string(),
         }),
         items: vec![
             crate::logic::receipt_zpl::ReceiptLineForZpl {
@@ -216,9 +211,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
                 quantity: 1,
                 unit_price: Decimal::new(17500, 2),
                 fulfillment: DbFulfillmentType::Takeaway,
-                salesperson_name: receipt_privacy::staff_name_for_customer_receipt(Some(
-                    "Chris Green",
-                )),
+                salesperson_name: receipt_privacy::mask_name_for_receipt(Some("Chris Green")),
                 variation_label: Some("42R Navy".to_string()),
                 original_unit_price: None,
                 discount_event_label: None,
@@ -235,5 +228,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
                 discount_event_label: None,
             },
         ],
+        is_tax_exempt: false,
+        tax_exempt_reason: None,
     }
 }

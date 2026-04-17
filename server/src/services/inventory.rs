@@ -27,8 +27,7 @@ pub enum InventoryError {
 pub struct ResolvedSkuItem {
     pub product_id: Uuid,
     pub variant_id: Uuid,
-    /// NYS §3.3 classification used for tax (not exposed in JSON).
-    #[serde(skip)]
+    /// NYS §3.3 classification used for tax.
     pub tax_category: TaxCategory,
     pub sku: String,
     pub name: String,

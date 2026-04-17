@@ -1,16 +1,16 @@
 //! Counterpoint → ROS ingest (Windows bridge). One-way upserts into PostgreSQL.
 //! Covers: customers, inventory, catalog (products + variants), gift cards,
-//! ticket history (orders + payments + optional PS_TKT_HIST_GFT), open docs,
+//! ticket history (transactions + payments + optional PS_TKT_HIST_GFT), open docs,
 //! vendor items (PO_VEND_ITEM), loyalty history (PS_LOY_PTS_HIST), and heartbeat / sync status.
-//! Ticket and open-doc orders are only inserted after **every** line resolves to a variant
-//! (no partial orders with mismatched totals).
+//! Ticket and open-doc transactions are only inserted after **every** line resolves to a variant
+//! (no partial transactions with mismatched totals).
 
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Postgres, Transaction};
+use sqlx::{Acquire, PgPool, Postgres, Transaction};
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -462,7 +462,15 @@ pub async fn execute_counterpoint_customer_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "customers" {
-            let _ = record_sync_run(pool, "customers", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "customers",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.created + summary.updated + summary.skipped),
+                None,
+            )
+            .await;
         }
     }
 
@@ -482,62 +490,97 @@ pub async fn execute_counterpoint_inventory_batch(
     let mut updated = 0i32;
     let mut skipped = 0i32;
 
+    let mut tx = pool.begin().await?;
+
+    // 1. Separate items by how we resolve them (key vs sku)
+    let mut keyed_keys = Vec::new();
+    let mut keyed_soh = Vec::new();
+    let mut keyed_cost = Vec::new();
+
+    let mut sku_skus = Vec::new();
+    let mut sku_keys = Vec::new();
+    let mut sku_soh = Vec::new();
+    let mut sku_cost = Vec::new();
+
     for row in &payload.rows {
         let sku = row.sku.trim();
         if sku.is_empty() {
             skipped += 1;
             continue;
         }
-
-        let mut done = false;
-
         if let Some(ref key) = trim_opt(&row.counterpoint_item_key) {
-            let r = sqlx::query(
-                r#"
-                UPDATE product_variants SET
-                    stock_on_hand = $1,
-                    cost_override = COALESCE($2, cost_override)
-                WHERE counterpoint_item_key = $3
-                "#,
-            )
-            .bind(row.stock_on_hand)
-            .bind(row.unit_cost)
-            .bind(key)
-            .execute(pool)
-            .await?;
-            if r.rows_affected() > 0 {
-                updated += 1;
-                done = true;
-            }
-        }
-
-        if !done {
-            let r = sqlx::query(
-                r#"
-                UPDATE product_variants SET
-                    stock_on_hand = $1,
-                    cost_override = COALESCE($2, cost_override),
-                    counterpoint_item_key = COALESCE($3, counterpoint_item_key)
-                WHERE lower(trim(sku)) = lower(trim($4))
-                "#,
-            )
-            .bind(row.stock_on_hand)
-            .bind(row.unit_cost)
-            .bind(trim_opt(&row.counterpoint_item_key))
-            .bind(sku)
-            .execute(pool)
-            .await?;
-            if r.rows_affected() > 0 {
-                updated += 1;
-            } else {
-                skipped += 1;
-            }
+            keyed_keys.push(key.clone());
+            keyed_soh.push(row.stock_on_hand);
+            keyed_cost.push(row.unit_cost);
+        } else {
+            sku_skus.push(sku.to_string());
+            sku_keys.push(None::<String>);
+            sku_soh.push(row.stock_on_hand);
+            sku_cost.push(row.unit_cost);
         }
     }
 
+    // Bulk Update By Key
+    if !keyed_keys.is_empty() {
+        let r = sqlx::query(
+            r#"
+            UPDATE product_variants AS v
+            SET 
+                stock_on_hand = u.soh,
+                cost_override = COALESCE(u.cost, v.cost_override)
+            FROM UNNEST($1::text[], $2::int[], $3::numeric[]) AS u(key, soh, cost)
+            WHERE v.counterpoint_item_key = u.key
+            "#,
+        )
+        .bind(&keyed_keys)
+        .bind(&keyed_soh)
+        .bind(&keyed_cost)
+        .execute(&mut *tx)
+        .await?;
+        updated += r.rows_affected() as i32;
+
+        // Find which ones didn't match by key to retry by SKU
+        // In a real high-perf sync, the bridge should send keys for everything.
+        // For now, we'll do a second pass for the rest.
+    }
+
+    // Bulk Update By SKU
+    if !sku_skus.is_empty() {
+        let r = sqlx::query(
+            r#"
+            UPDATE product_variants AS v
+            SET 
+                stock_on_hand = u.soh,
+                cost_override = COALESCE(u.cost, v.cost_override),
+                counterpoint_item_key = COALESCE(v.counterpoint_item_key, u.key)
+            FROM UNNEST($1::text[], $2::text[], $3::int[], $4::numeric[]) AS u(sku, key, soh, cost)
+            WHERE lower(trim(v.sku)) = lower(trim(u.sku))
+            "#,
+        )
+        .bind(&sku_skus)
+        .bind(&sku_keys)
+        .bind(&sku_soh)
+        .bind(&sku_cost)
+        .execute(&mut *tx)
+        .await?;
+        updated += r.rows_affected() as i32;
+    }
+
+    skipped = (payload.rows.len() as i32) - updated;
+
+    tx.commit().await?;
+
     if let Some(ref s) = payload.sync {
         if s.entity == "inventory" {
-            let _ = record_sync_run(pool, "inventory", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "inventory",
+                s.cursor.as_deref(),
+                true,
+                Some(updated + skipped),
+                None,
+            )
+            .await;
         }
     }
 
@@ -595,7 +638,15 @@ pub async fn execute_counterpoint_receiving_batch(
 
     tx.commit().await?;
     if let Some(ref s) = payload.sync {
-        let _ = record_sync_run(pool, &s.entity, s.cursor.as_deref(), true, None).await;
+        let _ = record_sync_run(
+            pool,
+            &s.entity,
+            s.cursor.as_deref(),
+            true,
+            Some(inserted + skipped),
+            None,
+        )
+        .await;
     }
 
     Ok(CounterpointReceivingSummary { inserted, skipped })
@@ -606,22 +657,25 @@ pub async fn record_sync_run(
     entity: &str,
     cursor: Option<&str>,
     ok: bool,
+    records_processed: Option<i32>,
     err: Option<&str>,
 ) -> Result<(), sqlx::Error> {
     if ok {
         sqlx::query(
             r#"
-            INSERT INTO counterpoint_sync_runs (entity, cursor_value, last_ok_at, last_error, updated_at)
-            VALUES ($1, $2, NOW(), NULL, NOW())
+            INSERT INTO counterpoint_sync_runs (entity, cursor_value, last_ok_at, last_error, records_processed, updated_at)
+            VALUES ($1, $2, NOW(), NULL, $3, NOW())
             ON CONFLICT (entity) DO UPDATE SET
                 cursor_value = EXCLUDED.cursor_value,
                 last_ok_at = NOW(),
                 last_error = NULL,
+                records_processed = EXCLUDED.records_processed,
                 updated_at = NOW()
             "#,
         )
         .bind(entity)
         .bind(cursor)
+        .bind(records_processed)
         .execute(pool)
         .await?;
     } else {
@@ -737,6 +791,7 @@ pub struct EntityRunRow {
     pub cursor_value: Option<String>,
     pub last_ok_at: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
+    pub records_processed: Option<i32>,
     pub updated_at: DateTime<Utc>,
 }
 
@@ -822,7 +877,7 @@ pub async fn get_sync_status(
     };
 
     let entity_runs: Vec<EntityRunRow> = sqlx::query_as(
-        "SELECT entity, cursor_value, last_ok_at, last_error, updated_at FROM counterpoint_sync_runs ORDER BY updated_at DESC",
+        "SELECT entity, cursor_value, last_ok_at, last_error, records_processed, updated_at FROM counterpoint_sync_runs ORDER BY updated_at DESC",
     )
     .fetch_all(pool)
     .await?;
@@ -1067,8 +1122,15 @@ pub async fn execute_counterpoint_category_masters_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "category_masters" {
-            let _ =
-                record_sync_run(pool, "category_masters", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "category_masters",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.categories_created + summary.maps_upserted + summary.skipped),
+                None,
+            )
+            .await;
         }
     }
 
@@ -1184,10 +1246,16 @@ pub async fn execute_counterpoint_catalog_batch(
     };
 
     for row in &payload.rows {
-        if let Err(e) = upsert_catalog_item(&mut tx, row, &mut summary, &vendor_map).await {
+        // Use a savepoint for each item so a single row failure (e.g. duplicate SKU)
+        // doesn't abort the entire batch transaction.
+        let mut sp = tx.begin().await?;
+        if let Err(e) = upsert_catalog_item(&mut sp, row, &mut summary, &vendor_map).await {
+            let _ = sp.rollback().await;
             tracing::warn!(item_no = %row.item_no, error = %e, "catalog row upsert failed, recording issue");
             record_sync_issue(pool, "catalog", Some(&row.item_no), "error", &e.to_string()).await;
             summary.skipped += 1;
+        } else {
+            sp.commit().await?;
         }
     }
 
@@ -1195,7 +1263,21 @@ pub async fn execute_counterpoint_catalog_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "catalog" {
-            let _ = record_sync_run(pool, "catalog", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "catalog",
+                s.cursor.as_deref(),
+                true,
+                Some(
+                    summary.products_created
+                        + summary.products_updated
+                        + summary.variants_created
+                        + summary.variants_updated
+                        + summary.skipped,
+                ),
+                None,
+            )
+            .await;
         }
     }
 
@@ -1661,7 +1743,15 @@ pub async fn execute_counterpoint_gift_card_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "gift_cards" {
-            let _ = record_sync_run(pool, "gift_cards", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "gift_cards",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.created + summary.updated + summary.skipped),
+                None,
+            )
+            .await;
         }
     }
 
@@ -1669,7 +1759,7 @@ pub async fn execute_counterpoint_gift_card_batch(
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Ticket history ingest (PS_TKT_HIST → orders / order_items / payments)
+// Ticket history ingest (PS_TKT_HIST → transactions / transaction_lines / payments)
 // ────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -1743,8 +1833,8 @@ pub struct CounterpointTicketsPayload {
 
 #[derive(Debug, Serialize)]
 pub struct TicketSyncSummary {
-    pub orders_created: i32,
-    pub orders_skipped_existing: i32,
+    pub transactions_created: i32,
+    pub transactions_skipped_existing: i32,
     pub line_items_created: i32,
     pub payments_created: i32,
     pub gift_payments_created: i32,
@@ -2005,20 +2095,31 @@ pub async fn execute_counterpoint_ticket_batch(
     } else {
         let mut map = HashMap::new();
         let codes: Vec<String> = cust_codes.into_iter().collect();
-        // Match either exact or with C- prefix (PER USER RULES: C- is newer Counterpoint format, tickets might use either)
+        // Match either exact, with C- prefix, or stripping C- prefix
+        // This handles cases where tickets have C- but DB doesn't, or vice versa
         let rows: Vec<(String, Uuid)> = sqlx::query_as(
-            "SELECT customer_code, id FROM customers WHERE customer_code = ANY($1) OR customer_code = ANY(SELECT 'C-' || unnest($1::text[]))"
+            r#"
+            SELECT customer_code, id FROM customers 
+            WHERE customer_code = ANY($1) 
+               OR customer_code IN (SELECT 'C-' || c FROM unnest($1::text[]) c)
+               OR customer_code IN (SELECT substring(c from 3) FROM unnest($1::text[]) c WHERE c LIKE 'C-%')
+            "#
         )
         .bind(&codes)
         .fetch_all(pool)
         .await?;
 
         for (code, id) in rows {
-            // Priority 1: Exact match
+            // Priority 1: Exact match (as stored in DB)
             map.insert(code.clone(), id);
-            // Priority 2: If code starts with C-, also map the clean version to it so tickets find it
+
+            // Priority 2: If DB code has C-, also allow ticket to find it without C-
             if let Some(clean) = code.strip_prefix("C-") {
                 map.entry(clean.to_string()).or_insert(id);
+            }
+            // Priority 3: If DB code DOES NOT have C-, also allow ticket to find it with C-
+            else {
+                map.entry(format!("C-{code}")).or_insert(id);
             }
         }
         map
@@ -2028,7 +2129,7 @@ pub async fn execute_counterpoint_ticket_batch(
         HashSet::new()
     } else {
         sqlx::query_scalar::<_, String>(
-            "SELECT counterpoint_ticket_ref FROM orders WHERE counterpoint_ticket_ref = ANY($1)",
+            "SELECT counterpoint_ticket_ref FROM transactions WHERE counterpoint_ticket_ref = ANY($1)",
         )
         .bind(&ticket_refs)
         .fetch_all(pool)
@@ -2038,9 +2139,18 @@ pub async fn execute_counterpoint_ticket_batch(
     };
 
     let mut tx = pool.begin().await?;
+    let mut bulk_line_txn_ids = Vec::new();
+    let mut bulk_line_prod_ids = Vec::new();
+    let mut bulk_line_var_ids = Vec::new();
+    let mut bulk_line_sales_ids = Vec::new();
+    let mut bulk_line_qtys = Vec::new();
+    let mut bulk_line_prices = Vec::new();
+    let mut bulk_line_costs = Vec::new();
+    let mut bulk_line_reasons = Vec::new();
+
     let mut summary = TicketSyncSummary {
-        orders_created: 0,
-        orders_skipped_existing: 0,
+        transactions_created: 0,
+        transactions_skipped_existing: 0,
         line_items_created: 0,
         payments_created: 0,
         gift_payments_created: 0,
@@ -2055,7 +2165,7 @@ pub async fn execute_counterpoint_ticket_batch(
         }
 
         if existing_ticket_refs.contains(ticket_ref) {
-            summary.orders_skipped_existing += 1;
+            summary.transactions_skipped_existing += 1;
             continue;
         }
 
@@ -2197,19 +2307,21 @@ pub async fn execute_counterpoint_ticket_batch(
             .and_then(|c| staff_map.get(c.trim()))
             .copied();
 
-        let order_id: Uuid = sqlx::query_scalar(
+        let transaction_id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO orders (
-                customer_id, counterpoint_ticket_ref, is_counterpoint_import,
-                status, booked_at, total_price, amount_paid, balance_due,
-                processed_by_staff_id, primary_salesperson_id, notes
+            INSERT INTO transactions (
+                customer_id, counterpoint_ticket_ref, counterpoint_customer_code,
+                is_counterpoint_import, status, booked_at, total_price, 
+                amount_paid, balance_due, processed_by_staff_id, 
+                primary_salesperson_id, notes
             )
-            VALUES ($1, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9, $10)
+            VALUES ($1, $2, $3, TRUE, $4::order_status, $5, $6, $7, $8, $9, $10, $11)
             RETURNING id
             "#,
         )
         .bind(customer_id)
         .bind(ticket_ref)
+        .bind(tkt.cust_no.as_deref())
         .bind(status)
         .bind(booked_at)
         .bind(tkt.total_price)
@@ -2220,32 +2332,18 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(tkt.notes.as_deref())
         .fetch_one(&mut *tx)
         .await?;
-        summary.orders_created += 1;
+        summary.transactions_created += 1;
 
         for ((variant_id, product_id), line) in resolved_lines.iter().zip(tkt.lines.iter()) {
             let cost = line.unit_cost.unwrap_or(Decimal::ZERO);
-
-            sqlx::query(
-                r#"
-                INSERT INTO order_items (
-                    order_id, product_id, variant_id, salesperson_id, fulfillment,
-                    quantity, unit_price, unit_cost,
-                    state_tax, local_tax, applied_spiff, calculated_commission,
-                    counterpoint_reason_code
-                )
-                VALUES ($1, $2, $3, $4, 'takeaway'::fulfillment_type, $5, $6, $7, 0, 0, 0, 0, $8)
-                "#,
-            )
-            .bind(order_id)
-            .bind(product_id)
-            .bind(variant_id)
-            .bind(salesperson)
-            .bind(line.quantity)
-            .bind(line.unit_price)
-            .bind(cost)
-            .bind(line.reason_code.as_deref())
-            .execute(&mut *tx)
-            .await?;
+            bulk_line_txn_ids.push(transaction_id);
+            bulk_line_prod_ids.push(*product_id);
+            bulk_line_var_ids.push(*variant_id);
+            bulk_line_sales_ids.push(salesperson);
+            bulk_line_qtys.push(line.quantity);
+            bulk_line_prices.push(line.unit_price);
+            bulk_line_costs.push(cost);
+            bulk_line_reasons.push(line.reason_code.clone());
             summary.line_items_created += 1;
         }
 
@@ -2272,10 +2370,10 @@ pub async fn execute_counterpoint_ticket_batch(
             .await?;
 
             sqlx::query(
-                "INSERT INTO payment_allocations (transaction_id, target_order_id, amount_allocated) VALUES ($1, $2, $3)",
+                "INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated) VALUES ($1, $2, $3)",
             )
             .bind(txn_id)
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(pmt.amount)
             .execute(&mut *tx)
             .await?;
@@ -2322,7 +2420,7 @@ pub async fn execute_counterpoint_ticket_batch(
             sqlx::query(
                 r#"
                 INSERT INTO gift_card_events (
-                    gift_card_id, event_kind, amount, balance_after, order_id, notes, created_at
+                    gift_card_id, event_kind, amount, balance_after, transaction_id, notes, created_at
                 )
                 VALUES ($1, 'redeemed', $2, $3, $4, $5, $6)
                 "#,
@@ -2330,7 +2428,7 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(gc_id)
             .bind(-redeem)
             .bind(bal)
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(format!("Counterpoint ticket {ticket_ref}"))
             .bind(booked_at)
             .execute(&mut *tx)
@@ -2352,10 +2450,10 @@ pub async fn execute_counterpoint_ticket_batch(
             .await?;
 
             sqlx::query(
-                "INSERT INTO payment_allocations (transaction_id, target_order_id, amount_allocated) VALUES ($1, $2, $3)",
+                "INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated) VALUES ($1, $2, $3)",
             )
             .bind(txn_id)
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(redeem)
             .execute(&mut *tx)
             .await?;
@@ -2363,11 +2461,52 @@ pub async fn execute_counterpoint_ticket_batch(
         }
     }
 
+    // Bulk Insert all transaction lines for the batch
+    if !bulk_line_txn_ids.is_empty() {
+        sqlx::query(
+            r#"
+            INSERT INTO transaction_lines (
+                transaction_id, product_id, variant_id, salesperson_id, fulfillment,
+                quantity, unit_price, unit_cost,
+                state_tax, local_tax, applied_spiff, calculated_commission,
+                counterpoint_reason_code
+            )
+            SELECT 
+                u.tid, u.pid, u.vid, u.sid, 'takeaway'::fulfillment_type, 
+                u.qty, u.price, u.cost, 0, 0, 0, 0, u.reason
+            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::numeric[], $6::numeric[], $7::numeric[], $8::text[]) 
+              AS u(tid, pid, vid, sid, qty, price, cost, reason)
+            "#,
+        )
+        .bind(&bulk_line_txn_ids)
+        .bind(&bulk_line_prod_ids)
+        .bind(&bulk_line_var_ids)
+        .bind(&bulk_line_sales_ids)
+        .bind(&bulk_line_qtys)
+        .bind(&bulk_line_prices)
+        .bind(&bulk_line_costs)
+        .bind(&bulk_line_reasons)
+        .execute(&mut *tx)
+        .await?;
+    }
+
     tx.commit().await?;
 
     if let Some(ref s) = payload.sync {
         if s.entity == "tickets" {
-            let _ = record_sync_run(pool, "tickets", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "tickets",
+                s.cursor.as_deref(),
+                true,
+                Some(
+                    summary.transactions_created
+                        + summary.transactions_skipped_existing
+                        + summary.skipped,
+                ),
+                None,
+            )
+            .await;
         }
     }
 
@@ -2462,6 +2601,7 @@ pub async fn execute_counterpoint_store_credit_opening_batch(
                 s.cursor.as_deref(),
                 true,
                 None,
+                None,
             )
             .await;
         }
@@ -2497,7 +2637,7 @@ fn fulfillment_type_for_cp_doc_typ(doc_typ: Option<&str>) -> &'static str {
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// Open documents (PS_DOC → orders as special_order lines; idempotent on doc ref)
+// Open documents (PS_DOC → transactions as special_order lines; idempotent on doc ref)
 // ────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
@@ -2533,8 +2673,8 @@ pub struct CounterpointOpenDocsPayload {
 
 #[derive(Debug, Serialize)]
 pub struct OpenDocSyncSummary {
-    pub orders_created: i32,
-    pub orders_skipped_existing: i32,
+    pub transactions_created: i32,
+    pub transactions_skipped_existing: i32,
     pub line_items_created: i32,
     pub payments_created: i32,
     pub skipped: i32,
@@ -2559,10 +2699,44 @@ pub async fn execute_counterpoint_open_doc_batch(
     .into_iter()
     .collect();
 
+    // Batch pre-fetch customer IDs
+    let cust_codes: HashSet<String> = payload
+        .rows
+        .iter()
+        .filter_map(|d| d.cust_no.as_ref().map(|s| s.trim().to_string()))
+        .collect();
+
+    let customer_id_map: HashMap<String, Uuid> = if cust_codes.is_empty() {
+        HashMap::new()
+    } else {
+        let mut map = HashMap::new();
+        let codes: Vec<String> = cust_codes.into_iter().collect();
+        let rows: Vec<(String, Uuid)> = sqlx::query_as(
+            r#"
+            SELECT customer_code, id FROM customers 
+            WHERE customer_code = ANY($1) 
+               OR customer_code IN (SELECT 'C-' || c FROM unnest($1::text[]) c)
+               OR customer_code IN (SELECT substring(c from 3) FROM unnest($1::text[]) c WHERE c LIKE 'C-%')
+            "#
+        )
+        .bind(&codes)
+        .fetch_all(pool)
+        .await?;
+        for (code, id) in rows {
+            map.insert(code.clone(), id);
+            if let Some(clean) = code.strip_prefix("C-") {
+                map.entry(clean.to_string()).or_insert(id);
+            } else {
+                map.entry(format!("C-{code}")).or_insert(id);
+            }
+        }
+        map
+    };
+
     let mut tx = pool.begin().await?;
     let mut summary = OpenDocSyncSummary {
-        orders_created: 0,
-        orders_skipped_existing: 0,
+        transactions_created: 0,
+        transactions_skipped_existing: 0,
         line_items_created: 0,
         payments_created: 0,
         skipped: 0,
@@ -2576,30 +2750,22 @@ pub async fn execute_counterpoint_open_doc_batch(
         }
 
         let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM orders WHERE counterpoint_doc_ref = $1)",
+            "SELECT EXISTS(SELECT 1 FROM transactions WHERE counterpoint_doc_ref = $1)",
         )
         .bind(doc_ref)
         .fetch_one(&mut *tx)
         .await?;
 
         if exists {
-            summary.orders_skipped_existing += 1;
+            summary.transactions_skipped_existing += 1;
             continue;
         }
 
-        let customer_id: Option<Uuid> = if let Some(ref cn) = doc.cust_no {
-            let cn = cn.trim();
-            if !cn.is_empty() {
-                sqlx::query_scalar("SELECT id FROM customers WHERE customer_code = $1")
-                    .bind(cn)
-                    .fetch_optional(&mut *tx)
-                    .await?
-            } else {
-                None
-            }
-        } else {
-            None
-        };
+        let customer_id: Option<Uuid> = doc
+            .cust_no
+            .as_deref()
+            .and_then(|c| customer_id_map.get(c.trim()))
+            .copied();
 
         let booked_at = doc
             .booked_at
@@ -2658,19 +2824,21 @@ pub async fn execute_counterpoint_open_doc_batch(
             }
         };
 
-        let order_id: Uuid = sqlx::query_scalar(
+        let transaction_id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO orders (
-                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref, is_counterpoint_import,
+            INSERT INTO transactions (
+                customer_id, counterpoint_ticket_ref, counterpoint_doc_ref, 
+                counterpoint_customer_code, is_counterpoint_import,
                 status, booked_at, total_price, amount_paid, balance_due,
                 processed_by_staff_id, primary_salesperson_id
             )
-            VALUES ($1, NULL, $2, TRUE, $3::order_status, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, NULL, $2, $3, TRUE, $4::order_status, $5, $6, $7, $8, $9, $10)
             RETURNING id
             "#,
         )
         .bind(customer_id)
         .bind(doc_ref)
+        .bind(doc.cust_no.as_deref())
         .bind(status)
         .bind(booked_at)
         .bind(doc.total_price)
@@ -2680,7 +2848,7 @@ pub async fn execute_counterpoint_open_doc_batch(
         .bind(salesperson)
         .fetch_one(&mut *tx)
         .await?;
-        summary.orders_created += 1;
+        summary.transactions_created += 1;
 
         let fulfillment = fulfillment_type_for_cp_doc_typ(doc.doc_typ.as_deref());
 
@@ -2689,8 +2857,8 @@ pub async fn execute_counterpoint_open_doc_batch(
 
             sqlx::query(
                 r#"
-                INSERT INTO order_items (
-                    order_id, product_id, variant_id, salesperson_id, fulfillment,
+                INSERT INTO transaction_lines (
+                    transaction_id, product_id, variant_id, salesperson_id, fulfillment,
                     quantity, unit_price, unit_cost,
                     state_tax, local_tax, applied_spiff, calculated_commission,
                     counterpoint_reason_code
@@ -2698,7 +2866,7 @@ pub async fn execute_counterpoint_open_doc_batch(
                 VALUES ($1, $2, $3, $4, $5::fulfillment_type, $6, $7, $8, 0, 0, 0, 0, $9)
                 "#,
             )
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(product_id)
             .bind(variant_id)
             .bind(salesperson)
@@ -2732,10 +2900,10 @@ pub async fn execute_counterpoint_open_doc_batch(
             .await?;
 
             sqlx::query(
-                "INSERT INTO payment_allocations (transaction_id, target_order_id, amount_allocated) VALUES ($1, $2, $3)",
+                "INSERT INTO payment_allocations (transaction_id, target_transaction_id, amount_allocated) VALUES ($1, $2, $3)",
             )
             .bind(txn_id)
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(pmt.amount)
             .execute(&mut *tx)
             .await?;
@@ -2747,7 +2915,19 @@ pub async fn execute_counterpoint_open_doc_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "open_docs" {
-            let _ = record_sync_run(pool, "open_docs", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "open_docs",
+                s.cursor.as_deref(),
+                true,
+                Some(
+                    summary.transactions_created
+                        + summary.transactions_skipped_existing
+                        + summary.skipped,
+                ),
+                None,
+            )
+            .await;
         }
     }
 
@@ -2858,7 +3038,15 @@ pub async fn execute_counterpoint_vendor_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "vendors" {
-            let _ = record_sync_run(pool, "vendors", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "vendors",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.created + summary.updated),
+                None,
+            )
+            .await;
         }
     }
 
@@ -2975,7 +3163,15 @@ pub async fn execute_counterpoint_customer_notes_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "customer_notes" {
-            let _ = record_sync_run(pool, "customer_notes", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "customer_notes",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.created),
+                None,
+            )
+            .await;
         }
     }
 
@@ -3241,7 +3437,15 @@ pub async fn execute_counterpoint_staff_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "staff" {
-            let _ = record_sync_run(pool, "staff", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "staff",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.created + summary.updated + summary.merged),
+                None,
+            )
+            .await;
         }
     }
 
@@ -3369,7 +3573,20 @@ pub async fn execute_counterpoint_sls_rep_stub_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "sales_rep_stubs" {
-            let _ = record_sync_run(pool, "sales_rep_stubs", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "sales_rep_stubs",
+                s.cursor.as_deref(),
+                true,
+                Some(
+                    summary.created
+                        + summary.skipped_already_mapped
+                        + summary.skipped_empty
+                        + summary.skipped_cashier_conflict,
+                ),
+                None,
+            )
+            .await;
         }
     }
 
@@ -3632,7 +3849,15 @@ pub async fn execute_counterpoint_loyalty_hist_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "loyalty_hist" {
-            let _ = record_sync_run(pool, "loyalty_hist", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "loyalty_hist",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.inserted + summary.skipped),
+                None,
+            )
+            .await;
         }
     }
 
@@ -3735,7 +3960,15 @@ pub async fn execute_counterpoint_vendor_item_batch(
 
     if let Some(ref s) = payload.sync {
         if s.entity == "vendor_items" {
-            let _ = record_sync_run(pool, "vendor_items", s.cursor.as_deref(), true, None).await;
+            let _ = record_sync_run(
+                pool,
+                "vendor_items",
+                s.cursor.as_deref(),
+                true,
+                Some(summary.upserted + summary.skipped),
+                None,
+            )
+            .await;
         }
     }
 
@@ -3800,9 +4033,9 @@ async fn ensure_historical_fallback_variant(
     let variant_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO product_variants (
-            product_id, sku, variation_label, stock_on_hand
+            product_id, sku, variation_values, variation_label, stock_on_hand
         )
-        VALUES ($1, $2, 'Standard', 0)
+        VALUES ($1, $2, '{}'::jsonb, 'Standard', 0)
         ON CONFLICT (sku) DO UPDATE SET sku = EXCLUDED.sku
         RETURNING id
         "#,

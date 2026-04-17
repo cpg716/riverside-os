@@ -337,7 +337,7 @@ pub async fn fetch_weather_range_vc_only(
 }
 
 /// After local hour (default 3) on a new store-local day, re-fetch the last 7 calendar days from Visual Crossing
-/// and overwrite `weather_snapshot` on closed register sessions and orders whose local activity date matches.
+/// and overwrite `weather_snapshot` on closed register sessions and transactions whose local activity date matches.
 /// Advances `weather_snapshot_finalize_ledger` only on full success. Skips when VC is off or the API fails.
 pub async fn maybe_finalize_daily_weather_snapshots(
     http: &reqwest::Client,
@@ -412,9 +412,9 @@ pub async fn maybe_finalize_daily_weather_snapshots(
         .await?
         .rows_affected();
 
-        let n_orders = sqlx::query(
+        let n_transactions = sqlx::query(
             r#"
-            UPDATE public.orders
+            UPDATE public.transactions
             SET weather_snapshot = $1
             WHERE booked_at IS NOT NULL
               AND (booked_at AT TIME ZONE $2)::date = $3::date
@@ -427,11 +427,11 @@ pub async fn maybe_finalize_daily_weather_snapshots(
         .await?
         .rows_affected();
 
-        if n_sessions > 0 || n_orders > 0 {
+        if n_sessions > 0 || n_transactions > 0 {
             info!(
                 date = %day.date,
                 register_sessions = n_sessions,
-                orders = n_orders,
+                transactions = n_transactions,
                 "weather EOD finalize: snapshots updated"
             );
         }

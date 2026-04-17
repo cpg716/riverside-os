@@ -52,15 +52,15 @@ pub async fn run_notification_maintenance(pool: &PgPool) {
 }
 
 /// Staff IDs that should receive an order-scoped operational ping (admin or tied to the order).
-async fn staff_for_order(pool: &PgPool, order_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
+async fn staff_for_order(pool: &PgPool, transaction_id: Uuid) -> Result<Vec<Uuid>, sqlx::Error> {
     let rows: Vec<(Uuid, DbStaffRole)> =
         sqlx::query_as(r#"SELECT id, role FROM staff WHERE is_active = TRUE"#)
             .fetch_all(pool)
             .await?;
     let mut out = Vec::new();
     let primary: Option<Uuid> =
-        sqlx::query_scalar(r#"SELECT primary_salesperson_id FROM orders WHERE id = $1"#)
-            .bind(order_id)
+        sqlx::query_scalar(r#"SELECT primary_salesperson_id FROM transactions WHERE id = $1"#)
+            .bind(transaction_id)
             .fetch_optional(pool)
             .await?;
 
@@ -76,9 +76,9 @@ async fn staff_for_order(pool: &PgPool, order_id: Uuid) -> Result<Vec<Uuid>, sql
                 continue;
             }
             let attributed: bool = sqlx::query_scalar(
-                r#"SELECT EXISTS(SELECT 1 FROM order_items WHERE order_id = $1 AND salesperson_id = $2)"#,
+                r#"SELECT EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = $1 AND salesperson_id = $2)"#,
             )
-            .bind(order_id)
+            .bind(transaction_id)
             .bind(id)
             .fetch_one(pool)
             .await?;
@@ -93,7 +93,7 @@ async fn staff_for_order(pool: &PgPool, order_id: Uuid) -> Result<Vec<Uuid>, sql
 async fn staff_for_alteration_order(
     pool: &PgPool,
     _alteration_id: Uuid,
-    linked_order_id: Option<Uuid>,
+    linked_transaction_id: Option<Uuid>,
 ) -> Result<Vec<Uuid>, sqlx::Error> {
     let rows: Vec<(Uuid, DbStaffRole)> =
         sqlx::query_as(r#"SELECT id, role FROM staff WHERE is_active = TRUE"#)
@@ -106,9 +106,9 @@ async fn staff_for_alteration_order(
             out.push(id);
             continue;
         }
-        if let Some(oid) = linked_order_id {
+        if let Some(oid) = linked_transaction_id {
             let attributed: bool = sqlx::query_scalar(
-                r#"SELECT EXISTS(SELECT 1 FROM order_items WHERE order_id = $1 AND salesperson_id = $2)"#,
+                r#"SELECT EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = $1 AND salesperson_id = $2)"#,
             )
             .bind(oid)
             .bind(id)
@@ -728,7 +728,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
     let row: Option<(i64, rust_decimal::Decimal)> = sqlx::query_as(
         r#"
         SELECT COUNT(*)::bigint, COALESCE(SUM(amount_due - amount_refunded), 0)::numeric
-        FROM order_refund_queue
+        FROM transaction_refund_queue
         WHERE is_open = TRUE
         "#,
     )
@@ -894,7 +894,7 @@ async fn run_wedding_soon(pool: &PgPool) -> Result<(), sqlx::Error> {
 async fn run_stale_open_orders(pool: &PgPool) -> Result<(), sqlx::Error> {
     let orders: Vec<(Uuid,)> = sqlx::query_as(
         r#"
-        SELECT id FROM orders
+        SELECT id FROM transactions
         WHERE status = 'open'
           AND balance_due > 0
           AND created_at < (now() - interval '14 days')
@@ -926,7 +926,7 @@ async fn run_stale_open_orders(pool: &PgPool) -> Result<(), sqlx::Error> {
         items.push(bundle_row(
             format!("Order …{short}"),
             "Open 14+ days with balance — open order".to_string(),
-            json!({ "type": "order", "order_id": oid.to_string() }),
+            json!({ "type": "order", "transaction_id": oid.to_string() }),
         ));
     }
 
@@ -969,7 +969,7 @@ async fn run_stale_open_orders(pool: &PgPool) -> Result<(), sqlx::Error> {
 async fn run_alteration_due(pool: &PgPool) -> Result<(), sqlx::Error> {
     let rows: Vec<(Uuid, Option<Uuid>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
         r#"
-        SELECT id, linked_order_id, due_at
+        SELECT id, linked_transaction_id, due_at
         FROM alteration_orders
         WHERE status IN ('intake', 'in_work')
           AND due_at IS NOT NULL
@@ -992,8 +992,8 @@ async fn run_alteration_due(pool: &PgPool) -> Result<(), sqlx::Error> {
 
     let mut staff_set: HashSet<Uuid> = HashSet::new();
     let mut items: Vec<Value> = Vec::with_capacity(rows.len());
-    for (aid, linked_order_id, due_at) in rows {
-        let staff = staff_for_alteration_order(pool, aid, linked_order_id).await?;
+    for (aid, linked_transaction_id, due_at) in rows {
+        let staff = staff_for_alteration_order(pool, aid, linked_transaction_id).await?;
         for s in staff {
             staff_set.insert(s);
         }
@@ -1049,19 +1049,19 @@ async fn run_pickup_stale(pool: &PgPool) -> Result<(), sqlx::Error> {
     let orders: Vec<(Uuid,)> = sqlx::query_as(
         r#"
         SELECT o.id
-        FROM orders o
+        FROM transactions o
         WHERE o.status = 'open'
           AND o.balance_due < 0.01
           AND o.created_at < (now() - interval '7 days')
           AND EXISTS (
             SELECT 1
-            FROM order_items oi
+            FROM transaction_lines oi
             LEFT JOIN (
-                SELECT order_item_id, SUM(quantity_returned)::int AS returned
-                FROM order_return_lines
-                GROUP BY order_item_id
-            ) orl ON orl.order_item_id = oi.id
-            WHERE oi.order_id = o.id
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+            WHERE oi.transaction_id = o.id
               AND oi.is_fulfilled = FALSE
               AND GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0) > 0
           )
@@ -1093,7 +1093,7 @@ async fn run_pickup_stale(pool: &PgPool) -> Result<(), sqlx::Error> {
         items.push(bundle_row(
             format!("Pickup follow-up · …{short}"),
             "Paid/zero balance, unfulfilled 7+ days".to_string(),
-            json!({ "type": "order", "order_id": oid.to_string() }),
+            json!({ "type": "order", "transaction_id": oid.to_string() }),
         ));
     }
 
@@ -2108,11 +2108,11 @@ async fn run_gift_card_expiring_reminders(pool: &PgPool) -> Result<(), sqlx::Err
 
 /// Special / wedding / custom order lines with enough on-hand to stage pickup.
 async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Error> {
-    let order_ids: Vec<(Uuid, i64)> = sqlx::query_as(
+    let transaction_ids: Vec<(Uuid, i64)> = sqlx::query_as(
         r#"
         SELECT o.id, COUNT(*)::bigint
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
         WHERE oi.is_fulfilled = FALSE
           AND o.status IN ('open', 'pending_measurement')
@@ -2128,7 +2128,7 @@ async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Err
 
     let day_key = store_local_day_key(pool).await?;
     let bundle_dedupe = format!("special_order_ready_to_stage_bundle:{day_key}");
-    if order_ids.is_empty() {
+    if transaction_ids.is_empty() {
         let _ = delete_app_notification_by_dedupe(pool, &bundle_dedupe).await?;
         let _ = sqlx::query(
             r#"DELETE FROM app_notification WHERE kind = 'special_order_ready_to_stage'"#,
@@ -2139,8 +2139,8 @@ async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Err
     }
 
     let mut staff_set: HashSet<Uuid> = HashSet::new();
-    let mut items: Vec<Value> = Vec::with_capacity(order_ids.len());
-    for (oid, nlines) in order_ids {
+    let mut items: Vec<Value> = Vec::with_capacity(transaction_ids.len());
+    for (oid, nlines) in transaction_ids {
         let staff = staff_for_order(pool, oid).await?;
         for s in staff {
             staff_set.insert(s);
@@ -2150,7 +2150,7 @@ async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Err
         items.push(bundle_row(
             format!("Order …{short}"),
             format!("{nlines} special line(s) ready to stage"),
-            json!({ "type": "order", "order_id": oid.to_string() }),
+            json!({ "type": "order", "transaction_id": oid.to_string() }),
         ));
     }
 

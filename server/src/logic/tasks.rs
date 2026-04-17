@@ -853,7 +853,7 @@ pub async fn open_instances_due_between(
 #[allow(clippy::too_many_arguments)]
 pub async fn create_adhoc_rms_payment_followup_tasks(
     pool: &PgPool,
-    order_id: Uuid,
+    transaction_id: Uuid,
     customer_id: Uuid,
     customer_display: Option<&str>,
     order_short_ref: &str,
@@ -889,7 +889,7 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
     );
 
     for sid in staff_ids {
-        let period_key = format!("rms_r2s_payment:{order_id}:{sid}");
+        let period_key = format!("rms_r2s_payment:{transaction_id}:{sid}");
         let instance_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO task_instance (
@@ -927,7 +927,7 @@ pub async fn create_adhoc_rms_payment_followup_tasks(
         operator_staff_id,
         "rms_payment_tasks_created",
         serde_json::json!({
-            "order_id": order_id,
+            "transaction_id": transaction_id,
             "customer_id": customer_id,
             "assignee_count": assignee_count,
         }),

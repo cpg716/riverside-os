@@ -19,9 +19,10 @@ interface TraceData {
 interface CommissionTraceModalProps {
     lineId: string;
     onClose: () => void;
+    authHeaders: () => HeadersInit;
 }
 
-export default function CommissionTraceModal({ lineId, onClose }: CommissionTraceModalProps) {
+export default function CommissionTraceModal({ lineId, onClose, authHeaders }: CommissionTraceModalProps) {
     const [trace, setTrace] = useState<TraceData | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -31,9 +32,7 @@ export default function CommissionTraceModal({ lineId, onClose }: CommissionTrac
             try {
                 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
                 const res = await fetch(`${baseUrl}/api/insights/commission-trace/${lineId}`, {
-                    headers: {
-                        "x-riverside-staff-id": localStorage.getItem("staff_id") || "",
-                    }
+                    headers: authHeaders(),
                 });
                 if (!res.ok) throw new Error("Trace lookup failed");
                 const data = await res.json();
@@ -45,7 +44,7 @@ export default function CommissionTraceModal({ lineId, onClose }: CommissionTrac
             }
         };
         if (lineId) fetchTrace();
-    }, [lineId]);
+    }, [lineId, authHeaders]);
 
     if (loading) return null; // Parent handles spinner if needed
 

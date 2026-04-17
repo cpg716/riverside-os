@@ -70,7 +70,7 @@ export default function PosSuitSwapWizard({
   const loadOrder = async (id: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/orders/${encodeURIComponent(id)}?${sessionQs}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${encodeURIComponent(id)}?${sessionQs}`, {
         headers: apiAuth(),
       });
       if (!res.ok) {
@@ -120,7 +120,7 @@ export default function PosSuitSwapWizard({
       }
       const scanned = (await scanRes.json()) as { variant_id: string };
       const res = await fetch(
-        `${baseUrl}/api/orders/${detail.order_id}/items/${selectedLineId}/suit-swap`,
+        `${baseUrl}/api/transactions/${detail.order_id}/items/${selectedLineId}/suit-swap`,
         {
           method: "POST",
           headers: jsonHeaders(apiAuth()),

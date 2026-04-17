@@ -5,12 +5,13 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_HELP, INDEX_ORDERS, INDEX_STAFF,
-    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
+    INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_HELP, INDEX_STAFF,
+    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS,
+    INDEX_WEDDING_PARTIES,
 };
 use crate::logic::meilisearch_documents::{
     augment_search_with_phone_digits, build_customer_search_text, variant_doc_from_row,
-    AppointmentDoc, CategoryDoc, CustomerDoc, OrderDoc, StaffDoc, StoreProductDoc, TaskDoc,
+    AppointmentDoc, CategoryDoc, CustomerDoc, StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc,
     VendorDoc, WeddingPartyDoc,
 };
 use futures_util::StreamExt;
@@ -299,6 +300,15 @@ pub async fn spawn_meilisearch_customer_upsert(
     Ok(())
 }
 
+pub async fn spawn_meilisearch_transaction_upsert(
+    client: &Client,
+    pool: &PgPool,
+    transaction_id: Uuid,
+) -> Result<(), meilisearch_sdk::errors::Error> {
+    upsert_transaction_document(client, pool, transaction_id).await;
+    Ok(())
+}
+
 pub async fn spawn_meilisearch_customer_delete(
     client: &Client,
     customer_id: Uuid,
@@ -393,10 +403,11 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
     }
 }
 
-pub async fn upsert_order_document(client: &Client, pool: &PgPool, order_id: Uuid) {
+pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transaction_id: Uuid) {
     #[derive(sqlx::FromRow)]
     struct Row {
         id: Uuid,
+        display_id: String,
         status: String,
         customer_first: Option<String>,
         customer_last: Option<String>,
@@ -408,12 +419,13 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, order_id: Uui
         r#"
         SELECT
             o.id,
+            o.display_id,
             o.status::text AS status,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
             ps.full_name AS salesperson
-        FROM orders o
+        FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
@@ -421,13 +433,13 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, order_id: Uui
         WHERE o.id = $1
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_optional(pool)
     .await;
 
     let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_ORDERS);
-        let _ = index.delete_document(order_id.to_string()).await;
+        let index = client.index(INDEX_TRANSACTIONS);
+        let _ = index.delete_document(transaction_id.to_string()).await;
         return;
     };
 
@@ -439,22 +451,24 @@ pub async fn upsert_order_document(client: &Client, pool: &PgPool, order_id: Uui
         row.customer_last.as_deref().unwrap_or("")
     );
     let search_text = format!(
-        "{} {} {} {}",
+        "{} {} {} {} {}",
         row.id,
+        row.display_id,
         cust.trim(),
         row.party_name.as_deref().unwrap_or(""),
         row.salesperson.as_deref().unwrap_or("")
     );
 
-    let doc = OrderDoc {
+    let doc = TransactionDoc {
         id: row.id.to_string(),
+        display_id: row.display_id,
         status_open,
         search_text,
     };
 
-    let index = client.index(INDEX_ORDERS);
+    let index = client.index(INDEX_TRANSACTIONS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("order upsert", &e);
+        log_meili_add_err("transaction upsert", &e);
     }
 }
 
@@ -931,18 +945,19 @@ pub async fn reindex_all_meilisearch(
     }
     record_sync_status(pool, INDEX_WEDDING_PARTIES, true, n_weddings as i64, None).await;
 
-    // 5. Orders
-    let index_o = client.index(INDEX_ORDERS);
-    index_o.delete_all_documents().await?;
-    let mut order_stream = sqlx::query!(
+    // 5. Transactions
+    let index_txns = client.index(INDEX_TRANSACTIONS);
+    index_txns.delete_all_documents().await?;
+    let mut txn_stream = sqlx::query!(
         r#"
         SELECT
             o.id AS "id!",
+            o.display_id AS "display_id!",
             o.status::text AS status,
             c.first_name AS customer_first, c.last_name AS customer_last,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
             ps.full_name AS salesperson
-        FROM orders o
+        FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
@@ -950,38 +965,40 @@ pub async fn reindex_all_meilisearch(
         "#
     )
     .fetch(pool);
-    let mut o_batch = Vec::with_capacity(1000);
-    let mut n_orders = 0usize;
-    while let Some(res) = order_stream.next().await {
+    let mut txn_batch = Vec::with_capacity(1000);
+    let mut n_txns = 0usize;
+    while let Some(res) = txn_stream.next().await {
         if let Ok(row) = res {
             let s = row.status.as_deref().unwrap_or_default().to_lowercase();
             let status_open = s == "open" || s == "pending_measurement";
-            let order_id_str = row.id.to_string();
+            let transaction_id_str = row.id.to_string();
             let search_text = format!(
-                "{} {} {} {} {}",
-                order_id_str,
+                "{} {} {} {} {} {}",
+                transaction_id_str,
+                row.display_id,
                 row.customer_first.as_deref().unwrap_or(""),
                 row.customer_last.as_deref().unwrap_or(""),
                 row.party_name.as_deref().unwrap_or(""),
                 row.salesperson.as_deref().unwrap_or("")
             );
-            o_batch.push(OrderDoc {
-                id: order_id_str,
+            txn_batch.push(TransactionDoc {
+                id: transaction_id_str,
+                display_id: row.display_id,
                 status_open,
                 search_text,
             });
-            if o_batch.len() >= 1000 {
-                n_orders += o_batch.len();
-                index_o.add_documents(&o_batch, Some("id")).await?;
-                o_batch.clear();
+            if txn_batch.len() >= 1000 {
+                n_txns += txn_batch.len();
+                index_txns.add_documents(&txn_batch, Some("id")).await?;
+                txn_batch.clear();
             }
         }
     }
-    if !o_batch.is_empty() {
-        n_orders += o_batch.len();
-        index_o.add_documents(&o_batch, Some("id")).await?;
+    if !txn_batch.is_empty() {
+        n_txns += txn_batch.len();
+        index_txns.add_documents(&txn_batch, Some("id")).await?;
     }
-    record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
+    record_sync_status(pool, INDEX_TRANSACTIONS, true, n_txns as i64, None).await;
 
     // 6. Help
     if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {

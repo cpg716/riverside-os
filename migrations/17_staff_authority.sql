@@ -1,6 +1,10 @@
 -- Phase 2.12: RBAC, hashed PINs, access audit, category commission overrides.
 
-CREATE TYPE staff_role AS ENUM ('admin', 'salesperson', 'sales_support');
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'staff_role') THEN
+        CREATE TYPE staff_role AS ENUM ('admin', 'salesperson', 'sales_support');
+    END IF;
+END $$;
 
 ALTER TABLE staff
     ADD COLUMN IF NOT EXISTS role staff_role NOT NULL DEFAULT 'sales_support';

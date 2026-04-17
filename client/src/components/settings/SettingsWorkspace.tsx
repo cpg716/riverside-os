@@ -90,7 +90,7 @@ interface BackupFile {
   created_at: string;
 }
 
-type ThemeMode = "light" | "dark" | "system";
+
 
 interface DbStats {
   database_size: string;
@@ -98,21 +98,21 @@ interface DbStats {
 }
 
 interface SettingsWorkspaceProps {
-  themeMode: ThemeMode;
-  onThemeChange: (t: ThemeMode) => void;
   onOpenQbo: () => void;
   /** Sidebar subsection under Settings (`profile` | `general`). */
   settingsActiveSection?: string;
   /** Keeps app sidebar subsection in sync when using the in-workspace System Control rail. */
   onSettingsSectionNavigate?: (sectionId: string) => void;
+  bugReportsDeepLinkId?: string | null;
+  onBugReportsDeepLinkConsumed?: () => void;
 }
 
 export default function SettingsWorkspace({
-  themeMode,
-  onThemeChange,
   onOpenQbo,
   settingsActiveSection,
   onSettingsSectionNavigate,
+  bugReportsDeepLinkId,
+  onBugReportsDeepLinkConsumed,
 }: SettingsWorkspaceProps) {
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -145,6 +145,8 @@ export default function SettingsWorkspace({
   } = useBackofficeAuth();
   const [profileAvatarDraft, setProfileAvatarDraft] = useState(staffAvatarKey);
   const [profileSaving, setProfileSaving] = useState(false);
+  console.log("[SettingsWorkspace] Init - activeTab:", activeTab, "settingsActiveSection:", settingsActiveSection);
+
 
   useEffect(() => {
     setProfileAvatarDraft(staffAvatarKey);
@@ -166,7 +168,9 @@ export default function SettingsWorkspace({
     else if (s === "bug-reports") setActiveTab("bug-reports");
     else if (s === "receipt-builder") setActiveTab("receipt-builder");
     else if (s === "nuorder") setActiveTab("nuorder");
+    else if (s === "meilisearch") setActiveTab("meilisearch");
   }, [settingsActiveSection]);
+
   const [staffSopMarkdown, setStaffSopMarkdown] = useState("");
   const [staffSopLoaded, setStaffSopLoaded] = useState(false);
   const [staffSopBusy, setStaffSopBusy] = useState(false);
@@ -732,10 +736,10 @@ export default function SettingsWorkspace({
   };
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-bg">
-      <div className="flex h-full overflow-hidden">
+    <div className="flex flex-1 flex-col bg-app-bg">
+      <div className="flex flex-1">
         {/* Settings Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-app-border bg-app-surface/50 p-6 flex flex-col gap-8 overflow-y-auto no-scrollbar">
+        <aside className="w-64 shrink-0 border-r border-app-border bg-app-surface/50 p-6 flex flex-col gap-8 sticky top-0 h-screen overflow-y-auto no-scrollbar">
           <div>
             <h1 className="text-xl font-black uppercase tracking-tight text-app-text italic">
               System Control
@@ -798,7 +802,7 @@ export default function SettingsWorkspace({
         </aside>
 
         {/* Content Area */}
-        <main className="flex-1 overflow-y-auto no-scrollbar scroll-smooth">
+        <main className="flex-1 scroll-smooth">
           <div
             className={`p-10 mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 ${
               activeTab === "counterpoint" ? "max-w-6xl" : "max-w-5xl"
@@ -1491,7 +1495,10 @@ export default function SettingsWorkspace({
 
             {activeTab === "help-center" && <HelpCenterSettingsPanel />}
             {activeTab === "bug-reports" && hasPermission("settings.admin") && (
-              <BugReportsSettingsPanel />
+              <BugReportsSettingsPanel
+                deepLinkReportId={bugReportsDeepLinkId}
+                onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
+              />
             )}
 
             {activeTab === "meilisearch" && hasPermission("settings.admin") && (
@@ -1545,31 +1552,6 @@ export default function SettingsWorkspace({
                   </p>
                 </header>
 
-                <section className="ui-card p-8 max-w-2xl">
-                  <label className="block">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Interface Theme Architecture
-                    </span>
-                    <div className="grid grid-cols-3 gap-4 mt-4">
-                      {(["light", "dark", "system"] as ThemeMode[]).map(
-                        (mode) => (
-                          <button
-                            key={mode}
-                            onClick={() => onThemeChange(mode)}
-                            className={`flex flex-col items-center gap-3 p-6 rounded-2xl border-2 transition-all ${themeMode === mode ? "border-app-text bg-app-text text-white shadow-xl" : "border-app-border bg-app-surface text-app-text-muted hover:border-app-text"}`}
-                          >
-                            <span className="text-[10px] font-black uppercase tracking-widest">
-                              {mode}
-                            </span>
-                            <div
-                              className={`h-1.5 w-1.5 rounded-full ${themeMode === mode ? "bg-app-accent shadow-[0_0_8px_rgba(141,128,255,1)]" : "bg-app-border"}`}
-                            />
-                          </button>
-                        ),
-                      )}
-                    </div>
-                  </label>
-                </section>
 
                 {hasPermission("settings.admin") ? (
                   <section className="ui-card p-8 max-w-2xl">

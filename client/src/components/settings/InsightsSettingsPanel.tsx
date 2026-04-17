@@ -102,8 +102,8 @@ const InsightsSettingsPanel: React.FC = () => {
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="mb-10">
-        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Insights (Metabase)</h2>
-        <p className="text-sm text-app-text-muted mt-2 font-medium">Configure enterprise reporting, role-based database access, and SSO handoff.</p>
+        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Data Insights</h2>
+        <p className="text-sm text-app-text-muted mt-2 font-medium">Configure enterprise reporting, role-based database access, and secure auth handoff.</p>
       </header>
 
       <section className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent shadow-xl">
@@ -116,7 +116,7 @@ const InsightsSettingsPanel: React.FC = () => {
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Business Intelligence Layer</h3>
               <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
                 Phase 2 reporting uses the <code className="font-mono text-[10px] bg-white/40 dark:bg-black/20 px-1 rounded">reporting</code> schema. 
-                Configure how Metabase connects to the operational database.
+                Configure how the insights engine connects to the operational database.
               </p>
             </div>
           </div>
@@ -175,7 +175,7 @@ const InsightsSettingsPanel: React.FC = () => {
               }
             />
             <div className="flex-1">
-              <span className="text-sm font-black uppercase tracking-widest text-app-text">Enable Automated ROS → Metabase JWT SSO</span>
+              <span className="text-sm font-black uppercase tracking-widest text-app-text">Enable Automated Insights SSO</span>
               <p className="text-[10px] text-app-text-muted mt-1 leading-relaxed font-medium">
                 Auth requests use a short-lived token for seamless handoff. Secret configured: {" "}
                 {jwtSecretConfigured ? (

@@ -14,22 +14,25 @@ tags: staff-workspace, component, auto-scaffold
 _Linked component: `client/src/components/staff/StaffWorkspace.tsx`._
 <!-- /help:component-source -->
 
-## What this is
+# Staff Workspace (Team)
 
-Briefly describe what staff use this screen for.
+The Team workspace is used to manage the staff roster, commission rates, and access permissions.
 
-## How to use it
+## Profile Layout
+The staff profile is organized into two columns:
+- **Left Column**: Identity information (Full Name, Avatar), Employment dates, and **PIN / Code**.
+- **Right Column**: Commissions (Base and Category-specific), Staff Role, and detailed Access Permissions.
 
-1. 
-2. 
+## Managing PINs
+Riverside OS uses a **Unified PIN** system. A staff member's 4-digit code is both their identity badge and their password.
+- **Setting a PIN**: Type exactly 4 digits into the PIN/Code field.
+- **Syncing PINs**: If a staff member is locked out, re-typing their code and clicking **Save Changes** will force a security hash resubmission.
 
-## Tips
+## Roles & Permissions
+- **Admin**: Full system access.
+- **Salesperson**: Access to POS, Appointments, and standard Customer CRM.
+- **Sales Support**: Access to inventory and operations without financial checkout permissions.
 
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/staff-workspace/` and embed them, for example:
-
-![Example](../images/help/staff-workspace/example.png)
+> [!TIP]
+> Use the "Apply Role Defaults" button to quickly reset a staff member's permissions to the system standard for their role.
 

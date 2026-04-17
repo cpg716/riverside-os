@@ -7,7 +7,9 @@ import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const pkg = JSON.parse(readFileSync(path.join(__dirname, "package.json"), "utf-8")) as {
+const pkg = JSON.parse(
+  readFileSync(path.join(__dirname, "package.json"), "utf-8"),
+) as {
   version: string;
 };
 
@@ -80,7 +82,7 @@ export default defineConfig({
     // That fixes "Failed to fetch" when opening http://<LAN-IP>:5173 from another device (127.0.0.1:3000 would be wrong there).
     proxy: {
       "/api": {
-        target: process.env.VITE_DEV_PROXY_TARGET ?? "http://127.0.0.1:3000",
+        target: process.env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:3000",
         changeOrigin: true,
         // Catalog CSV import can run for many minutes (large Lightspeed exports + long DB transaction).
         timeout: 1_800_000,
@@ -88,7 +90,7 @@ export default defineConfig({
       },
       // Same-origin Metabase iframe (Insights): forward to Axum, which proxies to RIVERSIDE_METABASE_UPSTREAM.
       "/metabase": {
-        target: process.env.VITE_DEV_PROXY_TARGET ?? "http://127.0.0.1:3000",
+        target: process.env.VITE_DEV_PROXY_TARGET || "http://127.0.0.1:3000",
         changeOrigin: true,
         ws: true,
       },
