@@ -140,7 +140,10 @@ async fn proxy_request(State(state): State<AppState>, req: axum::extract::Reques
     let mut rb = state.http_client.request(method.clone(), &target);
     for (k, v) in headers.iter() {
         let name = k.as_str();
-        if hop_by_hop(name) || name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("accept-encoding") {
+        if hop_by_hop(name)
+            || name.eq_ignore_ascii_case("host")
+            || name.eq_ignore_ascii_case("accept-encoding")
+        {
             continue;
         }
         rb = rb.header(k, v);
