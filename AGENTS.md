@@ -122,14 +122,14 @@ Reference-only trees like **`NexoPOS-master/`**, **`odoo-19.0/`**, and **`rivers
 The main shell component is the central hub of Riverside OS. It manages global state (POS vs. Back Office), theme tokens (WowDash), and navigation routing.
 
 - **Conditional Rendering**: Renders `PosShell`, `InsightsShell`, or `WeddingShell` based on the active mode.
-- **WowDash Design System**: 
+- **WowDash Design System**:
   - Uses `backdrop-blur-md` and semi-transparent backgrounds for glassmorphism.
   - Standardized `DashboardStatsCard` and `DashboardGridCard` for all dashboards.
   - Primary Typography: **Inter** / **Outfit** sans-serif.
 - **Permissions**: Every tab and sub-section check `useBackofficeAuth` and `useStaffPermissions` before mounting.
 - **Error Handling**: Uses global `ErrorOverlay` and `useToast` for all operational failures.
 - **Drawers & Modals**: Preferred for complex editing (e.g., `RelationshipHubDrawer`, `TaskChecklistDrawer`).
-- **Full-Width Workspace & Root Scrolling (v0.2.0+)**: 
+- **Full-Width Workspace & Root Scrolling (v0.2.0+)**:
   - All primary workspaces MUST utilize the full viewport width and follow an edge-to-edge "Flush" design pattern.
   - Native browser scrolling at the root level is mandatory for workstations (1080p, 1440p) and iPad Pro 11".
   - Avoid `h-screen` or `overflow-hidden` on main workspace containers.
@@ -151,16 +151,16 @@ The main shell component is the central hub of Riverside OS. It manages global s
 - **Transactions (`transactions` / `TXN-XXXX`)**: The financial ledger representing a customer checkout event. Handles payment, tax, and revenue mapping.
 - **Fulfillment Orders (`fulfillment_orders` / `ORD-XXXX`)**: The logistical state of physical goods. Handles procurement, shipment, special orders, and pickups.
 - **Three Primary Fulfillment Types**:
-    1. **Special Order**: Out-of-stock catalog items (Special Order Line).
-    2. **Custom Order**: Made-To-Measure (MTM) items where **price and cost vary with every order** (Manual Entry at booking).
-    3. **Wedding Order**: Group-linked items for a specific wedding party.
-- **Strict Rule**: Never use the term "Order" ambiguously. Code and docs MUST specify whether they are operating on the financial *Transaction* or the logistical *Fulfillment Order*.
+  1. **Special Order**: Out-of-stock catalog items (Special Order Line).
+  2. **Custom Order**: Made-To-Measure (MTM) items where **price and cost vary with every order** (Manual Entry at booking).
+  3. **Wedding Order**: Group-linked items for a specific wedding party.
+- **Strict Rule**: Never use the term "Order" ambiguously. Code and docs MUST specify whether they are operating on the financial _Transaction_ or the logistical _Fulfillment Order_.
 - **Wedding Member Nomenclature**:
-    - Use `transaction_id` for links to the financial ledger (`transactions`).
-    - Use `fulfillment_order_id` (via `transaction_lines`) for logistical status.
+  - Use `transaction_id` for links to the financial ledger (`transactions`).
+  - Use `fulfillment_order_id` (via `transaction_lines`) for logistical status.
 - **Procurement Nomenclature**:
-    - Use `purchase_order_id` for logistical vendor links (PO-XXXX). 
-    - Never use `purchase_transaction_id` for procurement logistics.
+  - Use `purchase_order_id` for logistical vendor links (PO-XXXX).
+  - Never use `purchase_transaction_id` for procurement logistics.
 
 ### Handler / service boundaries
 
@@ -291,12 +291,12 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | New UI screen / tab                          | `client/src/App.tsx`, `client/src/components/...`, `Sidebar.tsx` if new nav                                                                                        |
 | Reporting / Insights / Metabase              | `server/src/api/insights.rs`, `server/src/api/metabase_proxy.rs`, `client/src/components/reports/`, `client/src/components/layout/InsightsShell.tsx`               |
 | POS / checkout UX                            | `client/src/components/pos/`                                                                                                                                       |
-| Register manager dashboard          | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx`, `PosSidebar.tsx`, related server staff metrics                                                  |
+| Register manager dashboard                   | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx`, `PosSidebar.tsx`, related server staff metrics                                                  |
 | Till group / multi-lane register             | `server/src/api/sessions.rs`, `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, register gate context                                     |
 | Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx` |
 | Shell / layout / drawers                     | `client/src/components/layout/`                                                                                                                                    |
 | Customers CRM / Hub                          | `client/src/components/customers/`                                                                                                                                 |
-| Transactions / fulfillment / returns         | `server/src/api/transactions.rs`, `server/src/logic/`, `client/src/components/orders/`                                                                                   |
+| Transactions / fulfillment / returns         | `server/src/api/transactions.rs`, `server/src/logic/`, `client/src/components/orders/`                                                                             |
 | Scheduler / appointments                     | `client/src/components/scheduler/`, `client/src/lib/weddingApi.ts`                                                                                                 |
 | Inventory / control board / importer         | `client/src/components/inventory/`, related server inventory routes                                                                                                |
 | Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI                                                                            |
@@ -442,7 +442,7 @@ for new fetch calls unless a project-specific helper already exists.
 
 The main shell component is the central hub of the application, responsible for managing UI state and rendering content based on user interactions and application state. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, global search drawer, deep link handling, permissions and access control, theme mode, error handling, and navigation and routing.
 
-- **AppShell Architecture**: In v0.2.0, the `AppShell` component was introduced as a strict boundary for authenticated users. The `GlobalTopBar` and persistent navigation layouts MUST only be rendered within the `AppShell`. 
+- **AppShell Architecture**: In v0.2.0, the `AppShell` component was introduced as a strict boundary for authenticated users. The `GlobalTopBar` and persistent navigation layouts MUST only be rendered within the `AppShell`.
 - Unauthenticated interfaces (e.g., `BackofficeSignInGate`) must sit outside the `AppShell` to maintain clean, centered layouts without navigational chrome.
 - Register and Weddings are embedded inside the main Back Office shell.
 - Do not reintroduce aggressive redirects to external shells.
@@ -633,7 +633,15 @@ E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
 - Local dev uses Docker Compose `db`
 - `DATABASE_URL` should use `localhost:5433`, not `5432`
 - The migration ledger is `public.ros_schema_migrations`
+
 - Use the scripts in `scripts/` rather than inventing ad hoc migration workflows
+
+## Migration numbering safety
+
+- Never rename or renumber existing migrations
+- Always create a new migration for changes
+- Preserve migration order across branches
+- Verify migration sequence before making changes
 
 ### Migration truth rule
 
@@ -642,6 +650,7 @@ Do not hardcode a stale migration ceiling in AGENTS.
 When you need the latest migration:
 
 - inspect `migrations/`
+
 - confirm with `DEVELOPER.md`
 - confirm with migration-status scripts
 
@@ -661,6 +670,7 @@ Customers continue to use `customer_code` as the core import/upsert identity.
 Do not create duplicate Lightspeed-style matching columns.
 
 ### Historical Sync & Lifetime Sales (2018 Hardening)
+
 - **Jan 1, 2018 Baseline**: All historical sales and inventory movement must be synced from this date forward to ensure full lifecycle auditability.
 - **Calculation over Static Fields**: Customer **Lifetime Sales** are never pulled as a static value. They are calculated dynamically by aggregating all imported `transactions` with `booked_at >= '2018-01-01'`.
 - **2018 Historical Floor**: The bridge is configured to pull all transactional history (tickets, payments, inventory movement) from **January 1st, 2018**, providing a complete audit trail for financial reporting.
