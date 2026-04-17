@@ -68,7 +68,7 @@ export async function signInToBackOffice(page: Page): Promise<void> {
   // Select the first staff name if none is selected
   const staffButtons = page.locator("button").filter({ has: page.locator("img") });
   if (await staffButtons.count() > 0) {
-    await staffButtons.first().click({ force: true });
+    await staffButtons.first().click();
   }
 
   const effectivePerm200 = page.waitForResponse(

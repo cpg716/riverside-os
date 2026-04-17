@@ -969,7 +969,7 @@ async fn run_stale_open_orders(pool: &PgPool) -> Result<(), sqlx::Error> {
 async fn run_alteration_due(pool: &PgPool) -> Result<(), sqlx::Error> {
     let rows: Vec<(Uuid, Option<Uuid>, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
         r#"
-        SELECT id, linked_transaction_id, due_at
+        SELECT id, transaction_id, due_at
         FROM alteration_orders
         WHERE status IN ('intake', 'in_work')
           AND due_at IS NOT NULL

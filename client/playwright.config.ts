@@ -5,6 +5,7 @@ import { defineConfig, devices } from "@playwright/test";
 
 const baseURL = process.env.E2E_BASE_URL ?? "http://localhost:5173";
 const visualMode = process.env.E2E_RUN_VISUAL === "1";
+const isCi = process.env.CI === "true" || process.env.CI === "1";
 
 /** Optional: inject staff headers on every browser request (use the same 4-digit value for code + pin when `pin_hash` is set). */
 const e2eStaffCode = process.env.E2E_STAFF_CODE?.trim();
@@ -16,11 +17,11 @@ if (e2eStaffPin) e2eExtraHeaders["x-riverside-staff-pin"] = e2eStaffPin;
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
-  retries: 0,
+  retries: isCi ? 1 : 0,
   reporter: [["list"]],
   use: {
     baseURL,
-    trace: visualMode ? "retain-on-failure" : "on-first-retry",
+    trace: visualMode || isCi ? "retain-on-failure" : "on-first-retry",
     screenshot: visualMode ? "on" : "only-on-failure",
     animation: "disabled",
     timezoneId: "UTC",

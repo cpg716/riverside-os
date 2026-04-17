@@ -50,6 +50,9 @@ jobs:
       - name: Seed E2E non-Admin staff (margin-pivot 403)
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_non_admin_staff.sql
 
+      - name: Seed default admin staff for E2E
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_staff_register_test.sql
+
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.88"
@@ -92,6 +95,23 @@ jobs:
           done
           echo "--- server log ---"
           cat /tmp/ros-server.log
+          exit 1
+
+      - name: Open default register session for contract suites
+        run: |
+          payload='{"cashier_code":"1234","pin":"1234","opening_float":"200.00","register_lane":1}'
+          body="$(curl -sS -X POST "http://127.0.0.1:3000/api/sessions/open" \
+            -H "Content-Type: application/json" \
+            -d "$payload")"
+          if grep -q '"session_id"' <<<"$body"; then
+            echo "Default register session opened."
+            exit 0
+          fi
+          if grep -q '"error":"register_lane_in_use"' <<<"$body"; then
+            echo "Register lane 1 already open; continuing."
+            exit 0
+          fi
+          echo "$body"
           exit 1
 
       - name: Run Playwright

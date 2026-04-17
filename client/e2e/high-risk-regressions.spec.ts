@@ -42,7 +42,18 @@ function nonAdminHeaders(): Record<string, string> {
 function utcIsoDaysAgo(days: number): string {
   const d = new Date();
   d.setUTCDate(d.getUTCDate() - days);
-  return d.toISOString();
+  return d.toISOString().split("T")[0];
+}
+
+const isCi = process.env.CI === "true" || process.env.CI === "1";
+
+function requireOrSkip(condition: boolean, message: string): void {
+  if (condition) return;
+  if (isCi) {
+    expect(condition, message).toBeTruthy();
+    return;
+  }
+  test.skip(true, message);
 }
 
 let serverReachable = false;
@@ -60,8 +71,8 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.beforeEach(() => {
-  test.skip(
-    !serverReachable,
+  requireOrSkip(
+    serverReachable,
     `API not reachable at ${apiBase()} — start Postgres + server to run high-risk-regressions`,
   );
 });
@@ -71,7 +82,7 @@ test.describe("High-risk API regressions", () => {
     request,
   }) => {
     const from = encodeURIComponent(utcIsoDaysAgo(30));
-    const to = encodeURIComponent(new Date().toISOString());
+    const to = encodeURIComponent(new Date().toISOString().split("T")[0]);
 
     const checks: Array<{ path: string; method: "GET" | "POST"; body?: unknown }> = [
       { path: `/api/insights/sales-pivot?group_by=customer&basis=booked&from=${from}&to=${to}`, method: "GET" },
@@ -105,7 +116,7 @@ test.describe("High-risk API regressions", () => {
     request,
   }) => {
     const from = encodeURIComponent(utcIsoDaysAgo(30));
-    const to = encodeURIComponent(new Date().toISOString());
+    const to = encodeURIComponent(new Date().toISOString().split("T")[0]);
 
     const unauth = await request.get(
       `${apiBase()}/api/insights/nys-tax-audit?from=${from}&to=${to}`,
@@ -118,12 +129,10 @@ test.describe("High-risk API regressions", () => {
       { headers: adminHeaders(), failOnStatusCode: false },
     );
 
-    if (admin.status() === 401 || admin.status() === 403) {
-      test.skip(
-        true,
-        `Admin staff ${e2eAdminCode()} missing/unauthorized for insights.view`,
-      );
-    }
+    requireOrSkip(
+      admin.status() !== 401 && admin.status() !== 403,
+      `Admin staff ${e2eAdminCode()} missing/unauthorized for insights.view`,
+    );
 
     expect(admin.status()).toBe(200);
     const j = (await admin.json()) as {
@@ -147,7 +156,7 @@ test.describe("High-risk API regressions", () => {
     request,
   }) => {
     const from = encodeURIComponent(utcIsoDaysAgo(30));
-    const to = encodeURIComponent(new Date().toISOString());
+    const to = encodeURIComponent(new Date().toISOString().split("T")[0]);
 
     const bases = ["booked", "sale", "completed", "pickup"];
 
@@ -157,12 +166,10 @@ test.describe("High-risk API regressions", () => {
         { headers: adminHeaders(), failOnStatusCode: false },
       );
 
-      if (res.status() === 401 || res.status() === 403) {
-        test.skip(
-          true,
-          `Admin staff ${e2eAdminCode()} missing/unauthorized for sales-pivot basis checks`,
-        );
-      }
+      requireOrSkip(
+        res.status() !== 401 && res.status() !== 403,
+        `Admin staff ${e2eAdminCode()} missing/unauthorized for sales-pivot basis checks`,
+      );
 
       const body = await res.text();
       expect(res.status(), `basis=${basis}; body=${body.slice(0, 500)}`).toBe(200);
@@ -188,21 +195,20 @@ test.describe("High-risk API regressions", () => {
         failOnStatusCode: false,
       },
     );
-    if (nonAdminStatus.status() === 401) {
-      test.skip(true, `Non-admin seed ${e2eNonAdminCode()} missing`);
-    }
+    requireOrSkip(
+      nonAdminStatus.status() !== 401,
+      `Non-admin seed ${e2eNonAdminCode()} missing`,
+    );
     expect(nonAdminStatus.status()).toBe(403);
 
     const adminStatus = await request.get(`${apiBase()}/api/help/admin/ops/status`, {
       headers: adminHeaders(),
       failOnStatusCode: false,
     });
-    if (adminStatus.status() === 401 || adminStatus.status() === 403) {
-      test.skip(
-        true,
-        `Admin staff ${e2eAdminCode()} missing/unauthorized for help.manage`,
-      );
-    }
+    requireOrSkip(
+      adminStatus.status() !== 401 && adminStatus.status() !== 403,
+      `Admin staff ${e2eAdminCode()} missing/unauthorized for help.manage`,
+    );
     expect(adminStatus.status()).toBe(200);
     const statusJson = (await adminStatus.json()) as {
       meilisearch_configured?: unknown;

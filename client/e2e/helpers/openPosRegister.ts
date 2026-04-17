@@ -72,9 +72,8 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
   
   const staffButtons = cashierDlg.locator("button").filter({ has: page.locator("img") });
   
-  // Click the first staff and wait for state to update
+  // Click the first staff and wait for the keypad to become actionable.
   await staffButtons.first().click();
-  await page.waitForTimeout(500);
 
   const pin1 = cashierDlg.getByTestId("pin-key-1");
   await expect(pin1).toBeVisible({ timeout: 15_000 });
@@ -83,7 +82,6 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
   const code = e2eBackofficeStaffCode();
   for (const digit of code) {
     await cashierDlg.getByTestId(`pin-key-${digit}`).click();
-    await page.waitForTimeout(150); // Increased micro-delay
   }
   
   const contBtn = cashierDlg.getByRole("button", { name: /^continue$/i });

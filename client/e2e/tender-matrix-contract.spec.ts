@@ -46,6 +46,17 @@ type IntentResponse = {
   error?: string;
 };
 
+const isCi = process.env.CI === "true" || process.env.CI === "1";
+
+function requireOrSkip(condition: boolean, message: string): void {
+  if (condition) return;
+  if (isCi) {
+    expect(condition, message).toBeTruthy();
+    return;
+  }
+  test.skip(true, message);
+}
+
 let serverReachable = false;
 
 test.beforeAll(async ({ request }) => {
@@ -61,8 +72,8 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.beforeEach(() => {
-  test.skip(
-    !serverReachable,
+  requireOrSkip(
+    serverReachable,
     `API not reachable at ${apiBase()} — start DB + server for tender-matrix-contract`,
   );
 });
@@ -75,19 +86,17 @@ async function requireOpenSessionId(
     failOnStatusCode: false,
   });
 
-  if (listRes.status() === 401 || listRes.status() === 403) {
-    test.skip(
-      true,
-      `Admin staff ${e2eAdminCode()} missing/unauthorized for /api/sessions/list-open`,
-    );
-  }
+  requireOrSkip(
+    listRes.status() !== 401 && listRes.status() !== 403,
+    `Admin staff ${e2eAdminCode()} missing/unauthorized for /api/sessions/list-open`,
+  );
 
   expect(listRes.status()).toBe(200);
   const rows = (await listRes.json()) as SessionListRow[];
-  test.skip(!Array.isArray(rows) || rows.length === 0, "No open register session");
+  requireOrSkip(Array.isArray(rows) && rows.length > 0, "No open register session");
   const first = rows[0] ?? {};
   const sid = (first.session_id || first.id || "").trim();
-  test.skip(!sid, "Open session row missing session id");
+  requireOrSkip(Boolean(sid), "Open session row missing session id");
   return sid;
 }
 
