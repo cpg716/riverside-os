@@ -3,24 +3,34 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 -- Core enums (wrapped in idempotency blocks)
 DO $$ BEGIN
-    DO $$ BEGIN CREATE TYPE fulfillment_type AS ENUM ('takeaway', 'special_order', 'custom'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'fulfillment_type') THEN
+        CREATE TYPE fulfillment_type AS ENUM ('takeaway', 'special_order', 'custom');
+    END IF;
+END $$;
 
 DO $$ BEGIN
-    DO $$ BEGIN CREATE TYPE transaction_category AS ENUM ('retail_sale', 'rms_account_payment'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'transaction_category') THEN
+        CREATE TYPE transaction_category AS ENUM ('retail_sale', 'rms_account_payment');
+    END IF;
+END $$;
 
 DO $$ BEGIN
-    DO $$ BEGIN CREATE TYPE order_status AS ENUM ('open', 'fulfilled', 'cancelled', 'pending_measurement'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'order_status') THEN
+        CREATE TYPE order_status AS ENUM ('open', 'fulfilled', 'cancelled', 'pending_measurement');
+    END IF;
+END $$;
 
 DO $$ BEGIN
-    DO $$ BEGIN CREATE TYPE purchase_order_status AS ENUM ('draft', 'submitted', 'partially_received', 'closed', 'cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'purchase_order_status') THEN
+        CREATE TYPE purchase_order_status AS ENUM ('draft', 'submitted', 'partially_received', 'closed', 'cancelled');
+    END IF;
+END $$;
 
 DO $$ BEGIN
-    DO $$ BEGIN CREATE TYPE inventory_tx_type AS ENUM ('po_receipt', 'sale', 'adjustment', 'return_in', 'return_out'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'inventory_tx_type') THEN
+        CREATE TYPE inventory_tx_type AS ENUM ('po_receipt', 'sale', 'adjustment', 'return_in', 'return_out');
+    END IF;
+END $$;
 
 -- Staff
 CREATE TABLE IF NOT EXISTS staff (
