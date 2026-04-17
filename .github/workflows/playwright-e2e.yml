@@ -37,6 +37,7 @@ jobs:
       RIVERSIDE_HTTP_BIND: 127.0.0.1:3000
       E2E_BASE_URL: http://127.0.0.1:3000
       E2E_API_BASE: http://127.0.0.1:3000
+      E2E_BO_STAFF_NAME: Chris G
 
     steps:
       - uses: actions/checkout@v4

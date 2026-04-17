@@ -2,7 +2,7 @@ import { expect, type Page } from "@playwright/test";
 import { e2eBackofficeStaffCode } from "./backofficeSignIn";
 
 function e2eBackofficeStaffName(): string {
-  return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris Garcia";
+  return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
 }
 
 async function closeStaffDropdownIfOpen(

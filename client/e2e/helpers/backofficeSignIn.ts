@@ -3,7 +3,7 @@ import { expect, type Page } from "@playwright/test";
 const SESSION_KEY = "ros.backoffice.session.v1";
 
 function e2eBackofficeStaffName(): string {
-  return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris Garcia";
+  return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
 }
 
 async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRole"]>) {
