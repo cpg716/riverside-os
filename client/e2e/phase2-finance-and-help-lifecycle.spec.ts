@@ -44,6 +44,17 @@ function utcIsoDaysAgo(days: number): string {
   return d.toISOString().split("T")[0]; // YYYY-MM-DD
 }
 
+const isCi = process.env.CI === "true" || process.env.CI === "1";
+
+function requireOrSkip(condition: boolean, message: string): void {
+  if (condition) return;
+  if (isCi) {
+    expect(condition, message).toBeTruthy();
+    return;
+  }
+  test.skip(true, message);
+}
+
 type AdminManualRow = {
   manual_id: string;
   hidden: boolean;
@@ -89,8 +100,8 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.beforeEach(() => {
-  test.skip(
-    !serverReachable,
+  requireOrSkip(
+    serverReachable,
     `API not reachable at ${apiBase()} — start DB + server for phase2-finance-and-help-lifecycle`,
   );
 });
@@ -104,12 +115,10 @@ test.describe("Phase 2: Help policy lifecycle", () => {
       failOnStatusCode: false,
     });
 
-    if (listRes.status() === 401 || listRes.status() === 403) {
-      test.skip(
-        true,
-        `Admin staff ${e2eAdminCode()} missing/unauthorized for help.manage`,
-      );
-    }
+    requireOrSkip(
+      listRes.status() !== 401 && listRes.status() !== 403,
+      `Admin staff ${e2eAdminCode()} missing/unauthorized for help.manage`,
+    );
 
     expect(listRes.status()).toBe(200);
     const listJson = (await listRes.json()) as {
@@ -121,7 +130,7 @@ test.describe("Phase 2: Help policy lifecycle", () => {
     expect(Array.isArray(listJson.permission_catalog)).toBeTruthy();
 
     const manuals = listJson.manuals ?? [];
-    test.skip(manuals.length === 0, "No help manuals returned by admin list");
+    requireOrSkip(manuals.length > 0, "No help manuals returned by admin list");
 
     const permissionCatalog = listJson.permission_catalog ?? [];
     const manual = manuals[0];
@@ -262,9 +271,10 @@ test.describe("Phase 2: Help policy lifecycle", () => {
         failOnStatusCode: false,
       },
     );
-    if (nonAdminGet.status() === 401) {
-      test.skip(true, `Non-admin seed ${e2eNonAdminCode()} missing`);
-    }
+    requireOrSkip(
+      nonAdminGet.status() !== 401,
+      `Non-admin seed ${e2eNonAdminCode()} missing`,
+    );
     expect([403, 404]).toContain(nonAdminGet.status());
 
     const nonAdminPut = await request.put(
@@ -278,9 +288,10 @@ test.describe("Phase 2: Help policy lifecycle", () => {
         failOnStatusCode: false,
       },
     );
-    if (nonAdminPut.status() === 401) {
-      test.skip(true, `Non-admin seed ${e2eNonAdminCode()} missing`);
-    }
+    requireOrSkip(
+      nonAdminPut.status() !== 401,
+      `Non-admin seed ${e2eNonAdminCode()} missing`,
+    );
     expect(nonAdminPut.status()).toBe(403);
   });
 });
@@ -300,12 +311,10 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
       },
     );
 
-    if (taxRes.status() === 401 || taxRes.status() === 403) {
-      test.skip(
-        true,
-        `Admin staff ${e2eAdminCode()} missing/unauthorized for insights.view`,
-      );
-    }
+    requireOrSkip(
+      taxRes.status() !== 401 && taxRes.status() !== 403,
+      `Admin staff ${e2eAdminCode()} missing/unauthorized for insights.view`,
+    );
 
     const taxText = await taxRes.text();
     expect(taxRes.status(), `nys-tax-audit: ${taxText.slice(0, 400)}`).toBe(200);
@@ -371,12 +380,10 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
         failOnStatusCode: false,
       },
     );
-    if (staffListOpen.status() === 401 || staffListOpen.status() === 403) {
-      test.skip(
-        true,
-        `Admin staff ${e2eAdminCode()} missing/unauthorized for sessions/list-open`,
-      );
-    }
+    requireOrSkip(
+      staffListOpen.status() !== 401 && staffListOpen.status() !== 403,
+      `Admin staff ${e2eAdminCode()} missing/unauthorized for sessions/list-open`,
+    );
     expect(staffListOpen.status()).toBe(200);
     const rows = (await staffListOpen.json()) as unknown[];
     expect(Array.isArray(rows)).toBeTruthy();
@@ -392,9 +399,10 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
         failOnStatusCode: false,
       },
     );
-    if (marginRes.status() === 401) {
-      test.skip(true, `Non-admin seed ${e2eNonAdminCode()} missing`);
-    }
+    requireOrSkip(
+      marginRes.status() !== 401,
+      `Non-admin seed ${e2eNonAdminCode()} missing`,
+    );
     expect(marginRes.status()).toBe(403);
 
     const helpStatusRes = await request.get(
@@ -404,9 +412,10 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
         failOnStatusCode: false,
       },
     );
-    if (helpStatusRes.status() === 401) {
-      test.skip(true, `Non-admin seed ${e2eNonAdminCode()} missing`);
-    }
+    requireOrSkip(
+      helpStatusRes.status() !== 401,
+      `Non-admin seed ${e2eNonAdminCode()} missing`,
+    );
     expect(helpStatusRes.status()).toBe(403);
   });
 });

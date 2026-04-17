@@ -292,12 +292,10 @@ test.describe("High-risk API regressions", () => {
       failOnStatusCode: false,
     });
 
-    if (listStaff.status() === 401 || listStaff.status() === 403) {
-      test.skip(
-        true,
-        `Admin staff ${e2eAdminCode()} missing/unauthorized for session list-open`,
-      );
-    }
+    requireOrSkip(
+      listStaff.status() !== 401 && listStaff.status() !== 403,
+      `Admin staff ${e2eAdminCode()} missing/unauthorized for session list-open`,
+    );
 
     expect(listStaff.status()).toBe(200);
     const rows = (await listStaff.json()) as unknown[];
@@ -317,9 +315,7 @@ test.describe("High-risk API regressions", () => {
       },
     );
 
-    if (margin.status() === 401) {
-      test.skip(true, `Non-admin seed ${code} missing`);
-    }
+    requireOrSkip(margin.status() !== 401, `Non-admin seed ${code} missing`);
     expect(margin.status()).toBe(403);
 
     const helpReindex = await request.post(
@@ -331,9 +327,10 @@ test.describe("High-risk API regressions", () => {
       },
     );
 
-    if (helpReindex.status() === 401) {
-      test.skip(true, `Non-admin seed ${code} missing`);
-    }
+    requireOrSkip(
+      helpReindex.status() !== 401,
+      `Non-admin seed ${code} missing`,
+    );
     expect(helpReindex.status()).toBe(403);
   });
 });

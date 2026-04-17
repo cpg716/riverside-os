@@ -45,7 +45,9 @@ test("QBO staging shell: map to propose approve sync", async ({ page }) => {
   await expect
     .poll(
       async () => {
-        await qboNav.click({ force: true });
+        if (!(await qboNav.isVisible().catch(() => false))) return false;
+        if (!(await qboNav.isEnabled().catch(() => false))) return false;
+        await qboNav.click();
         await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
         return await page.getByText(/financial bridge panel/i).isVisible().catch(() => false);
       },
@@ -56,7 +58,9 @@ test("QBO staging shell: map to propose approve sync", async ({ page }) => {
   await expect(
     page.getByText(/workflow:\s*connection\s*→\s*mappings\s*→\s*staging/i),
   ).toBeVisible({ timeout: 15_000 });
-  await page.getByRole("button", { name: /3 .*staging/i }).click({ force: true });
+  const stagingButton = page.getByRole("button", { name: /3 .*staging/i });
+  await expect(stagingButton).toBeVisible({ timeout: 15_000 });
+  await expect(stagingButton).toBeEnabled();
+  await stagingButton.click();
   await expect(page.getByRole("button", { name: /propose journal/i })).toBeVisible();
 });
-

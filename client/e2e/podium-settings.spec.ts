@@ -59,9 +59,12 @@ test.describe("Settings Podium integration", () => {
     await expect
       .poll(
         async () => {
-          await mainNav
-            .getByRole("button", { name: /^settings(\s+bo)?$/i })
-            .click({ force: true });
+          const settingsButton = mainNav.getByRole("button", {
+            name: /^settings(\s+bo)?$/i,
+          });
+          if (!(await settingsButton.isVisible().catch(() => false))) return false;
+          if (!(await settingsButton.isEnabled().catch(() => false))) return false;
+          await settingsButton.click();
           const asideOk = await systemControlHeading
             .isVisible()
             .catch(() => false);
@@ -80,6 +83,11 @@ test.describe("Settings Podium integration", () => {
       .filter({
         has: page.getByRole("heading", { level: 1, name: /system control/i }),
       });
+    const integrationsButton = settingsAside
+      .getByRole("button", { name: /integrations/i })
+      .first();
+    await expect(integrationsButton).toBeVisible({ timeout: 20_000 });
+    await expect(integrationsButton).toBeEnabled();
     const [pr] = await Promise.all([
       page
         .waitForResponse(
@@ -90,7 +98,7 @@ test.describe("Settings Podium integration", () => {
           { timeout: 25_000 },
         )
         .catch(() => null),
-      settingsAside.getByRole("button", { name: /integrations/i }).click(),
+      integrationsButton.click(),
     ]);
     if (pr && !pr.ok()) {
       test.skip(

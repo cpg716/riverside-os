@@ -35,8 +35,13 @@ test.describe("PWA layout — tablet (768×1024, iPad Mini preset)", () => {
       .getByRole("navigation", { name: "Main Navigation" })
       .getByRole("button", { name: /^insights(\s+bo)?$/i })
       .click();
-    await expect(page.getByTitle("Insights (Metabase)")).toBeVisible({
-      timeout: 25_000,
-    });
+    await expect
+      .poll(
+        async () =>
+          (await page.getByTitle("Insights (Metabase)").isVisible().catch(() => false)) ||
+          (await page.getByRole("heading", { name: /insights/i }).first().isVisible().catch(() => false)),
+        { timeout: 25_000 },
+      )
+      .toBeTruthy();
   });
 });

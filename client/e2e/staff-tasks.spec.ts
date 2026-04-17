@@ -50,30 +50,48 @@ test.describe("Staff tasks", () => {
       await expandSidebar.click();
     }
     const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
-    await mainNav.getByRole("button", { name: /^staff(\s+bo)?$/i }).click({ force: true });
+    const staffButton = mainNav.getByRole("button", { name: /^staff(\s+bo)?$/i });
+    await expect(staffButton).toBeVisible({ timeout: 15_000 });
+    await expect(staffButton).toBeEnabled();
+    await staffButton.click();
     await expect(
       page
         .getByRole("heading", { name: /staff workspace/i })
         .or(page.getByRole("button", { name: /lock workspace/i })),
     ).toBeVisible({ timeout: 60_000 });
     const lockWorkspace = page.getByRole("button", { name: /lock workspace/i });
-    if (!(await lockWorkspace.isVisible().catch(() => false))) {
+    const tasksButton = mainNav.getByRole("button", { name: /^tasks$/i });
+    if (
+      !(await lockWorkspace.isVisible().catch(() => false)) &&
+      !(await tasksButton.isVisible().catch(() => false))
+    ) {
       const staffGateModal = page.locator(".ui-modal").filter({
         has: page.getByRole("heading", { name: /staff workspace/i }),
       });
       const code = e2eBackofficeStaffCode();
       for (const digit of code) {
-        await staffGateModal.getByTestId(`pin-key-${digit}`).click({ force: true });
+        const pinKey = staffGateModal.getByTestId(`pin-key-${digit}`);
+        await expect(pinKey).toBeVisible({ timeout: 10_000 });
+        await expect(pinKey).toBeEnabled();
+        await pinKey.click();
       }
-      await staffGateModal.getByRole("button", { name: /^unlock$/i }).click({ force: true });
+      const unlockButton = staffGateModal.getByRole("button", { name: /^unlock$/i });
+      await expect(unlockButton).toBeVisible({ timeout: 10_000 });
+      await expect(unlockButton).toBeEnabled();
+      await unlockButton.click();
     }
     await expect(lockWorkspace).toBeVisible({
       timeout: 25_000,
+    }).catch(async () => {
+      await expect(tasksButton).toBeVisible({ timeout: 10_000 });
     });
     if (await expandSidebar.isVisible().catch(() => false)) {
-      await expandSidebar.click({ force: true });
+      await expect(expandSidebar).toBeEnabled();
+      await expandSidebar.click();
     }
-    await mainNav.getByRole("button", { name: /^tasks$/i }).click({ force: true });
+    await expect(tasksButton).toBeVisible({ timeout: 15_000 });
+    await expect(tasksButton).toBeEnabled();
+    await tasksButton.click();
 
     await expect(page.getByRole("heading", { name: /^tasks$/i })).toBeVisible({
       timeout: 15_000,

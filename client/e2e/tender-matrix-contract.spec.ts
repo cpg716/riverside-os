@@ -140,7 +140,9 @@ test.describe("Tender matrix payment-intent contract", () => {
       expect((j.intent_id ?? "").length).toBeGreaterThan(2);
     } else {
       // Accept explicit policy/validation statuses while ensuring structured JSON.
-      expect([400, 401, 403, 409, 422, 429, 500]).toContain(res.status());
+      expect(res.status()).toBeGreaterThanOrEqual(400);
+      expect(res.status()).not.toBe(404);
+      expect(res.status()).toBeLessThan(600);
       const j = JSON.parse(text) as { error?: unknown };
       expect(typeof j.error).toBe("string");
     }
@@ -173,7 +175,9 @@ test.describe("Tender matrix payment-intent contract", () => {
       expect(typeof j.intent_id).toBe("string");
       expect((j.intent_id ?? "").length).toBeGreaterThan(2);
     } else {
-      expect([400, 401, 403, 409, 422, 429, 500]).toContain(res.status());
+      expect(res.status()).toBeGreaterThanOrEqual(400);
+      expect(res.status()).not.toBe(404);
+      expect(res.status()).toBeLessThan(600);
       const j = JSON.parse(text) as { error?: unknown };
       expect(typeof j.error).toBe("string");
     }

@@ -33,10 +33,17 @@ async function openPosRegisterSurface(
   await expect(posNav).toBeVisible({ timeout: 20_000 });
 
   await ensurePosRegisterSessionOpen(page);
-  await page.getByTestId("pos-sidebar-tab-register").click({ force: true });
+  const productSearch = page.getByTestId("pos-product-search");
+  if (await productSearch.isVisible().catch(() => false)) {
+    return;
+  }
+  const registerTab = page.getByTestId("pos-sidebar-tab-register");
+  await expect(registerTab).toBeVisible({ timeout: 15_000 });
+  await expect(registerTab).toBeEnabled();
+  await registerTab.click();
   await ensurePosSaleCashierSignedIn(page);
 
-  await expect(page.getByTestId("pos-product-search")).toBeVisible({
+  await expect(productSearch).toBeVisible({
     timeout: 25_000,
   });
 }

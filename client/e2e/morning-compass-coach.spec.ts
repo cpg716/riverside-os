@@ -13,19 +13,21 @@ test.describe("Morning Compass coach", () => {
   }) => {
     test.setTimeout(60_000);
     await signInToBackOffice(page);
-    await page
+    const posButton = page
       .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: "POS", exact: true })
-      .click({ force: true });
+      .getByRole("button", { name: "POS", exact: true });
+    await expect(posButton).toBeVisible({ timeout: 15_000 });
+    await expect(posButton).toBeEnabled();
+    await posButton.click();
     await expect(
       page.getByRole("navigation", { name: "POS Navigation" }),
     ).toBeVisible({ timeout: 15_000 });
     await ensurePosRegisterSessionOpen(page);
 
-    await page.getByTestId("pos-sidebar-tab-dashboard").click({ force: true });
-    await expect(page.getByText("POS · Dashboard")).toBeVisible({
-      timeout: 15_000,
-    });
+    const dashboardTab = page.getByTestId("pos-sidebar-tab-dashboard");
+    await expect(dashboardTab).toBeVisible({ timeout: 15_000 });
+    await expect(dashboardTab).toBeEnabled();
+    await dashboardTab.click();
 
     const coach = page.getByTestId("register-morning-compass-coach");
     const empty = page.getByTestId("register-morning-compass-coach-empty");
@@ -41,7 +43,11 @@ test.describe("Morning Compass coach", () => {
     test.setTimeout(60_000);
     await signInToBackOffice(page);
 
-    await page.getByRole("button", { name: /operations/i }).click();
+    const operationsButton = page
+      .getByRole("navigation", { name: "Main Navigation" })
+      .getByRole("button", { name: /^operations(\s+bo)?$/i });
+    await expect(operationsButton).toBeVisible({ timeout: 15_000 });
+    await operationsButton.click();
     await expect(
       page.getByRole("heading", { name: /operations hub/i }),
     ).toBeVisible({ timeout: 15_000 });

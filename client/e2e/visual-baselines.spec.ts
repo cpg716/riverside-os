@@ -78,9 +78,12 @@ describeVisual("visual baselines (local screenshots)", () => {
     await expect
       .poll(
         async () => {
-          await mainNav
-            .getByRole("button", { name: /^settings(\s+bo)?$/i })
-            .click({ force: true });
+          const settingsButton = mainNav.getByRole("button", {
+            name: /^settings(\s+bo)?$/i,
+          });
+          if (!(await settingsButton.isVisible().catch(() => false))) return false;
+          if (!(await settingsButton.isEnabled().catch(() => false))) return false;
+          await settingsButton.click();
           const asideOk = await systemControlHeading
             .isVisible()
             .catch(() => false);
@@ -99,9 +102,10 @@ describeVisual("visual baselines (local screenshots)", () => {
       .filter({
         has: page.getByRole("heading", { level: 1, name: /system control/i }),
       });
-    await settingsAside
-      .getByRole("button", { name: /general/i })
-      .click({ force: true });
+    const generalButton = settingsAside.getByRole("button", { name: /general/i });
+    await expect(generalButton).toBeVisible({ timeout: 15_000 });
+    await expect(generalButton).toBeEnabled();
+    await generalButton.click();
     await expect(
       page.getByRole("heading", { name: /system settings/i }),
     ).toBeVisible({
@@ -113,10 +117,16 @@ describeVisual("visual baselines (local screenshots)", () => {
     await expect(themeSection.getByRole("button")).toHaveCount(3, {
       timeout: 15_000,
     });
-    await themeSection.getByRole("button").nth(1).click({ force: true });
-    await mainNav
-      .getByRole("button", { name: /^inventory(\s+bo)?$/i })
-      .click({ force: true });
+    const darkModeButton = themeSection.getByRole("button").nth(1);
+    await expect(darkModeButton).toBeVisible({ timeout: 15_000 });
+    await expect(darkModeButton).toBeEnabled();
+    await darkModeButton.click();
+    const inventoryButton = mainNav.getByRole("button", {
+      name: /^inventory(\s+bo)?$/i,
+    });
+    await expect(inventoryButton).toBeVisible({ timeout: 15_000 });
+    await expect(inventoryButton).toBeEnabled();
+    await inventoryButton.click();
     await expect(page.getByText(/loading workspace/i)).toBeHidden({
       timeout: 60_000,
     });
@@ -133,10 +143,12 @@ describeVisual("visual baselines (local screenshots)", () => {
 
   test("visual baseline: customers workspace", async ({ page }) => {
     await signInToBackOffice(page);
-    await page
+    const customersButton = page
       .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: /customers/i })
-      .click({ force: true });
+      .getByRole("button", { name: /customers/i });
+    await expect(customersButton).toBeVisible({ timeout: 15_000 });
+    await expect(customersButton).toBeEnabled();
+    await customersButton.click();
     await expect(
       page.getByRole("heading", { level: 2, name: /customers/i }),
     ).toBeVisible({
@@ -150,10 +162,12 @@ describeVisual("visual baselines (local screenshots)", () => {
 
   test("visual baseline: operations command center", async ({ page }) => {
     await signInToBackOffice(page);
-    await page
+    const operationsButton = page
       .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: /^operations(\s+bo)?$/i })
-      .click({ force: true });
+      .getByRole("button", { name: /^operations(\s+bo)?$/i });
+    await expect(operationsButton).toBeVisible({ timeout: 15_000 });
+    await expect(operationsButton).toBeEnabled();
+    await operationsButton.click();
     await expect(
       page.getByRole("heading", { name: /morning dashboard/i }),
     ).toBeVisible({

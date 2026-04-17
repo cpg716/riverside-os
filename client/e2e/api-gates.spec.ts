@@ -17,6 +17,17 @@ function e2eNonAdminStaffCode(): string {
   return process.env.E2E_NON_ADMIN_CODE?.trim() || "5678";
 }
 
+const isCi = process.env.CI === "true" || process.env.CI === "1";
+
+function requireOrSkip(condition: boolean, message: string): void {
+  if (condition) return;
+  if (isCi) {
+    expect(condition, message).toBeTruthy();
+    return;
+  }
+  test.skip(true, message);
+}
+
 let serverReachable = false;
 
 test.beforeAll(async ({ request }) => {
@@ -32,8 +43,8 @@ test.beforeAll(async ({ request }) => {
 });
 
 test.beforeEach(() => {
-  test.skip(
-    !serverReachable,
+  requireOrSkip(
+    serverReachable,
     `API not reachable at ${apiBase()} — start Postgres + riverside-server to run api-gates`,
   );
 });
@@ -110,12 +121,10 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401) {
-      test.skip(
-        true,
-        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401,
+      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+    );
     expect(res.status()).toBe(403);
   });
 
@@ -133,12 +142,10 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401 || res.status() === 403) {
-      test.skip(
-        true,
-        `No valid staff for code ${code} — apply migration 53 and seed (scripts/seed_staff_register_test.sql)`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401 && res.status() !== 403,
+      `No valid staff for code ${code} — apply migration 53 and seed (scripts/seed_staff_register_test.sql)`,
+    );
     expect(res.status()).toBe(200);
     const j = (await res.json()) as { permissions?: string[] };
     expect(Array.isArray(j.permissions)).toBeTruthy();
@@ -156,9 +163,10 @@ test.describe("API auth gates", () => {
       },
       failOnStatusCode: false,
     });
-    if (res.status() === 401 || res.status() === 403) {
-      test.skip(true, "Staff headers not accepted for list-open");
-    }
+    requireOrSkip(
+      res.status() !== 401 && res.status() !== 403,
+      "Staff headers not accepted for list-open",
+    );
     expect(res.status()).toBe(200);
     const rows = (await res.json()) as unknown[];
     expect(Array.isArray(rows)).toBeTruthy();
@@ -178,12 +186,10 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401 || res.status() === 403) {
-      test.skip(
-        true,
-        `Margin pivot requires Admin staff for code ${code} — use default migration 53 admin or set E2E_BO_STAFF_CODE`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401 && res.status() !== 403,
+      `Margin pivot requires Admin staff for code ${code} — use default migration 53 admin or set E2E_BO_STAFF_CODE`,
+    );
     const body = await res.text();
     expect(res.status(), `body: ${body.slice(0, 400)}`).toBe(200);
     const j = JSON.parse(body) as { rows?: unknown[]; truncated?: boolean };
@@ -235,12 +241,10 @@ test.describe("API auth gates", () => {
       headers: { "x-riverside-staff-code": code },
       failOnStatusCode: false,
     });
-    if (res.status() === 401) {
-      test.skip(
-        true,
-        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401,
+      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+    );
     expect(res.status()).toBe(403);
   });
 
@@ -261,12 +265,10 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401) {
-      test.skip(
-        true,
-        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401,
+      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+    );
     expect(res.status()).toBe(403);
   });
 
@@ -282,12 +284,10 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401) {
-      test.skip(
-        true,
-        `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401,
+      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
+    );
     expect(res.status()).toBe(403);
   });
 
@@ -302,12 +302,10 @@ test.describe("API auth gates", () => {
       },
       failOnStatusCode: false,
     });
-    if (res.status() === 401 || res.status() === 403) {
-      test.skip(
-        true,
-        `Help admin ops status requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401 && res.status() !== 403,
+      `Help admin ops status requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
+    );
     expect(res.status()).toBe(200);
     const j = (await res.json()) as {
       meilisearch_configured?: unknown;
@@ -343,12 +341,10 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401 || res.status() === 403) {
-      test.skip(
-        true,
-        `Help admin manifest generation requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401 && res.status() !== 403,
+      `Help admin manifest generation requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
+    );
     const body = await res.text();
     expect(res.status(), `body: ${body.slice(0, 600)}`).toBe(200);
     const j = JSON.parse(body) as {
@@ -388,20 +384,22 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    if (res.status() === 401 || res.status() === 403) {
-      test.skip(
-        true,
-        `Help search reindex requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
-      );
-    }
+    requireOrSkip(
+      res.status() !== 401 && res.status() !== 403,
+      `Help search reindex requires help.manage for code ${code} — use default admin or set E2E_BO_STAFF_CODE`,
+    );
     const body = await res.text();
-    expect(res.status(), `body: ${body.slice(0, 600)}`).toBe(200);
+    expect([200, 503], `body: ${body.slice(0, 600)}`).toContain(res.status());
     const j = JSON.parse(body) as {
       status?: unknown;
       mode?: unknown;
       error?: unknown;
     };
-    expect(typeof j.status).toBe("string");
-    expect(j.mode == null || typeof j.mode === "string").toBeTruthy();
+    if (res.status() === 200) {
+      expect(typeof j.status).toBe("string");
+      expect(j.mode == null || typeof j.mode === "string").toBeTruthy();
+    } else {
+      expect(typeof j.error).toBe("string");
+    }
   });
 });

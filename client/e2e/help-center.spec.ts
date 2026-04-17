@@ -21,7 +21,9 @@ async function openSettingsHelpCenterManager(
   const settingsBtn = mainNav.getByRole("button", {
     name: /^settings(\s+bo)?$/i,
   });
-  await settingsBtn.click({ force: true });
+  await expect(settingsBtn).toBeVisible({ timeout: 15_000 });
+  await expect(settingsBtn).toBeEnabled();
+  await settingsBtn.click();
 
   const systemControlHeading = page.getByRole("heading", {
     level: 1,
@@ -33,9 +35,12 @@ async function openSettingsHelpCenterManager(
     has: page.getByRole("heading", { level: 1, name: /system control/i }),
   });
 
-  await settingsAside
-    .getByRole("button", { name: /help center manager/i })
-    .click({ force: true });
+  const helpCenterManagerButton = settingsAside.getByRole("button", {
+    name: /help center manager/i,
+  });
+  await expect(helpCenterManagerButton).toBeVisible({ timeout: 15_000 });
+  await expect(helpCenterManagerButton).toBeEnabled();
+  await helpCenterManagerButton.click();
 
   await expect(
     page.getByRole("heading", { name: /help center manager/i }),
@@ -79,16 +84,23 @@ test.describe("Help Center Manager (settings)", () => {
     await signInToBackOffice(page);
     await openSettingsHelpCenterManager(page);
 
-    await expect(page.getByRole("button", { name: /library/i })).toBeVisible();
-    await expect(page.getByRole("button", { name: /editor/i })).toBeVisible();
+    const managerPanel = page.locator("main, section, div").filter({
+      has: page.getByRole("heading", { name: /help center manager/i }),
+    }).first();
     await expect(
-      page.getByRole("button", { name: /automation/i }),
+      managerPanel.getByRole("button", { name: /library/i }).first(),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /search & index/i }),
+      managerPanel.getByRole("button", { name: /editor/i }).first(),
     ).toBeVisible();
     await expect(
-      page.getByRole("button", { name: /rosie readiness/i }),
+      managerPanel.getByRole("button", { name: /automation/i }).first(),
+    ).toBeVisible();
+    await expect(
+      managerPanel.getByRole("button", { name: /search & index/i }).first(),
+    ).toBeVisible();
+    await expect(
+      managerPanel.getByRole("button", { name: /rosie readiness/i }).first(),
     ).toBeVisible();
   });
 

@@ -9,7 +9,10 @@ test.describe("Reports workspace", () => {
     test.setTimeout(60_000);
     await signInToBackOffice(page);
 
-    await page.getByTestId("sidebar-nav-reports").click({ force: true });
+    const reportsNav = page.getByTestId("sidebar-nav-reports");
+    await expect(reportsNav).toBeVisible({ timeout: 15_000 });
+    await expect(reportsNav).toBeEnabled();
+    await reportsNav.click();
 
     await expect(
       page.getByTestId("reports-catalog-card-sales_pivot"),
@@ -22,7 +25,10 @@ test.describe("Reports workspace", () => {
     test.setTimeout(60_000);
     await signInToBackOffice(page);
 
-    await page.getByTestId("sidebar-nav-reports").click({ force: true });
+    const reportsNav = page.getByTestId("sidebar-nav-reports");
+    await expect(reportsNav).toBeVisible({ timeout: 15_000 });
+    await expect(reportsNav).toBeEnabled();
+    await reportsNav.click();
 
     await expect(
       page.getByTestId("reports-catalog-card-margin_pivot"),

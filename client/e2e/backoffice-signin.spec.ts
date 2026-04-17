@@ -47,7 +47,11 @@ test.describe("Back Office sign-in gate", () => {
   test("4-digit code reaches Operations shell", async ({ page }) => {
     await signInToBackOffice(page);
 
-    await page.getByRole("button", { name: /operations/i }).click();
+    const operationsButton = page
+      .getByRole("navigation", { name: "Main Navigation" })
+      .getByRole("button", { name: /^operations(\s+bo)?$/i });
+    await expect(operationsButton).toBeVisible({ timeout: 15_000 });
+    await operationsButton.click();
     await expect(
       page.getByText(/operations activity|morning dashboard/i).first(),
     ).toBeVisible({ timeout: 15_000 });
