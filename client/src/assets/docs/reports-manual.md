@@ -19,7 +19,7 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 1. Open **Reports** in the left rail.
 2. Tap a **report card** to load the table.
 3. Set **From** / **To**, **Basis** (booked sale date vs completed / recognition), and **Group by** when the form offers them.
-4. Use **Refresh** after changes and **CSV** when you need a spreadsheet.
+4. Use **Refresh** after changes, and use **CSV** (spreadsheet) or **Print Report** (Professional Audit Layout) for your records.
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
 

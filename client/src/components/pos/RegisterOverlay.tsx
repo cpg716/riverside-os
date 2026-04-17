@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
 import {
   getPosRegisterAuth,
@@ -72,7 +78,8 @@ function payloadFromSessionJson(
     cashierName: data.cashier_name,
     cashierCode: data.cashier_code,
     cashierAvatarKey:
-      typeof data.cashier_avatar_key === "string" && data.cashier_avatar_key.trim()
+      typeof data.cashier_avatar_key === "string" &&
+      data.cashier_avatar_key.trim()
         ? data.cashier_avatar_key.trim()
         : "ros_default",
     floatAmount: floatVal,
@@ -92,8 +99,27 @@ function payloadFromSessionJson(
 export default function RegisterOverlay({
   onSessionOpened,
 }: RegisterOverlayProps) {
-  const { backofficeHeaders, staffRole, permissionsLoaded } = useBackofficeAuth();
+  const { backofficeHeaders, staffRole, permissionsLoaded } =
+    useBackofficeAuth();
   const [credential, setCredential] = useState("");
+  const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
+
+  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
+        if (res.ok) {
+          const data = await res.json();
+          setRoster(data);
+        }
+      } catch (e) {
+        console.error("Roster load failed", e);
+      }
+    })();
+  }, [baseUrl]);
+
   const [registerLane, setRegisterLane] = useState(1);
   /** After the user picks a lane, do not auto-switch (e.g. admin default to #2). */
   const registerLaneUserChosenRef = useRef(false);
@@ -104,9 +130,14 @@ export default function RegisterOverlay({
   const [primarySessionId, setPrimarySessionId] = useState<string | null>(null);
   const [linkStatus, setLinkStatus] = useState<string | null>(null);
   /** Admin only: null = not checked yet; whether any open session is Register #1. */
-  const [register1OpenForAdmin, setRegister1OpenForAdmin] = useState<boolean | null>(null);
-  const [adminPrimaryPath, setAdminPrimaryPath] = useState<AdminPrimaryPath>(null);
-  const [adminListOpenError, setAdminListOpenError] = useState<string | null>(null);
+  const [register1OpenForAdmin, setRegister1OpenForAdmin] = useState<
+    boolean | null
+  >(null);
+  const [adminPrimaryPath, setAdminPrimaryPath] =
+    useState<AdminPrimaryPath>(null);
+  const [adminListOpenError, setAdminListOpenError] = useState<string | null>(
+    null,
+  );
   const [adminRecheckBusy, setAdminRecheckBusy] = useState(false);
 
   const onOpenedRef = useRef(onSessionOpened);
@@ -117,8 +148,6 @@ export default function RegisterOverlay({
   openingFloatRef.current = openingFloat;
   const registerLaneRef = useRef(registerLane);
   registerLaneRef.current = registerLane;
-
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
   const jsonAuthHeaders = useCallback(() => {
     const h = new Headers(mergedPosStaffHeaders(backofficeHeaders));
@@ -172,20 +201,18 @@ export default function RegisterOverlay({
     };
   }, [staffRole, permissionsLoaded, booting, error, fetchRegister1IsOpen]);
 
-  // Back Office admins: default to Register #2 once the drawer exists (satellite, $0 float).
   useEffect(() => {
     if (BYPASS) return;
-    if (!permissionsLoaded || staffRole !== "admin") return;
-    if (registerLaneUserChosenRef.current) return;
-    if (register1OpenForAdmin !== true) return;
-    if (adminPrimaryPath === "opening_lane1") return;
-    setRegisterLane(2);
-  }, [
-    permissionsLoaded,
-    staffRole,
-    register1OpenForAdmin,
-    adminPrimaryPath,
-  ]);
+    if (
+      permissionsLoaded &&
+      staffRole === "admin" &&
+      !registerLaneUserChosenRef.current &&
+      register1OpenForAdmin === true &&
+      adminPrimaryPath !== "opening_lane1"
+    ) {
+      setRegisterLane(3); // Default BO activity to Register 3 (Back Office)
+    }
+  }, [permissionsLoaded, staffRole, register1OpenForAdmin, adminPrimaryPath]);
 
   useEffect(() => {
     if (BYPASS || registerLane <= 1) {
@@ -297,7 +324,9 @@ export default function RegisterOverlay({
       }
     } catch (err: unknown) {
       const message =
-        err instanceof Error ? err.message : "Could not restore register session";
+        err instanceof Error
+          ? err.message
+          : "Could not restore register session";
       setError(message);
     } finally {
       setBooting(false);
@@ -486,14 +515,10 @@ export default function RegisterOverlay({
     return null;
   }
 
-  const adminGate =
-    staffRole === "admin" && permissionsLoaded && !booting;
-  const adminCheckingPrimary =
-    adminGate && register1OpenForAdmin === null;
+  const adminGate = staffRole === "admin" && permissionsLoaded && !booting;
+  const adminCheckingPrimary = adminGate && register1OpenForAdmin === null;
   const adminChoosePrimaryPath =
-    adminGate &&
-    register1OpenForAdmin === false &&
-    adminPrimaryPath === null;
+    adminGate && register1OpenForAdmin === false && adminPrimaryPath === null;
   const adminWaitingForElsewhere =
     adminGate &&
     register1OpenForAdmin === false &&
@@ -543,52 +568,56 @@ export default function RegisterOverlay({
     return (
       <div className="ui-overlay-backdrop">
         <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-        className="ui-modal max-w-lg animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none bg-app-bg-alt/95 backdrop-blur-xl"
-      >
-        <div className="ui-modal-body p-8 sm:p-10 space-y-8">
-          <div className="text-center">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
-              Terminal Requirement
-            </p>
-            <h2 id={titleId} className="mt-2 text-2xl font-black text-app-text tracking-tight">
-              Cash drawer not open yet
-            </h2>
-            <div className="mx-auto mt-4 h-1 w-12 rounded-full bg-app-accent/20" />
-            <p className="mt-4 text-xs text-app-text-muted leading-relaxed font-medium">
-              Register #2 and other satellite lanes can only open after Register #1 is active.
-              Register #1 manages the physical cash drawer and z-reconciliation.
-            </p>
-          </div>
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          className="ui-modal max-w-lg animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none bg-app-bg-alt/95 backdrop-blur-xl"
+        >
+          <div className="ui-modal-body p-8 sm:p-10 space-y-8">
+            <div className="text-center">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+                Terminal Requirement
+              </p>
+              <h2
+                id={titleId}
+                className="mt-2 text-2xl font-black text-app-text tracking-tight"
+              >
+                Cash drawer not open yet
+              </h2>
+              <div className="mx-auto mt-4 h-1 w-12 rounded-full bg-app-accent/20" />
+              <p className="mt-4 text-xs text-app-text-muted leading-relaxed font-medium">
+                Registers #2 (iPad) and #3 (Back Office) open automatically once
+                Register #1 is active. Register #1 manages the physical cash
+                drawer and Z-reconciliation for all lanes.
+              </p>
+            </div>
             {adminListOpenError ? (
               <p className="rounded-xl border border-app-danger/20 bg-app-danger/5 p-3 text-center text-[10px] font-bold text-app-danger">
                 {adminListOpenError}
               </p>
             ) : null}
-          <div className="grid gap-4 pt-4">
-            <button
-              type="button"
-              onClick={() => {
-                registerLaneUserChosenRef.current = true;
-                setRegisterLane(1);
-                setAdminPrimaryPath("opening_lane1");
-              }}
-              className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all hover:scale-[1.02]"
-            >
-              Open Register #1 (I am at the main terminal)
-            </button>
-            <button
-              type="button"
-              onClick={() => setAdminPrimaryPath("waiting_lane1_elsewhere")}
-              className="ui-btn-secondary w-full py-5 text-sm font-bold rounded-2xl border-app-border/40"
-            >
-              Someone else is opening Register #1
-            </button>
-          </div>
+            <div className="grid gap-4 pt-4">
+              <button
+                type="button"
+                onClick={() => {
+                  registerLaneUserChosenRef.current = true;
+                  setRegisterLane(1);
+                  setAdminPrimaryPath("opening_lane1");
+                }}
+                className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all hover:scale-[1.02]"
+              >
+                Open Register #1 (I am at the main terminal)
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminPrimaryPath("waiting_lane1_elsewhere")}
+                className="ui-btn-secondary w-full py-5 text-sm font-bold rounded-2xl border-app-border/40"
+              >
+                Someone else is opening Register #1
+              </button>
+            </div>
             <button
               type="button"
               onClick={() => void onAdminRecheck()}
@@ -619,12 +648,16 @@ export default function RegisterOverlay({
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                 Waiting on Register #1
               </p>
-              <h2 id={titleId} className="mt-1 text-lg font-black text-app-text">
+              <h2
+                id={titleId}
+                className="mt-1 text-lg font-black text-app-text"
+              >
                 Drawer not open on this store yet
               </h2>
               <p className="mt-2 text-xs text-app-text-muted leading-relaxed">
-                Ask a cashier to open Register #1 and count in the opening float on that terminal. When it is
-                open, tap Check again to continue with Register #2 (or another lane).
+                Ask a cashier to open Register #1 and count in the opening float
+                on that terminal. When it is open, tap Check again to continue
+                with Register #2 (or another lane).
               </p>
             </div>
             {adminListOpenError ? (
@@ -632,26 +665,26 @@ export default function RegisterOverlay({
                 {adminListOpenError}
               </p>
             ) : null}
-          <div className="grid gap-3 pt-4">
-            <button
-              type="button"
-              onClick={() => void onAdminRecheck()}
-              disabled={adminRecheckBusy}
-              className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all"
-            >
-              {adminRecheckBusy ? "Checking Status…" : "Check Again Now"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAdminPrimaryPath(null);
-                setAdminListOpenError(null);
-              }}
-              className="ui-btn-secondary w-full py-4 text-sm font-bold rounded-xl border-app-border/20"
-            >
-              Return Home
-            </button>
-          </div>
+            <div className="grid gap-3 pt-4">
+              <button
+                type="button"
+                onClick={() => void onAdminRecheck()}
+                disabled={adminRecheckBusy}
+                className="ui-btn-primary w-full py-5 text-sm font-black rounded-2xl shadow-lg shadow-app-accent/10 transition-all"
+              >
+                {adminRecheckBusy ? "Checking Status…" : "Check Again Now"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAdminPrimaryPath(null);
+                  setAdminListOpenError(null);
+                }}
+                className="ui-btn-secondary w-full py-4 text-sm font-bold rounded-xl border-app-border/20"
+              >
+                Return Home
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -678,7 +711,10 @@ export default function RegisterOverlay({
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
                 POS Terminal Authorization
               </p>
-              <h2 id={titleId} className="mt-1 text-3xl font-black tracking-tight text-app-text">
+              <h2
+                id={titleId}
+                className="mt-1 text-3xl font-black tracking-tight text-app-text"
+              >
                 Riverside Register
               </h2>
             </div>
@@ -698,23 +734,49 @@ export default function RegisterOverlay({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             {/* Left Column: Staff Auth */}
             <div className="space-y-6">
-              <div className="space-y-1">
+              <div className="space-y-1 text-center lg:text-left">
                 <h3 className="text-sm font-black uppercase tracking-wider text-app-text">
                   1. Staff Identity
                 </h3>
                 <p className="text-[11px] leading-relaxed text-app-text-muted">
-                  Enter your 4-digit staff code to identify yourself for this session.
-                  Touch the keypad numbers to input.
+                  Choose your name and enter your 4-digit PIN.
                 </p>
               </div>
 
               <div className="ui-panel bg-app-bg/40 p-6 space-y-6 rounded-[24px] border-app-border/20 shadow-inner">
-                <PinDots length={credential.length} className="py-2" />
-                <NumericPinKeypad
-                  value={credential}
-                  onChange={setCredential}
-                  disabled={busy}
-                />
+                <div className="space-y-2">
+                  <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted block text-center">
+                    Staff Member
+                  </label>
+                  <select
+                    className="ui-input w-full text-center font-bold"
+                    value={localStorage.getItem("ros_last_staff_id") || ""}
+                    onChange={(e) =>
+                      localStorage.setItem("ros_last_staff_id", e.target.value)
+                    }
+                  >
+                    <option value="">-- Choose Name --</option>
+                    {/* Note: Roster is loaded into a local state here too */}
+                    {roster.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.full_name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-4">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted text-center">
+                    Enter PIN
+                  </p>
+                  <PinDots length={credential.length} className="py-2" />
+                  <NumericPinKeypad
+                    value={credential}
+                    onChange={setCredential}
+                    onEnter={() => void onSubmit()}
+                    disabled={busy}
+                  />
+                </div>
               </div>
             </div>
 
@@ -726,8 +788,8 @@ export default function RegisterOverlay({
                     2. Terminal Configuration
                   </h3>
                   <p className="text-[11px] leading-relaxed text-app-text-muted">
-                    Select your physical register number. Satellite terminals (#2+) share
-                    the cash turnover of Register #1.
+                    Satellite terminals (#2 and #3) share the cash turnover of
+                    Register #1 and open automatically with it.
                   </p>
                 </div>
 
@@ -739,8 +801,8 @@ export default function RegisterOverlay({
                     </label>
                     {staffRole === "admin" ? (
                       <p className="mb-3 text-[9px] font-medium leading-tight text-app-text-muted bg-app-accent/5 p-2 rounded-lg border border-app-accent/10">
-                        Admin Note: Register #2 is recommended for satellite lanes.
-                        Z-close runs on Register #1 only.
+                        Admin Note: Register #3 is reserved for Back Office
+                        activities. Z-close runs on Register #1 only.
                       </p>
                     ) : null}
                     <select
@@ -753,11 +815,9 @@ export default function RegisterOverlay({
                       className="ui-input w-full p-4 text-center font-mono text-xl font-black bg-app-bg/60 border-transparent focus:border-app-accent/50 transition-all rounded-xl cursor-pointer"
                       aria-label="Physical register number"
                     >
-                      {Array.from({ length: 8 }, (_, i) => i + 1).map((n) => (
-                        <option key={n} value={n}>
-                          Register Lane #{n}
-                        </option>
-                      ))}
+                      <option value={1}>Register #1 (Main Drawer)</option>
+                      <option value={2}>Register #2 (iPad Satellite)</option>
+                      <option value={3}>Register #3 (Back Office Hub)</option>
                     </select>
                     {registerLane > 1 && linkStatus ? (
                       <p className="mt-3 text-center text-[10px] font-bold leading-snug text-app-accent animate-pulse">
@@ -773,7 +833,9 @@ export default function RegisterOverlay({
                     </label>
                     {registerLane <= 1 ? (
                       <div className="relative group">
-                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-app-text-muted/40 transition-colors group-focus-within:text-app-accent">$</span>
+                        <span className="absolute left-6 top-1/2 -translate-y-1/2 text-xl font-black text-app-text-muted/40 transition-colors group-focus-within:text-app-accent">
+                          $
+                        </span>
                         <input
                           type="number"
                           step="0.01"
@@ -789,7 +851,8 @@ export default function RegisterOverlay({
                           $0.00
                         </p>
                         <p className="text-[10px] text-center text-app-text-muted opacity-80 leading-relaxed max-w-[220px]">
-                          Satellite lane: float is managed through the primary drawer on Register #1.
+                          Satellite lane: float is managed through the primary
+                          drawer on Register #1.
                         </p>
                       </div>
                     )}
@@ -826,18 +889,17 @@ export default function RegisterOverlay({
                   </span>
                 </button>
                 <div className="mt-4 flex items-center justify-center gap-2 opacity-40">
-                   <div className="h-px w-8 bg-app-text-muted" />
-                   <p className="text-[9px] text-app-text-muted uppercase tracking-widest font-black">
-                     Secure POS Handshake Protocol
-                   </p>
-                   <div className="h-px w-8 bg-app-text-muted" />
+                  <div className="h-px w-8 bg-app-text-muted" />
+                  <p className="text-[9px] text-app-text-muted uppercase tracking-widest font-black">
+                    Secure POS Handshake Protocol
+                  </p>
+                  <div className="h-px w-8 bg-app-text-muted" />
                 </div>
               </div>
             </div>
           </div>
         </form>
       </div>
-
     </div>
   );
 }

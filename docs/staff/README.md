@@ -33,19 +33,20 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Open, close, EOD narrative | [EOD-AND-OPEN-CLOSE.md](EOD-AND-OPEN-CLOSE.md) |
 | PII and customer data | [PII-AND-CUSTOMER-DATA.md](PII-AND-CUSTOMER-DATA.md) |
 | Store-specific SOP (fill in) | [STORE-SOP-TEMPLATE.md](STORE-SOP-TEMPLATE.md) |
-| Abstract: orders & stock | [abstracts/orders-and-stock.md](abstracts/orders-and-stock.md) |
+| Abstract: transactions & stock | [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md) |
 | Abstract: returns / refunds | [abstracts/returns-refunds-exchanges.md](abstracts/returns-refunds-exchanges.md) |
 | Abstract: wedding group pay | [abstracts/wedding-group-pay.md](abstracts/wedding-group-pay.md) |
+| Abstract: tax exemption (audit) | [pos-tax-exemption.md](pos-tax-exemption.md) |
 | Custom Work Orders (MTM) & Rush Tracking | [custom-work-orders-manual.md](custom-work-orders-manual.md) |
 | Permissions (plain language) | [permissions-and-access.md](permissions-and-access.md) |
 | RBAC keys & technical detail (also in corpus) | [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md) |
 | Offline summary | [working-offline.md](working-offline.md) |
-| Operations (Dashboard, Inbox, Reviews, Register reports) | [operations-home.md](operations-home.md) |
+| Operations Hub (Dashboard, Inbox, Reviews, Register reports) | [operations-home.md](operations-home.md) |
 | POS tab → Register (launchpad) | [register-tab-back-office.md](register-tab-back-office.md) |
 | Till group, multi-lane Z (reference) | [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md) |
 | Parked cart + RMS / RMS90 ledger (reference) | [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md) |
 | Customers | [customers-back-office.md](customers-back-office.md) |
-| Orders | [orders-back-office.md](orders-back-office.md) |
+| Transactions | [transactions-back-office.md](transactions-back-office.md) |
 | Inventory (all BO subsections) | [inventory-back-office.md](inventory-back-office.md) |
 | Alterations (BO) | [alterations-back-office.md](alterations-back-office.md) |
 | Weddings (BO) | [weddings-back-office.md](weddings-back-office.md) |
@@ -92,8 +93,8 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Customers | Add Customer | [customers-back-office.md](customers-back-office.md) |
 | Customers | RMS charge | [customers-back-office.md](customers-back-office.md) |
 | Alterations | Work queue | [alterations-back-office.md](alterations-back-office.md) |
-| Orders | Open Orders | [orders-back-office.md](orders-back-office.md) |
-| Orders | All Orders | [orders-back-office.md](orders-back-office.md) |
+| Transactions | Open Transactions | [transactions-back-office.md](transactions-back-office.md) |
+| Transactions | All Transactions | [transactions-back-office.md](transactions-back-office.md) |
 | Inventory | Inventory List | [inventory-back-office.md](inventory-back-office.md) |
 | Inventory | Add Inventory | [inventory-back-office.md](inventory-back-office.md) |
 | Inventory | Receiving | [inventory-back-office.md](inventory-back-office.md) |
@@ -159,4 +160,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-04-11
+**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Update)

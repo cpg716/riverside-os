@@ -81,10 +81,10 @@ test.describe("Phase 2: POS tender UI smoke", () => {
 
     // Core tabs should always be present.
     await expect(
-      drawer.getByRole("button", { name: /card reader/i }),
+      drawer.getByRole("button", { name: /STRIPE CARD/i }),
     ).toBeVisible();
     await expect(
-      drawer.getByRole("button", { name: /manual card/i }),
+      drawer.getByRole("button", { name: /STRIPE MANUAL/i }),
     ).toBeVisible();
     await expect(drawer.getByRole("button", { name: /^cash$/i })).toBeVisible();
     await expect(
@@ -102,7 +102,7 @@ test.describe("Phase 2: POS tender UI smoke", () => {
     // Smoke-select a few tabs to validate switching works.
     await drawer.getByRole("button", { name: /^cash$/i }).click();
     await drawer.getByRole("button", { name: /^check$/i }).click();
-    await drawer.getByRole("button", { name: /manual card/i }).click();
+    await drawer.getByRole("button", { name: /STRIPE MANUAL/i }).click();
     await drawer.getByRole("button", { name: /gift card/i }).click();
   });
 
@@ -134,14 +134,14 @@ test.describe("Phase 2: POS tender UI smoke", () => {
 
     // Customer-dependent tabs:
     await expect(
-      drawer.getByRole("button", { name: /saved card/i }),
+      drawer.getByRole("button", { name: /STRIPE VAULT/i }),
     ).toBeVisible();
     await expect(
       drawer.getByRole("button", { name: /store credit/i }),
     ).toBeVisible();
 
     // Click-through smoke
-    await drawer.getByRole("button", { name: /saved card/i }).click();
+    await drawer.getByRole("button", { name: /STRIPE VAULT/i }).click();
     await drawer.getByRole("button", { name: /store credit/i }).click();
   });
 });

@@ -346,7 +346,13 @@ function AdjustPanel() {
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Balance Override</h3>
           </div>
 
-          <div className="space-y-5">
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              void submit();
+            }}
+            className="space-y-5"
+          >
             <div className="space-y-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Strategic Selection</span>
               <CustomerSearchInput
@@ -365,7 +371,7 @@ function AdjustPanel() {
                      </div>
                      <p className="text-[11px] text-emerald-700 font-bold uppercase tracking-tight">{customerLabel}</p>
                   </div>
-                  <button onClick={() => setCustomerId("")} className="text-[9px] font-black uppercase text-app-text-muted hover:text-red-500 transition-colors px-2">Clear</button>
+                  <button type="button" onClick={() => setCustomerId("")} className="text-[9px] font-black uppercase text-app-text-muted hover:text-red-500 transition-colors px-2">Clear</button>
                 </div>
               )}
             </div>
@@ -395,13 +401,13 @@ function AdjustPanel() {
             {result && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase text-emerald-600">{result}</div>}
 
             <button 
-              onClick={submit} 
+              type="submit" 
               disabled={busy} 
               className="ui-btn-primary w-full shadow-lg shadow-sky-500/20 hover:scale-[1.02] active:scale-95 transition-all py-3 rounded-2xl"
             >
               {busy ? "Authorizing..." : "Commit Override"}
             </button>
-          </div>
+          </form>
         </div>
       </div>
 
@@ -655,7 +661,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
   const template = settings?.loyalty_letter_template;
 
   return (
-    <div className="flex h-full flex-col overflow-hidden animate-in fade-in duration-500">
+    <div className="flex flex-1 flex-col bg-app-surface scale-in-center overflow-hidden">
       <div className="border-b border-app-border/50 px-6 py-5 bg-app-surface-2/10 backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div>
@@ -810,7 +816,7 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-transparent">
+    <div className="flex flex-1 flex-col bg-transparent">
       {/* Executive Summary Strip */}
       <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
         {[

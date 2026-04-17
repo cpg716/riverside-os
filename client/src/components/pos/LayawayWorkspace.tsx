@@ -32,11 +32,12 @@ interface LayawayListResponse {
 
 export interface LayawayWorkspaceProps {
   registerSessionId?: string | null;
-  onOpenOrder?: (orderId: string) => void;
+  onOpenTransaction?: (orderId: string) => void;
 }
 
 export default function LayawayWorkspace({
-  onOpenOrder,
+  registerSessionId,
+  onOpenTransaction,
 }: LayawayWorkspaceProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
@@ -59,14 +60,16 @@ export default function LayawayWorkspace({
     try {
       const showClosed = tab === "history";
       const q = query.trim();
-      const url = new URL(`${baseUrl}/api/orders`);
-      url.searchParams.set("kind_filter", "layaway");
-      url.searchParams.set("show_closed", showClosed ? "true" : "false");
-      if (q) url.searchParams.set("search", q);
-      url.searchParams.set("limit", "50");
 
-      const res = await fetch(url.toString(), {
-        headers: apiAuth(),
+      const params = new URLSearchParams();
+      params.set("kind_filter", "layaway");
+      params.set("show_closed", showClosed ? "true" : "false");
+      if (q) params.set("search", q);
+      if (registerSessionId) params.set("register_session_id", registerSessionId);
+      params.set("limit", "50");
+
+      const res = await fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
+        headers: apiAuth() as Record<string, string>,
       });
       if (!res.ok) throw new Error("Could not load layaways");
       const data = (await res.json()) as LayawayListResponse;
@@ -77,7 +80,7 @@ export default function LayawayWorkspace({
     } finally {
       setLoading(false);
     }
-  }, [apiAuth, baseUrl, tab, query]);
+  }, [apiAuth, baseUrl, tab, query, registerSessionId]);
 
   useEffect(() => {
     void loadLayaways();
@@ -91,13 +94,13 @@ export default function LayawayWorkspace({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-app-surface">
+    <div className="flex flex-1 flex-col bg-app-surface">
       {/* Header & Controls */}
       <div className="shrink-0 border-b border-app-border px-4 py-4 sm:px-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-lg font-black tracking-tight text-app-text sm:text-xl">
-              Layaway Management
+              Layaway Manager (v2)
             </h2>
             <p className="text-[11px] text-app-text-muted sm:text-xs">
               Manage reserved inventory and payment plans. 25% minimum deposit required for new layaways.
@@ -241,7 +244,7 @@ export default function LayawayWorkspace({
                   <div className="flex shrink-0 items-center justify-end sm:pl-4">
                     <button
                         type="button"
-                        onClick={() => onOpenOrder?.(r.order_id)}
+                        onClick={() => onOpenTransaction?.(r.order_id)}
                         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-app-surface border border-app-border px-6 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95 sm:w-auto"
                     >
                         View Order

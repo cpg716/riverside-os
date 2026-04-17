@@ -132,7 +132,13 @@ export default function NuorderSettingsPanel() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* API CONFIG */}
         <div className="space-y-6">
-          <div className="rounded-xl border border-app-border bg-app-surface/40 p-5 space-y-4 shadow-sm">
+          <form 
+            onSubmit={(e) => {
+              e.preventDefault();
+              void saveConfig();
+            }}
+            className="rounded-xl border border-app-border bg-app-surface/40 p-5 space-y-4 shadow-sm"
+          >
             <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-300">
               <ShieldCheck className="h-4 w-4" />
               <span className="text-[10px] font-black uppercase tracking-widest">API Authentication</span>
@@ -154,13 +160,12 @@ export default function NuorderSettingsPanel() {
               ))}
             </div>
             <button
-              type="button"
-              onClick={() => void saveConfig()}
+              type="submit"
               className="ui-btn-primary w-full py-3 text-[10px] font-black uppercase tracking-widest shadow-lg shadow-indigo-500/20"
             >
               Save Credentials
             </button>
-          </div>
+          </form>
 
           <div className="rounded-xl border border-app-border bg-app-surface/40 p-5 space-y-4">
             <div className="flex items-center gap-2 text-emerald-700 dark:text-emerald-300">

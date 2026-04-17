@@ -1,4 +1,4 @@
-//! Per-line commission snapshot on `order_items.calculated_commission`.
+//! Per-line commission snapshot on `transaction_lines.calculated_commission`.
 
 use rust_decimal::Decimal;
 use sqlx::postgres::PgConnection;
@@ -8,7 +8,7 @@ use crate::logic::pricing::round_money_usd;
 use crate::models::DbStaffRole;
 
 /// Retail line gross × effective rate. Precedence: Variant Rule > Product Rule > Category Rule > Category Legacy Override > Staff Base.
-/// Employee-purchase orders carry zero commission.
+/// Employee-purchase transactions carry zero commission.
 pub async fn commission_for_line(
     conn: &mut PgConnection,
     unit_price: Decimal,

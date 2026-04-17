@@ -10,7 +10,7 @@ The Wedding Health engine identifies "silent failures" in wedding parties before
   - **Payments (40%)**: Ratio of `balance_due` vs `total_price` across all party members.
   - **Measurements (40%)**: Percentage of members with `fitting_completed` status.
   - **Temporal Risk (20%)**: Proximity to the `wedding_date`.
-- **UI Integration**: `WeddingHealthHeatmap.jsx` in the Wedding Manager dashboard.
+- **UI Integration**: `WeddingHealthHeatmap.tsx` in the Wedding Manager dashboard.
 - **Actionable Path**: Managers click "Red" heatmap cells to open the Party Detail and initiate Podium SMS nudges for missing measurements or balances.
 
 ## 2. Inventory Brain v2
@@ -21,7 +21,7 @@ Moves the catalog from static "min/max" levels to dynamic sales-velocity repleni
 - **Prescriptive Actions**:
   - **Reorder**: Generated when `stock_on_hand` / `daily_velocity` < 14 days.
   - **Stock Rescue (Clearance)**: Identified when a SKU has > 10 units on-hand but 0 sales in the 45-day window.
-- **UI Integration**: `InventoryIntelligencePanel.tsx` in the Inventory Workspace.
+- **UI Integration**: `IntelligencePanel.tsx` in the Inventory Workspace.
 - **Trust Factor**: Every recommendation includes a "Confidence Score" and "Justification String" to explain the math to the user.
 
 ## 3. Commission Trust Center (Truth Trace)

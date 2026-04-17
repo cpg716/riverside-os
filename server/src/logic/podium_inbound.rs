@@ -8,9 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::permissions::NOTIFICATIONS_VIEW;
 use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
-use crate::logic::notifications::{
-    fan_out_to_staff_ids, insert_app_notification_deduped, staff_ids_with_permission,
-};
+use crate::logic::notifications::{fan_out_to_staff_ids, staff_ids_with_permission};
 use crate::logic::podium::{
     load_store_podium_config, normalize_phone_e164, send_podium_sms_message, PodiumTokenCache,
 };
@@ -643,37 +641,37 @@ pub async fn ingest_from_webhook(
     }
 
     if !is_outbound {
-        let kind = if channel == "email" {
-            "podium_email_inbound"
+        let bundle_kind = if channel == "email" {
+            "podium_email_bundle"
         } else {
-            "podium_sms_inbound"
+            "podium_sms_bundle"
         };
-        let title = if channel == "email" {
-            "New customer email"
+        let bundle_prefix = if channel == "email" {
+            "Podium Email"
         } else {
-            "New customer SMS"
+            "Podium SMS"
         };
-        let dedupe = format!(
-            "podium_msg:{}",
-            msg_uid
-                .clone()
-                .unwrap_or_else(|| Uuid::new_v4().to_string())
-        );
-        if let Ok(Some(nid)) = insert_app_notification_deduped(
+
+        // Real-time bundle by customer: "podium_inbound:{cid}"
+        let dedupe = format!("podium_inbound:{cid}");
+        let item_deep = json!({
+            "type": "customers",
+            "subsection": "all",
+            "customer_id": cid.to_string(),
+            "hub_tab": "messages",
+            "message_channel": channel,
+        });
+
+        if let Ok(nid) = crate::logic::notifications::upsert_bundle_item(
             pool,
-            kind,
-            title,
+            bundle_kind,
+            bundle_prefix,
             &truncate_body_preview(&body),
-            json!({
-                "type": "customers",
-                "subsection": "all",
-                "customer_id": cid.to_string(),
-                "hub_tab": "messages",
-                "message_channel": channel,
-            }),
+            "Tap to open conversation",
+            item_deep,
             "podium_inbound",
             json!({}),
-            Some(dedupe.as_str()),
+            &dedupe,
         )
         .await
         {

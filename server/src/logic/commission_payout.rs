@@ -20,10 +20,10 @@ pub async fn finalize_realized_commissions(
     let rec = crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL.trim();
     let sql = format!(
         r#"
-        UPDATE order_items oi
+        UPDATE transaction_lines oi
         SET commission_payout_finalized_at = NOW()
-        FROM orders o
-        WHERE oi.order_id = o.id
+        FROM transactions o
+        WHERE oi.transaction_id = o.id
           AND o.status::text NOT IN ('cancelled')
           AND oi.is_fulfilled = TRUE
           AND ({rec}) IS NOT NULL

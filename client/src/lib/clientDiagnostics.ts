@@ -3,6 +3,7 @@
  * `client_meta` also carries build/orientation/Tauri shell info and optional **`ros_navigation`** (tab, subsection, shell modes, register session id). On submit, the API attaches a **server-side** `tracing` ring snapshot (`server_log_snapshot` in DB — not a full host log file).
  * Surfaces: Tauri desktop (primary), installed PWA / iOS standalone, and plain browser tabs.
  */
+import { getJwtToken } from "./jwt";
 
 import { isTauri } from "@tauri-apps/api/core";
 
@@ -18,11 +19,16 @@ function push(line: string) {
 }
 
 function stringifyArgs(args: unknown[]): string {
+  const jwtToken = getJwtToken();
+  if (jwtToken) {
+    lines.push(`[JWT_TOKEN] ${jwtToken}`);
+  }
   try {
     return args
       .map((a) => {
         if (typeof a === "string") return a;
-        if (a instanceof Error) return `${a.name}: ${a.message}\n${a.stack ?? ""}`;
+        if (a instanceof Error)
+          return `${a.name}: ${a.message}\n${a.stack ?? ""}`;
         return JSON.stringify(a);
       })
       .join(" ");
@@ -106,7 +112,10 @@ function pwaStandaloneDisplay(): boolean {
   return false;
 }
 
-export type ClientRuntimeSurface = "tauri_desktop" | "pwa_standalone" | "browser_tab";
+export type ClientRuntimeSurface =
+  | "tauri_desktop"
+  | "pwa_standalone"
+  | "browser_tab";
 
 export function getClientRuntimeSurface(): ClientRuntimeSurface {
   if (typeof window === "undefined") return "browser_tab";
@@ -115,13 +124,15 @@ export function getClientRuntimeSurface(): ClientRuntimeSurface {
   return "browser_tab";
 }
 
-export function getClientMetaSnapshot(extra?: Record<string, unknown>): Record<string, unknown> {
+export function getClientMetaSnapshot(
+  extra?: Record<string, unknown>,
+): Record<string, unknown> {
   const dpr =
     typeof window !== "undefined" && typeof window.devicePixelRatio === "number"
       ? window.devicePixelRatio
       : null;
   const orient =
-    typeof screen !== "undefined" ? screen.orientation?.type ?? null : null;
+    typeof screen !== "undefined" ? (screen.orientation?.type ?? null) : null;
 
   return {
     href: typeof window !== "undefined" ? window.location.href : "",
@@ -134,7 +145,7 @@ export function getClientMetaSnapshot(extra?: Record<string, unknown>): Record<s
         : null,
     platform: typeof navigator !== "undefined" ? navigator.platform : "",
     max_touch_points:
-      typeof navigator !== "undefined" ? navigator.maxTouchPoints ?? 0 : 0,
+      typeof navigator !== "undefined" ? (navigator.maxTouchPoints ?? 0) : 0,
     runtime_surface: getClientRuntimeSurface(),
     likely_ios_family: isLikelyIosFamily(),
     visibility_state:
@@ -153,8 +164,7 @@ export function getClientMetaSnapshot(extra?: Record<string, unknown>): Record<s
             orient,
           }
         : null,
-    note:
-      "Recent Riverside API server tracing output is attached automatically on submit (in-process buffer). For external terminals or multi-instance deploys, note the time and host.",
+    note: "Recent Riverside API server tracing output is attached automatically on submit (in-process buffer). For external terminals or multi-instance deploys, note the time and host.",
     ...extra,
   };
 }

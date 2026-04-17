@@ -1,14 +1,14 @@
+use crate::logic::pricing::round_money_usd;
+use crate::models::DbStaffRole;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
 use uuid::Uuid;
-use crate::logic::pricing::round_money_usd;
-use crate::models::DbStaffRole;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CommissionTrace {
-    pub order_id: Uuid,
-    pub order_item_id: Uuid,
+    pub transaction_id: Uuid,
+    pub transaction_line_id: Uuid,
     pub salesperson_name: String,
     pub role: DbStaffRole,
     pub line_gross: Decimal,
@@ -22,13 +22,13 @@ pub struct CommissionTrace {
 
 pub async fn query_commission_trace(
     pool: &PgPool,
-    order_item_id: Uuid,
+    transaction_line_id: Uuid,
 ) -> Result<CommissionTrace, String> {
     // 1. Fetch the order item and salesperson info
     let row = sqlx::query!(
         r#"
         SELECT 
-            oi.order_id,
+            oi.transaction_id,
             oi.unit_price,
             oi.quantity,
             oi.salesperson_id,
@@ -39,20 +39,22 @@ pub async fn query_commission_trace(
             s.role as "salesperson_role: DbStaffRole",
             s.base_commission_rate as staff_base_rate,
             p.name as product_name
-        FROM order_items oi
+        FROM transaction_lines oi
         JOIN product_variants pv ON oi.variant_id = pv.id
         JOIN products p ON pv.product_id = p.id
         LEFT JOIN staff s ON oi.salesperson_id = s.id
         WHERE oi.id = $1
         "#,
-        order_item_id
+        transaction_line_id
     )
     .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Order item not found".to_string())?;
 
-    let _sid = row.salesperson_id.ok_or_else(|| "No salesperson attributed to this line".to_string())?;
+    let _sid = row
+        .salesperson_id
+        .ok_or_else(|| "No salesperson attributed to this line".to_string())?;
     let base_rate = row.staff_base_rate.unwrap_or(Decimal::ZERO);
     let gross = row.unit_price * Decimal::from(row.quantity);
 
@@ -89,19 +91,31 @@ pub async fn query_commission_trace(
     let mut applied_rate = base_rate;
     let mut flat_spiff = Decimal::ZERO;
     let mut source = "Staff Base Rate".to_string();
-    let mut explanation = format!("Calculated using default staff commission ({}%) for {:?}.", base_rate * Decimal::from(100), row.salesperson_role);
+    let mut explanation = format!(
+        "Calculated using default staff commission ({}%) for {:?}.",
+        base_rate * Decimal::from(100),
+        row.salesperson_role
+    );
 
     if let Some(r) = rule {
         applied_rate = r.override_rate.unwrap_or(base_rate);
         flat_spiff = r.fixed_spiff_amount.unwrap_or(Decimal::ZERO) * Decimal::from(row.quantity);
-        source = format!("{} Rule", r.match_type[..1].to_uppercase() + &r.match_type[1..]);
-        explanation = format!("Specific {} rule match. Rule ID: {}. Captured rate: {}% + ${} fixed SPIFF per unit.", 
-            r.match_type, r.id, applied_rate * Decimal::from(100), r.fixed_spiff_amount.unwrap_or(Decimal::ZERO));
+        source = format!(
+            "{} Rule",
+            r.match_type[..1].to_uppercase() + &r.match_type[1..]
+        );
+        explanation = format!(
+            "Specific {} rule match. Rule ID: {}. Captured rate: {}% + ${} fixed SPIFF per unit.",
+            r.match_type,
+            r.id,
+            applied_rate * Decimal::from(100),
+            r.fixed_spiff_amount.unwrap_or(Decimal::ZERO)
+        );
     } else {
         // Fallback to legacy
         if let Some(cid) = row.category_id {
             let legacy_rate: Option<Decimal> = sqlx::query_scalar(
-                "SELECT commission_rate FROM category_commission_overrides WHERE category_id = $1"
+                "SELECT commission_rate FROM category_commission_overrides WHERE category_id = $1",
             )
             .bind(cid)
             .fetch_optional(pool)
@@ -119,8 +133,8 @@ pub async fn query_commission_trace(
     let total = round_money_usd(gross * applied_rate + flat_spiff);
 
     Ok(CommissionTrace {
-        order_id: row.order_id.unwrap_or(Uuid::nil()),
-        order_item_id,
+        transaction_id: row.transaction_id.unwrap_or(Uuid::nil()),
+        transaction_line_id,
         salesperson_name: row.salesperson_name.clone(),
         role: row.salesperson_role,
         line_gross: gross,

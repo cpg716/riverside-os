@@ -1,12 +1,9 @@
 import React from "react";
 import { warmUpPosAudio, playPosScanSuccess, type PosSoundProfile } from "../../lib/posAudio";
-import { Monitor, Volume2, Printer } from "lucide-react";
+import { Volume2, Printer } from "lucide-react";
 
-type ThemeMode = "light" | "dark" | "system";
 
 interface RegisterSettingsProps {
-  themeMode: ThemeMode;
-  onThemeModeChange: (m: ThemeMode) => void;
   sessionId?: string | null;
   cashierCode?: string | null;
   lifecycleStatus?: string | null;
@@ -14,8 +11,6 @@ interface RegisterSettingsProps {
 }
 
 export default function RegisterSettings({ 
-  themeMode, 
-  onThemeModeChange,
   sessionId,
   cashierCode,
   lifecycleStatus,
@@ -29,14 +24,21 @@ export default function RegisterSettings({
     return "classic";
   });
 
-  const [printerIp, setPrinterIp] = React.useState(() => window.localStorage.getItem("ros.pos.printerIp") || "127.0.0.1");
-  const [printerPort, setPrinterPort] = React.useState(() => window.localStorage.getItem("ros.pos.printerPort") || "9100");
-  const [autoPrint, setAutoPrint] = React.useState(() => window.localStorage.getItem("ros.pos.autoPrint") === "true");
+  const [receiptPrinterIp, setReceiptPrinterIp] = React.useState(() => window.localStorage.getItem("ros.pos.receiptPrinterIp") || "127.0.0.1");
+  const [receiptPrinterPort, setReceiptPrinterPort] = React.useState(() => window.localStorage.getItem("ros.pos.receiptPrinterPort") || "9100");
+  const [autoPrintReceipts, setAutoPrintReceipts] = React.useState(() => window.localStorage.getItem("ros.pos.autoPrintReceipts") === "true");
+  
+  const [reportPrinterName, setReportPrinterName] = React.useState(() => window.localStorage.getItem("ros.pos.reportPrinterName") || "Default");
+  const [autoPrintReports, setAutoPrintReports] = React.useState(() => window.localStorage.getItem("ros.pos.autoPrintReports") === "true");
+
   const [busy, setBusy] = React.useState(false);
 
-  const saveIp = (val: string) => { setPrinterIp(val); window.localStorage.setItem("ros.pos.printerIp", val); };
-  const savePort = (val: string) => { setPrinterPort(val); window.localStorage.setItem("ros.pos.printerPort", val); };
-  const toggleAutoPrint = () => { const next = !autoPrint; setAutoPrint(next); window.localStorage.setItem("ros.pos.autoPrint", String(next)); };
+  const saveReceiptIp = (val: string) => { setReceiptPrinterIp(val); window.localStorage.setItem("ros.pos.receiptPrinterIp", val); };
+  const saveReceiptPort = (val: string) => { setReceiptPrinterPort(val); window.localStorage.setItem("ros.pos.receiptPrinterPort", val); };
+  const toggleAutoPrintReceipts = () => { const next = !autoPrintReceipts; setAutoPrintReceipts(next); window.localStorage.setItem("ros.pos.autoPrintReceipts", String(next)); };
+
+  const saveReportPrinter = (val: string) => { setReportPrinterName(val); window.localStorage.setItem("ros.pos.reportPrinterName", val); };
+  const toggleAutoPrintReports = () => { const next = !autoPrintReports; setAutoPrintReports(next); window.localStorage.setItem("ros.pos.autoPrintReports", String(next)); };
 
   const handleSoundChange = (val: PosSoundProfile) => {
     setSoundProfile(val);
@@ -81,35 +83,6 @@ export default function RegisterSettings({
       <div className="flex-1 overflow-y-auto p-8 space-y-10 no-scrollbar">
         <div className="mx-auto max-w-3xl space-y-12 pb-20">
           
-          <section className="space-y-6">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 flex items-center justify-center rounded-xl bg-app-accent/10 text-app-accent">
-                 <Monitor size={20} />
-              </div>
-              <div>
-                <h3 className="text-lg font-black tracking-tight">Display & Visibility</h3>
-                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Control the visual glare and contrast</p>
-              </div>
-            </div>
-            <div className="ui-card p-6 border-app-border">
-              <label className="flex flex-col gap-3">
-                <span className="text-sm font-bold">Theme Mode</span>
-                <div className="grid grid-cols-3 gap-3">
-                   {(['light', 'dark', 'system'] as ThemeMode[]).map(mode => (
-                     <button
-                        key={mode}
-                        type="button"
-                        onClick={() => onThemeModeChange(mode)}
-                        className={`flex flex-col items-center gap-2 rounded-xl border p-4 transition-all ${themeMode === mode ? 'border-app-text bg-app-accent/10 border-2' : 'border-app-border bg-app-surface shadow-sm hover:border-app-accent/40'}`}
-                     >
-                        <span className="text-xs font-black uppercase tracking-widest leading-none">{mode}</span>
-                        <div className={`h-1.5 w-1.5 rounded-full ${themeMode === mode ? 'bg-app-text shadow-[0_0_8px_rgba(39,39,42,0.8)]' : 'bg-app-border'}`} />
-                     </button>
-                   ))}
-                </div>
-              </label>
-            </div>
-          </section>
 
           {/* New Reconciliation / Status Override */}
           {lifecycleStatus === 'reconciling' && (
@@ -169,43 +142,81 @@ export default function RegisterSettings({
               </div>
               <div>
                 <h3 className="text-lg font-black tracking-tight">Printer & Peripherals</h3>
-                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Async TCP / Server Dispatch Hub</p>
+                <p className="text-xs font-bold text-app-text-muted uppercase tracking-wider">Assigned Hardware Nodes</p>
               </div>
             </div>
-            <div className="ui-card p-6 border-app-border space-y-6">
-              <div className="grid grid-cols-2 gap-4">
-                 <label className="flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Station Printer IP</span>
-                    <input 
-                      value={printerIp} 
-                      onChange={e => saveIp(e.target.value)}
-                      placeholder="127.0.0.1"
-                      className="ui-input font-mono"
-                    />
-                 </label>
-                 <label className="flex flex-col gap-2">
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">TCP Port</span>
-                    <input 
-                      value={printerPort} 
-                      onChange={e => savePort(e.target.value)}
-                      placeholder="9100"
-                      className="ui-input font-mono"
-                    />
-                 </label>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Receipt Printer (Thermal) */}
+              <div className="ui-card p-6 border-app-border space-y-6">
+                <div className="flex items-center justify-between border-b border-app-border pb-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Receipt Station (Thermal)</p>
+                  <div className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                   <label className="flex flex-col gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Printer IP</span>
+                      <input 
+                        value={receiptPrinterIp} 
+                        onChange={e => saveReceiptIp(e.target.value)}
+                        placeholder="127.0.0.1"
+                        className="ui-input font-mono text-xs"
+                      />
+                   </label>
+                   <label className="flex flex-col gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">TCP Port</span>
+                      <input 
+                        value={receiptPrinterPort} 
+                        onChange={e => saveReceiptPort(e.target.value)}
+                        placeholder="9100"
+                        className="ui-input font-mono text-xs"
+                      />
+                   </label>
+                </div>
+                <button 
+                  type="button"
+                  onClick={toggleAutoPrintReceipts}
+                  className={`flex w-full items-center justify-between rounded-xl border p-4 transition-all ${autoPrintReceipts ? 'border-app-text bg-app-accent/10 border-2' : 'border-app-border bg-app-surface'}`}
+                >
+                   <div className="text-left">
+                      <p className="text-sm font-black uppercase italic tracking-tighter">Auto-Print</p>
+                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Immediate thermal bridge</p>
+                   </div>
+                   <div className={`h-6 w-12 rounded-full p-1 transition-colors ${autoPrintReceipts ? 'bg-app-text shadow-inner' : 'bg-app-border'}`}>
+                      <div className={`h-4 w-4 rounded-full bg-app-surface shadow-sm transition-transform ${autoPrintReceipts ? 'translate-x-6 shadow-lg' : 'translate-x-0'}`} />
+                   </div>
+                </button>
               </div>
-              <button 
-                type="button"
-                onClick={toggleAutoPrint}
-                className={`flex w-full items-center justify-between rounded-xl border p-4 transition-all ${autoPrint ? 'border-app-text bg-app-accent/10 border-2' : 'border-app-border bg-app-surface'}`}
-              >
-                 <div className="text-left">
-                    <p className="text-sm font-black uppercase italic tracking-tighter">Auto-Print Receipt</p>
-                    <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Trigger print on checkout success</p>
-                 </div>
-                 <div className={`h-6 w-12 rounded-full p-1 transition-colors ${autoPrint ? 'bg-app-text shadow-inner' : 'bg-app-border'}`}>
-                    <div className={`h-4 w-4 rounded-full bg-app-surface shadow-sm transition-transform ${autoPrint ? 'translate-x-6 shadow-lg' : 'translate-x-0 whitespace-nowrap'}`} />
-                 </div>
-              </button>
+
+              {/* Report Printer (Full Page) */}
+              <div className="ui-card p-6 border-app-border space-y-6">
+                <div className="flex items-center justify-between border-b border-app-border pb-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Report Station (Audit)</p>
+                  <div className="h-2 w-2 rounded-full bg-blue-500/40" />
+                </div>
+                <label className="flex flex-col gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">System Printer Name</span>
+                  <input 
+                    value={reportPrinterName} 
+                    onChange={e => saveReportPrinter(e.target.value)}
+                    placeholder="e.g. Office LaserJet"
+                    className="ui-input font-semibold text-sm"
+                  />
+                </label>
+                <button 
+                  type="button"
+                  onClick={toggleAutoPrintReports}
+                  className={`flex w-full items-center justify-between rounded-xl border p-4 transition-all ${autoPrintReports ? 'border-app-text bg-app-accent/10 border-2' : 'border-app-border bg-app-surface'}`}
+                >
+                   <div className="text-left">
+                      <p className="text-sm font-black uppercase italic tracking-tighter">Auto-Print (Silent)</p>
+                      <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">Bypass system dialog</p>
+                   </div>
+                   <div className={`h-6 w-12 rounded-full p-1 transition-colors ${autoPrintReports ? 'bg-app-text shadow-inner' : 'bg-app-border'}`}>
+                      <div className={`h-4 w-4 rounded-full bg-app-surface shadow-sm transition-transform ${autoPrintReports ? 'translate-x-6 shadow-lg' : 'translate-x-0'}`} />
+                   </div>
+                </button>
+              </div>
             </div>
           </section>
 

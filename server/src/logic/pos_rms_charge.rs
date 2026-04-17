@@ -17,8 +17,13 @@ pub fn is_rms_method(method: &str) -> bool {
     m == "on_account_rms" || m == "on_account_rms90"
 }
 
-pub fn order_compact_ref(order_id: Uuid) -> String {
-    order_id.as_simple().to_string().chars().take(12).collect()
+pub fn transaction_compact_ref(transaction_id: Uuid) -> String {
+    transaction_id
+        .as_simple()
+        .to_string()
+        .chars()
+        .take(12)
+        .collect()
 }
 
 /// `record_kind`: `charge` (sale tender) or `payment` (cash/check R2S collection).
@@ -26,7 +31,7 @@ pub fn order_compact_ref(order_id: Uuid) -> String {
 pub async fn insert_rms_record<'e, E>(
     ex: E,
     record_kind: &str,
-    order_id: Uuid,
+    transaction_id: Uuid,
     register_session_id: Uuid,
     customer_id: Option<Uuid>,
     payment_method: &str,
@@ -34,7 +39,7 @@ pub async fn insert_rms_record<'e, E>(
     operator_staff_id: Uuid,
     payment_transaction_id: Uuid,
     customer_display: Option<&str>,
-    order_short_ref: &str,
+    transaction_short_ref: &str,
 ) -> Result<(), sqlx::Error>
 where
     E: Executor<'e, Database = Postgres>,
@@ -42,14 +47,14 @@ where
     sqlx::query(
         r#"
         INSERT INTO pos_rms_charge_record (
-            order_id, register_session_id, customer_id, payment_method, amount,
-            operator_staff_id, payment_transaction_id, customer_display, order_short_ref,
+            transaction_id, register_session_id, customer_id, payment_method, amount,
+            operator_staff_id, payment_transaction_id, customer_display, transaction_short_ref,
             record_kind
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(register_session_id)
     .bind(customer_id)
     .bind(payment_method)
@@ -57,7 +62,7 @@ where
     .bind(operator_staff_id)
     .bind(payment_transaction_id)
     .bind(customer_display)
-    .bind(order_short_ref)
+    .bind(transaction_short_ref)
     .bind(record_kind)
     .execute(ex)
     .await?;
@@ -68,11 +73,11 @@ where
 #[allow(clippy::too_many_arguments)]
 pub async fn notify_sales_support_after_checkout(
     pool: &PgPool,
-    order_id: Uuid,
+    transaction_id: Uuid,
     register_session_id: Uuid,
     customer_id: Option<Uuid>,
     customer_display: Option<&str>,
-    order_short_ref: &str,
+    transaction_short_ref: &str,
     operator_staff_id: Uuid,
     charges: &[RmsChargeNotify],
 ) -> Result<(), sqlx::Error> {
@@ -108,7 +113,7 @@ pub async fn notify_sales_support_after_checkout(
         };
         let body = format!(
             "Submit R2S charge in portal. Order ref: {}. Method: {}. Amount: ${}. Customer: {}. Transaction: {}.",
-            order_short_ref,
+            transaction_short_ref,
             method_label,
             c.amount,
             cust_label,
@@ -116,14 +121,14 @@ pub async fn notify_sales_support_after_checkout(
         );
         let deep = json!({
             "kind": "rms_r2s_charge",
-            "order_id": order_id,
+            "transaction_id": transaction_id,
             "register_session_id": register_session_id,
             "customer_id": customer_id,
             "payment_transaction_id": c.payment_transaction_id,
             "payment_method": c.method,
             "amount": c.amount.to_string(),
         });
-        let dedupe = format!("rms_r2s:{}:{}", order_id, c.payment_transaction_id);
+        let dedupe = format!("rms_r2s:{}:{}", transaction_id, c.payment_transaction_id);
         let audience = json!({ "roles": ["sales_support"] });
 
         let nid = match crate::logic::notifications::insert_app_notification_deduped(
@@ -150,7 +155,7 @@ pub async fn notify_sales_support_after_checkout(
         operator_staff_id,
         "rms_charge_notified",
         json!({
-            "order_id": order_id,
+            "transaction_id": transaction_id,
             "register_session_id": register_session_id,
             "charge_count": charges.len(),
         }),

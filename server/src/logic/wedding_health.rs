@@ -1,14 +1,14 @@
+use chrono::Utc;
+use rust_decimal::prelude::ToPrimitive;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-use rust_decimal::prelude::ToPrimitive;
-use chrono::Utc;
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum HealthStatus {
-    Healthy,   // Green
-    Concern,   // Amber
-    Critical,  // Red
+    Healthy,  // Green
+    Concern,  // Amber
+    Critical, // Red
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -21,6 +21,7 @@ pub struct WeddingHealthScore {
     pub days_until_event: i64,
     pub member_count: i64,
     pub measured_count: i64,
+    pub reason: String,
 }
 
 pub async fn calculate_wedding_health(
@@ -45,7 +46,7 @@ pub async fn calculate_wedding_health(
             COALESCE(SUM(o.amount_paid), 0) as total_paid
         FROM customers c
         LEFT JOIN measurements m ON m.customer_id = c.id
-        LEFT JOIN orders o ON o.customer_id = c.id AND o.status != 'cancelled'
+        LEFT JOIN transactions o ON o.customer_id = c.id AND o.status != 'cancelled'
         WHERE c.wedding_id = $1
         "#,
         wedding_id
@@ -54,7 +55,7 @@ pub async fn calculate_wedding_health(
     .await?;
 
     let days_until = (event_date - Utc::now().naive_utc().date()).num_days();
-    
+
     // Measurement Progress
     let total_members = stats.total_members.unwrap_or(0);
     let measured_members = stats.measured_members.unwrap_or(0);
@@ -65,7 +66,11 @@ pub async fn calculate_wedding_health(
     };
 
     // Payment Progress
-    let total_value = stats.total_value.unwrap_or_default().to_f64().unwrap_or(0.0);
+    let total_value = stats
+        .total_value
+        .unwrap_or_default()
+        .to_f64()
+        .unwrap_or(0.0);
     let total_paid = stats.total_paid.unwrap_or_default().to_f64().unwrap_or(0.0);
     let payment_progress = if total_value > 0.0 {
         total_paid / total_value
@@ -79,21 +84,33 @@ pub async fn calculate_wedding_health(
 
     // Time-based Penalty
     let mut status = HealthStatus::Healthy;
+    let mut reason = "On track. Standard follow-up rules apply.".to_string();
 
-    if days_until < 14 {
+    if days_until < 0 {
+        reason = "Wedding date has passed.".to_string();
+    } else if days_until < 14 {
         if score < 0.9 {
             status = HealthStatus::Critical;
+            reason = format!(
+                "Critical Risk: Event in {days_until} days with {}% completion.",
+                (score * 100.0) as i32
+            );
         } else if score < 0.98 {
             status = HealthStatus::Concern;
+            reason = format!("Warning: Event in {days_until} days. Finalize remaining fittings.");
         }
     } else if days_until < 30 {
         if score < 0.7 {
             status = HealthStatus::Critical;
+            reason =
+                "High Risk: Significant missing measurements/payments < 30 days out.".to_string();
         } else if score < 0.85 {
             status = HealthStatus::Concern;
+            reason = "Concern: Approaching 30-day window with incomplete party data.".to_string();
         }
     } else if score < 0.5 {
         status = HealthStatus::Concern;
+        reason = "Initial Warning: Low engagement for upcoming event.".to_string();
     }
 
     // Cap score
@@ -108,5 +125,6 @@ pub async fn calculate_wedding_health(
         days_until_event: days_until,
         member_count: total_members,
         measured_count: measured_members,
+        reason,
     })
 }

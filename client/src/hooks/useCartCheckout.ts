@@ -8,7 +8,8 @@ import {
   type CheckoutPayload,
   type CheckoutPaymentSplitPayload,
   type CartTotals,
-  type PosShippingSelection
+  type PosShippingSelection,
+  type PosOrderOptions
 } from "../components/pos/types";
 import { parseMoneyToCents, centsToFixed2 } from "../lib/money";
 import { newCheckoutClientId, normalizeGiftCardSubType } from "../lib/posUtils";
@@ -53,12 +54,19 @@ export function useCartCheckout({
   ensurePosTokenForSession,
 }: UseCartCheckoutProps) {
   const [checkoutBusy, setCheckoutBusy] = useState(false);
-  const [lastOrderId, setLastOrderId] = useState<string | null>(null);
+  const [lastTransactionId, setLastTransactionId] = useState<string | null>(null);
 
   const executeCheckout = useCallback(async (
     applied: AppliedPaymentLine[], 
     op: CheckoutOperatorContext, 
-    ledgerSignals: { appliedDepositAmountCents: number }
+    ledgerSignals: { 
+      appliedDepositAmountCents: number;
+      isTaxExempt: boolean;
+      taxExemptReason?: string;
+      roundingAdjustmentCents?: number;
+      finalCashDueCents?: number;
+    },
+    options?: PosOrderOptions
   ) => {
     if (!op?.staffId?.trim()) {
       toast("Sign in as cashier on the register sign-in screen before completing payment.", "error");
@@ -96,15 +104,24 @@ export function useCartCheckout({
         if (subtype) split.sub_type = subtype;
         if (p.method === "gift_card" && p.gift_card_code)
           split.gift_card_code = p.gift_card_code;
+        if (p.method === "check" && p.metadata?.check_number)
+          split.check_number = p.metadata.check_number;
+        
+        // Pass other metadata (Stripe, etc.) if present
+        if (p.metadata) {
+          split.metadata = p.metadata;
+        }
+
         return split;
       });
 
+      const tenderPaidCents = applied.reduce((s, p) => s + p.amountCents, 0);
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
-      const sumPaidCents = applied.reduce((s, p) => s + p.amountCents, 0) + ledgerCents;
+      const totalAccountedCents = tenderPaidCents + ledgerCents;
 
       // Validate totals
-      if (sumPaidCents > totals.collectTotalCents) {
-         toast(`Collected total $${centsToFixed2(sumPaidCents)} is more than the amount due $${centsToFixed2(totals.collectTotalCents)}.`, "error");
+      if (totalAccountedCents > totals.collectTotalCents) {
+         toast(`Accounted total $${centsToFixed2(totalAccountedCents)} is more than the amount due $${centsToFixed2(totals.collectTotalCents)}.`, "error");
          setCheckoutBusy(false);
          return;
       }
@@ -119,14 +136,24 @@ export function useCartCheckout({
         customer_id: selectedCustomer?.id ?? null,
         wedding_member_id: activeWeddingMember?.id ?? null,
         payment_method: payment_splits.length === 1 ? payment_splits[0]!.payment_method : "split",
-        total_price: centsToFixed2(totals.orderTotalCents),
-        amount_paid: centsToFixed2(sumPaidCents),
+        total_price: centsToFixed2(ledgerSignals.isTaxExempt ? totals.orderTotalCents - (totals.stateTaxCents + totals.localTaxCents) : totals.orderTotalCents),
+        amount_paid: centsToFixed2(tenderPaidCents),
         checkout_client_id: checkoutClientId,
-        is_rush: lines.some(l => l.is_rush),
-        need_by_date: lines.find(l => l.need_by_date)?.need_by_date || null,
+        is_rush: options?.is_rush ?? lines.some((l) => l.is_rush),
+        need_by_date:
+          options?.need_by_date ??
+          (lines.find((l) => l.need_by_date)?.need_by_date || null),
+        fulfillment_mode:
+          options?.fulfillment_mode ?? (posShipping ? "ship" : "pickup"),
+        ship_to: options?.ship_to ?? (posShipping?.to_address || null),
+        stripe_payment_method_id: options?.stripe_payment_method_id ?? null,
         actor_name: op.fullName.trim() || cashierName?.trim() || null,
         payment_splits,
         applied_deposit_amount: ledgerCents > 0 ? centsToFixed2(ledgerCents) : undefined,
+        is_tax_exempt: ledgerSignals.isTaxExempt,
+        tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
+        rounding_adjustment: ledgerSignals.roundingAdjustmentCents ? centsToFixed2(ledgerSignals.roundingAdjustmentCents) : undefined,
+        final_cash_due: ledgerSignals.finalCashDueCents ? centsToFixed2(ledgerSignals.finalCashDueCents) : undefined,
         items: lines.map((l) => {
           const unitCents = parseMoneyToCents(l.standard_retail_price);
           const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
@@ -139,8 +166,8 @@ export function useCartCheckout({
             original_unit_price: origCents !== unitCents ? centsToFixed2(origCents) : undefined,
             price_override_reason: l.price_override_reason,
             unit_cost: centsToFixed2(parseMoneyToCents(l.unit_cost)),
-            state_tax: centsToFixed2(parseMoneyToCents(l.state_tax)), 
-            local_tax: centsToFixed2(parseMoneyToCents(l.local_tax)),
+            state_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.state_tax)), 
+            local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
             salesperson_id: l.salesperson_id?.trim() || null,
             custom_item_type: l.custom_item_type,
             is_rush: l.is_rush,
@@ -165,7 +192,7 @@ export function useCartCheckout({
         return;
       }
 
-      const res = await fetch(`${baseUrl}/api/orders/checkout`, {
+      const res = await fetch(`${baseUrl}/api/transactions/checkout`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...apiAuth() },
         body: JSON.stringify(payload),
@@ -176,8 +203,8 @@ export function useCartCheckout({
         throw new Error(b.error || `Checkout failed (${res.status})`);
       }
 
-      const data = await res.json() as { order_id: string };
-      setLastOrderId(data.order_id);
+      const data = await res.json() as { transaction_id: string };
+      setLastTransactionId(data.transaction_id);
       toast("Checkout complete", "success");
       clearCart();
       onSaleCompleted?.();
@@ -196,7 +223,7 @@ export function useCartCheckout({
   return {
     executeCheckout,
     checkoutBusy,
-    lastOrderId,
-    setLastOrderId
+    lastTransactionId,
+    setLastTransactionId
   };
 }

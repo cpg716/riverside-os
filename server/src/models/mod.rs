@@ -196,6 +196,10 @@ pub struct Staff {
     pub id: Uuid,
     pub full_name: String,
     pub cashier_code: String,
+    pub pin: Option<String>,
+    pub pin_hash: Option<String>,
+    pub role: Option<String>,
+    pub avatar_key: Option<String>,
     pub base_commission_rate: Decimal,
     pub is_active: bool,
     pub created_at: DateTime<Utc>,
@@ -205,6 +209,7 @@ pub struct Staff {
 pub struct WeddingParty {
     pub id: Uuid,
     pub groom_name: String,
+    pub suit_variant_id: Option<Uuid>,
     pub event_date: NaiveDate,
     pub notes: Option<String>,
     pub created_at: DateTime<Utc>,
@@ -257,19 +262,21 @@ pub struct RegisterSession {
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct Order {
+pub struct Transaction {
     pub id: Uuid,
+    pub display_id: Option<String>,
     pub customer_id: Option<Uuid>,
     pub wedding_id: Option<Uuid>,
     pub operator_id: Option<Uuid>,
     pub primary_salesperson_id: Option<Uuid>,
     pub is_employee_purchase: bool,
-    pub status: DbOrderStatus,
+    pub fulfillment_method: Option<String>,
     pub booked_at: DateTime<Utc>,
-    pub fulfilled_at: Option<DateTime<Utc>>,
     pub total_price: Decimal,
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
+    pub rounding_adjustment: Decimal,
+    pub final_cash_due: Option<Decimal>,
     pub is_forfeited: bool,
     pub forfeited_at: Option<DateTime<Utc>>,
     #[sqlx(json)]
@@ -278,9 +285,11 @@ pub struct Order {
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
-pub struct OrderItem {
+pub struct TransactionLine {
     pub id: Uuid,
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
+    pub fulfillment_order_id: Option<Uuid>,
+    pub line_display_id: Option<String>,
     pub product_id: Uuid,
     pub variant_id: Option<Uuid>,
     pub salesperson_id: Option<Uuid>,
@@ -295,6 +304,19 @@ pub struct OrderItem {
     #[sqlx(json)]
     pub size_specs: Option<serde_json::Value>,
     pub is_fulfilled: bool,
+    pub fulfilled_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
+pub struct FulfillmentOrder {
+    pub id: Uuid,
+    pub display_id: String,
+    pub customer_id: Option<Uuid>,
+    pub wedding_id: Option<Uuid>,
+    pub status: String,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub fulfilled_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, Deserialize, sqlx::FromRow)]
@@ -305,6 +327,7 @@ pub struct PaymentTransaction {
     pub category: DbTransactionCategory,
     pub payment_method: String,
     pub amount: Decimal,
+    pub status: Option<String>,
     #[sqlx(json)]
     pub metadata: Option<serde_json::Value>,
     pub stripe_intent_id: Option<String>,
@@ -312,7 +335,9 @@ pub struct PaymentTransaction {
     pub net_amount: Decimal,
     pub card_brand: Option<String>,
     pub card_last4: Option<String>,
+    pub check_number: Option<String>,
     pub is_posted_to_rms_portal: bool,
+    pub occurred_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
 }
 
@@ -320,8 +345,9 @@ pub struct PaymentTransaction {
 pub struct PaymentAllocation {
     pub id: Uuid,
     pub transaction_id: Uuid,
-    pub target_order_id: Uuid,
+    pub target_transaction_id: Uuid,
     pub amount_allocated: Decimal,
+    pub check_number: Option<String>,
     #[sqlx(json)]
     pub metadata: Option<serde_json::Value>,
 }

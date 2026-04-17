@@ -1,0 +1,3 @@
+# Overview of Main Shell Component
+
+The main shell component is the central hub of the application, responsible for managing UI state and rendering content based on user interactions and application state. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, global search drawer, deep link handling, modals for closing the register, drawers for help center and bug reports, permissions and access control, theme mode, error handling, and navigation and routing.

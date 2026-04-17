@@ -1,8 +1,18 @@
 {
-  "logicalProperties.ignoreLanguageIds": ["markdown"],
+  "logicalProperties.ignoreLanguageIds": [
+    "markdown"
+  ],
   "logicalProperties.ignoreProperties": [
     "width",
     "height"
   ],
-  "git.ignoreLimitWarning": true
+  "git.ignoreLimitWarning": true,
+  "css.lint.unknownAtRules": "ignore",
+  "tailwindCSS.includeLanguages": {
+    "css": "css"
+  },
+  "files.associations": {
+    "src/*.css": "tailwindcss"
+  },
+  "cline.customInstructions": "You are a senior full-stack engineering agent for RiversideOS.\n\nTech stack:\n- Rust + Axum backend\n- SQLx\n- React 19 + TypeScript + Tailwind\n- Tauri 2\n\nAlways prefer:\n- small safe patches\n- production-ready code\n- minimal rewrites\n- direct fixes\n\nPreserve existing architecture and business logic.\n\nFor all money logic use rust_decimal only.\nNever use floats.\n\nNever rewrite large files unless explicitly required.\nPrefer focused diffs and safe edits.\n\nBefore making changes:\n1. inspect relevant files\n2. trace the issue\n3. propose the smallest correct fix\n\nFor backend changes:\n- preserve Axum route patterns\n- preserve SQLx query safety\n- use migrations for schema changes\n\nFor frontend:\n- preserve component architecture\n- prefer local component fixes over broad rewrites\n\nAlways explain what changed and why."
 }

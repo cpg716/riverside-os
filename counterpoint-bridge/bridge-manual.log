@@ -1,0 +1,338 @@
+🌐 Bridge Command UI available at: http://localhost:3002
+ROS sync health OK (direct entity ingest)
+[sync-order] Enforced pass order: staff → sales_rep_stubs (opt) → vendors → customers → store_credit_opening (opt) → customer_notes (opt) → category_masters (opt, before catalog) → catalog → inventory → vendor_items (opt) → gift_cards (opt) → tickets/opt → open_docs (opt) → loyalty_hist (opt) → receiving_history (opt) → ticket_notes (opt).
+(node:49421) [DEP0123] DeprecationWarning: Setting the TLS ServerName to an IP address is not permitted by RFC 6066. This will be ignored in a future version.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+SQL Server connected. SQL requestTimeout=600000ms, ROS fetch timeout=300000ms.
+[auto-schema] IM_INV cost=LST_COST; PO_VEND_ITEM vendor link; PO_VEND columns auto
+[sync-plan] SYNC_STORE_CREDIT_OPENING=1: set CP_CUSTOMER_STORE_CREDIT_EXISTS (EXISTS body: SELECT 1 … matching c.CUST_NO with balance > 0) or customers with only store credit are skipped by CP_CUSTOMERS_QUERY.
+[ingest] Mode: direct — each batch writes to live tables (use for bulk / first import)
+[compat] PS_TKT_HIST DOC_TYP filters omitted (default; set CP_OMIT_PS_TKT_DOC_TYP_FILTER=0 to enforce). Imports use BUS_DAT / activity only — confirm row types in SSMS if results look wrong.
+[3:40:51 PM] Bridge started in IDLE mode. Use dashboard or wait for timer.
+Repeating full sync every 10000 ms (set RUN_ONCE=1 for a single pass, then exit).
+[3:41:11 PM] [heartbeat] online (bridge 0.7.3)
+[3:41:17 PM] Manual trigger: Targeted pull for [customers] requested
+[3:41:17 PM] [dependency-check] To complete [customers], we will run: customers
+[3:41:17 PM] [customers] starting targeted sync...
+[3:41:17 PM] Manual trigger: Targeted pull for [open_docs] requested
+[3:41:17 PM] [dependency-check] To complete [open_docs], we will run: customers -> catalog -> open_docs
+[3:41:17 PM] [customers] starting targeted sync...
+[heartbeat] fetch failed
+[heartbeat] fetch failed
+[3:41:25 PM] [customers] SQL returned 25972 customer(s)
+[customers] SQL returned 25972 customer(s); sending with parallel-concurrency=2
+[3:41:25 PM] [customers] SQL returned 25972 customer(s)
+[customers] SQL returned 25972 customer(s); sending with parallel-concurrency=2
+[heartbeat] fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch failed: fetch failed
+[customers] batch { created: 147, email_conflicts: 1, skipped: 0, updated: 53 }
+[customers] batch { created: 141, email_conflicts: 0, skipped: 0, updated: 59 }
+[customers] batch { created: 131, email_conflicts: 2, skipped: 0, updated: 69 }
+[customers] batch { created: 127, email_conflicts: 1, skipped: 0, updated: 73 }
+[customers] batch { created: 112, email_conflicts: 2, skipped: 0, updated: 88 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 154, email_conflicts: 1, skipped: 0, updated: 46 }
+[customers] batch { created: 149, email_conflicts: 2, skipped: 0, updated: 51 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 129, email_conflicts: 1, skipped: 0, updated: 71 }
+[customers] batch { created: 145, email_conflicts: 3, skipped: 0, updated: 55 }
+[customers] batch { created: 131, email_conflicts: 2, skipped: 0, updated: 69 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 142, email_conflicts: 3, skipped: 0, updated: 58 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 160, email_conflicts: 2, skipped: 0, updated: 40 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 165, email_conflicts: 3, skipped: 0, updated: 35 }
+[customers] batch { created: 169, email_conflicts: 2, skipped: 0, updated: 31 }
+[customers] batch { created: 162, email_conflicts: 4, skipped: 0, updated: 38 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 156, email_conflicts: 2, skipped: 0, updated: 44 }
+[customers] batch { created: 172, email_conflicts: 0, skipped: 0, updated: 28 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 169, email_conflicts: 3, skipped: 0, updated: 31 }
+[customers] batch { created: 162, email_conflicts: 3, skipped: 0, updated: 38 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 152, email_conflicts: 5, skipped: 0, updated: 48 }
+[customers] batch { created: 0, email_conflicts: 4, skipped: 0, updated: 200 }
+[customers] batch { created: 163, email_conflicts: 0, skipped: 0, updated: 37 }
+[customers] batch { created: 159, email_conflicts: 2, skipped: 0, updated: 41 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 153, email_conflicts: 6, skipped: 0, updated: 47 }
+[customers] batch { created: 152, email_conflicts: 2, skipped: 0, updated: 48 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 169, email_conflicts: 3, skipped: 0, updated: 31 }
+[customers] batch { created: 0, email_conflicts: 5, skipped: 0, updated: 200 }
+[customers] batch { created: 159, email_conflicts: 5, skipped: 0, updated: 41 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 173, email_conflicts: 2, skipped: 0, updated: 27 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 154, email_conflicts: 7, skipped: 0, updated: 46 }
+[customers] batch { created: 166, email_conflicts: 1, skipped: 0, updated: 34 }
+[customers] batch { created: 0, email_conflicts: 6, skipped: 0, updated: 200 }
+[customers] batch { created: 153, email_conflicts: 9, skipped: 0, updated: 47 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 159, email_conflicts: 4, skipped: 0, updated: 41 }
+[customers] batch { created: 157, email_conflicts: 5, skipped: 0, updated: 43 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 5, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 154, email_conflicts: 3, skipped: 0, updated: 46 }
+[customers] batch { created: 0, email_conflicts: 7, skipped: 0, updated: 200 }
+[customers] batch { created: 150, email_conflicts: 3, skipped: 0, updated: 50 }
+[customers] batch { created: 161, email_conflicts: 2, skipped: 0, updated: 39 }
+[customers] batch { created: 0, email_conflicts: 9, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 4, skipped: 0, updated: 200 }
+[customers] batch { created: 143, email_conflicts: 4, skipped: 0, updated: 57 }
+[customers] batch { created: 0, email_conflicts: 5, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 149, email_conflicts: 6, skipped: 0, updated: 51 }
+[customers] batch { created: 157, email_conflicts: 6, skipped: 0, updated: 43 }
+[customers] batch { created: 146, email_conflicts: 10, skipped: 0, updated: 54 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 160, email_conflicts: 10, skipped: 0, updated: 40 }
+[customers] batch { created: 0, email_conflicts: 6, skipped: 0, updated: 200 }
+[customers] batch { created: 157, email_conflicts: 10, skipped: 0, updated: 43 }
+[customers] batch { created: 0, email_conflicts: 4, skipped: 0, updated: 200 }
+[customers] batch { created: 143, email_conflicts: 11, skipped: 0, updated: 57 }
+[customers] batch { created: 156, email_conflicts: 6, skipped: 0, updated: 44 }
+[customers] batch { created: 148, email_conflicts: 1, skipped: 0, updated: 52 }
+[customers] batch { created: 0, email_conflicts: 10, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 10, skipped: 0, updated: 200 }
+[customers] batch { created: 141, email_conflicts: 4, skipped: 0, updated: 59 }
+[customers] batch { created: 0, email_conflicts: 10, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 6, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 6, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 11, skipped: 0, updated: 200 }
+[customers] batch { created: 134, email_conflicts: 5, skipped: 0, updated: 66 }
+[customers] batch { created: 140, email_conflicts: 50, skipped: 0, updated: 60 }
+[customers] batch { created: 143, email_conflicts: 11, skipped: 0, updated: 57 }
+[customers] batch { created: 136, email_conflicts: 13, skipped: 0, updated: 64 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 50, skipped: 0, updated: 200 }
+[customers] batch { created: 123, email_conflicts: 1, skipped: 0, updated: 77 }
+[customers] batch { created: 0, email_conflicts: 11, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 4, skipped: 0, updated: 200 }
+[customers] batch { created: 79, email_conflicts: 0, skipped: 0, updated: 121 }
+[customers] batch { created: 130, email_conflicts: 1, skipped: 0, updated: 70 }
+[customers] batch { created: 0, email_conflicts: 5, skipped: 0, updated: 200 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 13, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[3:41:52 PM] [heartbeat] online (bridge 0.7.3)
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 4, email_conflicts: 1, skipped: 0, updated: 196 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 3, email_conflicts: 2, skipped: 0, updated: 197 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 9, email_conflicts: 0, skipped: 0, updated: 191 }
+[customers] batch { created: 2, email_conflicts: 2, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 14, email_conflicts: 3, skipped: 0, updated: 186 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 1, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 3, skipped: 0, updated: 199 }
+[customers] batch { created: 3, email_conflicts: 6, skipped: 0, updated: 197 }
+[customers] batch { created: 2, email_conflicts: 12, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 3, email_conflicts: 2, skipped: 0, updated: 197 }
+[customers] batch { created: 1, email_conflicts: 1, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 3, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 1, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 6, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 12, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 6, email_conflicts: 0, skipped: 0, updated: 194 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 4, email_conflicts: 0, skipped: 0, updated: 196 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 2, email_conflicts: 1, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 2, skipped: 0, updated: 198 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 4, email_conflicts: 0, skipped: 0, updated: 196 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 1, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 2, skipped: 0, updated: 200 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 4, email_conflicts: 0, skipped: 0, updated: 196 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 5, email_conflicts: 0, skipped: 0, updated: 195 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 1, email_conflicts: 0, skipped: 0, updated: 199 }
+[customers] batch { created: 3, email_conflicts: 0, skipped: 0, updated: 197 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 2, email_conflicts: 0, skipped: 0, updated: 198 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 49, email_conflicts: 0, skipped: 0, updated: 151 }
+[customers] batch { created: 6, email_conflicts: 0, skipped: 0, updated: 194 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 84, email_conflicts: 0, skipped: 0, updated: 88 }
+[customers] batch { created: 88, email_conflicts: 0, skipped: 0, updated: 112 }
+[3:42:03 PM] [customers] ok
+[3:42:03 PM] [catalog] starting targeted sync...
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[catalog] Fetching matrix variations...
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 172 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[customers] batch { created: 0, email_conflicts: 0, skipped: 0, updated: 200 }
+[3:42:03 PM] [customers] ok
+[3:42:03 PM] [sync] Targeted pull for customers finished.
+[catalog] Buffered 3133 matrix parents.
+[catalog] Starting ingest (batch=400, max_parallel=4)...
+[catalog] executing query...
+[3:42:38 PM] [catalog] ingest: 2000 items processed...
+[catalog] progress: 2000 items (skipped 464565 duplicates)...
+[3:42:47 PM] [catalog] finished. 3200 items synced (SQL gave 500841 rows, skipped 497274 duplicates).
+[catalog] finished. 3200 total items synced.
+[3:42:47 PM] [catalog] ok
+[3:42:47 PM] [open_docs] starting targeted sync...
+[3:42:47 PM] [open_docs] SQL returned 543 doc(s)
+[open_docs] Sending items (parallel-concurrency=5)...
+[open_docs] batch {
+  line_items_created: 313,
+  payments_created: 206,
+  skipped: 9,
+  transactions_created: 191,
+  transactions_skipped_existing: 0
+}
+[open_docs] batch {
+  line_items_created: 298,
+  payments_created: 206,
+  skipped: 11,
+  transactions_created: 189,
+  transactions_skipped_existing: 0
+}
+[open_docs] batch {
+  line_items_created: 207,
+  payments_created: 138,
+  skipped: 6,
+  transactions_created: 137,
+  transactions_skipped_existing: 0
+}
+[3:42:50 PM] [open_docs] ok
+[3:42:50 PM] [sync] Targeted pull for open_docs finished.
+[3:43:51 PM] [heartbeat] online (bridge 0.7.3)
+[3:45:51 PM] [heartbeat] online (bridge 0.7.3)
+[3:46:11 PM] [heartbeat] online (bridge 0.7.3)
+[3:46:21 PM] [heartbeat] online (bridge 0.7.3)
+[3:49:01 PM] [heartbeat] online (bridge 0.7.3)
+[3:49:31 PM] [heartbeat] online (bridge 0.7.3)
+[3:51:21 PM] [heartbeat] online (bridge 0.7.3)
+[heartbeat] fetch failed
+[heartbeat] fetch failed
+[heartbeat] fetch failed
+[3:52:21 PM] [heartbeat] online (bridge 0.7.3)
+[heartbeat] fetch failed

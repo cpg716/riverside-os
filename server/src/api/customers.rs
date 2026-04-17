@@ -24,8 +24,9 @@ use crate::logic::customer_hub::{days_since_last_visit, fetch_hub_stats};
 use crate::logic::customer_measurements;
 use crate::logic::customer_merge;
 use crate::logic::customer_open_deposit;
-use crate::logic::customer_order_history::{
-    query_customer_order_history, CustomerOrderHistoryQuery, CustomerOrderHistoryResponse,
+use crate::logic::customer_transaction_history::{
+    query_customer_transaction_history, CustomerTransactionHistoryQuery,
+    CustomerTransactionHistoryResponse,
 };
 use crate::logic::customers::{
     insert_customer, is_profile_complete, InsertCustomerParams, ProfileFields,
@@ -279,8 +280,8 @@ pub struct CustomerProfileRow {
     pub city: Option<String>,
     pub state: Option<String>,
     pub postal_code: Option<String>,
-    pub date_of_birth: Option<NaiveDate>,
-    pub anniversary_date: Option<NaiveDate>,
+    pub date_of_birth: Option<chrono::NaiveDate>,
+    pub anniversary_date: Option<chrono::NaiveDate>,
     pub custom_field_1: Option<String>,
     pub custom_field_2: Option<String>,
     pub custom_field_3: Option<String>,
@@ -292,11 +293,12 @@ pub struct CustomerProfileRow {
     pub podium_conversation_url: Option<String>,
     pub is_vip: bool,
     pub loyalty_points: i32,
-    /// `store` or `online_store` (migration 77+).
     pub customer_created_source: String,
     pub couple_id: Option<Uuid>,
     pub couple_primary_id: Option<Uuid>,
     pub couple_linked_at: Option<DateTime<Utc>>,
+    pub open_balance_due: Decimal,
+    pub lifetime_sales: Decimal,
 }
 
 async fn load_customer_profile_row(
@@ -306,18 +308,28 @@ async fn load_customer_profile_row(
     let row = sqlx::query_as::<_, CustomerProfileRow>(
         r#"
         SELECT
-            id, customer_code,
-            COALESCE(first_name, '') AS first_name,
-            COALESCE(last_name, '') AS last_name,
-            company_name, email, phone,
-            address_line1, address_line2, city, state, postal_code,
-            date_of_birth, anniversary_date,
-            custom_field_1, custom_field_2, custom_field_3, custom_field_4,
-            marketing_email_opt_in, marketing_sms_opt_in, transactional_sms_opt_in,
-            transactional_email_opt_in, podium_conversation_url,
-            is_vip, loyalty_points, customer_created_source,
-            couple_id, couple_primary_id, couple_linked_at
-        FROM customers WHERE id = $1
+            c.id, c.customer_code,
+            COALESCE(c.first_name, '') AS first_name,
+            COALESCE(c.last_name, '') AS last_name,
+            c.company_name, c.email, c.phone,
+            c.address_line1, c.address_line2, c.city, c.state, c.postal_code,
+            c.date_of_birth, c.anniversary_date,
+            c.custom_field_1, c.custom_field_2, c.custom_field_3, c.custom_field_4,
+            c.marketing_email_opt_in, c.marketing_sms_opt_in, c.transactional_sms_opt_in,
+            c.transactional_email_opt_in, c.podium_conversation_url,
+            c.is_vip, c.loyalty_points, c.customer_created_source,
+            c.couple_id, c.couple_primary_id, c.couple_linked_at,
+            COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
+            COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales
+        FROM customers c
+        LEFT JOIN LATERAL (
+            SELECT 
+                SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales
+            FROM transactions
+            WHERE customer_id = c.id
+        ) ob ON true
+        WHERE c.id = $1
         "#,
     )
     .bind(customer_id)
@@ -331,7 +343,7 @@ async fn load_customer_profile_row(
 pub struct WeddingMembershipRow {
     pub wedding_member_id: Uuid,
     pub wedding_party_id: Uuid,
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub party_name: String,
     pub event_date: chrono::NaiveDate,
     pub role: String,
@@ -765,7 +777,7 @@ struct RmsChargeRecordApiRow {
     id: Uuid,
     record_kind: String,
     created_at: DateTime<Utc>,
-    order_id: Uuid,
+    transaction_id: Uuid,
     register_session_id: Uuid,
     customer_id: Option<Uuid>,
     payment_method: String,
@@ -866,7 +878,7 @@ async fn list_rms_charge_records(
                     r.id,
                     r.record_kind,
                     r.created_at,
-                    r.order_id,
+                    r.transaction_id,
                     r.register_session_id,
                     r.customer_id,
                     r.payment_method,
@@ -912,7 +924,7 @@ async fn list_rms_charge_records(
                     r.id,
                     r.record_kind,
                     r.created_at,
-                    r.order_id,
+                    r.transaction_id,
                     r.register_session_id,
                     r.customer_id,
                     r.payment_method,
@@ -957,7 +969,7 @@ async fn list_rms_charge_records(
                 r.id,
                 r.record_kind,
                 r.created_at,
-                r.order_id,
+                r.transaction_id,
                 r.register_session_id,
                 r.customer_id,
                 r.payment_method,
@@ -1021,8 +1033,8 @@ pub fn router() -> Router<AppState> {
         .route("/{customer_id}/hub", get(get_customer_hub))
         .route("/{customer_id}/timeline", get(get_customer_timeline))
         .route(
-            "/{customer_id}/order-history",
-            get(get_customer_order_history),
+            "/{customer_id}/transaction-history",
+            get(get_customer_transaction_history),
         )
         .route(
             "/{customer_id}/measurements",
@@ -1249,9 +1261,9 @@ async fn browse_customers(
             LEFT JOIN LATERAL (
                 SELECT 
                     SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status) AS lifetime_sales,
+                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
                     COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count
-                FROM orders
+                FROM transactions
                 WHERE customer_id = c.id
             ) ob ON true
             WHERE ($2::bool = false OR c.is_vip = TRUE)
@@ -1380,9 +1392,9 @@ async fn browse_customers(
             LEFT JOIN LATERAL (
                 SELECT 
                     SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status) AS lifetime_sales,
+                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
                     COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count
-                FROM orders
+                FROM transactions
                 WHERE customer_id = c.id
             ) ob ON true
             WHERE ($2::bool = false OR c.is_vip = TRUE)
@@ -1487,7 +1499,7 @@ async fn browse_customer_pipeline_stats(
             COUNT(*) FILTER (WHERE is_vip = TRUE)::bigint AS vip_customers,
             (
                 SELECT COUNT(DISTINCT customer_id)::bigint
-                FROM orders
+                FROM transactions
                 WHERE status = 'open' AND balance_due > 0
             ) AS with_balance,
             (
@@ -2302,7 +2314,7 @@ async fn list_wedding_rows(
         SELECT
             wm.id AS wedding_member_id,
             wp.id AS wedding_party_id,
-            wm.order_id,
+            wm.transaction_id,
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
             wp.event_date,
             wm.role,
@@ -2588,8 +2600,8 @@ async fn build_customer_timeline(
                     (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
                     ', ' ORDER BY COALESCE(p.name, '')
                 ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
-            FROM orders o
-            LEFT JOIN order_items oi ON oi.order_id = o.id
+            FROM transactions o
+            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE o.customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
               AND o.status != 'cancelled'::order_status
@@ -2611,8 +2623,8 @@ async fn build_customer_timeline(
                     (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
                     ', ' ORDER BY COALESCE(p.name, '')
                 ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
-            FROM orders o
-            LEFT JOIN order_items oi ON oi.order_id = o.id
+            FROM transactions o
+            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
             LEFT JOIN products p ON p.id = oi.product_id
             WHERE o.customer_id = $1
               AND o.status != 'cancelled'::order_status
@@ -2905,12 +2917,12 @@ async fn get_customer_timeline(
     Ok(Json(CustomerTimelineResponse { events }))
 }
 
-async fn get_customer_order_history(
+async fn get_customer_transaction_history(
     State(state): State<AppState>,
     headers: HeaderMap,
     Path(customer_id): Path<Uuid>,
-    Query(q): Query<CustomerOrderHistoryQuery>,
-) -> Result<Json<CustomerOrderHistoryResponse>, CustomerError> {
+    Query(q): Query<CustomerTransactionHistoryQuery>,
+) -> Result<Json<CustomerTransactionHistoryResponse>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, ORDERS_VIEW).await?;
     let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
         .bind(customer_id)
@@ -2919,7 +2931,7 @@ async fn get_customer_order_history(
     if !exists {
         return Err(CustomerError::NotFound);
     }
-    let body = query_customer_order_history(&state.db, customer_id, &q)
+    let body = query_customer_transaction_history(&state.db, customer_id, &q)
         .await
         .map_err(CustomerError::Database)?;
     Ok(Json(body))

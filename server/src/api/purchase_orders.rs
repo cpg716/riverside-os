@@ -646,8 +646,8 @@ async fn receive_po(
         let open_special_qty: Option<i64> = sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(oi.quantity)::bigint, 0)
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             WHERE oi.variant_id = $1
               AND oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')
               AND oi.is_fulfilled = FALSE

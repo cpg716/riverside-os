@@ -15,12 +15,12 @@ import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 
 export interface ReceiptSummaryModalProps {
-  orderId: string | null;
+  transactionId: string | null;
   onClose: () => void;
   baseUrl: string;
   /** When set, order read/receipt use register-session authorization (no BO headers). */
   registerSessionId?: string | null;
-  /** Required: POS + staff merged headers for `/api/orders/*`. */
+  /** Required: POS + staff merged headers for `/api/transactions/*`. */
   getAuthHeaders: () => Record<string, string>;
 }
 
@@ -40,7 +40,8 @@ type OrderLineRow = {
 };
 
 type OrderDetail = {
-  order_id?: string;
+  transaction_id?: string;
+  transaction_display_id?: string;
   amount_paid?: string;
   payment_methods_summary?: string;
   customer?: OrderCustomer | null;
@@ -54,7 +55,7 @@ type OrderDetail = {
 };
 
 export default function ReceiptSummaryModal({
-  orderId,
+  transactionId,
   onClose,
   baseUrl,
   registerSessionId,
@@ -65,7 +66,7 @@ export default function ReceiptSummaryModal({
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingSms, setSendingSms] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [orderDetail, setOrderDetail] = useState<OrderDetail | null>(null);
+  const [transactionDetail, setTransactionDetail] = useState<OrderDetail | null>(null);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
   const [savingContact, setSavingContact] = useState(false);
@@ -93,7 +94,7 @@ export default function ReceiptSummaryModal({
   );
 
   useEffect(() => {
-    const rows = orderDetail?.items;
+    const rows = transactionDetail?.items;
     if (!rows?.length) {
       setGiftLinePick({});
       return;
@@ -107,20 +108,20 @@ export default function ReceiptSummaryModal({
       }
       return next;
     });
-  }, [orderId, orderDetail?.items]);
+  }, [transactionId, transactionDetail?.items]);
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!transactionId) return;
     const fetchDetail = async () => {
       try {
         const q = buildReceiptQuery();
-        const res = await fetch(`${baseUrl}/api/orders/${orderId}${q}`, {
+        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}${q}`, {
           headers: getAuthHeaders(),
           cache: "no-store",
         });
         if (res.ok) {
           const data = (await res.json()) as OrderDetail;
-          setOrderDetail(data);
+          setTransactionDetail(data);
           const c = data.customer;
           if (c) {
             setPhoneDraft((c.phone ?? "").trim());
@@ -139,34 +140,34 @@ export default function ReceiptSummaryModal({
       }
     };
     void fetchDetail();
-  }, [orderId, baseUrl, buildReceiptQuery, getAuthHeaders, toast]);
+  }, [transactionId, baseUrl, buildReceiptQuery, getAuthHeaders, toast]);
 
   useEffect(() => {
-    if (!orderDetail) return;
+    if (!transactionDetail) return;
     const eligible =
-      !!orderDetail.customer &&
-      orderDetail.store_review_invites_enabled === true &&
-      !orderDetail.review_invite_sent_at &&
-      !orderDetail.review_invite_suppressed_at;
+      !!transactionDetail.customer &&
+      transactionDetail.store_review_invites_enabled === true &&
+      !transactionDetail.review_invite_sent_at &&
+      !transactionDetail.review_invite_suppressed_at;
     if (eligible) {
-      setSkipReviewInvite(orderDetail.store_send_review_invite_by_default === false);
+      setSkipReviewInvite(transactionDetail.store_send_review_invite_by_default === false);
     } else {
       setSkipReviewInvite(false);
     }
-  }, [orderDetail]);
+  }, [transactionDetail]);
 
   const submitReviewInviteIfNeeded = useCallback(async () => {
-    if (!orderId || !orderDetail) return;
+    if (!transactionId || !transactionDetail) return;
     const eligible =
-      !!orderDetail.customer &&
-      orderDetail.store_review_invites_enabled === true &&
-      !orderDetail.review_invite_sent_at &&
-      !orderDetail.review_invite_suppressed_at;
+      !!transactionDetail.customer &&
+      transactionDetail.store_review_invites_enabled === true &&
+      !transactionDetail.review_invite_sent_at &&
+      !transactionDetail.review_invite_suppressed_at;
     if (!eligible) return;
     setReviewInviteSaving(true);
     try {
       const q = buildReceiptQuery();
-      const res = await fetch(`${baseUrl}/api/orders/${orderId}/review-invite${q}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/review-invite${q}`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...getAuthHeaders() },
         body: JSON.stringify({ skip: skipReviewInvite }),
@@ -184,8 +185,8 @@ export default function ReceiptSummaryModal({
       setReviewInviteSaving(false);
     }
   }, [
-    orderId,
-    orderDetail,
+    transactionId,
+    transactionDetail,
     buildReceiptQuery,
     baseUrl,
     getAuthHeaders,
@@ -200,7 +201,7 @@ export default function ReceiptSummaryModal({
 
   const handlePrint = useCallback(
     async (opts?: { gift?: boolean; orderItemIds?: string[] }) => {
-      if (!orderId) return;
+      if (!transactionId) return;
       if (opts?.gift) {
         const ids = opts.orderItemIds;
         if (ids !== undefined && ids.length === 0) {
@@ -217,10 +218,10 @@ export default function ReceiptSummaryModal({
             : undefined,
         );
 
-        const studioReady = orderDetail?.receipt_studio_layout_available === true;
+        const studioReady = transactionDetail?.receipt_studio_layout_available === true;
 
-        if (studioReady && orderDetail?.receipt_thermal_mode === "escpos_raster") {
-          const hres = await fetch(`${baseUrl}/api/orders/${orderId}/receipt.html${q}`, {
+        if (studioReady && transactionDetail?.receipt_thermal_mode === "escpos_raster") {
+          const hres = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.html${q}`, {
             headers: getAuthHeaders(),
             cache: "no-store",
           });
@@ -243,14 +244,14 @@ export default function ReceiptSummaryModal({
           if (typeof j.escpos_base64 !== "string" || !j.escpos_base64) {
             throw new Error("Missing ESC/POS payload from server");
           }
-          const printerIp = localStorage.getItem("ros.pos.printerIp") || "127.0.0.1";
-          const printerPort = parseInt(localStorage.getItem("ros.pos.printerPort") || "9100", 10);
+          const printerIp = localStorage.getItem("ros.pos.receiptPrinterIp") || "127.0.0.1";
+          const printerPort = parseInt(localStorage.getItem("ros.pos.receiptPrinterPort") || "9100", 10);
           await printRawEscPosBase64(j.escpos_base64, printerIp, printerPort);
           return;
         }
 
-        if (studioReady && orderDetail?.receipt_thermal_mode === "studio_html") {
-          const res = await fetch(`${baseUrl}/api/orders/${orderId}/receipt.html${q}`, {
+        if (studioReady && transactionDetail?.receipt_thermal_mode === "studio_html") {
+          const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.html${q}`, {
             headers: getAuthHeaders(),
             cache: "no-store",
           });
@@ -274,15 +275,15 @@ export default function ReceiptSummaryModal({
           return;
         }
 
-        const res = await fetch(`${baseUrl}/api/orders/${orderId}/receipt.zpl${q}`, {
+        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.zpl${q}`, {
           headers: getAuthHeaders(),
           cache: "no-store",
         });
         if (!res.ok) throw new Error("Receipt generation failed");
         const zpl = await res.text();
 
-        const printerIp = localStorage.getItem("ros.pos.printerIp") || "127.0.0.1";
-        const printerPort = parseInt(localStorage.getItem("ros.pos.printerPort") || "9100");
+        const printerIp = localStorage.getItem("ros.pos.receiptPrinterIp") || "127.0.0.1";
+        const printerPort = parseInt(localStorage.getItem("ros.pos.receiptPrinterPort") || "9100");
 
         if (!isTauri()) {
           throw new Error("Physical printing requires the Riverside OS Desktop App.");
@@ -296,22 +297,22 @@ export default function ReceiptSummaryModal({
         setPrinting(false);
       }
     },
-    [orderId, baseUrl, buildReceiptQuery, getAuthHeaders, orderDetail, toast],
+    [transactionId, baseUrl, buildReceiptQuery, getAuthHeaders, transactionDetail, toast],
   );
 
   useEffect(() => {
-    if (orderDetail && localStorage.getItem("ros.pos.autoPrint") === "true") {
+    if (transactionDetail && localStorage.getItem("ros.pos.autoPrintReceipts") === "true") {
       void handlePrint();
     }
-  }, [orderDetail, handlePrint]);
+  }, [transactionDetail, handlePrint]);
 
   const getGiftLineIds = (): string[] =>
-    (orderDetail?.items ?? [])
+    (transactionDetail?.items ?? [])
       .filter((it) => giftLinePick[it.order_item_id])
       .map((it) => it.order_item_id);
 
   const saveCustomerContact = async () => {
-    const cid = orderDetail?.customer?.id;
+    const cid = transactionDetail?.customer?.id;
     if (!cid) return;
     setSavingContact(true);
     try {
@@ -334,7 +335,7 @@ export default function ReceiptSummaryModal({
         return;
       }
       toast("Customer contact updated", "success");
-      setOrderDetail((prev) =>
+      setTransactionDetail((prev) =>
         prev?.customer
           ? {
               ...prev,
@@ -354,17 +355,17 @@ export default function ReceiptSummaryModal({
   };
 
   const sendEmailReceipt = async (variant: "standard" | "gift") => {
-    if (!orderId) return;
+    if (!transactionId) return;
     const gift = variant === "gift";
     if (gift) {
-      const rows = orderDetail?.items ?? [];
+      const rows = transactionDetail?.items ?? [];
       if (rows.length > 0 && getGiftLineIds().length === 0) {
         toast("Select at least one line for the gift receipt.", "error");
         return;
       }
     }
     const typed = emailDraft.trim();
-    const onFile = orderDetail?.customer?.email?.trim() ?? "";
+    const onFile = transactionDetail?.customer?.email?.trim() ?? "";
     if (!typed && !onFile) {
       toast("Add an email address first (or save contact).", "error");
       return;
@@ -379,13 +380,13 @@ export default function ReceiptSummaryModal({
       } = typed ? { to_email: typed } : {};
       if (gift) {
         baseBody.gift = true;
-        const rows = orderDetail?.items ?? [];
+        const rows = transactionDetail?.items ?? [];
         const picked = getGiftLineIds();
         if (rows.length > 0 && picked.length > 0 && picked.length < rows.length) {
           baseBody.order_item_ids = picked;
         }
       }
-      const res = await fetch(`${baseUrl}/api/orders/${orderId}/receipt/send-email${q}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt/send-email${q}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -411,24 +412,24 @@ export default function ReceiptSummaryModal({
   };
 
   const sendSmsReceipt = async (variant: "standard" | "gift") => {
-    if (!orderId) return;
+    if (!transactionId) return;
     const gift = variant === "gift";
     if (gift) {
-      const rows = orderDetail?.items ?? [];
+      const rows = transactionDetail?.items ?? [];
       if (rows.length > 0 && getGiftLineIds().length === 0) {
         toast("Select at least one line for the gift receipt.", "error");
         return;
       }
     }
     const typed = phoneDraft.trim();
-    const onFile = orderDetail?.customer?.phone?.trim() ?? "";
+    const onFile = transactionDetail?.customer?.phone?.trim() ?? "";
     if (!typed && !onFile) {
       toast("Add a phone number first (or save contact).", "error");
       return;
     }
     setSendingSms(true);
     try {
-      const rows = orderDetail?.items ?? [];
+      const rows = transactionDetail?.items ?? [];
       const picked = getGiftLineIds();
       const giftItemParam =
         gift && rows.length > 0 && picked.length > 0 && picked.length < rows.length
@@ -439,9 +440,9 @@ export default function ReceiptSummaryModal({
       );
 
       let pngBase64: string | undefined;
-      if (orderDetail?.receipt_studio_layout_available) {
+      if (transactionDetail?.receipt_studio_layout_available) {
         try {
-          const hres = await fetch(`${baseUrl}/api/orders/${orderId}/receipt.html${htmlQ}`, {
+          const hres = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.html${htmlQ}`, {
             headers: getAuthHeaders(),
             cache: "no-store",
           });
@@ -472,7 +473,7 @@ export default function ReceiptSummaryModal({
         }
       }
 
-      const res = await fetch(`${baseUrl}/api/orders/${orderId}/receipt/send-sms${postQ}`, {
+      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt/send-sms${postQ}`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -506,10 +507,10 @@ export default function ReceiptSummaryModal({
     }
   };
 
-  if (!orderId) return null;
+  if (!transactionId) return null;
 
-  const cust = orderDetail?.customer;
-  const itemRows = orderDetail?.items ?? [];
+  const cust = transactionDetail?.customer;
+  const itemRows = transactionDetail?.items ?? [];
   const giftPickEmpty = itemRows.length > 0 && getGiftLineIds().length === 0;
 
   const runGiftPrint = () => {
@@ -559,7 +560,7 @@ export default function ReceiptSummaryModal({
                 Sale complete
               </h2>
               <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                Order #{orderId.split("-")[0]}
+                Transaction #{transactionDetail?.transaction_display_id ?? transactionId?.split("-")[0]}
               </p>
             </div>
           </div>
@@ -571,7 +572,7 @@ export default function ReceiptSummaryModal({
                   Sale total
                 </p>
                 <p className="text-2xl font-black tabular-nums tracking-tighter text-app-text sm:text-3xl lg:text-4xl">
-                  ${orderDetail?.amount_paid ?? "…"}
+                  ${transactionDetail?.amount_paid ?? "…"}
                 </p>
               </div>
               <div className="min-w-0 max-w-full text-right md:max-w-[50%]">
@@ -579,7 +580,7 @@ export default function ReceiptSummaryModal({
                   Tender
                 </p>
                 <p className="line-clamp-2 text-xs font-black uppercase tracking-tight text-app-text sm:text-sm lg:text-base">
-                  {orderDetail?.payment_methods_summary ?? "…"}
+                  {transactionDetail?.payment_methods_summary ?? "…"}
                 </p>
               </div>
             </div>
@@ -588,7 +589,7 @@ export default function ReceiptSummaryModal({
           <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
             <button
               type="button"
-              disabled={printing || !orderDetail}
+              disabled={printing || !transactionDetail}
               onClick={() => void handlePrint()}
               className="group flex min-h-[56px] w-full items-center justify-between rounded-2xl border-b-8 border-emerald-800 bg-emerald-600 px-4 py-2 text-left text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 sm:min-h-[4.25rem] touch-manipulation"
             >
@@ -606,7 +607,7 @@ export default function ReceiptSummaryModal({
             </button>
             <button
               type="button"
-              disabled={printing || !orderDetail || giftPickEmpty}
+              disabled={printing || !transactionDetail || giftPickEmpty}
               onClick={() => void runGiftPrint()}
               className="group flex min-h-[56px] w-full items-center justify-between rounded-2xl border-2 border-violet-500 bg-[color-mix(in_srgb,violet_22%,var(--app-surface-2))] px-4 py-2 text-left text-app-text shadow-md transition-all hover:bg-[color-mix(in_srgb,violet_30%,var(--app-surface-2))] active:scale-[0.99] disabled:opacity-60 dark:border-violet-400 sm:min-h-[4.25rem] touch-manipulation"
             >
@@ -662,14 +663,14 @@ export default function ReceiptSummaryModal({
                 ))}
               </ul>
             </div>
-          ) : orderDetail ? (
+          ) : transactionDetail ? (
             <p className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
-              Line items are not listed for this order here. Gift and full receipts still include all
+              Line items are not listed for this transaction here. Gift and full receipts still include all
               lines from the server when you print.
             </p>
           ) : (
             <p className="shrink-0 rounded-2xl border border-dashed border-app-border bg-app-surface-2 px-3 py-2 text-center text-[10px] font-semibold text-app-text-muted">
-              Loading order…
+              Loading transaction…
             </p>
           )}
 
@@ -759,10 +760,10 @@ export default function ReceiptSummaryModal({
                 Email sends inline HTML from Receipt Builder (not an attachment). SMS uses a receipt
                 image when MMS is supported; otherwise plain summary. Requires Podium in Integrations.
               </p>
-              {orderDetail?.store_review_invites_enabled === true &&
-              orderDetail.customer &&
-              !orderDetail.review_invite_sent_at &&
-              !orderDetail.review_invite_suppressed_at ? (
+              {transactionDetail?.store_review_invites_enabled === true &&
+              transactionDetail.customer &&
+              !transactionDetail.review_invite_sent_at &&
+              !transactionDetail.review_invite_suppressed_at ? (
                 <label className="flex shrink-0 cursor-pointer items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 touch-manipulation">
                   <input
                     type="checkbox"
@@ -771,12 +772,12 @@ export default function ReceiptSummaryModal({
                     className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
                   />
                   <span className="text-left text-[10px] font-semibold leading-snug text-app-text">
-                    Do not send a post-sale review invite for this customer (stored with the order).
+                    Do not send a post-sale review invite for this customer (stored with the transaction).
                   </span>
                 </label>
-              ) : orderDetail?.review_invite_sent_at || orderDetail?.review_invite_suppressed_at ? (
+              ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
                 <p className="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-app-text-muted">
-                  Review invite choice already saved for this order.
+                  Review invite choice already saved for this transaction.
                 </p>
               ) : null}
             </div>

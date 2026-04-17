@@ -20,7 +20,7 @@ A dedicated workspace for MTM and Custom orders:
 ---
 
 ## 2. Proactive “Wedding Health” Scorecard
-**Status:** Concept / Opportunity
+**Status:** Shipped (v0.2.0)
 **Impact:** Risk Mitigation & Proactive Management
 
 ### The Problem

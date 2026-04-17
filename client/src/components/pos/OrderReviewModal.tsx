@@ -1,18 +1,13 @@
 import { useState } from "react";
 import { X, Flame, Calendar, Package, MapPin, Truck, CreditCard, Check, ArrowRight } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
+import { type PosShipToForm } from "./types";
 
 export interface OrderOptions {
   isRush: boolean;
   needByDate: string | null;
   fulfillment: "pickup" | "ship";
-  shipTo: {
-    name: string;
-    address: string;
-    city: string;
-    state: string;
-    zip: string;
-  } | null;
+  shipTo: PosShipToForm | null;
   storeCardForBalance: {
     stripe_payment_method_id: string;
     last4: string;
@@ -244,14 +239,14 @@ export default function OrderReviewModal({
                   placeholder="Full Name"
                   className="ui-input w-full"
                   value={shipTo?.name || ""}
-                  onChange={(e) => setShipTo(prev => prev ? { ...prev, name: e.target.value } : { name: e.target.value, address: "", city: "", state: "", zip: "" })}
+                  onChange={(e) => setShipTo(prev => prev ? { ...prev, name: e.target.value } : { name: e.target.value, street1: "", city: "", state: "", zip: "", country: "US" })}
                 />
                 <input
                   type="text"
                   placeholder="Street Address"
                   className="ui-input w-full"
-                  value={shipTo?.address || ""}
-                  onChange={(e) => setShipTo(prev => prev ? { ...prev, address: e.target.value } : { name: "", address: e.target.value, city: "", state: "", zip: "" })}
+                  value={shipTo?.street1 || ""}
+                  onChange={(e) => setShipTo(prev => prev ? { ...prev, street1: e.target.value } : { name: "", street1: e.target.value, city: "", state: "", zip: "", country: "US" })}
                 />
                 <div className="grid grid-cols-2 gap-3">
                   <input
@@ -259,14 +254,14 @@ export default function OrderReviewModal({
                     placeholder="City"
                     className="ui-input"
                     value={shipTo?.city || ""}
-                    onChange={(e) => setShipTo(prev => prev ? { ...prev, city: e.target.value } : { name: "", address: "", city: e.target.value, state: "", zip: "" })}
+                    onChange={(e) => setShipTo(prev => prev ? { ...prev, city: e.target.value } : { name: "", street1: "", city: e.target.value, state: "", zip: "", country: "US" })}
                   />
                   <input
                     type="text"
                     placeholder="State"
                     className="ui-input"
                     value={shipTo?.state || ""}
-                    onChange={(e) => setShipTo(prev => prev ? { ...prev, state: e.target.value } : { name: "", address: "", city: "", state: e.target.value, zip: "" })}
+                    onChange={(e) => setShipTo(prev => prev ? { ...prev, state: e.target.value } : { name: "", street1: "", city: "", state: e.target.value, zip: "", country: "US" })}
                   />
                 </div>
                 <input
@@ -274,7 +269,7 @@ export default function OrderReviewModal({
                   placeholder="ZIP Code"
                   className="ui-input w-full"
                   value={shipTo?.zip || ""}
-                  onChange={(e) => setShipTo(prev => prev ? { ...prev, zip: e.target.value } : { name: "", address: "", city: "", state: "", zip: e.target.value })}
+                  onChange={(e) => setShipTo(prev => prev ? { ...prev, zip: e.target.value } : { name: "", street1: "", city: "", state: "", zip: e.target.value, country: "US" })}
                 />
               </div>
             )}

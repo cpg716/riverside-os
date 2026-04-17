@@ -17,7 +17,7 @@ function fmtMoney(s: string) {
 }
 
 export interface RmsChargeAdminSectionProps {
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
 }
 
 type RmsRecordRow = {
@@ -41,7 +41,7 @@ type RmsRecordRow = {
 const PAGE = 100;
 
 export default function RmsChargeAdminSection({
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
 }: RmsChargeAdminSectionProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
@@ -253,10 +253,10 @@ export default function RmsChargeAdminSection({
                     ) : null}
                   </td>
                   <td className="px-4 py-3">
-                    {onOpenOrderInBackoffice ? (
+                    {onOpenTransactionInBackoffice ? (
                       <button
                         type="button"
-                        onClick={() => onOpenOrderInBackoffice(r.order_id)}
+                        onClick={() => onOpenTransactionInBackoffice(r.order_id)}
                         className="text-left font-mono text-xs text-[var(--app-accent)] underline-offset-2 hover:underline"
                       >
                         {r.order_short_ref || r.order_id.slice(0, 8)}

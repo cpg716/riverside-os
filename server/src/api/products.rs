@@ -280,6 +280,7 @@ pub struct InventoryControlRow {
     pub last_vendor_name: Option<String>,
     pub state_tax: Decimal,
     pub local_tax: Decimal,
+    pub tax_category: crate::logic::tax::TaxCategory,
     pub web_published: bool,
     pub web_price_override: Option<Decimal>,
     pub available_stock: i32,
@@ -518,6 +519,7 @@ pub fn router() -> Router<AppState> {
             "/variants/{variant_id}/pricing",
             patch(patch_variant_pricing),
         )
+        .route("/variants/{variant_id}", get(get_variant))
         .route(
             "/{product_id}/bundle-components",
             get(get_product_bundle_components),
@@ -869,6 +871,7 @@ pub async fn list_control_board(
             pvendor.name AS primary_vendor_name,
             lv.id AS last_vendor_id,
             lv.name AS last_vendor_name,
+            p.tax_category,
             0::numeric AS state_tax,
             0::numeric AS local_tax
         "#,
@@ -900,8 +903,8 @@ pub async fn list_control_board(
             r#"
         LEFT JOIN (
             SELECT oi.product_id, COALESCE(SUM(oi.quantity::bigint), 0) AS units_sold
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             WHERE oi.product_id IS NOT NULL
               AND o.booked_at >= NOW() - "#,
         );
@@ -1041,6 +1044,7 @@ pub async fn list_control_board(
                 r.retail_price,
                 r.retail_price,
             );
+            r.tax_category = logic_tax_cat;
             r
         })
         .collect();
@@ -1062,8 +1066,8 @@ pub async fn list_control_board(
                       AND pv2.stock_on_hand <= 0
                       AND EXISTS (
                           SELECT 1
-                          FROM order_items oi
-                          INNER JOIN orders o ON o.id = oi.order_id
+                          FROM transaction_lines oi
+                          INNER JOIN transactions o ON o.id = oi.transaction_id
                           WHERE oi.variant_id = pv2.id
                             AND o.status::text NOT IN ('cancelled')
                             AND o.booked_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '365 days'
@@ -1094,8 +1098,8 @@ pub async fn list_control_board(
                       AND pv2.stock_on_hand <= 0
                       AND EXISTS (
                           SELECT 1
-                          FROM order_items oi
-                          INNER JOIN orders o ON o.id = oi.order_id
+                          FROM transaction_lines oi
+                          INNER JOIN transactions o ON o.id = oi.transaction_id
                           WHERE oi.variant_id = pv2.id
                             AND o.status::text NOT IN ('cancelled')
                             AND o.booked_at >= (CURRENT_TIMESTAMP AT TIME ZONE 'UTC') - INTERVAL '365 days'
@@ -1677,7 +1681,7 @@ async fn get_product_hub(
     let units_sold_all_time: i64 = sqlx::query_scalar(
         r#"
         SELECT COALESCE(SUM(oi.quantity), 0)::bigint
-        FROM order_items oi
+        FROM transaction_lines oi
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
         WHERE pv.product_id = $1
         "#,
@@ -1689,9 +1693,9 @@ async fn get_product_hub(
     let open_order_units: i64 = sqlx::query_scalar(
         r#"
         SELECT COALESCE(SUM(oi.quantity), 0)::bigint
-        FROM order_items oi
+        FROM transaction_lines oi
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
-        INNER JOIN orders o ON o.id = oi.order_id
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         WHERE pv.product_id = $1 AND o.status = 'open'::order_status
         "#,
     )
@@ -1782,7 +1786,7 @@ struct SaleTimelineRow {
     booked_at: DateTime<Utc>,
     quantity: i32,
     sku: String,
-    order_id: Uuid,
+    transaction_id: Uuid,
     first_name: Option<String>,
     last_name: Option<String>,
 }
@@ -1820,11 +1824,11 @@ async fn get_product_timeline(
             o.booked_at,
             oi.quantity,
             pv.sku,
-            o.id AS order_id,
+            o.id AS transaction_id,
             c.first_name,
             c.last_name
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
         LEFT JOIN customers c ON c.id = o.customer_id
         WHERE pv.product_id = $1
@@ -1870,9 +1874,9 @@ async fn get_product_timeline(
             kind: "sale".to_string(),
             summary: format!(
                 "Sold {}× {} — {} (Order {})",
-                s.quantity, s.sku, who, s.order_id
+                s.quantity, s.sku, who, s.transaction_id
             ),
-            reference_id: Some(s.order_id),
+            reference_id: Some(s.transaction_id),
         });
     }
 
@@ -2193,4 +2197,37 @@ async fn get_maintenance_ledger(
     .await?;
 
     Ok(Json(rows))
+}
+
+async fn get_variant(
+    State(state): State<AppState>,
+    Path(variant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> Result<Json<crate::services::ResolvedSkuItem>, ProductError> {
+    middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(|(_, axum::Json(v))| {
+            let msg = v
+                .get("error")
+                .and_then(|x| x.as_str())
+                .unwrap_or("unauthorized")
+                .to_string();
+            ProductError::Unauthorized(msg)
+        })?;
+
+    let resolved = crate::services::inventory::resolve_variant_by_id(
+        &state.db,
+        variant_id,
+        state.global_employee_markup,
+    )
+    .await
+    .map_err(|e| match e {
+        crate::services::inventory::InventoryError::Database(db_err) => {
+            ProductError::Database(db_err)
+        }
+        crate::services::inventory::InventoryError::SkuNotFound(_) => ProductError::VariantNotFound,
+        _ => ProductError::Unauthorized(format!("{e}")),
+    })?;
+
+    Ok(Json(resolved))
 }

@@ -1,6 +1,6 @@
 -- Server-backed register parked sales (auditable) + RMS / RMS90 charge ledger for R2S follow-up and reporting.
 
-CREATE TYPE pos_parked_sale_status AS ENUM ('parked', 'recalled', 'deleted');
+DO $$ BEGIN CREATE TYPE pos_parked_sale_status AS ENUM ('parked', 'recalled', 'deleted'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 CREATE TABLE pos_parked_sale (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

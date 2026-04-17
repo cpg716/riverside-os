@@ -354,43 +354,38 @@ export default function CategoryManager() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-6 overflow-hidden bg-app-surface p-6">
-      <header className="flex items-center justify-between">
+    <div className="flex h-full flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+      <div className="flex items-center justify-between px-2">
         <div>
-          <h2 className="text-3xl font-black italic tracking-tighter text-app-text uppercase flex items-center gap-3">
-             <FolderTree size={32} className="text-app-accent-2" />
-             Global Category Registry
-          </h2>
-          <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-            Define hierarchical classifications and tax-protected inventory domains
-          </p>
+          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Taxonomy Engine</h3>
+          <h2 className="text-2xl font-black tracking-tight text-app-text">Global Category Registry</h2>
         </div>
         <button 
            onClick={() => void refresh()}
-           className="p-3 rounded-2xl bg-app-surface border border-app-border text-app-text-muted hover:text-app-accent-2 transition-all shadow-sm"
+           className="h-10 w-10 flex items-center justify-center rounded-xl bg-app-surface/40 border border-app-border text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all shadow-sm backdrop-blur-md active:scale-95"
         >
-           <Zap size={20} />
+           <Zap size={18} />
         </button>
-      </header>
+      </div>
 
-      {/* QUICK CREATE BAR */}
-      <section className="rounded-[2.5rem] border border-app-border bg-app-surface-2 p-8 shadow-inner">
-         <div className="grid gap-6 md:grid-cols-[1fr_240px_200px_200px_160px]">
-            <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Category Name</label>
+      {/* Modernized Quick Create Registry Bar */}
+      <section className="rounded-[2.5rem] border border-app-border/40 bg-app-surface/20 p-8 shadow-inner backdrop-blur-md">
+         <div className="grid gap-6 md:grid-cols-[1fr_240px_180px_180px_160px]">
+            <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Classification Name</label>
                 <input
                     value={createName}
                     onChange={(e) => setCreateName(e.target.value)}
                     placeholder="e.g. Formal Footwear"
-                    className="ui-input h-14 text-sm font-bold"
+                    className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
                 />
             </div>
-            <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Parent Node</label>
+            <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Parent Node</label>
                 <select
                     value={createParentId}
                     onChange={(e) => setCreateParentId(e.target.value)}
-                    className="ui-input h-14 text-sm font-bold"
+                    className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
                 >
                     <option value="">Top-Level Asset</option>
                     {flat.map((c) => (
@@ -400,41 +395,41 @@ export default function CategoryManager() {
                     ))}
                 </select>
             </div>
-            <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Row Default</label>
+            <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Row Data</label>
                 <input
                     value={createMatrixRow}
                     onChange={(e) => setCreateMatrixRow(e.target.value)}
                     placeholder="e.g. Size"
-                    className="ui-input h-14 text-sm font-bold"
+                    className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
                 />
             </div>
-            <div className="space-y-1.5">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-2">Col Default</label>
+            <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Col Data</label>
                 <input
                     value={createMatrixCol}
                     onChange={(e) => setCreateMatrixCol(e.target.value)}
                     placeholder="e.g. Color"
-                    className="ui-input h-14 text-sm font-bold"
+                    className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
                 />
             </div>
             <div className="flex flex-col justify-end gap-3">
-                 <label className="flex items-center gap-2 cursor-pointer group">
+                 <label className="flex items-center gap-2 cursor-pointer group px-1">
                     <input
                         type="checkbox"
                         checked={createIsClothing}
                         onChange={(e) => setCreateIsClothing(e.target.checked)}
-                        className="h-5 w-5 rounded-lg border-app-border bg-app-surface text-emerald-500"
+                        className="h-5 w-5 rounded-lg border-app-border bg-app-surface text-emerald-500 transition-all"
                     />
-                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted group-hover:text-emerald-600 transition-colors">Exempt</span>
+                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted group-hover:text-emerald-500 transition-colors">Tax Exempt</span>
                  </label>
                  <button
                     type="button"
                     disabled={creating || !createName.trim()}
                     onClick={() => void createCategory()}
-                    className="ui-btn-primary h-14 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-app-accent/20 disabled:opacity-20 transition-all"
+                    className="h-12 rounded-2xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 disabled:opacity-20 transition-all active:scale-95"
                 >
-                    {creating ? "Creating..." : "Add Registry Entry"}
+                    {creating ? "Saving..." : "Commit Entry"}
                 </button>
             </div>
          </div>
@@ -461,23 +456,23 @@ export default function CategoryManager() {
         </div>
 
         {/* AUDIT ASIDE */}
-        <aside className="flex flex-col min-h-0 overflow-hidden rounded-[2.5rem] border border-app-border bg-app-surface-2 shadow-inner">
-          <div className="flex items-center justify-between border-b border-app-border/40 px-8 py-6 bg-app-surface">
+        <aside className="flex flex-col min-h-0 overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-surface/20 shadow-inner backdrop-blur-md">
+          <div className="flex items-center justify-between border-b border-app-border/40 px-8 py-6 bg-app-surface/40 backdrop-blur-xl">
             <div className="flex items-center gap-3 text-app-text-muted">
-              <History size={18} />
-              <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">Registry Mutation Log</h4>
+              <History size={18} className="text-app-accent" />
+              <h4 className="text-[11px] font-black uppercase tracking-[0.2em]">Registry Mutation Log</h4>
             </div>
           </div>
           <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-6 no-scrollbar">
             {groupedAudit.length === 0 ? (
               <div className="flex flex-col items-center py-20 opacity-20">
                 <Clock3 size={32} />
-                <p className="mt-3 text-[10px] font-black uppercase tracking-widest">No mutations logged</p>
+                <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-center">No mutations logged</p>
               </div>
             ) : (
               groupedAudit.map(([category, entries]) => (
-                <div key={category} className="rounded-[2rem] border border-app-border bg-app-surface p-6 shadow-sm">
-                  <h5 className="mb-4 text-xs font-black uppercase tracking-widest text-app-text italic">
+                <div key={category} className="rounded-[2.5rem] border border-app-border/40 bg-app-surface/40 p-6 shadow-sm backdrop-blur-md">
+                  <h5 className="mb-4 text-[11px] font-black uppercase tracking-widest text-app-text italic">
                     {category}
                   </h5>
                   <div className="space-y-3">

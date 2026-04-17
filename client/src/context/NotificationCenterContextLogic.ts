@@ -1,8 +1,14 @@
 import { createContext, useContext } from "react";
 
-export type NotificationDeepLink = Record<string, string | undefined> & {
+export type NotificationDeepLink = Record<string, unknown> & {
   type?: string;
 };
+
+/** Safely extract a trimmed string value from a NotificationDeepLink payload field. */
+export function linkStr(link: NotificationDeepLink, key: string): string {
+  const v = link[key];
+  return typeof v === "string" ? v.trim() : "";
+}
 
 export type NotificationRow = {
   staff_notification_id: string;

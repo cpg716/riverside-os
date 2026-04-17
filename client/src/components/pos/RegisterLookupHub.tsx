@@ -224,7 +224,7 @@ export default function RegisterLookupHub({
     (!giftDetail.expires_at || new Date(giftDetail.expires_at) > new Date());
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-app-surface">
+    <div className="flex flex-1 flex-col bg-app-surface">
       <div className="shrink-0 border-b border-app-border px-4 py-4 sm:px-6">
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

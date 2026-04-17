@@ -7,7 +7,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::logic::notifications::{
-    admin_staff_ids, fan_out_to_staff_ids, insert_app_notification_deduped,
+    admin_staff_ids, fan_out_to_staff_ids, staff_ids_with_permission, upsert_bundle_item,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,7 +67,7 @@ pub enum ReviewInviteError {
 /// Persist cashier choice at end of receipt flow. Stub invite when not skipped and policy allows.
 pub async fn apply_post_sale_review_choice(
     pool: &PgPool,
-    order_id: Uuid,
+    transaction_id: Uuid,
     skip_invite: bool,
 ) -> Result<(), ReviewInviteError> {
     let policy = load_store_review_policy(pool).await?;
@@ -82,10 +82,10 @@ pub async fn apply_post_sale_review_choice(
     let row: Option<OrderReviewGateRow> = sqlx::query_as(
         r#"
         SELECT customer_id, review_invite_suppressed_at, review_invite_sent_at
-        FROM orders WHERE id = $1 FOR UPDATE
+        FROM transactions WHERE id = $1 FOR UPDATE
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_optional(&mut *tx)
     .await?;
 
@@ -95,10 +95,12 @@ pub async fn apply_post_sale_review_choice(
 
     if skip_invite {
         if suppressed_at.is_none() {
-            sqlx::query(r#"UPDATE orders SET review_invite_suppressed_at = NOW() WHERE id = $1"#)
-                .bind(order_id)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                r#"UPDATE transactions SET review_invite_suppressed_at = NOW() WHERE id = $1"#,
+            )
+            .bind(transaction_id)
+            .execute(&mut *tx)
+            .await?;
         }
         tx.commit().await?;
         return Ok(());
@@ -121,36 +123,44 @@ pub async fn apply_post_sale_review_choice(
 
     sqlx::query(
         r#"
-        UPDATE orders
+        UPDATE transactions
         SET review_invite_sent_at = NOW(),
             podium_review_invite_id = COALESCE(podium_review_invite_id, 'ros_stub_pending_podium_api')
         WHERE id = $1
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .execute(&mut *tx)
     .await?;
 
     tx.commit().await?;
 
-    if let Ok(Some(nid)) = insert_app_notification_deduped(
+    if let Ok(nid) = upsert_bundle_item(
         pool,
         "review_invite_sent",
+        "Review invites recorded",
         "Review invite recorded",
-        &format!("Order {order_id} — stub until Podium review API is configured."),
+        &format!("Transaction {transaction_id} — stub until Podium review API is configured."),
         json!({
-            "type": "orders",
-            "subsection": "all",
-            "order_id": order_id.to_string(),
+            "type": "home",
+            "subsection": "reviews",
+            "transaction_id": transaction_id.to_string(),
         }),
         "podium_reviews",
         json!({}),
-        Some(format!("review_invite_order:{order_id}").as_str()),
+        "review_invites_daily_bundle",
     )
     .await
     {
-        if let Ok(admins) = admin_staff_ids(pool).await {
-            let _ = fan_out_to_staff_ids(pool, nid, &admins).await;
+        let admins = admin_staff_ids(pool).await.unwrap_or_default();
+        let reviewers = staff_ids_with_permission(pool, crate::auth::permissions::REVIEWS_VIEW)
+            .await
+            .unwrap_or_default();
+        let mut targets = [admins, reviewers].concat();
+        targets.sort_unstable();
+        targets.dedup();
+        if !targets.is_empty() {
+            let _ = fan_out_to_staff_ids(pool, nid, &targets).await;
         }
     }
 
@@ -159,7 +169,8 @@ pub async fn apply_post_sale_review_choice(
 
 #[derive(Debug, serde::Serialize, sqlx::FromRow)]
 pub struct ReviewInviteListRow {
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
+    pub display_id: String,
     pub customer_code: Option<String>,
     pub first_name: Option<String>,
     pub last_name: Option<String>,
@@ -176,14 +187,15 @@ pub async fn list_review_invite_rows(
     sqlx::query_as::<_, ReviewInviteListRow>(
         r#"
         SELECT
-            o.id AS order_id,
+            o.id AS transaction_id,
+            o.display_id,
             c.customer_code,
             c.first_name,
             c.last_name,
             o.review_invite_sent_at,
             o.review_invite_suppressed_at,
             o.podium_review_invite_id
-        FROM orders o
+        FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         WHERE o.review_invite_sent_at IS NOT NULL
            OR o.review_invite_suppressed_at IS NOT NULL

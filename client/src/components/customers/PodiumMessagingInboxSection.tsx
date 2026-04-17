@@ -54,7 +54,7 @@ export default function PodiumMessagingInboxSection({
   }, [refresh]);
 
   return (
-    <div className="ui-page flex min-h-0 flex-1 flex-col gap-4 p-4">
+    <div className="ui-page flex flex-1 flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-lg font-black uppercase tracking-tight text-app-text">Inbox</h1>
@@ -77,7 +77,7 @@ export default function PodiumMessagingInboxSection({
       ) : rows.length === 0 ? (
         <p className="text-sm text-app-text-muted">No Podium conversations yet.</p>
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto rounded-xl border border-app-border bg-app-surface">
+        <div className="flex-1 rounded-xl border border-app-border bg-app-surface">
           <ul className="divide-y divide-app-border">
             {rows.map((r) => (
               <li key={r.conversation_id}>

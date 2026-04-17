@@ -19,12 +19,12 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
 const DNA = {
-  bg: "bg-slate-950",
-  surface: "bg-slate-900 border-slate-800",
-  accent: "text-emerald-500",
-  accentBg: "bg-emerald-500",
-  muted: "text-slate-400",
-  heading: "text-[10px] font-black uppercase tracking-widest text-slate-500",
+  bg: "bg-app-bg",
+  surface: "bg-app-surface border-app-border",
+  accent: "text-emerald-600 dark:text-emerald-400",
+  accentBg: "bg-emerald-600 dark:bg-emerald-500",
+  muted: "text-app-text-muted",
+  heading: "text-[10px] font-black uppercase tracking-widest text-app-text-muted",
 };
 
 type TabId = "payouts" | "promos" | "products";
@@ -75,9 +75,9 @@ export default function CommissionManagerWorkspace() {
 
   return (
     <div
-      className={`flex flex-1 flex-col overflow-hidden ${DNA.bg} text-slate-200`}
+      className={`flex flex-1 flex-col overflow-hidden ${DNA.bg} text-app-text`}
     >
-      <header className="flex items-center justify-between border-b border-white/5 bg-slate-900/50 px-6 py-4">
+      <header className="flex items-center justify-between border-b border-app-border bg-app-surface px-6 py-4">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-500 shadow-inner">
             <Percent
@@ -86,7 +86,7 @@ export default function CommissionManagerWorkspace() {
             />
           </div>
           <div>
-            <h1 className="line-height-tight text-lg font-bold tracking-tight text-white">
+            <h1 className="line-height-tight text-lg font-bold tracking-tight text-app-text">
               Commission Manager
             </h1>
             <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
@@ -95,7 +95,7 @@ export default function CommissionManagerWorkspace() {
           </div>
         </div>
 
-        <nav className="flex items-center gap-1 rounded-full border border-white/5 bg-slate-950/50 p-1">
+        <nav className="flex items-center gap-1 rounded-full border border-app-border bg-app-surface-2 p-1">
           <TabButton
             active={activeTab === "payouts"}
             onClick={() => setActiveTab("payouts")}
@@ -120,7 +120,7 @@ export default function CommissionManagerWorkspace() {
       <main className="flex-1 overflow-hidden p-6">
         {activeTab === "payouts" && (
           <div className="flex h-full flex-col gap-6">
-            <div className="flex-1 overflow-auto rounded-2xl border border-white/5 bg-slate-900/40 p-1">
+            <div className="flex-1 overflow-auto rounded-2xl border border-app-border bg-app-surface p-1">
               <CommissionPayoutsPanel />
             </div>
           </div>
@@ -160,8 +160,8 @@ function TabButton({
       onClick={onClick}
       className={`flex items-center gap-2 rounded-full px-4 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
         active
-          ? "bg-emerald-500 text-slate-950 shadow-lg shadow-emerald-500/20"
-          : "text-slate-400 hover:text-white"
+          ? "bg-emerald-600 text-white shadow-lg shadow-emerald-600/20"
+          : "text-app-text-muted hover:text-app-text"
       }`}
     >
       {icon}
@@ -251,7 +251,7 @@ function PromoManagerSection() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-auto rounded-2xl border border-white/5 bg-slate-900/40">
+        <div className="flex-1 overflow-auto rounded-2xl border border-app-border bg-app-surface">
           <table className="w-full text-left text-[11px]">
             <thead className={`sticky top-0 ${DNA.bg} ${DNA.heading}`}>
               <tr>
@@ -264,7 +264,7 @@ function PromoManagerSection() {
                 <th className="px-6 py-4 text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5 text-slate-300">
+            <tbody className="divide-y border-app-border text-app-text">
               {loading ? (
                 <tr>
                   <td
@@ -290,15 +290,15 @@ function PromoManagerSection() {
                     className="group transition-colors hover:bg-emerald-500/5"
                   >
                     <td className="px-6 py-4">
-                      <div className="font-bold uppercase tracking-tight text-white">
+                      <div className="font-bold uppercase tracking-tight text-app-text">
                         {rule.label || "Unnamed Rule"}
                       </div>
-                      <div className="font-mono text-[9px] tracking-tighter text-slate-500">
+                      <div className="font-mono text-[9px] tracking-tighter text-app-text-muted">
                         {rule.id.slice(0, 8)}
                       </div>
                     </td>
                     <td className="px-4 py-4 text-center">
-                      <span className="rounded border border-white/5 bg-slate-800 px-2 py-0.5 text-[9px] font-bold uppercase tracking-tighter text-slate-400">
+                      <span className="rounded border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-bold uppercase tracking-tighter text-app-text-muted">
                         {rule.match_type}
                       </span>
                     </td>
@@ -365,7 +365,7 @@ function PromoManagerSection() {
 
       <div className="col-span-4 flex flex-col gap-4 overflow-hidden">
         <h2 className={DNA.heading}>Combo Rewards</h2>
-        <div className="flex-1 space-y-4 overflow-auto rounded-2xl border border-white/5 bg-slate-900/60 p-4">
+        <div className="flex-1 space-y-4 overflow-auto rounded-2xl border border-app-border bg-app-surface-2 p-4">
           {combos.length === 0 && !loading && (
             <div className="rounded-xl border border-dashed border-white/10 p-6 text-center">
               <Layers
@@ -381,9 +381,9 @@ function PromoManagerSection() {
           {combos.map((combo) => (
             <div
               key={combo.id}
-              className="group rounded-xl border border-white/10 bg-slate-950/40 p-4 shadow-sm transition-all hover:border-emerald-500/20"
+              className="group rounded-xl border border-app-border bg-app-surface p-4 shadow-sm transition-all hover:border-emerald-500/20"
             >
-              <div className="mb-3 flex items-center justify-between border-b border-white/5 pb-2">
+              <div className="mb-3 flex items-center justify-between border-b border-app-border pb-2">
                 <span className="text-[11px] font-bold uppercase tracking-tighter text-emerald-400">
                   {combo.label}
                 </span>
@@ -398,12 +398,12 @@ function PromoManagerSection() {
                     className="flex items-center justify-between text-[10px] text-slate-400"
                   >
                     <div className="flex items-center gap-2">
-                      <div className="h-1 w-1 rounded-full bg-slate-700" />
-                      <span className="font-bold capitalize text-slate-500">
+                      <div className="h-1 w-1 rounded-full bg-app-border" />
+                      <span className="font-bold capitalize text-app-text-muted">
                         {it.match_type}:
                       </span>
                     </div>
-                    <span className="font-mono font-black text-slate-300">
+                    <span className="font-mono font-black text-app-text">
                       x{it.qty_required}
                     </span>
                   </div>
@@ -553,11 +553,11 @@ function RuleEditorModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-6 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-3xl border border-white/10 bg-slate-900 p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-6 backdrop-blur-sm">
+      <div className="w-full max-w-lg rounded-3xl border border-app-border bg-app-surface p-8 shadow-2xl animate-in fade-in zoom-in duration-200">
         <div className="mb-8 flex items-center justify-between">
           <div>
-            <h3 className="line-height-tight text-lg font-black uppercase tracking-tight text-white">
+            <h3 className="line-height-tight text-lg font-black uppercase tracking-tight text-app-text">
               {rule ? "Edit Rule" : "Create SPIFF Rule"}
             </h3>
             <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
@@ -566,7 +566,8 @@ function RuleEditorModal({
           </div>
           <button
             onClick={onClose}
-            className="rounded-full p-2 text-slate-500 transition-colors hover:bg-white/5 hover:text-white"
+            aria-label="Close"
+            className="rounded-full p-2 text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text"
           >
             <X size={20} />
           </button>
@@ -574,9 +575,13 @@ function RuleEditorModal({
 
         <div className="space-y-6">
           <div className="space-y-1.5">
-            <label className={DNA.heading}>Description / Label</label>
+            <label htmlFor="rule-label" className={DNA.heading}>
+              Description / Label
+            </label>
             <input
-              className="w-full rounded-xl border-white/5 bg-slate-950/50 px-4 py-3 text-sm font-bold text-white ui-input focus:border-emerald-500/40"
+              id="rule-label"
+              name="label"
+              className="w-full rounded-xl border-app-border bg-app-surface px-4 py-3 text-sm font-bold text-app-text ui-input focus:border-emerald-500/40"
               placeholder="e.g. Seasonal Silk Tie Bonus"
               value={formData.label}
               onChange={(e) =>
@@ -587,9 +592,13 @@ function RuleEditorModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className={DNA.heading}>Specificity</label>
+              <label htmlFor="rule-match-type" className={DNA.heading}>
+                Specificity
+              </label>
               <select
-                className="w-full rounded-xl border-white/5 bg-slate-950/50 px-4 py-3 text-sm font-bold text-white ui-input appearance-none"
+                id="rule-match-type"
+                name="match_type"
+                className="w-full rounded-xl border-app-border bg-app-surface px-4 py-3 text-sm font-bold text-app-text ui-input appearance-none"
                 value={formData.match_type}
                 onChange={(e) => {
                   const next = e.target.value;
@@ -617,12 +626,14 @@ function RuleEditorModal({
             </div>
 
             <div className="space-y-1.5">
-              <label className={DNA.heading}>
+              <label htmlFor="rule-match-id" className={DNA.heading}>
                 Target {formData.match_type}
               </label>
               {formData.match_type === "category" ? (
                 <select
-                  className="w-full rounded-xl border-white/5 bg-slate-950/50 px-4 py-3 text-sm font-bold text-white ui-input appearance-none"
+                  id="rule-match-id"
+                  name="match_id"
+                  className="w-full rounded-xl border-app-border bg-app-surface px-4 py-3 text-sm font-bold text-app-text ui-input appearance-none"
                   value={formData.match_id}
                   onChange={(e) =>
                     setFormData({ ...formData, match_id: e.target.value })
@@ -636,7 +647,7 @@ function RuleEditorModal({
                   ))}
                 </select>
               ) : (
-                <div className="ui-input flex h-[46px] items-center rounded-xl border-white/5 bg-slate-950/50 px-4 py-3 text-[10px] italic text-slate-600">
+                <div className="ui-input flex h-[46px] items-center rounded-xl border-app-border bg-app-surface px-4 py-3 text-[10px] italic text-app-text-muted">
                   Picker disabled
                 </div>
               )}
@@ -645,11 +656,15 @@ function RuleEditorModal({
 
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label className={DNA.heading}>Commission Rate %</label>
+              <label htmlFor="rule-rate" className={DNA.heading}>
+                Commission Rate %
+              </label>
               <div className="relative">
                 <input
+                  id="rule-rate"
+                  name="override_rate"
                   type="number"
-                  className="w-full rounded-xl border-white/5 bg-slate-950/50 py-3 pl-4 pr-10 font-mono text-sm font-black tabular-nums text-emerald-400 ui-input"
+                  className="w-full rounded-xl border-app-border bg-app-surface py-3 pl-4 pr-10 font-mono text-sm font-black tabular-nums text-emerald-600 dark:text-emerald-400 ui-input"
                   placeholder="Override"
                   value={formData.override_rate}
                   onChange={(e) =>
@@ -663,11 +678,15 @@ function RuleEditorModal({
             </div>
 
             <div className="space-y-1.5">
-              <label className={DNA.heading}>Fixed SPIFF ($)</label>
+              <label htmlFor="rule-spiff" className={DNA.heading}>
+                Fixed SPIFF ($)
+              </label>
               <div className="relative">
                 <input
+                  id="rule-spiff"
+                  name="fixed_spiff_amount"
                   type="number"
-                  className="w-full rounded-xl border-white/5 bg-slate-950/50 py-3 pl-8 pr-4 font-mono text-sm font-black tabular-nums text-emerald-400 ui-input"
+                  className="w-full rounded-xl border-app-border bg-app-surface py-3 pl-8 pr-4 font-mono text-sm font-black tabular-nums text-emerald-600 dark:text-emerald-400 ui-input"
                   placeholder="0.00"
                   value={formData.fixed_spiff_amount}
                   onChange={(e) =>
@@ -684,22 +703,24 @@ function RuleEditorModal({
             </div>
           </div>
 
-          <label className="flex items-center gap-3">
+          <label htmlFor="rule-active" className="flex items-center gap-3">
             <input
+              id="rule-active"
+              name="is_active"
               type="checkbox"
               checked={formData.is_active}
               onChange={(e) =>
                 setFormData({ ...formData, is_active: e.target.checked })
               }
-              className="h-4 w-4 rounded border-slate-700 bg-slate-800 text-emerald-500"
+              className="h-4 w-4 rounded border-app-border bg-app-surface text-emerald-500"
             />
-            <span className="text-xs font-bold uppercase tracking-widest text-slate-300">
+            <span className="text-xs font-bold uppercase tracking-widest text-app-text">
               Rule is active
             </span>
           </label>
         </div>
 
-        <div className="mt-8 flex items-center gap-3 border-t border-white/5 pt-8">
+        <div className="mt-8 flex items-center gap-3 border-t border-app-border pt-8">
           <button
             type="button"
             disabled={loading}
@@ -711,7 +732,7 @@ function RuleEditorModal({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-2xl bg-slate-800 px-6 py-4 text-[10px] font-black uppercase tracking-widest text-slate-400 transition-colors hover:text-white"
+            className="rounded-2xl bg-app-surface-2 px-6 py-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
           >
             Exit
           </button>

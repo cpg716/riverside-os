@@ -77,8 +77,8 @@ Hard-coded logic for Erie County/NYS Clothing Tax Exemptions ($110 threshold):
 
 ## 4. Operational Speed & Analytics
 
-### 4.1 Omni-Search Command Palette
-A universal `Cmd+K` keyboard shortcut instantly focuses the global search drawer from anywhere in the application, allowing cashiers to type a Customer Name, SKU, or Product substring and instantly dive into a profile or cart without touching a mouse.
+### 4.1 Intelligent Search & Order Management
+The POS utilizes a multi-threaded search strategy that resolves SKU scans and keyword keyword lookups instantly. Staff can also recall historical orders via the **Orders** tool, enabling direct fulfillment, resume-checkout, and metadata updates (Rush/Due Date) for existing customer accounts.
 
 ### 4.2 Visual Command Center & Webhooks
 - **Insights Dashboard:** Native rendering of `recharts` provides interactive 7-day momentum and revenue graphs for rapid visual analysis.
@@ -149,7 +149,7 @@ Standardized PostgreSQL entities for Cursor AI development:
 | **Phase 1** | Core POS engine, Hybrid Cart, NYS Tax Logic, and Register Sessions. |
 | **Phase 2** | Wedding Dashboard, Master Payer Allocation, and Measurement Vault. |
 | **Phase 3** | Employee Pricing, Spiff Engine, RMS Pass-through Portal, and Messaging Engine. |
-| **Phase 4 (Current)** | **Multi-Surface Access (PWA)**, Independent Analytics Suite, and Outbound Webhook Distribution. |
+| **Phase 4** | **Modularized POS & Order Recall**, Multi-Surface Access (PWA), and Independent Analytics Suite. |
 
 **Implementation status (delivery phases 2.x / current sprints):** see **`todo.md`** at the repo root — it tracks shipped UX (command grids, inventory barcode ops, Insights Hub API + UI, etc.) independently of the strategic phases above. **Appointments / calendar** implementation detail: **`docs/APPOINTMENTS_AND_CALENDAR.md`**.
 

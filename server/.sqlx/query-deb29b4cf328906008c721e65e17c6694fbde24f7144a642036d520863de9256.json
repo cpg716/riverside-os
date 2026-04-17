@@ -1,0 +1,93 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT \n            oi.transaction_id,\n            oi.unit_price,\n            oi.quantity,\n            oi.salesperson_id,\n            oi.variant_id,\n            p.id as product_id,\n            p.category_id,\n            s.full_name as salesperson_name,\n            s.role as \"salesperson_role: DbStaffRole\",\n            s.base_commission_rate as staff_base_rate,\n            p.name as product_name\n        FROM transaction_lines oi\n        JOIN product_variants pv ON oi.variant_id = pv.id\n        JOIN products p ON pv.product_id = p.id\n        LEFT JOIN staff s ON oi.salesperson_id = s.id\n        WHERE oi.id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "transaction_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "unit_price",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 2,
+        "name": "quantity",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "salesperson_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "variant_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "product_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "category_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "salesperson_name",
+        "type_info": "Varchar"
+      },
+      {
+        "ordinal": 8,
+        "name": "salesperson_role: DbStaffRole",
+        "type_info": {
+          "Custom": {
+            "name": "staff_role",
+            "kind": {
+              "Enum": [
+                "admin",
+                "salesperson",
+                "sales_support"
+              ]
+            }
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "staff_base_rate",
+        "type_info": "Numeric"
+      },
+      {
+        "ordinal": 10,
+        "name": "product_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      false,
+      false,
+      true,
+      true,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "deb29b4cf328906008c721e65e17c6694fbde24f7144a642036d520863de9256"
+}

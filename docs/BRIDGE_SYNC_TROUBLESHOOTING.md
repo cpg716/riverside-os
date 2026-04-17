@@ -10,10 +10,18 @@ As of v0.1.8, the Bridge now includes a **20-attempt retry loop** (approx. 2.5 m
 - **Resolution**:
   1. Wait for the full retry cycle. Often, the Tailscale tunnel just needs a moment to wake up.
   2. If all 20 attempts fail, the Bridge will switch to "Dashboard Only" mode. You will need to restart the Bridge once you verify the network.
-
 ---
 
-## 2. Common Network Errors
+## 2. Settings UI "Away Mode" (Failure Limit)
+To prevent your browser console from filling with "Connection Refused" errors when you are away from the store, the **Settings → Integrations → Counterpoint** panel now limits connection attempts.
+
+- **Symptom**: The "Bridge Live Status" section stops updating and shows a red "Bridge unreachable" message.
+- **Cause**: The UI tried to reach the bridge 3 times and failed (Bridge PC is likely off or network is down).
+- **Resolution**:
+  1. Ensure the Bridge PC is on and connected to the network.
+  2. Click the **[Reconnect to Bridge]** button in the ROS Settings UI. This will reset the failure counter and resume live status polling.
+
+---
 ### ETIMEOUT (Connection Timed Out)
 - **What it means**: The network path is blocked.
 - **Troubleshooting**:

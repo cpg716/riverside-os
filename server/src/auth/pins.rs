@@ -92,14 +92,32 @@ pub async fn authenticate_pos_staff(
         return Err(PinAuthError::InvalidCredentials);
     };
 
-    // If this staff member has a PIN set, require the same 4-digit credential as `cashier_code`.
+    // If this staff member has a PIN set, require the credential to match.
+    // The user says "Each Staff has a 4 digit code... Not a Cashier Code and Login Pin."
+    // So we treat the provided cashier_code and pin as the same secret.
     if let Some(stored) = &pin_hash {
-        let provided = pin.ok_or(PinAuthError::InvalidCredentials)?;
-        let p = provided.trim();
-        if p != badge {
+        let provided = pin
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+            .unwrap_or(badge);
+
+        // Safety check: in a single-code system, the PIN used for hash verification
+        // must be the same digits as the cashier_code badge used for the DB lookup.
+        if provided != badge {
+            tracing::warn!(
+                staff_id = %id,
+                full_name = %full_name,
+                "Authentication failed: provided pin/code mismatch (single-code invariant violated)"
+            );
             return Err(PinAuthError::InvalidCredentials);
         }
-        if !verify_pin(p, stored) {
+
+        if !verify_pin(provided, stored) {
+            tracing::warn!(
+                staff_id = %id,
+                full_name = %full_name,
+                "Authentication failed: PIN hash verification failed"
+            );
             if let Err(e) = crate::logic::integration_alerts::log_staff_pin_mismatch(pool, id).await
             {
                 tracing::error!(error = %e, staff_id = %id, "log_staff_pin_mismatch");
@@ -126,6 +144,50 @@ pub async fn authenticate_admin(
         return Err(PinAuthError::InvalidCredentials);
     }
     Ok(s)
+}
+
+pub async fn authenticate_staff_by_id(
+    pool: &PgPool,
+    staff_id: Uuid,
+    pin: Option<&str>,
+) -> Result<AuthenticatedStaff, PinAuthError> {
+    let row: Option<(Uuid, String, DbStaffRole, Option<String>, String)> = sqlx::query_as(
+        r#"
+        SELECT id, full_name, role, pin_hash, avatar_key
+        FROM staff
+        WHERE id = $1 AND is_active = TRUE
+        "#,
+    )
+    .bind(staff_id)
+    .fetch_optional(pool)
+    .await?;
+
+    let Some((id, full_name, role, pin_hash, avatar_key)) = row else {
+        return Err(PinAuthError::InvalidCredentials);
+    };
+
+    if let Some(stored) = &pin_hash {
+        let provided = pin.ok_or(PinAuthError::InvalidCredentials)?;
+        if !verify_pin(provided, stored) {
+            return Err(PinAuthError::InvalidCredentials);
+        }
+    } else {
+        let provided = pin.ok_or(PinAuthError::InvalidCredentials)?;
+        let row_badge: String = sqlx::query_scalar("SELECT cashier_code FROM staff WHERE id = $1")
+            .bind(id)
+            .fetch_one(pool)
+            .await?;
+        if provided.trim() != row_badge.trim() {
+            return Err(PinAuthError::InvalidCredentials);
+        }
+    }
+
+    Ok(AuthenticatedStaff {
+        id,
+        full_name,
+        role,
+        avatar_key,
+    })
 }
 
 pub async fn log_staff_access(

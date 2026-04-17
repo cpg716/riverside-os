@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState, type MutableRefObject } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type MutableRefObject,
+} from "react";
 import {
   useBackofficeAuth,
   type StaffRole,
@@ -12,7 +18,9 @@ import {
   syncPosRegisterSessionId,
 } from "../../lib/posRegisterAuth";
 import type { SidebarTabId } from "./sidebarSections";
-import RegisterPickModal, { type OpenRegisterOption } from "./RegisterPickModal";
+import RegisterPickModal, {
+  type OpenRegisterOption,
+} from "./RegisterPickModal";
 
 const SESSION_CURRENT_FETCH_MS = 12_000;
 
@@ -111,12 +119,17 @@ export default function RegisterSessionBootstrap({
   setPosMode,
   metaRefreshRef,
 }: RegisterSessionBootstrapProps) {
-  const { backofficeHeaders, staffCode, staffPin, staffRole, permissionsLoaded } =
-    useBackofficeAuth();
+  const {
+    backofficeHeaders,
+    staffCode,
+    staffPin,
+    staffRole,
+    permissionsLoaded,
+  } = useBackofficeAuth();
 
-  const [registerPickSessions, setRegisterPickSessions] = useState<OpenRegisterOption[] | null>(
-    null,
-  );
+  const [registerPickSessions, setRegisterPickSessions] = useState<
+    OpenRegisterOption[] | null
+  >(null);
 
   /** Prevents {@link applyShellForLoggedInRole} from firing on every bootstrap re-run while the same register session stays open (would steal focus from QBO/Staff/etc. for admin). */
   const lastShellApplySessionIdRef = useRef<string | null>(null);
@@ -152,6 +165,15 @@ export default function RegisterSessionBootstrap({
       if (!hasRegisterSessionPollCredentials(pollHeaders())) return;
       const res = await fetchCurrentSession();
       if (!res.ok) return;
+      const contentType = res.headers.get("content-type");
+      if (!contentType || !contentType.includes("application/json")) {
+        console.error(
+          "Server returned non-JSON response from /api/sessions/current",
+          res.status,
+          contentType,
+        );
+        return;
+      }
       const data = (await res.json()) as Pick<
         CurrentSessionJson,
         | "register_lane"
@@ -169,12 +191,14 @@ export default function RegisterSessionBootstrap({
       setCashierName(data.cashier_name);
       setCashierCode(data.cashier_code);
       setCashierAvatarKey(
-        typeof data.cashier_avatar_key === "string" && data.cashier_avatar_key.trim()
+        typeof data.cashier_avatar_key === "string" &&
+          data.cashier_avatar_key.trim()
           ? data.cashier_avatar_key.trim()
           : "ros_default",
       );
       setReceiptTimezone(
-        typeof data.receipt_timezone === "string" && data.receipt_timezone.trim()
+        typeof data.receipt_timezone === "string" &&
+          data.receipt_timezone.trim()
           ? data.receipt_timezone.trim()
           : "America/New_York",
       );
@@ -212,13 +236,24 @@ export default function RegisterSessionBootstrap({
         const res = await fetchCurrentSession();
         if (res.ok) {
           setRegisterPickSessions(null);
+          const contentType = res.headers.get("content-type");
+          if (!contentType || !contentType.includes("application/json")) {
+            console.error(
+              "Server returned non-JSON response from /api/sessions/current",
+              res.status,
+              contentType,
+            );
+            return;
+          }
           const data = (await res.json()) as CurrentSessionJson;
-          const shouldApplyShell = lastShellApplySessionIdRef.current !== data.session_id;
+          const shouldApplyShell =
+            lastShellApplySessionIdRef.current !== data.session_id;
           lastShellApplySessionIdRef.current = data.session_id;
           setCashierName(data.cashier_name);
           setCashierCode(data.cashier_code);
           setCashierAvatarKey(
-            typeof data.cashier_avatar_key === "string" && data.cashier_avatar_key.trim()
+            typeof data.cashier_avatar_key === "string" &&
+              data.cashier_avatar_key.trim()
               ? data.cashier_avatar_key.trim()
               : "ros_default",
           );
@@ -227,7 +262,8 @@ export default function RegisterSessionBootstrap({
           setRegisterOrdinal(data.register_ordinal);
           setLifecycleStatus(data.lifecycle_status);
           setReceiptTimezone(
-            typeof data.receipt_timezone === "string" && data.receipt_timezone.trim()
+            typeof data.receipt_timezone === "string" &&
+              data.receipt_timezone.trim()
               ? data.receipt_timezone.trim()
               : "America/New_York",
           );
@@ -240,7 +276,8 @@ export default function RegisterSessionBootstrap({
             openerCashierCode: staffCode,
             openerPin: staffPin,
           });
-          if (shouldApplyShell) applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
+          if (shouldApplyShell)
+            applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
         } else if (res.status === 409) {
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
@@ -329,14 +366,22 @@ export default function RegisterSessionBootstrap({
     const gate = showInitialLoadingGateRef.current;
     showInitialLoadingGateRef.current = false;
     void runBootstrap(gate);
-  }, [baseUrl, staffCode, staffPin, staffRole, permissionsLoaded, runBootstrap]);
+  }, [
+    baseUrl,
+    staffCode,
+    staffPin,
+    staffRole,
+    permissionsLoaded,
+    runBootstrap,
+  ]);
 
   useEffect(() => {
     const onBoSession = () => {
       void runBootstrap(false);
     };
     window.addEventListener("ros-backoffice-session-changed", onBoSession);
-    return () => window.removeEventListener("ros-backoffice-session-changed", onBoSession);
+    return () =>
+      window.removeEventListener("ros-backoffice-session-changed", onBoSession);
   }, [runBootstrap]);
 
   const onPickSuccess = useCallback(
@@ -346,7 +391,8 @@ export default function RegisterSessionBootstrap({
       setCashierName(data.cashier_name);
       setCashierCode(data.cashier_code);
       setCashierAvatarKey(
-        typeof data.cashier_avatar_key === "string" && data.cashier_avatar_key.trim()
+        typeof data.cashier_avatar_key === "string" &&
+          data.cashier_avatar_key.trim()
           ? data.cashier_avatar_key.trim()
           : "ros_default",
       );
@@ -355,7 +401,8 @@ export default function RegisterSessionBootstrap({
       setRegisterOrdinal(data.register_ordinal);
       setLifecycleStatus(data.lifecycle_status);
       setReceiptTimezone(
-        typeof data.receipt_timezone === "string" && data.receipt_timezone.trim()
+        typeof data.receipt_timezone === "string" &&
+          data.receipt_timezone.trim()
           ? data.receipt_timezone.trim()
           : "America/New_York",
       );

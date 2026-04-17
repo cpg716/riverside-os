@@ -130,9 +130,10 @@ Each data entity has a flag. Enable what you need. **Recommended enable order:**
 | `SYNC_CATALOG=1` | Products + matrix variants (creates items in ROS) | Disabled | `IM_ITEM`, `IM_INV_CELL`, `IM_PRC`, `IM_BARCOD` |
 | `SYNC_GIFT_CARDS=1` | Gift certificates + lifecycle events | Disabled | `SY_GFT_CERT` (Standard) or `SY_GFC` (Custom) |
 | `SYNC_TICKETS=1` | Historical sales tickets → orders | Disabled | `PS_TKT_HIST`, `PS_TKT_HIST_LIN`, `PS_TKT_HIST_PMT` |
-| `SYNC_TICKET_NOTES=1` | Associated ticket notes | Disabled | `PS_TKT_HIST_NOTE` |
-| `SYNC_RECEIVING_HISTORY=1` | Historical cost logs (1/2021+) | Disabled | `PO_RECVR_HIST` |
-| `SYNC_STORE_CREDIT_OPENING=1` | **Enabled** (April 9 Update) | 0 | `SY_STC` (Found) |
+| `SYNC_RECEIVING_HISTORY=1` | Historical cost/receiving logs (2018+) | Disabled | `PO_RECVR_HIST` |
+| `SYNC_TICKET_PAYMENTS=1` | Historical payment method details | Disabled | `PS_TKT_HIST_PMT` |
+| `SYNC_TICKET_GIFT_REDEEM=1` | Historical gift card redemptions | Disabled | `PS_TKT_HIST_GFT` |
+| `SYNC_STORE_CREDIT_OPENING=1` | Current Store Credit balances | Disabled | `SY_STC` |
 
 ### 3d. Start
 
@@ -194,8 +195,9 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 
 | Counterpoint column | ROS column | Notes |
 |---------------------|------------|-------|
-| `CUST_NO` | `customer_code` | Primary match key |
-| `NAM` (or `FST_NAM` / `LST_NAM`) | `first_name` / `last_name` | Smart name splitting from `NAM` when first/last are empty |
+| `CUST_NO` | `customer_code` | Primary match key; supports fuzzy prefix matching (e.g. `C-`) |
+| `NAM` | — | Primary visual anchor; parsed into first/last |
+| **Lifetime Sales** | — | **Calculated via Aggregation**: ROS computes lifetime spend by summing all imported tickets since Jan 1, 2018 |
 | `EMAIL_ADRS_1` | `email` | Unique constraint; skipped on conflict (logged as `email_conflicts`) |
 | `PHONE_1` | `phone` | Clamped to 20 chars |
 | `ADRS_1`, `ADRS_2`, `CITY`, `STATE`, `ZIP_COD` | `address_line1/2`, `city`, `state`, `postal_code` | |
@@ -204,9 +206,11 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 | `BAL` | `custom_field_2` | A/R balance (stored as string for reference) |
 | `SLS_REP` | `preferred_salesperson_id` | Resolved via `counterpoint_staff_map` (sync staff first) |
 
-**Provenance:** New customers created by this sync get `customer_created_source = 'counterpoint'` (migration 85). Existing customers matched by `customer_code` are updated in place (their original `customer_created_source` is preserved).
+**Provenance & Lifetime Value:** New customers created by this sync get `customer_created_source = 'counterpoint'`. **Important:** As of the 2018 Historical Hardening update, Riverside OS does NOT use a static `lifetime_sales` column from Counterpoint. Instead, it aggregates all imported `tickets` (from 2018+) to provide mathematically accurate lifetime reporting and financial parity.
 
-**Default `.env` scope (bridge 0.6.6+):** `CP_CUSTOMERS_QUERY` selects **`AR_CUST`** for **closed tickets** or **in-range notes** on or after **`CP_IMPORT_SINCE`**, **or** (when **`SYNC_STORE_CREDIT_OPENING=1`**) **`OR EXISTS(CP_CUSTOMER_STORE_CREDIT_EXISTS)`** — shipped example uses **`MERCH_CR_BAL` > 0**; change both that SQL fragment and **`CP_STORE_CREDIT_QUERY`** if your column name differs. **Loyalty-only** activity does **not** add customers. Open layaways without tickets may still need a manual **`PS_DOC`** `EXISTS` if required.
+**Default `.env` scope (2018 Hardening):** `CP_IMPORT_SINCE` is now set to **2018-01-01** by default to capture all transactional history required for lifetime audits.
+**Open Documents:** Unlike historical tickets, the `CP_OPEN_DOCS_QUERY` typically removes date filters to ensure the full active backlog (Layaways, Quotes, Special Orders) is captured regardless of creation date.
+`CP_CUSTOMERS_QUERY` selects **`AR_CUST`** for **closed tickets** or **in-range notes** on or after **`CP_IMPORT_SINCE`**, **or** (when **`SYNC_STORE_CREDIT_OPENING=1`**) **`OR EXISTS(CP_CUSTOMER_STORE_CREDIT_EXISTS)`** — shipped example uses **`MERCH_CR_BAL` > 0**; change both that SQL fragment and **`CP_STORE_CREDIT_QUERY`** if your column name differs. **Loyalty-only** activity does **not** add customers. Open layaways without tickets may still need a manual **`PS_DOC`** `EXISTS` if required.
 
 ### 4b-2. Customer Notes
 
@@ -336,6 +340,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `PS_TKT_HIST_GFT` | `payment_transactions` (`gift_card`) + `gift_card_events` (redemption); load/issue-like `ACTION` values are skipped server-side |
 | `PS_LOY_PTS_HIST` | `loyalty_point_ledger` (`reason = 'cp_loy_pts_hist'`, idempotent `metadata.cp_ref`) |
 | `PO_VEND_ITEM` | `vendor_supplier_item` (links `vendors.vendor_code` + CP `ITEM_NO` to `product_variants` when resolvable) |
+| — | `orders.counterpoint_customer_code` | Original CP customer code preserved for audit fallback |
 
 **Idempotency:** If an order with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
 
@@ -355,6 +360,14 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `ON ACCOUNT` | `on_account` |
 
 Add custom mappings by inserting into `counterpoint_payment_method_map`.
+
+### 4f-2. Customer ID Matching & Prefix Logic (v0.8.0+)
+To handle mixed Counterpoint ID formats (legacy integers vs. newer `C-` prefixed strings), the ROS sync service employs a bidirectional resolution strategy during ticket and open-doc imports:
+
+1. **Exact Match**: Checks `customer_code` in the local DB.
+2. **Prefix fallback**: High-performance query checks for both `code` and `'C-' + code`.
+3. **Stripped fallback**: Checks the raw integer if the ticket provides a `C-` prefixed string but the DB lacks it.
+4. **Audit Fallback**: Every imported transaction stores the original code in `counterpoint_customer_code`. If a match fails, the UI displays `CP: [CODE]` instead of "Walk-in" to maintain logistical clarity.
 
 ### 4g. API endpoints reference
 
@@ -434,37 +447,39 @@ ROS stores this in the `counterpoint_bridge_heartbeat` singleton table and deriv
 | **ONLINE** | Token configured, heartbeat fresh, phase = `idle` |
 | **SYNCING** | Token configured, heartbeat fresh, phase = `syncing` (shows current entity) |
 | **OFFLINE** | Token not configured **or** no heartbeat in the last 2 minutes |
+
+**Polling Stability:** To prevent console spam when the shop is closed (bridge unreachable), the Back Office Settings UI will stop automatic polling after **3 consecutive failures**. Use the **"Reconnect to Bridge"** button to resume monitoring once you are back in the store.
+
+---
+
+## 13. Performance & Parallelization (v0.7.3+)
+
+The bridge now utilizes a high-concurrency "Hyper-Speed" engine to maximize throughput, especially during large matrix-catalog or historical-ticket imports.
+
+### Concurrency Tuning
+The bridge maintains a dedicated concurrency pool for each entity. You can tune performance in `.env`:
+
+- **`BATCH_SIZE`** (Default: 200): The number of rows processed in a single SQL operation and sent in one HTTP POST. Larger batches reduce HTTP overhead but increase memory usage per request.
+- **Max Concurrency** (Internal: 5): The bridge allows up to 5 parallel batches to be "in flight" at once. This ensures that your SQL Server and ROS API are kept busy without being overwhelmed.
 +
-+---
-+
-+## 13. Performance & Parallelization (v0.7.3+)
-+
-+The bridge now utilizes a high-concurrency "Hyper-Speed" engine to maximize throughput, especially during large matrix-catalog or historical-ticket imports.
-+
-+### Concurrency Tuning
-+The bridge maintains a dedicated concurrency pool for each entity. You can tune performance in `.env`:
-+
-+- **`BATCH_SIZE`** (Default: 200): The number of rows processed in a single SQL operation and sent in one HTTP POST. Larger batches reduce HTTP overhead but increase memory usage per request.
-+- **Max Concurrency** (Internal: 5): The bridge allows up to 5 parallel batches to be "in flight" at once. This ensures that your SQL Server and ROS API are kept busy without being overwhelmed.
-+
-+### Matrix Mapping Duplicate Squelcher
-+For stores with heavy matrix use (v8.2 Matrix Mapping Loops), the bridge includes a built-in filter to discard redundant variation rows:
-+1. **Parent Tracking:** Ensures each Matrix Parent is only processed once per catalog pass.
-+2. **Dummy Filtering:** variations with blank/NULL SKUs or Item Numbers are discarded before transmission to minimize stream clutter.
-+
-+### Targeted Entity Sync (v0.7.3+)
-+The bridge now supports manual requests for specific entities. This is useful for refreshing just `customers` or `inventory` without running a full multi-entity pass.
-+- **UI Trigger:** Dashboard "Run" buttons for individual entities.
-+- **Dependency resolution:** If an entity is requested that has dependencies (e.g., `tickets` requiring `customers`), the bridge automatically enqueues the dependencies first.
-+
-+### Ack/Complete Handshake Protocol
-+To prevent overlapping sync cycles and improve reliability, the bridge now uses a strict handshake:
-+1. **Ack (`ack-request`):** The bridge acknowledges receipt of a sync request from the Riverside API.
-+2. **Concurrency Lock:** The bridge sets an internal `isTickRunning` flag to prevent a scheduled poll from starting while a manual request is active.
-+3. **Complete (`complete-request`):** Upon successful transmission of all batches, the bridge notifies the Riverside API to update the final sync timestamp and clear the request status.
-+
-+---
-+
+### Matrix Mapping Duplicate Squelcher
+For stores with heavy matrix use (v8.2 Matrix Mapping Loops), the bridge includes a built-in filter to discard redundant variation rows:
+1. **Parent Tracking:** Ensures each Matrix Parent is only processed once per catalog pass.
+2. **Dummy Filtering:** variations with blank/NULL SKUs or Item Numbers are discarded before transmission to minimize stream clutter.
+
+### Targeted Entity Sync (v0.7.3+)
+The bridge now supports manual requests for specific entities. This is useful for refreshing just `customers` or `inventory` without running a full multi-entity pass.
+- **UI Trigger:** Dashboard "Run" buttons for individual entities.
+- **Dependency resolution:** If an entity is requested that has dependencies (e.g., `tickets` requiring `customers`), the bridge automatically enqueues the dependencies first.
+
+### Ack/Complete Handshake Protocol
+To prevent overlapping sync cycles and improve reliability, the bridge now uses a strict handshake:
+1. **Ack (`ack-request`):** The bridge acknowledges receipt of a sync request from the Riverside API.
+2. **Concurrency Lock:** The bridge sets an internal `isTickRunning` flag to prevent a scheduled poll from starting while a manual request is active.
+3. **Complete (`complete-request`):** Upon successful transmission of all batches, the bridge notifies the Riverside API to update the final sync timestamp and clear the request status.
+
+---
+
 
 ---
 

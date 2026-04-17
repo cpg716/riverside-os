@@ -47,6 +47,7 @@ pub async fn validate_checkout_lines_and_sum(
     pool: &sqlx::PgPool,
     global_employee_markup: Decimal,
     lines: &[CheckoutLineSnapshot],
+    is_tax_exempt: bool,
 ) -> Result<Decimal, CheckoutValidateError> {
     let mut sum = Decimal::ZERO;
     for line in lines {
@@ -59,12 +60,7 @@ pub async fn validate_checkout_lines_and_sum(
         if is_rms_payment {
             if line.quantity != 1 {
                 return Err(CheckoutValidateError::Invalid(
-                    "RMS CHARGE PAYMENT must be a single line with quantity 1".to_string(),
-                ));
-            }
-            if line.unit_price <= Decimal::ZERO {
-                return Err(CheckoutValidateError::Invalid(
-                    "RMS CHARGE PAYMENT requires an amount greater than zero".to_string(),
+                    "RMS CHARGE PAYMENT lines must have quantity 1".to_string(),
                 ));
             }
             if !line.state_tax.is_zero() || !line.local_tax.is_zero() {
@@ -75,7 +71,7 @@ pub async fn validate_checkout_lines_and_sum(
         } else if is_pos_gc_load {
             if line.quantity != 1 {
                 return Err(CheckoutValidateError::Invalid(
-                    "POS GIFT CARD LOAD must be a single line with quantity 1".to_string(),
+                    "POS GIFT CARD LOAD lines must have quantity 1".to_string(),
                 ));
             }
             if line.unit_price <= Decimal::ZERO {
@@ -104,28 +100,74 @@ pub async fn validate_checkout_lines_and_sum(
                 )));
             }
 
-            let exp_state =
-                nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
-            let exp_local =
-                erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
-            
+            let exp_state = if is_tax_exempt {
+                Decimal::ZERO
+            } else {
+                nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+            };
+            let exp_local = if is_tax_exempt {
+                Decimal::ZERO
+            } else {
+                erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+            };
+
             // Use money_close for all monetary comparisons to avoid precision issues
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
+                tracing::error!(
+                    variant_id = %line.variant_id,
+                    sku = %resolved.sku,
+                    provided_state = %line.state_tax,
+                    expected_state = %exp_state,
+                    provided_local = %line.local_tax,
+                    expected_local = %exp_local,
+                    unit_price = %line.unit_price,
+                    tax_category = ?resolved.tax_category,
+                    is_tax_exempt = %is_tax_exempt,
+                    "Tax parity mismatch in checkout"
+                );
                 return Err(CheckoutValidateError::Invalid(format!(
-                    "Tax per unit for variant {} does not match server calculation",
-                    line.variant_id
+                    "Tax per unit for variant {} ({}) does not match server calculation (Exp: S:{} L:{} vs Got: S:{} L:{})",
+                    line.variant_id,
+                    resolved.sku,
+                    exp_state,
+                    exp_local,
+                    line.state_tax,
+                    line.local_tax
                 )));
             }
         } else {
-            let exp_state =
-                nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
-            let exp_local =
-                erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price);
-            
+            let exp_state = if is_tax_exempt {
+                Decimal::ZERO
+            } else {
+                nys_state_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+            };
+            let exp_local = if is_tax_exempt {
+                Decimal::ZERO
+            } else {
+                erie_local_tax_usd(resolved.tax_category, line.unit_price, line.unit_price)
+            };
+
             if !money_close(line.state_tax, exp_state) || !money_close(line.local_tax, exp_local) {
+                tracing::error!(
+                    variant_id = %line.variant_id,
+                    sku = %resolved.sku,
+                    provided_state = %line.state_tax,
+                    expected_state = %exp_state,
+                    provided_local = %line.local_tax,
+                    expected_local = %exp_local,
+                    unit_price = %line.unit_price,
+                    tax_category = ?resolved.tax_category,
+                    is_tax_exempt = %is_tax_exempt,
+                    "Tax parity mismatch in checkout (price override fail)"
+                );
                 return Err(CheckoutValidateError::Invalid(format!(
-                    "Tax per unit for variant {} does not match server calculation",
-                    line.variant_id
+                    "Tax per unit for variant {} ({}) does not match server calculation (Exp: S:{} L:{} vs Got: S:{} L:{})",
+                    line.variant_id,
+                    resolved.sku,
+                    exp_state,
+                    exp_local,
+                    line.state_tax,
+                    line.local_tax
                 )));
             }
         }

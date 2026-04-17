@@ -13,6 +13,7 @@ export interface ResolvedSkuItem {
   spiff_amount?: string | number;
   state_tax: string | number;
   local_tax: string | number;
+  tax_category?: "clothing" | "footwear" | "other";
   stock_on_hand?: number;
   vendor_sku?: string;
   /** Present when API includes it (promotions, prompts). */
@@ -30,7 +31,12 @@ export interface SearchResult extends ResolvedSkuItem {
   image_url?: string;
 }
 
-export type FulfillmentKind = "takeaway" | "special_order" | "wedding_order" | "layaway";
+export type FulfillmentKind =
+  | "takeaway"
+  | "special_order"
+  | "wedding_order"
+  | "custom"
+  | "layaway";
 
 export interface CartLineItem extends ResolvedSkuItem {
   quantity: number;
@@ -44,6 +50,9 @@ export interface CartLineItem extends ResolvedSkuItem {
   salesperson_id?: string | null;
   /** When set, checkout sends `discount_event_id` and price must match event % off retail. */
   discount_event_id?: string | null;
+  /** Preserved tax rates from catalog to prevent compounding rounding errors during recalculation. */
+  nominal_state_tax_rate?: number;
+  nominal_local_tax_rate?: number;
 }
 
 export type GiftCardType =
@@ -59,7 +68,12 @@ export interface AppliedPaymentLine {
   /** Tender amount in integer cents (source of truth for checkout splits). */
   amountCents: number;
   label: string;
-  metadata?: { stripe_intent_id?: string; card_brand?: string | null; card_last4?: string | null };
+  metadata?: {
+    stripe_intent_id?: string;
+    card_brand?: string | null;
+    card_last4?: string | null;
+    check_number?: string | null;
+  };
 }
 
 export type AppliedPayment = AppliedPaymentLine;
@@ -69,7 +83,25 @@ export interface CheckoutOperatorContext {
   fullName: string;
 }
 
-export type NexoTenderTab = "card_terminal" | "card_manual" | "card_saved" | "card_credit" | "cash" | "check" | "gift_card" | "on_account_rms" | "on_account_rms90" | "store_credit";
+export interface PosOrderOptions {
+  is_rush?: boolean;
+  need_by_date?: string | null;
+  fulfillment_mode?: string | null;
+  ship_to?: PosShipToForm | null;
+  stripe_payment_method_id?: string | null;
+}
+
+export type NexoTenderTab =
+  | "card_terminal"
+  | "card_manual"
+  | "card_saved"
+  | "card_credit"
+  | "cash"
+  | "check"
+  | "gift_card"
+  | "on_account_rms"
+  | "on_account_rms90"
+  | "store_credit";
 
 export interface CheckoutPaymentSplitPayload {
   payment_method: string;
@@ -77,6 +109,8 @@ export interface CheckoutPaymentSplitPayload {
   sub_type?: "paid_liability" | "loyalty_giveaway" | "donated_giveaway";
   applied_deposit_amount?: string;
   gift_card_code?: string;
+  check_number?: string;
+  metadata?: Record<string, string | number | boolean | null | undefined>;
 }
 
 /** Active staff for POS salesperson pickers (commissions / attribution). */
@@ -115,6 +149,11 @@ export interface CheckoutPayload {
   ship_to?: unknown | null;
   /** Order Review flow: saved card for balance at pickup */
   stripe_payment_method_id?: string | null;
+  /** Tax Exemption */
+  is_tax_exempt?: boolean;
+  tax_exempt_reason?: string;
+  rounding_adjustment?: string;
+  final_cash_due?: string;
 }
 
 export type ActiveDiscountEvent = {

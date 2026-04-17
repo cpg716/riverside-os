@@ -35,3 +35,13 @@ When a Markdown file is **removed** from this repository, add an entry here **be
 | **Why removed** | Duplicate of the canonical AI implementation roadmap; same scope and audience as `ROS_AI_INTEGRATION_PLAN.md`. |
 | **Where content lives now** | [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) (merged; this file is the single implementation plan). Product intent remains in [`docs/AI_INTEGRATION_OUTLOOK.md`](AI_INTEGRATION_OUTLOOK.md). |
 | **Summary** | Cursor-frontmatter roadmap for phased AI: separate **ros-gemma** worker (Gemma 2B Q4_K_M, llama-cpp-2), Axum `/api/ai/*` only, `AiCompletion` adapter, Phase 0 (permissions, env kill switch, health), pillars for doc-grounded help, assistive search, variant draft JSON, whitelisted saved reports, duplicate candidates and merge queue. Stressed Rust-only inference, no silent financial writes, and alignment with `docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md` for merges. |
+
+### POS Mid-Shift Snapshot (X-Report)
+
+| Field | Content |
+|-------|---------|
+| **Former path** | `client/src/components/pos/XReportModal.tsx`, `XReportPrint.ts` |
+| **Date retired** | 2026-04-13 |
+| **Why removed** | Deprecated in favor of real-time Register Dashboards and a single, unified Professional Z-Report. Mid-shift balancing is no longer a supported physical workflow. |
+| **Where content lives now** | [`docs/TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md), [`docs/REGISTER_DASHBOARD.md`](REGISTER_DASHBOARD.md), [`client/src/components/pos/zReportPrint.ts`](../client/src/components/pos/zReportPrint.ts) |
+| **Summary** | Legacy "X-Report" (mid-shift snapshot) was removed to ensure financial data is only reconciled at the close of the drawer shift. Real-time stats are now available on the Register Dashboard without requiring a physical printout. |

@@ -15,8 +15,8 @@ This document covers every deposit form the system supports, how the POS registe
 5. [Open Deposits (Pre-Paid Member Credits)](#open-deposits-pre-paid-member-credits)
 6. [Deposit-Only Completion (No Tenders)](#deposit-only-completion-no-tenders)
 7. [Mixed Carts (Takeaway + Deferred Items)](#mixed-carts-takeaway--deferred-items)
-8. [Interim Payments on Open Orders](#interim-payments-on-open-orders)
-9. [Deposit Release at Fulfillment](#deposit-release-at-fulfillment)
+8. [Interim Payments on Open Transactions](#interim-payments-on-open-transactions)
+9. [Transaction Release at Fulfillment](#transaction-release-at-fulfillment)
 10. [Deposit Forfeiture](#deposit-forfeiture)
 11. [QBO Journal Accounting](#qbo-journal-accounting)
 12. [Key Source Files](#key-source-files)
@@ -37,13 +37,13 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 
 ## Deposit Types
 
-| Type | Order Context | When Used | Minimum |
+| Type | Transaction Context | When Used | Minimum |
 |------|--------------|-----------|---------|
 | **Layaway Deposit** | In-stock items held on a layaway shelf | Customer reserves floor merchandise for future pickup | 25% of sale total (admin override allowed) |
 | **Order Deposit** | Items not yet in stock; must be procured | Customer commits to purchasing items the store will order from a vendor | Store policy (typically 50%) |
-| **Wedding Order Deposit** | Special order tied to a wedding party + event date | Groom, groomsmen, or sponsor commits to formalwear orders | Store policy |
+| **Wedding Transaction Deposit** | Special order tied to a wedding party + event date | Groom, groomsmen, or sponsor commits to formalwear orders | Store policy |
 | **Split Deposit** | Wedding group pay across multiple party members | One payer covers deposits for several members in a single transaction | Per-member balance from the party |
-| **Open Deposit** | Credit held on a customer account (not store credit) | Group pay disbursement targets a member with no open order yet | Exact disbursement amount |
+| **Open Deposit** | Credit held on a customer account (not store credit) | Group pay disbursement targets a member with no open transaction yet | Exact disbursement amount |
 
 ---
 
@@ -52,23 +52,32 @@ See [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md) for the full recognition 
 ### Step-by-Step
 
 1. **Build the cart** with the items the customer is ordering.
-2. **Select the order type** from the toolbar: **Layaway**, **Order**, or **Wedding**.
-3. **Attach a customer** (required for all deferred-fulfillment orders).
+2. **Select the mode** from the toolbar: **Layaway**, **Order**, or **Wedding**.
+3. **Attach a customer** (required for all deferred-fulfillment transactions).
 4. Tap **Pay** / **Complete Sale** to open the **Payment Ledger** drawer.
 5. On the keypad, type the amount the customer will pay today (e.g., `100` for $100.00).
 6. Tap the amber **Apply deposit** button (below the green **Apply payment** button).
 7. The **Balance remaining** display instantly recalculates to show the deposit amount as the target to pay today — **not** the full sale total.
 8. Now use the keypad again and tap **Apply payment** via the customer's chosen tender (credit card, cash, etc.) to fulfill the deposit amount.
+   - **Checks**: When selecting the **CHECK** tab, you MUST enter the **Check #** in the provided field before applying the payment to ensure accurate transaction tracking.
 9. When the balance reaches `$0.00`, the green **Complete Sale** button activates.
 10. Finalize and print the receipt.
+
+### Ledger Breakdown (Financial Truth)
+
+The Payment Ledger drawer (NexoCheckoutDrawer) provides a hyper-accurate "Revenue Protocol" breakdown:
+- **Net Retail Subtotal**: The sum of all item retail prices (excluding tax/shipping).
+- **Shipping & Logistics**: Broken out explicitly for audit clarity.
+- **State Tax (NYS) / Local Tax (Erie)**: Displayed as separate shards to ensure authority compliance.
+- **Grand Total**: The comprehensive sum of the entire transaction.
 
 ### What Happens Behind the Scenes
 
 - The deposit amount is sent to the server as `applied_deposit_amount` on the first payment split.
 - The server records the tender (e.g., credit card $100) and tags it with the deposit metadata.
-- The order is created with status `booked` / `order_placed`.
+- The transaction is created with status `booked` / `order_placed`.
 - The $100 goes to `liability_deposit` in the ledger — **not** revenue.
-- The remaining balance (e.g., $115.33 on a $215.33 sale) stays as the customer's open balance due on the order.
+- The remaining balance (e.g., $115.33 on a $215.33 sale) stays as the customer's open balance due on the transaction.
 
 ---
 
@@ -88,8 +97,9 @@ For weddings, a single payer (often the groom or sponsor) can cover deposits for
 ### Backend Handling
 
 - The checkout payload includes `wedding_disbursements[]`, each with a `wedding_member_id` and `amount`.
-- The server creates **`payment_allocation`** rows linking the payer's tender to each beneficiary member's order.
-- If a disbursement targets a member who does **not** yet have an open order, the funds are credited to the member's **open deposit account** (see below).
+
+- The server creates **`payment_allocation`** rows linking the payer's tender to each beneficiary member's transaction.
+- If a disbursement targets a member who does **not** yet have an open transaction, the funds are credited to the member's **open deposit account** (see below).
 - Disbursement amounts are validated: they cannot be negative, and their sum cannot exceed the amount collected.
 
 ---
@@ -100,7 +110,7 @@ When a group pay disbursement targets a wedding member who has no open order row
 
 - Stored in: `customer_open_deposit_accounts` / `customer_open_deposit_ledger` (migration **83**).
 - **Not** the same as store credit — open deposits are earmarked for a specific future purchase.
-- When the member later comes in and their order is created, the cashier is **prompted automatically** at checkout: *"A party member paid a deposit held on this account ($X available). Apply it to this sale?"*
+- When the member later comes in and their transaction is created, the cashier is **prompted automatically** at checkout: *"A party member paid a deposit held on this account ($X available). Apply it to this sale?"*
 - If accepted, the open deposit is applied as an `open_deposit` tender line, reducing the amount the member owes.
 - The server treats `deposit_ledger` and `open_deposit` payment methods as non-real-tender (excluded from `tender_sum_excluding_deposit_like` in checkout validation).
 
@@ -120,7 +130,7 @@ In certain scenarios, a cashier may record a deposit commitment **without** coll
 
 - The server receives a synthetic `deposit_ledger` payment split with the committed amount.
 - No real money changes hands at the register — the deposit is a recorded commitment.
-- The order is created with the deposit on the ledger, and the customer's balance reflects the full amount still owed.
+- The transaction is created with the deposit on the ledger, and the customer's balance reflects the full amount still owed.
 
 ### When It's **Not** Allowed
 
@@ -143,26 +153,26 @@ The cashier must tender enough to cover both the takeaway goods **and** the requ
 
 ---
 
-## Interim Payments on Open Orders
+## Interim Payments on Open Transactions
 
 After the initial deposit, customers return to make additional payments toward their balance:
 
 1. Navigate to **Customers** in the Back Office or POS.
-2. Find the customer → open their **Orders** tab.
-3. Select the open order → tap **Make Payment**.
+2. Find the customer → open their **Transactions** tab.
+3. Select the open transaction → tap **Make Payment**.
 4. Enter the payment amount and tender it.
 5. Each interim payment is also recorded as `liability_deposit` — revenue is still deferred.
-6. When the balance reaches `$0.00`, the order is ready for fulfillment / pickup.
+6. When the balance reaches `$0.00`, the transaction is ready for fulfillment / pickup.
 
 ---
 
-## Deposit Release at Fulfillment
+## Transaction Release at Fulfillment
 
 When the customer picks up their merchandise, the deposit liability is **released** (converted to revenue):
 
 ### Trigger
 - The cashier completes the final payment (if any balance remains) and toggles **Pickup Confirmed** in the checkout drawer.
-- The order status transitions to `fulfilled`.
+- The transaction status transitions to `fulfilled`.
 
 ### Accounting (QBO Journal)
 - **Debit**: `liability_deposit` (reduces the liability on the balance sheet).
@@ -174,11 +184,11 @@ The QBO Daily Staging Journal uses `applied_deposit_amount` metadata from the pa
 
 ---
 
-## Deposit Forfeiture
+## Transaction Forfeiture
 
-If a customer abandons a layaway or cancels an order:
+If a customer abandons a layaway or cancels a transaction:
 
-1. A manager cancels the order with reason **Forfeited**.
+1. A manager cancels the transaction with reason **Forfeited**.
 2. Inventory reservations are released (`on_layaway` or `reserved` stock decremented).
 3. The deposit liability is reclassified:
    - **Debit**: `liability_deposit` (remove the liability).
@@ -190,18 +200,9 @@ If a customer abandons a layaway or cancels an order:
 
 ## QBO Journal Accounting
 
-### Required QBO Mappings
+Riverside OS generates a daily balanced journal by tracking payments against fulfillment status.
 
-| Mapping Key | Purpose | Account Type |
-|-------------|---------|-------------|
-| `liability_deposit` | Holds customer deposits as unearned revenue | Current Liability |
-| `income_forfeited_deposit` | Recognizes abandoned deposit income | Income |
-| Revenue category mappings | Per-category revenue accounts for release | Income |
-| Tax payable mappings | State + local tax liability | Current Liability |
-
-### Journal Entry Examples
-
-**Taking a $100 deposit:**
+**Taking a $100 deposit (New Inflow):**
 | Account | Debit | Credit |
 |---------|-------|--------|
 | Cash / Card Clearing | $100.00 | |
@@ -228,14 +229,14 @@ If a customer abandons a layaway or cancels an order:
 
 | File | Role |
 |------|------|
-| `client/src/components/pos/NexoCheckoutDrawer.tsx` | Payment ledger UI: keypad, Apply deposit, Apply payment, balance calculation, deposit-only completion |
+| `client/src/components/pos/NexoCheckoutDrawer.tsx` | Payment ledger UI: keypad, Apply deposit, Apply payment, balance calculation, deposit-only completion, Revenue Protocol summary |
 | `client/src/components/pos/Cart.tsx` | Cart orchestration: `executeCheckout`, `allowCheckoutDepositKeypad`, disbursement members, open deposit prompt |
-| `server/src/logic/order_checkout.rs` | Backend checkout: payment split parsing, `applied_deposit_amount` validation, `deposit_ledger` / `open_deposit` handling, wedding disbursement allocation |
+| `server/src/logic/transaction_checkout.rs` | Backend checkout: payment split parsing, `applied_deposit_amount` validation, `deposit_ledger` / `open_deposit` handling, wedding disbursement allocation |
 | `server/src/logic/qbo_journal.rs` | QBO journal: `liability_deposit` debit on release, `income_forfeited_deposit` on forfeiture, category-level release aggregation |
 | `docs/BOOKED_VS_FULFILLED.md` | Revenue recognition model (booked vs fulfilled dates) |
 | `docs/LAYAWAY_OPERATIONS.md` | Layaway-specific lifecycle and inventory impact |
-| `docs/ORDERS_AND_WEDDING_ORDERS.md` | Order/wedding order lifecycle and inventory impact |
-| `docs/WEDDING_GROUP_PAY_AND_RETURNS.md` | Group pay disbursement, open deposits, return/refund on member orders |
+| `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Transaction/fulfillment order lifecycle and inventory impact |
+| `docs/WEDDING_GROUP_PAY_AND_RETURNS.md` | Group pay disbursement, open deposits, return/refund on member transactions |
 
 ---
 

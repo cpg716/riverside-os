@@ -83,14 +83,31 @@ async fn proxy_request(State(state): State<AppState>, req: axum::extract::Reques
     };
 
     let path = req.uri().path();
+    let query_str = req.uri().query().unwrap_or_default();
+
+    // Check for silent-auth session handoff
+    let mut session_to_set: Option<String> = None;
+    let mut filtered_query = String::new();
+
+    for pair in query_str.split('&') {
+        if let Some(val) = pair.strip_prefix("metabase_session_id=") {
+            session_to_set = Some(val.to_string());
+        } else if !pair.is_empty() {
+            if !filtered_query.is_empty() {
+                filtered_query.push('&');
+            }
+            filtered_query.push_str(pair);
+        }
+    }
+
     let Some(upstream_path) = strip_metabase_prefix(path) else {
         return StatusCode::NOT_FOUND.into_response();
     };
 
     let mut target = format!("{base}{upstream_path}");
-    if let Some(q) = req.uri().query() {
+    if !filtered_query.is_empty() {
         target.push('?');
-        target.push_str(q);
+        target.push_str(&filtered_query);
     }
 
     let method = req.method().clone();
@@ -123,7 +140,7 @@ async fn proxy_request(State(state): State<AppState>, req: axum::extract::Reques
     let mut rb = state.http_client.request(method.clone(), &target);
     for (k, v) in headers.iter() {
         let name = k.as_str();
-        if hop_by_hop(name) || name.eq_ignore_ascii_case("host") {
+        if hop_by_hop(name) || name.eq_ignore_ascii_case("host") || name.eq_ignore_ascii_case("accept-encoding") {
             continue;
         }
         rb = rb.header(k, v);
@@ -142,6 +159,13 @@ async fn proxy_request(State(state): State<AppState>, req: axum::extract::Reques
         }
     };
 
+    let content_type = upstream
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    let is_html = content_type.contains("text/html");
+
     let status =
         StatusCode::from_u16(upstream.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY);
     let mut out = HeaderMap::new();
@@ -151,6 +175,10 @@ async fn proxy_request(State(state): State<AppState>, req: axum::extract::Reques
         if hop_by_hop(name) || skip_metabase_embed_blocking_header(name) {
             continue;
         }
+        // If we are rebranding HTML, we must strip Content-Encoding because we'll be serving a plain string
+        if is_html && name.eq_ignore_ascii_case("content-encoding") {
+            continue;
+        }
         if let Ok(name) = HeaderName::from_str(name) {
             if let Ok(val) = HeaderValue::from_bytes(v.as_bytes()) {
                 append_header(&mut out, name, val);
@@ -158,15 +186,83 @@ async fn proxy_request(State(state): State<AppState>, req: axum::extract::Reques
         }
     }
 
-    let stream = upstream
-        .bytes_stream()
-        .map(|chunk| chunk.map_err(|e| std::io::Error::other(e.to_string())));
-    let body = Body::from_stream(stream);
+    if is_html && status == StatusCode::OK {
+        // For HTML pages (the main app), we read the body and inject our rebranding payload.
+        let body_bytes = match upstream.bytes().await {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::error!(error = %e, "metabase proxy: failed to read response body for injection");
+                return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+            }
+        };
 
-    let mut res = Response::new(body);
-    *res.status_mut() = status;
-    *res.headers_mut() = out;
-    res
+        let mut html = String::from_utf8_lossy(&body_bytes).into_owned();
+
+        // Inject custom CSS and JS to hide Metabase branding
+        let injection = r#"
+<style>
+  /* Hide Metabase logos and branding elements */
+  .Logo, .LogoWithText, .Metabase-logo, [class*="Logo"], [class*="metabase-logo"] { display: none !important; }
+  .Nav-item--logo { visibility: hidden !important; width: 20px !important; }
+  .App-header { border-bottom: 1px solid rgba(139, 92, 246, 0.2) !important; background: rgba(255, 255, 255, 0.8) !important; backdrop-filter: blur(8px) !important; }
+  .Button--primary { background-color: #7c3aed !important; border-color: #7c3aed !important; }
+  .text-brand { color: #7c3aed !important; }
+</style>
+<script>
+  (function() {
+    const BrandName = "Data Insights";
+    document.title = BrandName;
+    const rename = () => {
+      document.title = BrandName;
+      document.querySelectorAll('*').forEach(el => {
+        if (el.children.length === 0 && el.textContent.includes('Metabase')) {
+          el.textContent = el.textContent.replace(/Metabase/g, BrandName);
+        }
+      });
+    };
+    setInterval(rename, 1000);
+    window.addEventListener('DOMContentLoaded', rename);
+  })();
+</script>
+</head>"#;
+
+        html = html.replace("</head>", injection);
+
+        // Remove Content-Length so Axum recalculates it (important since we changed the body)
+        out.remove(header::CONTENT_LENGTH);
+
+        if let Some(sid) = session_to_set {
+            let cookie_val =
+                format!("metabase.SESSION={sid}; Path=/metabase; HttpOnly; SameSite=Lax");
+            if let Ok(hv) = HeaderValue::from_str(&cookie_val) {
+                out.append(header::SET_COOKIE, hv);
+            }
+        }
+
+        let mut res = Response::new(Body::from(html));
+        *res.status_mut() = status;
+        *res.headers_mut() = out;
+        res
+    } else {
+        let stream = upstream
+            .bytes_stream()
+            .map(|chunk| chunk.map_err(|e| std::io::Error::other(e.to_string())));
+        let body = Body::from_stream(stream);
+
+        let mut res = Response::new(body);
+        *res.status_mut() = status;
+
+        if let Some(sid) = session_to_set {
+            let cookie_val =
+                format!("metabase.SESSION={sid}; Path=/metabase; HttpOnly; SameSite=Lax");
+            if let Ok(hv) = HeaderValue::from_str(&cookie_val) {
+                out.append(header::SET_COOKIE, hv);
+            }
+        }
+
+        *res.headers_mut() = out;
+        res
+    }
 }
 
 pub fn router() -> Router<AppState> {

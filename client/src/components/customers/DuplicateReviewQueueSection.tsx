@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Copy, ExternalLink, Trash2 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
-import CustomerRelationshipHubDrawer from "./CustomerRelationshipHubDrawer";
+import { CustomerRelationshipHubDrawer } from "./CustomerRelationshipHubDrawer";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -30,7 +30,7 @@ export default function DuplicateReviewQueueSection({
   onNavigateRegister,
   onAddToWedding,
   onBookAppointment,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
 }: {
   onNavigateAllCustomers: () => void;
   onOpenWeddingParty: (partyId: string) => void;
@@ -38,7 +38,7 @@ export default function DuplicateReviewQueueSection({
   onNavigateRegister?: () => void;
   onAddToWedding?: () => void;
   onBookAppointment?: () => void;
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
 }) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -271,7 +271,7 @@ export default function DuplicateReviewQueueSection({
           onNavigateRegister={onNavigateRegister}
           onAddToWedding={onAddToWedding}
           onBookAppointment={onBookAppointment}
-          onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+          onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
         />
       ) : null}
 

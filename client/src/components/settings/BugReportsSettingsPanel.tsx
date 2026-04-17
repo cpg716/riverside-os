@@ -39,7 +39,9 @@ type Detail = {
 };
 
 function downloadJson(filename: string, data: unknown) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -87,7 +89,13 @@ function statusLabel(status: BugStatus): string {
   return "Pending";
 }
 
-export default function BugReportsSettingsPanel() {
+export default function BugReportsSettingsPanel({
+  deepLinkReportId = null,
+  onDeepLinkConsumed,
+}: {
+  deepLinkReportId?: string | null;
+  onDeepLinkConsumed?: () => void;
+}) {
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const [rows, setRows] = useState<ListRow[]>([]);
@@ -99,9 +107,9 @@ export default function BugReportsSettingsPanel() {
     id: string;
     next: BugStatus;
   } | null>(null);
-  const [listFilter, setListFilter] = useState<"all" | "pending" | "complete" | "dismissed">(
-    "pending",
-  );
+  const [listFilter, setListFilter] = useState<
+    "all" | "pending" | "complete" | "dismissed"
+  >("pending");
 
   const filteredRows =
     listFilter === "all" ? rows : rows.filter((r) => r.status === listFilter);
@@ -131,7 +139,7 @@ export default function BugReportsSettingsPanel() {
     void loadList();
   }, [loadList]);
 
-  const openDetail = async (id: string) => {
+  const openDetail = useCallback(async (id: string) => {
     try {
       const res = await fetch(`${baseUrl}/api/settings/bug-reports/${id}`, {
         headers: backofficeHeaders() as Record<string, string>,
@@ -147,19 +155,28 @@ export default function BugReportsSettingsPanel() {
     } catch {
       toast("Network error", "error");
     }
-  };
+  }, [backofficeHeaders, toast]);
+
+  useEffect(() => {
+    if (!deepLinkReportId) return;
+    void openDetail(deepLinkReportId);
+    onDeepLinkConsumed?.();
+  }, [deepLinkReportId, onDeepLinkConsumed, openDetail]);
 
   const patchReport = async (body: Record<string, unknown>) => {
     if (!detail) return;
     try {
-      const res = await fetch(`${baseUrl}/api/settings/bug-reports/${detail.id}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
+      const res = await fetch(
+        `${baseUrl}/api/settings/bug-reports/${detail.id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      });
+      );
       if (!res.ok) {
         const j = (await res.json().catch(() => ({}))) as { error?: string };
         toast(j.error ?? "Could not update report", "error");
@@ -178,7 +195,8 @@ export default function BugReportsSettingsPanel() {
     }
   };
 
-  const saveTriageFields = () => void patchReport({ resolver_notes: draftNotes, external_url: draftUrl });
+  const saveTriageFields = () =>
+    void patchReport({ resolver_notes: draftNotes, external_url: draftUrl });
 
   if (!hasPermission("settings.admin")) {
     return null;
@@ -193,10 +211,13 @@ export default function BugReportsSettingsPanel() {
             Bug reports
           </h2>
           <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
-            Submissions from the bug icon (Tauri, PWA, or browser): optional screenshot, client
-            console, API tracing snapshot, correlation id, and triage fields. Notifications go to
-            staff with settings.admin. Old reports purge per{" "}
-            <code className="font-mono text-[10px]">RIVERSIDE_BUG_REPORT_RETENTION_DAYS</code>{" "}
+            Submissions from the bug icon (Tauri, PWA, or browser): optional
+            screenshot, client console, API tracing snapshot, correlation id,
+            and triage fields. Notifications go to staff with settings.admin.
+            Old reports purge per{" "}
+            <code className="font-mono text-[10px]">
+              RIVERSIDE_BUG_REPORT_RETENTION_DAYS
+            </code>{" "}
             (default 365 days, min 30).
           </p>
         </div>
@@ -235,7 +256,9 @@ export default function BugReportsSettingsPanel() {
                 ({rows.filter((r) => r.status === key).length})
               </span>
             ) : (
-              <span className="ml-1.5 tabular-nums opacity-70">({rows.length})</span>
+              <span className="ml-1.5 tabular-nums opacity-70">
+                ({rows.length})
+              </span>
             )}
           </button>
         ))}
@@ -247,7 +270,9 @@ export default function BugReportsSettingsPanel() {
         ) : rows.length === 0 ? (
           <p className="p-6 text-sm text-app-text-muted">No bug reports yet.</p>
         ) : filteredRows.length === 0 ? (
-          <p className="p-6 text-sm text-app-text-muted">No reports in this filter.</p>
+          <p className="p-6 text-sm text-app-text-muted">
+            No reports in this filter.
+          </p>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[720px] border-collapse text-left text-sm">
@@ -270,12 +295,16 @@ export default function BugReportsSettingsPanel() {
                     <td className="px-4 py-3 font-mono text-[10px] text-app-text-muted">
                       {r.correlation_id.slice(0, 8)}…
                     </td>
-                    <td className="px-4 py-3 text-xs font-semibold text-app-text">{r.staff_name}</td>
+                    <td className="px-4 py-3 text-xs font-semibold text-app-text">
+                      {r.staff_name}
+                    </td>
                     <td className="max-w-md px-4 py-3 text-xs text-app-text line-clamp-2">
                       {r.summary}
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`ui-pill text-[9px] ${statusPillClass(r.status)}`}>
+                      <span
+                        className={`ui-pill text-[9px] ${statusPillClass(r.status)}`}
+                      >
                         {statusLabel(r.status)}
                       </span>
                     </td>
@@ -312,19 +341,27 @@ export default function BugReportsSettingsPanel() {
             <div className="flex items-center justify-between gap-3 border-b border-app-border px-5 py-4">
               <div className="min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  {new Date(detail.created_at).toLocaleString()} · {detail.staff_name}
+                  {new Date(detail.created_at).toLocaleString()} ·{" "}
+                  {detail.staff_name}
                 </p>
                 <p className="mt-1 font-mono text-[10px] text-app-text-muted">
                   Correlation: {detail.correlation_id}
                 </p>
-                <p className="mt-1 text-sm font-bold text-app-text line-clamp-2">{detail.summary}</p>
+                <p className="mt-1 text-sm font-bold text-app-text line-clamp-2">
+                  {detail.summary}
+                </p>
                 <div className="mt-2 flex flex-wrap gap-2">
-                  <span className={`ui-pill text-[9px] ${statusPillClass(detail.status)}`}>
+                  <span
+                    className={`ui-pill text-[9px] ${statusPillClass(detail.status)}`}
+                  >
                     {statusLabel(detail.status)}
                   </span>
                   {typeof detail.client_meta?.runtime_surface === "string" ? (
                     <span className="ui-pill bg-app-surface-2 text-[9px] font-semibold capitalize text-app-text">
-                      {String(detail.client_meta.runtime_surface).replace(/_/g, " ")}
+                      {String(detail.client_meta.runtime_surface).replace(
+                        /_/g,
+                        " ",
+                      )}
                     </span>
                   ) : null}
                   {detail.client_meta?.tauri_shell_version != null ? (
@@ -352,7 +389,9 @@ export default function BugReportsSettingsPanel() {
                 <button
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
-                  onClick={() => downloadJson(`ros-bug-${detail.id}-full.json`, detail)}
+                  onClick={() =>
+                    downloadJson(`ros-bug-${detail.id}-full.json`, detail)
+                  }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
                   Full report JSON
@@ -360,7 +399,12 @@ export default function BugReportsSettingsPanel() {
                 <button
                   type="button"
                   className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
-                  onClick={() => downloadPng(`ros-bug-${detail.id}.png`, detail.screenshot_png_base64)}
+                  onClick={() =>
+                    downloadPng(
+                      `ros-bug-${detail.id}.png`,
+                      detail.screenshot_png_base64,
+                    )
+                  }
                 >
                   <Download className="h-3.5 w-3.5" aria-hidden />
                   Screenshot PNG
@@ -398,7 +442,9 @@ export default function BugReportsSettingsPanel() {
                   Triage (saved to database)
                 </p>
                 <label className="block">
-                  <span className="text-[10px] font-semibold text-app-text-muted">Tracker / issue URL</span>
+                  <span className="text-[10px] font-semibold text-app-text-muted">
+                    Tracker / issue URL
+                  </span>
                   <input
                     type="url"
                     className="ui-input mt-1 w-full text-sm"
@@ -433,14 +479,18 @@ export default function BugReportsSettingsPanel() {
                     <button
                       type="button"
                       className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase"
-                      onClick={() => setStatusConfirm({ id: detail.id, next: "complete" })}
+                      onClick={() =>
+                        setStatusConfirm({ id: detail.id, next: "complete" })
+                      }
                     >
                       Mark fixed
                     </button>
                     <button
                       type="button"
                       className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase"
-                      onClick={() => setStatusConfirm({ id: detail.id, next: "dismissed" })}
+                      onClick={() =>
+                        setStatusConfirm({ id: detail.id, next: "dismissed" })
+                      }
                     >
                       Dismiss (won&apos;t fix)
                     </button>
@@ -449,7 +499,9 @@ export default function BugReportsSettingsPanel() {
                   <button
                     type="button"
                     className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase"
-                    onClick={() => setStatusConfirm({ id: detail.id, next: "pending" })}
+                    onClick={() =>
+                      setStatusConfirm({ id: detail.id, next: "pending" })
+                    }
                   >
                     Reopen as pending
                   </button>
@@ -490,8 +542,9 @@ export default function BugReportsSettingsPanel() {
                   {detail.server_log_snapshot || "—"}
                 </pre>
                 <p className="mt-1 text-[10px] text-app-text-muted">
-                  Bounded in-memory <code className="font-mono">tracing</code> buffer on the process
-                  that handled submit — not the full terminal session or other replicas.
+                  Bounded in-memory <code className="font-mono">tracing</code>{" "}
+                  buffer on the process that handled submit — not the full
+                  terminal session or other replicas.
                 </p>
               </div>
               <div>

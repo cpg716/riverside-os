@@ -16,7 +16,6 @@ import {
   BarChart3,
   Box,
   Globe,
-  Loader2,
   Search,
   SlidersHorizontal,
   X,
@@ -181,13 +180,6 @@ export default function InventoryControlBoard({
   );
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
   const [rows, setRows] = useState<BoardRow[]>([]);
-  const [stats, setStats] = useState<BoardStats>({
-    total_asset_value: "0.00",
-    skus_out_of_stock: 0,
-    active_vendors: 0,
-    need_label_skus: 0,
-    oos_replenishment_skus: 0,
-  });
   const [categories, setCategories] = useState<Category[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [searchInput, setSearchInput] = useState("");
@@ -314,17 +306,7 @@ export default function InventoryControlBoard({
         const data = (await boardRes.json()) as BoardResponse;
         setRows(data.rows);
         setBoardHasMore(data.rows.length === boardPageLimit);
-        setStats({
-          ...data.stats,
-          need_label_skus:
-            typeof data.stats.need_label_skus === "number"
-              ? data.stats.need_label_skus
-              : 0,
-          oos_replenishment_skus:
-            typeof data.stats.oos_replenishment_skus === "number"
-              ? data.stats.oos_replenishment_skus
-              : 0,
-        });
+        // Global stats handled by parent workspace
       }
     } finally {
       setBoardRefreshing(false);
@@ -804,12 +786,12 @@ export default function InventoryControlBoard({
           setTableFocus(true);
         }}
         onDoubleClick={() => openProductHub(row)}
-        className={`group relative flex items-center gap-4 px-5 py-3.5 transition-all hover:z-10 border-b border-app-border/30 ${
+        className={`group relative flex items-center gap-4 px-6 py-4 transition-all duration-300 border-b border-app-border/10 ${
           focused
-            ? "bg-app-accent/5 ring-1 ring-inset ring-app-accent/30"
+            ? "bg-app-accent/5 ring-1 ring-inset ring-app-accent/20 backdrop-blur-md"
             : isSelected
-              ? "bg-app-accent/10"
-              : "bg-app-surface hover:bg-app-surface-2"
+              ? "bg-app-accent/10 backdrop-blur-md"
+              : "bg-transparent hover:bg-app-surface/30 hover:backdrop-blur-sm"
         }`}
       >
         {/* Selection Indicator */}
@@ -929,40 +911,35 @@ export default function InventoryControlBoard({
         </div>
       </div>
     );
-  };
+};
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-app-surface selection:bg-app-accent/20 selection:text-app-text">
-      <header className="border-b border-[var(--app-border)] bg-[color-mix(in_srgb,var(--app-surface)_88%,transparent)] px-4 py-3 backdrop-blur-xl md:px-6">
-        <div className="mb-3 flex flex-wrap items-center gap-3">
-          <p className="hidden shrink-0 text-[10px] font-black uppercase tracking-[0.2em] text-[var(--app-text-muted)] sm:block">
-            Search & filters
-          </p>
+    <div className="flex flex-col space-y-8 animate-in fade-in duration-500">
+      <div className="shrink-0 space-y-4">
+        <div className="mb-4 flex flex-wrap items-center gap-4">
           <div className="relative min-w-0 flex-1 group">
             <Search
-              className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--app-text-muted)] transition-colors group-focus-within:text-[var(--app-accent)]"
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted transition-colors group-focus-within:text-app-accent"
               size={18}
-              aria-hidden
             />
             <input
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Deep SKU / Brand / Name lookup..."
-              className="ui-input h-11 w-full min-w-[240px] pl-10 pr-3 text-sm font-semibold"
+              placeholder="Filter by SKU, Brand, or Product name..."
+              className="w-full h-12 bg-app-surface/20 border border-app-border/40 rounded-2xl pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/50 focus:outline-none focus:ring-2 focus:ring-app-accent/50 focus:border-app-accent transition-all"
               aria-busy={boardRefreshing}
             />
           </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <div className="h-8 w-px bg-[var(--app-border)] max-sm:hidden" aria-hidden />
-            <div className="flex items-center gap-1 rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] p-1">
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex items-center gap-1 rounded-2xl border border-app-border/40 bg-app-surface/20 p-1 backdrop-blur-md">
               <button
                 type="button"
                 onClick={() => setGroupByBrand(!groupByBrand)}
-                className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
                   groupByBrand
-                    ? "bg-[var(--app-surface)] text-[var(--app-text)] shadow-sm ring-1 ring-[var(--app-border)]"
-                    : "text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
+                    ? "bg-app-accent text-white shadow-lg"
+                    : "text-app-text-muted hover:text-app-text hover:bg-app-surface/40"
                 }`}
               >
                 Brand Mode
@@ -970,10 +947,10 @@ export default function InventoryControlBoard({
               <button
                 type="button"
                 onClick={() => setGroupByPrimaryVendor(!groupByPrimaryVendor)}
-                className={`rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
                   groupByPrimaryVendor
-                    ? "bg-[var(--app-surface)] text-[var(--app-text)] shadow-sm ring-1 ring-[var(--app-border)]"
-                    : "text-[var(--app-text-muted)] hover:text-[var(--app-text)]"
+                    ? "bg-app-accent text-white shadow-lg"
+                    : "text-app-text-muted hover:text-app-text hover:bg-app-surface/40"
                 }`}
               >
                 Vendor Mode
@@ -1061,31 +1038,17 @@ export default function InventoryControlBoard({
             <FilterChip label="Negative Stock" onRemove={() => setNegativeStockOnly(false)} />
           )}
         </div>
-      </header>
+      </div>
 
-      <div className="relative flex min-h-0 flex-[4] flex-col overflow-hidden">
-        {boardRefreshing ? (
-          <div
-            className="pointer-events-none absolute inset-0 z-30 flex items-start justify-center bg-app-surface/40 pt-10 backdrop-blur-[1px]"
-            aria-live="polite"
-          >
-            <span className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface/95 px-4 py-2 text-xs font-bold text-app-text shadow-lg">
-              <Loader2
-                className="h-4 w-4 shrink-0 animate-spin text-app-accent"
-                aria-hidden
-              />
-              Working…
-            </span>
-          </div>
-        ) : null}
-        <div
-          className="flex-1 overflow-auto no-scrollbar outline-none"
+      <div className="flex flex-col border border-app-border/40 bg-app-bg/10">
+        <div 
+          className="min-w-[1000px] outline-none"
           onFocus={() => setTableFocus(true)}
           onBlur={() => setTableFocus(false)}
           onKeyDown={onTableKeyDown}
           tabIndex={0}
         >
-          <div className="flex flex-col gap-px bg-app-border/20 pb-20">
+          <div className="flex flex-col gap-px bg-app-border/20">
             {groupByBrand && groupedRows ? (
               groupedRows.map(([brand, items]) => {
                 const stats = groupStats(items);
@@ -1162,83 +1125,57 @@ export default function InventoryControlBoard({
             ) : null}
           </div>
         </div>
-
-        {selected.size > 0 && (
-          <InventoryBulkBar
-            selectedCount={selected.size}
-            onClearSelection={() => setSelected(new Set())}
-            onBulkPrintLabels={() => void bulkPrintLabels()}
-            onBulkArchive={() => setShowArchiveConfirm(true)}
-            onMassAssign={onMassAssign}
-            onScanReceive={onScanReceive}
-            onBulkPublishWeb={() => void bulkWebPublish(true)}
-            onBulkUnpublishWeb={() => void bulkWebPublish(false)}
-            categories={categories}
-          />
-        )}
       </div>
 
-      <footer className="border-t border-[var(--app-border)] bg-[var(--app-surface)] px-4 py-3 shadow-2xl md:px-6">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex flex-wrap items-center gap-6 md:gap-8">
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
-                Asset Value
-              </span>
-              <span className="text-lg font-black tabular-nums tracking-tighter text-[var(--app-text)]">
-                {money(stats.total_asset_value)}
-              </span>
-            </div>
-            <div className="h-8 w-px bg-[var(--app-border)]" />
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
-                Replens
-              </span>
-              <span className="text-lg font-black tabular-nums tracking-tighter text-emerald-600">
-                {stats.oos_replenishment_skus ?? 0}
-              </span>
-            </div>
-            <div className="h-8 w-px bg-[var(--app-border)]" />
-            <div className="flex flex-col">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[var(--app-text-muted)]">
-                Unlabeled
-              </span>
-              <span className="text-lg font-black tabular-nums tracking-tighter text-amber-500">
-                {stats.need_label_skus}
-              </span>
-            </div>
-          </div>
+      {/* Standardized Bulk Action Bar */}
+      {selected.size > 0 && (
+        <InventoryBulkBar
+          selectedCount={selected.size}
+          onClearSelection={() => setSelected(new Set())}
+          onBulkPrintLabels={() => void bulkPrintLabels()}
+          onBulkArchive={() => setShowArchiveConfirm(true)}
+          onMassAssign={onMassAssign}
+          onScanReceive={onScanReceive}
+          onBulkPublishWeb={() => void bulkWebPublish(true)}
+          onBulkUnpublishWeb={() => void bulkWebPublish(false)}
+          categories={categories}
+        />
+      )}
 
-          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-3 sm:min-w-[20rem] sm:flex-none sm:max-w-xl">
-            <div className="relative min-w-[12rem] flex-1">
-              <Search
-                size={14}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--app-text-muted)]"
-                aria-hidden
-              />
+      {/* Modern Filter Discovery Footer (Replacing legacy fixed stats) */}
+      <div className="border-t border-app-border/30 bg-app-surface/20 px-6 py-8">
+        <div className="flex flex-wrap items-center justify-between gap-6">
+          <div className="flex items-center gap-4">
+            <div className="relative min-w-[16rem]">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted" />
               <input
                 value={brandDraft}
                 onChange={(e) => setBrandDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     setBrandQuery(brandDraft);
-                    setTableFocus(true);
                   }
                 }}
-                placeholder="Quick brand filter..."
-                className="ui-input h-10 w-full min-w-0 pl-9 text-[10px] font-black uppercase tracking-widest"
+                placeholder="Brand filter..."
+                className="w-full h-10 bg-app-surface/20 border border-app-border/40 rounded-xl pl-10 pr-4 text-[10px] font-black uppercase tracking-widest placeholder:text-app-text-muted/40 focus:outline-none focus:ring-2 focus:ring-app-accent/30 transition-all"
               />
             </div>
-             <button
-               type="button"
-               onClick={() => void refresh()}
-               className="rounded-xl bg-app-accent px-5 py-2.5 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-black/15 hover:brightness-110 active:scale-95 transition-all"
-             >
-               Force Sync
-             </button>
+            <button
+              onClick={() => void refresh()}
+              className="h-10 px-6 rounded-xl bg-app-accent/90 text-[10px] font-black uppercase tracking-widest text-white shadow-lg hover:brightness-110 active:scale-95 transition-all backdrop-blur-md"
+            >
+              Refresh Lattice
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity">
+            <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+              Synchronized Local Registry
+            </span>
+            <div className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse ml-2" />
           </div>
         </div>
-      </footer>
+      </div>
 
       {adjustRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">

@@ -41,7 +41,9 @@ export function BackofficeAuthProvider({
   const [staffDisplayName, setStaffDisplayName] = useState("");
   const [staffAvatarKey, setStaffAvatarKey] = useState("ros_default");
   const [staffRole, setStaffRole] = useState<StaffRole | null>(null);
-  const [employeeCustomerId, setEmployeeCustomerId] = useState<string | null>(null);
+  const [employeeCustomerId, setEmployeeCustomerId] = useState<string | null>(
+    null,
+  );
 
   useEffect(() => {
     const t = initialCode?.trim();
@@ -56,10 +58,11 @@ export function BackofficeAuthProvider({
   }, [initialCode]);
 
   const backofficeHeaders = useCallback((): HeadersInit => {
-    const h: Record<string, string> = {
-      "x-riverside-staff-code": staffCode.trim(),
-    };
-    if (staffPin.trim()) h["x-riverside-staff-pin"] = staffPin.trim();
+    const h: Record<string, string> = {};
+    if (staffCode.trim()) {
+      h["x-riverside-staff-code"] = staffCode.trim();
+      if (staffPin.trim()) h["x-riverside-staff-pin"] = staffPin.trim();
+    }
     return h;
   }, [staffCode, staffPin]);
 
@@ -104,7 +107,8 @@ export function BackofficeAuthProvider({
       setStaffAvatarKey(ak);
       setStaffRole(parseStaffRole(d.role));
       const ec =
-        typeof d.employee_customer_id === "string" && d.employee_customer_id.trim()
+        typeof d.employee_customer_id === "string" &&
+        d.employee_customer_id.trim()
           ? d.employee_customer_id.trim()
           : null;
       setEmployeeCustomerId(ec);
@@ -208,4 +212,3 @@ export function BackofficeAuthProvider({
     </BackofficeAuthContext.Provider>
   );
 }
-

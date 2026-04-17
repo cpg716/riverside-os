@@ -80,9 +80,12 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 
 ### The "Sync-on-Demand" Posture
 By default, the bridge starts in **IDLE** mode. This prevents background noise and overlapping syncs during targeted data cleanup. To start a sync while in IDLE:
-1.  Visit the **Bridge Command UI** at `http://localhost:3002`.
-2.  In the Back Office, go to **Settings → Integrations → Counterpoint bridge** and click **Request sync run**.
 3.  The bridge will pick up the request within 10-30 seconds (based on heartbeat) and execute it.
+
+### "Away from Store" Polling Behavior (NEW)
+To prevent network and console spam when you are away from the store (and the bridge PC is off/unreachable), the Riverside OS Settings UI now implements a fail-fast policy:
+- **3-Fail Limit**: The UI will attempt to check bridge liveness 3 times. If all 3 fail, it will **stop searching**.
+- **Reconnect Button**: A dedicated "Reconnect to Bridge" button will appear in the Status tab. Simply click this when you are back at the store to resume live monitoring.
 
 | Mode | Bridge behavior | When to use |
 |------|-----------------|-------------|
@@ -138,7 +141,7 @@ Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RE
 
 | Env | Meaning |
 |-----|---------|
-| `CP_IMPORT_SINCE` | Date floor; use `__CP_IMPORT_SINCE__` in SQL templates (default `2021-01-01`). |
+| `CP_IMPORT_SINCE` | Date floor for historical parity; set to **2018-01-01** for full lifetime sales fidelity. |
 | `CP_IMPORT_SCOPE=maximal` | For **empty** env lines only, substitutes built-in wide SQL for customers, inventory, catalog, vendor_items, category_masters. Non-empty `CP_*_QUERY` still wins. **0.7.2+:** maximal **parent** catalog + inventory SQL is **schema-flex** (probes `INFORMATION_SCHEMA` so missing `LONG_DESCR`, missing `IM_PRC`, or `BARCOD` vs `BARCODE` does not hard-fail the query). |
 | `CP_INVENTORY_LOC_ID` / `CP_CATALOG_INV_LOC_ID` | Stock location for `IM_INV` joins (default **`MAIN`**). If you get no rows or errors, run `SELECT DISTINCT LOC_ID FROM IM_INV` in SSMS and set these to your real code. |
 | `CP_AUTO_SCHEMA=1` (default) | After SQL connect, probes `INFORMATION_SCHEMA`: IM_INV cost column, IM_ITEM vendor column, PO_VEND naming, optional PO_VEND_ITEM link. Logs one `[auto-schema]` line. Set `CP_AUTO_SCHEMA=0` to skip. |

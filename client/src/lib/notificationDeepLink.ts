@@ -21,30 +21,23 @@ export function isActionableNotificationDeepLink(
       return typeof o.po_id === "string" && !!o.po_id.trim();
     case "qbo_staging":
       return typeof o.sync_log_id === "string" && !!o.sync_log_id.trim();
-    case "orders":
-      return true;
-    case "settings":
-      return typeof o.section === "string" && !!o.section.trim();
-    case "inventory":
-      return typeof o.section === "string" && !!o.section.trim();
-    case "dashboard":
-      return typeof o.subsection === "string" && !!o.subsection.trim();
-    case "register":
-      return true;
-    case "home":
-      return typeof o.subsection === "string" && !!o.subsection.trim();
-    case "customers":
-      return typeof o.subsection === "string" && !!o.subsection.trim();
-    case "appointments":
-      return typeof o.section === "string" && !!o.section.trim();
-    case "qbo":
-      return typeof o.section === "string" && !!o.section.trim();
-    case "staff":
-      return typeof o.section === "string" && !!o.section.trim();
     case "staff_tasks":
       return typeof o.instance_id === "string" && !!o.instance_id.trim();
+    case "orders":
+    case "settings":
+    case "inventory":
+    case "dashboard":
+    case "register":
+    case "home":
+    case "customers":
+    case "appointments":
+    case "qbo":
+    case "staff":
     case "gift-cards":
-      return typeof o.section === "string" && !!o.section.trim();
+    case "weddings":
+    case "loyalty":
+    case "reports":
+      return true;
     default:
       return false;
   }

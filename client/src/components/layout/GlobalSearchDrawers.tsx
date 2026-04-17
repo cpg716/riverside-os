@@ -2,11 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { ExternalLink, Package, Shirt, Wallet } from "lucide-react";
-import type { Customer } from "../pos/CustomerSelector";
-import type { ResolvedSkuItem } from "../pos/Cart";
+import type { Customer, ResolvedSkuItem } from "../pos/types";
 import DetailDrawer from "./DetailDrawer";
 import SmartButton from "../ui/SmartButton";
-import CustomerRelationshipHubDrawer from "../customers/CustomerRelationshipHubDrawer";
+import { CustomerRelationshipHubDrawer } from "../customers/CustomerRelationshipHubDrawer";
 
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
@@ -30,7 +29,7 @@ interface GlobalSearchDrawerHostProps {
   onNavigateRegister: () => void;
   onAddCustomerToWedding?: () => void;
   onBookCustomerAppointment?: () => void;
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
 }
 
 export default function GlobalSearchDrawerHost({
@@ -41,7 +40,7 @@ export default function GlobalSearchDrawerHost({
   onNavigateRegister,
   onAddCustomerToWedding,
   onBookCustomerAppointment,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
 }: GlobalSearchDrawerHostProps) {
   if (!state) return null;
 
@@ -55,7 +54,7 @@ export default function GlobalSearchDrawerHost({
         onNavigateRegister={onNavigateRegister}
         onAddToWedding={onAddCustomerToWedding}
         onBookAppointment={onBookCustomerAppointment}
-        onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
     );
   }
@@ -70,7 +69,7 @@ export default function GlobalSearchDrawerHost({
         onNavigateRegister={onNavigateRegister}
         onAddToWedding={onAddCustomerToWedding}
         onBookAppointment={onBookCustomerAppointment}
-        onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
     );
   }
@@ -101,7 +100,7 @@ function WeddingPartyCustomersDrawer({
   onNavigateRegister,
   onAddToWedding,
   onBookAppointment,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
 }: {
   partyQuery: string;
   onClose: () => void;
@@ -110,7 +109,7 @@ function WeddingPartyCustomersDrawer({
   onNavigateRegister: () => void;
   onAddToWedding?: () => void;
   onBookAppointment?: () => void;
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
 }) {
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
@@ -182,7 +181,7 @@ function WeddingPartyCustomersDrawer({
         onNavigateRegister={onNavigateRegister}
         onAddToWedding={onAddToWedding}
         onBookAppointment={onBookAppointment}
-        onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
         baseUrl={baseUrl}
       />
     );
@@ -259,7 +258,7 @@ function CustomerSearchDrawer({
   navigateAfterAttach = true,
   onAddToWedding,
   onBookAppointment,
-  onOpenOrderInBackoffice,
+  onOpenTransactionInBackoffice,
 }: {
   customer: Customer;
   onClose: () => void;
@@ -269,7 +268,7 @@ function CustomerSearchDrawer({
   navigateAfterAttach?: boolean;
   onAddToWedding?: () => void;
   onBookAppointment?: () => void;
-  onOpenOrderInBackoffice?: (orderId: string) => void;
+  onOpenTransactionInBackoffice?: (orderId: string) => void;
 }) {
   return (
     <CustomerRelationshipHubDrawer
@@ -282,7 +281,7 @@ function CustomerSearchDrawer({
       navigateAfterStartSale={navigateAfterAttach}
       onAddToWedding={onAddToWedding}
       onBookAppointment={onBookAppointment}
-      onOpenOrderInBackoffice={onOpenOrderInBackoffice}
+      onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       baseUrl={baseUrl}
     />
   );

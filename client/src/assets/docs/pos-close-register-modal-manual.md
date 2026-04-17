@@ -1,35 +1,33 @@
 ---
 id: pos-close-register-modal
-title: "Close Register Modal (pos)"
+title: "Closing the Register (Z-Report)"
 order: 1051
-summary: "Auto-generated stub for client/src/components/pos/CloseRegisterModal.tsx — replace with staff-facing help."
+summary: "Reconciling your daily shift, counting cash, and generating the professional Z-Audit report."
 source: client/src/components/pos/CloseRegisterModal.tsx
-last_scanned: 2026-04-11
-tags: pos-close-register-modal, component, auto-scaffold
+tags: pos, register, closing, Z-report, audit
 ---
 
-# Close Register Modal (pos)
+# Z-Reconciliation & Closing
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/CloseRegisterModal.tsx`._
-<!-- /help:component-source -->
+The **Close Register** workspace is the final step of a shift. It reconciles expected totals against actual physical counts.
 
-## What this is
+## Till Group Closing
+Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** automatically opens satellite lanes (iPad and Back Office). 
+- To close the entire group, you **MUST** use the **Close Register** action on **Register #1**.
+- Closing Register #1 will automatically reconcile and close all satellite lanes in a single audit transaction.
 
-Briefly describe what staff use this screen for.
+## The Reconciliation Flow
+1. **Count Cash**: Enter the total physical cash in the drawer (including the base float).
+2. **Review Tenders**: Compare the provided totals for Card, Gift Card, and R2S charges against your terminal reports.
+3. **Verify Discrepancies**: If current totals don't match, review the **Daily Sales** history before finalizing.
+4. **Finalize Z-Report**: Tap **Close Register & Print Z-Report**.
 
-## How to use it
-
-1. 
-2. 
+## Professional Z-Report
+Upon closing, a professional, full-page **Z-Audit Report** is generated. 
+- **Audit Grade**: Replaces legacy thermal strips with high-fidelity Letter/A4 documents.
+- **Reporting Station**: The header confirms the assigned printer name for accountability.
+- **Routing**: This report prints automatically to your **Report Station** (System Printer).
 
 ## Tips
-
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/pos-close-register-modal/` and embed them, for example:
-
-![Example](../images/help/pos-close-register-modal/example.png)
-
+- **No mid-shift "X"**: Mid-shift counts should use the live Dashboard. The Z-close is a permanent shift-ending action.
+- **Hardware Decoupling**: Ensure your **Report Printer** is correctly assigned in Register Settings to avoid routing Z-reports to the thermal receipt printer.

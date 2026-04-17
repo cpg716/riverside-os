@@ -5,10 +5,10 @@ use serde::Serialize;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::logic::order_recalc;
-use crate::logic::order_returns;
 use crate::logic::sales_commission;
 use crate::logic::tax::{erie_local_tax_usd, nys_state_tax_usd};
+use crate::logic::transaction_recalc;
+use crate::logic::transaction_returns;
 use crate::models::{DbFulfillmentType, DbOrderStatus};
 use crate::services::inventory::{self, InventoryError};
 
@@ -57,8 +57,8 @@ struct SwapLineRow {
 
 pub async fn execute_suit_component_swap(
     tx: &mut Transaction<'_, Postgres>,
-    order_id: Uuid,
-    order_item_id: Uuid,
+    transaction_id: Uuid,
+    transaction_line_id: Uuid,
     staff_id: Option<Uuid>,
     global_employee_markup: Decimal,
     body: SuitSwapInput,
@@ -83,15 +83,15 @@ pub async fn execute_suit_component_swap(
             oi.unit_cost,
             oi.salesperson_id,
             pv.sku AS old_sku
-        FROM order_items oi
-        INNER JOIN orders o ON o.id = oi.order_id
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
-        WHERE oi.order_id = $1 AND oi.id = $2
+        WHERE oi.transaction_id = $1 AND oi.id = $2
         FOR UPDATE OF oi, o
         "#,
     )
-    .bind(order_id)
-    .bind(order_item_id)
+    .bind(transaction_id)
+    .bind(transaction_line_id)
     .fetch_optional(&mut **tx)
     .await?;
 
@@ -111,7 +111,7 @@ pub async fn execute_suit_component_swap(
         ));
     }
 
-    let returned = order_returns::returned_qty_for_item(tx, order_item_id).await?;
+    let returned = transaction_returns::returned_qty_for_item(tx, transaction_line_id).await?;
     let eff_qty = ctx.quantity.saturating_sub(returned);
     if eff_qty <= 0 {
         return Err(SuitSwapError::InvalidPayload(
@@ -189,8 +189,8 @@ pub async fn execute_suit_component_swap(
             )));
         }
 
-        let note_out = format!("Suit/component swap: return to stock from order {order_id}");
-        let note_in = format!("Suit/component swap: issue from stock for order {order_id}");
+        let note_out = format!("Suit/component swap: return to stock from order {transaction_id}");
+        let note_in = format!("Suit/component swap: issue from stock for order {transaction_id}");
 
         sqlx::query(
             r#"
@@ -202,7 +202,7 @@ pub async fn execute_suit_component_swap(
         .bind(ctx.variant_id)
         .bind(eff_qty)
         .bind(ctx.unit_cost)
-        .bind(order_id)
+        .bind(transaction_id)
         .bind(&note_out)
         .execute(&mut **tx)
         .await?;
@@ -217,7 +217,7 @@ pub async fn execute_suit_component_swap(
         .bind(body.in_variant_id)
         .bind(-eff_qty)
         .bind(new_unit_cost)
-        .bind(order_id)
+        .bind(transaction_id)
         .bind(&note_in)
         .execute(&mut **tx)
         .await?;
@@ -269,10 +269,10 @@ pub async fn execute_suit_component_swap(
         }
 
         let note_out = format!(
-            "Suit/component swap (special/wedding fulfilled): restore old variant order {order_id}"
+            "Suit/component swap (special/wedding fulfilled): restore old variant order {transaction_id}"
         );
         let note_in = format!(
-            "Suit/component swap (special/wedding fulfilled): pull new variant order {order_id}"
+            "Suit/component swap (special/wedding fulfilled): pull new variant order {transaction_id}"
         );
 
         sqlx::query(
@@ -285,7 +285,7 @@ pub async fn execute_suit_component_swap(
         .bind(ctx.variant_id)
         .bind(eff_qty)
         .bind(ctx.unit_cost)
-        .bind(order_id)
+        .bind(transaction_id)
         .bind(&note_out)
         .execute(&mut **tx)
         .await?;
@@ -300,7 +300,7 @@ pub async fn execute_suit_component_swap(
         .bind(body.in_variant_id)
         .bind(-eff_qty)
         .bind(new_unit_cost)
-        .bind(order_id)
+        .bind(transaction_id)
         .bind(&note_in)
         .execute(&mut **tx)
         .await?;
@@ -308,8 +308,8 @@ pub async fn execute_suit_component_swap(
         inventory_adjusted = true;
     }
 
-    sqlx::query("DELETE FROM discount_event_usage WHERE order_item_id = $1")
-        .bind(order_item_id)
+    sqlx::query("DELETE FROM discount_event_usage WHERE transaction_line_id = $1")
+        .bind(transaction_line_id)
         .execute(&mut **tx)
         .await?;
 
@@ -326,7 +326,7 @@ pub async fn execute_suit_component_swap(
 
     sqlx::query(
         r#"
-        UPDATE order_items
+        UPDATE transaction_lines
         SET
             product_id = $1,
             variant_id = $2,
@@ -336,7 +336,7 @@ pub async fn execute_suit_component_swap(
             local_tax = $6,
             applied_spiff = $7,
             calculated_commission = $8
-        WHERE id = $9 AND order_id = $10
+        WHERE id = $9 AND transaction_id = $10
         "#,
     )
     .bind(new_resolved.product_id)
@@ -347,8 +347,8 @@ pub async fn execute_suit_component_swap(
     .bind(local_tax)
     .bind(new_resolved.spiff_amount)
     .bind(commission)
-    .bind(order_item_id)
-    .bind(order_id)
+    .bind(transaction_line_id)
+    .bind(transaction_id)
     .execute(&mut **tx)
     .await?;
 
@@ -362,7 +362,7 @@ pub async fn execute_suit_component_swap(
     let event_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO suit_component_swap_events (
-            order_id, order_item_id, staff_id,
+            transaction_id, transaction_line_id, staff_id,
             old_variant_id, new_variant_id, old_product_id, new_product_id,
             effective_quantity,
             old_unit_cost, new_unit_cost, old_unit_price, new_unit_price,
@@ -372,8 +372,8 @@ pub async fn execute_suit_component_swap(
         RETURNING id
         "#,
     )
-    .bind(order_id)
-    .bind(order_item_id)
+    .bind(transaction_id)
+    .bind(transaction_line_id)
     .bind(staff_id) // NULL when register session swap
     .bind(ctx.variant_id)
     .bind(body.in_variant_id)
@@ -389,7 +389,7 @@ pub async fn execute_suit_component_swap(
     .fetch_one(&mut **tx)
     .await?;
 
-    order_recalc::recalc_order_totals(tx, order_id).await?;
+    transaction_recalc::recalc_transaction_totals(tx, transaction_id).await?;
 
     Ok(SuitSwapOutcome {
         event_id,

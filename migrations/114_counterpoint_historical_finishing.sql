@@ -1,11 +1,11 @@
 -- Counterpoint Historical Finishing: Ticket Notes, Line Reason Codes, and Receiving History (migration 114).
 -- Enables Jan 2021 - Present reporting and customer service parity.
 
--- 1) Standard notes on orders (if missing from core)
-ALTER TABLE orders ADD COLUMN IF NOT EXISTS notes TEXT;
+-- 1) Standard notes on transactions (if missing from core)
+ALTER TABLE transactions ADD COLUMN IF NOT EXISTS notes TEXT;
 
 -- 2) Reason codes on items (Returns, Voids, Discounts)
-ALTER TABLE order_items ADD COLUMN IF NOT EXISTS counterpoint_reason_code TEXT;
+ALTER TABLE transaction_lines ADD COLUMN IF NOT EXISTS counterpoint_reason_code TEXT;
 
 -- 3) Historical Vendor Costing / Receiving History
 -- This table stores raw PO_RECVR_HIST data for gross margin analytics across the 2021-2026 period.

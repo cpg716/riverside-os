@@ -172,12 +172,15 @@ async function wmJson(method, url, opts = {}) {
   const { params, body } = opts;
   let finalUrl = url;
   if (params && typeof params === "object") {
-    const u = new URL(url);
+    const p = new URLSearchParams();
     for (const [k, v] of Object.entries(params)) {
       if (v === undefined || v === null) continue;
-      u.searchParams.set(k, String(v));
+      p.set(k, String(v));
     }
-    finalUrl = u.toString();
+    const qs = p.toString();
+    if (qs) {
+      finalUrl += (url.includes("?") ? "&" : "?") + qs;
+    }
   }
   const headers = new Headers();
   mergeAuthHeaders(headers);
@@ -351,6 +354,9 @@ export const api = {
     const json = await wmJson("GET", `${API_URL}/weddings/parties/${partyId}`);
     return mapPartyRowToWmParty(json);
   },
+  getWeddingHealth: async (partyId) => {
+    return wmJson("GET", `${API_URL}/weddings/parties/${partyId}/health`);
+  },
 
   importParties: async (parties) => {
     const created = [];
@@ -385,6 +391,9 @@ export const api = {
       for (const m of members) {
         if (String(m.role || "").toLowerCase() === "groom") continue;
         const name = parseLegacyName(m.name);
+        
+        // Pass import tracking info so server can try to match existing customers
+        // If no match found, customer_verified will be false (needs linking)
         await wmJson("POST", `${API_URL}/weddings/parties/${partyId}/members`, {
           body: {
             first_name: name.first_name,
@@ -392,6 +401,10 @@ export const api = {
             phone: m.phone || null,
             role: m.role || "Member",
             notes: m.notes || null,
+            // Import tracking - server will try to match by phone,
+            // if matched -> verified=true, if not -> verified=false
+            import_customer_name: m.name || null,
+            import_customer_phone: m.phone || null,
           },
         });
       }

@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { staffAvatarUrl } from "../../lib/staffAvatars";
 
 export type PosTabId =
   | "dashboard"
@@ -36,10 +35,6 @@ interface PosSidebarProps {
   onTabChange: (tab: PosTabId) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
-  cashierName: string | null;
-  cashierAvatarKey: string | null;
-  isRegisterOpen: boolean;
-  lifecycleStatus: string | null;
 }
 
 export default function PosSidebar({
@@ -47,24 +42,10 @@ export default function PosSidebar({
   onTabChange,
   collapsed,
   onToggleCollapse,
-  cashierName,
-  cashierAvatarKey,
-  isRegisterOpen,
-  lifecycleStatus,
 }: PosSidebarProps) {
-  const { hasPermission, permissionsLoaded, staffDisplayName, staffAvatarKey } =
+  const { hasPermission, permissionsLoaded } =
     useBackofficeAuth();
 
-  const profilePrimaryLabel =
-    cashierName ??
-    (staffDisplayName.trim() ? staffDisplayName.trim() : null) ??
-    "No Active Session";
-
-  const profileAvatarSrc = staffAvatarUrl(
-    isRegisterOpen && cashierAvatarKey?.trim()
-      ? cashierAvatarKey.trim()
-      : staffAvatarKey,
-  );
 
   const tabs = useMemo(() => {
     const out: {
@@ -93,7 +74,7 @@ export default function PosSidebar({
 
   return (
     <aside
-      className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border bg-app-surface py-5 text-app-text transition-all duration-300 ease-material overflow-hidden ${
+      className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border bg-app-surface py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
         collapsed
           ? "w-16 px-2 justify-between"
           : "w-[240px] px-4 lg:w-[260px] lg:px-5"
@@ -117,38 +98,6 @@ export default function PosSidebar({
           </div>
         </div>
 
-        {/* Profile */}
-        <div className={`ui-panel mb-4 bg-app-surface-2 ${collapsed ? "p-1 flex flex-col items-center" : "p-3"}`}>
-          <div className={`flex items-center ${collapsed ? "justify-center" : "gap-2.5"}`}>
-            <SidebarRailTooltip
-              enabled={collapsed}
-              label={`${profilePrimaryLabel} — ${isRegisterOpen ? (lifecycleStatus === "reconciling" ? "Reconciling" : "Drawer active") : "Till closed"}`}
-            >
-              <div
-                className={`shrink-0 overflow-hidden rounded-full border border-app-border bg-app-surface outline-none ring-app-border focus-visible:ring-2 ${collapsed ? "h-7 w-7" : "h-8 w-8"}`}
-                tabIndex={collapsed ? 0 : -1}
-                role="img"
-                aria-label={`Staff avatar. ${profilePrimaryLabel}.`}
-              >
-                <img
-                  src={profileAvatarSrc}
-                  alt=""
-                  className="h-full w-full object-cover"
-                />
-              </div>
-            </SidebarRailTooltip>
-            {!collapsed && (
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-bold text-app-text leading-tight">
-                  {profilePrimaryLabel}
-                </p>
-                <p className={`truncate text-[9px] font-black uppercase tracking-widest leading-none mt-1 ${isRegisterOpen ? (lifecycleStatus === 'reconciling' ? 'text-amber-500 animate-pulse' : 'text-app-success') : 'text-app-text-muted'}`}>
-                  {isRegisterOpen ? (lifecycleStatus === 'reconciling' ? "RECONCILING" : "DRAWER ACTIVE") : "CLOSED"}
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
 
         {/* Nav */}
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto no-scrollbar" aria-label="POS Navigation">

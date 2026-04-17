@@ -5,12 +5,12 @@
 -- 1) Card-kind enum
 -- ──────────────────────────────────────────────────────────────────────────────
 DO $$ BEGIN
-    CREATE TYPE gift_card_kind AS ENUM ('purchased', 'loyalty_reward', 'donated_giveaway');
+    DO $$ BEGIN CREATE TYPE gift_card_kind AS ENUM ('purchased', 'loyalty_reward', 'donated_giveaway'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 
 DO $$ BEGIN
-    CREATE TYPE gift_card_status AS ENUM ('active', 'depleted', 'void');
+    DO $$ BEGIN CREATE TYPE gift_card_status AS ENUM ('active', 'depleted', 'void'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 EXCEPTION WHEN duplicate_object THEN null;
 END $$;
 

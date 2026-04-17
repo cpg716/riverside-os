@@ -1,21 +1,21 @@
 import { useMemo } from "react";
 import {
-  BarChart3,
+  LayoutDashboard,
+  Users,
+  LayoutGrid,
+  ShoppingCart,
+  Scissors,
   Box,
-  ChevronLeft,
-  ChevronRight,
-  CalendarClock,
   Gem,
   Gift,
-  Landmark,
-  LayoutDashboard,
-  LayoutGrid,
-  Scissors,
-  Settings,
-  Shield,
-  ShoppingCart,
   Star,
-  Users,
+  Shield,
+  Landmark,
+  BarChart3,
+  CalendarClock,
+  Settings,
+  ChevronRight,
+  ChevronLeft,
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -25,7 +25,7 @@ import {
   subSectionVisible,
 } from "../../context/BackofficeAuthPermissions";
 import { useNotificationCenterOptional } from "../../context/NotificationCenterContextLogic";
-import { staffAvatarUrl } from "../../lib/staffAvatars";
+
 import type { SidebarTabId } from "./sidebarSections";
 import { SIDEBAR_SUB_SECTIONS } from "./sidebarSections";
 
@@ -36,9 +36,6 @@ interface SidebarProps {
   onToggleCollapse: () => void;
   activeSubSection: string;
   onSubSectionChange: (section: string) => void;
-  cashierName: string | null;
-  cashierAvatarKey: string | null;
-  isRegisterOpen: boolean;
 }
 
 type WorkspaceSurface = "POS-Core" | "BackOffice";
@@ -50,11 +47,8 @@ export default function Sidebar({
   onToggleCollapse,
   activeSubSection,
   onSubSectionChange,
-  cashierName,
-  cashierAvatarKey,
-  isRegisterOpen,
 }: SidebarProps) {
-  const { hasPermission, permissionsLoaded, staffDisplayName, staffAvatarKey } =
+  const { hasPermission, permissionsLoaded } =
     useBackofficeAuth();
   const notifCtx = useNotificationCenterOptional();
   const podiumInboxUnread = notifCtx?.podiumInboxUnread ?? 0;
@@ -65,16 +59,7 @@ export default function Sidebar({
     hasPermission("customers.hub_view") &&
     podiumInboxUnread > 0;
 
-  const profilePrimaryLabel =
-    cashierName ??
-    (staffDisplayName.trim() ? staffDisplayName.trim() : null) ??
-    "No Active Session";
 
-  const profileAvatarSrc = staffAvatarUrl(
-    isRegisterOpen && cashierAvatarKey?.trim()
-      ? cashierAvatarKey.trim()
-      : staffAvatarKey,
-  );
 
   const menuItems = useMemo(
     () =>
@@ -136,11 +121,11 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material overflow-hidden ${
+      className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material bg-app-surface md:bg-transparent md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
         collapsed 
           ? "w-0 -translate-x-full md:w-16 md:translate-x-0 md:px-2" 
-          : "fixed inset-y-0 left-0 w-[240px] px-4 md:relative md:w-[220px]"
-      } bg-app-surface md:bg-transparent`}
+          : "fixed inset-y-0 left-0 w-[240px] px-4 md:sticky md:w-[220px] md:px-0"
+      }`}
     >
       {/* Brand row */}
       <div className={`mb-5 flex min-h-[44px] items-center ${collapsed ? "justify-center" : "justify-between"}`}>
@@ -156,50 +141,6 @@ export default function Sidebar({
           </div>
         )}
       </div>
-
-      {/* Profile */}
-      {!collapsed ? (
-        <div className="ui-panel mb-4 bg-app-surface-2 p-3 shadow-sm border-app-border/40">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 shrink-0 overflow-hidden rounded-full border border-app-border bg-app-surface">
-              <img
-                src={profileAvatarSrc}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            </div>
-            <div className="min-w-0">
-              <p className="truncate text-xs font-bold text-app-text">
-                {profilePrimaryLabel}
-              </p>
-              <p className={`truncate text-[9px] font-black uppercase tracking-widest mt-0.5 ${isRegisterOpen ? 'text-app-success' : 'text-app-text-muted'}`}>
-                {isRegisterOpen ? "Till open" : "Till closed"}
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <div className="mb-4 flex justify-center">
-          <SidebarRailTooltip
-            enabled={collapsed}
-            label={`${profilePrimaryLabel} — ${isRegisterOpen ? "Till open" : "Till closed"}`}
-          >
-            <div
-              className="h-8 w-8 overflow-hidden rounded-full border border-app-border bg-app-surface shadow-sm outline-none ring-app-border focus-visible:ring-2"
-              tabIndex={0}
-              role="img"
-              aria-label={`Staff avatar. ${profilePrimaryLabel}. ${isRegisterOpen ? "Till open" : "Till closed"}. Double-click to expand sidebar.`}
-              onDoubleClick={() => onToggleCollapse()}
-            >
-              <img
-                src={profileAvatarSrc}
-                alt=""
-                className="h-full w-full object-cover"
-              />
-            </div>
-          </SidebarRailTooltip>
-        </div>
-      )}
 
       {/* Nav */}
       <nav className="flex flex-1 flex-col gap-0.5 overflow-y-auto no-scrollbar" aria-label="Main Navigation">

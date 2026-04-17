@@ -4,7 +4,7 @@
 DO $$
 BEGIN
     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'tax_category') THEN
-        CREATE TYPE tax_category AS ENUM ('clothing', 'footwear', 'accessory', 'service');
+        DO $$ BEGIN CREATE TYPE tax_category AS ENUM ('clothing', 'footwear', 'accessory', 'service'); EXCEPTION WHEN duplicate_object THEN null; END $$;
     END IF;
 END
 $$;

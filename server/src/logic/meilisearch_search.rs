@@ -5,15 +5,15 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_ORDERS, INDEX_STAFF,
-    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
+    INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_STAFF, INDEX_STORE_PRODUCTS,
+    INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
 };
 
 const CONTROL_BOARD_MEILI_HIT_CAP: usize = 50_000;
 const STORE_PRODUCT_MEILI_HIT_CAP: usize = 2_000;
 const CUSTOMER_MEILI_HIT_CAP: usize = 5_000;
 const WEDDING_MEILI_HIT_CAP: usize = 10_000;
-const ORDER_MEILI_HIT_CAP: usize = 10_000;
+const TRANSACTION_MEILI_HIT_CAP: usize = 10_000;
 const HELP_MEILI_HIT_CAP: usize = 40;
 const STAFF_MEILI_HIT_CAP: usize = 1_000;
 const VENDOR_MEILI_HIT_CAP: usize = 2_000;
@@ -151,14 +151,15 @@ pub async fn wedding_party_search_ids(
     Ok(parse_hit_ids(&res.hits))
 }
 
-pub async fn order_search_ids(
+pub async fn transaction_search_ids(
     client: &Client,
     query_text: &str,
     open_only: bool,
 ) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
-    let index = client.index(INDEX_ORDERS);
+    let index = client.index(INDEX_TRANSACTIONS);
     let mut sq = index.search();
-    sq.with_query(query_text).with_limit(ORDER_MEILI_HIT_CAP);
+    sq.with_query(query_text)
+        .with_limit(TRANSACTION_MEILI_HIT_CAP);
     if open_only {
         sq.with_filter("status_open = true");
     }

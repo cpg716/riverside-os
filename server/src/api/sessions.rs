@@ -217,7 +217,7 @@ pub struct OverrideSummaryRow {
 #[derive(Debug, Serialize)]
 pub struct ReconciliationResponse {
     pub report_type: &'static str,
-    /// Z-report: cash-drawer primary session. X-report: requested session.
+    /// Unique session ID for the reconciliation report.
     pub session_id: Uuid,
     pub opening_float: Decimal,
     pub net_cash_adjustments: Decimal,
@@ -233,13 +233,13 @@ pub struct ReconciliationResponse {
 
 #[derive(Debug, Serialize, Clone)]
 pub struct TransactionLine {
-    pub transaction_id: Uuid,
+    pub payment_transaction_id: Uuid,
     pub register_session_id: Uuid,
     pub register_lane: i16,
     pub created_at: DateTime<Utc>,
     pub payment_method: String,
     pub amount: Decimal,
-    pub order_id: Option<Uuid>,
+    pub ledger_transaction_id: Option<Uuid>,
     pub customer_name: String,
     pub override_reasons: Vec<String>,
     pub override_details: Vec<OverrideDetail>,
@@ -300,13 +300,13 @@ struct LaneTenderAggRow {
 
 #[derive(Debug, FromRow)]
 struct TransactionLineRow {
-    transaction_id: Uuid,
+    payment_transaction_id: Uuid,
     register_session_id: Uuid,
     register_lane: i16,
     created_at: DateTime<Utc>,
     payment_method: String,
     amount: Decimal,
-    order_id: Option<Uuid>,
+    ledger_transaction_id: Option<Uuid>,
     customer_name: String,
     override_reasons: Vec<String>,
     override_details_json: serde_json::Value,
@@ -382,7 +382,6 @@ pub fn router() -> Router<AppState> {
         .route("/{session_id}/shift-primary", post(post_shift_primary))
         .route("/{session_id}/pos-api-token", post(issue_pos_api_token))
         .route("/{session_id}/reconciliation", get(get_reconciliation))
-        .route("/{session_id}/x-report", get(get_x_report))
         .route("/{session_id}/adjustments", post(post_cash_adjustment))
         .route("/{session_id}/begin-reconcile", post(begin_reconcile))
         .route("/{session_id}/close", post(close_session))
@@ -439,9 +438,14 @@ async fn get_current_session(
                     None,
                     receipt_timezone,
                 ))),
-                _ => Err(SessionError::RegisterSelectionRequired {
-                    sessions: rows.iter().map(open_summary_from_current_row).collect(),
-                }),
+                // Return only the first session (lane 1) for staff auth to avoid 409
+                // when multiple lanes are open. This allows Back Office staff to access
+                // the primary register without being forced to pick one.
+                _ => Ok(Json(session_response_from_row(
+                    rows.into_iter().next().expect("at least one row"),
+                    None,
+                    receipt_timezone,
+                ))),
             }
         }
     }
@@ -733,9 +737,9 @@ async fn open_session(
     Json(payload): Json<OpenSessionRequest>,
 ) -> Result<Json<SessionResponse>, SessionError> {
     let lane = payload.register_lane;
-    if !(1..=99).contains(&lane) {
+    if !(1..=3).contains(&lane) {
         return Err(SessionError::InvalidPayload(
-            "register_lane must be between 1 and 99".to_string(),
+            "register_lane must be 1 (Main), 2 (iPad), or 3 (Back Office)".to_string(),
         ));
     }
 
@@ -842,6 +846,31 @@ async fn open_session(
     .await?;
 
     let receipt_timezone = load_receipt_timezone(&state.db).await;
+
+    // Automatic creation for satellite lanes 2 and 3 when opening lane 1
+    if lane == 1 {
+        for satellite_lane in [2, 3] {
+            let satellite_token = pos_session::new_pos_api_token();
+            let _: (Uuid,) = sqlx::query_as(
+                r#"
+                INSERT INTO register_sessions (
+                    opened_by, opening_float, is_open, lifecycle_status, pos_api_token, register_lane,
+                    till_close_group_id
+                )
+                VALUES ($1, $2, true, 'open', $3, $4, $5)
+                RETURNING id
+                "#,
+            )
+            .bind(staff.id)
+            .bind(dec!(0.00))
+            .bind(&satellite_token)
+            .bind(satellite_lane as i16)
+            .bind(till_close_group_id)
+            .fetch_one(&state.db)
+            .await?;
+        }
+    }
+
     Ok(Json(SessionResponse {
         session_id: inserted.id,
         register_lane: lane,
@@ -932,24 +961,6 @@ async fn get_reconciliation(
     .await
     .map_err(map_session_gate_err)?;
     build_reconciliation(&state.db, session_id, "z_report")
-        .await
-        .map(Json)
-}
-
-async fn get_x_report(
-    State(state): State<AppState>,
-    Path(session_id): Path<Uuid>,
-    headers: HeaderMap,
-) -> Result<Json<ReconciliationResponse>, SessionError> {
-    middleware::require_pos_session_secret_or_permission(
-        &state,
-        &headers,
-        session_id,
-        REGISTER_REPORTS,
-    )
-    .await
-    .map_err(map_session_gate_err)?;
-    build_reconciliation(&state.db, session_id, "x_report")
         .await
         .map(Json)
 }
@@ -1142,7 +1153,7 @@ async fn build_reconciliation(
             )::numeric(14, 2) AS total_delta
         FROM payment_transactions pt
         INNER JOIN payment_allocations pa ON pa.transaction_id = pt.id
-        INNER JOIN order_items oi ON oi.order_id = pa.target_order_id
+        INNER JOIN transaction_lines oi ON oi.transaction_id = pa.target_transaction_id
         WHERE pt.session_id = ANY($1)
           AND oi.size_specs ? 'price_override_reason'
         GROUP BY 1
@@ -1157,13 +1168,13 @@ async fn build_reconciliation(
     let tx_rows: Vec<TransactionLineRow> = sqlx::query_as(
         r#"
         SELECT
-            pt.id AS transaction_id,
+            pt.id AS payment_transaction_id,
             pt.session_id AS register_session_id,
             rs.register_lane,
             pt.created_at,
             pt.payment_method,
             pt.amount,
-            pa.target_order_id AS order_id,
+            pa.target_transaction_id AS ledger_transaction_id,
             COALESCE(
                 NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''),
                 'Walk-in'
@@ -1199,13 +1210,13 @@ async fn build_reconciliation(
         FROM payment_transactions pt
         INNER JOIN register_sessions rs ON rs.id = pt.session_id
         LEFT JOIN payment_allocations pa ON pa.transaction_id = pt.id
-        LEFT JOIN orders o ON o.id = pa.target_order_id
+        LEFT JOIN transactions o ON o.id = pa.target_transaction_id
         LEFT JOIN customers c ON c.id = o.customer_id
-        LEFT JOIN order_items oi ON oi.order_id = o.id
+        LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         WHERE pt.session_id = ANY($1)
         GROUP BY
             pt.id, pt.session_id, rs.register_lane, pt.created_at, pt.payment_method, pt.amount,
-            pa.target_order_id, c.first_name, c.last_name
+            pa.target_transaction_id, c.first_name, c.last_name
         ORDER BY pt.created_at DESC
         LIMIT 300
         "#,
@@ -1217,13 +1228,13 @@ async fn build_reconciliation(
     let transactions = tx_rows
         .into_iter()
         .map(|row| TransactionLine {
-            transaction_id: row.transaction_id,
+            payment_transaction_id: row.payment_transaction_id,
             register_session_id: row.register_session_id,
             register_lane: row.register_lane,
             created_at: row.created_at,
             payment_method: row.payment_method,
             amount: row.amount,
-            order_id: row.order_id,
+            ledger_transaction_id: row.ledger_transaction_id,
             customer_name: row.customer_name,
             override_reasons: row.override_reasons,
             override_details: parse_override_details(row.override_details_json),

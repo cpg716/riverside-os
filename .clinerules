@@ -1,0 +1,58 @@
+# Riverside OS — Agentic Rules & Invariants
+
+You are an expert full-stack engineer working on Riverside OS (ROS). You must adhere to these rules strictly to preserve financial correctness and system stability.
+
+## 1. The "Iron Cage" of Financial Integrity (Zero-Drift)
+* **Money Math**: NEVER use `f32` or `f64` for currency; you MUST use `rust_decimal::Decimal` on the server.
+* **Rounding Strategy**: Standardize on `MidpointAwayFromZero` and never derive logic from rounded display values.
+* **SQL Precision**: Aggregate sums MUST use explicit `::numeric` casting and rounding (e.g., `SUM(price::numeric)`) to avoid sub-penny accumulation.
+* **Revenue Recognition**: Revenue is recognized ONLY on fulfillment/pickup, NOT at initial booking.
+* **Tax Integrity**: Tax is calculated at line-item level; price overrides must trigger tax recalculation.
+* **Price Audits**: Original price and reason codes must be preserved in `size_specs` JSONB; NEVER clobber audit metadata.
+
+## 2. QuickBooks (QBO) & Commission Discipline
+* **QBO Mapping**: Sales categories, tax exemptions, and customer deposits must map strictly to the defined Chart of Accounts.
+* **Journal Integrity**: Multi-step QBO syncs must record `qbo_mapping_save` and staging approval access logs.
+* **Commission Logic**: Payouts are finalized under Staff → Commission payouts; require `insights.commission_finalize`.
+* **Commission Guard**: Do not put employee pricing logic or fulfillment business rules inside route handlers.
+
+## 3. Database & SQLx Discipline
+* **Migrations**: Never edit schema directly. Use numbered, idempotent SQL migrations. Ledger: `ros_schema_migrations`.
+* **Transactions**: Multi-step writes (Checkout, Refunds, Returns, Adjustments) MUST be wrapped in `db.begin()`.
+* **sqlx**: Prefer `query_as` + `bind`. After query changes, run `cd server && cargo sqlx prepare --workspace`.
+* **View Safety**: When changing PostgreSQL views where column shape changes, prepend `DROP VIEW IF EXISTS`.
+
+## 4. Credit Card & Stripe Power Integration
+* **PCI Compliance**: Card data NEVER touches the server. Use Stripe Elements and `SetupIntents` for vaulting.
+* **Simulations**: POS must preserve `StripeReaderSimulation` for dev/offline card testing.
+* **Tenders**: Checkout ledgers must separate Net Retail, Shipping, and Taxes.
+* **Hardware**: Preserve async TCP ESC/POS thermal printing bindings in `client/src-tauri/src/hardware.rs`.
+
+## 5. Tech Stack & Architecture
+* **Backend**: Rust (Axum 0.8), sqlx, PostgreSQL 16.
+* **Frontend**: React 19, TypeScript, Tailwind CSS, Vite.
+* **Desktop**: Tauri 2.
+* **Boundary**: Keep handlers thin; logic belongs in `server/src/logic/` or `server/src/services/`.
+
+## 6. UI/UX Invariants
+* **Zero-Browser-Dialog**: Never use `alert()`, `confirm()`, or `prompt()`. Use `useToast` or `ConfirmationModal`.
+* **POS Style**: Completion actions use `bg-emerald-600`. Maintain zero-scroll at 1080p.
+* **Auth**: Always use "PIN" terminology. Manager approvals must record `authorize_action` and `authorize_metadata`.
+* **CRM Density**: Customer Name is the primary visual anchor; preserve high-density presentation.
+
+## 7. Inventory Logic (Non-Negotiable)
+* **Checkout**: `stock_on_hand` remains UNCHANGED for order/wedding lines.
+* **PO Receipt**: `stock_on_hand` += qty AND `reserved_stock` += min(qty, open_special_qty).
+* **Pickup**: `stock_on_hand` -= qty AND `reserved_stock` -= qty.
+* **Formula**: `available_stock = stock_on_hand - reserved_stock - on_layaway`.
+
+## 8. Coding Workflow & Context Hygiene
+* **Search-First**: Use `cocoindex-code` or `grep` to find existing patterns before proposing abstractions.
+* **Side Effects**: Trace impact on `reporting.*` schema views and Counterpoint sync before applying fixes.
+* **Memory Bank**: Update `memory-bank/` files after every significant task.
+* **Anti-Loop**: If chat history grows large, summarize into Memory Bank and start a new task.
+
+## 9. Provenance & Sync Guardrails
+* **Counterpoint**: NEVER overwrite `data_source = 'counterpoint'` records with manual ROS data unless explicitly requested.
+* **Sync Integrity**: Do not change sync payload shapes or mapping assumptions casually.
+* **Identity**: Use sequence-backed `customer_code` (`ROS-########`) for all CRM identification.

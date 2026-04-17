@@ -18,9 +18,10 @@ Each file in `docs/staff/` describes **one area** of the app: where to click, wh
 
 ## Signing in to Back Office
 
-1. When you see **Sign in to Back Office**, enter your **four-digit staff code**.
-2. If your account uses a PIN, enter the same digits as your PIN when prompted.
-3. Wait until your **name** appears in the header/sidebar context. If the screen stays on sign-in, read the red or toast error (wrong code, wrong PIN, network).
+1. When you see **Sign in to Back Office**, select your name from the **Staff Roster** dropdown.
+2. Enter your **four-digit PIN**. (Keyboard users: 0-9 to enter, Enter to submit, Backspace to clear).
+3. The system remembers your identity for future sign-ins on this device.
+4. Wait until your **name** appears in the header/sidebar context. If the sign-in fails, the system will highlight the error (Wrong PIN, Account Inactive).
 
 **After sign-in:** You can open many Back Office tabs **without** opening the cash drawer. Checkout still needs an **open register** where the API requires it.
 

@@ -39,8 +39,7 @@ pub fn order_status_label(s: DbOrderStatus) -> &'static str {
 
 #[derive(Debug, Clone)]
 pub struct ReceiptCustomerLine {
-    pub first_name: String,
-    pub last_name: String,
+    pub display_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -60,7 +59,7 @@ pub struct ReceiptLineForZpl {
 
 #[derive(Debug, Clone)]
 pub struct ReceiptOrderForZpl {
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
     pub total_price: Decimal,
@@ -69,6 +68,8 @@ pub struct ReceiptOrderForZpl {
     pub payment_methods_summary: String,
     pub customer: Option<ReceiptCustomerLine>,
     pub items: Vec<ReceiptLineForZpl>,
+    pub is_tax_exempt: bool,
+    pub tax_exempt_reason: Option<String>,
 }
 
 /// Builds ZPL for receipt or bag-tag mode from normalized order fields.
@@ -94,19 +95,13 @@ pub fn build_receipt_zpl(
 
     if mode == "bag-tag" {
         let mut zpl = String::new();
-        let first = d
+        let customer_name = d
             .customer
             .as_ref()
-            .map(|c| c.first_name.as_str())
+            .map(|c| c.display_name.as_str())
             .unwrap_or("");
-        let last = d
-            .customer
-            .as_ref()
-            .map(|c| c.last_name.as_str())
-            .unwrap_or("");
-        let customer_name = format!("{first} {last}").trim().to_string();
         let order_ref = d
-            .order_id
+            .transaction_id
             .simple()
             .to_string()
             .chars()
@@ -125,7 +120,7 @@ pub fn build_receipt_zpl(
             zpl.push_str("^FO20,30^A0N,25,25^FDRIVERSIDE OS^FS\n");
             zpl.push_str(&format!(
                 "^FO20,60^A0N,30,30^FD{}^FS\n",
-                zpl_escape(&customer_name)
+                zpl_escape(customer_name)
             ));
             zpl.push_str(&format!(
                 "^FO20,100^A0N,20,20^FDORDER: {}^FS\n",
@@ -161,7 +156,7 @@ pub fn build_receipt_zpl(
     for hl in &cfg.header_lines {
         zpl_push_line(&mut out, &mut y, 18, hl);
     }
-    zpl_push_line(&mut out, &mut y, 22, &format!("Order {}", d.order_id));
+    zpl_push_line(&mut out, &mut y, 22, &format!("Order {}", d.transaction_id));
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = d.booked_at.with_timezone(&tz);
     zpl_push_line(
@@ -176,7 +171,7 @@ pub fn build_receipt_zpl(
             &mut out,
             &mut y,
             20,
-            &format!("Customer: {} {}", c.first_name, c.last_name),
+            &format!("Customer: {}", c.display_name),
         );
     }
 
@@ -262,6 +257,17 @@ pub fn build_receipt_zpl(
         18,
         &format!("Status {}", order_status_label(d.status)),
     );
+    if d.is_tax_exempt {
+        zpl_push_line(
+            &mut out,
+            &mut y,
+            20,
+            &format!(
+                "TAX EXEMPT: {}",
+                d.tax_exempt_reason.as_deref().unwrap_or("Yes")
+            ),
+        );
+    }
 
     if cfg.show_loyalty_earned {
         let earned = loyalty_points_earned.unwrap_or(0);
@@ -297,7 +303,7 @@ fn build_gift_receipt_zpl(
         zpl_push_line(&mut out, &mut y, 18, hl);
     }
     zpl_push_line(&mut out, &mut y, 26, "GIFT RECEIPT");
-    zpl_push_line(&mut out, &mut y, 22, &format!("Order {}", d.order_id));
+    zpl_push_line(&mut out, &mut y, 22, &format!("Order {}", d.transaction_id));
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = d.booked_at.with_timezone(&tz);
     zpl_push_line(
@@ -312,7 +318,7 @@ fn build_gift_receipt_zpl(
             &mut out,
             &mut y,
             20,
-            &format!("Customer: {} {}", c.first_name, c.last_name),
+            &format!("Customer: {}", c.display_name),
         );
     }
 

@@ -1,6 +1,6 @@
 -- Phase 2.12: RBAC, hashed PINs, access audit, category commission overrides.
 
-CREATE TYPE staff_role AS ENUM ('admin', 'salesperson', 'sales_support');
+DO $$ BEGIN CREATE TYPE staff_role AS ENUM ('admin', 'salesperson', 'sales_support'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 ALTER TABLE staff
     ADD COLUMN IF NOT EXISTS role staff_role NOT NULL DEFAULT 'sales_support';

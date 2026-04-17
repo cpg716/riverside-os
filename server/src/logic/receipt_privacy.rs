@@ -1,8 +1,6 @@
-//! Customer-facing receipt privacy helpers (staff names, etc.).
-
-/// Formats a staff `full_name` for customer receipts: First Name + Last Initial (e.g. "Chris G.").
+/// Formats a name for customer receipts: First Name + Last Initial (e.g. "Chris G.").
 /// Full names remain on API records and reports; this is only for printed / SMS / email receipts.
-pub fn staff_name_for_customer_receipt(full_name: Option<&str>) -> Option<String> {
+pub fn mask_name_for_receipt(full_name: Option<&str>) -> Option<String> {
     let raw = full_name?.trim();
     if raw.is_empty() {
         return None;
@@ -31,7 +29,7 @@ mod tests {
     #[test]
     fn two_word_name() {
         assert_eq!(
-            staff_name_for_customer_receipt(Some("Chris Green")).as_deref(),
+            mask_name_for_receipt(Some("Chris Green")).as_deref(),
             Some("Chris G.")
         );
     }
@@ -39,7 +37,7 @@ mod tests {
     #[test]
     fn three_part_name_uses_first_and_last_initial() {
         assert_eq!(
-            staff_name_for_customer_receipt(Some("Mary Jane Watson")).as_deref(),
+            mask_name_for_receipt(Some("Mary Jane Watson")).as_deref(),
             Some("Mary W.")
         );
     }
@@ -47,14 +45,14 @@ mod tests {
     #[test]
     fn single_token() {
         assert_eq!(
-            staff_name_for_customer_receipt(Some("Madonna")).as_deref(),
+            mask_name_for_receipt(Some("Madonna")).as_deref(),
             Some("Madonna")
         );
     }
 
     #[test]
     fn none_and_empty() {
-        assert_eq!(staff_name_for_customer_receipt(None), None);
-        assert_eq!(staff_name_for_customer_receipt(Some("  ")), None);
+        assert_eq!(mask_name_for_receipt(None), None);
+        assert_eq!(mask_name_for_receipt(Some("  ")), None);
     }
 }

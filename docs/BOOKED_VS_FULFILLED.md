@@ -11,7 +11,7 @@ Riverside OS uses a "Fulfilled-Recognition" model for financial and tax liabilit
 
 ## Why the distinction?
 
-In wedding and formalwear retail, customers often "book" an order months before they take it home.
+In wedding and formalwear retail, customers often "book" a transaction months before they take it home.
 - **Deposits** are held as a **Liability** (Unearned Revenue) until the event/pickup.
 - **Sales Tax** is typically due based on the date of **possession/delivery** (Fulfillment).
 - **Commissions** are earned when the store actually keeps the money (Fulfillment), preventing payouts for cancelled/returned orders.
@@ -39,7 +39,7 @@ In wedding and formalwear retail, customers often "book" an order months before 
 ## Reporting Semantics in ROS
 
 ### Metabase & Insights
-- `reporting.orders_core` and `reporting.order_lines` include both dates.
+- `reporting.transactions_v1` and `reporting.transaction_lines_v1` include both dates.
 - Most financial dashboards default to **Recognition Date** (Fulfillment).
 - Performance/Volume dashboards use **Booked Date** to track current sales activity.
 
@@ -54,4 +54,4 @@ Strictly **Fulfilled-only**. Payouts are calculated based on the margin of lines
 - **Orders**: Items are booked and moved to `reserved_stock` upon arrival. Revenue is deferred until pickup (Fulfillment).
 
 ---
-*For staff workflows, see [Order Pickup Manual](docs/staff/order-pickup-manual.md) and [Layaway Manual](docs/staff/layaway-manual.md).*
+*For staff workflows, see [Transaction Pickup Manual](docs/staff/transaction-pickup-manual.md) and [Layaway Manual](docs/staff/layaway-manual.md).*

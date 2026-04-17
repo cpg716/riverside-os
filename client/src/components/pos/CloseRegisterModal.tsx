@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
-import { openThermalZReportPrint } from "./zReportPrint";
+import { openProfessionalZReportPrint } from "./zReportPrint";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
@@ -457,7 +457,7 @@ export default function CloseRegisterModal({
           <button
             type="button"
             onClick={() =>
-              openThermalZReportPrint({
+              openProfessionalZReportPrint({
                 title: "Z-Report",
                 sessionId: recon.session_id,
                 registerOrdinal,
@@ -483,7 +483,7 @@ export default function CloseRegisterModal({
             }
             className="ui-btn-secondary border-app-accent/20 px-4 py-2 text-app-accent shadow-sm"
           >
-            Print Z (thermal)
+            Print Z-Report (Full Page)
           </button>
         </div>
 

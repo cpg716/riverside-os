@@ -188,7 +188,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
   }, [selectedDate]);
 
   return (
-    <div className="flex h-full flex-col bg-app-surface overflow-hidden">
+    <div className="flex flex-1 flex-col bg-app-surface">
       {/* Header Controls (1:1 UI/UX Restoration) */}
       <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-4 no-print">
         <div className="flex items-center gap-4">

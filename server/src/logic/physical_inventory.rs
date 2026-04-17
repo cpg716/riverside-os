@@ -478,8 +478,8 @@ pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewR
         let sales_since_start: i64 = sqlx::query_scalar(
             r#"
             SELECT COALESCE(SUM(oi.quantity), 0)
-            FROM order_items oi
-            JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            JOIN transactions o ON o.id = oi.transaction_id
             WHERE oi.variant_id = $1
               AND o.status::text NOT IN ('cancelled')
               AND o.booked_at >= $2

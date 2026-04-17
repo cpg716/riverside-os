@@ -267,7 +267,13 @@ export default function RemoteAccessPanel() {
                   Generate a "Join Key" from your Tailscale dashboard to
                   securely link this host.
                 </p>
-                <div className="flex gap-3">
+                <form 
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    void handleConnect();
+                  }}
+                  className="flex gap-3"
+                >
                   <input
                     type="password"
                     placeholder="tskey-auth-xxxxxx..."
@@ -276,13 +282,13 @@ export default function RemoteAccessPanel() {
                     className="flex-1 bg-app-bg border-2 border-app-border rounded-2xl px-6 py-3 text-app-text font-mono text-sm focus:border-app-primary outline-none transition-all"
                   />
                   <button
-                    onClick={handleConnect}
+                    type="submit"
                     disabled={connecting || !authKey}
                     className="h-12 px-8 bg-app-primary text-white text-[10px] font-black uppercase tracking-widest rounded-2xl hover:brightness-110 disabled:opacity-50 transition-all shadow-lg shadow-app-primary/20"
                   >
                     {connecting ? "Initializing..." : "Link Machine"}
                   </button>
-                </div>
+                </form>
                 <div className="pt-2">
                   <a
                     href="https://login.tailscale.com/admin/settings/keys"

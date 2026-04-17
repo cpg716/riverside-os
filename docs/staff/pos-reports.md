@@ -12,16 +12,16 @@
 
 **Reports** answers **“How is this drawer doing right now?”** — tender buckets, expected vs actual cash context, and mid-shift checks. It is **not** **Back Office → Insights**, which opens **Metabase** for store-wide analytics. Deep pivots and dashboards are built in Metabase (see [insights-back-office.md](insights-back-office.md)).
 
-**X vs Z (multi-lane):** **X-report** is usually **for this register session (lane)**. **Z / end-of-shift close** runs on **Register #1** when your store uses a **till group** and closes **all** linked lanes together — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
+**Z-Reports (Unified):** **Register #1** is the canonical closing lane. Running **close / Z** on lane #1 automatically aggregates data from satellite lanes (**#2 iPad**, **#3 Back Office**) into a single professional audit document. Mid-shift "X-Reports" have been deprecated; use the live **Register Dashboard** for mid-shift reads — see **[Till group](../TILL_GROUP_AND_REGISTER_OPEN.md)**.
 
 ## Common tasks
 
-### Mid-shift cash check
+### Mid-shift activity review
 
 1. Confirm the **correct** drawer/session is active (profile shows expected cashier).
 2. POS → **Reports**.
-3. Open **X-report** or **session summary** (exact label on your build).
-4. Compare **cash tender** total to **physical** count per SOP; note **over/short** on the count sheet.
+3. View **Daily Sales** to see a chronological timeline of activity. **Check numbers** are displayed next to the payment method for all check transactions.
+4. **Print Audit**: Tap the **Print Report** button to generate a professional full-page audit document of the day's activity.
 
 ### Train a new hire on tender types
 

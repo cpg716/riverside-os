@@ -1,18 +1,20 @@
 -- Unified shipment registry (POS, web storefront, manual hub) + audit log.
 
-CREATE TYPE shipment_source AS ENUM ('pos_order', 'web_order', 'manual_hub');
+DO $$ BEGIN CREATE TYPE shipment_source AS ENUM ('pos_order', 'web_order', 'manual_hub'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TYPE shipment_status AS ENUM (
-    'draft',
-    'quoted',
-    'label_purchased',
-    'in_transit',
-    'delivered',
-    'cancelled',
-    'exception'
-);
+DO $$ BEGIN
+    CREATE TYPE shipment_status AS ENUM (
+        'draft',
+        'quoted',
+        'label_purchased',
+        'in_transit',
+        'delivered',
+        'cancelled',
+        'exception'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TABLE shipment (
+CREATE TABLE IF NOT EXISTS shipment (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     source shipment_source NOT NULL,
     order_id UUID REFERENCES orders (id) ON DELETE SET NULL,

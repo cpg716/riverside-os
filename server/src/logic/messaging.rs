@@ -287,12 +287,12 @@ impl MessagingService {
         pool: &PgPool,
         http: &reqwest::Client,
         podium_cache: &Arc<Mutex<PodiumTokenCache>>,
-        order_id: Uuid,
+        transaction_id: Uuid,
         customer_id: Uuid,
     ) -> Result<(), sqlx::Error> {
         let customer = load_customer_messaging_row(pool, customer_id).await?;
 
-        let order_ref = order_id
+        let order_ref = transaction_id
             .simple()
             .to_string()
             .chars()
@@ -322,7 +322,7 @@ impl MessagingService {
                     target: "messaging",
                     event = "sms_dispatch",
                     customer_id = %customer_id,
-                    order_id = %order_id,
+                    transaction_id = %transaction_id,
                     "Ready for Pickup SMS triggered"
                 );
 
@@ -364,7 +364,7 @@ impl MessagingService {
                         target: "messaging",
                         event = "email_dispatch",
                         customer_id = %customer_id,
-                        order_id = %order_id,
+                        transaction_id = %transaction_id,
                         kind = "ready_for_pickup",
                         "Ready for Pickup email (Podium) triggered"
                     );
@@ -493,13 +493,13 @@ impl MessagingService {
         pool: &PgPool,
         http: &reqwest::Client,
         podium_cache: &Arc<Mutex<PodiumTokenCache>>,
-        order_id: Uuid,
+        transaction_id: Uuid,
         new_status: DbOrderStatus,
     ) -> Result<(), sqlx::Error> {
         if new_status == DbOrderStatus::Fulfilled {
             let customer_id: Option<Uuid> =
-                sqlx::query_scalar("SELECT customer_id FROM orders WHERE id = $1")
-                    .bind(order_id)
+                sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1")
+                    .bind(transaction_id)
                     .fetch_one(pool)
                     .await?;
 
@@ -512,12 +512,12 @@ impl MessagingService {
                         &pool_clone,
                         &http_clone,
                         &cache_clone,
-                        order_id,
+                        transaction_id,
                         cid,
                     )
                     .await
                     {
-                        tracing::error!(error = %e, order_id = %order_id, "Failed to trigger messaging ping");
+                        tracing::error!(error = %e, transaction_id = %transaction_id, "Failed to trigger messaging ping");
                     }
                 });
             }

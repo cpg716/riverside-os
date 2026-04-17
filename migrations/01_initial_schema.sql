@@ -1,15 +1,29 @@
 -- Riverside OS - Relational Inventory Engine baseline
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Core enums
-CREATE TYPE fulfillment_type AS ENUM ('takeaway', 'special_order', 'custom');
-CREATE TYPE transaction_category AS ENUM ('retail_sale', 'rms_account_payment');
-CREATE TYPE order_status AS ENUM ('open', 'fulfilled', 'cancelled', 'pending_measurement');
-CREATE TYPE purchase_order_status AS ENUM ('draft', 'submitted', 'partially_received', 'closed', 'cancelled');
-CREATE TYPE inventory_tx_type AS ENUM ('po_receipt', 'sale', 'adjustment', 'return_in', 'return_out');
+-- Core enums (wrapped in idempotency blocks)
+DO $$ BEGIN
+    DO $$ BEGIN CREATE TYPE fulfillment_type AS ENUM ('takeaway', 'special_order', 'custom'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    DO $$ BEGIN CREATE TYPE transaction_category AS ENUM ('retail_sale', 'rms_account_payment'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    DO $$ BEGIN CREATE TYPE order_status AS ENUM ('open', 'fulfilled', 'cancelled', 'pending_measurement'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    DO $$ BEGIN CREATE TYPE purchase_order_status AS ENUM ('draft', 'submitted', 'partially_received', 'closed', 'cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    DO $$ BEGIN CREATE TYPE inventory_tx_type AS ENUM ('po_receipt', 'sale', 'adjustment', 'return_in', 'return_out'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 -- Staff
-CREATE TABLE staff (
+CREATE TABLE IF NOT EXISTS staff (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     full_name VARCHAR(255) NOT NULL,
     cashier_code VARCHAR(10) UNIQUE NOT NULL,
@@ -19,7 +33,7 @@ CREATE TABLE staff (
 );
 
 -- Category engine (drives inherited tax classification)
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL UNIQUE,
     is_clothing_footwear BOOLEAN DEFAULT false,
@@ -27,7 +41,7 @@ CREATE TABLE categories (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE category_audit_log (
+CREATE TABLE IF NOT EXISTS category_audit_log (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     category_id UUID NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
     changed_field TEXT NOT NULL,
@@ -39,7 +53,7 @@ CREATE TABLE category_audit_log (
 );
 
 -- Product template + variant matrix
-CREATE TABLE products (
+CREATE TABLE IF NOT EXISTS products (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     category_id UUID REFERENCES categories(id),
     catalog_handle TEXT UNIQUE,
@@ -55,7 +69,7 @@ CREATE TABLE products (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE product_variants (
+CREATE TABLE IF NOT EXISTS product_variants (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
     sku TEXT UNIQUE NOT NULL,
@@ -70,7 +84,7 @@ CREATE TABLE product_variants (
 );
 
 -- Customers and tailoring context
-CREATE TABLE wedding_parties (
+CREATE TABLE IF NOT EXISTS wedding_parties (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     groom_name VARCHAR(255) NOT NULL,
     event_date DATE NOT NULL,
@@ -78,7 +92,7 @@ CREATE TABLE wedding_parties (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE customers (
+CREATE TABLE IF NOT EXISTS customers (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     first_name VARCHAR(100),
     last_name VARCHAR(100),
@@ -89,7 +103,7 @@ CREATE TABLE customers (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE measurements (
+CREATE TABLE IF NOT EXISTS measurements (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
     neck DECIMAL(5, 2),
@@ -105,7 +119,7 @@ CREATE TABLE measurements (
 );
 
 -- Register and order ledgers
-CREATE TABLE register_sessions (
+CREATE TABLE IF NOT EXISTS register_sessions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     opened_by UUID REFERENCES staff(id),
     closed_by UUID REFERENCES staff(id),
@@ -120,7 +134,7 @@ CREATE TABLE register_sessions (
     closed_at TIMESTAMPTZ
 );
 
-CREATE TABLE orders (
+CREATE TABLE IF NOT EXISTS orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     customer_id UUID REFERENCES customers(id),
     wedding_id UUID REFERENCES wedding_parties(id),
@@ -136,7 +150,7 @@ CREATE TABLE orders (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE order_items (
+CREATE TABLE IF NOT EXISTS order_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
     product_id UUID REFERENCES products(id),
@@ -154,7 +168,7 @@ CREATE TABLE order_items (
     is_fulfilled BOOLEAN DEFAULT FALSE
 );
 
-CREATE TABLE payment_transactions (
+CREATE TABLE IF NOT EXISTS payment_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     session_id UUID REFERENCES register_sessions(id),
     payer_id UUID REFERENCES customers(id),
@@ -166,7 +180,7 @@ CREATE TABLE payment_transactions (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE payment_allocations (
+CREATE TABLE IF NOT EXISTS payment_allocations (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     transaction_id UUID REFERENCES payment_transactions(id) ON DELETE CASCADE,
     target_order_id UUID REFERENCES orders(id) ON DELETE CASCADE,
@@ -174,7 +188,7 @@ CREATE TABLE payment_allocations (
 );
 
 -- PO and receiving workflow
-CREATE TABLE vendors (
+CREATE TABLE IF NOT EXISTS vendors (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT NOT NULL UNIQUE,
     email TEXT,
@@ -182,7 +196,7 @@ CREATE TABLE vendors (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE purchase_orders (
+CREATE TABLE IF NOT EXISTS purchase_orders (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     po_number TEXT UNIQUE NOT NULL,
     vendor_id UUID NOT NULL REFERENCES vendors(id),
@@ -195,7 +209,7 @@ CREATE TABLE purchase_orders (
     created_by UUID REFERENCES staff(id)
 );
 
-CREATE TABLE purchase_order_lines (
+CREATE TABLE IF NOT EXISTS purchase_order_lines (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
     variant_id UUID NOT NULL REFERENCES product_variants(id),
@@ -206,7 +220,7 @@ CREATE TABLE purchase_order_lines (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE receiving_events (
+CREATE TABLE IF NOT EXISTS receiving_events (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     purchase_order_id UUID NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
     received_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
@@ -216,7 +230,7 @@ CREATE TABLE receiving_events (
     notes TEXT
 );
 
-CREATE TABLE inventory_transactions (
+CREATE TABLE IF NOT EXISTS inventory_transactions (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     variant_id UUID NOT NULL REFERENCES product_variants(id),
     tx_type inventory_tx_type NOT NULL,
@@ -230,7 +244,7 @@ CREATE TABLE inventory_transactions (
 );
 
 -- QuickBooks integration mapping layer
-CREATE TABLE qbo_integration (
+CREATE TABLE IF NOT EXISTS qbo_integration (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     company_id TEXT NOT NULL,
     access_token TEXT,
@@ -239,7 +253,7 @@ CREATE TABLE qbo_integration (
     is_active BOOLEAN DEFAULT true
 );
 
-CREATE TABLE qbo_accounts_cache (
+CREATE TABLE IF NOT EXISTS qbo_accounts_cache (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     account_type TEXT,
@@ -248,7 +262,7 @@ CREATE TABLE qbo_accounts_cache (
     refreshed_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE ledger_mappings (
+CREATE TABLE IF NOT EXISTS ledger_mappings (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     internal_key TEXT UNIQUE NOT NULL,
     internal_description TEXT,
@@ -257,7 +271,7 @@ CREATE TABLE ledger_mappings (
 );
 
 -- Gift cards and settings
-CREATE TABLE gift_cards (
+CREATE TABLE IF NOT EXISTS gift_cards (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     code VARCHAR(50) UNIQUE NOT NULL,
     current_balance DECIMAL(12, 2) NOT NULL,
@@ -266,7 +280,7 @@ CREATE TABLE gift_cards (
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE store_settings (
+CREATE TABLE IF NOT EXISTS store_settings (
     id INTEGER PRIMARY KEY DEFAULT 1,
     employee_markup_percent DECIMAL(5, 2) DEFAULT 15.0,
     loyalty_point_threshold INTEGER DEFAULT 1000,
@@ -274,4 +288,4 @@ CREATE TABLE store_settings (
     CONSTRAINT single_row CHECK (id = 1)
 );
 
-INSERT INTO store_settings (id, employee_markup_percent) VALUES (1, 15.0);
+INSERT INTO store_settings (id, employee_markup_percent) VALUES (1, 15.0) ON CONFLICT (id) DO NOTHING;

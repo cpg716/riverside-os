@@ -14,7 +14,7 @@ pub fn format_pos_gift_receipt_text_message(
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref: String = order
-        .order_id
+        .transaction_id
         .simple()
         .to_string()
         .chars()
@@ -29,12 +29,7 @@ pub fn format_pos_gift_receipt_text_message(
     lines.push(String::from("---"));
 
     if let Some(c) = &order.customer {
-        let name = format!("{} {}", c.first_name.trim(), c.last_name.trim())
-            .trim()
-            .to_string();
-        if !name.is_empty() {
-            lines.push(name);
-        }
+        lines.push(c.display_name.clone());
     }
 
     for it in &order.items {
@@ -72,7 +67,7 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrderForZpl, cfg: &Receipt
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref: String = order
-        .order_id
+        .transaction_id
         .simple()
         .to_string()
         .chars()
@@ -87,12 +82,7 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrderForZpl, cfg: &Receipt
     lines.push(String::from("---"));
 
     if let Some(c) = &order.customer {
-        let name = format!("{} {}", c.first_name.trim(), c.last_name.trim())
-            .trim()
-            .to_string();
-        if !name.is_empty() {
-            lines.push(name);
-        }
+        lines.push(c.display_name.clone());
     }
 
     for it in &order.items {
@@ -119,6 +109,12 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrderForZpl, cfg: &Receipt
     }
     lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
     lines.push(format!("Status: {}", order_status_label(order.status)));
+    if order.is_tax_exempt {
+        lines.push(format!(
+            "TAX EXEMPT: {}",
+            order.tax_exempt_reason.as_deref().unwrap_or("Yes")
+        ));
+    }
 
     if !cfg.footer_lines.is_empty() {
         lines.push(String::from("---"));

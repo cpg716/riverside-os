@@ -1,7 +1,7 @@
 ---
 title: ROS UI consistency (full-app pass)
-status: phase-5-complete-2026-04-08
-source: Mirrors the Cursor plan for implementation tracking. Phases 1–5 are complete; guest `/shop` remains deferred (see table).
+status: phase-6-modernization-dashboard-complete-2026-04-15
+source: Monitors the SaaS-inspired "WowDash" overhaul. Phase 6 (Dashboards) is complete; guest `/shop` remains deferred.
 ---
 
 # ROS brand, typography, and theme consistency (full-app pass)
@@ -28,7 +28,8 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 | Wedding Manager tree | **Mostly done** | Bulk `bg-white` / `text-navy-*` → app tokens; **`PartyDetail`** top bar and several call sites use neutral/white-opacity + `text-app-*` where Phase 5 optional pass landed. **Residual:** many **`bg-navy-900`** / **`navy-*`** brand blocks elsewhere in WM (dashboard tabs, modals, calendars)—leave unless a screen needs dark-mode legibility. |
 | Public `/shop` | **Deferred** | **No active work.** Any existing `--sf-*` / theme wiring in the repo is incidental; do not schedule storefront typography or QA for this initiative until product asks. |
 | Status tokens | **Done** | `ui-caution-text`, `ui-info-text`, `ui-positive-text` in `index.css`; migrated at high-traffic call sites during sweeps. |
-| Phase 5 QA | **Done** | `npm run build` green; Playwright **`client/e2e/`** full suite (**`E2E_BASE_URL=http://localhost:5173`**, **`E2E_API_BASE`** as needed) with register session + API up; visual snapshots refreshed; shell routing fix in [`RegisterSessionBootstrap.tsx`](../client/src/components/layout/RegisterSessionBootstrap.tsx) (no repeated `applyShellForLoggedInRole` for the same open session). See **Phase 5** section below. |
+| Phase 5 QA | **Done** | `npm run build` green; Playwright suite; visual snapshots. |
+| **Phase WowDash** | **In Progress** | Modernized Operational and POS Dashboards with SaaS aesthetics and real metrics. Extension to other workspaces pending. |
 
 \*Treat as “implementation complete for the automated/token sweep”; product owners should still spot-check high-value flows (checkout, QBO staging, customer hub) in both themes.
 
@@ -43,7 +44,9 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 - [x] Wedding `wedding-manager/**/*.jsx` token sweep (bulk) + targeted legibility; **leave** deliberate navy/gold brand chrome unless spec changes
 - [ ] **Deferred:** `/shop` / `PublicStorefront` UI consistency (not a current priority)
 - [x] `ui-caution-text` / `ui-info-text` / `ui-positive-text` in `index.css`
-- [x] Phase 5: production build + Playwright (`5173` + API); visual baselines + snapshot refresh; E2E stabilization (sign-in, POS cashier dialog, QBO/Staff nav, Podium Settings, **`NumericPinKeypad`** `data-testid`s); **`RegisterSessionBootstrap`** session-id gate for admin shell routing; optional WM `text-navy-*` / PartyDetail hero token pass
+- [x] Phase production build + Playwright; visual snapshots.
+- [x] **Phase 6 (Dashboards):** Modernize OperationalHome and RegisterDashboard with "WowDash" system; standardize on `DashboardStatsCard` and `DashboardGridCard`.
+- [ ] **Phase 6 (Workspace Continuity):** Extend WowDash aesthetics to Customer Hub, Order History, and Settings.
 - [ ] **Ongoing:** If you add dense typography or surfaces that bypassed the sweep, periodically grep `text-[7px]`, `text-[8px]`, and unjustified `bg-white` under `client/src/components/` (allowlist print, POS glass strips, importer inversion panel per Phase 5 notes below)
 
 ## Goals
@@ -151,3 +154,27 @@ Shared classes `ui-caution-text`, `ui-info-text`, `ui-positive-text` in `index.c
 - Full **shadcn** migration of staff/POS.
 - **Visual redesign** of Wedding Manager (layout, gold/navy brand blocks, component structure)—token fixes only where readability requires it.
 - Flattening POS density globally—only **reclassify** instructional/legal text.
+
+### Phase 6 — WowDash Modernization (v0.2.0+)
+- **Workspace Layout Modernization (COMPLETE):** Transitioned all primary workspaces to a full-width, natively scrollable model. Removed nested scrollbars and `h-screen` constraints.
+- **Dashboard Overhaul (COMPLETE):** Applied glassmorphism (`bg-app-surface/50` + `backdrop-blur-md`).
+- Replaced technical/military terms: Node -> Register, Station Commander -> Register Manager.
+- Renamed Top Bar Overrides: Staff Session -> **Staff Access**, Manager Override -> **Manager Access**.
+- Standardized on `DashboardStatsCard` (KPIs + Sparklines) and `DashboardGridCard` (Feed/Grid containers).
+- Integrated live sales-pivot data for operational sparklines.
+- **Customer Relationship Hub (COMPLETE):** Refactored the drawer into a tabbed interface (Transactions vs. Fulfillments) with SaaS-style density and integrated financial KPIs.
+- **Register Workspace Modernization (COMPLETE):** Hardened the "Fixed Rail" layout with a bottom-anchored Pay button. Implemented native root scrolling and percentage-based discount logic on the on-screen keypad. Integrated **Pennyless (Swedish Rounding)** for cash accuracy and expanded keypad touch-targets (`h-16`) for reliable terminal interaction.
+
+### Next Steps (IN PLANNING)
+- Refactor **Orders Workspace** to use SaaS-style density and typography.
+- Modernize **Settings Workspace** with the standardized `DashboardGridCard` framing for integration panels.
+
+### Phase 7 — Persistent Top Bar & Shell Navigation (v0.2.0+)
+
+**Goal:** Provide a consistent anchor points for staff, search, and system actions across all application shells.
+
+- [ ] Consolidate logged-in staff info into global Top Bar (remove from sidebar).
+- [ ] Implement centered Universal Search (Product/Customer) as a persistent fixture.
+- [ ] Standardize Breadcrumb behavior for deep-link navigation and shell-exit patterns.
+- [ ] Centralize "System Actions" (Bug Report, Help, Theme, Notifications) into the Top Bar.
+- [ ] Provide a shell-specific status "injection slot" on the right (e.g., POS balance).

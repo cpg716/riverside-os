@@ -208,7 +208,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col">
       {/* Header */}
       <div className="border-b border-app-border px-6 py-4">
         <div className="flex items-center justify-between">

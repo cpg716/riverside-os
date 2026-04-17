@@ -6,10 +6,12 @@ import {
   CheckCircle2, 
   ArrowRight,
   TrendingUp,
-  History
+  History,
+  Printer,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { openProfessionalTablePrint } from "../pos/zReportPrint";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -30,12 +32,12 @@ interface FulfillmentItem {
 }
 
 interface FulfillmentCommandCenterProps {
-  onOpenOrder: (orderId: string) => void;
+  onOpenTransaction: (orderId: string) => void;
   refreshSignal?: number;
 }
 
 export default function FulfillmentCommandCenter({ 
-  onOpenOrder, 
+  onOpenTransaction, 
   refreshSignal = 0 
 }: FulfillmentCommandCenterProps) {
   const { backofficeHeaders } = useBackofficeAuth();
@@ -45,7 +47,7 @@ export default function FulfillmentCommandCenter({
 
   const loadQueue = useCallback(async () => {
     try {
-      const res = await fetch(`${baseUrl}/api/orders/fulfillment-queue`, {
+      const res = await fetch(`${baseUrl}/api/transactions/fulfillment-queue`, {
         headers: mergedPosStaffHeaders(backofficeHeaders),
       });
       if (res.ok) {
@@ -73,7 +75,7 @@ export default function FulfillmentCommandCenter({
   if (loading) return <div className="p-8 text-app-text-muted">Loading queue...</div>;
 
   return (
-    <div className="flex flex-col h-full overflow-hidden">
+    <div className="flex flex-1 flex-col">
       {/* Metrics Row */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-6 border-b border-app-border bg-app-surface-2/30">
         <StatCard 
@@ -107,14 +109,36 @@ export default function FulfillmentCommandCenter({
       </div>
 
       {/* List Area */}
-      <div className="flex-1 overflow-auto p-6">
+      <div className="flex-1 p-6">
         <div className="mb-4 flex items-center justify-between">
           <h3 className="text-sm font-black uppercase tracking-[0.1em] text-app-text-muted">
             {filter === "all" ? "Priority Queue" : `${filter.replace('_', ' ')} list`}
           </h3>
-          <span className="text-xs font-bold text-app-text-muted">
-            {filteredItems.length} items
-          </span>
+          <div className="flex items-center gap-4">
+             {filteredItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                     openProfessionalTablePrint({
+                        title: `Fulfillment Priority Queue - ${filter.toUpperCase()}`,
+                        subtitle: `Inventory Fulfillment Operational Cockpit`,
+                        columns: ["order_short_id", "customer_name", "urgency", "next_deadline", "item_count"],
+                        rows: filteredItems.map(i => ({
+                           ...i,
+                           customer_name: i.customer_name || "—"
+                        }))
+                     });
+                  }}
+                  className="flex items-center gap-2 text-[10px] font-black uppercase text-emerald-700 hover:text-emerald-500"
+                >
+                  <Printer size={12} />
+                  Print Queue
+                </button>
+             )}
+             <span className="text-xs font-bold text-app-text-muted">
+               {filteredItems.length} items
+             </span>
+          </div>
         </div>
 
         {filteredItems.length === 0 ? (
@@ -128,7 +152,7 @@ export default function FulfillmentCommandCenter({
               <QueueItem 
                 key={item.order_id} 
                 item={item} 
-                onClick={() => onOpenOrder(item.order_id)} 
+                onClick={() => onOpenTransaction(item.order_id)} 
               />
             ))}
           </div>

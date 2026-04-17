@@ -55,7 +55,7 @@ export default function OrderSearchInput({
     try {
       // Use the standard orders listing with search param
       const res = await fetch(
-        `${baseUrl}/api/orders?search=${encodeURIComponent(q)}&limit=10`,
+        `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&limit=10`,
         { headers: mergedPosStaffHeaders(backofficeHeaders) }
       );
       if (res.ok) {

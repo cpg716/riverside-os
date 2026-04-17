@@ -24,11 +24,13 @@ struct RingInner {
 
 impl ServerLogRing {
     pub fn new(max_lines: usize, max_line_chars: usize) -> Self {
-        Self { inner: Arc::new(Mutex::new(RingInner {
-            lines: VecDeque::new(),
-            max_lines: max_lines.max(16),
-            max_line_chars: max_line_chars.clamp(256, 16_384),
-        })) }
+        Self {
+            inner: Arc::new(Mutex::new(RingInner {
+                lines: VecDeque::new(),
+                max_lines: max_lines.max(16),
+                max_line_chars: max_line_chars.clamp(256, 16_384),
+            })),
+        }
     }
 
     fn push_line(&self, mut line: String) {

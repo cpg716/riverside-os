@@ -35,7 +35,7 @@ The server:
 
 ## 💳 Using Vaulted Cards (POS)
 
-When a customer is linked to a POS cart, the **Saved Card** tab appears in the checkout drawer.
+When a customer is linked to a POS cart, the **STRIPE VAULT** tab appears in the checkout drawer.
 
 - **Offline / Phone Orders**: Staff can charge a vaulted card without the physical reader.
 - **Workflow**: Selecting a saved card calls `POST /api/payments/intent` with the `payment_method_id`.
@@ -48,7 +48,7 @@ When a customer is linked to a POS cart, the **Saved Card** tab appears in the c
 ROS supports issuing credits directly to a customer's card via the Stripe terminal, even if there is no previous transaction to "refund."
 
 - **Trigger**: When the cart balance is negative (e.g., a return for a customer who originally paid cash or on a different card).
-- **Stripe Credit Tab**: Appears only when `amount_due < 0`.
+- **STRIPE CREDIT Tab**: Appears only when `amount_due < 0`.
 - **Mechanism**: The server creates a special `PaymentIntent` with the negative amount. The terminal recognizes this as an **unlinked credit** and prompts the customer to insert/tap their card.
 - **Accounting**: These are tracked as `card_credit` tender types in the daily journal for QBO reconciliation.
 

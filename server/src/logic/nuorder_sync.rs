@@ -147,18 +147,23 @@ async fn upsert_nuorder_product(
 
     // 3. Upsert parent product
     let catalog_handle = p.style_number.as_deref().unwrap_or(&p.id);
-    
+
     // We use a simpler approach to detect if it's new: check existence before insert/update
     let existing_product: Option<(Uuid, bool)> = sqlx::query_as(
         r#"
         SELECT id, true FROM products WHERE catalog_handle = $1
-        "#
+        "#,
     )
     .bind(catalog_handle)
     .fetch_optional(&mut *tx)
     .await?;
 
-    let (product_id, is_new, last_img_sync): (Uuid, bool, Option<DateTime<Utc>>) = if let Some((id, was_there)) = existing_product {
+    let (product_id, is_new, last_img_sync): (Uuid, bool, Option<DateTime<Utc>>) = if let Some((
+        _id,
+        _was_there,
+    )) =
+        existing_product
+    {
         // It exists, we will update it
         sqlx::query_as(
             r#"

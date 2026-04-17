@@ -4,10 +4,10 @@ Riverside OS uses two time axes for revenue-style analytics:
 
 | Axis | Meaning | Typical use |
 |------|---------|-------------|
-| **Booked** | **`orders.booked_at`** (sale / register day). Includes deposits on **open** orders. | Register activity, “what we rang,” pipeline. |
-| **Fulfilled** | **Pickup / takeaway:** **`orders.fulfilled_at`** when **`fulfillment_method = pickup`** (default). **Ship:** first qualifying **`shipment_event`** on the order’s **`shipment`** — `label_purchased`, or staff patch to **in_transit** / **delivered** (message patterns match `server/src/logic/shipment.rs` updates). | Sales tax audit, commission **realized** / finalize windows, **fulfilled** sales pivots, Metabase “fulfilled revenue” cuts. |
+| **Booked** | **`transactions.booked_at`** (sale / register day). Includes deposits on **open** transactions. | Register activity, “what we rang,” pipeline. |
+| **Fulfilled** | **Pickup / takeaway:** **`transaction_lines.fulfilled_at`**. **Ship:** first qualifying **`shipment_event`** on the order’s **`shipment`** — `label_purchased`, or staff patch to **in_transit** / **delivered** (message patterns match `server/src/logic/shipment.rs` updates). | Sales tax audit, commission **realized** / finalize windows, **fulfilled** sales pivots, Metabase “fulfilled revenue” cuts. |
 
-**Single source in SQL:** `reporting.order_recognition_at(order_id, fulfillment_method, status, fulfilled_at)` (migration **`106_reporting_order_recognition.sql`**). Server-side dynamic SQL must stay aligned with **`server/src/logic/report_basis.rs`** (`ORDER_RECOGNITION_TS_SQL`, `order_date_filter_sql`, `order_recognition_tax_filter_sql`).
+**Single source in SQL:** `reporting.transaction_recognition_at(transaction_id, ...)` (updated in migration **142**). Server-side dynamic SQL must stay aligned with **`server/src/logic/report_basis.rs`** (`TRANSACTION_RECOGNITION_TS_SQL`, `transaction_date_filter_sql`, `transaction_recognition_tax_filter_sql`).
 
 ## API (`GET /api/insights/*`)
 
@@ -22,22 +22,22 @@ Riverside OS uses two time axes for revenue-style analytics:
 
 ## Metabase (`reporting` schema)
 
-After migration **106** & **122**:
+After migration **142**:
 
-- **`reporting.orders_core`** / **`reporting.order_lines`** — **`order_business_date`** = booked local day; **`order_recognition_at`**, **`order_recognition_business_date`** = fulfillment. **`fulfillment_method`** on **`orders_core`**.
-- **`reporting.daily_order_totals`** — Aggregates by **booked** business date only (unchanged semantics; comment in migration).
-- **`reporting.daily_order_totals_fulfilled`** — Aggregates by **fulfillment** business day (cancelled excluded; `recognition_at IS NOT NULL`).
+- **`reporting.transactions_v1`** / **`reporting.transaction_lines_v1`** — **`transaction_business_date`** = booked local day; **`transaction_recognition_at`**, **`transaction_recognition_business_date`** = fulfillment.
+- **`reporting.daily_transaction_totals`** — Aggregates by **booked** business date only (unchanged semantics).
+- **`reporting.daily_transaction_totals_fulfilled`** — Aggregates by **fulfillment** business day (cancelled excluded; `recognition_at IS NOT NULL`).
 - **`view_loyalty_customer_snapshot`** — Per-customer loyalty stats (Earnings vs Redemptions vs Balance).
 - **`view_loyalty_daily_velocity`** — Daily earn vs burn velocity charts.
 
-**`metabase_ro`:** `GRANT EXECUTE` on **`reporting.order_recognition_at`**.
+**`metabase_ro`:** `GRANT SELECT` on ALL TABLES IN SCHEMA reporting.
 
 ## Roadmap / gaps
 
-- Storefront “picked up” vs “shipped” customer-facing states and a dedicated **`orders.shipped_at`** (or carrier webhook event) would simplify fulfillment recognition; today rely on **Shipments** hub events.
-- **`/api/insights/best-sellers`** and **`/dead-stock`** use the same **`basis`** query parameter as **`/api/insights/sales-pivot`** (**`booked`** → **`orders.booked_at`**; **`fulfilled`** → fulfillment instant per **`order_date_filter_sql`** / **`reporting.order_recognition_at`** — see migration **106**).
-- **`/api/insights/margin-pivot`** (**Admin only**) uses the same **`basis`** and **`group_by`** as **`sales-pivot`**; margin is pre-tax line revenue minus **`SUM(order_items.unit_cost × quantity)`** (cost frozen at checkout).
-- **Metabase** (**`reporting.order_lines`**, migration **107**): same line-level **`unit_cost`**, **`line_extended_cost`**, **`line_gross_margin_pre_tax`**; filter by **`order_business_date`** (booked) or **`order_recognition_business_date`** (fulfilled) to match API **`basis`**.
+- Storefront “picked up” vs “shipped” customer-facing states and a dedicated **`transactions.shipped_at`** (or carrier webhook event) would simplify fulfillment recognition; today rely on **Shipments** hub events.
+- **`/api/insights/best-sellers`** and **`/dead-stock`** use the same **`basis`** query parameter as **`/api/insights/sales-pivot`** (**`booked`** → **`transactions.booked_at`**; **`fulfilled`** → fulfillment instant per **`transaction_date_filter_sql`** / **`reporting.transaction_recognition_at`** — see migration **142**).
+- **`/api/insights/margin-pivot`** (**Admin only**) uses the same **`basis`** and **`group_by`** as **`sales-pivot`**; margin is pre-tax line revenue minus **`SUM(transaction_lines.unit_cost × quantity)`** (cost frozen at checkout).
+- **Metabase** (**`reporting.transaction_lines_v1`**, migration **142**): same line-level **`unit_cost`**, **`line_extended_cost`**, **`line_gross_margin_pre_tax`**; filter by **`transaction_business_date`** (booked) or **`transaction_recognition_business_date`** (fulfilled) to match API **`basis`**.
 
 ## Related docs
 

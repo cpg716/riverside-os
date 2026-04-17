@@ -14,22 +14,21 @@ tags: pos-sale-cashier-sign-in-overlay, component, auto-scaffold
 _Linked component: `client/src/components/pos/PosSaleCashierSignInOverlay.tsx`._
 <!-- /help:component-source -->
 
-## What this is
+# POS Sale Cashier Sign-In
 
-Briefly describe what staff use this screen for.
+This screen appears when starting a new sale or when the current cashier session has expired. It ensures that every transaction is attributed to the correct staff member for commission and audit purposes.
 
 ## How to use it
 
-1. 
-2. 
+1. **Find Your Avatar**: Scroll through the grid of staff members. Tapping an avatar or name selects that staff member as the primary cashier for the upcoming sale.
+2. **Key in PIN**: Enter your 4-digit PIN using the large numeric keypad.
+3. **Continue**: Tap **Continue** to unlock the POS cart and start adds items.
 
-## Tips
+## Behavior
+- **Station Lock**: If a manager has set a "Primary Staff" for the register session, that name will be highlighted by default.
+- **Auto-Dismiss**: Once verified, the overlay disappears and the cashier's name is displayed in the Register status bar.
 
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/pos-sale-cashier-sign-in-overlay/` and embed them, for example:
-
-![Example](../images/help/pos-sale-cashier-sign-in-overlay/example.png)
+## Troubleshooting
+- **"Invalid PIN"**: Double-check that your name is selected on the grid before typing. PINs are unique to the staff member.
+- **Missing Name**: If you just joined the team and don't see your name, ask an administrator to check your "Active" status in the Team workspace.
 

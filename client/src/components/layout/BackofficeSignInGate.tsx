@@ -6,6 +6,7 @@ import {
 } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
+import StaffMiniSelector from "../ui/StaffMiniSelector";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -30,6 +31,29 @@ export default function BackofficeSignInGate({
   const [credential, setCredential] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
+    return localStorage.getItem("ros_last_staff_id") || "";
+  });
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
+        if (res.ok) {
+          const data = await res.json();
+          setRoster(data);
+        }
+      } catch (e) {
+        console.error("Could not load roster", e);
+      }
+    })();
+  }, []);
+
+  const handleStaffChange = (id: string) => {
+    setSelectedStaffId(id);
+    localStorage.setItem("ros_last_staff_id", id);
+  };
 
   useEffect(() => {
     if (!permissionsLoaded || !staffCode.trim()) return;
@@ -42,7 +66,7 @@ export default function BackofficeSignInGate({
   const trySignIn = async () => {
     const code = credential.trim();
     if (code.length !== 4) {
-      setError("Enter your 4-digit staff code.");
+      setError("Enter 4-digit PIN.");
       return;
     }
     setBusy(true);
@@ -56,14 +80,20 @@ export default function BackofficeSignInGate({
       });
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(b.error ?? "Invalid code or not authorized");
+        throw new Error(b.error ?? "Invalid PIN");
       }
       const data = (await res.json()) as {
+        id?: string;
         permissions?: string[];
         full_name?: string;
         avatar_key?: string;
         role?: string;
       };
+
+      if (selectedStaffId && data.id && selectedStaffId !== data.id) {
+        throw new Error("PIN belongs to another staff member.");
+      }
+
       const list = Array.isArray(data.permissions) ? data.permissions : [];
       if (list.length === 0) {
         throw new Error("No permissions for this account.");
@@ -80,12 +110,16 @@ export default function BackofficeSignInGate({
           ? data.role
           : null;
       adoptPermissionsFromServer(list, display, avatar || null, roleParsed);
+
+      if (data.id) {
+        handleStaffChange(data.id);
+      }
+
       setCredential("");
-      toast("Signed in to Back Office.", "success");
+      toast("Signed in.", "success");
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Sign-in failed";
       setError(msg);
-      toast(msg, "error");
     } finally {
       setBusy(false);
     }
@@ -104,52 +138,85 @@ export default function BackofficeSignInGate({
   }
 
   return (
-    <div className="flex min-h-screen flex-col items-center justify-center bg-app-bg p-6 font-sans antialiased">
+    <div className="flex flex-1 flex-col items-center justify-center bg-app-bg p-6 font-sans antialiased w-full h-full">
       <div className="w-full max-w-md overflow-hidden rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
-        <div className="border-b border-app-border bg-app-surface-2 px-8 py-10 text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--app-accent)_16%,var(--app-surface))] text-[var(--app-accent)]">
-            <Shield className="h-8 w-8" aria-hidden />
+        <div className="border-b border-app-border bg-app-surface-2 px-8 py-6 text-center">
+          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--app-accent)_16%,var(--app-surface))] text-[var(--app-accent)]">
+            <Shield className="h-6 w-6" aria-hidden />
           </div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
             Riverside OS
           </p>
-          <h1 className="mt-2 text-2xl font-black tracking-tight text-app-text">
-            Sign in to Riverside OS
+          <h1 className="mt-1 text-xl font-black tracking-tight text-app-text">
+            Sign in
           </h1>
-          <p className="mt-3 text-sm leading-relaxed text-app-text-muted">
-            Enter your 4-digit staff code. Admins land in Back Office; sales staff
-            land in the register workspace (open the till when you are ready to
-            check out). You can switch modes from the sidebar anytime after sign-in.
-          </p>
         </div>
-        <div className="space-y-5 px-8 py-8">
+        <div className="space-y-6 px-8 py-8">
           {error ? (
             <p className="rounded-2xl border border-app-danger/20 bg-app-danger/5 px-4 py-3 text-center text-xs font-bold text-app-danger">
               {error}
             </p>
           ) : null}
-          <div className="space-y-2">
-            <p className="text-center text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Staff code
+
+          <div className="space-y-3">
+            <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Select Your Name
             </p>
-            <PinDots length={credential.length} className="py-1" />
+            <div className="w-full">
+              <StaffMiniSelector
+                staff={roster.map((s) => ({ id: s.id, full_name: s.full_name }))}
+                selectedId={selectedStaffId}
+                onSelect={handleStaffChange}
+                placeholder="Select staff member..."
+                size="lg"
+                showAvatar={true}
+                className="w-full"
+              />
+            </div>
+            {!selectedStaffId && (
+              <p className="text-center text-[10px] font-bold text-amber-600">
+                Please select a name first
+              </p>
+            )}
+          </div>
+
+          <div className="space-y-1">
+            <p className="text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              PIN
+            </p>
+            <PinDots length={credential.length} className="py-0.5" />
             <NumericPinKeypad
               value={credential}
               onChange={(v) => {
                 setError(null);
                 setCredential(v);
               }}
+              onEnter={trySignIn}
               disabled={busy}
             />
           </div>
-          <button
-            type="button"
-            disabled={busy || credential.length !== 4}
-            onClick={() => void trySignIn()}
-            className="ui-btn-primary h-14 w-full text-sm font-black disabled:opacity-50"
-          >
-            {busy ? "Signing in…" : "Continue"}
-          </button>
+
+          <div className="flex gap-3">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setCredential("");
+                setError(null);
+              }}
+              className="ui-btn-secondary h-14 flex-1 text-sm font-black"
+            >
+              Clear
+            </button>
+            <button
+              type="button"
+              disabled={busy || credential.length !== 4}
+              onClick={() => void trySignIn()}
+              className="ui-btn-primary h-14 flex-[2] text-sm font-black disabled:opacity-50"
+            >
+              {busy ? "…" : "Continue"}
+            </button>
+          </div>
         </div>
       </div>
     </div>

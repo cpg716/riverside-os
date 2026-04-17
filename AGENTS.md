@@ -1,310 +1,796 @@
 # AGENTS.md — Riverside OS
 
-Instructions for coding agents (Cursor Agent, Codex, etc.) working in this repository.
+Instructions for coding agents (Cursor Agent, Codex, Zed Agent, etc.) working in this repository.
+
+Riverside OS is a production retail POS/ERM platform for formalwear and wedding retail. It runs as a Tauri 2 desktop application with a React + Vite frontend and a Rust Axum API backed by PostgreSQL.
+
+---
+
+## Mission
+
+The main shell component is a critical part of the application that manages UI state and renders content based on user interactions and application state. In v0.2.0, the **Persistent Top Bar** architecture was introduced as the universal navigation anchor, moving away from fragmented headers. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, the new Top Bar navigation, global search drawer, deep link handling, permissions and access control, theme mode, error handling, and navigation and routing.
+
+- **Terminology Note**: Avoid technical terms like "Node" in user-facing UI. Use **Register #[n]**.
+- **Access Status**: Use **Staff Access** (standard identity) and **Manager Access** (privileged override status).
+- **Identity**: Use **Access PIN** for the 4-digit credential. Internal **Employee Tracking IDs** are auto-assigned and not used for login.
+
+Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
+
+Priorities, in order:
+
+1. Preserve financial correctness
+2. Preserve auditability
+3. Maintain WowDash design system (glassmorphism, Inter typography)
+4. Preserve existing project patterns
+5. Ship focused, production-safe changes
+6. Keep lint, typecheck, and build status at zero errors
+
+This is an existing production-oriented codebase. Prefer understanding and extending current patterns over introducing new abstractions.
+
+---
 
 ## Read first
 
-1. **`.cursorrules`** — Non-negotiable project rules (Rust/Axum/sqlx/money/handler thinness).
-2. **`README.md`** — Documentation catalog (all first-party Markdown paths and roles).
-3. **`CHANGELOG.md`** — Detailed version history and baseline (v0.1.0).
-4. **`DEVELOPER.md`** — Full architecture, folder map, runbooks, API overview.
-5. **`docs/ORBSTACK_GUIDE.md`** — Local Docker management: OrbStack context, setup, and performance.
-6. **`docs/MAINTENANCE_RUNBOOK.md`** — Critical daily/weekly rhythm: Backups, Meilisearch, log rotation.
-7. **`docs/BRIDGE_SYNC_TROUBLESHOOTING.md`** — Connecting to Counterpoint: Retries, Tailscale routing, SQL timeouts.
-8. **`REMOTE_ACCESS_GUIDE.md`** — Setup and security for PWA/Tailscale access.
-8. **`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`** — Checklist for shipping PWA (primary) + Tauri register (desktop).
-7. **`INVENTORY_GUIDE.md`** — Detailed scanning engine & physical inventory logic.
-8. **`docs/APPOINTMENTS_AND_CALENDAR.md`** — ROS Appointments vs Wedding Manager, shared `wedding_appointments` API, migration 33, customer search when booking.
-9. **`BACKUP_RESTORE_GUIDE.md`** — DB maintenance, pg_dump, and cloud sync setup.
-10. **`docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`** — Strategy for dependency updates, API versioning, and long-term "no-rot" maintenance.
-11. **`docs/ORDERS_AND_WEDDING_ORDERS.md`** — Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival.
-10. **`docs/DEPOSIT_OPERATIONS.md`** — Complete deposit lifecycle: layaway / order / wedding / split / open deposit types, POS register keypad flow, deposit-only completion, mixed carts, interim payments, fulfillment release, forfeiture, QBO journal mappings (`liability_deposit`, `income_forfeited_deposit`).
-11. **`docs/CATALOG_IMPORT.md`** — `POST /api/products/import`, Lightspeed preset vs universal map, body limits, `supplier` / `supplier_code` → vendor + `vendor_code`, migration **35**.
-11. **`docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`** — Customer CRM vs Lightspeed (merge, groups, bulk import/export, delete rules); ROS `customer_code` and import paths.
-12. **`docs/CUSTOMER_HUB_AND_RBAC.md`** — Relationship Hub API ↔ **`customers.hub_view`**, **`hub_edit`**, **`timeline`**, **`measurements`**, **`orders.view`** (migrations **63**–**64** for hub keys + cashier **`customers_duplicate_review`** / **`customers.merge`** defaults); client gating in **`CustomerRelationshipHubDrawer`**.
-13. **`docs/ORDERS_RETURNS_EXCHANGES.md`** — Refund queue, `orders.*` RBAC, line returns, exchange link, register `register_session_id` read path.
-14. **`docs/SEARCH_AND_PAGINATION.md`** — Customer `browse` / `search` (`limit`/`offset`) and inventory **control-board** (optional **`product_id`** filter; **text `search`** ranked by **45-day parent-product units sold** before name/SKU; migrations **81–82** index **`order_items`** for aggregates); optional **Meilisearch** hybrid search (env **`RIVERSIDE_MEILISEARCH_*`**, `server/src/logic/meilisearch_*.rs`), SQL fallback, **Settings → Integrations** reindex, large-catalog UI (POS, CRM, appointments, Procurement Hub, `/shop` PLP). In-app Help full-text: index **`ros_help`**, **`GET /api/help/search`** — manuals = **`client/src/assets/docs/*-manual.md`** + **`npm run generate:help`** (optional **`npm run generate:help:components`** scaffolds stubs; **`npm run generate:help:components:rescan`** syncs `source` / link block for `auto-scaffold` manuals + warns orphans) — **`docs/MANUAL_CREATION.md`**, **`PLAN_HELP_CENTER.md`**. Planned local assistant **ROSIE** (**RiversideOS Intelligence Engine**), Help **Ask ROSIE**: **`docs/PLAN_LOCAL_LLM_HELP.md`** (PWA/Tauri parity, **`RIVERSIDE_LLAMA_UPSTREAM`**, **`VITE_ROSIE_LLM_*`**, Tauri **`RIVERSIDE_LLAMA_*`** — **`DEVELOPER.md`** Environment variables; **not shipped**); retirement pointer **`ROS_AI_INTEGRATION_PLAN.md`**.
-15. **`docs/BOOKED_VS_FULFILLED.md`** — **Revenue recognition clock:** why NYS tax and commissions are **fulfilled-only**.
-16. **`docs/LAYAWAY_OPERATIONS.md`** — **Layaway lifecycle:** deposits, inventory tracking as `on_layaway`, and revenue realization upon physical pickup.
-17. **`docs/PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md`** — Men’s / wedding retail fit: strengths, **completed roadmap** vs optional backlog (purchase model).
-18. **`docs/OFFLINE_OPERATIONAL_PLAYBOOK.md`** — What works offline (checkout queue), what does not, and floor procedure.
-19. **`docs/WEATHER_VISUAL_CROSSING.md`** — Visual Crossing integration, migrations **46–48**, public `/api/weather/*`, EOD snapshot refresh, daily pull cap env vars, optional **`RIVERSIDE_VISUAL_CROSSING_API_KEY`** / **`RIVERSIDE_VISUAL_CROSSING_ENABLED`** (override DB `weather_config`; never log the key).
-20. **`docs/PLAN_NOTIFICATION_CENTER.md`** — Shipped: PostgreSQL notification center + hourly generators + **admin morning digest** (**bundled** **`morning_*_bundle`** rows + refund summary; migrations **51–52**, env **`RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL`**) + **`task_due_soon_bundle`** reminders (migration **56**). High-volume jobs **upsert** one **`app_notification`** per day (or per assignee+day for tasks); client **compact** inbox + expand/navigate — **`notificationBundle.ts`**, **`notificationDeepLink.ts`**. **Podium messaging** fan-out, **`read-all`**, **`messaging_unread_nudge`** — **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**. **Backup + integration/PIN generators:** migrations **60–61** — **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`**.
-21. **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`** — **Master tracker:** Shippo labels/hub + **Podium CRM** (**99**+ threads, inbox, hub Messages, reply) + notification semantics + **reviews** (partial). Deep Podium env/receipt/widget: **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**.
-22. **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** — Podium operational SMS (**`logic/podium.rs`**, **`messaging.rs`**, **`logic/podium_webhook.rs`**, **`logic/podium_inbound.rs`**, **`logic/podium_messaging.rs`**, **`api/webhooks.rs`**): migrations **70–71** + **99** (conversations/messages); Settings → **Integrations**; **Operations → Inbox** + hub **Messages**; env **`RIVERSIDE_PODIUM_*`**, **`VITE_STOREFRONT_EMBEDS`**.
-23. **`docs/PLAN_PODIUM_REVIEWS.md`** — **Partial:** **`review_policy`**, receipt opt-out, **`POST /api/orders/{id}/review-invite`**, **Operations → Reviews**; **live** Podium review API TBD (**`read_reviews`** / **`write_reviews`** — verify current docs).
-24. **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`** — Recurring staff checklists (**`/api/tasks/*`**), lazy materialization, **`register_sessions.shift_primary_staff_id`**, **`register.shift_handoff`**, POS/Staff UI — migrations **55–56**.
-25. **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`** — Floor staff weekly + day exceptions, PostgreSQL **`staff_effective_working_day`**, **`/api/staff/schedule`**, morning-compass **`today_floor_staff`** — migrations **57–58**.
-26. **`docs/REGISTER_DASHBOARD.md`** — POS **Dashboard** (default on register session open), **`GET /api/staff/self/register-metrics`**, **`weddings.view`** on morning-compass / activity-feed, notification **archive** (Dismiss).
-27. **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`** — Multi-lane register (**66**), till close group / combined Z-close (**67**), admin open-register UX, BO register gate — pair with **`docs/STAFF_PERMISSIONS.md`** till paragraph. **Parked cart + R2S ledger (migrations 68–69):** **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (Z-close purges parked rows; **`rms_r2s_charge`** for **charge** tenders; **payment** line + **`customers.rms_charge`** admin list; QBO **`RMS_R2S_PAYMENT_CLEARING`**).
-28. **`docs/RETIRED_DOCUMENT_SUMMARIES.md`** — Summaries of removed Markdown files (append-only).
-29. **`docs/staff/README.md`** — Staff-facing how-to index; cross-cutting docs: **`GLOSSARY.md`**, **`FAQ.md`**, **`ERROR-AND-TOAST-GUIDE.md`**, **`EOD-AND-OPEN-CLOSE.md`**, **`PII-AND-CUSTOMER-DATA.md`**, **`STORE-SOP-TEMPLATE.md`**, **`abstracts/*.md`**. **Curated Reports:** **`docs/staff/reports-curated-manual.md`**, **`docs/staff/reports-curated-admin.md`**; in-app Help **`client/src/assets/docs/reports-manual.md`**. When you change **user-visible** workflows (new tab, renamed subsection, new cashier step), update the matching **`docs/staff/*.md`** in the same PR when practical (external manuals / training — not indexed in-app).
-30. **`docs/AI_REPORTING_DATA_CATALOG.md`** — Reporting / **`/api/insights/*`** parameters, other read APIs, permission gates; keep in sync when adding analytics endpoints. Metabase + Insights shell: **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**, Phase 1 vs 2 data access: **`docs/METABASE_REPORTING.md`**. Booked vs fulfilled semantics: **`docs/REPORTING_BOOKED_AND_FULFILLED.md`** (migrations **106**–**107** for Metabase line margin columns).
-31. **Human-Readable Reporting Standards** — Always use `reporting.*` schema views for user-facing data extraction (Metabase, CSV exports, or natural language answers). These views join UUIDs to human-readable names, codes, and phone numbers. Migration **123** standardized `order_short_id`, `customer_phone`, and `customer_email` across these surfaces.
-32. **`docs/CLIENT_UI_CONVENTIONS.md`** — Client primitives, **`useDialogAccessibility`**, lazy Back Office tabs in **`App.tsx`**, density rules, embedded Wedding Manager (**`client/src/components/wedding-manager/`**) — wiring + explicit **`type`** on **`<button>`**; tab map in **`client/UI_WORKSPACE_INVENTORY.md`**. Root **`UI_STANDARDS.md`** covers zero-browser-dialog patterns. Full-app typography/theme sweep + Phase 5 QA: **`docs/ROS_UI_CONSISTENCY_PLAN.md`** (**Phases 1–5** complete, 2026-04-08; guest **`/shop`** deferred).
-33. **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`** — Shippo (**`SHIPPO_API_TOKEN`**), migrations **74**–**75**, **`/api/shipments`**, **`POST /api/pos/shipping/rates`**, **`POST /api/store/shipping/rates`**, Customers → Shipments + hub tab; labels/webhooks roadmap in **`docs/PLAN_SHIPPO_SHIPPING.md`**.
-34. **`docs/ONLINE_STORE.md`** — Public **`/shop`**, **`GET/POST /api/store/*`** (catalog, pages, cart session, coupons, tax preview, **`/account/*`** JWT customer accounts + rate limits), **`/api/admin/store`** (**`online_store.manage`**), Settings → **Online store** + **GrapesJS Studio SDK** (**`VITE_GRAPESJS_STUDIO_LICENSE_KEY`**). Roadmap: **`docs/PLAN_ONLINE_STORE_MODULE.md`**.
-35. **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`** — Settings **Receipt Builder** persistence, **`receipt.html`** merge, thermal modes (**ZPL** / **escpos_raster** / **studio_html**), Podium **email** (inline HTML) + **SMS/MMS** (PNG attachment vs plain text); pair with **`PLAN_GRAPESJS_RECEIPT_BUILDER.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**.
-36. **`docs/PLAN_BUG_REPORTS.md`** — **Shipped:** in-app staff bug reports (**`staff_bug_report`**, migrations **101**–**103**; correlation id, **`dismissed`**, triage fields, admin notifications, retention, optional **`VITE_SENTRY_DSN`**): **`POST /api/bug-reports`**, Settings → **Bug reports** (**`settings.admin`**), Header + POS bug trigger — see plan for API + file map. **Staff-facing:** **`docs/staff/bug-reports-submit-manual.md`**, **`docs/staff/bug-reports-admin-manual.md`**.
-37. **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`** — Server **`tracing`** subscriber (**`RUST_LOG`**), optional **OpenTelemetry OTLP** traces (**`OTEL_*`**, **`RIVERSIDE_OTEL_ENABLED`**), **`ServerLogRing`** + **`TraceLayer`**, shutdown; independent of client Sentry.
-38. **`docs/PLAN_POST_V0.1.2_EVOLUTION.md`** — Strategic opportunities: Wedding Health Heatmap, MTM Command Center, Alteration Load Forecasting.
-39. **`docs/COMMISSION_AND_SPIFF_OPERATIONS.md`** — Comprehensive guide to the Commission Manager, flat SPIFF rules, specificity overrides, and combo rewards logic.
-40. **`docs/BUGSQUASH_REPORT_V0.1.8.md`** — Audit report of the v0.1.8 stabilization "Bug Blitz" (TS fixes, bundle logic, financial hardening).
+Before making substantial changes, read these in order:
+
+1. **`.cursorrules`** — Non-negotiable project rules (Rust/Axum/sqlx/money/handler thinness)
+2. **`README.md`** — Overview, quick start, documentation catalog
+3. **`DEVELOPER.md`** — Architecture, folder map, runbooks, API overview, migration references
+4. **`CHANGELOG.md`** — Recent shipped behavior and current direction
+
+Then read the domain doc most relevant to the task.
+
+### Domain docs to consult before changing business-critical behavior
+
+- **Orders / wedding orders / fulfillment** — `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`
+- **Deposits** — `docs/DEPOSIT_OPERATIONS.md`
+- **Returns / refunds / exchanges** — `docs/TRANSACTION_RETURNS_EXCHANGES.md`
+- **Revenue recognition / reporting basis** — `docs/BOOKED_VS_FULFILLED.md`, `docs/REPORTING_BOOKED_AND_RECOGNITION.md`
+- **Layaway lifecycle** — `docs/LAYAWAY_OPERATIONS.md`
+- **Staff permissions / auth** — `docs/STAFF_PERMISSIONS.md`
+- **Customer Hub / RBAC** — `docs/CUSTOMER_HUB_AND_RBAC.md`
+- **Search / pagination / Meilisearch** — `docs/SEARCH_AND_PAGINATION.md`
+- **Appointments / scheduler** — `docs/APPOINTMENTS_AND_CALENDAR.md`
+- **Notification center** — `docs/PLAN_NOTIFICATION_CENTER.md`
+- **Stripe vault / credits** — `docs/STRIPE_POWER_INTEGRATION.md`
+- **Shipping / Shippo** — `docs/SHIPPING_AND_SHIPMENTS_HUB.md`
+- **Online store** — `docs/ONLINE_STORE.md`
+- **Counterpoint bridge / sync** — `docs/COUNTERPOINT_SYNC_GUIDE.md`, `docs/PLAN_COUNTERPOINT_ROS_SYNC.md`
+- **UI conventions** — `docs/CLIENT_UI_CONVENTIONS.md`, `docs/ROS_UI_CONSISTENCY_PLAN.md`
+- **Staff manuals impacted by workflow changes** — `docs/staff/README.md`
+
+If a change affects a staff-facing workflow, update the relevant staff docs in the same PR when practical.
+
+---
 
 ## What this repo is
 
-**Riverside OS** = PostgreSQL + **Rust Axum API** (`server/`) + **React/Vite UI** (`client/`) packaged with **Tauri 2** (`client/src-tauri/`). Primary codepaths: **POS**, **inventory**, **weddings**, **customers**, **sessions**.
-Tauri 2 is utilized directly for native **Hardware Bridging** (e.g., async TCP ESC/POS thermal printing via `src-tauri/src/hardware.rs`).
+**Riverside OS** = PostgreSQL + **Rust Axum API** (`server/`) + **React/Vite UI** (`client/`) packaged with **Tauri 2** (`client/src-tauri/`).
 
-**`NexoPOS-master/`**, **`odoo-19.0/`**, and **`riverside-wedding-manager/`** are **not** part of the minimal workspace (see root **`.gitignore`**). Clone those upstream projects only when a task explicitly needs them for comparison or porting; they are **not** ROS build dependencies.
+Primary codepaths:
+
+- POS
+- Inventory
+- Weddings / parties
+- Customers / CRM
+- Register sessions
+- Reporting / insights
+- Settings / integrations
+
+Tauri 2 is utilized directly for native hardware bridging, including async TCP ESC/POS thermal printing via `client/src-tauri/src/hardware.rs`.
+
+Reference-only trees like **`NexoPOS-master/`**, **`odoo-19.0/`**, and **`riverside-wedding-manager/`** are not part of the minimal workspace. They are not build dependencies.
+
+---
+
+## Stack
+
+### Backend
+
+- Rust
+- Axum 0.8+
+- sqlx
+- PostgreSQL
+- `rust_decimal` for all money math
+- `tracing` / `tracing-subscriber`
+
+### Frontend
+
+- React 19
+- TypeScript
+- Tailwind CSS
+- Vite
+
+### Desktop / native
+
+- Tauri 2
+
+### Quality / tooling
+
+- Playwright
+- `cargo fmt`
+- `npm run lint`
+- `npm run typecheck`
+- `npm run build`
+
+---
+
+## Non-negotiable invariants
+
+### Shell Architecture & Invariants
+
+The main shell component is the central hub of Riverside OS. It manages global state (POS vs. Back Office), theme tokens (WowDash), and navigation routing.
+
+- **Conditional Rendering**: Renders `PosShell`, `InsightsShell`, or `WeddingShell` based on the active mode.
+- **WowDash Design System**: 
+  - Uses `backdrop-blur-md` and semi-transparent backgrounds for glassmorphism.
+  - Standardized `DashboardStatsCard` and `DashboardGridCard` for all dashboards.
+  - Primary Typography: **Inter** / **Outfit** sans-serif.
+- **Permissions**: Every tab and sub-section check `useBackofficeAuth` and `useStaffPermissions` before mounting.
+- **Error Handling**: Uses global `ErrorOverlay` and `useToast` for all operational failures.
+- **Drawers & Modals**: Preferred for complex editing (e.g., `RelationshipHubDrawer`, `TaskChecklistDrawer`).
+- **Full-Width Workspace & Root Scrolling (v0.2.0+)**: 
+  - All primary workspaces MUST utilize the full viewport width and follow an edge-to-edge "Flush" design pattern.
+  - Native browser scrolling at the root level is mandatory for workstations (1080p, 1440p) and iPad Pro 11".
+  - Avoid `h-screen` or `overflow-hidden` on main workspace containers.
+  - Use `sticky` positioning for persistent navigation bars and sidebar menus.
+  - Exception: `Alterations Hub` preserves the windowed/nested-scroll model for tactical density.
+
+### Money / tax / financial integrity
+
+- Never use `f32` or `f64` for money
+- Server-side money must use `rust_decimal::Decimal`
+- Do not derive financial logic from rounded display values
+- SQL aggregate sums must use explicit `ROUND(..., 2)` or `::numeric` casting where needed to avoid sub-penny drift
+- Tax calculations must remain mathematically consistent with the server source of truth
+- **Variable Shadowing**: Never shadow the outer `transaction_id` (Retail Sale) with an inner `transaction_id` (Payment/Movement) in checkout handlers. This prevents Foreign Key violations in `payment_allocations`.
+- **Tax Category Casing**: Always treat `tax_category` (e.g., "Clothing") as case-insensitive during $110 exemption evaluation.
+
+### Transactions vs. Fulfillment Orders (Terminology)
+
+- **Transactions (`transactions` / `TXN-XXXX`)**: The financial ledger representing a customer checkout event. Handles payment, tax, and revenue mapping.
+- **Fulfillment Orders (`fulfillment_orders` / `ORD-XXXX`)**: The logistical state of physical goods. Handles procurement, shipment, special orders, and pickups.
+- **Three Primary Fulfillment Types**:
+    1. **Special Order**: Out-of-stock catalog items (Special Order Line).
+    2. **Custom Order**: Made-To-Measure (MTM) items where **price and cost vary with every order** (Manual Entry at booking).
+    3. **Wedding Order**: Group-linked items for a specific wedding party.
+- **Strict Rule**: Never use the term "Order" ambiguously. Code and docs MUST specify whether they are operating on the financial *Transaction* or the logistical *Fulfillment Order*.
+- **Wedding Member Nomenclature**:
+    - Use `transaction_id` for links to the financial ledger (`transactions`).
+    - Use `fulfillment_order_id` (via `transaction_lines`) for logistical status.
+- **Procurement Nomenclature**:
+    - Use `purchase_order_id` for logistical vendor links (PO-XXXX). 
+    - Never use `purchase_transaction_id` for procurement logistics.
+
+### Handler / service boundaries
+
+- Keep handlers thin
+- Do not put tax tables, pricing logic, employee pricing logic, or fulfillment business rules inside route handlers
+- Put business logic in `server/src/logic/` or `server/src/services/`
+
+### Database discipline
+
+- Never edit schema directly
+- Always use numbered SQL migrations
+- All migrations must be idempotent
+- Use `IF NOT EXISTS` guards where appropriate
+- When changing PostgreSQL views and the column shape changes, prepend `DROP VIEW IF EXISTS`
+- Multi-step writes must use transactions from first mutation through commit
+- Never mix transaction-bound writes with direct `.execute(&state.db)` calls in the middle of the flow
+
+### sqlx discipline
+
+- Prefer `query_as` + `bind`
+- If changing sqlx macros, run:
+
+```bash
+cd server
+cargo sqlx prepare --workspace
+```
+
+### Error handling and logging
+
+- Prefer domain-specific errors
+- Map `sqlx::Error::RowNotFound` and similar expected failures explicitly
+- Do not collapse domain failures into generic 500s
+- Do not use `eprintln!`
+- Use structured `tracing::*` logs
+
+### UI discipline
+
+- Never use `alert()`, `confirm()`, or `prompt()`
+- Use `useToast`, `ConfirmationModal`, `PromptModal`, or established drawer patterns
+- Complex admin editing should prefer drawer / slideout-first patterns
+- Never ask users to type raw UUIDs manually; use search-and-select patterns
+
+### Build baseline
+
+- Zero lint errors
+- Zero typecheck errors
+- `cargo fmt` is required
+- Do not add temporary auth bypasses, PIN bypasses, or dev-only shortcuts into production code
+
+### React / client architecture
+
+- Hooks must stay at the top level
+- Async functions used by effects must be wrapped appropriately
+- Prefer separating shared logic, types, and constants into sibling logic files when needed for Fast Refresh stability
+- Prefer native `fetch` for new endpoints
+- Do not expand axios use for new code without a clear reason
+
+### Transparency
+
+- Intelligence-driven decisions must include visible reasoning/explainer strings
+- Audit-sensitive actions must remain traceable
+
+---
+
+## Core business rules
+
+### Revenue recognition
+
+- Revenue is recognized on fulfillment / pickup, not on initial order booking
+- Booked activity and fulfilled activity are separate reporting concepts
+- Reports must distinguish “booked/sale” from “fulfilled/pickup” correctly
+
+### Tax rules
+
+- Tax is calculated at the line-item level
+- Client-side price changes must trigger tax recalculation
+- Tax-exempt orders must carry a `tax_exempt_reason`
+- Do not infer effective tax rates from rounded totals
+
+### Transaction / custom transaction inventory model
+
+```text
+Checkout         → stock_on_hand unchanged for order / wedding_order / custom / layaway lines
+PO receipt       → stock_on_hand += qty AND reserved_stock += min(qty, open_special_qty)
+Pickup (fulfill) → stock_on_hand -= qty AND reserved_stock -= qty (if reserved) OR on_layaway -= qty
+available_stock  = stock_on_hand - reserved_stock - on_layaway
+```
+
+Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Special), `DbFulfillmentType::Custom`, or equivalent order-style flows.
+
+### Wedding group payments
+
+- Group disbursements must flow through `wedding_disbursements`
+- Do not manually decrement balances without corresponding `payment_allocation` rows
+- `CheckoutRequest.total_price` is lines + shipping only
+- Do not fold wedding disbursement amounts into `total_price`
+
+### Auth / authorization
+
+- Do not weaken PIN verification or middleware auth
+- Preserve auditable manager approval flows
+- Admin bypass behavior must remain explicit and logged
+- Always use **PIN** or **Access PIN** terminology in user-facing labels and docs
+- **Identity Selection**: Identity dropdown + explicit staff selection before **Access PIN** entry is the universal system behavior.
+- **Auto-assigned Tracking ID**: Staff IDs (Internal Code) are auto-assigned for reporting and should not be manually managed unless audit recovery is required.
+
+### Receipt privacy
+
+- Customer-facing receipts must use masked naming rules where required
+- Internal screens and reports use full names
+
+### POS financial presentation
+
+- The checkout footer should use **Balance Due** as the primary anchor
+- Do not introduce redundant “Grand Total” / “Transaction Total” duplication in final payment UX
+- Checkout ledgers must separate Net Retail, Shipping, and Taxes
+- CHECK tenders must capture `check_number`
+
+---
 
 ## Where to make changes
 
-| Task | Likely locations |
-|------|------------------|
-| New REST endpoint | `server/src/api/<module>.rs`, register in `server/src/api/mod.rs`; use `{id}` style for path parameters (Axum 0.8+) |
-| Business / tax / pricing rules | `server/src/logic/`, `server/src/services/` — **not** inside handlers |
-| SQL types / enums | `server/src/models/mod.rs` + matching PostgreSQL enums |
-| New UI screen / tab | `client/src/App.tsx` + `client/src/components/...` + `Sidebar.tsx` if new tab |
-| Reporting / Metabase Insights / commission payouts | `server/src/api/insights.rs`, `server/src/logic/margin_pivot.rs` (Admin-only gross margin pivot), `server/src/api/metabase_proxy.rs`, `client/src/components/layout/InsightsShell.tsx`, `client/src/components/reports/ReportsWorkspace.tsx`, `client/src/lib/reportsCatalog.ts`, `client/src/components/staff/CommissionPayoutsPanel.tsx` |
-| POS / checkout UX | `client/src/components/pos/` — includes **`PosSaleCashierSignInOverlay`**, **`ReceiptSummaryModal`**, **`Cart.tsx`**, **`NexoCheckoutDrawer.tsx`** |
-| **Register (POS) dashboard** | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx` (default tab on new session), `PosSidebar.tsx` (**Dashboard** rail); `GET /api/staff/self/register-metrics` — `server/src/logic/register_staff_metrics.rs`, `server/src/api/staff.rs`; **`BackofficeAuthContext`** **`staffRole`**. See **`docs/REGISTER_DASHBOARD.md`**. |
-| **Till group / multi-lane Z** | `server/src/api/sessions.rs` (`open_session`, `build_reconciliation`, `close_session`, `list_open_sessions`); `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, `zReportPrint.ts`; `client/src/context/RegisterGateContext.tsx`, `client/src/components/layout/RegisterRequiredModal.tsx`. Migrations **66–67**. See **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**. |
-| **Parked sales + R2S charges / payments** | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos_parked_sales.rs` (under **`/api/sessions`**), `server/src/api/pos.rs` (**`/api/pos/rms-payment-line-meta`**), checkout in `server/src/logic/order_checkout.rs`, **`server/src/logic/qbo_journal.rs`** (**`RMS_R2S_PAYMENT_CLEARING`**), ad-hoc tasks in `server/src/logic/tasks.rs`; **`GET /api/insights/rms-charges`**, **`GET /api/customers/rms-charge/records`** (`customers.rs`). Client: `posParkedSales.ts`, **`Cart.tsx`** (**`PAYMENT`** search injection), **`NexoCheckoutDrawer.tsx`** (cash/check-only payment mode + **check** tender), **`RmsChargeAdminSection.tsx`**. Migrations **68–69**. See **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. |
-| Shell / drawers / backdrop | `client/src/components/layout/` |
-| Register session bootstrap (till hydrate + admin shell routing) | `client/src/components/layout/RegisterSessionBootstrap.tsx` — **`applyShellForLoggedInRole`** only when register **`session_id` changes**; **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5 |
-| UX density / primitives | `client/src/index.css`, `client/tailwind.config.js`, `client/src/App.tsx`; conventions in **`docs/CLIENT_UI_CONVENTIONS.md`**, tab map **`client/UI_WORKSPACE_INVENTORY.md`** |
-| **Morning Compass (Queue)** | `client/src/lib/morningCompassQueue.ts`. **Strict Rule**: When updating the dashboard queue, you MUST synchronize the `MorningCompassBundle` interface in BOTH `OperationalHome.tsx` and `RegisterDashboard.tsx`. Failure to do so breaks the production build. |
-| **Toast Notifications** | `client/src/components/ui/ToastProviderLogic.ts`. **Strict Signature**: Use `toast(message: string, type?: ToastType)`. DO NOT pass configuration objects (e.g., `{ title, description }`); doing so will cause build errors. |
-| Client modal a11y hook | `client/src/hooks/useDialogAccessibility.ts` (focus trap, restore, optional Escape) — see **`docs/CLIENT_UI_CONVENTIONS.md`** |
-| Embedded Wedding Manager (JSX) | `client/src/components/wedding-manager/**` — preserve look/feel; **`ModalContext`**, **`GlobalModal`**, explicit **`type`** on buttons — **`docs/CLIENT_UI_CONVENTIONS.md`**. **Action Dashboard** loads **`GET /api/weddings/actions`** (embedded WM **`useDashboardActions`**) — rows include **`party_balance_due`**; quick **Done** uses **emerald terminal** styling (POS parity). **Party detail** measure/fitting gates use **scoped appointment fetch** + cache (`PartyDetail.jsx`). |
-| Schema change | New file in `migrations/` (ordered prefix `NN_description.sql`), then align Rust models |
-| **Stripe Power Integration** | `server/src/logic/stripe_vault.rs` (Vaulting/Credits), `server/src/api/payments.rs` (Axum); `client/src/components/customers/StripeVaultCardModal.tsx`, `client/src/components/pos/NexoCheckoutDrawer.tsx` (**Saved Card** / **Stripe Credit** tabs). Migration **131**. See **`docs/STRIPE_POWER_INTEGRATION.md`**. |
-| **Stripe Card Vault** | `client/src/components/customers/StripeVaultCardModal.tsx`, `CustomerRelationshipHubDrawer.tsx` (Payments tab); ROS uses **SetupIntents** for 100% PCI compliance. |
-| Admin auth | `server/src/middleware/mod.rs` + `server/src/auth/pins.rs` |
-| Receipt config / Receipt Builder / Podium receipt send | `server/src/api/settings.rs` → **`ReceiptConfig`**; merge **`receipt_studio_html.rs`**; orders **`receipt.html`**, **`receipt/send-email`**, **`receipt/send-sms`**; client **`ReceiptBuilderPanel`**, **`ReceiptStudioEditor`**, **`ReceiptSummaryModal`** — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`** |
-| **Weather / Visual Crossing** | `server/src/logic/weather.rs`, `server/src/api/weather.rs`, `server/src/api/settings.rs` (weather endpoints + `weather_config` + effective settings after env); UI **`SettingsWorkspace`** Integrations; **`docs/WEATHER_VISUAL_CROSSING.md`** |
-| **Podium SMS + CRM threads + storefront widget** | `server/src/logic/podium.rs`, `podium_webhook.rs`, `podium_inbound.rs`, `podium_messaging.rs`, `messaging.rs`, `server/src/api/settings.rs`, `webhooks.rs`, `public_api.rs`, customer podium routes in `customers.rs`; migrations **70–71**, **99**; client Settings + **`StorefrontEmbedHost`** + **Operations → Inbox** + hub Messages; env **`RIVERSIDE_PODIUM_*`**, **`VITE_STOREFRONT_EMBEDS`** — **`docs/PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`**, **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**, **`docs/PODIUM_STOREFRONT_CSP_AND_PRIVACY.md`** |
-| **Meilisearch (optional fuzzy search)** | `server/src/logic/meilisearch_client.rs`, `meilisearch_documents.rs`, `meilisearch_search.rs`, `meilisearch_sync.rs`, **`help_corpus.rs`** (`ros_help`); hooks in `products.rs`, `customers.rs`, `orders.rs`, `weddings.rs`, `store_catalog.rs`; **`GET /api/settings/meilisearch/status`**, **`POST /api/settings/meilisearch/reindex`**, **`GET /api/help/search`** (`api/help.rs`); Docker Compose **`meilisearch`**; client **`SettingsWorkspace`** Integrations card, **`HelpCenterDrawer`** + **`client/src/lib/help/**`; **`scripts/ros-meilisearch-reindex-local.sh`** — **`docs/SEARCH_AND_PAGINATION.md`**, **`docs/MANUAL_CREATION.md`**, **`docs/STORE_DEPLOYMENT_GUIDE.md`** |
-| **Online store (public `/shop` + CMS)** | `server/src/api/store.rs` (**`/api/store`**, **`/api/admin/store`**), `server/src/api/store_account.rs`, `server/src/api/store_account_rate.rs`, `server/src/logic/store_catalog.rs`, `store_promotions.rs`, `store_tax.rs`; client **`PublicStorefront.tsx`** (`/shop`, `/shop/account/*`), **`main.tsx`**, **`ui-shadcn/`**, **`OnlineStoreSettingsPanel.tsx`**, **`StorePageStudioEditor.tsx`** (**`@grapesjs/studio-sdk`**, lazy); migrations **73**, **76**–**77**; **`online_store.manage`** — **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`** |
-| Database / Backups | `server/src/api/settings.rs`, `server/src/logic/backups.rs` |
-| Physical Inventory | `server/src/api/physical_inventory.rs`, `server/src/logic/physical_inventory.rs` |
-| **Orders refunds / returns / exchanges** | `server/src/api/orders.rs`, `server/src/logic/order_recalc.rs`, `server/src/logic/order_returns.rs`, `server/src/logic/gift_card_ops.rs`; UI `client/src/components/orders/OrdersWorkspace.tsx`; see **`docs/ORDERS_RETURNS_EXCHANGES.md`** |
-| **Custom Work Orders & Rush Orders** | `client/src/components/pos/CustomItemPromptModal.tsx`, `client/src/components/pos/Cart.tsx`, `server/src/logic/order_checkout.rs`, `server/src/logic/weddings.rs` (Morning Compass priority); see **`docs/ORDERS_AND_WEDDING_ORDERS.md`** and **`docs/staff/custom-work-orders-manual.md`**. |
-| **Catalog CSV import** | `server/src/logic/importer.rs`, `server/src/api/products.rs` (`POST /import`); UI `client/src/components/inventory/UniversalImporter.tsx`; see **`docs/CATALOG_IMPORT.md`** |
-| **Appointments (store calendar)** | `client/src/components/scheduler/` — `SchedulerWorkspace.tsx`, `AppointmentModal.tsx`; API `client/src/lib/weddingApi.ts` + `POST/GET /api/weddings/appointments`. See **`docs/APPOINTMENTS_AND_CALENDAR.md`**. |
-| **Inventory list (Back Office)** | `client/src/components/inventory/InventoryControlBoard.tsx`, `InventoryWorkspace.tsx`, **`ProductHubDrawer.tsx`** / **`MatrixHubGrid.tsx`** (template + per-SKU **`track_low_stock`**) — shared **`ui-input`** / app tokens for filters and table edits; **`GET /api/inventory/control-board`** paging via `limit`/`offset` (**`docs/SEARCH_AND_PAGINATION.md`**). **`ReceivingBay`**: **Post inventory** = **`bg-emerald-600`** + **`border-b-8 border-emerald-800`** (terminal completion pattern). Migration **52** + **`docs/PLAN_NOTIFICATION_CENTER.md`**. |
-| Customers CRM (browse, add, hub, duplicate queue, RMS charge, shipments) | `client/src/components/customers/CustomersWorkspace.tsx`, `DuplicateReviewQueueSection.tsx`, `CustomerRelationshipHubDrawer.tsx`, **`RmsChargeAdminSection.tsx`** (**Customers → RMS charge**, **`customers.rms_charge`**), **`ShipmentsHubSection.tsx`** (**Customers → Shipments**, **`shipments.view`** / **`shipments.manage`**; hub **Shipments** tab). Browse uses **`GET /api/customers/browse`** with **`limit`/`offset`** (**Load more**). Hub + **Duplicate review** (sidebar): **`docs/CUSTOMER_HUB_AND_RBAC.md`**, **`customers_duplicate_review`**; migrations **63**–**65**, **69** (**`customers.rms_charge`**), **75** (**`shipment`** / **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**). Wire **`onNavigateSubSection`** from `App.tsx` → `AppMainColumn` → `CustomersWorkspace` so sidebar **Add Customer** stays in sync when the slideout closes. |
-| **Notification center** | `server/src/api/notifications.rs` (incl. **`POST /.../archive`** user dismiss), `server/src/logic/notifications.rs` (**`upsert_app_notification_by_dedupe`**, **`delete_app_notification_by_dedupe`**), `server/src/logic/notifications_jobs.rs` (**`*_bundle`** hourly sweeps); client `NotificationCenterContext.tsx`, `notifications/*`, **`lib/notificationBundle.ts`**, **`lib/notificationDeepLink.ts`**, bell on **`Header`**, **`PosShell`**, **`WeddingShell`**; compact preview on **`RegisterDashboard`**. Migrations **51** (inbox tables + RBAC), **52** (low-stock flags + **`morning_digest_ledger`**), **56** (**`task_due_soon_bundle`**), **60** (`store_backup_health`), **61** (`integration_alert_state`, `staff_auth_failure_event`). Checkout-driven **`rms_r2s_charge`** for **RMS/RMS90 charge** tenders (migration **68**); **payment** collections use **tasks** (migration **69**) — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. See **`docs/PLAN_NOTIFICATION_CENTER.md`** and **`docs/NOTIFICATION_GENERATORS_AND_OPS.md`**. |
-| **Staff tasks & register shift** | `server/src/api/tasks.rs`, `server/src/logic/tasks.rs`; `client/src/components/tasks/*`, **Staff → Tasks**, **Operations** My tasks, **PosSidebar → Tasks**; **`RegisterShiftHandoffModal`**. Migrations **55–56**. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
-| **Staff schedule (floor)** | `server/src/logic/staff_schedule.rs`, `server/src/api/staff_schedule.rs` (nested under **`/api/staff/schedule`**); **Staff → Schedule**; Operations **Today’s floor team** via **`morning-compass.today_floor_staff`**. Migrations **57–58**. See **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**. |
-| **Staff help docs (reference)** | `docs/staff/*.md` (task guides), hub [`docs/staff/README.md`](docs/staff/README.md). Keep in sync with [`Sidebar.tsx`](client/src/components/layout/Sidebar.tsx) / [`PosSidebar.tsx`](client/src/components/pos/PosSidebar.tsx) labels when workflows change. |
-| **Reporting data catalog** | [`docs/AI_REPORTING_DATA_CATALOG.md`](docs/AI_REPORTING_DATA_CATALOG.md) — document new **`/api/insights/*`** query params and analytics-related routes when shipping report features. Metabase + Insights: [`docs/PLAN_METABASE_INSIGHTS_EMBED.md`](docs/PLAN_METABASE_INSIGHTS_EMBED.md), [`docs/METABASE_REPORTING.md`](docs/METABASE_REPORTING.md). |
-| **Staff bug reports** | `server/src/api/bug_reports.rs`, `server/src/logic/bug_reports.rs`; **`server/src/observability/server_log_ring.rs`**; retention cron in **`main.rs`** (`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`); **`POST /api/bug-reports`**, **`GET`/`PATCH /api/settings/bug-reports*`**; notifications to **`settings.admin`**; client **`BugReportFlow`** (+ optional **`@sentry/react`**), **`BugReportsSettingsPanel`**; migrations **101**–**103** — **`docs/PLAN_BUG_REPORTS.md`**. |
-| **Tracing + optional OTLP** | **`server/src/observability/otel.rs`**, **`server/src/observability/server_log_ring.rs`**, **`init_tracing_with_optional_otel`** + **`TraceLayer`** + OTLP shutdown in **`server/src/main.rs`** — **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`**. |
-| Schema change (ceiling) | **Migration 117** — See `migrations/` for full set; use probes in `scripts/ros_migration_build_probes.sql` |
-| **v0.1.9 Stabilization** | Baseline for 100% clean TypeScript build across all BO and POS modules. |
+| Task                                         | Likely locations                                                                                                                                                   |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| New REST endpoint                            | `server/src/api/<module>.rs`, register in `server/src/api/mod.rs`; use `{id}` style path params                                                                    |
+| Business / pricing / tax / fulfillment logic | `server/src/logic/`, `server/src/services/`                                                                                                                        |
+| SQL enums / DB-aligned types                 | `server/src/models/` + migrations                                                                                                                                  |
+| New UI screen / tab                          | `client/src/App.tsx`, `client/src/components/...`, `Sidebar.tsx` if new nav                                                                                        |
+| Reporting / Insights / Metabase              | `server/src/api/insights.rs`, `server/src/api/metabase_proxy.rs`, `client/src/components/reports/`, `client/src/components/layout/InsightsShell.tsx`               |
+| POS / checkout UX                            | `client/src/components/pos/`                                                                                                                                       |
+| Register manager dashboard          | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx`, `PosSidebar.tsx`, related server staff metrics                                                  |
+| Till group / multi-lane register             | `server/src/api/sessions.rs`, `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, register gate context                                     |
+| Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx` |
+| Shell / layout / drawers                     | `client/src/components/layout/`                                                                                                                                    |
+| Customers CRM / Hub                          | `client/src/components/customers/`                                                                                                                                 |
+| Transactions / fulfillment / returns         | `server/src/api/transactions.rs`, `server/src/logic/`, `client/src/components/orders/`                                                                                   |
+| Scheduler / appointments                     | `client/src/components/scheduler/`, `client/src/lib/weddingApi.ts`                                                                                                 |
+| Inventory / control board / importer         | `client/src/components/inventory/`, related server inventory routes                                                                                                |
+| Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI                                                                            |
+| Staff tasks / scheduling                     | `server/src/api/tasks.rs`, `server/src/logic/tasks.rs`, `server/src/logic/staff_schedule.rs`, `client/src/components/tasks/`                                       |
+| Settings / integrations                      | `server/src/api/settings.rs`, related settings panels                                                                                                              |
+| Weather / Visual Crossing                    | `server/src/logic/weather.rs`, `server/src/api/weather.rs`, settings UI                                                                                            |
+| Podium SMS / inbox / reviews                 | `server/src/logic/podium*.rs`, `messaging.rs`, `api/webhooks.rs`, customer podium routes, Settings + Inbox UI                                                      |
+| Meilisearch                                  | `server/src/logic/meilisearch_*.rs`, `api/help.rs`, settings reindex UI                                                                                            |
+| Online store                                 | `server/src/api/store*.rs`, `server/src/logic/store_*.rs`, `client/src/components/store*`, `PublicStorefront.tsx`                                                  |
+| Stripe vault / credits                       | `server/src/logic/stripe_vault.rs`, `server/src/api/payments.rs`, `StripeVaultCardModal.tsx`, POS checkout UI                                                      |
+| Tauri / hardware bridge                      | `client/src-tauri/`                                                                                                                                                |
+| Observability / OTLP                         | `server/src/observability/`, `server/src/main.rs`                                                                                                                  |
 
-## Invariants (enforceable — never break these)
+Follow existing module patterns before creating new abstractions.
 
-- **Money on server**: `rust_decimal::Decimal` — never `f32`/`f64` for currency.
-- **Financial Consistency**: SQL aggregate sums (SUM) MUST include explicit `ROUND(..., 2)` or `::numeric` casting to match Rust's precision and prevent sub-penny drift from legacy data.
-- **Axum state**: `build_router()` returns `Router<AppState>`; **only `main.rs`** calls `.with_state(state)` before `serve`.
-- **sqlx**: Prefer `query_as` + `bind`. For "not found", use explicit matching / domain errors — do not blindly `?` `sqlx::Error` into generic 500s when a 404 is correct.
-- **Handlers**: Parse input, call service/DB, return JSON — no embedded tax tables or employee pricing math.
-- **No `eprintln!`**: Use `tracing::error!` / `tracing::warn!` with structured key-value pairs (`error = %e`).
-- **Transactions**: Any handler that does >1 mutation must use `db.begin()` _before_ the first mutation and `tx.commit()` at the end. Never call `.execute(&state.db)` between transaction steps.
-- **Zero-Browser-Dialog**: **Mandatory**. Never use `alert()`, `confirm()`, or `prompt()`. Use `useToast()` for feedback and `ConfirmationModal` / `PromptModal` for user intent.
-- **Zero-UUID-Input**: **Mandatory**. Never ask the user to manually enter or copy-paste a UUID (technical ID). Always provide a search picker (e.g., `CustomerSearchInput`, `StaffSearchInput`, `OrderSearchInput`, `WeddingPartySearchInput`) to resolve human-readable names/codes into IDs.
-- **Client API usage**: Prefer native `fetch` over `axios` for all new endpoints to maintain zero-dependency consistency.
-- **React Hooks**: All hooks (`useState`, `useEffect`, `useMemo`, `useCallback`, `useRef`, etc.) MUST be declared at the top level of the component function, *before* any conditional `return` statements or logic. `eslint-plugin-react-hooks` is enabled in `client/` to enforce this.
-- **Hook Stability**: All async functions in `useEffect` MUST be wrapped in `useCallback`.
-- **Strict Formatting**: `cargo fmt` and `npm run lint` are CI blockers. Always run these before pushing to maintain the zero-error baseline.
-- **Zero-Error Baseline (v0.1.9)**: **Mandatory**. Code MUST pass `npm run lint` AND `npm run typecheck` with 0 Errors. This is the new production baseline.
-- **SQLx Query Cache**: If you add or modify `sqlx` macros (`query!`, etc.), you MUST run `cargo sqlx prepare --workspace` from the `server/` directory to update the `.sqlx` JSON metadata. CI will fail if the cache is stale.
-- **Fast Refresh / Logic Separation**: Files containing React components should strictly only export the component(s). Move shared logic, types, and constants to dedicated `.ts` logic files (e.g., `ComponentLogic.ts`). **Context providers** must be split from their context/hooks into a `*Logic.ts` sibling to maintain zero lint warnings.
-- **Versioning**: All modules (`client`, `server`, `tauri`) must stay synchronized with the version in the root `package.json`. Follow [SemVer](https://semver.org) for all tags and releases.
-- **No dev bypasses**: Auth middleware and PIN verification are production-enforced. Do not re-add `let _ = pin;` or similar shortcuts.
-- **GitHub CI/CD & Production Build Resilience**:
-  - **Local Verification**: You MUST run `npm run lint` and `npm run build` (or `tsc --noEmit`) in the `client/` directory before every push. 0 Errors is the only acceptable state.
-  - **ID Stability & Sync**: If you rename an `activeSection` in `OperationalHome.tsx` (e.g., `register-reports` -> `daily-sales`), you MUST synchronize the change in `sidebarSections.ts` immediately to prevent navigation breaks.
-  - **Playwright Timeouts**: All dashboard-related E2E tests (like `morning-compass-coach.spec.ts`) must use a minimum `{ timeout: 30_000 }` when waiting for components that query the backend to accommodate slow CI runners.
-  - **Interface Synchronization**: Strict Rule: When updating dashboard-related interfaces, you MUST synchronize `MorningCompassBundle` and `RushOrderRow` in BOTH `OperationalHome.tsx`, `RegisterDashboard.tsx`, and `morningCompassQueue.ts`.
+---
 
-## Auth model (do not modify without understanding)
+## High-risk areas that require extra caution
 
+Any change touching these areas must be treated as high risk:
+
+- Checkout
+- Deposits
+- Revenue recognition
+- Tax
+- Fulfillment / pickup
+- Returns / refunds / exchanges
+- Register session lifecycle
+- PIN / auth / manager approval
+- Receipt rendering
+- Reporting views
+- Counterpoint sync
+- QBO journal logic
+- Stripe vault / credits
+- Notification deep-link contracts
+
+---
+
+## Required checks before considering work done
+
+### Always
+
+```bash
+cargo fmt
+cd client && npm run lint
+cd client && npm run typecheck
 ```
+
+### Often required
+
+```bash
+npm run check:server
+cd client && npm run build
+```
+
+### When changing server queries or sqlx macros
+
+```bash
+cd server
+cargo sqlx prepare --workspace
+```
+
+### When changing checkout / tax / deposits / fulfillment / revenue logic
+
+- Add or update Playwright coverage
+- Re-check reporting implications
+- Update relevant docs if workflow behavior changed
+
+### When changing dashboard interfaces or shared queue types
+
+Synchronize all duplicated/shared interface definitions immediately
+
+At minimum, watch for:
+
+- `PriorityDashboardBundle` (formerly MorningCompass)
+- `RushTransactionRow`
+- `PosTransactionOptions`
+
+### When renaming section IDs, tabs, or navigation keys
+
+Update corresponding sidebar, route, and deep-link mappings in the same change
+
+### When changing user-visible workflows
+
+Update relevant `docs/staff/*.md` manuals when practical
+
+---
+
+## Auth model (do not modify casually)
+
+```text
 Back Office gated routes:
-  Header: x-riverside-staff-code   (required)
-  Header: x-riverside-staff-pin    (required when pin_hash is set for that staff member)
+  Header: x-riverside-staff-code   (Employee Tracking ID; auto-resolved)
+  Header: x-riverside-staff-pin    (Access PIN hash)
   Permission: route-specific key checked by middleware::require_staff_with_permission
-  Admin role: DbStaffRole::Admin implies full permission catalog (cannot lock out via empty role rows)
+  Admin role: DbStaffRole::Admin implies full permission catalog
 
 POS routes:
-  authenticate_pos_staff() — verifies cashier_code + PIN when present
+  authenticate_pos_staff() — verifies cashier/PIN from unified auth
+  Primary login: POST /api/staff/verify-cashier-code (Internal; legacy mapping)
+  Unified PIN auth: POST /api/staff/admin/{id}/set-pin
+  POS verification: POST /api/staff/verify-pin (Standard)
 ```
 
-## Order / custom order stock model
+Manager approvals must continue to record `authorize_action` and `authorize_metadata`.
 
+---
+
+## API / routing notes
+
+### Axum state
+
+- `build_router()` returns `Router<AppState>`
+- Only `main.rs` calls `.with_state(state)` before serving
+
+### Static gateway
+
+- Do not hardcode `127.0.0.1` for the server listener
+- Use `0.0.0.0` or env-driven binding
+- Preserve SPA fallback for non-API routes
+
+### Client API base URL
+
+Use:
+
+```ts
+import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 ```
-Checkout         →  stock_on_hand unchanged for order / wedding_order / layaway lines (legacy `custom` merged into order; not offered in UI)
-PO receipt       →  stock_on_hand += qty  AND  reserved_stock += min(qty, open_special_qty)
-Pickup (fulfill) →  stock_on_hand -= qty  AND  reserved_stock -= qty (if reserved) OR on_layaway -= qty (if layaway)
-available_stock  =  stock_on_hand - reserved_stock - on_layaway (computed in services/inventory.rs)
-```
 
-Do not write code that decrements `stock_on_hand` at checkout time for `DbFulfillmentType::Order` or `DbFulfillmentType::Custom`.
+for new fetch calls unless a project-specific helper already exists.
 
-## Wedding Group Payments (Disbursements)
+### Staff-or-POS session polling
 
-All multi-member group payments are handled via the `wedding_disbursements` array in the `CheckoutRequest`.
+- Under `BackofficeAuthProvider`, use `mergedPosStaffHeaders(backofficeHeaders)`
+- Use `sessionPollAuthHeaders()` only where provider context is unavailable
+- Do not break register bootstrap semantics
+
+---
+
+## UX alignment notes
+
+### Global shell
+
+The main shell component is the central hub of the application, responsible for managing UI state and rendering content based on user interactions and application state. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, global search drawer, deep link handling, permissions and access control, theme mode, error handling, and navigation and routing.
+
+- **AppShell Architecture**: In v0.2.0, the `AppShell` component was introduced as a strict boundary for authenticated users. The `GlobalTopBar` and persistent navigation layouts MUST only be rendered within the `AppShell`. 
+- Unauthenticated interfaces (e.g., `BackofficeSignInGate`) must sit outside the `AppShell` to maintain clean, centered layouts without navigational chrome.
+- Register and Weddings are embedded inside the main Back Office shell.
+- Do not reintroduce aggressive redirects to external shells.
+
+1. **Sidebar Navigation**:
+
+   - Open the Sidebar: Click on the hamburger icon in the top-left corner of the screen.
+   - Select a Section: Choose from the available sections such as POS, Insights, Wedding, etc., to navigate between different parts of the application.
+
+2. **Global Search Drawer**:
+
+   - Open the Search Drawer: Click on the search icon in the top-right corner of the screen.
+   - Enter Search Query: Type your query to search for customers, products, and wedding party customers.
+   - Select a Result: Click on the desired result to view more details.
+
+3. **Deep Link Handling**:
+   - Access via URL: Use deep links to directly access specific features like alterations, procurement, inventory product hub, QBO sync logs, etc.
+   - Example: `https://app.example.com/alterations` will take you directly to the alterations section.
+
+### POS design invariants
+
+- **WowDash Aesthetic**: The POS dashboard ("Register Manager") uses glassmorphism and the standardized card grid.
+- **Permissions**: Floor staff roles are gated during register attachment; manager approval PINs use Argon2 and require a `authorize_action` log.
+- **Theme**: Supports light/dark mode via `:root` CSS variables.
+- **Hardware**: Async TCP ESC/POS thermal printing for receipts and bag tags.
+
+### POS search
+
+1. **Global Search Drawer**:
+   - Open the Search Drawer: Click on the search icon in the top-right corner of the screen.
+   - Enter Search Query: Type your query to search for customers, products, and wedding party customers.
+   - Select a Result: Click on the desired result to view more details.
+
+### Customers workspace
+
+1. **Global Search Drawer**:
+   - Open the Search Drawer: Click on the search icon in the top-right corner of the screen.
+   - Enter Search Query: Type your query to search for customers, products, and wedding party customers.
+   - Select a Result: Click on the desired result to view more details.
+
+### Operational Surfaces
+
+- **Operations Hub**: Replaces tactical terminology (Morning Dashboard). Focuses on trend visualization and the central Action Board.
+- **Opt-in Scheduling**: Staff (salesperson/support) only appear in "Team on Floor" if explicitly scheduled via `staff_weekly_availability` or day exceptions. Default is OFF.
+- **Responsive**: All operational surfaces must handle 1080p and 1440p using `DashboardGridCard`.
+
+### Global shell
+
+- Register and Weddings are embedded inside the main Back Office shell
+- Do not reintroduce aggressive redirects to external shells
+
+### POS navigation
+
+- Back Office sidebar item **POS** is the launchpad into `PosShell`
+- Subsection **Register** opens the POS launchpad
+- Inside POS mode, the rail tab **Register** is the selling surface (`Cart.tsx`)
+- Do not relabel the whole shell “Register”
+
+### POS design invariants
+
+- Terminal completion actions use emerald completion styling:
+  - `bg-emerald-600`
+  - `border-b-8`
+  - `border-emerald-800`
+- Drawers should aim for zero-scroll on 1080p where practical
+- Variant selection confirmation includes numpad-based `%` and `$` modifiers
+- Hardware payment flows should preserve high-fidelity simulation overlays where already established
+- Maintain zero-browser-dialog architecture across operational workspaces
+
+### POS search
+
+- Keep the multi-threaded resolution strategy in `Cart.tsx`
+- Do not regress to simplistic SKU-only or fuzzy-only behavior
+- Preserve the exact `PAYMENT` search exception for RMS charge payment line injection
+
+### Customers workspace
+
+- Keep the browse list scrollable using the existing flex/min-h layout discipline
+- Add customer remains a `DetailDrawer` slideout, not a centered full-screen modal
+- Preserve sidebar subsection sync for add/edit flows
+
+### CRM density
+
+- Customer Name is the primary visual anchor in list rows
+- Preserve high-density, name-dominant CRM presentation patterns
+
+### PWA / remote
+
+- Respect responsive behavior using `sm:`, `md:`, `lg:` aggressively for staff and operational surfaces
+- Keep the sidebar toggle behavior for small screens
+
+---
+
+## Observability
+
+Use structured tracing:
 
 ```rust
-// Disbursement structure
-struct WeddingDisbursement {
-    wedding_member_id: Uuid,
-    amount: Decimal,
-}
-
-// Logic:
-// 1. Primary payment_transaction is created for the Payer.
-// 2. Individual payment_allocation rows are created for each beneficiary in the disbursements array.
-// 3. Beneficiary order balance_due is updated via `recalc_order_totals`.
+tracing::error!(error = %e, "descriptive failure message");
+tracing::warn!(error = %e, "warning message");
+tracing::info!(staff_id = %id, event = "some_event", "business event");
 ```
 
-**Checkout contract:** `total_price` on `CheckoutRequest` is **lines + shipping only**; **do not** add `wedding_disbursements` amounts into `total_price`. Collected `amount_paid` funds both the order (`amount_paid` − sum(disbursements) toward `total_price`) and party payouts. If a beneficiary has **no** open order, the disbursement amount is **credited** to **`customer_open_deposit_*`** (migration **83**) instead of skipped.
+Do not leave ad hoc `println!` / `eprintln!` debugging in production paths.
 
-Do not manually decrement balances without creating the corresponding `payment_allocation` entry.
+All external sync/webhook-style flows should continue to use the project’s async dispatch patterns.
 
-## Axum Static Gateway
-The backend serves the built `client/dist` folder via `tower-http` Fallback.
-- **Rules**: Never add `127.0.0.1` hardcodes to the server listener; always use `0.0.0.0` or an environment-driven IP to enable Tailscale/PWA mesh access.
-- **SPA Routing**: All non-API routes must serve `index.html` to allow React Router to handle deep links.
+---
 
-## Observability pattern
-
-```rust
-// Error logging
-tracing::error!(error = %e, "Descriptive message about where/what failed");
-
-// Audit / business events
-tracing::info!(staff_id = %id, event = "commission_finalize", "Finalized payout");
-
-// Webhooks
-// All external system syncing (e.g. order checkouts) run asynchronously via `tokio::spawn` and `reqwest::Client`.
-```
-
-## Messaging & Notifications
+## Messaging & notifications
 
 Automated customer pings are handled by `MessagingService` in `server/src/logic/messaging.rs`.
 
-- **Trigger**: Hooked into `mark_order_pickup` and status changes in `orders.rs`.
-- **Logic**: Async dispatcher (`handle_status_change`) checks `marketing_sms_opt_in` / `marketing_email_opt_in` before logging/sending.
-- **Provider**: Currently uses structured tracing logs; upgrade to Twilio/Resend by providing keys in `.env`.
+- Pickup/status messaging checks opt-in state before send/log behavior
+- Shared read-all behavior for common team notifications is intentional
+- Notification deep-link payloads must stay consistent with frontend router expectations
+- Do not invent new payload shapes casually
 
-## Logistics & Printing (ZPL)
+Examples of valid payload shapes:
 
-The system supports multiple thermal print modes via `orders::build_receipt_zpl`.
+```json
+{"type": "transaction", "transaction_id": "..."}
+{"type": "inventory", "section": "list", "product_id": "..."}
+{"type": "settings", "section": "bug-reports", "bug_report_id": "..."}
+```
 
-- **Receipt**: Standard customer copy.
-- **Bag Tag**: `?mode=bag-tag` generates 2x1 labels for every physical item in the order (customer name, SKU, order ref).
-- **Zebra Layouts**: Optimized for 203dpi/300dpi thermal heads at 400px width.
+---
+
+## Logistics & printing
+
+The system supports multiple thermal print modes via receipt/ZPL builders.
+
+Key expectations:
+
+- Customer receipts remain customer-safe
+- Bag tag mode continues to support physical item labeling
+- Professional report printing remains distinct from thermal receipt output
+- Zebra layouts must preserve current operational sizing assumptions
+
+---
 
 ## Commands
 
+### Core dev
+
 ```bash
-npm run check:server   # or: cd server && rustup run 1.88 cargo check (requires clippy/rustfmt components)
-npm run bump           # node scripts/bump-version.mjs <new_version> (updates all modules)
+npm run check:server
+npm run bump <new_version>
 cd client && npm run build
-# Local dev (Postgres must be up: docker compose up -d): from repo root, after `npm install` once at root:
 npm run dev
-# Optional Meilisearch: docker compose up -d meilisearch — set RIVERSIDE_MEILISEARCH_* in server/.env, then:
-# ./scripts/ros-meilisearch-reindex-local.sh   # or Settings → Integrations → Rebuild search index
 ```
 
-E2E / snapshots:
+### Local services
+
+```bash
+docker compose up -d
+./scripts/apply-migrations-docker.sh
+./scripts/migration-status-docker.sh
+```
+
+### Optional Meilisearch
+
+```bash
+docker compose up -d meilisearch
+./scripts/ros-meilisearch-reindex-local.sh
+```
+
+### E2E
 
 ```bash
 cd client
 npm run test:e2e -- --list
 E2E_BASE_URL="http://localhost:5173" npm run test:e2e
-E2E_BASE_URL="http://localhost:5173" npx playwright test --workers=1   # recommended full-suite ordering
+E2E_BASE_URL="http://localhost:5173" npx playwright test --workers=1
 E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
 ```
 
-**Regression map:** **`docs/E2E_REGRESSION_MATRIX.md`** lists every Playwright spec, **`api-gates`** checks, workspace gaps, and CI notes — **update it when you add or change E2E coverage**.
+### E2E notes
 
-Back Office Playwright specs must pass **`signInToBackOffice`** from **`client/e2e/helpers/backofficeSignIn.ts`** when the UI shows **Sign in to Back Office** (unless **`E2E_STAFF_CODE`** / **`E2E_STAFF_PIN`** headers already satisfy the shell). Keypad default staff code is **`1234`** or **`E2E_BO_STAFF_CODE`**; match migration **`53_default_admin_chris_g_pin.sql`** / **`docs/STAFF_PERMISSIONS.md`**. **`NumericPinKeypad`** exposes **`data-testid`** values **`pin-key-0`…`pin-key-9`** and **`pin-key-del`** for E2E. If QBO or Staff nav flakes with an **open till**, confirm **`RegisterSessionBootstrap`** only reapplies the admin “Operations home” shell when the register **`session_id`** changes — **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5.
-
-Database: **Local dev** uses Docker Compose **`db`** ([`docker-compose.yml`](docker-compose.yml)); the image is **`pgvector/pgvector:pg16`** so migration **62** can install **`vector`** (migration **78** may drop **`vector`** when AI tables are retired — follow probes). The same Compose file defines optional **`meilisearch`** (**`localhost:7700`**) for fuzzy search when **`RIVERSIDE_MEILISEARCH_URL`** is set — **`docs/SEARCH_AND_PAGINATION.md`**. **`DATABASE_URL` must use `localhost:5433`** (Compose maps host **5433** → container **5432**) so the API does not connect to a native Postgres on **5432** by mistake. **`public.ros_schema_migrations`** records applied files (basename = `migrations/NN_*.sql`). From repo root: `./scripts/apply-migrations-docker.sh` applies only files not in the ledger**00–106** (see `migrations/`; **33** = general / walk-in appointments + `customer_id` on `wedding_appointments`; **34** = staff phone/email + `staff_role_permission` / `staff_permission_override`; **35** = **`vendors.vendor_code`**; **36** = **`orders.*` permission seeds**; **37** = **`order_return_lines`**, **`orders.exchange_group_id`**; **38** = **`register_sessions.pos_api_token`**, **`orders.checkout_client_id`** + idempotency index; **39** = extended **`staff_role_permission`** seeds — **`catalog.*`**, **`procurement.*`**, **`settings.admin`**, **`gift_cards.manage`**, **`loyalty.program_settings`**, **`weddings.*`**, **`register.reports`**; **40** = **`staff_role_pricing_limits`**; **41** = **`discount_events`** + **`discount_event_variants`**; **42** = roadmap batch (**`alteration_orders`**, customer groups, **`product_bundle_components`**, store credit); **43** = **`customer_measurements`** retail columns, **`products.is_bundle`**, RBAC seeds; **44** = **`discount_event_usage`**, **`wedding_insight_saved_views`**, **`alteration_activity`**; **45** = drop **`staff_mfa_sessions`** and staff **`mfa_*`** columns; **46** = **`store_settings.weather_config`**; **47** = **`weather_snapshot_finalize_ledger`**; **48** = **`weather_vc_daily_usage`**; **49** = **`orders.void_sale`** RBAC seed; **50** = **`suit_component_swap_events`**, **`orders.suit_component_swap`**, **`register.open_drawer`** seeds; **51** = **`app_notification`**, **`staff_notification`**, **`staff_notification_action`**, **`notifications.view`** / **`notifications.broadcast`** seeds; **52** = **`products.track_low_stock`**, **`product_variants.track_low_stock`**, **`morning_digest_ledger`**; **53** = default admin **Chris G** bootstrap, **`cashier_code` 1234**, Argon2 PIN hash for **1234**; **54** = **`staff.avatar_key`** for bundled profile icons; **55** = **`register_sessions.shift_primary_staff_id`**, **`register.shift_handoff`**; **56** = staff recurring tasks, **`tasks.*`**, **`task_due_soon`**; **57** = staff schedule tables + **`staff_effective_working_day`**; **58** = SQL **`COMMENT ON`** for schedule objects; **59** = **`store_settings.staff_sop_markdown`** store staff playbook for Settings + **`GET /api/staff/store-sop`**; **60** = **`store_backup_health`** singleton for backup success/failure timestamps + admin notifications; **61** = **`integration_alert_state`**, **`staff_auth_failure_event`** for integration + PIN-failure notification generators; **62** = ROS **AI** platform (**pgvector**, **`ai_doc_chunk`** incl. **`embedding vector(384)`** filled at reindex via **`fastembed`**, **`ai_saved_report`**, **`customer_duplicate_review_queue`**, RBAC **`ai_assist`**, **`ai_reports`**, **`customers_duplicate_review`**) — **`docs/ROS_AI_HELP_CORPUS.md`**; **63** = customer hub RBAC (**`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`**); **64** = **`salesperson`** / **`sales_support`** **`customers_duplicate_review`** + **`customers.merge`**; **65** = **`pg_trgm`** + **`ai_doc_chunk`** trigram index (lexical leg of hybrid help retrieval) — **`docs/ROS_AI_HELP_CORPUS.md`**; **66** = **`register_sessions.register_lane`**, **`register.session_attach`**; **67** = **`register_sessions.till_close_group_id`**, combined Z-close / satellite lanes — **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**; **68** = **`pos_parked_sale`** (+ audit), **`pos_rms_charge_record`**, checkout **RMS** / **RMS90** → **`rms_r2s_charge`** notifications — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **69** = R2S **payment** line (**`pos_line_kind`**), **`record_kind`**, **`customers.rms_charge`**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, ad-hoc tasks — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **70** = **`store_settings.podium_sms_config`** (Podium operational SMS + storefront widget) — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**; **71** = **`customers.transactional_sms_opt_in`**, **`podium_webhook_delivery`** (inbound webhook idempotency) — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**; **72** = **`transactional_email_opt_in`**, **`podium_conversation_url`**; **73** = online store (**`sale_channel`**, pages, coupons, **`online_store.manage`**) — **`docs/PLAN_ONLINE_STORE_MODULE.md`**; **74** = Shippo columns + **`shippo_config`** + **`store_shipping_rate_quote`**; **75** = **`shipment`**, **`shipment_event`**, **`shipments.view`** / **`shipments.manage`** — **`docs/SHIPPING_AND_SHIPMENTS_HUB.md`**; **76** = **`store_guest_cart`**, **`store_media_asset`** — **`docs/ONLINE_STORE.md`**; **77** = **`customers.customer_created_source`**, **`customer_online_credential`**, public **`/api/store/account/*`** (JWT + rate limits) — **`docs/ONLINE_STORE.md`**; **78** = retire ROS-AI DB artifacts (**`ai_doc_chunk`**, **`ai_saved_report`**, **`vector`**, **`ai_assist`** / **`ai_reports`** RBAC rows); **79** = **`help_manual_policy`** + **`help.manage`** (Help Center overrides / visibility). Weather integration and pull limits: **`docs/WEATHER_VISUAL_CROSSING.md`**. Notification center + morning digest + task reminders: **`docs/PLAN_NOTIFICATION_CENTER.md`**, **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. Staff schedule + morning dashboard floor list: **`docs/STAFF_SCHEDULE_AND_CALENDAR.md`**. **`scripts/ros_migration_build_probes.sql`** includes probes through **106** for **`migration-status-docker.sh`**. **80** = internal **`pos_gift_card_load`** catalog line; **81** = **`idx_order_items_variant_id`**; **82** = **`idx_order_items_product_id`** (parent-product popularity for **`control-board?search=`**) — **`docs/SEARCH_AND_PAGINATION.md`**; **83** = **`customer_open_deposit_accounts`** + ledger — party deposits / **`open_deposit`** checkout — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**.variant_id`**; **82** = **`idx_order_items_product_id`** (parent-product popularity for **`control-board?search=`**) — **`docs/SEARCH_AND_PAGINATION.md`**; **83** = **`customer_open_deposit_accounts`** + ledger — party deposits / **`open_deposit`** checkout — **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **84** = **Counterpoint sync extended**: **`counterpoint_bridge_heartbeat`**, **`counterpoint_sync_request`**, **`counterpoint_sync_issue`**, **`orders.counterpoint_ticket_ref`** (unique), **`orders.is_counterpoint_import`**, mapping tables (`counterpoint_category_map`, `counterpoint_payment_method_map`, `counterpoint_gift_reason_map`) — **`docs/PLAN_COUNTERPOINT_ROS_SYNC.md`**; **85** = **Counterpoint provenance**: widen **`customers.customer_created_source`** CHECK to include **`counterpoint`**; add **`products.data_source`** (`NULL` = ROS-native, `'counterpoint'` = Counterpoint import). **86**–**97** (Counterpoint staff + catalog extensions, **`reporting`** / Metabase views, employee-pricing scopes, staging UI, business-day reporting, **`staff_permission`** + per-staff discount — **97**) — full rows in **`DEVELOPER.md`**. **98**–**106**: Shippo label rate reference on **`shipment`**, Podium messaging + review invite columns/RBAC (**99**), **`store_settings.review_policy`** (**100**), **`staff_bug_report`** + triage/retention (**101**–**103** — **`docs/PLAN_BUG_REPORTS.md`**), **`podium_message.podium_sender_name`** (**104** — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`**), **`store_register_eod_snapshot`** (**105**), **`reporting.order_recognition_at`** + recognition views (**106** — **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**, **`docs/METABASE_REPORTING.md`**). **108**: **NuORDER integration** — `store_settings.nuorder_config`, `vendors.nuorder_brand_id`, `nuorder.manage` / `nuorder.sync` RBAC — **`docs/NUORDER_INTEGRATION.md`**. **116**: Joint customer couples. **117**: Inventory maintenance types (`damaged`, `showroom_display`, `donation`).
-
-**Counterpoint sync**: Server env `COUNTERPOINT_SYNC_TOKEN` enables `/api/sync/counterpoint/*` for the Windows bridge in [`counterpoint-bridge/`](counterpoint-bridge/). Roadmap: [`docs/PLAN_COUNTERPOINT_ROS_SYNC.md`](docs/PLAN_COUNTERPOINT_ROS_SYNC.md). Do not log the token; prefer HTTPS when ROS is not localhost. The local bridge dashboard is served at **`http://localhost:3002`** (proxied to ROS API for auth). **Migration 84** adds `counterpoint_bridge_heartbeat` (singleton), `counterpoint_sync_request`, `counterpoint_sync_issue`, `orders.counterpoint_ticket_ref` (unique), `orders.is_counterpoint_import`, and mapping tables (`counterpoint_category_map`, `counterpoint_payment_method_map`, `counterpoint_gift_reason_map`). M2M ingest endpoints: `POST .../heartbeat`, `catalog`, `gift-cards`, `tickets`, `ack-request`, `complete-request`. Staff-gated Settings endpoints: `GET /api/settings/counterpoint-sync/status`, `POST .../request-run`, `PATCH .../issues/:id/resolve`, staging queue + map CRUD under the same router. M2M: `GET /api/sync/counterpoint/health` exposes `counterpoint_staging_enabled`; `POST .../staging` accepts `{ entity, payload }` when staging is on (bridge **0.7.0+**). UI: Settings → Integrations → Counterpoint hub (`CounterpointSyncSettingsPanel.tsx`) — status, inbound queue, category/payment/gift maps, staff links. **Migration 95**: `counterpoint_staging_batch` + `store_settings.counterpoint_config.staging_enabled`. **Migration 96**: `reporting.effective_store_timezone()` + business-day **`daily_order_totals`**, enriched **`orders_core`** / **`order_lines`** (customer ZIP/city/state, names, loyalty points; staff names), **`reporting.loyalty_point_ledger`**, **`order_loyalty_accrual`**, **`loyalty_reward_issuances`** — **`docs/METABASE_REPORTING.md`**. **Migration 97**: **`staff_permission`** (effective Back Office keys per non-admin staff), per-staff **`max_discount_percent`**, employment dates, **`employee_customer_id`**; **`staff_role_permission`** remains the Settings template for new hires / **Apply role defaults** — **`docs/STAFF_PERMISSIONS.md`**. **Migration 85** widens `customers.customer_created_source` to accept `'counterpoint'` and adds `products.data_source` for provenance. **Migration 86** adds `counterpoint_staff_map` (CP `USR_ID`/`SLS_REP`/`BUYER_ID` → `staff.id`), `staff.data_source`/`counterpoint_user_id`/`counterpoint_sls_rep`, `customers.preferred_salesperson_id`, `orders.processed_by_staff_id`; M2M: `POST .../staff`. **87** = `products.tax_category`; **88** = `vendors.payment_terms`; **89** = `vendor_supplier_item` (`PO_VEND_ITEM`) + idempotent `loyalty_point_ledger` index for `PS_LOY_PTS_HIST`; M2M: `POST .../vendor-items`, `POST .../loyalty-hist`. End-to-end usage: [`docs/COUNTERPOINT_SYNC_GUIDE.md`](docs/COUNTERPOINT_SYNC_GUIDE.md).
-
-**Customers**: `customers.customer_code` is **required** on every row (unique). New customers get a server-allocated code; Lightspeed CSV import upserts on `customer_code`. Do not add client-only or duplicate Lightspeed-specific code columns for matching.
-
-## Client API base URL
-
-`import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000"` — use the same pattern for new `fetch` calls. Prefer `fetch` for new endpoints. `axios` and `socket.io-client` already exist in `client/package.json` for legacy code; do not expand axios usage for new features without a deliberate reason.
-
-**Staff-or-POS routes (e.g. `GET /api/sessions/current`):** under **`BackofficeAuthProvider`**, use **`mergedPosStaffHeaders(backofficeHeaders)`** (the root shell’s initial poll is **`RegisterSessionBootstrap`**, which does this). Use **`sessionPollAuthHeaders()`** only where context is unavailable (`client/src/lib/posRegisterAuth.ts`). Omitting both staff and POS credentials yields **401**; valid staff and no open till → **404** (“no active session”). **`RegisterSessionBootstrap`** calls **`applyShellForLoggedInRole`** (e.g. admin → Back Office **Operations**) only when the hydrated register **`session_id`** **changes**, not on every bootstrap re-run, so **QBO / Staff / Settings** navigation is not reset while the same till stays open.
-
-## UX Alignment notes (current)
-
-- **Surface mode**: each workspace tagged `POS-Core` (speed, density) or `BackOffice` (clarity, reviewability).
-- **Unified Shell Integration**: Register and Weddings modules are embedded directly in the core Back Office shell (Sidebar + AppMainColumn). Do not re-introduce aggressive redirects to external shells on tab change.
-- **POS navigation**: The Back Office sidebar item **POS** is the launchpad into **`PosShell`**; subsection **Register** opens the launchpad view (**Enter POS**). Inside POS mode, the left-rail tab **Register** is the **selling** surface (**`Cart.tsx`**). Do not label the whole shell “Register” in new copy.
-- **Intelligent Search**: POS search in `Cart.tsx` MUST use the multi-threaded resolution strategy (Direct SKU match → **`/api/products/control-board?search=`** with enough **`limit`** for **parent-grouped** dropdown rows → **VariantSelectionModal** when the product has multiple SKUs). Server sorts text search by **45-day parent-product unit volume** (see **`docs/SEARCH_AND_PAGINATION.md`**). Never use simplified fuzzy-only or SKU-only lookups in the register. **Exception:** exact query **`PAYMENT`** (case-insensitive) injects the internal **RMS CHARGE PAYMENT** line via **`GET /api/pos/rms-payment-line-meta`** — see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`**. **`VariantSelectionModal.tsx`** must reset option state when **`product_id`** changes so a second matrix item does not reuse the prior selection. **Cart line title:** when the line’s product has multiple variants, open **`control-board?product_id=`** then the picker to **replace** the line’s variant (single-variant lines still open **ProductIntelligenceDrawer**). **`ProductIntelligenceDrawer`**: resolve adds via **`GET /api/inventory/scan/{sku}`** when the SKU is not in current **`searchResults`**.
-- **Register draft cart (local)**: **`Cart.tsx`** persists the in-progress sale to **`localforage`** (**`ros_pos_active_sale`**, keyed with **`sessionId`**) **only when the cart has at least one line item**; empty carts do not persist a draft (refresh returns to **Cashier for this sale**). Writes run only after hydrate completes (see **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** vs **Park**). Cashiers verify **before ringing** (**Cashier for this sale**); do not add a second operator gate at payment in **`NexoCheckoutDrawer.tsx`**.
-- **PWA/Remote** = Use `sm:`, `md:`, and `lg:` Tailwind breakpoints aggressively to ensure complex analytics and operations reflow gracefully for 5" and 6" iPhone/Android displays. Always provide a Sidebar toggle (`Menu` icon) in the `Header` when screen width < 1024px.
-- **POS Design Invariants**:
-  - **Emerald Green Action Pattern**: All terminal completion actions (Complete Sale, Add to Sale) MUST use `bg-emerald-600` with `border-b-8 border-emerald-800`.
-  - **Zero-Scroll Discipline**: POS drawers must be designed for zero-scrolling on 1080p. Consolidate redundant price headers into compact pills and ensure the active footer is always pinned/visible.
-  - **Price Intelligence**: Variant selection confirmation MUST include the integrated 12-key numpad with `%` discount and `$` price-override modifiers.
-  - **Hardware Mocking**: Payment terminals MUST include a high-fidelity simulation overlay (animated connecting/authorization states) before finalizing tenders.
-  - **Zero-Browser-Dialog Architecture**: All operational workspaces (CRM, Settings, QBO, Insights, Gift Cards) have been refactored to 100% non-blocking. This is an enforceable invariant.
-- Sidebar profile line: **`cashierName`** and **`isRegisterOpen`** come from live **`App.tsx`** register-session state (never hardcoded). When there is no open register session, the primary label falls back to **`staffDisplayName`** (server **`full_name`** from **`GET /api/staff/effective-permissions`**, held in **`BackofficeAuthContext`**); only if both are empty does it show **“No Active Session”**. The status line shows **Till open** / **Till closed** (Back Office sidebar). The circular portrait uses **`staffAvatarUrl`** (**`staffAvatarKey`** from the same response, or register **`cashierAvatarKey`** when the till is open). **`PosSidebar`** uses the same rules (drawer active / closed).
-- **Wedding Pipeline Restoration**: Always use `weddingPipelineLogic.ts` for member transition rules. Legacy iframe/external bridges are deprecated.
-- **High-Density Name-Dominant CRM (v0.1.9)**: CRM lists MUST prioritize the **Customer Name** as the primary visual anchor using `font-black` and `text-app-text`. Secondary financial data (Sales/Balance) follows in a compact, tabular-nums format.
-- **Customers (Back Office)**: Keep the browse **list scrollable** — the list card `section` must be `flex flex-col min-h-0 flex-1` with the table region `min-h-0 flex-1 overflow-auto` under `ui-page`. **Add customer** is a **`DetailDrawer`** slideout (not a centered full-screen modal). Use **`theme.colors.app`** in Tailwind (`accent`, `accent-2`, `accent-hover`) for `bg-app-accent` / confirm buttons; see `client/src/index.css` for paired `shadow-app-accent/*` utilities when used with `shadow-lg`.
-- **Form controls (light/dark)**: Prefer **`ui-input`** (and CSS vars `--app-input-border`, `--app-input-bg`) for text fields and selects so contrast stays consistent app-wide. Tailwind: `border-app-input-border` where a one-off border is needed (`tailwind.config.js` extends `theme.colors.app`).
-- **Appointments (sidebar)**: Treat as the **store** schedule; wedding-party linkage is **optional** in `scheduler/AppointmentModal.tsx` (see **`docs/APPOINTMENTS_AND_CALENDAR.md`**).
-- **Sidebar**: Collapsed icon rail uses **`SidebarRailTooltip`** ([`client/src/components/ui/SidebarRailTooltip.tsx`](client/src/components/ui/SidebarRailTooltip.tsx)) in [`Sidebar.tsx`](client/src/components/layout/Sidebar.tsx) and [`PosSidebar.tsx`](client/src/components/pos/PosSidebar.tsx). **Back Office**: **double-click** a primary nav icon (or the **collapsed** profile avatar) **toggles** expand vs collapsed; clicking the main column (including **Header**) collapses an expanded sidebar (`AppMainColumn` root `onClick`); the mobile **Menu** button uses **`stopPropagation`** so it can open the drawer without the parent immediately collapsing. **POS**: clicking the workspace body (below the top bar) collapses an expanded POS sidebar ([`PosShell.tsx`](client/src/components/layout/PosShell.tsx)).
-
-## QBO bridge notes (current)
-
-- Keep QBO handlers thin; mapping/audit events are already in `server/src/api/qbo.rs`.
-- Do not bypass access-log expectations for write actions (mapping save, approve, sync).
-- For ledger signals:
-  - gift card `sub_type` is mandatory when `payment_method=gift_card`
-  - `applied_deposit_amount` is validated and used for deposit release journal logic.
-
-## User-visible copy
+- Use `localhost` rather than `127.0.0.1` for browser tests where required
+- Dashboard-related tests should tolerate slower CI timing
+- Keep `docs/E2E_REGRESSION_MATRIX.md` current when coverage changes
 
 ---
 
-## Inventory Safety (Critical)
+## Local database / migration notes
 
-1. **Deduplication Priority**: When resolving inventory issues, **ALWAYS** use `catalog_handle` as the canonical product identity for Counterpoint-synced items. Never create a new product without checking if a row with that `catalog_handle` (their `ITEM#`) already exists.
-2. **Ghost Record Purge**: If 404s or duplicates appear in search but not in specific lists, check for rows where `catalog_handle` is NULL but a valid "master" row exists. Follow the deduplication runbook in `DEVELOPER.md`.
-3. **Asset Recovery**: In case of lost stock levels, use the **Universal Importer** with the **Lightspeed Retail** preset as the primary recovery path.
+- Local dev uses Docker Compose `db`
+- `DATABASE_URL` should use `localhost:5433`, not `5432`
+- The migration ledger is `public.ros_schema_migrations`
+- Use the scripts in `scripts/` rather than inventing ad hoc migration workflows
 
-## Meilisearch Awareness
+### Migration truth rule
 
-- **Indexing Status**: The API now includes `is_indexing: true` in the state response when tasks are enqueued. Check this before performing bulk operations to avoid write locks or performance degradation.
-- **Visual Feedback**: The Meilisearch dashboard pulses emerald while work is in progress. Do not assume "Not created or tracked" is a permanent failure during mass ingestion episodes (e.g., recovery of 114k+ records).
+Do not hardcode a stale migration ceiling in AGENTS.
 
-## Joint Couple Account Pattern (migration **116**)
+When you need the latest migration:
 
-```
-Linking     →  Two customers join via `couple_id`. Loyalty is merged to `couple_primary_id`.
-Checkout    →  Redirect `orders.customer_id` to the Primary's ID for centralized revenue/debt/loyalty.
-Hub Stats   →  Sum(Spend, Balance, Points, Parties) for both partners.
-Timeline    →  Union of joint orders and payments; individual notes and measurements stay separate.
-UI          →  Switch partners via the Relationship tab to access individual fitting context.
-```
+- inspect `migrations/`
+- confirm with `DEVELOPER.md`
+- confirm with migration-status scripts
 
-When adding customer-facing features, always check for `couple_id`. If present, financial activity must use `resolve_effective_customer_id()`, while "fitting" or "personal" data (measurements, phone, email) stays per-person.
+If docs disagree, the actual migration files and current code win.
 
-## Recent Migrations
-- **119-120**: Custom Work Orders, Rush Orders, and Gift Wrap fulfillment. See docs/SPECIAL_AND_WEDDING_ORDERS.md.
-- **121**: Live Meilisearch Indexing indicator (`is_indexing` in `/api/settings/meilisearch/status`).
+---
+
+## Counterpoint sync notes
+
+- `COUNTERPOINT_SYNC_TOKEN` protects `/api/sync/counterpoint/*`
+- Never log the token
+- Prefer HTTPS when ROS is not localhost
+- Preserve the separation between M2M ingest and staff-gated settings/admin flows
+- Do not casually change sync payload shapes, provenance semantics, or mapping-table assumptions
+
+Customers continue to use `customer_code` as the core import/upsert identity.
+Do not create duplicate Lightspeed-style matching columns.
+
+### Historical Sync & Lifetime Sales (2018 Hardening)
+- **Jan 1, 2018 Baseline**: All historical sales and inventory movement must be synced from this date forward to ensure full lifecycle auditability.
+- **Calculation over Static Fields**: Customer **Lifetime Sales** are never pulled as a static value. They are calculated dynamically by aggregating all imported `transactions` with `booked_at >= '2018-01-01'`.
+- **2018 Historical Floor**: The bridge is configured to pull all transactional history (tickets, payments, inventory movement) from **January 1st, 2018**, providing a complete audit trail for financial reporting.
+
+---
+
+## Versioning
+
+- The root `package.json` version is the source of truth
+- `client`, `server`, and `tauri` version values must remain synchronized
+- Follow SemVer
+- Use `npm run bump <new_version>` for coordinated updates
+- Update `CHANGELOG.md` with release notes for shipped changes
+
+---
+
+## AI behavior expectations
+
+When working on a task:
+
+1. Find the source of truth first
+2. Trace side effects before proposing a fix
+3. Respect financial, tax, auth, and audit constraints
+4. Prefer production-ready patches over pseudo-code
+5. Call out migrations, tests, docs, and downstream files that need updates
+
+For substantial changes, identify:
+
+- affected files
+- business-risk areas
+- migration needs
+- sqlx prepare needs
+- required tests
+- docs that should be updated
+
+Prefer:
+
+- small, focused patches
+- minimal safe refactors
+- centralized business logic
+- established project conventions
+- strongly typed APIs and domain-safe errors
+
+Avoid:
+
+- broad rewrites without strong justification
+- duplicate business logic across client and server
+- unnecessary new dependencies
+- bypassing established auth or audit flows
+- stale assumptions from old docs when code says otherwise
+
+When requirements are unclear, do not invent critical financial, tax, fulfillment, auth, or reporting behavior. State the assumption and choose the safest implementation.
+
+---
+
+## Repo truth rules
+
+If documentation conflicts:
+
+1. Current code and current migrations win
+2. Then `DEVELOPER.md`
+3. Then `README.md`
+4. Then current `CHANGELOG.md`
+5. Then older historical notes
+
+Do not assume stale docs are authoritative without checking implementation.
+
+---
+
+## Deep reference appendix
+
+Use this section as a repo map and extended reference, not as the primary source of truth over code.
+
+### Key docs / references
+
+- `docs/ORBSTACK_GUIDE.md`
+- `docs/MAINTENANCE_RUNBOOK.md`
+- `docs/BRIDGE_SYNC_TROUBLESHOOTING.md`
+- `REMOTE_ACCESS_GUIDE.md`
+- `docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`
+- `INVENTORY_GUIDE.md`
+- `BACKUP_RESTORE_GUIDE.md`
+- `docs/MAINTENANCE_AND_LIFECYCLE_GUIDE.md`
+- `docs/CATALOG_IMPORT.md`
+- `docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md`
+- `docs/CUSTOMER_HUB_AND_RBAC.md`
+- `docs/SEARCH_AND_PAGINATION.md`
+- `docs/OFFLINE_OPERATIONAL_PLAYBOOK.md`
+- `docs/WEATHER_VISUAL_CROSSING.md`
+- `docs/PLAN_NOTIFICATION_CENTER.md`
+- `docs/PLAN_PODIUM_SMS_INTEGRATION.md`
+- `docs/PLAN_PODIUM_REVIEWS.md`
+- `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`
+- `docs/STAFF_SCHEDULE_AND_CALENDAR.md`
+- `docs/REGISTER_DASHBOARD.md`
+- `docs/TILL_GROUP_AND_REGISTER_OPEN.md`
+- `docs/RETIRED_DOCUMENT_SUMMARIES.md`
+- `docs/staff/README.md`
+- `docs/AI_REPORTING_DATA_CATALOG.md`
+- `docs/DAILY_SALES_REPORTS.md`
+- `docs/TRANSACTION_RECORD_HUB_GUIDE.md`
+- `docs/CLIENT_UI_CONVENTIONS.md`
+- `docs/SHIPPING_AND_SHIPMENTS_HUB.md`
+- `docs/ONLINE_STORE.md`
+- `docs/RECEIPT_BUILDER_AND_DELIVERY.md`
+- `docs/PLAN_BUG_REPORTS.md`
+- `docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`
+- `docs/COMMISSION_AND_SPIFF_OPERATIONS.md`
+- `client/src/assets/docs/lockout-manual.md`
+
+### Additional high-signal reminders
+
+- Use `reporting.*` schema views for user-facing reporting extraction where applicable
+- Avatar/static file readers must handle both `client/` and `../client/` path cases
+- Shared dashboard interfaces must stay synchronized
+- `ToastProviderLogic` expects `toast(message: string, type?: ToastType)`
+- Do not pass object payloads to the toast helper if the current implementation expects a string
+- Preserve `RegisterSessionBootstrap` semantics around session-id-based shell reapplication
+- Keep POS and Back Office terminology aligned with the current product language
+- Preserve existing Stripe branding: `STRIPE CARD`, `STRIPE MANUAL`, `STRIPE VAULT`
+
+---
+
+## If unsure
+
+Stop and verify against:
+
+- `.cursorrules`
+- `DEVELOPER.md`
+- the nearest domain doc
+- the current implementation pattern in code
+
+Do not guess on money, tax, fulfillment, auth, reporting, or migration behavior.

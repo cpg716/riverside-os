@@ -354,7 +354,7 @@ pub struct RedeemRewardRequest {
     #[serde(default)]
     pub session_id: Option<Uuid>,
     #[serde(default)]
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     /// Staff opt-in: send Podium SMS after successful redeem (customer SMS opt-in rules apply).
     #[serde(default)]
     pub notify_customer_sms: bool,
@@ -429,7 +429,7 @@ async fn redeem_reward(
     sqlx::query(
         r#"
         INSERT INTO loyalty_point_ledger
-            (customer_id, delta_points, balance_after, reason, order_id, metadata)
+            (customer_id, delta_points, balance_after, reason, transaction_id, metadata)
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
@@ -437,7 +437,7 @@ async fn redeem_reward(
     .bind(-threshold)
     .bind(new_balance)
     .bind("reward_redemption")
-    .bind(body.order_id)
+    .bind(body.transaction_id)
     .bind(json!({
         "reward_amount": reward_amount,
         "applied_to_sale": body.apply_to_sale,
@@ -481,12 +481,12 @@ async fn redeem_reward(
                 .execute(&mut *tx)
                 .await?;
             sqlx::query(
-                "INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, order_id, session_id) VALUES ($1, 'loaded', $2, $3, $4, $5)",
+                "INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id) VALUES ($1, 'loaded', $2, $3, $4, $5)",
             )
             .bind(eid)
             .bind(remainder)
             .bind(new_bal)
-            .bind(body.order_id)
+            .bind(body.transaction_id)
             .bind(body.session_id)
             .execute(&mut *tx)
             .await?;
@@ -496,7 +496,7 @@ async fn redeem_reward(
                 r#"
                 INSERT INTO gift_cards
                     (code, card_kind, card_status, current_balance, original_value,
-                     is_liability, expires_at, customer_id, issued_session_id, issued_order_id)
+                     is_liability, expires_at, customer_id, issued_session_id, issued_transaction_id)
                 VALUES ($1, 'loyalty_reward', 'active', $2, $2, FALSE, $3, $4, $5, $6)
                 RETURNING id
                 "#,
@@ -506,15 +506,15 @@ async fn redeem_reward(
             .bind(expires_at)
             .bind(body.customer_id)
             .bind(body.session_id)
-            .bind(body.order_id)
+            .bind(body.transaction_id)
             .fetch_one(&mut *tx)
             .await?;
             sqlx::query(
-                "INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, order_id, session_id) VALUES ($1, 'issued', $2, $2, $3, $4)",
+                "INSERT INTO gift_card_events (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id) VALUES ($1, 'issued', $2, $2, $3, $4)",
             )
             .bind(new_id)
             .bind(remainder)
-            .bind(body.order_id)
+            .bind(body.transaction_id)
             .bind(body.session_id)
             .execute(&mut *tx)
             .await?;
@@ -527,7 +527,7 @@ async fn redeem_reward(
         sqlx::query(
             r#"
             INSERT INTO loyalty_reward_issuances
-                (customer_id, points_deducted, reward_amount, applied_to_sale, remainder_card_id, order_id)
+                (customer_id, points_deducted, reward_amount, applied_to_sale, remainder_card_id, transaction_id)
             VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
@@ -536,14 +536,14 @@ async fn redeem_reward(
         .bind(reward_amount)
         .bind(body.apply_to_sale)
         .bind(card_id)
-        .bind(body.order_id)
+        .bind(body.transaction_id)
         .execute(&mut *tx)
         .await?;
     } else {
         sqlx::query(
             r#"
             INSERT INTO loyalty_reward_issuances
-                (customer_id, points_deducted, reward_amount, applied_to_sale, order_id)
+                (customer_id, points_deducted, reward_amount, applied_to_sale, transaction_id)
             VALUES ($1, $2, $3, $4, $5)
             "#,
         )
@@ -551,7 +551,7 @@ async fn redeem_reward(
         .bind(threshold)
         .bind(reward_amount)
         .bind(body.apply_to_sale)
-        .bind(body.order_id)
+        .bind(body.transaction_id)
         .execute(&mut *tx)
         .await?;
     }
@@ -603,7 +603,7 @@ pub struct LedgerRow {
     pub delta_points: i32,
     pub balance_after: i32,
     pub reason: String,
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub created_at: chrono::DateTime<Utc>,
 }
 
@@ -616,7 +616,7 @@ async fn customer_ledger(
 
     let rows = sqlx::query_as::<_, LedgerRow>(
         r#"
-        SELECT id, delta_points, balance_after, reason, order_id, created_at
+        SELECT id, delta_points, balance_after, reason, transaction_id, created_at
         FROM loyalty_point_ledger
         WHERE customer_id = $1
         ORDER BY created_at DESC

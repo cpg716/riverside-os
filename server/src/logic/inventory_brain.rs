@@ -31,16 +31,17 @@ pub async fn query_inventory_recommendations(
 ) -> Result<Vec<InventoryRecommendation>, sqlx::Error> {
     let now = Utc::now();
     let start_45 = now - chrono::Duration::days(45);
-    
-    // 1. Fetch Velocity Data and Stock levels
+
+    // 1. Fetch Velocity Data and Stock levels with frequency tracking
     let rows = sqlx::query!(
         r#"
         WITH velocity AS (
             SELECT 
                 oi.variant_id,
-                SUM(oi.quantity)::float / 45.0 as daily_velocity
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+                SUM(oi.quantity)::float / 45.0 as daily_velocity,
+                COUNT(DISTINCT o.id) as sale_frequency
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             WHERE o.status != 'cancelled'
               AND o.booked_at >= $1
             GROUP BY oi.variant_id
@@ -51,7 +52,8 @@ pub async fn query_inventory_recommendations(
             pv.sku,
             p.name as product_name,
             pv.stock_on_hand,
-            COALESCE(v.daily_velocity, 0.0) as velocity_daily
+            COALESCE(v.daily_velocity, 0.0) as velocity_daily,
+            COALESCE(v.sale_frequency, 0) as sale_frequency
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
         LEFT JOIN velocity v ON v.variant_id = pv.id
@@ -68,6 +70,11 @@ pub async fn query_inventory_recommendations(
         let mut recommendation = None;
         let v_daily = r.velocity_daily.unwrap_or(0.0);
         let stock = r.stock_on_hand.unwrap_or(0);
+        let freq = r.sale_frequency.unwrap_or(0);
+
+        // Confidence logic:
+        // 0.5 base + 0.05 per unique sale event (cap at 0.95)
+        let confidence = (0.5f64 + (freq as f64 * 0.05f64)).min(0.95f64);
 
         // Rule A: Reorder (Stock out in < 14 days)
         if v_daily > 0.0 {
@@ -79,28 +86,28 @@ pub async fn query_inventory_recommendations(
                     sku: r.sku.clone(),
                     product_name: r.product_name.clone(),
                     recommendation_type: RecommendationType::Reorder,
-                    confidence: 0.9,
+                    confidence,
                     velocity_45: v_daily * 45.0,
                     stock_on_hand: stock,
                     suggested_action: format!("Reorder {} units", (v_daily * 30.0).ceil() as i32),
-                    reason: format!("Projected stock-out in {days_left:.1} days"),
+                    reason: format!("Projected stock-out in {:.1} days. Item sold {} units across {} unique orders in 45 days.", days_left, (v_daily * 45.0).round(), freq),
                 });
             }
         }
 
         // Rule B: Clearance (Dead stock)
         if recommendation.is_none() && v_daily == 0.0 && stock > 10 {
-             recommendation = Some(InventoryRecommendation {
+            recommendation = Some(InventoryRecommendation {
                 variant_id: r.variant_id,
                 product_id: r.product_id,
                 sku: r.sku.clone(),
                 product_name: r.product_name.clone(),
                 recommendation_type: RecommendationType::Clearance,
-                confidence: 0.7,
+                confidence: 0.8, // Fairly confident if zero sales in 45 days
                 velocity_45: 0.0,
                 stock_on_hand: stock,
                 suggested_action: "Flash Sale / 20% Markdown".to_string(),
-                reason: "Zero sales in last 45 days despite high stock".to_string(),
+                reason: format!("Zero sales in last 45 days despite {stock} units on-hand. Recommend clearance to free up capital."),
             });
         }
 
@@ -109,15 +116,30 @@ pub async fn query_inventory_recommendations(
         }
     }
 
-    // Sort by confidence or urgency
-    recs.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+    // Sort by urgency then confidence
+    recs.sort_by(|a, b| {
+        let urgency_a = if a.recommendation_type == RecommendationType::Reorder {
+            1
+        } else {
+            0
+        };
+        let urgency_b = if b.recommendation_type == RecommendationType::Reorder {
+            1
+        } else {
+            0
+        };
+
+        urgency_b.cmp(&urgency_a).then_with(|| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    });
 
     Ok(recs)
 }
 
 // Support for Recommended Bundles (Phase 3.5)
-pub async fn query_recommended_bundles(
-    _pool: &PgPool,
-) -> Result<Vec<String>, sqlx::Error> {
+pub async fn query_recommended_bundles(_pool: &PgPool) -> Result<Vec<String>, sqlx::Error> {
     Ok(vec![])
 }

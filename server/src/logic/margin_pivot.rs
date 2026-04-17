@@ -1,4 +1,4 @@
-//! Pre-tax **gross margin** pivot: `SUM(unit_price * qty)` − `SUM(unit_cost * qty)` on `order_items`,
+//! Pre-tax **gross margin** pivot: `SUM(unit_price * qty)` − `SUM(unit_cost * qty)` on `transaction_lines`,
 //! using the same **booked** vs **completed (recognition)** axis as sales pivot.
 //!
 //! `unit_cost` is the value **frozen at checkout** on each line.
@@ -97,8 +97,8 @@ pub async fn run_margin_pivot(
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 o.customer_id AS customer_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
             LEFT JOIN customers cust ON cust.id = o.customer_id
             LEFT JOIN categories c ON c.id = p.category_id
@@ -146,8 +146,8 @@ pub async fn run_margin_pivot(
                     COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
                     {date_key} AS sale_day,
                     NULL::uuid AS customer_id
-                FROM order_items oi
-                INNER JOIN orders o ON o.id = oi.order_id
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
                 LEFT JOIN categories c ON c.id = p.category_id
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
@@ -217,8 +217,8 @@ pub async fn run_margin_pivot(
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 NULL::uuid AS customer_id
-            FROM order_items oi
-            INNER JOIN orders o ON o.id = oi.order_id
+            FROM transaction_lines oi
+            INNER JOIN transactions o ON o.id = oi.transaction_id
             INNER JOIN products p ON p.id = oi.product_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id

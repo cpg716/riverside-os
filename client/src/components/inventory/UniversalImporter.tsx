@@ -6,9 +6,11 @@ import {
   ShieldCheck,
   Table,
   Zap,
+  Loader2,
 } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import DashboardGridCard from "../ui/DashboardGridCard";
 
 type Step = "mode" | "upload" | "map" | "review";
 
@@ -302,7 +304,11 @@ export default function UniversalImporter() {
   };
 
   return (
-    <div className="mx-auto max-w-5xl overflow-y-auto p-6 lg:p-12">
+    <div className="mx-auto max-w-5xl overflow-y-auto px-6 py-12 lg:px-12 no-scrollbar animate-in fade-in slide-in-from-bottom-8 duration-700">
+      <div className="mb-12 px-4">
+        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Data Ingestion Engine</h3>
+        <h2 className="text-3xl font-black tracking-tight text-app-text">Catalog Importer</h2>
+      </div>
       {step === "mode" && (
         <div className="grid gap-8 md:grid-cols-2">
           <button
@@ -311,21 +317,21 @@ export default function UniversalImporter() {
               setMode("lightspeed");
               setStep("upload");
             }}
-            className="group rounded-[2.5rem] border-2 border-app-border bg-app-surface p-10 text-left shadow-xl transition-all hover:border-app-accent-2"
+            className="group relative overflow-hidden rounded-[3rem] border border-app-border/40 bg-app-surface/20 p-12 text-left shadow-2xl transition-all hover:border-app-accent-2/60 hover:bg-app-accent-2/5 backdrop-blur-md"
           >
-            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-app-accent-2/15 text-app-accent-2 transition-colors group-hover:bg-app-accent-2 group-hover:text-white">
-              <Zap size={28} />
+            <div className="relative z-10">
+              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-app-accent-2/10 text-app-accent-2 transition-all group-hover:scale-110 group-hover:bg-app-accent-2 group-hover:text-white group-hover:shadow-lg group-hover:shadow-app-accent-2/20">
+                <Zap size={32} />
+              </div>
+              <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-app-text">
+                Lightspeed Quick-Sync
+              </h3>
+              <p className="text-sm leading-relaxed text-app-text-muted opacity-80">
+                Optimized preset for X-Series exports. Automatically maps handles, axial variants, and supplier cost logic.
+              </p>
             </div>
-            <h3 className="mb-2 text-2xl font-black uppercase italic tracking-tight text-app-text">
-              Lightspeed Quick-Sync
-            </h3>
-            <p className="text-sm leading-relaxed text-app-text-muted">
-              X-Series export preset: handle, variant axes,{" "}
-              <strong className="text-app-text">supply_price</strong> as unit
-              cost, SKU, product_category, supplier_name as primary vendor, and{" "}
-              <strong className="text-app-text">supplier_code</strong> as vendor
-              code in Riverside (not cost).
-            </p>
+            {/* Decorative background circle */}
+            <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-accent-2/5 blur-3xl transition-all group-hover:bg-app-accent-2/10" />
           </button>
 
           <button
@@ -334,24 +340,27 @@ export default function UniversalImporter() {
               setMode("manual");
               setStep("upload");
             }}
-            className="group rounded-[2.5rem] border-2 border-app-border bg-app-surface p-10 text-left shadow-xl transition-all hover:border-app-text"
+            className="group relative overflow-hidden rounded-[3rem] border border-app-border/40 bg-app-surface/20 p-12 text-left shadow-2xl transition-all hover:border-app-text/40 hover:bg-app-surface/40 backdrop-blur-md"
           >
-            <div className="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-app-surface-2 text-app-text-muted transition-colors group-hover:bg-app-text group-hover:text-white">
-              <Table size={28} />
+            <div className="relative z-10">
+              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-app-surface shadow-inner text-app-text-muted transition-all group-hover:scale-110 group-hover:bg-app-text group-hover:text-white group-hover:shadow-lg group-hover:shadow-black/20">
+                <Table size={32} />
+              </div>
+              <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-app-text">
+                Universal Mapper
+              </h3>
+              <p className="text-sm leading-relaxed text-app-text-muted opacity-80">
+                Manual field binding for custom vendor manifests. Supports full schema mapping and category overrides.
+              </p>
             </div>
-            <h3 className="mb-2 text-2xl font-black uppercase italic tracking-tight text-app-text">
-              Universal Mapper
-            </h3>
-            <p className="text-sm leading-relaxed text-app-text-muted">
-              Map any vendor CSV columns to Riverside identity, SKU, pricing,
-              and cost.
-            </p>
+             {/* Decorative background circle */}
+             <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-text/5 blur-3xl transition-all group-hover:bg-app-text/10" />
           </button>
         </div>
       )}
 
       {step === "upload" && (
-        <div className="animate-in fade-in duration-300">
+        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
           <button
             type="button"
             onClick={() => {
@@ -360,263 +369,262 @@ export default function UniversalImporter() {
               setHeaders([]);
               setRows([]);
             }}
-            className="mb-4 text-xs font-bold uppercase tracking-widest text-app-text-muted hover:text-app-accent-2"
+            className="mb-6 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-accent transition-colors"
           >
-            ← Back
+            <ArrowRight size={14} className="rotate-180" /> Back to engine select
           </button>
-          <div className="group relative flex flex-col items-center justify-center rounded-[3rem] border-4 border-dashed border-app-border bg-app-surface p-16 transition-all hover:border-app-accent-2 lg:p-20">
+          <div className="group relative flex flex-col items-center justify-center rounded-[4rem] border-4 border-dashed border-app-border/40 bg-app-surface/20 p-20 transition-all hover:border-app-accent-2/60 hover:bg-app-accent-2/5 backdrop-blur-md">
             <input
               type="file"
               accept=".csv,text/csv"
               className="absolute inset-0 cursor-pointer opacity-0"
               onChange={handleFile}
             />
-            <FileSpreadsheet className="mb-6 text-app-border transition-colors group-hover:text-app-accent-2" size={64} />
-            <h2 className="text-2xl font-black uppercase text-app-text">
-              Upload {mode === "lightspeed" ? "Lightspeed" : "Vendor"} CSV
+            <div className="mb-8 flex h-24 w-24 items-center justify-center rounded-[32px] bg-app-surface shadow-xl border border-app-border transition-all group-hover:scale-110 group-hover:border-app-accent-2/40">
+              <FileSpreadsheet className="text-app-text-muted group-hover:text-app-accent-2 transition-colors" size={48} />
+            </div>
+            <h2 className="text-3xl font-black uppercase italic tracking-tighter text-app-text">
+              Target Manifest
             </h2>
-            <p className="mt-2 font-medium tracking-tight text-app-text-muted">
+            <p className="mt-3 text-sm font-bold tracking-tight text-app-text-muted">
               {rows.length > 0
-                ? `${rows.length} data rows · ${headers.length} columns detected`
-                : "Drop or tap to choose a file"}
+                ? `${rows.length.toLocaleString()} rows detected · Ready for logic mapping`
+                : `Choose the ${mode === "lightspeed" ? "X-Series" : "Vendor"} source file`}
             </p>
           </div>
         </div>
       )}
 
       {step === "map" && mode === "manual" && (
-        <div className="grid animate-in fade-in gap-8 duration-300 lg:grid-cols-2">
-          <button
-            type="button"
-            onClick={() => setStep("upload")}
-            className="col-span-full text-left text-xs font-bold uppercase tracking-widest text-app-text-muted hover:text-app-accent-2"
-          >
-            ← Back to upload
-          </button>
-          <div className="space-y-4">
-            <h3 className="mb-6 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Field mapping worksheet
-            </h3>
-            {MAPPING_FIELDS.map((field) => (
-              <div
-                key={field}
-                className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm"
-              >
-                <label className="mb-2 block text-xs font-black uppercase tracking-tight text-app-text">
-                  {field.replace(/_/g, " ")}
-                  {OPTIONAL_MAPPING_FIELDS.includes(
-                    field as (typeof OPTIONAL_MAPPING_FIELDS)[number],
-                  ) ? (
-                    <span className="ml-1 text-app-text-muted">(optional)</span>
-                  ) : null}
+        <div className="grid animate-in fade-in gap-8 duration-500 lg:grid-cols-2">
+           <button
+             type="button"
+             onClick={() => setStep("upload")}
+             className="col-span-full flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-accent-2 transition-colors"
+           >
+             <ArrowRight size={14} className="rotate-180" /> Back to Upload
+           </button>
+          
+           <DashboardGridCard 
+             title="Attribute Mapping"
+             subtitle="Bind CSV headers to Riverside logic"
+             icon={Table}
+           >
+            <div className="space-y-4">
+              {MAPPING_FIELDS.map((field) => (
+                <div
+                  key={field}
+                  className="rounded-2xl border border-app-border bg-app-surface/40 p-5 shadow-inner"
+                >
+                  <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text opacity-60">
+                    {field.replace(/_/g, " ")}
+                    {OPTIONAL_MAPPING_FIELDS.includes(
+                      field as (typeof OPTIONAL_MAPPING_FIELDS)[number],
+                    ) ? (
+                      <span className="ml-2 lowercase opacity-40 font-bold">(optional)</span>
+                    ) : null}
+                  </label>
+                  <select
+                    value={mapping[field] ?? ""}
+                    onChange={(e) =>
+                      setMapping((prev) => ({ ...prev, [field]: e.target.value }))
+                    }
+                    className="w-full h-11 rounded-xl border border-app-border bg-app-surface-2 px-4 text-xs font-black text-app-accent-2 outline-none focus:ring-2 focus:ring-app-accent-2/20 transition-all appearance-none cursor-pointer"
+                  >
+                    <option value="">— Select CSV column —</option>
+                    {headers.map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+              
+              <div className="rounded-2xl border border-dotted border-app-border bg-app-surface/20 p-6">
+                <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text opacity-60">
+                  Global Taxonomy Fallback
                 </label>
                 <select
-                  value={mapping[field] ?? ""}
-                  onChange={(e) =>
-                    setMapping((prev) => ({ ...prev, [field]: e.target.value }))
-                  }
-                  className="w-full rounded-lg border border-app-border bg-app-surface-2 p-2 text-xs font-bold text-app-accent-2 outline-none focus:ring-2 focus:ring-app-accent-2"
+                  value={categoryId}
+                  onChange={(e) => setCategoryId(e.target.value)}
+                  className="w-full h-11 rounded-xl border border-app-border bg-app-surface-2 px-4 text-xs font-black text-app-text outline-none focus:ring-2 focus:ring-app-accent-2/20 transition-all"
                 >
-                  <option value="">— Select CSV column —</option>
-                  {headers.map((h) => (
-                    <option key={h} value={h}>
-                      {h}
+                  <option value="">— None (mapped column required) —</option>
+                  {categories.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name}
                     </option>
                   ))}
                 </select>
               </div>
-            ))}
-            <div className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm">
-              <label className="mb-2 block text-xs font-black uppercase tracking-tight text-app-text">
-                Fallback Riverside category
-              </label>
-              <p className="mb-2 text-[11px] leading-relaxed text-app-text-muted">
-                Required if you do not map a CSV <strong>category</strong> column. Otherwise optional (used when a cell is empty or does not match a Riverside category name).
-              </p>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="w-full rounded-lg border border-app-border bg-app-surface-2 p-2 text-xs font-bold text-app-text outline-none focus:ring-2 focus:ring-app-accent-2"
-              >
-                <option value="">— None (category column only) —</option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button
-              type="button"
-              disabled={!mappingReady}
-              onClick={() => setStep("review")}
-              className="mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-app-accent py-4 text-xs font-black uppercase tracking-widest text-white disabled:opacity-40"
-            >
-              Proceed to review <ArrowRight size={16} />
-            </button>
-          </div>
 
-          <div className="flex flex-col justify-center rounded-[2.5rem] border border-app-border bg-app-surface-2 p-10">
-            <div className="mb-4 flex items-center gap-2 font-black uppercase tracking-widest text-app-accent-2 text-[10px]">
-              <ShieldCheck size={16} /> Mapping intelligence
+              <button
+                type="button"
+                disabled={!mappingReady}
+                onClick={() => setStep("review")}
+                className="mt-6 flex w-full h-14 items-center justify-center gap-3 rounded-2xl bg-app-accent text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
+              >
+                Proceed to reconciliation <ArrowRight size={16} />
+              </button>
             </div>
-            <p className="text-sm leading-relaxed text-app-text-muted">
-              Map <strong className="text-app-text">product identity</strong>{" "}
-              to the column that groups variants (Lightspeed{" "}
-              <strong className="text-app-text">handle</strong>, or a style
-              number). Map <strong className="text-app-text">category</strong>{" "}
-              to match each row to a Riverside category by name, or use fallback
-              only. SKUs become variants; category drives NYS clothing exemption
-              at POS.
-            </p>
+           </DashboardGridCard>
+
+          <div className="space-y-8">
+            <div className="flex flex-col justify-center rounded-[3rem] border border-app-border/40 bg-app-bg/20 p-10 backdrop-blur-md">
+              <div className="mb-6 flex items-center gap-3 font-black uppercase tracking-[0.3em] text-app-accent-2 text-[10px]">
+                <ShieldCheck size={20} /> Logic engine hint
+              </div>
+              <div className="space-y-6 text-sm leading-relaxed text-app-text-muted">
+                <p>
+                  Map <strong className="text-app-text font-black">product identity</strong>{" "}
+                  to the column that groups variants (Lightspeed{" "}
+                  <strong className="text-app-text font-black">handle</strong>, or a style
+                  number). 
+                </p>
+                <p>
+                  The <strong className="text-app-text font-black">category</strong> binding
+                  drives tax-exempt logic and POS organization. If the source file lacks a category column, 
+                  the global fallback will be applied to all imported entities.
+                </p>
+                <div className="p-5 rounded-2xl bg-amber-500/5 border border-amber-500/20">
+                  <p className="text-[11px] font-bold text-amber-700">
+                    SKUs are treated as unique variant identifiers. Duplicate SKUs in the source file will cause synchronization conflicts.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {step === "review" && (
-        <div className="animate-in zoom-in rounded-[2rem] bg-app-text p-8 text-white shadow-2xl duration-300 lg:rounded-[3rem] lg:p-12">
+        <div className="animate-in zoom-in group relative overflow-hidden rounded-[3rem] bg-app-text p-12 text-white shadow-[0_40px_100px_rgba(0,0,0,0.4)] transition-all duration-700">
+           {/* Background glow */}
+           <div className="absolute -top-40 -left-40 h-[600px] w-[600px] rounded-full bg-app-accent/10 blur-[120px] pointer-events-none" />
+          
           <button
             type="button"
             onClick={() =>
               setStep(mode === "lightspeed" ? "upload" : "map")
             }
-            className="mb-6 text-left text-[10px] font-bold uppercase tracking-widest text-app-text-muted hover:text-white"
+            className="relative z-10 mb-10 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-white transition-colors"
           >
-            ← Back
+            <ArrowRight size={14} className="rotate-180" /> Back to logic
           </button>
 
-          <div className="mb-10 flex flex-wrap items-start justify-between gap-4">
+          <div className="relative z-10 mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
-              <h2 className="text-3xl font-black uppercase italic tracking-tighter">
-                Review import
+              <h2 className="text-4xl font-black uppercase italic tracking-tighter leading-none mb-2">
+                Commit <span className="text-app-accent-2">Reconciliation</span>
               </h2>
-              <p className="font-medium text-app-text-muted">
-                {rows.length} rows · {headers.length} columns ·{" "}
-                {mode === "lightspeed" ? "Lightspeed preset" : "Manual map"}
+              <p className="font-bold text-app-text-muted tracking-wide">
+                {rows.length.toLocaleString()} rows detected · {mode === "lightspeed" ? "Lightspeed Axis Sync" : "Manual Schema Map"}
               </p>
             </div>
-            <div className="flex items-center gap-2 rounded-xl border border-emerald-500/50 bg-emerald-500/20 px-4 py-2 font-black uppercase tracking-widest text-emerald-400 text-[10px]">
-              <CheckCircle2 size={14} /> Idempotent SKU sync
+            <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/5 px-6 py-3 font-black uppercase tracking-widest text-emerald-400 text-[9px] backdrop-blur-md">
+              <CheckCircle2 size={16} /> Idempotent Transactional Sync
             </div>
           </div>
 
           {error && (
-            <div className="mb-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            <div className="relative z-10 mb-8 rounded-[2rem] border border-red-500/30 bg-red-500/10 p-10 text-sm text-red-200 backdrop-blur-md">
+               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-red-400 mb-2">Synchronization Failure</p>
               {error}
             </div>
           )}
 
           {runState === "success" && summary ? (
-            <div className="mb-6 rounded-2xl border border-emerald-400/50 bg-emerald-500/15 px-4 py-3">
-              <p className="text-sm font-black uppercase tracking-widest text-emerald-200">
-                Import complete
+            <div className="relative z-10 mb-8 rounded-[2rem] border border-emerald-500/30 bg-emerald-500/10 p-10 backdrop-blur-md">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-400 mb-2">
+                Transmission Success
               </p>
-              <p className="mt-1 text-xs text-emerald-100">
-                Finished successfully{completedAt ? ` at ${completedAt}` : ""}. Catalog is updated and ready.
+              <p className="text-lg font-black tracking-tight">
+                Catalog data successfully synchronized{completedAt ? ` at ${completedAt}` : ""}.
               </p>
             </div>
           ) : null}
 
           {summary && (
-            <div className="mb-6 grid gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 sm:grid-cols-2">
-              <p className="text-sm">
-                <span className="font-bold text-app-text-muted">Products created </span>
-                <span className="font-black text-emerald-400">{summary.products_created}</span>
-              </p>
-              <p className="text-sm">
-                <span className="font-bold text-app-text-muted">Products updated </span>
-                <span className="font-black text-app-accent-2">{summary.products_updated}</span>
-              </p>
-              <p className="text-sm">
-                <span className="font-bold text-app-text-muted">Variants synced </span>
-                <span className="font-black text-white">{summary.variants_synced}</span>
-              </p>
-              <p className="text-sm">
-                <span className="font-bold text-app-text-muted">Rows skipped </span>
-                <span className="font-black text-amber-300">{summary.rows_skipped}</span>
-              </p>
+            <div className="relative z-10 mb-12 grid gap-4 sm:grid-cols-4">
+              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Created</p>
+                <p className="text-3xl font-black text-emerald-400">{summary.products_created}</p>
+              </div>
+              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Updated</p>
+                <p className="text-3xl font-black text-app-accent-2">{summary.products_updated}</p>
+              </div>
+              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Variants</p>
+                <p className="text-3xl font-black">{summary.variants_synced}</p>
+              </div>
+              <div className="p-6 rounded-[2rem] bg-white/5 border border-white/5 backdrop-blur-md">
+                <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-2">Skipped</p>
+                <p className="text-3xl font-black text-amber-400">{summary.rows_skipped}</p>
+              </div>
             </div>
           )}
 
-          <div className="mb-10 grid gap-6 lg:grid-cols-2">
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <p className="mb-1 font-bold uppercase tracking-widest text-app-text-muted text-[10px]">
-                Mapping
-              </p>
-              {mode === "lightspeed" ? (
-                <p className="mt-2 text-sm font-semibold text-emerald-200">
-                  Fixed Lightspeed mapping is active.
-                </p>
-              ) : null}
-              <ul className="mt-2 space-y-1 font-mono text-[11px] text-app-accent-2">
-                {Object.entries(mapping).map(([k, v]) => (
-                  <li key={k}>
-                    {k}: {v}
-                  </li>
-                ))}
-              </ul>
-              {!mapping.stock_on_hand ? (
-                <p className="mt-3 text-[11px] font-semibold text-amber-300">
-                  Warning: stock column not detected. Map `stock_on_hand` manually if present.
-                </p>
-              ) : null}
-              {!mapping.supplier ? (
-                <p className="mt-3 text-[11px] font-semibold text-amber-300">
-                  Warning: supplier column not detected. Map `supplier` to set primary vendor, or add it on the manual map.
-                </p>
-              ) : null}
-              {!mapping.supplier_code ? (
-                <p className="mt-3 text-[11px] font-semibold text-amber-300">
-                  Optional: map `supplier_code` to store Lightspeed supplier code on the vendor record.
-                </p>
-              ) : null}
-              {!categoryColumnMapped && !hasCategoryFallback ? (
-                <p className="mt-3 text-[11px] font-semibold text-red-300">
-                  Map a category CSV column or choose a fallback category before committing.
-                </p>
-              ) : null}
+          <div className="relative z-10 mb-12 grid gap-12 lg:grid-cols-2">
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                 <div className="w-1.5 h-6 rounded-full bg-app-accent-2 shadow-[0_0_12px_rgba(var(--app-accent-2),0.5)]" />
+                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Logic Map Registry</h3>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                 {Object.entries(mapping).map(([k, v]) => (
+                   <div key={k} className="flex flex-col p-4 rounded-xl bg-white/5 border border-white/5">
+                      <span className="text-[8px] font-black uppercase tracking-widest opacity-40 mb-1">{k}</span>
+                      <span className="text-[11px] font-bold text-app-accent-2 truncate">{v || "—"}</span>
+                   </div>
+                 ))}
+              </div>
             </div>
-            <div className="rounded-2xl border border-white/10 bg-white/5 p-6">
-              <p className="mb-1 font-bold uppercase tracking-widest text-app-text-muted text-[10px]">
-                Fallback category (optional)
-              </p>
-              <p className="mb-2 text-[11px] text-app-text-muted">
-                Used for empty cells or when the CSV name does not match a Riverside category.
-              </p>
-              <select
-                value={categoryId}
-                onChange={(e) => setCategoryId(e.target.value)}
-                className="mt-2 w-full bg-transparent text-sm font-black text-white outline-none"
-              >
-                <option value="" className="text-app-text">
-                  None
-                </option>
-                {categories.map((c) => (
-                  <option key={c.id} value={c.id} className="text-app-text">
-                    {c.name}
-                  </option>
-                ))}
-              </select>
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                 <div className="w-1.5 h-6 rounded-full bg-app-accent shadow-[0_0_12px_rgba(var(--app-accent),0.5)]" />
+                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Ingestion Parameters</h3>
+              </div>
+              <div className="space-y-4">
+                <div className="p-6 rounded-2xl bg-white/5 border border-white/5">
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-3">Global Taxonomy Fallback</p>
+                  <select
+                    value={categoryId}
+                    onChange={(e) => setCategoryId(e.target.value)}
+                    className="w-full bg-transparent text-sm font-black text-white outline-none cursor-pointer"
+                  >
+                    <option value="" className="text-app-text">Auto-detect from column</option>
+                    {categories.map((c) => (
+                      <option key={c.id} value={c.id} className="text-app-text">{c.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {rows.length >= 2000 && (
+                  <div className="p-6 rounded-2xl bg-amber-500/10 border border-amber-500/20">
+                     <p className="text-[10px] font-bold text-amber-300 leading-relaxed italic">
+                       High-volume ingestion active. Database transaction may persist for several cycles. Do not close this terminal.
+                     </p>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
-          {rows.length >= 2000 ? (
-            <p className="mb-3 text-center text-[11px] font-semibold text-amber-200/90">
-              Large file: import runs as one database transaction and can take several minutes. The
-              API terminal logs start and finish for this request when the server receives it.
-            </p>
-          ) : null}
           <button
             type="button"
             disabled={loading || !mappingReady || rows.length === 0}
             onClick={() => void runImport()}
-            className="w-full rounded-[1.5rem] bg-app-accent py-6 text-lg font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/30 transition-all hover:opacity-90 active:scale-[0.99] disabled:opacity-40"
+            className="relative z-10 w-full h-20 rounded-[2rem] bg-app-accent text-xl font-black uppercase tracking-[0.3em] overflow-hidden shadow-2xl shadow-app-accent/40 transition-all hover:scale-[1.02] active:scale-[0.98] disabled:opacity-40"
           >
-            {loading
-              ? `Syncing… (${rows.length.toLocaleString()} rows)`
-              : runState === "success"
+            <div className="relative z-10 flex items-center justify-center gap-4">
+              {loading && <Loader2 className="animate-spin" size={24} />}
+              {loading
+                ? `Syncing Catalog…`
+                : runState === "success"
                 ? "Import complete"
                 : "Commit inventory to catalog"}
+            </div>
           </button>
         </div>
       )}

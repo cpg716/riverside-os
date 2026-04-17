@@ -47,6 +47,7 @@ Riverside OS hides **entire tabs** or **subsections** when your role does not in
 | **Hub** — **Measurements** tab | **customers.measurements** |
 | **Customers → RMS charge** (R2S ledger report) | **customers.rms_charge** |
 | **Hub** — **Orders** tab (history) | **orders.view** |
+| **Staff → Team** (+ Add Staff / link profile) | **staff.edit** |
 | **Pick which register to attach to** when several are open; **list open registers** for satellite link | **register.session_attach** (see **[Till group / lanes](../TILL_GROUP_AND_REGISTER_OPEN.md)** and **[STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)**) |
 
 **Admin role:** In software, **admin** is treated as having the **full permission catalog** so a mis-seeded role row cannot lock out the store.
@@ -64,8 +65,17 @@ Managers edit **individual permission keys** on **Staff → Team → Edit staff 
 
 ## Till session vs Back Office only
 
-- **Back Office sign-in** (four-digit code + optional PIN) gates most tabs.
+- **Back Office sign-in** (Staff select + 4-digit PIN) gates most tabs.
 - An **open till** (register session) is still required for **checkout** and some **session-tied** reads even if you are signed into Back Office. Enter **POS** from the sidebar, then open or join a lane per SOP.
+
+## Manager Overrides (PIN Bypass)
+
+Riverside OS uses **Role-Based Authorization** to reduce friction for administrators while maintaining security for other staff.
+
+1. **Role Bypass**: If you are signed in with an **Admin** role, the system recognizes your authority. You will automatically bypass manual PIN prompts for sensitive actions like **Void All**, **Large Discounts**, or **Commission Correction**.
+2. **One-Time Authorization**: For non-admins, these actions trigger the **Manager Approval Modal**. Any manager or admin can step in, select their identity from the dropdown, and enter their PIN to authorize that specific action. 
+3. **Implicit Auditing**: Every authorization is recorded in the **Staff Access Log** with a timestamp, the identifying manager, the specific action taken (e.g., `pos_price_override`), and context like the cart subtotal or discount percentage. 
+4. **No Session Change**: Providing an approval PIN does **not** sign the manager in; it only authorizes the single requested action for the active cashier.
 
 ## Common issues and fixes
 

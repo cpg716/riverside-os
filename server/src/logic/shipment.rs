@@ -44,7 +44,7 @@ pub struct ShipmentListRow {
     pub id: Uuid,
     pub source: String,
     pub status: String,
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub customer_id: Option<Uuid>,
     pub customer_first_name: Option<String>,
     pub customer_last_name: Option<String>,
@@ -73,7 +73,7 @@ pub struct ShipmentDetailRow {
     pub id: Uuid,
     pub source: DbShipmentSource,
     pub status: DbShipmentStatus,
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub customer_id: Option<Uuid>,
     pub created_by_staff_id: Option<Uuid>,
     pub ship_to: Json<Value>,
@@ -127,7 +127,7 @@ pub async fn append_event_tx(
 /// Called inside checkout transaction after the order row exists.
 pub async fn insert_from_pos_order_tx(
     tx: &mut Transaction<'_, Postgres>,
-    order_id: Uuid,
+    transaction_id: Uuid,
     customer_id: Option<Uuid>,
     operator_staff_id: Uuid,
     ship_to: Value,
@@ -142,7 +142,7 @@ pub async fn insert_from_pos_order_tx(
     let sid: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO shipment (
-            source, order_id, customer_id, created_by_staff_id,
+            source, transaction_id, customer_id, created_by_staff_id,
             status, ship_to, quoted_amount_usd, shipping_charged_usd,
             shippo_rate_object_id
         )
@@ -151,7 +151,7 @@ pub async fn insert_from_pos_order_tx(
         "#,
     )
     .bind(DbShipmentSource::PosOrder)
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(customer_id)
     .bind(operator_staff_id)
     .bind(status)
@@ -168,7 +168,7 @@ pub async fn insert_from_pos_order_tx(
         "checkout",
         "Shipment registered from POS checkout (shipping on order).",
         json!({
-            "order_id": order_id.to_string(),
+            "transaction_id": transaction_id.to_string(),
             "source": "pos_order"
         }),
         Some(operator_staff_id),
@@ -190,7 +190,7 @@ pub async fn list_shipments(
             s.id,
             s.source::text AS source,
             s.status::text AS status,
-            s.order_id,
+            s.transaction_id,
             s.customer_id,
             c.first_name AS customer_first_name,
             c.last_name AS customer_last_name,
@@ -255,7 +255,7 @@ pub async fn get_shipment_detail(
             s.id,
             s.source,
             s.status,
-            s.order_id,
+            s.transaction_id,
             s.customer_id,
             s.created_by_staff_id,
             s.ship_to,
@@ -521,10 +521,10 @@ pub async fn purchase_shipment_label(
     .execute(&mut *tx)
     .await?;
 
-    if let Some(oid) = row.order_id {
+    if let Some(oid) = row.transaction_id {
         sqlx::query(
             r#"
-            UPDATE orders SET
+            UPDATE transactions SET
                 shippo_shipment_object_id = COALESCE($2, shippo_shipment_object_id),
                 shippo_transaction_object_id = $3,
                 tracking_number = COALESCE($4, tracking_number),

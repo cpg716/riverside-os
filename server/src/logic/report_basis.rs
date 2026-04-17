@@ -32,7 +32,7 @@ pub const ORDER_RECOGNITION_TS_SQL: &str = r#"(CASE
         SELECT MIN(se.at)
         FROM shipment s
         INNER JOIN shipment_event se ON se.shipment_id = s.id
-        WHERE s.order_id = o.id
+        WHERE s.transaction_id = o.id
           AND COALESCE(s.status::text, '') <> 'cancelled'
           AND (
               se.kind = 'label_purchased'

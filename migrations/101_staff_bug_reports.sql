@@ -1,6 +1,6 @@
 -- Staff-submitted bug reports (screenshot + client logs + triage in Settings).
 
-CREATE TYPE bug_report_status AS ENUM ('pending', 'complete');
+DO $$ BEGIN CREATE TYPE bug_report_status AS ENUM ('pending', 'complete'); EXCEPTION WHEN duplicate_object THEN null; END $$;
 
 CREATE TABLE staff_bug_report (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

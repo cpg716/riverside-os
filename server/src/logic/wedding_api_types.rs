@@ -52,6 +52,8 @@ pub struct WeddingPartyRow {
     pub bride_phone_clean: Option<String>,
     pub is_deleted: Option<bool>,
     pub suit_variant_id: Option<Uuid>,
+    /// Whether the suit_variant_id references a valid ROS product
+    pub suit_inventory_verified: Option<bool>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -65,7 +67,7 @@ pub struct WeddingMemberApi {
     pub customer_phone: Option<String>,
     pub role: String,
     pub status: String,
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub notes: Option<String>,
     pub member_index: Option<i32>,
     pub oot: Option<bool>,
@@ -96,6 +98,11 @@ pub struct WeddingMemberApi {
     pub stock_info: serde_json::Value,
     pub suit_variant_id: Option<Uuid>,
     pub is_free_suit_promo: bool,
+    /// Whether this member has a verified ROS customer link
+    pub customer_verified: bool,
+    /// Original customer data from import (before verification)
+    pub import_customer_name: Option<String>,
+    pub import_customer_phone: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -149,7 +156,7 @@ pub struct ActionRow {
     pub role: String,
     pub status: String,
     pub event_date: NaiveDate,
-    /// Sum of `orders.balance_due` for all members of this party (operational signal on dashboard).
+    /// Sum of `transactions.balance_due` for all members of this party (operational signal on dashboard).
     pub party_balance_due: Decimal,
 }
 
@@ -162,21 +169,21 @@ pub struct WeddingActions {
 #[derive(Debug, Serialize, FromRow)]
 pub struct WeddingLedgerSummary {
     pub wedding_party_id: Uuid,
-    pub total_order_value: Decimal,
+    pub total_transaction_value: Decimal,
     pub total_paid: Decimal,
     pub balance_due: Decimal,
 }
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct WeddingLedgerLine {
-    pub order_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub payment_tx_id: Option<Uuid>,
     pub customer_name: String,
     pub wedding_member_id: Uuid,
     pub kind: String,
     pub amount: Decimal,
     pub created_at: DateTime<Utc>,
-    /// For `kind = order`: `takeaway`, `wedding_order`, `special_order`, `mixed`, or null when the order has no lines.
+    /// For `kind = transaction`: `takeaway`, `wedding_order`, `special_order`, `mixed`, or null when the transaction has no lines.
     pub fulfillment_profile: Option<String>,
 }
 
@@ -190,9 +197,9 @@ pub struct WeddingLedgerResponse {
 pub struct WeddingMemberFinancialRow {
     pub wedding_member_id: Uuid,
     pub customer_name: String,
-    pub order_count: i64,
+    pub transaction_count: i64,
     pub payment_count: i64,
-    pub order_total: Decimal,
+    pub transaction_total: Decimal,
     pub paid_total: Decimal,
     pub balance_due: Decimal,
     pub is_free_suit_promo: bool,

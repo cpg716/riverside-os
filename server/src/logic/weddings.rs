@@ -40,7 +40,7 @@ pub struct MorningCompassBundle {
 
 #[derive(Debug, Clone, Serialize, sqlx::FromRow)]
 pub struct RushOrderActionRow {
-    pub order_id: Uuid,
+    pub transaction_id: Uuid,
     pub customer_name: String,
     pub total_price: String,
     pub booked_at: chrono::DateTime<chrono::Utc>,
@@ -73,7 +73,7 @@ pub async fn get_morning_compass_stats(pool: &PgPool) -> Result<CompassStats, sq
             ) AS rush_orders
         FROM wedding_members wm
         JOIN wedding_parties wp ON wm.wedding_party_id = wp.id
-        FULL OUTER JOIN orders o ON o.customer_id = wp.id -- Just for the count, though orders can be standalone
+        FULL OUTER JOIN transactions o ON o.customer_id = wp.id -- Just for the count, though orders can be standalone
         "#,
     )
     .fetch_one(pool)
@@ -156,13 +156,13 @@ async fn list_rush_orders(pool: &PgPool) -> Result<Vec<RushOrderActionRow>, sqlx
     sqlx::query_as::<_, RushOrderActionRow>(
         r#"
         SELECT 
-            o.id AS order_id,
+            o.id AS transaction_id,
             COALESCE(NULLIF(TRIM(COALESCE(c.first_name, '') || ' ' || COALESCE(c.last_name, '')), ''), 'Customer') AS customer_name,
             total_price::text AS total_price,
             booked_at,
             need_by_date,
             is_rush
-        FROM orders o
+        FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
         WHERE (o.is_rush = TRUE OR (o.need_by_date IS NOT NULL AND o.need_by_date <= (CURRENT_DATE + INTERVAL '3 days')))
           AND o.status <> 'fulfilled'

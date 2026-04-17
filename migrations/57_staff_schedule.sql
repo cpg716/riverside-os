@@ -1,14 +1,16 @@
 -- Staff weekly availability + day exceptions (sick/PTO/etc.) for salesperson & sales_support.
 -- Drives task materialization skips, appointment booking checks, and absence workflows.
 
-CREATE TYPE staff_schedule_exception_kind AS ENUM (
-    'sick',
-    'pto',
-    'missed_shift',
-    'extra_shift'
-);
+DO $$ BEGIN
+    CREATE TYPE staff_schedule_exception_kind AS ENUM (
+        'sick',
+        'pto',
+        'missed_shift',
+        'extra_shift'
+    );
+EXCEPTION WHEN duplicate_object THEN null; END $$;
 
-CREATE TABLE staff_weekly_availability (
+CREATE TABLE IF NOT EXISTS staff_weekly_availability (
     staff_id UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
     weekday SMALLINT NOT NULL CHECK (weekday >= 0 AND weekday <= 6),
     works BOOLEAN NOT NULL,

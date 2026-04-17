@@ -47,13 +47,13 @@ pub fn points_for_subtotal(subtotal: Decimal) -> i32 {
 /// the accrual has already been recorded.
 pub async fn try_accrue_for_order(
     pool: &PgPool,
-    order_id: Uuid,
+    transaction_id: Uuid,
 ) -> Result<Option<LoyaltyAccrualOutcome>, sqlx::Error> {
     // Idempotency guard — if already accrued for this order, skip.
     let already: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM order_loyalty_accrual WHERE order_id = $1)",
+        "SELECT EXISTS(SELECT 1 FROM order_loyalty_accrual WHERE transaction_id = $1)",
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_one(pool)
     .await?;
 
@@ -63,8 +63,8 @@ pub async fn try_accrue_for_order(
 
     // Fetch order status and customer.
     let row: Option<(String, Option<Uuid>)> =
-        sqlx::query_as("SELECT status::text, customer_id FROM orders WHERE id = $1")
-            .bind(order_id)
+        sqlx::query_as("SELECT status::text, customer_id FROM transactions WHERE id = $1")
+            .bind(transaction_id)
             .fetch_optional(pool)
             .await?;
 
@@ -80,13 +80,13 @@ pub async fn try_accrue_for_order(
     let pending_non_takeaway: i64 = sqlx::query_scalar(
         r#"
         SELECT COUNT(*)::bigint
-        FROM order_items
-        WHERE order_id = $1
+        FROM transaction_lines
+        WHERE transaction_id = $1
           AND fulfillment::text <> 'takeaway'
           AND is_fulfilled = FALSE
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_one(pool)
     .await?;
 
@@ -104,19 +104,19 @@ pub async fn try_accrue_for_order(
             ),
             0
         )::numeric(14,2)
-        FROM order_items oi
+        FROM transaction_lines oi
         LEFT JOIN (
-            SELECT order_item_id, SUM(quantity_returned)::int AS returned
-            FROM order_return_lines
-            GROUP BY order_item_id
-        ) orl ON orl.order_item_id = oi.id
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
         INNER JOIN products p ON p.id = oi.product_id
-        WHERE oi.order_id = $1
+        WHERE oi.transaction_id = $1
           AND p.tax_category != 'service'::tax_category
           AND p.excludes_from_loyalty = FALSE
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_one(pool)
     .await?;
 
@@ -133,9 +133,9 @@ pub async fn try_accrue_for_order(
 
     // Double-check inside the transaction (race guard).
     let already2: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM order_loyalty_accrual WHERE order_id = $1)",
+        "SELECT EXISTS(SELECT 1 FROM order_loyalty_accrual WHERE transaction_id = $1)",
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -165,7 +165,7 @@ pub async fn try_accrue_for_order(
     sqlx::query(
         r#"
         INSERT INTO loyalty_point_ledger
-            (customer_id, delta_points, balance_after, reason, order_id, metadata)
+            (customer_id, delta_points, balance_after, reason, transaction_id, metadata)
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
@@ -173,18 +173,18 @@ pub async fn try_accrue_for_order(
     .bind(points)
     .bind(balance_after)
     .bind("order_earn")
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(json!({ "product_subtotal": subtotal, "original_customer_id": customer_id }))
     .execute(&mut *tx)
     .await?;
 
     sqlx::query(
         r#"
-        INSERT INTO order_loyalty_accrual (order_id, points_earned, product_subtotal)
+        INSERT INTO order_loyalty_accrual (transaction_id, points_earned, product_subtotal)
         VALUES ($1, $2, $3)
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(points)
     .bind(subtotal)
     .execute(&mut *tx)
@@ -202,17 +202,17 @@ pub async fn try_accrue_for_order(
 /// Full clawback when all payments are refunded (or order cancelled after accrual). Idempotent.
 pub async fn reverse_order_accrual_in_tx(
     tx: &mut Transaction<'_, Postgres>,
-    order_id: Uuid,
+    transaction_id: Uuid,
 ) -> Result<(), sqlx::Error> {
     let row: Option<(Uuid, i32)> = sqlx::query_as(
         r#"
-        SELECT ola.order_id, ola.points_earned
+        SELECT ola.transaction_id, ola.points_earned
         FROM order_loyalty_accrual ola
-        WHERE ola.order_id = $1
+        WHERE ola.transaction_id = $1
         FOR UPDATE
         "#,
     )
-    .bind(order_id)
+    .bind(transaction_id)
     .fetch_optional(&mut **tx)
     .await?;
 
@@ -221,23 +221,23 @@ pub async fn reverse_order_accrual_in_tx(
     };
 
     let customer_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT customer_id FROM orders WHERE id = $1 FOR UPDATE")
-            .bind(order_id)
+        sqlx::query_scalar("SELECT customer_id FROM transactions WHERE id = $1 FOR UPDATE")
+            .bind(transaction_id)
             .fetch_optional(&mut **tx)
             .await?
             .flatten();
 
     let Some(customer_id) = customer_id else {
-        sqlx::query("DELETE FROM order_loyalty_accrual WHERE order_id = $1")
-            .bind(order_id)
+        sqlx::query("DELETE FROM order_loyalty_accrual WHERE transaction_id = $1")
+            .bind(transaction_id)
             .execute(&mut **tx)
             .await?;
         return Ok(());
     };
 
     if points_earned <= 0 {
-        sqlx::query("DELETE FROM order_loyalty_accrual WHERE order_id = $1")
-            .bind(order_id)
+        sqlx::query("DELETE FROM order_loyalty_accrual WHERE transaction_id = $1")
+            .bind(transaction_id)
             .execute(&mut **tx)
             .await?;
         return Ok(());
@@ -262,19 +262,19 @@ pub async fn reverse_order_accrual_in_tx(
     sqlx::query(
         r#"
         INSERT INTO loyalty_point_ledger
-            (customer_id, delta_points, balance_after, reason, order_id, metadata)
+            (customer_id, delta_points, balance_after, reason, transaction_id, metadata)
         VALUES ($1, $2, $3, 'order_refund_clawback', $4, '{}'::jsonb)
         "#,
     )
     .bind(effective_id)
     .bind(-points_earned)
     .bind(balance_after)
-    .bind(order_id)
+    .bind(transaction_id)
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query("DELETE FROM order_loyalty_accrual WHERE order_id = $1")
-        .bind(order_id)
+    sqlx::query("DELETE FROM order_loyalty_accrual WHERE transaction_id = $1")
+        .bind(transaction_id)
         .execute(&mut **tx)
         .await?;
 
@@ -284,7 +284,7 @@ pub async fn reverse_order_accrual_in_tx(
 /// Partial clawback when merchandise subtotal is returned (tax excluded, matches earn basis).
 pub async fn clawback_points_for_returned_subtotal_in_tx(
     tx: &mut Transaction<'_, Postgres>,
-    order_id: Uuid,
+    transaction_id: Uuid,
     customer_id: Uuid,
     returned_subtotal: Decimal,
 ) -> Result<(), sqlx::Error> {
@@ -315,14 +315,14 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
     sqlx::query(
         r#"
         INSERT INTO loyalty_point_ledger
-            (customer_id, delta_points, balance_after, reason, order_id, metadata)
+            (customer_id, delta_points, balance_after, reason, transaction_id, metadata)
         VALUES ($1, $2, $3, 'order_return_clawback', $4, $5)
         "#,
     )
     .bind(effective_id)
     .bind(-pts)
     .bind(balance_after)
-    .bind(order_id)
+    .bind(transaction_id)
     .bind(json!({ "returned_subtotal": returned_subtotal.to_string() }))
     .execute(&mut **tx)
     .await?;
@@ -332,12 +332,12 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
         UPDATE order_loyalty_accrual
         SET points_earned = GREATEST(points_earned - $1, 0),
             product_subtotal = GREATEST(product_subtotal - $2, 0::numeric)
-        WHERE order_id = $3
+        WHERE transaction_id = $3
         "#,
     )
     .bind(pts)
     .bind(returned_subtotal)
-    .bind(order_id)
+    .bind(transaction_id)
     .execute(&mut **tx)
     .await?;
 

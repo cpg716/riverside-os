@@ -40,3 +40,12 @@ export function sumMoneyToCents(
   for (const v of values) t += parseMoneyToCents(v);
   return t;
 }
+
+/** 
+ * Swedish (Swedish) Rounding logic ($0.05 step).
+ * Formula: Math.round(cent_val / 5) * 5
+ */
+export function calculateSwedishRounding(cents: number): number {
+  if (cents === 0) return 0;
+  return Math.round(cents / 5) * 5;
+}

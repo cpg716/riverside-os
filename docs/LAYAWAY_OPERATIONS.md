@@ -11,6 +11,12 @@ Layaways allow customers to reserve in-stock items with a deposit and pay over t
 5. **Pickup**: Once the balance is zero, the customer picks up the item. Status moves to **Fulfilled**.
 6. **Forfeiture**: If a layaway is abandoned, the deposit is forfeited, income is recognized as `forfeited_deposit`, and items return to floor stock.
 
+## Management
+
+Layaways can be managed from two locations:
+- **POS**: Specialized **Layaway** workspace for quick access during shifts.
+- **Back Office**: **Customers → Layaway Manager** for administrative tracking, payment auditing, and bulk status reviews.
+
 ## Inventory Impact
 
 - **stock_on_hand**: Does **not** change when booked. The item is still in the store.
