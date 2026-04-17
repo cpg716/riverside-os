@@ -1,8 +1,22 @@
 -- Staff task checklists: templates, recurring assignments, per-staff instances, checklist progress.
 
-DO $$ BEGIN CREATE TYPE task_recurrence AS ENUM ('daily', 'weekly', 'monthly', 'yearly'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-DO $$ BEGIN CREATE TYPE task_assignee_kind AS ENUM ('staff', 'role'); EXCEPTION WHEN duplicate_object THEN null; END $$;
-DO $$ BEGIN CREATE TYPE task_instance_status AS ENUM ('open', 'completed', 'cancelled'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'task_recurrence') THEN
+        CREATE TYPE task_recurrence AS ENUM ('daily', 'weekly', 'monthly', 'yearly');
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'task_assignee_kind') THEN
+        CREATE TYPE task_assignee_kind AS ENUM ('staff', 'role');
+    END IF;
+END $$;
+
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'task_instance_status') THEN
+        CREATE TYPE task_instance_status AS ENUM ('open', 'completed', 'cancelled');
+    END IF;
+END $$;
 
 CREATE TABLE task_checklist_template (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

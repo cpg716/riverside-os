@@ -1,6 +1,10 @@
 -- Alterations, customer groups, product bundles, store credit (legacy staff TOTP columns added here; removed in 45_remove_staff_mfa.sql).
 
-DO $$ BEGIN CREATE TYPE alteration_status AS ENUM ('intake', 'in_work', 'ready', 'picked_up'); EXCEPTION WHEN duplicate_object THEN null; END $$;
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'alteration_status') THEN
+        CREATE TYPE alteration_status AS ENUM ('intake', 'in_work', 'ready', 'picked_up');
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS alteration_orders (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -2,13 +2,15 @@
 -- Drives task materialization skips, appointment booking checks, and absence workflows.
 
 DO $$ BEGIN
-    CREATE TYPE staff_schedule_exception_kind AS ENUM (
-        'sick',
-        'pto',
-        'missed_shift',
-        'extra_shift'
-    );
-EXCEPTION WHEN duplicate_object THEN null; END $$;
+    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'staff_schedule_exception_kind') THEN
+        CREATE TYPE staff_schedule_exception_kind AS ENUM (
+            'sick',
+            'pto',
+            'missed_shift',
+            'extra_shift'
+        );
+    END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS staff_weekly_availability (
     staff_id UUID NOT NULL REFERENCES staff(id) ON DELETE CASCADE,
