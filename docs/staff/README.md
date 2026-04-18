@@ -58,6 +58,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Reports (curated library) | [reports-curated-manual.md](reports-curated-manual.md) (staff); [reports-curated-admin.md](reports-curated-admin.md) (admins / policy) |
 | In-app Help: Reports + Insights manuals | [`../../client/src/assets/docs/reports-manual.md`](../../client/src/assets/docs/reports-manual.md), [`../../client/src/assets/docs/insights-manual.md`](../../client/src/assets/docs/insights-manual.md) (Help Center; see [../MANUAL_CREATION.md](../MANUAL_CREATION.md)) |
 | Settings (BO) | [settings-back-office.md](settings-back-office.md) |
+| ROS Dev Center (admin ops) | [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md), [settings-back-office.md](settings-back-office.md) |
 | Podium integration (staff SOP) | [podium-integration-staff-manual.md](podium-integration-staff-manual.md) |
 | Podium integration (full reference) | [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
 | NuORDER integration (wholesale sync) | [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md) |
@@ -134,6 +135,7 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Settings | Integrations | [settings-back-office.md](settings-back-office.md) |
 | Settings | Staff access defaults | [settings-back-office.md](settings-back-office.md) |
 | Settings | Counterpoint | [../COUNTERPOINT_SYNC_GUIDE.md](../COUNTERPOINT_SYNC_GUIDE.md), [../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md](../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) |
+| Settings | ROS Dev Center | [settings-back-office.md](settings-back-office.md), [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md) |
 | Settings | NuORDER | [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md) |
 | Settings | Online store | [settings-back-office.md](settings-back-office.md), [../ONLINE_STORE.md](../ONLINE_STORE.md) |
 | Settings | Help center | [../MANUAL_CREATION.md](../MANUAL_CREATION.md), **Help** drawer in-app |
@@ -160,4 +162,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Update)
+**Last reviewed:** 2026-04-18 (v0.2.1 hardening + ROS Dev Center)

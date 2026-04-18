@@ -11,6 +11,7 @@ Current Version: **v0.2.1** (See [CHANGELOG.md](CHANGELOG.md))
 | API server | Rust · Axum 0.8 · sqlx · PostgreSQL |
 | Frontend | React 19 · TypeScript · Tailwind CSS · Vite |
 | Desktop shell | Tauri 2 |
+| Architecture | **Unified Hybrid Model** (New in v0.2.1) — Embedding the backend engine in the desktop shell for one-click updates. |
 | Logging / traces | `tracing` + `tracing-subscriber` (`RUST_LOG`); optional **OpenTelemetry OTLP** — [`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md) |
 | Timezone | `chrono-tz` (IANA; configurable per store in receipt settings) |
 | Money | `rust_decimal` only — no f32/f64 for currency anywhere |
@@ -106,7 +107,7 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Migrations
 
-Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files: **`00`–`143`** (see `migrations/`). Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**.
+Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files: **`00`–`150`** (see `migrations/`). Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**; ROS Dev Center v1 core schema: **149–150**.
 
 | # | Highlights |
 |---|------------|
@@ -116,6 +117,8 @@ Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_r
 | 131 | Stripe Power Integration: Terminal, Vaulting, Credits |
 | 135 | Schema Repair Baseline |
 | 143 | **Reporting Stabilization: Transactions & Fulfillment Orders Core Views** |
+| 149 | **ROS Dev Center v1** (ops telemetry, alerts, action audit, bug-incident links) |
+| 150 | **Reporting order_lines margin restore** (`line_gross_margin_pre_tax`) + drift-safe probes |
 
 ### Data Provenance & Integrity (2018 Hardening)
 Riverside OS maintains a strict **Source of Truth** policy for Counterpoint integrations:
@@ -144,6 +147,9 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/WISEPOS_E_SETUP_STRIPE.md` | Stripe Terminal WisePOS E reset and server-driven flow | Ops / devs |
 | `docs/CLIENT_UI_CONVENTIONS.md` | React primitives, modal a11y, shell wiring | Devs / agents |
 | `docs/CUSTOMER_HUB_AND_RBAC.md` | Joint accounts, financial redirection, CRM RBAC | Devs / ops |
+| `docs/UNIFIED_ENGINE_AND_HOST_MODE.md` | **Unified Hybrid Architecture** (v0.2.1+), Host Mode, and updates | Everyone |
+| `docs/DEPLOYMENT_GUIDE_V0_2_1.md` | Installation and production setup for the Unified Model | Ops / Devs |
+| `docs/ROS_DEV_CENTER.md` | ROS Dev Center architecture, API contracts, operations, and hardening model | Devs / ops |
 | `INVENTORY_GUIDE.md` | Scanning engine, physical inventory sessions | Ops / devs |
 | `BACKUP_RESTORE_GUIDE.md` | Maintenance, backups, cloud sync | Ops |
 | `Riverside_OS_Master_Specification.md` | Product requirements and vocabulary | Product / devs |

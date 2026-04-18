@@ -551,7 +551,7 @@ export default function SettingsWorkspace({
             className="p-10 w-full animate-in fade-in slide-in-from-bottom-4 duration-500"
           >
             {activeTab === "profile" && (
-              <StaffProfilePanel isPos={!!posSessionId} />
+              <StaffProfilePanel />
             )}
 
             {activeTab === "backups" && (

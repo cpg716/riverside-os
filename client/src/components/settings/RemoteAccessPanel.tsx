@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import {
   WifiOff,
   ExternalLink,
@@ -10,6 +11,7 @@ import {
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { cn } from "@/lib/utils";
 import QRCode from "qrcode";
 
 interface TailscaleNode {
@@ -31,6 +33,9 @@ export default function RemoteAccessPanel() {
   const [authKey, setAuthKey] = useState("");
   const [connecting, setConnecting] = useState(false);
   const [qrCodeData, setQrCodeData] = useState<string | null>(null);
+  const [dbUrl, setDbUrl] = useState("postgres://postgres:password@localhost/riverside_os");
+  const [srvPort, setSrvPort] = useState(3000);
+  const [isEngineRunning, setIsEngineRunning] = useState(false);
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -70,6 +75,32 @@ export default function RemoteAccessPanel() {
       setQrCodeData(null);
     }
   }, [status]);
+
+  useEffect(() => {
+    const checkEngine = async () => {
+      try {
+        const running = await invoke<boolean>("get_unified_server_status");
+        setIsEngineRunning(running);
+      } catch (e) {
+        console.warn("Unified Engine status check failed (are you in a browser?)", e);
+      }
+    };
+    void checkEngine();
+  }, []);
+
+  const handleStartEngine = async () => {
+    try {
+      const res = await invoke<string>("start_unified_server", {
+        databaseUrl: dbUrl,
+        stripeKey: "sk_test_placeholder", // Will draw from env or encrypted storage later
+        port: srvPort,
+      });
+      toast(res, "success");
+      setIsEngineRunning(true);
+    } catch (e) {
+      toast(`Engine Start Failed: ${e}`, "error");
+    }
+  };
 
   const handleConnect = async () => {
     if (!authKey.trim()) return;
@@ -166,6 +197,68 @@ export default function RemoteAccessPanel() {
           <RefreshCcw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
           Check Status
         </button>
+      </div>
+      
+      {/* Unified Engine Control - The "Server PC" Switch */}
+      <div className="ui-card p-8 bg-indigo-500/5 border-indigo-500/20 shadow-xl overflow-hidden relative group">
+        <div className="absolute top-0 right-0 p-12 opacity-5 pointer-events-none group-hover:opacity-10 transition-opacity">
+          <Server size={120} />
+        </div>
+        
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 relative z-10">
+          <div className="space-y-2 max-w-xl">
+            <div className="flex items-center gap-3">
+              <div className={cn("w-2 h-2 rounded-full", isEngineRunning ? "bg-emerald-500 animate-pulse" : "bg-app-text-muted/40")} />
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                Shop Engine (Unified Host)
+              </h3>
+            </div>
+            <p className="text-xs font-medium text-app-text-muted leading-relaxed">
+              Enable this mode only on your **Main Server PC**. When active, this application 
+              manages the database and serves as the anchor for all other registers and iPads in your shop.
+            </p>
+          </div>
+
+          <div className="flex items-center gap-4">
+            {!isEngineRunning ? (
+              <button
+                onClick={handleStartEngine}
+                className="ui-btn-primary px-8 py-3 rounded-2xl flex items-center gap-2 group/btn"
+              >
+                <Server className="w-4 h-4 group-hover/btn:scale-110 transition-transform" />
+                Start Unified Engine
+              </button>
+            ) : (
+              <div className="flex items-center gap-2 px-6 py-3 bg-emerald-500/10 border border-emerald-500/30 rounded-2xl text-emerald-500 text-xs font-black uppercase tracking-widest">
+                <ShieldCheck className="w-4 h-4" />
+                Engine Active on Port {srvPort}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!isEngineRunning && (
+          <div className="mt-8 pt-8 border-t border-app-border grid grid-cols-1 md:grid-cols-2 gap-6 animate-in fade-in slide-in-from-top-4 duration-500">
+             <div className="space-y-2">
+               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">PostgreSQL URL</label>
+               <input 
+                 type="text" 
+                 value={dbUrl}
+                 onChange={(e) => setDbUrl(e.target.value)}
+                 className="w-full bg-app-bg/50 border border-app-border rounded-xl px-4 py-2 text-xs font-mono text-app-text outline-none focus:border-indigo-500/50"
+               />
+             </div>
+             <div className="space-y-2">
+               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Server Listen Port</label>
+               <input 
+                 type="number" 
+                 value={srvPort}
+                 onChange={(e) => setSrvPort(parseInt(e.target.value))}
+                 className="w-full bg-app-bg/50 border border-app-border rounded-xl px-4 py-2 text-xs font-mono text-app-text outline-none focus:border-indigo-500/50"
+               />
+             </div>
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">

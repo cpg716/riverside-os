@@ -42,6 +42,7 @@ interface TodayFloorStaffRow {
   full_name: string;
   role: string;
   avatar_key: string;
+  shift_label?: string | null;
 }
 
 interface MorningCompassBundle {
@@ -166,9 +167,12 @@ export default function RegisterDashboard({
 
 
   useEffect(() => {
+    if (!forecast) void loadWeather();
+  }, [loadWeather, forecast]);
+
+  useEffect(() => {
     void loadTasks();
-    void loadWeather();
-  }, [loadTasks, loadWeather, refreshSignal]);
+  }, [loadTasks, refreshSignal]);
 
   useEffect(() => { void loadNotifications(); }, [loadNotifications, refreshSignal]);
   useEffect(() => { void loadCompass(); }, [loadCompass, refreshSignal]);

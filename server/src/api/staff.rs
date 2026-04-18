@@ -252,6 +252,7 @@ pub fn router() -> Router<AppState> {
         .route("/avatar/{id}", get(get_staff_avatar))
         .route("/self", get(self_get_profile).patch(self_patch_profile))
         .route("/self/avatar", patch(self_patch_staff_avatar))
+        .route("/self/set-pin", post(self_set_pin))
         .route("/self/pricing-limits", get(self_pricing_limits))
         .route("/self/register-metrics", get(self_register_metrics))
         .route("/admin/access-log", get(admin_access_log))
@@ -595,6 +596,55 @@ async fn self_patch_profile(
     spawn_meilisearch_staff_upsert(&state, staff.id);
 
     Ok(Json(json!({ "status": "updated" })))
+}
+
+async fn self_set_pin(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SetStaffPinRequest>,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let pin_t = body.pin.trim();
+    if !pins::is_valid_staff_credential(pin_t) {
+        return Err(StaffApiError::InvalidPayload(
+            "PIN must be exactly 4 digits".to_string(),
+        ));
+    }
+
+    // Check if new PIN is already in use
+    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1 AND id != $2)")
+        .bind(pin_t)
+        .bind(staff.id)
+        .fetch_one(&state.db)
+        .await?;
+    if exists {
+        return Err(StaffApiError::InvalidPayload(
+            "This PIN is already in use by another staff member".to_string(),
+        ));
+    }
+
+    let hashed = hash_pin(pin_t)
+        .map_err(|_| StaffApiError::InvalidPayload("PIN hashing failed".to_string()))?;
+
+    sqlx::query("UPDATE staff SET pin_hash = $1, cashier_code = $2 WHERE id = $3")
+        .bind(hashed)
+        .bind(pin_t)
+        .bind(staff.id)
+        .execute(&state.db)
+        .await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        staff.id,
+        "self_set_pin",
+        json!({ "status": "pin_updated" }),
+    )
+    .await;
+
+    Ok(Json(json!({ "status": "pin_updated" })))
 }
 
 async fn self_patch_staff_avatar(

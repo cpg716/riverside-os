@@ -13,7 +13,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Moved **Receipt Builder** and **Tag Designer** to dedicated sections in the main sidebar for better organizational clarity.
   - **Live Thermal Preview**: Integrated the `receiptline` library into the Receipt Builder to provide a high-fidelity, CLI-style preview for legacy thermal (Standard) modes.
   - **Standard Mode Consolidation**: Integrated previously fragmented thermal settings (Store Identifier, Address/Phone toggles) directly into the Unified Receipt Builder.
+- **Unified Hybrid Model**: 
+  - Merged the standalone Backend Server (Rust Axum) into the Tauri app shell. 
+  - Enabled **"Shop Host Mode"** in Settings, allowing a single desktop instance to manage the database and background workers (QBO, Messaging, Backups) for the entire shop.
+  - Implemented **"One-Click Universal Updates"**, ensuring the server engine and register UI update in lockstep via the ROS updater.
+- **Tailscale Remote Access Integration**: 
+  - Integrated `tailscale` CLI management into the Settings workspace.
+  - Added **MagicDNS QR-Code Onboarding**, allowing mobile devices to scan and instantly launch the ROS PWA via the private VPN.
+  - Implemented **Tailscale Identity Auditing** (`whois`), allowing the server to identify which remote staff member is accessing the system.
+  - Added a persistent **"Remote Node"** visual indicator in the Global Top Bar and Sign-In Gate when accessed via Tailscale.
 - **Node.js Polyfill Architecture**: Instrumented the Vite build with `vite-plugin-node-polyfills` and explicit aliases (`util`, `stream`, `buffer`, `process`) to support SDK-level libraries in the Tauri browser environment.
+- **ROS Dev Center (v1)**:
+  - Added **Settings → ROS Dev Center** with Operations Health, Station Fleet, Alert Center, Guarded Actions, and Bug Manager overlays.
+  - Added `/api/ops/*` contracts for health snapshots, integration status, station heartbeats, alert acknowledgement, guarded action auditing, and bug-incident linking.
+  - Added permissions **`ops.dev_center.view`** and **`ops.dev_center.actions`** with strict admin-default role templates.
+- **Integrated Wedding Management Hub (v0.2.1+)**: 
+  - Restored the integrated Wedding Management Hub directly within the POS shell, enabling staff to transition between sales and logistical management without shell switching.
+  - Implemented `pendingWmPartyId` state for seamless deep-linking from the Register Dashboard and Global Search.
+  - Added a **"Manage Party"** quick-action to the Wedding Lookup Drawer for rapid context switching.
+  - Refactored `navigateWedding` to prioritize the active POS mode, preventing unnecessary redirects to the standalone Wedding shell.
+- **Reporting and migration hardening**:
+  - Added migration **149** for ROS Dev Center telemetry/audit schema.
+  - Added migration **150** restoring `reporting.order_lines.line_gross_margin_pre_tax` and keeping migration probes in sync.
 
 ## [0.2.0] — 2026-04-16
 ### Added

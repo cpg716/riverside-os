@@ -109,7 +109,9 @@ interface CartProps {
   onCartInteraction?: () => void;
   /** IANA zone from open register session — live clock only; receipt uses server time at checkout. */
   receiptTimezone?: string;
+  onOpenWeddingParty?: (partyId: string) => void;
 }
+
 
 // Helpers relocated to posUtils.ts or hooks
 
@@ -129,6 +131,7 @@ export default function Cart({
   onExitPosMode,
   onCartInteraction,
   receiptTimezone: receiptTimezoneProp,
+  onOpenWeddingParty,
 }: CartProps) {
   const receiptTimezone =
     typeof receiptTimezoneProp === "string" && receiptTimezoneProp.trim()
@@ -1869,6 +1872,7 @@ export default function Cart({
         }}
         preferGroupPay={weddingDrawerPreferGroupPay}
         onPreferGroupPayConsumed={() => setWeddingDrawerPreferGroupPay(false)}
+        onOpenFullParty={onOpenWeddingParty}
         onLinkMember={async (m, partyName) => {
           if (isRmsPaymentCart) {
             toast(

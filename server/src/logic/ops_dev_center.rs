@@ -10,8 +10,12 @@ use sqlx::PgPool;
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::BackupManager;
 use crate::logic::help_corpus;
+use crate::logic::notifications::{
+    fan_out_to_staff_ids, insert_app_notification_deduped, staff_ids_with_permission,
+};
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct IntegrationHealthItem {
@@ -168,51 +172,351 @@ fn help_manifest_script_path() -> PathBuf {
         .join("generate-help-manifest.mjs")
 }
 
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct AlertRuleConfig {
+    rule_key: String,
+    title: String,
+    severity: String,
+    enabled: bool,
+    suppress_minutes: i32,
+    channel_inbox: bool,
+    channel_email: bool,
+    channel_sms: bool,
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ExistingAlertRow {
+    id: Uuid,
+    status: String,
+    updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone)]
+struct OpenAlertSignal {
+    alert_id: Uuid,
+    rule: AlertRuleConfig,
+    title: String,
+    body: String,
+    severity: String,
+}
+
+fn clamp_chars(s: &str, max_chars: usize) -> String {
+    s.chars().take(max_chars).collect::<String>()
+}
+
+fn clamp_json_bytes(value: &Value, max_bytes: usize) -> Value {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    if bytes.len() <= max_bytes {
+        value.clone()
+    } else {
+        json!({
+            "truncated": true,
+            "truncated_bytes": bytes.len(),
+            "max_bytes": max_bytes
+        })
+    }
+}
+
+async fn alert_rule(pool: &PgPool, rule_key: &str) -> Result<Option<AlertRuleConfig>, sqlx::Error> {
+    sqlx::query_as::<_, AlertRuleConfig>(
+        r#"
+        SELECT
+            rule_key,
+            title,
+            severity,
+            enabled,
+            suppress_minutes,
+            channel_inbox,
+            channel_email,
+            channel_sms
+        FROM ops_alert_rule
+        WHERE rule_key = $1
+        "#,
+    )
+    .bind(rule_key)
+    .fetch_optional(pool)
+    .await
+}
+
+async fn log_delivery_row(
+    pool: &PgPool,
+    alert_event_id: Uuid,
+    channel: &str,
+    destination: Option<&str>,
+    delivery_status: &str,
+    provider_message_id: Option<&str>,
+    error_text: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO ops_notification_delivery_log (
+            alert_event_id,
+            channel,
+            destination,
+            delivery_status,
+            provider_message_id,
+            error_text
+        )
+        VALUES ($1, $2, $3, $4, $5, $6)
+        "#,
+    )
+    .bind(alert_event_id)
+    .bind(channel)
+    .bind(destination)
+    .bind(delivery_status)
+    .bind(provider_message_id)
+    .bind(error_text)
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
+async fn emit_open_alert_notifications(
+    pool: &PgPool,
+    signal: &OpenAlertSignal,
+) -> Result<(), sqlx::Error> {
+    if signal.rule.channel_inbox {
+        let target = staff_ids_with_permission(pool, OPS_DEV_CENTER_VIEW).await?;
+        if !target.is_empty() {
+            let nid = insert_app_notification_deduped(
+                pool,
+                "ops_alert",
+                &signal.title,
+                &signal.body,
+                json!({
+                    "type": "settings",
+                    "section": "ros-dev-center",
+                    "alert_event_id": signal.alert_id,
+                    "rule_key": signal.rule.rule_key,
+                    "severity": signal.severity,
+                }),
+                "ops.dev_center",
+                json!({ "mode": "staff_ids", "staff_ids": target.clone() }),
+                None,
+            )
+            .await?
+            .ok_or_else(|| sqlx::Error::Protocol("ops alert notification insert skipped".into()))?;
+
+            fan_out_to_staff_ids(pool, nid, &target).await?;
+            for sid in target {
+                let _ = log_delivery_row(
+                    pool,
+                    signal.alert_id,
+                    "inbox",
+                    Some(&sid.to_string()),
+                    "sent",
+                    Some(&nid.to_string()),
+                    None,
+                )
+                .await;
+            }
+        }
+    }
+
+    if signal.rule.channel_email {
+        let _ = log_delivery_row(pool, signal.alert_id, "email", None, "queued", None, None).await;
+    }
+    if signal.rule.channel_sms {
+        let _ = log_delivery_row(pool, signal.alert_id, "sms", None, "queued", None, None).await;
+    }
+    Ok(())
+}
+
+async fn resolve_rule_alerts(
+    pool: &PgPool,
+    rule_key: &str,
+    keep_open_dedupe_keys: &[String],
+) -> Result<u64, sqlx::Error> {
+    if keep_open_dedupe_keys.is_empty() {
+        let res = sqlx::query(
+            r#"
+            UPDATE ops_alert_event
+            SET
+                status = 'resolved',
+                resolved_at = COALESCE(resolved_at, NOW()),
+                resolved_by_staff_id = NULL,
+                updated_at = NOW()
+            WHERE rule_key = $1
+              AND status IN ('open', 'acked')
+            "#,
+        )
+        .bind(rule_key)
+        .execute(pool)
+        .await?;
+        return Ok(res.rows_affected());
+    }
+
+    let res = sqlx::query(
+        r#"
+        UPDATE ops_alert_event
+        SET
+            status = 'resolved',
+            resolved_at = COALESCE(resolved_at, NOW()),
+            resolved_by_staff_id = NULL,
+            updated_at = NOW()
+        WHERE rule_key = $1
+          AND status IN ('open', 'acked')
+          AND (dedupe_key IS NULL OR dedupe_key <> ALL($2))
+        "#,
+    )
+    .bind(rule_key)
+    .bind(keep_open_dedupe_keys)
+    .execute(pool)
+    .await?;
+    Ok(res.rows_affected())
+}
+
 async fn upsert_open_alert(
     pool: &PgPool,
     rule_key: &str,
     dedupe_key: &str,
     title: &str,
     body: &str,
-    severity: &str,
     context: Value,
-) -> Result<(), sqlx::Error> {
-    sqlx::query(
+) -> Result<Option<OpenAlertSignal>, sqlx::Error> {
+    let Some(rule) = alert_rule(pool, rule_key).await? else {
+        return Ok(None);
+    };
+    if !rule.enabled {
+        return Ok(None);
+    }
+
+    let title_s = if title.trim().is_empty() {
+        clamp_chars(&rule.title, 160)
+    } else {
+        clamp_chars(title, 160)
+    };
+    let body_s = clamp_chars(body, 600);
+    let severity_s = clamp_chars(&rule.severity, 32);
+    let context_s = clamp_json_bytes(&context, 8192);
+
+    let existing = sqlx::query_as::<_, ExistingAlertRow>(
+        r#"
+        SELECT id, status, updated_at
+        FROM ops_alert_event
+        WHERE dedupe_key = $1
+        LIMIT 1
+        "#,
+    )
+    .bind(dedupe_key)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(existing_row) = existing {
+        if existing_row.status == "open" {
+            sqlx::query(
+                r#"
+                UPDATE ops_alert_event
+                SET
+                    title = $2,
+                    body = $3,
+                    severity = $4,
+                    context = $5,
+                    last_seen_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(existing_row.id)
+            .bind(&title_s)
+            .bind(&body_s)
+            .bind(&severity_s)
+            .bind(&context_s)
+            .execute(pool)
+            .await?;
+            return Ok(None);
+        }
+
+        let suppress_cutoff = Utc::now() - Duration::minutes(rule.suppress_minutes as i64);
+        if existing_row.updated_at >= suppress_cutoff {
+            sqlx::query(
+                r#"
+                UPDATE ops_alert_event
+                SET
+                    title = $2,
+                    body = $3,
+                    severity = $4,
+                    context = $5,
+                    last_seen_at = NOW(),
+                    updated_at = NOW()
+                WHERE id = $1
+                "#,
+            )
+            .bind(existing_row.id)
+            .bind(&title_s)
+            .bind(&body_s)
+            .bind(&severity_s)
+            .bind(&context_s)
+            .execute(pool)
+            .await?;
+            return Ok(None);
+        }
+
+        sqlx::query(
+            r#"
+            UPDATE ops_alert_event
+            SET
+                title = $2,
+                body = $3,
+                severity = $4,
+                context = $5,
+                status = 'open',
+                first_seen_at = NOW(),
+                last_seen_at = NOW(),
+                acked_at = NULL,
+                acked_by_staff_id = NULL,
+                resolved_at = NULL,
+                resolved_by_staff_id = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+            "#,
+        )
+        .bind(existing_row.id)
+        .bind(&title_s)
+        .bind(&body_s)
+        .bind(&severity_s)
+        .bind(&context_s)
+        .execute(pool)
+        .await?;
+
+        return Ok(Some(OpenAlertSignal {
+            alert_id: existing_row.id,
+            rule,
+            title: title_s,
+            body: body_s,
+            severity: severity_s,
+        }));
+    }
+
+    let alert_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO ops_alert_event (
             rule_key, dedupe_key, title, body, severity, status, context,
-            first_seen_at, last_seen_at, created_at, updated_at,
-            acked_at, acked_by_staff_id, resolved_at, resolved_by_staff_id
+            first_seen_at, last_seen_at, created_at, updated_at
         )
         VALUES (
             $1, $2, $3, $4, $5, 'open', $6,
-            NOW(), NOW(), NOW(), NOW(),
-            NULL, NULL, NULL, NULL
+            NOW(), NOW(), NOW(), NOW()
         )
-        ON CONFLICT (dedupe_key)
-        DO UPDATE SET
-            title = EXCLUDED.title,
-            body = EXCLUDED.body,
-            severity = EXCLUDED.severity,
-            context = EXCLUDED.context,
-            status = 'open',
-            last_seen_at = NOW(),
-            updated_at = NOW(),
-            acked_at = NULL,
-            acked_by_staff_id = NULL,
-            resolved_at = NULL,
-            resolved_by_staff_id = NULL
+        RETURNING id
         "#,
     )
     .bind(rule_key)
     .bind(dedupe_key)
-    .bind(title)
-    .bind(body)
-    .bind(severity)
-    .bind(context)
-    .execute(pool)
+    .bind(&title_s)
+    .bind(&body_s)
+    .bind(&severity_s)
+    .bind(&context_s)
+    .fetch_one(pool)
     .await?;
-    Ok(())
+
+    Ok(Some(OpenAlertSignal {
+        alert_id,
+        rule,
+        title: title_s,
+        body: body_s,
+        severity: severity_s,
+    }))
 }
 
 pub async fn ping_db(pool: &PgPool) -> bool {
@@ -232,6 +536,25 @@ pub async fn upsert_station_heartbeat(
     if station_key.is_empty() || app_version.is_empty() {
         return Err(sqlx::Error::Protocol(
             "station_key and app_version are required".into(),
+        ));
+    }
+    if station_key.len() > 128 || app_version.len() > 64 {
+        return Err(sqlx::Error::Protocol(
+            "station_key/app_version exceeds max length".into(),
+        ));
+    }
+    if body.station_label.len() > 160 {
+        return Err(sqlx::Error::Protocol(
+            "station_label exceeds max length".into(),
+        ));
+    }
+    if body.meta.as_object().is_some_and(|_| {
+        serde_json::to_vec(&body.meta)
+            .map(|v| v.len() > 8192)
+            .unwrap_or(true)
+    }) {
+        return Err(sqlx::Error::Protocol(
+            "meta payload exceeds max size".into(),
         ));
     }
 
@@ -575,6 +898,8 @@ pub async fn evaluate_alerts_from_health(
     stations: &[StationRow],
 ) -> Result<(), sqlx::Error> {
     let overdue_hours = backup_overdue_hours();
+    let mut opened_signals: Vec<OpenAlertSignal> = Vec::new();
+    let mut station_open_dedupes: Vec<String> = Vec::new();
 
     let backup_last_ok: Option<DateTime<Utc>> =
         sqlx::query_scalar("SELECT last_local_success_at FROM store_backup_health WHERE id = 1")
@@ -582,25 +907,38 @@ pub async fn evaluate_alerts_from_health(
             .await?
             .flatten();
 
+    let backup_is_overdue = backup_last_ok
+        .map(|last_ok| last_ok < Utc::now() - Duration::hours(overdue_hours))
+        .unwrap_or(false);
+
     if let Some(last_ok) = backup_last_ok {
-        if last_ok < Utc::now() - Duration::hours(overdue_hours) {
+        if backup_is_overdue {
             let body = format!("Last successful local backup is older than {overdue_hours} hours.");
-            upsert_open_alert(
+            if let Some(signal) = upsert_open_alert(
                 pool,
                 "backup_overdue",
                 "backup_overdue",
                 "Database backup overdue",
                 &body,
-                "critical",
                 json!({ "last_local_success_at": last_ok.to_rfc3339(), "threshold_hours": overdue_hours }),
             )
-            .await?;
+            .await?
+            {
+                opened_signals.push(signal);
+            }
         }
     }
+    if !backup_is_overdue {
+        let _ = resolve_rule_alerts(pool, "backup_overdue", &[]).await?;
+    }
 
+    let mut qbo_failed = false;
+    let mut weather_failed = false;
+    let mut counterpoint_failed = false;
     for i in integrations {
         if i.key == "qbo_token_refresh" && i.status == "failed" {
-            upsert_open_alert(
+            qbo_failed = true;
+            if let Some(signal) = upsert_open_alert(
                 pool,
                 "integration_qbo_failure",
                 "integration_qbo_failure",
@@ -610,14 +948,17 @@ pub async fn evaluate_alerts_from_health(
                 } else {
                     i.detail.as_str()
                 },
-                "critical",
                 json!({ "integration": i.key }),
             )
-            .await?;
+            .await?
+            {
+                opened_signals.push(signal);
+            }
         }
 
         if i.key == "weather_finalize" && i.status == "failed" {
-            upsert_open_alert(
+            weather_failed = true;
+            if let Some(signal) = upsert_open_alert(
                 pool,
                 "integration_weather_failure",
                 "integration_weather_failure",
@@ -627,14 +968,17 @@ pub async fn evaluate_alerts_from_health(
                 } else {
                     i.detail.as_str()
                 },
-                "warning",
                 json!({ "integration": i.key }),
             )
-            .await?;
+            .await?
+            {
+                opened_signals.push(signal);
+            }
         }
 
         if i.key == "counterpoint_sync" && i.status != "healthy" {
-            upsert_open_alert(
+            counterpoint_failed = true;
+            if let Some(signal) = upsert_open_alert(
                 pool,
                 "counterpoint_sync_stale",
                 "counterpoint_sync_stale",
@@ -644,29 +988,65 @@ pub async fn evaluate_alerts_from_health(
                 } else {
                     i.detail.as_str()
                 },
-                "warning",
                 json!({ "integration": i.key }),
             )
-            .await?;
+            .await?
+            {
+                opened_signals.push(signal);
+            }
         }
+    }
+    if !qbo_failed {
+        let _ = resolve_rule_alerts(pool, "integration_qbo_failure", &[]).await?;
+    }
+    if !weather_failed {
+        let _ = resolve_rule_alerts(pool, "integration_weather_failure", &[]).await?;
+    }
+    if !counterpoint_failed {
+        let _ = resolve_rule_alerts(pool, "counterpoint_sync_stale", &[]).await?;
     }
 
     for s in stations.iter().filter(|s| !s.online) {
         let dedupe = format!("station_offline:{}", s.station_key);
+        station_open_dedupes.push(dedupe.clone());
         let body = format!(
             "{} has not reported heartbeat since {}",
             s.station_label, s.last_seen_at
         );
-        upsert_open_alert(
+        if let Some(signal) = upsert_open_alert(
             pool,
             "station_offline",
             &dedupe,
             "Register workstation offline",
             &body,
-            "warning",
             json!({ "station_key": s.station_key, "station_label": s.station_label, "last_seen_at": s.last_seen_at.to_rfc3339() }),
         )
-        .await?;
+        .await?
+        {
+            opened_signals.push(signal);
+        }
+    }
+    let _ = resolve_rule_alerts(pool, "station_offline", &station_open_dedupes).await?;
+
+    for signal in &opened_signals {
+        if let Err(e) = emit_open_alert_notifications(pool, signal).await {
+            tracing::error!(
+                error = %e,
+                alert_event_id = %signal.alert_id,
+                rule_key = signal.rule.rule_key.as_str(),
+                "failed to emit ops alert notifications"
+            );
+            let _ = log_delivery_row(
+                pool,
+                signal.alert_id,
+                "inbox",
+                None,
+                "failed",
+                None,
+                Some(&e.to_string()),
+            )
+            .await;
+        }
     }
 
     Ok(())
@@ -896,4 +1276,16 @@ pub async fn run_guarded_action(
             data: json!({ "allowed": ["backup.trigger_local", "help.reindex_search", "help.generate_manifest"] }),
         },
     }
+}
+
+pub fn allowed_action_keys() -> &'static [&'static str] {
+    &[
+        "backup.trigger_local",
+        "help.reindex_search",
+        "help.generate_manifest",
+    ]
+}
+
+pub fn is_allowed_action_key(action_key: &str) -> bool {
+    allowed_action_keys().contains(&action_key)
 }

@@ -64,6 +64,13 @@ To maintain the v0.2.0 boundaries, wedding members use two distinct links:
 1. **`transaction_id` (The Financial Anchor)**: Links the member to their financial receipt/checkout (`transactions` table). Use this for balances, deposits, and payments.
 2. **`fulfillment_order_id` (The Logistical Link)**: Individual items for a member (found in `transaction_lines`) link to a logistical `fulfillment_orders` table (ORD-XXXX). Use this to track if a suit has been ordered from a vendor or received in-store.
 
+### Integrated Wedding Hub (v0.2.1+)
+
+In v0.2.1, the Wedding Management Hub is integrated as a first-class workspace within the POS shell. 
+- **Navigation Context**: Navigating to a wedding party from the POS (e.g., via the Register Dashboard or a Search drawer) keeps the user in **POS mode**.
+- **Deep Linking**: The POS shell uses a `pendingWmPartyId` state to initialize the Hub with the correct party context immediately upon switching tabs.
+- **Unified Auth**: Like other POS-mirrored workspaces, the Hub respects the authenticated staff member's permissions and uses the register's operational context for actions.
+
 ## Developer Guidelines — Invariants & Anti-Patterns
 
 ### Shadowing of `transaction_id`

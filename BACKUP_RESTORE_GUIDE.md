@@ -4,11 +4,11 @@ Riverside OS includes a robust database management system designed for data inte
 
 ## Overview
 
-The system manages a PostgreSQL 16 database using two primary tools:
-1.  **`pg_dump`**: For creating consistent, compressed backups.
-2. - **Mandatory Confirmation**: Every backup creation, restore, and optimization now requires a non-blocking `ConfirmationModal` step. Browser-native popups have been removed in favor of integrated workspace feedback.
+The system manages backup/restore flows with two primary controls:
+1. **`pg_dump`**: Creates consistent, compressed backups.
+2. **Mandatory confirmation**: Backup creation, restore, and optimization require non-blocking `ConfirmationModal` approval (no browser-native dialogs).
 
-Backups are stored locally in the `backups/` directory and can be optionally synced to S3-compatible cloud storage.
+Backups are stored locally in the `backups/` directory and can be optionally synced to S3-compatible cloud storage. In v0.2.1+, the **Unified Engine** on the **Main Server PC** is the authoritative node responsible for running the background backup scheduler.
 
 ## Backup Settings
 
@@ -32,6 +32,10 @@ The backend provides several endpoints for management (`/api/settings/...`):
 - **Restore**: `POST /backups/restore/:filename` — **WARNING**: This drops and replaces the current database state.
 - **Download**: `GET /backups/download/:filename` — Download a binary dump file for off-site storage.
 - **Optimize**: `POST /database/optimize` — Runs `VACUUM ANALYZE` to reclaim space and update query planner stats.
+
+### ROS Dev Center guarded backup action
+
+For authorized admins, **Settings → ROS Dev Center** exposes guarded action key `backup.trigger_local`, which invokes the same backup manager path with mandatory dual confirmation and immutable action audit logging.
 
 ## Cloud Sync Setup
 

@@ -1,0 +1,340 @@
+use crate::api::{build_router, AppState};
+use crate::logic::backups::{
+    record_cloud_backup_success, record_local_backup_success, BackupManager, BackupSettings,
+};
+use crate::logic::wedding_push::WeddingEventBus;
+use crate::observability::ServerLogRing;
+use axum::extract::DefaultBodyLimit;
+use axum::http::{HeaderValue, Method};
+use axum::serve;
+use chrono::{NaiveDate, Utc};
+use rust_decimal_macros::dec;
+use sqlx::postgres::PgPoolOptions;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::path::PathBuf;
+use tokio::net::TcpListener;
+use tokio_cron_scheduler::{Job, JobScheduler};
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
+use tower_http::services::{ServeDir, ServeFile};
+use tower_http::trace::TraceLayer;
+use uuid::Uuid;
+
+#[derive(Clone, Debug)]
+pub struct LauncherConfig {
+    pub database_url: String,
+    pub stripe_secret_key: String,
+    pub bind_addr: String,
+    pub frontend_dist: Option<PathBuf>,
+    pub cors_origins: Vec<String>,
+    pub strict_production: bool,
+    pub max_body_bytes: Option<usize>,
+}
+
+pub async fn launch_server(
+    config: LauncherConfig,
+    server_log_ring: ServerLogRing,
+) -> Result<(), Box<dyn std::error::Error>> {
+    tracing::info!("Unified Engine: Connecting to PostgreSQL...");
+    let pool = PgPoolOptions::new()
+        .max_connections(10)
+        .connect(&config.database_url)
+        .await?;
+
+    crate::db_startup_diag::log_postgres_startup_context(&pool).await;
+
+    if let Err(e) = crate::schema_bootstrap::ensure_core_schema(&pool).await {
+        tracing::error!(error = %e, "Unified Engine: Schema bootstrap failed");
+        return Err(e.into());
+    }
+    tracing::info!("Unified Engine: Core database schema OK.");
+
+    let counterpoint_sync_token = std::env::var("COUNTERPOINT_SYNC_TOKEN")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+
+    let payment_intent_max_per_minute: u32 = std::env::var("RIVERSIDE_PAYMENTS_INTENT_PER_MINUTE")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(120);
+
+    let store_account_unauth_post_per_minute_ip: u32 =
+        std::env::var("RIVERSIDE_STORE_ACCOUNT_UNAUTH_POST_PER_MINUTE_IP")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(20);
+    let store_account_authed_per_minute: u32 =
+        std::env::var("RIVERSIDE_STORE_ACCOUNT_AUTH_PER_MINUTE")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(120);
+
+    let store_customer_jwt_secret: std::sync::Arc<[u8]> =
+        match std::env::var("RIVERSIDE_STORE_CUSTOMER_JWT_SECRET") {
+            Ok(s) if !s.trim().is_empty() => {
+                std::sync::Arc::from(s.trim().as_bytes().to_vec().into_boxed_slice())
+            }
+            _ => {
+                tracing::warn!(
+                "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET not set; using insecure development default"
+            );
+                std::sync::Arc::from(
+                    b"riverside-dev-store-customer-jwt-secret-change-me!!!!".as_slice(),
+                )
+            }
+        };
+
+    let http_client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(25))
+        .build()
+        .expect("reqwest client");
+
+    let meilisearch = crate::logic::meilisearch_client::meilisearch_from_env();
+
+    let global_employee_markup: rust_decimal::Decimal = match sqlx::query_scalar(
+        "SELECT employee_markup_percent FROM store_settings WHERE id = 1",
+    )
+    .fetch_one(&pool)
+    .await
+    {
+        Ok(v) => v,
+        Err(e) => {
+            tracing::warn!(error = %e, "could not load store_settings.employee_markup_percent; using 15% default");
+            dec!(15.0)
+        }
+    };
+
+    let state = AppState {
+        db: pool,
+        global_employee_markup,
+        stripe_client: stripe::Client::new(config.stripe_secret_key.clone()),
+        http_client,
+        podium_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(
+            crate::logic::podium::PodiumTokenCache::default(),
+        )),
+        database_url: config.database_url.clone(),
+        counterpoint_sync_token,
+        wedding_events: WeddingEventBus::new(),
+        payment_intent_minute: std::sync::Arc::new(tokio::sync::Mutex::new(
+            crate::api::PaymentIntentMinuteWindow {
+                window_start: std::time::Instant::now(),
+                count: 0,
+            },
+        )),
+        payment_intent_max_per_minute,
+        store_customer_jwt_secret,
+        store_account_rate: std::sync::Arc::new(tokio::sync::Mutex::new(
+            crate::api::store_account_rate::StoreAccountRateState::default(),
+        )),
+        store_account_unauth_post_per_minute_ip,
+        store_account_authed_per_minute,
+        meilisearch,
+        server_log_ring: server_log_ring.clone(),
+    };
+
+    // Workers
+    let qbo_pool = state.db.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(50 * 60));
+        loop {
+            ticker.tick().await;
+            if let Err(e) = crate::api::qbo::refresh_due_tokens(&qbo_pool).await {
+                tracing::error!(error = %e, "QBO token refresh worker failed");
+            }
+        }
+    });
+
+    let backup_state = state.clone();
+    tokio::spawn(async move {
+        if let Err(e) = start_backup_worker(backup_state).await {
+            tracing::error!(error = %e, "Background backup worker failed");
+        }
+    });
+
+    let notif_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            ticker.tick().await;
+            crate::logic::notifications_jobs::run_notification_maintenance(&notif_state.db).await;
+            if let Err(e) =
+                crate::logic::notifications_jobs::run_notification_generators(&notif_state.db).await
+            {
+                tracing::error!(error = %e, "notification generators failed");
+            }
+        }
+    });
+
+    let weather_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(3600));
+        loop {
+            ticker.tick().await;
+            if let Err(e) = crate::logic::weather::maybe_finalize_daily_weather_snapshots(
+                &weather_state.http_client,
+                &weather_state.db,
+            )
+            .await
+            {
+                tracing::error!(error = %e, "Weather EOD finalize failed");
+            }
+            if let Err(e) = perform_weather_backfill(&weather_state).await {
+                tracing::error!(error = %e, "Golden Rule Weather worker failed");
+            }
+        }
+    });
+
+    // CORS
+    let cors_header_values: Vec<HeaderValue> = config
+        .cors_origins
+        .iter()
+        .filter_map(|s| HeaderValue::from_str(s).ok())
+        .collect();
+
+    if config.strict_production && cors_header_values.is_empty() {
+        return Err("Strict production requires CORS origins".into());
+    }
+
+    let cors = if cors_header_values.is_empty() {
+        CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers(Any)
+    } else {
+        CorsLayer::new()
+            .allow_origin(AllowOrigin::list(cors_header_values))
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::PATCH,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers(Any)
+    };
+
+    // Static Files
+    let dist_path = config
+        .frontend_dist
+        .unwrap_or_else(|| PathBuf::from("../client/dist"));
+    let index_path = dist_path.join("index.html");
+    let serve_dir = ServeDir::new(dist_path)
+        .append_index_html_on_directories(true)
+        .not_found_service(ServeFile::new(index_path));
+
+    let max_body = config.max_body_bytes.unwrap_or(256 * 1024 * 1024);
+
+    let app = build_router()
+        .layer(DefaultBodyLimit::max(max_body))
+        .layer(cors)
+        .layer(TraceLayer::new_for_http())
+        .with_state(state)
+        .fallback_service(serve_dir);
+
+    let listener = TcpListener::bind(&config.bind_addr).await?;
+    tracing::info!(addr = %config.bind_addr, "Riverside OS Unified Engine listening");
+
+    serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .await?;
+
+    Ok(())
+}
+
+async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
+    let sched = JobScheduler::new().await?;
+    let cleanup_state = state.clone();
+    let cleanup_job = Job::new_async("0 0 * * * *", move |_uuid, _l| {
+        let st = cleanup_state.clone();
+        Box::pin(async move {
+            let manager = BackupManager::new(st.database_url.clone());
+            let settings_raw: serde_json::Value =
+                sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+                    .fetch_one(&st.db)
+                    .await
+                    .unwrap_or_default();
+            let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+            if let Err(e) = manager
+                .perform_auto_cleanup(settings.auto_cleanup_days)
+                .await
+            {
+                tracing::error!(error = %e, "Background Worker: Auto-cleanup failed");
+            }
+        })
+    })?;
+    sched.add(cleanup_job).await?;
+
+    let backup_state = state.clone();
+    let backup_checker = Job::new_async("0 * * * * *", move |_uuid, _l| {
+        let st = backup_state.clone();
+        Box::pin(async move {
+            let settings_raw: serde_json::Value =
+                sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
+                    .fetch_one(&st.db)
+                    .await
+                    .unwrap_or_default();
+            let settings: BackupSettings = serde_json::from_value(settings_raw).unwrap_or_default();
+            let now = chrono::Local::now().format("%H:%M").to_string();
+            let parts: Vec<&str> = settings.schedule_cron.split_whitespace().collect();
+            if parts.len() >= 2 {
+                let hour = parts[1].parse::<u32>().unwrap_or(2);
+                let minute = parts[0].parse::<u32>().unwrap_or(0);
+                if now == format!("{hour:02}:{minute:02}") {
+                    let manager = BackupManager::new(st.database_url.clone());
+                    if let Ok(filename) = manager.create_backup().await {
+                        let _ = record_local_backup_success(&st.db).await;
+                        if settings.cloud_storage_enabled {
+                            if manager.sync_to_cloud(&filename, &settings).await.is_ok() {
+                                let _ = record_cloud_backup_success(&st.db).await;
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    })?;
+    sched.add(backup_checker).await?;
+
+    sched.start().await?;
+    Ok(())
+}
+
+async fn perform_weather_backfill(state: &AppState) -> Result<(), anyhow::Error> {
+    let rows: Vec<(Uuid, chrono::DateTime<Utc>)> = sqlx::query_as("SELECT id, opened_at FROM register_sessions WHERE weather_snapshot IS NULL AND opened_at > (CURRENT_TIMESTAMP - INTERVAL '14 days')").fetch_all(&state.db).await?;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let mut by_date: HashMap<NaiveDate, Vec<Uuid>> = HashMap::new();
+    for (id, opened_at) in rows {
+        by_date.entry(opened_at.date_naive()).or_default().push(id);
+    }
+    for (date, ids) in by_date {
+        let weather =
+            crate::logic::weather::fetch_weather_range(&state.http_client, &state.db, date, date)
+                .await
+                .into_iter()
+                .next();
+        if let Some(w) = weather {
+            let json = serde_json::to_value(w)?;
+            for sid in ids {
+                sqlx::query("UPDATE register_sessions SET weather_snapshot = $1 WHERE id = $2")
+                    .bind(&json)
+                    .bind(sid)
+                    .execute(&state.db)
+                    .await?;
+            }
+        }
+    }
+    Ok(())
+}

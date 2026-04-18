@@ -20,7 +20,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-type StaffRole = "admin" | "salesperson" | "sales_support";
+type StaffRole = "admin" | "salesperson" | "sales_support" | "staff_support" | "alterations";
 type StaffStatusFilter = "all" | "active" | "inactive";
 
 // HubRow is imported from StaffEditDrawer
@@ -380,7 +380,11 @@ export default function StaffWorkspace({
       ? "Admin"
       : r === "salesperson"
         ? "Salesperson"
-        : "Sales Support";
+        : r === "sales_support"
+          ? "Sales Support"
+          : r === "staff_support"
+            ? "Staff Support"
+            : "Alterations";
 
   const tabs = useMemo(() => {
     const all: {
@@ -524,6 +528,8 @@ export default function StaffWorkspace({
                   className="ui-input min-w-[11rem] px-3 py-2 disabled:opacity-50"
                 >
                   <option value="sales_support">Sales Support</option>
+                  <option value="staff_support">Staff Support</option>
+                  <option value="alterations">Alterations</option>
                   <option value="salesperson">Salesperson</option>
                   <option value="admin">Admin</option>
                 </select>

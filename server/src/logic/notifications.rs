@@ -317,6 +317,8 @@ pub async fn resolve_broadcast_audience(
                     "admin" => Some(DbStaffRole::Admin),
                     "salesperson" => Some(DbStaffRole::Salesperson),
                     "sales_support" => Some(DbStaffRole::SalesSupport),
+                    "staff_support" => Some(DbStaffRole::StaffSupport),
+                    "alterations" => Some(DbStaffRole::Alterations),
                     _ => None,
                 };
                 let Some(role_db) = role_db else {

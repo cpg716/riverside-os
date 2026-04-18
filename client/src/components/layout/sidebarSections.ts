@@ -15,7 +15,11 @@ export type SidebarTabId =
   | "appointments"
   | "reports"
   | "dashboard"
-  | "settings";
+  | "pos-dashboard"
+  | "settings"
+  | "shipping"
+  | "tasks"
+  | "layaways";
 
 export interface SubItem {
   id: string;
@@ -29,63 +33,48 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "inbox", label: "Inbox" },
     { id: "reviews", label: "Reviews" },
     { id: "daily-sales", label: "Daily Sales" },
+    { id: "payouts", label: "Payouts" },
+    { id: "morning_digest", label: "Morning Digest" },
   ],
-  register: [
-    { id: "dashboard", label: "Dashboard" },
-    { id: "register", label: "Register" },
-    { id: "tasks", label: "Tasks" },
-    { id: "weddings", label: "Weddings" },
-    { id: "alterations", label: "Alterations" },
-    { id: "inventory", label: "Inventory" },
-    { id: "orders", label: "Orders" },
-    { id: "reports", label: "Reports" },
-    { id: "gift-cards", label: "Gift Cards" },
-    { id: "loyalty", label: "Loyalty" },
-    { id: "layaways", label: "Layaways" },
-    { id: "shipping", label: "Shipping" },
-    { id: "settings", label: "Settings" },
-  ],
+  register: [],
   customers: [
     { id: "all", label: "All Customers" },
     { id: "add", label: "Add Customer" },
-    { id: "layaways", label: "Layaway Manager" },
-    { id: "ship", label: "Shipments" },
+    { id: "layaways", label: "Layaways" },
+    { id: "ship", label: "Shipments Hub" },
     { id: "rms-charge", label: "RMS Charge" },
     { id: "duplicate-review", label: "Duplicate Review" },
   ],
-  alterations: [{ id: "queue", label: "Work Queue" }],
+  alterations: [
+    { id: "queue", label: "Queue" },
+  ],
   orders: [
     { id: "open", label: "Open Orders" },
-    { id: "all", label: "Closed Orders" },
+    { id: "all", label: "Order History" },
+    { id: "returns", label: "Returns" },
+    { id: "pickups", label: "Pending Pickups" },
   ],
   inventory: [
-    { id: "list", label: "Inventory List" },
-    { id: "add", label: "Add Inventory" },
+    { id: "list", label: "List" },
+    { id: "purchase_orders", label: "Purchase Orders" },
     { id: "receiving", label: "Receiving" },
-    { id: "categories", label: "Categories" },
-    { id: "discount_events", label: "Promotions & Sales" },
-    { id: "import", label: "Import" },
     { id: "vendors", label: "Vendors" },
-    { id: "physical", label: "Physical Count" },
-    { id: "damaged", label: "Damaged Inventory" },
-    { id: "rtv", label: "Return to Vendor" },
+    { id: "add", label: "Add Item" },
+    { id: "categories", label: "Categories" },
+    { id: "discount_events", label: "Discount Events" },
+    { id: "import", label: "Import" },
+    { id: "physical", label: "Physical Counts" },
+    { id: "damaged", label: "Damaged" },
+    { id: "rtv", label: "RTV" },
+    { id: "intelligence", label: "Intelligence" },
   ],
   weddings: [
     { id: "action-board", label: "Action Board" },
     { id: "parties", label: "Parties" },
     { id: "calendar", label: "Calendar" },
   ],
-  "gift-cards": [
-    { id: "inventory", label: "Card Inventory" },
-    { id: "issue-purchased", label: "Issue Purchased" },
-    { id: "issue-donated", label: "Issue Donated" },
-  ],
-  loyalty: [
-    { id: "eligible", label: "Monthly Eligible" },
-    { id: "history", label: "History" },
-    { id: "adjust", label: "Adjust Points" },
-    { id: "settings", label: "Program Settings" },
-  ],
+  "gift-cards": [],
+  loyalty: [],
   staff: [
     { id: "team", label: "Team" },
     { id: "tasks", label: "Tasks" },
@@ -106,6 +95,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   ],
   reports: [],
   dashboard: [],
+  "pos-dashboard": [],
   settings: [
     { id: "profile", label: "Profile" },
     { id: "general", label: "General" },
@@ -124,5 +114,13 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "help-center", label: "Help Center" },
     { id: "bug-reports", label: "Bug Reports" },
     { id: "meilisearch", label: "Meilisearch" },
+    { id: "stripe", label: "Stripe" },
+    { id: "quickbooks", label: "QuickBooks" },
+    { id: "weather", label: "Weather" },
+    { id: "podium", label: "Podium" },
+    { id: "insights", label: "Insights" },
   ],
+  shipping: [],
+  tasks: [],
+  layaways: [],
 };

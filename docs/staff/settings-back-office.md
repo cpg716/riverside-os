@@ -19,6 +19,8 @@
 1. **Settings** → **Staff access defaults** (requires **settings.admin** **or** **staff.manage_access**).
 2. Edit **role permissions** and **role discount caps** with care; per-person edits stay on each profile in **Staff → Team**.
 
+## Profile
+
 1. **Settings** → **Profile**.
 2. Update **Personal Info** (Name, Phone, Email) or your **Staff Icon**.
 3. **CRM Linkage**: Link your profile to your customer account for automatic employee discount application and transaction history.
@@ -115,6 +117,27 @@ Typical areas (labels may group differently by build):
 
 Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Submissions include **correlation id**, optional **screenshot**, **server log snapshot** (bounded in-process **`tracing`** — not a full host log; **[OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**), and **client diagnostics**. Treat as **internal ops data** (PII risk). Retention: **`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`** — **`docs/PLAN_BUG_REPORTS.md`**.
 
+## ROS Dev Center
+
+**Purpose:** Developer/admin command center for operations health, station telemetry, alerts, guarded maintenance actions, and Bug Manager incident correlation.
+
+**Where in ROS:** **Settings → ROS Dev Center**.  
+**Permissions:** **`ops.dev_center.view`** for read access; **`ops.dev_center.actions`** to acknowledge alerts, run guarded actions, and link bugs to incidents.
+
+### What to use it for
+
+1. **Ops Health Board**: Confirm DB/API/integrations are healthy from one status panel.
+2. **Station Fleet Board**: Verify each Register station heartbeat, version, and online/offline transitions.
+3. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
+4. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
+5. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
+
+### Guardrails
+
+- Do not run guarded actions during business hours.
+- Always include a meaningful reason (this is captured in immutable action audit history).
+- Use Dev Center as operational control, not as a substitute for POS/Back Office transactional workflows.
+
 ## Online store
 
 1. **Settings** → **Online store** (requires **online_store.manage** or admin).
@@ -132,6 +155,7 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 | 403 on General | Not **settings.admin** | Owner |
 | Missing **Online store** tab | No **online_store.manage** and not admin | Owner / **Staff → Team** (access) or template in **Settings → Staff access defaults** |
 | Missing **Help Center Manager** tab | No **help.manage** permission | Owner / admin updates role or individual access |
+| Missing **ROS Dev Center** tab | No **ops.dev_center.view** permission | Owner / admin updates role or individual access |
 
 ## When to get a manager
 
@@ -148,8 +172,9 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 - [../../REMOTE_ACCESS_GUIDE.md](../../REMOTE_ACCESS_GUIDE.md)
 - [../WEATHER_VISUAL_CROSSING.md](../WEATHER_VISUAL_CROSSING.md)
 - [../ONLINE_STORE.md](../ONLINE_STORE.md)
+- [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md)
 - [../MANUAL_CREATION.md](../MANUAL_CREATION.md)
 - [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md)
 - [pos-settings.md](pos-settings.md)
 
-**Last reviewed:** 2026-04-11
+**Last reviewed:** 2026-04-18

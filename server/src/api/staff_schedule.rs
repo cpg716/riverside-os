@@ -42,6 +42,7 @@ pub struct PutWeeklyBody {
 pub struct WeekdayEntry {
     pub weekday: i16,
     pub works: bool,
+    pub shift_label: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -49,6 +50,8 @@ pub struct ExceptionBody {
     pub staff_id: Uuid,
     pub exception_date: NaiveDate,
     pub kind: DbStaffScheduleExceptionKind,
+    #[serde(default)]
+    pub shift_label: Option<String>,
     #[serde(default)]
     pub notes: Option<String>,
 }
@@ -65,12 +68,25 @@ pub struct MarkAbsenceBody {
     pub absence_date: NaiveDate,
     pub kind: DbStaffScheduleExceptionKind,
     #[serde(default)]
+    pub shift_label: Option<String>,
+    #[serde(default)]
     pub notes: Option<String>,
     /// Clear salesperson on same-calendar-day appointments that match this staff member.
     #[serde(default)]
     pub unassign_appointments: bool,
     #[serde(default)]
     pub reassign_to_staff_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BulkPutWeeklyBody {
+    pub schedules: Vec<StaffWeeklySchedule>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StaffWeeklySchedule {
+    pub staff_id: Uuid,
+    pub weekdays: Vec<WeekdayEntry>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -139,6 +155,7 @@ pub fn router() -> Router<AppState> {
         .route("/eligible", get(get_eligible))
         .route("/weekly/{staff_id}", get(get_weekly))
         .route("/weekly", put(put_weekly))
+        .route("/weekly/bulk", post(post_bulk_weekly))
         .route(
             "/exceptions",
             get(list_exceptions)
@@ -186,15 +203,37 @@ async fn put_weekly(
 ) -> Result<Json<serde_json::Value>, Response> {
     let _actor = require_editor(&state, &headers).await?;
     let staff_id = body.staff_id;
-    let mut flat: Vec<(i16, bool)> = body
+    let mut flat: Vec<(i16, bool, Option<String>)> = body
         .weekdays
         .into_iter()
-        .map(|w| (w.weekday, w.works))
+        .map(|w| (w.weekday, w.works, w.shift_label))
         .collect();
-    flat.sort_by_key(|(d, _)| *d);
+    flat.sort_by_key(|(d, _, _)| *d);
     staff_schedule::put_weekly_availability(&state.db, staff_id, &flat)
         .await
         .map_err(map_err)?;
+    Ok(Json(json!({ "ok": true })))
+}
+
+async fn post_bulk_weekly(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<BulkPutWeeklyBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _actor = require_editor(&state, &headers).await?;
+    let mut tx = state.db.begin().await.map_err(|e| map_err(StaffScheduleError::Database(e)))?;
+    for s in body.schedules {
+        let mut flat: Vec<(i16, bool, Option<String>)> = s
+            .weekdays
+            .into_iter()
+            .map(|w| (w.weekday, w.works, w.shift_label))
+            .collect();
+        flat.sort_by_key(|(d, _, _)| *d);
+        staff_schedule::put_weekly_availability_in_tx(&mut tx, s.staff_id, &flat)
+            .await
+            .map_err(map_err)?;
+    }
+    tx.commit().await.map_err(|e| map_err(StaffScheduleError::Database(e)))?;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -224,6 +263,7 @@ async fn post_exception(
         body.staff_id,
         body.exception_date,
         body.kind,
+        body.shift_label.as_deref(),
         body.notes.as_deref(),
         actor,
     )
@@ -279,6 +319,7 @@ async fn post_mark_absence(
         body.staff_id,
         body.absence_date,
         body.kind,
+        body.shift_label.as_deref(),
         body.notes.as_deref(),
         actor,
         body.unassign_appointments,

@@ -58,14 +58,23 @@ FROM (
          (SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'vendors' AND column_name = 'is_active')),
          'column vendors.is_active'),
         ('14_commission_payout.sql',
-         (SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'order_items' AND column_name = 'commission_payout_finalized_at')),
-         'column order_items.commission_payout_finalized_at'),
+         (SELECT EXISTS (
+            SELECT 1 FROM information_schema.columns
+            WHERE table_schema = 'public'
+              AND table_name IN ('order_items', 'transaction_lines')
+              AND column_name = 'commission_payout_finalized_at'
+         )),
+         'column order_items|transaction_lines.commission_payout_finalized_at'),
         ('15_register_session_lifecycle.sql',
          (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'register_cash_adjustments')),
          'table register_cash_adjustments'),
         ('16_order_attribution_audit.sql',
-         (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_attribution_audit')),
-         'table order_attribution_audit'),
+         (SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN ('order_attribution_audit', 'transaction_attribution_audit')
+         )),
+         'table order_attribution_audit|transaction_attribution_audit'),
         ('17_staff_authority.sql',
          (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'staff_access_log')),
          'table staff_access_log'),
@@ -79,8 +88,12 @@ FROM (
          (SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'wedding_parties' AND column_name = 'party_name')),
          'column wedding_parties.party_name'),
         ('21_orders_audit_and_refund_queue.sql',
-         (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'order_refund_queue')),
-         'table order_refund_queue'),
+         (SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables
+            WHERE table_schema = 'public'
+              AND table_name IN ('order_refund_queue', 'transaction_refund_queue')
+         )),
+         'table order_refund_queue|transaction_refund_queue'),
         ('22_product_variant_barcode.sql',
          (SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'product_variants' AND column_name = 'barcode')),
          'column product_variants.barcode'),
@@ -223,9 +236,18 @@ FROM (
           AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'staff_auth_failure_event')),
          'tables integration_alert_state + staff_auth_failure_event'),
         ('62_ai_platform.sql',
-         (SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_doc_chunk')
-          AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_saved_report')),
-         'tables ai_doc_chunk + ai_saved_report'),
+         (SELECT
+            (
+              EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_doc_chunk')
+              AND EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_saved_report')
+            )
+            OR
+            (
+              NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_doc_chunk')
+              AND NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_saved_report')
+            )
+         ),
+         'tables ai_doc_chunk + ai_saved_report (or retired by migration 78)'),
         ('63_customer_hub_rbac.sql',
          (SELECT EXISTS (
             SELECT 1 FROM staff_role_permission
@@ -240,11 +262,18 @@ FROM (
             WHERE permission_key = 'customers.merge' AND role = 'salesperson' AND allowed = true)),
          'salesperson customers_duplicate_review + customers.merge'),
         ('65_ai_doc_trgm.sql',
-         (SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'pg_trgm')
-          AND EXISTS (
-            SELECT 1 FROM pg_indexes
-            WHERE schemaname = 'public' AND indexname = 'idx_ai_doc_chunk_content_trgm')),
-         'extension pg_trgm + idx_ai_doc_chunk_content_trgm'),
+         (SELECT
+            (
+              EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_doc_chunk')
+              AND EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'idx_ai_doc_chunk_content_trgm')
+            )
+            OR
+            (
+              NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'ai_doc_chunk')
+              AND NOT EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'idx_ai_doc_chunk_content_trgm')
+            )
+         ),
+         'idx_ai_doc_chunk_content_trgm present with ai_doc_chunk, or both retired'),
         ('66_register_session_lanes.sql',
          (SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'register_sessions' AND column_name = 'register_lane')
           AND EXISTS (SELECT 1 FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'register_sessions_open_lane_uidx')),

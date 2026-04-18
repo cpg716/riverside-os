@@ -31,6 +31,7 @@ Riverside OS hides **entire tabs** or **subsections** when your role does not in
 | **Gift Cards** | **gift_cards.manage** |
 | **Settings** (most tabs) | **settings.admin** |
 | **Settings → Online store** | **online_store.manage** (admins also have access) |
+| **Settings → ROS Dev Center** | **ops.dev_center.view** |
 | **Appointments** | **weddings.view** (shared with wedding reads) |
 | **Loyalty** (any of Eligible / Adjust / Settings) | **loyalty.program_settings** and/or **loyalty.adjust_points** |
 | **Staff → Commission payouts** (finalize payout runs) | **insights.commission_finalize** |
@@ -50,6 +51,7 @@ Riverside OS hides **entire tabs** or **subsections** when your role does not in
 | **Hub** — **Orders** tab (history) | **orders.view** |
 | **Staff → Team** (+ Add Staff / link profile) | **staff.edit** |
 | **Pick which register to attach to** when several are open; **list open registers** for satellite link | **register.session_attach** (see **[Till group / lanes](../TILL_GROUP_AND_REGISTER_OPEN.md)** and **[STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)**) |
+| **Run ROS Dev Center guarded actions** | **ops.dev_center.actions** |
 
 **Admin role:** In software, **admin** is treated as having the **full permission catalog** so a mis-seeded role row cannot lock out the store.
 
@@ -99,4 +101,4 @@ Riverside OS uses **Role-Based Authorization** to reduce friction for administra
 - [00-getting-started.md](00-getting-started.md)
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-18

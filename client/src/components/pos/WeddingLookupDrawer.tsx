@@ -8,8 +8,10 @@ import {
   Calendar,
   ChevronRight,
   UserPlus,
-  ArrowLeft
+  ArrowLeft,
+  Heart
 } from "lucide-react";
+
 import { splitWeddingPartyWithMembers } from "../../lib/weddingPartyApiShape";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -48,6 +50,8 @@ interface WeddingLookupDrawerProps {
   /** When set, choosing a party opens Group Pay mode for split deposits / payouts. */
   preferGroupPay?: boolean;
   onPreferGroupPayConsumed?: () => void;
+  onOpenFullParty?: (partyId: string) => void;
+
 }
 
 export default function WeddingLookupDrawer({
@@ -57,6 +61,7 @@ export default function WeddingLookupDrawer({
   onGroupPay,
   preferGroupPay = false,
   onPreferGroupPayConsumed,
+  onOpenFullParty,
 }: WeddingLookupDrawerProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const posHeaders = useCallback(
@@ -221,7 +226,21 @@ export default function WeddingLookupDrawer({
                 {selectedParty ? `Event: ${selectedParty.event_date}` : "Search & Link Context"}
               </p>
             </div>
+            {selectedParty && onOpenFullParty && (
+               <button
+                 type="button"
+                 onClick={() => {
+                   onOpenFullParty(selectedParty.id);
+                   onClose();
+                 }}
+                 className="ml-auto h-9 px-4 flex items-center gap-2 rounded-xl bg-app-accent/10 border border-app-accent/20 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-sm"
+               >
+                 <Heart size={14} fill="currentColor" />
+                 Manage Party
+               </button>
+            )}
           </div>
+
           <button 
             onClick={onClose}
             className="h-10 w-10 flex items-center justify-center rounded-2xl bg-app-surface-2 text-app-text-muted hover:bg-red-500/10 hover:text-red-500 transition-all border border-app-border shadow-sm"

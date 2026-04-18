@@ -3,6 +3,7 @@
 pub mod api;
 pub mod auth;
 pub mod db_startup_diag;
+pub mod launcher;
 pub mod logic;
 pub mod middleware;
 pub mod models;

@@ -172,16 +172,23 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
         headers: backofficeHeaders(),
       });
       if (res.ok) setCards((await res.json()) as GiftCardRow[]);
+    } catch {
+      // Keep workspace mounted during transient API outages.
+      setCards([]);
     } finally {
       setLoading(false);
     }
   }, [filterKind, filterStatus, openOnly, backofficeHeaders]);
 
   const loadSummary = useCallback(async () => {
-    const res = await fetch(`${BASE}/api/gift-cards/summary`, {
-      headers: backofficeHeaders(),
-    });
-    if (res.ok) setSummary((await res.json()) as GiftCardSummary);
+    try {
+      const res = await fetch(`${BASE}/api/gift-cards/summary`, {
+        headers: backofficeHeaders(),
+      });
+      if (res.ok) setSummary((await res.json()) as GiftCardSummary);
+    } catch {
+      // Preserve last known summary when API is unavailable.
+    }
   }, [backofficeHeaders]);
 
   useEffect(() => {

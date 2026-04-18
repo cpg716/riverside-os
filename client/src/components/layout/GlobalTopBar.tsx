@@ -14,6 +14,7 @@ import {
   Moon,
   LogOut,
   Users,
+  User,
   ShieldCheck,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
@@ -26,6 +27,7 @@ import { BugReportTriggerButton } from "../bug-report/BugReportFlow";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import type { ThemeMode } from "../../App";
+import type { SidebarTabId } from "./sidebarSections";
 
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
@@ -124,6 +126,7 @@ interface GlobalTopBarProps {
   onThemeToggle: () => void;
   cashierName?: string | null;
   cashierAvatarKey?: string | null;
+  onNavigateToTab?: (tab: SidebarTabId, section?: string) => void;
 }
 
 function looksLikeSku(q: string): boolean {
@@ -220,6 +223,7 @@ export default function GlobalTopBar({
   onThemeToggle,
   cashierName,
   cashierAvatarKey,
+  onNavigateToTab,
 }: GlobalTopBarProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -1180,6 +1184,19 @@ export default function GlobalTopBar({
                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Identity</p>
                    <p className="text-xs font-black truncate text-app-text">{staffDisplayName || "Authenticated Staff"}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    if (onNavigateToTab) {
+                      onNavigateToTab("settings", "profile");
+                    }
+                  }}
+                  className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-xs font-bold text-app-text hover:bg-app-surface-2 transition-all active:scale-95"
+                >
+                  <User size={16} className="text-app-accent" />
+                  <span>My Profile</span>
+                </button>
                 <button
                   type="button"
                   onClick={() => {

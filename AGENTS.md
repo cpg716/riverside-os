@@ -64,6 +64,7 @@ Then read the domain doc most relevant to the task.
 - **Customer Hub / RBAC** — `docs/CUSTOMER_HUB_AND_RBAC.md`
 - **Search / pagination / Meilisearch** — `docs/SEARCH_AND_PAGINATION.md`
 - **Hardware / Printers / Scanners** — `docs/HARDWARE_MANAGEMENT.md`
+- **ROS Dev Center / Ops command center** — `docs/ROS_DEV_CENTER.md`
 - **Appointments / scheduler** — `docs/APPOINTMENTS_AND_CALENDAR.md`
 - **Notification center** — `docs/PLAN_NOTIFICATION_CENTER.md`
 - **Stripe vault / credits** — `docs/STRIPE_POWER_INTEGRATION.md`
@@ -83,9 +84,9 @@ If a change affects a staff-facing workflow, update the relevant staff docs in t
 
 Primary codepaths:
 
-- POS (incl. full parity for Customers, Shipping, Orders, Loyalty, Gift Cards, Alterations, and Layaways)
+- POS (incl. full parity for Customers, Shipping, Orders, Loyalty, Gift Cards, Alterations, Layaways, and integrated Wedding Management)
 - Inventory (incl. POS-optimized Receiving)
-- Weddings / parties
+- Weddings / parties (Standalone and Integrated Hub)
 - Customers / CRM
 - Register sessions
 - Reporting / insights
@@ -309,11 +310,13 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | Till group / multi-lane register             | `server/src/api/sessions.rs`, `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, register gate context                                     |
 | Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx` |
 | Shell / layout / drawers                     | `client/src/components/layout/`                                                                                                                                    |
+| Unified Engine / Host Mode                   | `client/src-tauri/src/unified_server.rs`, `server/src/launcher.rs`                                                                                                 |
 | Customers CRM / Hub                          | `client/src/components/customers/`                                                                                                                                 |
 | Transactions / fulfillment / returns         | `server/src/api/transactions.rs`, `server/src/logic/`, `client/src/components/orders/`                                                                             |
 | Scheduler / appointments                     | `client/src/components/scheduler/`, `client/src/lib/weddingApi.ts`                                                                                                 |
 | Inventory / control board / importer         | `client/src/components/inventory/`, related server inventory routes                                                                                                |
 | Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI                                                                            |
+| ROS Dev Center ops board / guarded actions   | `server/src/api/ops.rs`, `server/src/logic/ops_dev_center.rs`, `client/src/components/settings/RosDevCenterPanel.tsx`, `docs/ROS_DEV_CENTER.md`                 |
 | Staff tasks / scheduling                     | `server/src/api/tasks.rs`, `server/src/logic/tasks.rs`, `server/src/logic/staff_schedule.rs`, `client/src/components/tasks/`                                       |
 | Settings / Hardware / Scanners               | `server/src/api/settings.rs`, `PrintersAndScannersPanel.tsx`, `SettingsWorkspace.tsx`                                                                                                               |
 | Weather / Visual Crossing                    | `server/src/logic/weather.rs`, `server/src/api/weather.rs`, settings UI                                                                                            |
@@ -471,6 +474,8 @@ When modifying these components, verify behavior in both **Operations** (BO) and
 
 The main shell component is the central hub of the application, responsible for managing UI state and rendering content based on user interactions and application state. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, global search drawer, deep link handling, permissions and access control, theme mode, error handling, and navigation and routing.
 
+- **Standalone Architecture**: `server/` (Rust Axum) + `client/` (React/Tauri).
+- **Unified Hybrid Model (v0.2.1+)**: The Tauri shell optionally embeds the backend engine as a background service, allowing for "Single PC Server" deployments where the UI and API update together.
 - **AppShell Architecture**: In v0.2.0, the `AppShell` component was introduced as a strict boundary for authenticated users. The `GlobalTopBar` and persistent navigation layouts MUST only be rendered within the `AppShell`.
 - Unauthenticated interfaces (e.g., `BackofficeSignInGate`) must sit outside the `AppShell` to maintain clean, centered layouts without navigational chrome.
 - Register and Weddings are embedded inside the main Back Office shell.
@@ -538,7 +543,8 @@ The main shell component is the central hub of the application, responsible for 
   - **Customers**: Full mirrored BO Customers workspace
   - **Shipping**: Full mirrored BO Shipments hub
   - **Inventory**: POS-optimized product list and receiving
-  - **Alterations / Weddings / Loyalty / Gift Cards / Layaways**: Standardized mirrored workspaces
+  - **Weddings**: Full integrated Wedding Management Hub (v0.2.1+)
+  - **Alterations / Loyalty / Gift Cards / Layaways**: Standardized mirrored workspaces
 - Do not relabel the whole shell “Register”
 
 ### POS design invariants

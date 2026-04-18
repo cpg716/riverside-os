@@ -42,6 +42,8 @@ fn role_metabase_groups(role: DbStaffRole) -> Vec<String> {
         DbStaffRole::Admin => vec!["ROS Admin".to_string(), "All Users".to_string()],
         DbStaffRole::Salesperson => vec!["ROS Sales".to_string(), "All Users".to_string()],
         DbStaffRole::SalesSupport => vec!["ROS Sales Support".to_string(), "All Users".to_string()],
+        DbStaffRole::StaffSupport => vec!["ROS Staff Support".to_string(), "All Users".to_string()],
+        DbStaffRole::Alterations => vec!["ROS Alterations".to_string(), "All Users".to_string()],
     }
 }
 

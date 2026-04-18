@@ -57,6 +57,7 @@ interface TodayFloorStaffRow {
   full_name: string;
   role: string;
   avatar_key: string;
+  shift_label?: string | null;
 }
 
 interface MorningCompassBundle {
@@ -607,10 +608,18 @@ export default function OperationalHome({
                             <img src={staffAvatarUrl(staff.avatar_key)} className="h-8 w-8 rounded-lg bg-app-accent/20" alt="" />
                             <div>
                                <p className="text-xs font-bold text-app-text">{staff.full_name}</p>
-                               <p className="text-[9px] font-medium text-app-text-muted">{floorRoleLabel(staff.role)}</p>
+                               <div className="flex items-center gap-1.5">
+                                 <p className="text-[9px] font-medium text-app-text-muted">{floorRoleLabel(staff.role)}</p>
+                                 {staff.shift_label && (
+                                   <>
+                                     <span className="text-[9px] text-app-text-muted opacity-40">·</span>
+                                     <span className="text-[9px] font-black text-app-accent uppercase tracking-tighter">{staff.shift_label}</span>
+                                   </>
+                                 )}
+                               </div>
                             </div>
                          </div>
-                         <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                         <div className={cn("h-2 w-2 rounded-full", staff.shift_label?.toLowerCase().includes("off") ? "bg-rose-500/30" : "bg-emerald-500")} />
                       </div>
                    ))
                  )}

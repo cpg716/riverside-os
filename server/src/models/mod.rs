@@ -96,6 +96,8 @@ pub enum DbStaffRole {
     Admin,
     Salesperson,
     SalesSupport,
+    StaffSupport,
+    Alterations,
 }
 
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]

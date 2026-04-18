@@ -57,12 +57,14 @@ Operational behavior (refund queue, returns, register session bypass): **`docs/O
 | `loyalty.program_settings` | `GET`/`PATCH` loyalty settings, monthly eligible (PII). |
 | `weddings.view` | Read wedding routes (SSE, lists, GET party/member, ledger, financial context). |
 | `weddings.mutate` | Create/update/delete parties, members, appointments, restore. |
-| `wedding_manager.open` | Open the full Wedding Manager shell from POS / Back Office navigation. |
+| `wedding_manager.open` | Open the Wedding Management Hub from POS (Integrated Hub) or Back Office (Standalone Shell) navigation. In POS mode, this preserves the register context while providing full management access. |
 | `register.reports` | Back Office access to register reconciliation and cash adjustment APIs without a POS session token. |
 | `register.open_drawer` | Back Office **paid-in / paid-out** drawer adjustments (`POST /api/sessions/{id}/adjustments`) **without** matching POS session token; open register devices still use session headers. Seeded in migration **50**. |
 | `register.shift_handoff` | **`POST /api/sessions/{id}/shift-primary`** — set **register shift primary** (`shift_primary_staff_id`) without closing the drawer; valid POS session token for that session **or** this permission from Back Office. Seeded in migration **55**. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
 | `register.session_attach` | **`GET /api/sessions/list-open`** and **`POST /api/sessions/{id}/attach`** — pick or join an open lane when several registers are in use (migration **66**). Satellite open UI also calls **list-open** to link lane 2+ to an open **Register #1** in the same **`till_close_group_id`** (migration **67**). |
 | `orders.suit_component_swap` | **`POST /api/orders/{id}/items/{line}/suit-swap`** — inventory-aware variant replacement on a line. Seeded in migration **50**. |
+| `ops.dev_center.view` | **Settings → ROS Dev Center** read access (health, integrations, stations, alerts, audit, bug overlays). Seeded in migration **149** (admin default only). |
+| `ops.dev_center.actions` | ROS Dev Center guarded mutations (alert ack, guarded action execution, bug↔incident links). Requires explicit reason + dual confirmation and writes immutable action-audit rows. Seeded in migration **149** (admin default only). |
 
 **Till close group (migration 67):** Open **Register #1** creates a new **`till_close_group_id`** (one physical drawer: float, paid in/out, expected/actual cash). **Satellite lanes (2+)** must send **`primary_session_id`** of an open **lane 1** session and use **`opening_float` = 0**; cash tenders on satellites roll into the primary’s Z. **Z-close / `close_session`** runs only on **lane 1** and closes **all** open sessions in the group in one transaction with a shared **`z_report_json`**. **Admin** entering POS open flow: if **Register #1** is not open, the UI asks whether **they** open **#1** (opening cashier) or **another terminal** opens **#1** first (**Check again** polls **`list-open`**). With **#1** already open, **admin** defaults to **Register #2** for Back Office-style POS use (no float); they can still pick **#1** from the dropdown. **Lane 2+** has no separate close control in POS. Back Office **Orders → Process refund** shows **Go to POS** when no till is open (**`GET /api/sessions/current`** **404**). Full detail: **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`**.
 
@@ -174,6 +176,8 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `tasks.view_team` | Open team board of peers’ open task instances. |
 | `tasks.complete` | Own recurring task instances; **Staff → Tasks** / Operations **My tasks** / POS **Tasks** tab. |
 | `online_store.manage` | **Settings → Online store**: CMS pages (raw HTML + GrapesJS Studio), coupons, **`GET`/`PATCH` `/api/admin/store/*`**. **`settings.admin`** also allows the same admin store routes. Seeded in migration **73** — **`docs/ONLINE_STORE.md`**, **`docs/PLAN_ONLINE_STORE_MODULE.md`**. |
+| `ops.dev_center.view` | **Settings → ROS Dev Center** read-only operational visibility. |
+| `ops.dev_center.actions` | Run Dev Center guarded actions/mutations with reason + dual confirmation semantics. |
 
 ---
 
@@ -212,7 +216,7 @@ Sensitive changes are logged to **`staff_access_log`** (e.g. template saves, **`
 | `client/src/components/settings/SettingsWorkspace.tsx` | **Staff access defaults** subsection: lazy-loaded template editors. |
 | `client/src/components/pos/Cart.tsx` | When cart **`customerId`** equals the signed-in staff **`employee_customer_id`** (from context), new lines default to **`employee_price`** when present. |
 | `client/src/App.tsx` | Redirects away from tabs/subsections the user cannot access after permissions load; renders **`RegisterSessionBootstrap`** as a sibling under **`BackofficeAuthProvider`** (before the main shell). |
-| `client/src/components/layout/Sidebar.tsx` | Hides nav items and subsections based on permissions. Profile **title**: register **`cashierName`** when a till session is open; else **`staffDisplayName`** (**`full_name`** from **`GET /api/staff/effective-permissions`**); else **“No Active Session”**. Profile **image**: **`staffAvatarUrl`** from **`staffAvatarKey`** in context, or session **`cashierAvatarKey`** when the till is open. **`Settings` → Profile** + **`PATCH /api/staff/self/avatar`**. **`PosSidebar.tsx`** matches for POS mode. |
+| `client/src/components/layout/Sidebar.tsx` | Hides nav items and subsections based on permissions. Profile **title**: **`staffDisplayName`** (**`full_name`** from **`GET /api/staff/effective-permissions`**) is authoritative; register **`cashierName`** is secondary session context. Fallback remains **“No Active Session”**. Profile **image**: **`staffAvatarUrl`** from **`staffAvatarKey`** in context, with session **`cashierAvatarKey`** as fallback. **`Settings` → Profile** + **`PATCH /api/staff/self/avatar`**. **`PosSidebar.tsx`** matches for POS mode. |
 
 Any `fetch` to a permission-gated API must pass **`...(backofficeHeaders() as Record<string, string>)`** (or merge into `Headers`) so the server can resolve effective permissions. For **`GET /api/sessions/current`**, prefer **`mergedPosStaffHeaders(backofficeHeaders)`** whenever **`useBackofficeAuth()`** is available; otherwise **`sessionPollAuthHeaders()`**. **404** = no open till with valid auth; **401** = missing or invalid staff/POS headers (or stale POS token after a DB reset — client clears POS **`sessionStorage`** and retries where implemented).
 

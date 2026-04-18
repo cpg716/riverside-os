@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import PosSidebar, { type PosTabId } from "../pos/PosSidebar";
 import Cart from "../pos/Cart";
@@ -19,9 +19,10 @@ const InventoryWorkspace = lazy(() => import("../inventory/InventoryWorkspace"))
 const GiftCardsWorkspace = lazy(() => import("../gift-cards/GiftCardsWorkspace"));
 
 const AlterationsWorkspace = lazy(() => import("../alterations/AlterationsWorkspace"));
+const WeddingManagerApp = lazy(() => import("../wedding-manager/WeddingManagerApp"));
 import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
-import type { SidebarTabId } from "./sidebarSections";
+import { SIDEBAR_SUB_SECTIONS, type SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { LogOut, ShieldCheck, ShieldAlert, ShoppingCart } from "lucide-react";
 
@@ -71,6 +72,8 @@ interface PosShellProps {
   onToggleCollapse: () => void;
   activeSubSection: string;
   onSubSectionChange: (id: string) => void;
+  pendingWmPartyId: string | null;
+  onClearPendingWmPartyId: () => void;
 
 }
 
@@ -103,56 +106,63 @@ export default function PosShell({
   onToggleCollapse,
   activeSubSection,
   onSubSectionChange,
-
+  pendingWmPartyId,
+  onClearPendingWmPartyId,
+  activeTab,
+  onTabChange,
 }: PosShellProps) {
-  const [activePosTab, setActivePosTab] = useState<PosTabId>(() => {
-    const search = new URLSearchParams(window.location.search);
-    const t = search.get("tab");
-    if (t === "dashboard" || t === "register" || t === "tasks" || t === "customers" || t === "inventory" || t === "orders" || t === "weddings" || t === "alterations" || t === "reports" || t === "gift-cards" || t === "loyalty" || t === "layaways" || t === "shipping" || t === "settings") {
-      return t as PosTabId;
+  const [activePosTab, setActivePosTab] = useState<PosTabId>(activeTab as PosTabId || "pos-dashboard");
+
+  useEffect(() => {
+    if (activeTab && activeTab !== activePosTab) {
+      setActivePosTab(activeTab as PosTabId);
     }
-    return "register";
-  });
+  }, [activeTab, activePosTab]);
   const [managerMode, setManagerMode] = useState(false);
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
   const { hasPermission, permissionsLoaded, setStaffCredentials } = useBackofficeAuth();
   const [shiftHandoffOpen, setShiftHandoffOpen] = useState(false);
-  const lastLandingSessionRef = useRef<string | null>(null);
-
-  const landingTabConsumedRef = useRef(false);
   useEffect(() => {
-    if (!isRegisterOpen || !sessionId) { 
-      lastLandingSessionRef.current = null; 
-      landingTabConsumedRef.current = false;
-      return; 
-    }
-    if (lastLandingSessionRef.current === sessionId) return;
-    lastLandingSessionRef.current = sessionId;
-
-    // If we landed with a specific URL tab, don't auto-reset to dashboard on the first run of this session
-    if (!landingTabConsumedRef.current) {
-      const search = new URLSearchParams(window.location.search);
-      if (search.has("tab")) {
-        landingTabConsumedRef.current = true;
-        return;
-      }
-    }
+    if (!isRegisterOpen || !sessionId) return;
+    
+    const landingKey = `ros.pos.landed.${sessionId}`;
+    if (sessionStorage.getItem(landingKey)) return;
+    sessionStorage.setItem(landingKey, "true");
 
     const pendingSku = pendingInventorySku?.trim() ?? "";
     const pending = pendingPosCustomer || pendingPosTransactionId || (pendingSku.length > 0 ? pendingSku : null) || pendingWeddingPosLink;
-    if (pending) { setActivePosTab("register"); } else { setActivePosTab("dashboard"); }
+    if (pending) { 
+      setActivePosTab("register"); 
+    } else { 
+      setActivePosTab("pos-dashboard"); 
+    }
   }, [isRegisterOpen, sessionId, pendingPosCustomer, pendingPosTransactionId, pendingInventorySku, pendingWeddingPosLink]);
 
   useEffect(() => {
     if (activePosTab !== "alterations") return;
     if (permissionsLoaded && !hasPermission("alterations.manage")) {
-      setActivePosTab(isRegisterOpen && sessionId ? "dashboard" : "register");
+      setActivePosTab(isRegisterOpen && sessionId ? "pos-dashboard" : "register");
     }
   }, [activePosTab, permissionsLoaded, hasPermission, isRegisterOpen, sessionId]);
 
   useEffect(() => {
-    onSubSectionChange(activePosTab);
-  }, [activePosTab, onSubSectionChange]);
+    const nextTab = activePosTab as SidebarTabId;
+    if (activeTab !== nextTab) {
+      onTabChange(nextTab);
+    }
+
+    const subSections = SIDEBAR_SUB_SECTIONS[nextTab] ?? [];
+    const defaultSubSection = subSections[0]?.id;
+    if (defaultSubSection && activeSubSection !== defaultSubSection) {
+      onSubSectionChange(defaultSubSection);
+    }
+  }, [
+    activePosTab,
+    activeTab,
+    activeSubSection,
+    onSubSectionChange,
+    onTabChange,
+  ]);
 
   const handleSessionOpenedWithAuth: typeof onSessionOpened = (p) => {
     const code = p.cashierCode.trim();
@@ -233,13 +243,22 @@ export default function PosShell({
       <div className="flex flex-1 flex-col">
 
         <div className="flex flex-1 flex-col workspace-snap" onClick={(e) => { if (e.target !== e.currentTarget) return; if (!collapsed) onToggleCollapse(); }}>
-          {activePosTab === "dashboard" && (!isRegisterOpen || !sessionId ? (
+          {activePosTab === "pos-dashboard" && (!isRegisterOpen || !sessionId ? (
               <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Matrix Inactive: Open till to initialize dashboard.</div>
             ) : (
-              <RegisterDashboard registerOrdinal={registerOrdinal} cashierName={cashierName} onGoToRegister={() => setActivePosTab("register")} onGoToWeddings={() => setActivePosTab("weddings")} onOpenWeddingParty={onOpenWeddingParty} />
+              <RegisterDashboard 
+                registerOrdinal={registerOrdinal} 
+                cashierName={cashierName} 
+                onGoToRegister={() => setActivePosTab("register")} 
+                onGoToWeddings={() => setActivePosTab("weddings")} 
+                onOpenWeddingParty={(partyId) => {
+                  setActivePosTab("weddings");
+                  onOpenWeddingParty?.(partyId);
+                }} 
+              />
             ))}
 
-          {(activePosTab === "register" || activePosTab === "weddings") && (
+          {(activePosTab === "register") && (
             <div className="relative flex min-h-0 flex-1 flex-col">
               {!isRegisterOpen ? ( <RegisterOverlay onSessionOpened={handleSessionOpenedWithAuth} /> ) : sessionId ? (
                 <Cart
@@ -252,13 +271,17 @@ export default function PosShell({
                   initialOrderId={pendingPosTransactionId}
                   onInitialOrderConsumed={clearPendingPosOrder}
                   managerMode={managerMode}
-                  initialWeddingLookupOpen={activePosTab === "weddings"}
+                  initialWeddingLookupOpen={false}
                   initialWeddingPosLink={pendingWeddingPosLink}
                   onInitialWeddingPosLinkConsumed={clearPendingWeddingPosLink}
                   pendingInventorySku={pendingInventorySku}
                   onPendingInventorySkuConsumed={() => setPendingInventorySku(null)}
                   onCartInteraction={() => {
                     if (!collapsed) onToggleCollapse();
+                  }}
+                  onOpenWeddingParty={(id) => {
+                    setActivePosTab("weddings");
+                    onOpenWeddingParty?.(id);
                   }}
                   onSaleCompleted={() => setActivePosTab("register")}
                   onExitPosMode={onExitPosMode}
@@ -276,7 +299,10 @@ export default function PosShell({
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Customers...</div>}>
                 <CustomersWorkspace
                   activeSection="all"
-                  onOpenWeddingParty={(id) => onOpenWeddingParty?.(id)}
+                  onOpenWeddingParty={(id) => {
+                    setActivePosTab("weddings");
+                    onOpenWeddingParty?.(id);
+                  }}
                   onStartSaleInPos={(customer) => {
                     clearPendingPosOrder();
                     setPendingPosCustomer(customer);
@@ -320,6 +346,17 @@ export default function PosShell({
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Alterations...</div>}>
                 <AlterationsWorkspace />
+              </Suspense>
+            </div>
+          )}
+          {activePosTab === "weddings" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Wedding Hub...</div>}>
+                <WeddingManagerApp 
+                  rosActorName={cashierName} 
+                  initialPartyId={pendingWmPartyId}
+                  onInitialPartyConsumed={onClearPendingWmPartyId}
+                />
               </Suspense>
             </div>
           )}

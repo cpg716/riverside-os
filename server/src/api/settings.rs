@@ -87,7 +87,7 @@ impl IntoResponse for SettingsError {
             SettingsError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             SettingsError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             SettingsError::Database(e) => {
-                tracing::error!(error = %e, "Database error in settings");
+                tracing::error!(error = e.to_string(), "Database error in settings");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Internal server error".to_string(),
@@ -281,13 +281,13 @@ async fn create_backup(
             if let Err(err) =
                 crate::logic::backups::record_local_backup_failure(&state.db, &msg).await
             {
-                tracing::error!(error = %err, "record_local_backup_failure");
+                tracing::error!(error = err.to_string(), "record_local_backup_failure");
             }
             return Err(SettingsError::Backup(msg));
         }
     };
     if let Err(e) = crate::logic::backups::record_local_backup_success(&state.db).await {
-        tracing::error!(error = %e, "record_local_backup_success");
+        tracing::error!(error = e.to_string(), "record_local_backup_success");
     }
     Ok(Json(json!({ "filename": filename })))
 }
@@ -1049,7 +1049,7 @@ async fn post_podium_oauth_exchange(
     )
     .await
     .map_err(|e| {
-        tracing::warn!(error = %e, "Podium OAuth authorization_code exchange failed");
+        tracing::warn!(error = e.to_string(), "Podium OAuth authorization_code exchange failed");
         SettingsError::InvalidPayload(format!("Podium token exchange failed: {e}"))
     })?;
 
@@ -1115,7 +1115,7 @@ async fn post_meilisearch_reindex(
     crate::logic::meilisearch_sync::reindex_all_meilisearch(&c, &state.db)
         .await
         .map_err(|e| {
-            tracing::error!(error = %e, "Meilisearch reindex failed");
+            tracing::error!(error = e.to_string(), "Meilisearch reindex failed");
             SettingsError::InvalidPayload(format!("Meilisearch reindex failed: {e}"))
         })?;
     let _ = log_staff_access(

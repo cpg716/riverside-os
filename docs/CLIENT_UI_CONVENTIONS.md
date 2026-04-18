@@ -54,6 +54,7 @@ The implementation of the Settings module follows a unified, reactive pattern ac
 - **Profile-First Entry**: The settings workspace MUST initialize to the **Staff Profile** by default. Current staff meta (Avatar, Permissions, Identity) is the primary anchor.
 - **Unified Navigator**: Settings navigation is driven by the global sidebar (BO) or the navigation rail (POS). Workspace-internal tab switching should be avoided in favor of direct sub-section routing.
 - **POS Restriction (v0.2.1+)**: When in the POS shell, the Settings navigator is restricted to **Staff Profile** and **Printers & Scanners**. This prevents unauthorized access to administrative configurations (Data Backups, Stripe Integration) while at a public register station.
+- **ROS Dev Center (v0.2.1+)**: The **Settings → ROS Dev Center** subsection is an admin-bound operational command center. Read surfaces require **`ops.dev_center.view`**; guarded mutations require **`ops.dev_center.actions`** and must enforce explicit reason + dual confirmation before execution.
 - **Change Staff / Logout**: These actions are unified in the Profile dropdown. Both successfully clear the active persona and trigger the `BackofficeSignInGate` across all shell modes.
 - **Mirrored Workspaces**: Settings, including **Printers & Scanners** and **Terminal Overrides**, are mirrored between Back Office and POS to ensure staff can manage their workstation environment without switching shells.
 

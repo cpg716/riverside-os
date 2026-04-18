@@ -23,7 +23,7 @@ import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
 import { SIDEBAR_SUB_SECTIONS, SidebarTabId } from "../layout/sidebarSections";
 
 export type PosTabId =
-  | "dashboard"
+  | "pos-dashboard"
   | "register"
   | "tasks"
   | "customers"
@@ -65,7 +65,7 @@ export default function PosSidebar({
       label: string;
       icon: typeof ShoppingCart;
     }[] = [
-      { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
+      { id: "pos-dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "register", label: "Register", icon: ShoppingCart },
       { id: "tasks", label: "Tasks", icon: ListChecks },
       { id: "customers", label: "Customers", icon: Users },

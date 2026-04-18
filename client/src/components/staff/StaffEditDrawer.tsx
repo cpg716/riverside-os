@@ -18,7 +18,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-type StaffRole = "admin" | "salesperson" | "sales_support";
+type StaffRole = "admin" | "salesperson" | "sales_support" | "staff_support" | "alterations";
 
 export interface HubRow {
   id: string;
@@ -387,6 +387,8 @@ export default function StaffEditDrawer({
                     >
                       <option value="salesperson">Salesperson</option>
                       <option value="sales_support">Sales Support</option>
+                      <option value="staff_support">Staff Support</option>
+                      <option value="alterations">Alterations</option>
                       <option value="admin">Admin (Full Access)</option>
                     </select>
                   </label>

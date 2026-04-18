@@ -35,6 +35,7 @@ pub struct FloorStaffTodayRow {
     pub full_name: String,
     pub role: crate::models::DbStaffRole,
     pub avatar_key: String,
+    pub shift_label: Option<String>,
 }
 
 /// Active salesperson / sales_support who are scheduled to work on the store’s local **today**.
@@ -52,10 +53,16 @@ pub async fn list_working_floor_staff_for_date(
 ) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
     sqlx::query_as::<_, FloorStaffTodayRow>(
         r#"
-        SELECT s.id, s.full_name, s.role, s.avatar_key
+        SELECT s.id, s.full_name, s.role, s.avatar_key,
+               CASE 
+                 WHEN e.id IS NULL THEN a.shift_label
+                 ELSE e.shift_label
+               END as shift_label
         FROM staff s
+        LEFT JOIN staff_weekly_availability a ON s.id = a.staff_id AND a.weekday = EXTRACT(DOW FROM $1::date)::int
+        LEFT JOIN staff_day_exception e ON s.id = e.staff_id AND e.exception_date = $1
         WHERE s.is_active = TRUE
-          AND s.role IN ('salesperson', 'sales_support')
+          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
           AND staff_effective_working_day(s.id, $1)
         ORDER BY s.full_name ASC
         "#,
@@ -99,7 +106,7 @@ pub async fn resolve_floor_staff_id_by_name(
         r#"
         SELECT id FROM staff
         WHERE is_active = TRUE
-          AND role IN ('salesperson', 'sales_support')
+          AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
           AND lower(trim(full_name)) = lower(trim($1::text))
         ORDER BY id ASC
         LIMIT 1
@@ -139,7 +146,7 @@ pub async fn list_eligible_staff(pool: &PgPool) -> Result<Vec<EligibleStaffRow>,
         r#"
         SELECT id, full_name, role
         FROM staff
-        WHERE is_active = TRUE AND role IN ('salesperson', 'sales_support')
+        WHERE is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
         ORDER BY full_name ASC
         "#,
     )
@@ -151,6 +158,7 @@ pub async fn list_eligible_staff(pool: &PgPool) -> Result<Vec<EligibleStaffRow>,
 pub struct WeeklyRow {
     pub weekday: i16,
     pub works: bool,
+    pub shift_label: Option<String>,
 }
 
 pub async fn get_weekly_availability(
@@ -159,7 +167,7 @@ pub async fn get_weekly_availability(
 ) -> Result<Vec<WeeklyRow>, sqlx::Error> {
     sqlx::query_as::<_, WeeklyRow>(
         r#"
-        SELECT weekday, works FROM staff_weekly_availability
+        SELECT weekday, works, shift_label FROM staff_weekly_availability
         WHERE staff_id = $1
         ORDER BY weekday ASC
         "#,
@@ -172,61 +180,64 @@ pub async fn get_weekly_availability(
 pub async fn put_weekly_availability(
     pool: &PgPool,
     staff_id: Uuid,
-    rows: &[(i16, bool)],
+    rows: &[(i16, bool, Option<String>)],
+) -> Result<(), StaffScheduleError> {
+    let mut tx = pool.begin().await?;
+    put_weekly_availability_in_tx(&mut tx, staff_id, rows).await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn put_weekly_availability_in_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    staff_id: Uuid,
+    rows: &[(i16, bool, Option<String>)],
 ) -> Result<(), StaffScheduleError> {
     if rows.is_empty() {
         return Err(StaffScheduleError::BadRequest(
-            "provide 7 weekday rows (0=Sun … 6=Sat)".into(),
+            "weekly availability requires at least one day entry".into(),
         ));
     }
-    if rows.len() != 7 {
-        return Err(StaffScheduleError::BadRequest(
-            "exactly 7 weekday rows required".into(),
-        ));
-    }
-    for (wd, _) in rows {
-        if *wd < 0 || *wd > 6 {
-            return Err(StaffScheduleError::BadRequest(
-                "weekday must be 0-6 (Sun-Sat)".into(),
-            ));
-        }
-    }
+
+    // Assert floor staff
     let role_ok: bool = sqlx::query_scalar(
         r#"
         SELECT EXISTS(
             SELECT 1 FROM staff
-            WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support')
+            WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
         )
         "#,
     )
     .bind(staff_id)
-    .fetch_one(pool)
+    .fetch_one(&mut **tx)
     .await?;
+
     if !role_ok {
         return Err(StaffScheduleError::BadRequest(
-            "schedule applies only to active salesperson or sales support staff".into(),
+            "schedule applies only to active floor/support staff".into(),
         ));
     }
 
-    let mut tx = pool.begin().await?;
     sqlx::query("DELETE FROM staff_weekly_availability WHERE staff_id = $1")
         .bind(staff_id)
-        .execute(&mut *tx)
+        .execute(&mut **tx)
         .await?;
-    for (wd, works) in rows {
+
+    for (wd, works, shift_label) in rows {
         sqlx::query(
             r#"
-            INSERT INTO staff_weekly_availability (staff_id, weekday, works)
-            VALUES ($1, $2, $3)
+            INSERT INTO staff_weekly_availability (staff_id, weekday, works, shift_label)
+            VALUES ($1, $2, $3, $4)
             "#,
         )
         .bind(staff_id)
         .bind(wd)
         .bind(works)
-        .execute(&mut *tx)
+        .bind(shift_label)
+        .execute(&mut **tx)
         .await?;
     }
-    tx.commit().await?;
+
     Ok(())
 }
 
@@ -236,6 +247,7 @@ pub struct ExceptionRow {
     pub staff_id: Uuid,
     pub exception_date: NaiveDate,
     pub kind: DbStaffScheduleExceptionKind,
+    pub shift_label: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -247,7 +259,7 @@ pub async fn list_exceptions_range(
 ) -> Result<Vec<ExceptionRow>, sqlx::Error> {
     sqlx::query_as::<_, ExceptionRow>(
         r#"
-        SELECT id, staff_id, exception_date, kind, notes
+        SELECT id, staff_id, exception_date, kind, shift_label, notes
         FROM staff_day_exception
         WHERE staff_id = $1 AND exception_date >= $2 AND exception_date <= $3
         ORDER BY exception_date ASC
@@ -265,7 +277,7 @@ async fn assert_floor_staff(pool: &PgPool, staff_id: Uuid) -> Result<(), StaffSc
         r#"
         SELECT EXISTS(
             SELECT 1 FROM staff
-            WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support')
+            WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
         )
         "#,
     )
@@ -285,6 +297,7 @@ pub async fn upsert_day_exception(
     staff_id: Uuid,
     exception_date: NaiveDate,
     kind: DbStaffScheduleExceptionKind,
+    shift_label: Option<&str>,
     notes: Option<&str>,
     created_by: Uuid,
 ) -> Result<(), StaffScheduleError> {
@@ -292,10 +305,11 @@ pub async fn upsert_day_exception(
 
     sqlx::query(
         r#"
-        INSERT INTO staff_day_exception (staff_id, exception_date, kind, notes, created_by_staff_id)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO staff_day_exception (staff_id, exception_date, kind, shift_label, notes, created_by_staff_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (staff_id, exception_date) DO UPDATE SET
             kind = EXCLUDED.kind,
+            shift_label = EXCLUDED.shift_label,
             notes = EXCLUDED.notes,
             created_by_staff_id = EXCLUDED.created_by_staff_id,
             created_at = now()
@@ -304,6 +318,7 @@ pub async fn upsert_day_exception(
     .bind(staff_id)
     .bind(exception_date)
     .bind(kind)
+    .bind(shift_label.map(str::trim).filter(|s| !s.is_empty()))
     .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
     .bind(created_by)
     .execute(pool)
@@ -343,6 +358,7 @@ pub async fn mark_absence_and_handle_appointments(
     staff_id: Uuid,
     absence_date: NaiveDate,
     kind: DbStaffScheduleExceptionKind,
+    shift_label: Option<&str>,
     notes: Option<&str>,
     created_by: Uuid,
     unassign_appointments: bool,
@@ -367,10 +383,11 @@ pub async fn mark_absence_and_handle_appointments(
 
     sqlx::query(
         r#"
-        INSERT INTO staff_day_exception (staff_id, exception_date, kind, notes, created_by_staff_id)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO staff_day_exception (staff_id, exception_date, kind, shift_label, notes, created_by_staff_id)
+        VALUES ($1, $2, $3, $4, $5, $6)
         ON CONFLICT (staff_id, exception_date) DO UPDATE SET
             kind = EXCLUDED.kind,
+            shift_label = EXCLUDED.shift_label,
             notes = EXCLUDED.notes,
             created_by_staff_id = EXCLUDED.created_by_staff_id,
             created_at = now()
@@ -379,6 +396,7 @@ pub async fn mark_absence_and_handle_appointments(
     .bind(staff_id)
     .bind(absence_date)
     .bind(kind)
+    .bind(shift_label.map(str::trim).filter(|s| !s.is_empty()))
     .bind(notes.map(str::trim).filter(|s| !s.is_empty()))
     .bind(created_by)
     .execute(&mut *tx)
@@ -476,6 +494,39 @@ pub async fn mark_absence_and_handle_appointments(
 pub struct EffectiveDay {
     pub date: NaiveDate,
     pub working: bool,
+    pub shift_label: Option<String>,
+}
+
+pub async fn get_effective_day_details(
+    pool: &PgPool,
+    staff_id: Uuid,
+    d: NaiveDate,
+) -> Result<EffectiveDay, sqlx::Error> {
+    let working = is_working_day(pool, staff_id, d).await?;
+    
+    let shift_label: Option<String> = sqlx::query_scalar(
+        r#"
+        SELECT 
+            CASE 
+                WHEN e.id IS NOT NULL THEN e.shift_label
+                ELSE a.shift_label
+            END
+        FROM staff s
+        LEFT JOIN staff_weekly_availability a ON s.id = a.staff_id AND a.weekday = EXTRACT(DOW FROM $2::date)::int
+        LEFT JOIN staff_day_exception e ON s.id = e.staff_id AND e.exception_date = $2
+        WHERE s.id = $1
+        "#,
+    )
+    .bind(staff_id)
+    .bind(d)
+    .fetch_one(pool)
+    .await?;
+
+    Ok(EffectiveDay {
+        date: d,
+        working,
+        shift_label,
+    })
 }
 
 pub async fn list_effective_days(
@@ -488,8 +539,8 @@ pub async fn list_effective_days(
     let n = (to.signed_duration_since(from)).num_days().max(0);
     for i in 0..=n {
         let d = from.checked_add_signed(Duration::days(i)).unwrap_or(to);
-        let working = is_working_day(pool, staff_id, d).await?;
-        out.push(EffectiveDay { date: d, working });
+        let details = get_effective_day_details(pool, staff_id, d).await?;
+        out.push(details);
     }
     Ok(out)
 }

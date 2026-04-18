@@ -352,12 +352,17 @@ function App() {
   }, []);
 
   const navigateWedding = useCallback((partyId?: string | null) => {
-    setPosMode(false);
-    setActiveTab("weddings");
-    setWeddingMode(true);
-    setInsightsMode(false);
     setPendingWmPartyId(partyId ?? null);
-  }, []);
+    if (posMode) {
+      setActiveTab("weddings");
+    } else {
+      setPosMode(false);
+      setActiveTab("weddings");
+      setWeddingMode(true);
+      setInsightsMode(false);
+    }
+  }, [posMode]); 
+
 
   const clearPendingWmPartyId = useCallback(() => {
     setPendingWmPartyId(null);
@@ -437,7 +442,7 @@ function App() {
 
       if (t === "settings") {
         setActiveTab("settings");
-        const sec = linkStr(link, "section") || "general";
+        const sec = linkStr(link, "section") || "profile";
         const allowed = new Set([
           "profile",
           "general",
@@ -728,7 +733,7 @@ function App() {
         ...(subLabel ? [{ label: subLabel }] : []),
       ];
     if (activeTab === "reports") return [{ label: "Reports", onClick: tabClick }];
-    if (activeTab === "dashboard")
+    if (activeTab === "dashboard" || activeTab === "pos-dashboard")
       return [
         { label: "Insights", onClick: tabClick },
         ...(subLabel ? [{ label: subLabel }] : []),
@@ -1012,207 +1017,310 @@ interface AppShellProps {
   setBugReportOpen: (v: boolean) => void;
 }
 
-function AppShell(props: AppShellProps) {
+function AppShell({
+  posMode,
+  activeTab,
+  setActiveTab,
+  setPosMode,
+  triggerDashboardRefresh,
+  activeSubSection,
+  setActiveSubSection,
+  sidebarCollapsed,
+  setSidebarCollapsed,
+  isRegisterOpen,
+  cashierName,
+  cashierCode,
+  cashierAvatarKey,
+  registerOrdinal,
+  registerLane,
+  lifecycleStatus,
+  sessionId,
+  receiptTimezone,
+  pendingPosCustomer,
+  pendingPosTransactionId,
+  setPendingPosTransactionId,
+  setPendingPosCustomer,
+  clearPendingPosCustomer,
+  clearPendingPosOrder,
+  pendingWeddingPosLink,
+  clearPendingWeddingPosLink,
+  navigateDashboard,
+  navigateRegister,
+  navigateWedding,
+  pendingWmPartyId,
+  onClearPendingWmPartyId,
+  handleSessionOpened,
+  handleSessionClosed,
+  showCloseModal,
+  setShowCloseModal,
+  refreshOpenSessionMeta,
+  onRegisterReconcilingBegun,
+  onOpenTransactionInBackoffice,
+  onWorkspaceClick,
+  transactionsDeepLinkTxnId,
+  setTransactionsDeepLinkTxnId,
+  setGlobalSearchDrawer,
+  globalSearchDrawer,
+  refreshSignal,
+  alterationsDeepLinkId,
+  setAlterationsDeepLinkId,
+  procurementDeepLinkPoId,
+  setProcurementDeepLinkPoId,
+  inventoryProductHubProductId,
+  setInventoryProductHubProductId,
+  qboDeepLinkSyncLogId,
+  setQboDeepLinkSyncLogId,
+  staffTasksFocusInstanceId,
+  handleStaffTasksFocusConsumed,
+  customersMessagingFocusCustomerId,
+  setCustomersMessagingFocusCustomerId,
+  customersMessagingFocusHubTab,
+  setCustomersMessagingFocusHubTab,
+  openCustomerHubFromInbox,
+  onOpenMetabaseExplore,
+  onNavigateRegisterReports,
+  onNavigateCommissionPayouts,
+  registerReportsDeepLinkTxnId,
+  setRegisterReportsDeepLinkTxnId,
+  bugReportsDeepLinkId,
+  setBugReportsDeepLinkId,
+  helpDrawerOpen,
+  setHelpDrawerOpen,
+  bugReportOpen,
+  setBugReportOpen,
+  breadcrumbSegments,
+  themeMode,
+  setThemeMode,
+  weddingMode,
+  setWeddingMode,
+  insightsMode,
+  setInsightsMode,
+}: AppShellProps) {
   const { staffCode, permissionsLoaded, permissions } = useBackofficeAuth();
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
+
+  useEffect(() => {
+    // POS-only workspaces should never render through Back Office fallback surfaces.
+    const posOnlyTabs = new Set<SidebarTabId>(["shipping", "tasks", "layaways"]);
+    if (!posMode && posOnlyTabs.has(activeTab)) {
+      setPosMode(true);
+    }
+  }, [activeTab, posMode, setPosMode]);
+
+  const handlePosShellTabChange = useCallback(
+    (tab: SidebarTabId) => {
+      const posTabs: SidebarTabId[] = [
+        "register",
+        "customers",
+        "orders",
+        "alterations",
+        "inventory",
+        "weddings",
+        "gift-cards",
+        "loyalty",
+        "shipping",
+        "settings",
+        "reports",
+        "dashboard",
+        "tasks",
+      ];
+      if (!posTabs.includes(tab)) {
+        setPosMode(false);
+        triggerDashboardRefresh();
+      }
+      setActiveTab(tab);
+    },
+    [setActiveTab, setPosMode, triggerDashboardRefresh],
+  );
 
   const content = (
     <BackofficeSignInGate>
       <div className="flex flex-1">
-        {props.posMode ? (
+        {posMode ? (
           <PosShell
-            activeTab={props.activeTab}
-            onTabChange={(tab: SidebarTabId) => {
-              const posTabs: SidebarTabId[] = [
-                "register",
-                "customers",
-                "orders",
-                "alterations",
-              ];
-              if (!posTabs.includes(tab)) {
-                props.setPosMode(false);
-                props.triggerDashboardRefresh();
-              }
-              props.setActiveTab(tab);
-            }}
-            collapsed={props.sidebarCollapsed}
-            onToggleCollapse={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
-            activeSubSection={props.activeSubSection}
-            onSubSectionChange={props.setActiveSubSection}
+            activeTab={activeTab}
+            onTabChange={handlePosShellTabChange}
+            collapsed={sidebarCollapsed}
+            onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+            activeSubSection={activeSubSection}
+            onSubSectionChange={setActiveSubSection}
             onExitPosMode={() => {
-              props.navigateDashboard();
-              props.setSidebarCollapsed(false);
-              props.triggerDashboardRefresh();
+              navigateDashboard();
+              setSidebarCollapsed(false);
+              triggerDashboardRefresh();
             }}
-            isRegisterOpen={props.isRegisterOpen}
-            cashierName={props.cashierName}
-            cashierCode={props.cashierCode}
-            registerOrdinal={props.registerOrdinal}
-            registerLane={props.registerLane}
-            lifecycleStatus={props.lifecycleStatus}
-            sessionId={props.sessionId}
-            receiptTimezone={props.receiptTimezone ?? "UTC"}
-            pendingPosCustomer={props.pendingPosCustomer}
-            pendingPosTransactionId={props.pendingPosTransactionId}
-            setPendingPosTransactionId={props.setPendingPosTransactionId}
-            setPendingPosCustomer={props.setPendingPosCustomer}
-            clearPendingPosCustomer={props.clearPendingPosCustomer}
-            clearPendingPosOrder={props.clearPendingPosOrder}
-            pendingWeddingPosLink={props.pendingWeddingPosLink}
-            clearPendingWeddingPosLink={props.clearPendingWeddingPosLink}
-            onSessionOpened={props.handleSessionOpened}
-            showCloseModal={props.showCloseModal}
-            setShowCloseModal={props.setShowCloseModal}
-            handleSessionClosed={props.handleSessionClosed}
-            refreshOpenSessionMeta={props.refreshOpenSessionMeta}
-            onRegisterReconcilingBegun={props.onRegisterReconcilingBegun}
-            onOpenWeddingParty={(partyId: string) => props.navigateWedding(partyId)}
+            isRegisterOpen={isRegisterOpen}
+            cashierName={cashierName}
+            cashierCode={cashierCode}
+            registerOrdinal={registerOrdinal}
+            registerLane={registerLane}
+            lifecycleStatus={lifecycleStatus}
+            sessionId={sessionId}
+            receiptTimezone={receiptTimezone ?? "UTC"}
+            pendingPosCustomer={pendingPosCustomer}
+            pendingPosTransactionId={pendingPosTransactionId}
+            setPendingPosTransactionId={setPendingPosTransactionId}
+            setPendingPosCustomer={setPendingPosCustomer}
+            clearPendingPosCustomer={clearPendingPosCustomer}
+            clearPendingPosOrder={clearPendingPosOrder}
+            pendingWeddingPosLink={pendingWeddingPosLink}
+            clearPendingWeddingPosLink={clearPendingWeddingPosLink}
+            onSessionOpened={handleSessionOpened}
+            showCloseModal={showCloseModal}
+            setShowCloseModal={setShowCloseModal}
+            handleSessionClosed={handleSessionClosed}
+            refreshOpenSessionMeta={refreshOpenSessionMeta}
+            onRegisterReconcilingBegun={onRegisterReconcilingBegun}
+            onOpenWeddingParty={(partyId: string) => navigateWedding(partyId)}
+            pendingWmPartyId={pendingWmPartyId}
+            onClearPendingWmPartyId={onClearPendingWmPartyId}
           />
-        ) : props.insightsMode ? (
+
+        ) : insightsMode ? (
           <InsightsShell
             onExitInsightsMode={() => {
-              props.setInsightsMode(false);
-              props.setSidebarCollapsed(false);
-              props.setActiveTab("home");
-              props.triggerDashboardRefresh();
+              setInsightsMode(false);
+              setSidebarCollapsed(false);
+              setActiveTab("home");
+              triggerDashboardRefresh();
             }}
           />
-        ) : props.weddingMode ? (
+        ) : weddingMode ? (
           <WeddingShell
-            actorLabel={props.cashierName}
-            initialPartyId={props.pendingWmPartyId}
-            onInitialPartyConsumed={props.onClearPendingWmPartyId}
+            actorLabel={cashierName}
+            initialPartyId={pendingWmPartyId}
+            onInitialPartyConsumed={onClearPendingWmPartyId}
             onExitWeddingMode={() => {
-              props.setWeddingMode(false);
-              props.setSidebarCollapsed(false);
-              props.setActiveTab("home");
-              props.triggerDashboardRefresh();
+              setWeddingMode(false);
+              setSidebarCollapsed(false);
+              setActiveTab("home");
+              triggerDashboardRefresh();
             }}
           />
         ) : (
-            <div className="flex flex-1">
-              <Sidebar
-                activeTab={props.activeTab}
-                onTabChange={(tab) => {
-                  if (tab === "register") {
-                    props.setPosMode(true);
-                  }
-                  if (tab === "weddings") {
-                    props.setPosMode(false);
-                    props.setWeddingMode(true);
-                  } else {
-                    props.setWeddingMode(false);
-                  }
-                  if (tab === "dashboard") {
-                    props.setInsightsMode(true);
-                    props.setPosMode(false);
-                  } else {
-                    props.setInsightsMode(false);
-                  }
-                  props.setActiveTab(tab);
-                  if (window.innerWidth < 1024) props.setSidebarCollapsed(true);
-                }}
-                collapsed={props.sidebarCollapsed}
-                onToggleCollapse={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
-                activeSubSection={props.activeSubSection}
-                onSubSectionChange={(section) => {
-                  if (window.innerWidth < 1024) props.setSidebarCollapsed(true);
-                  props.setActiveSubSection(section);
-                }}
+          <div className="flex flex-1">
+            <Sidebar
+              activeTab={activeTab}
+              onTabChange={(tab) => {
+                if (tab === "register") {
+                  setPosMode(true);
+                }
+                if (tab === "weddings") {
+                  setPosMode(false);
+                  setWeddingMode(true);
+                } else {
+                  setWeddingMode(false);
+                }
+                if (tab === "dashboard") {
+                  setInsightsMode(true);
+                  setPosMode(false);
+                } else {
+                  setInsightsMode(false);
+                }
+                setActiveTab(tab);
+                if (window.innerWidth < 1024) setSidebarCollapsed(true);
+              }}
+              collapsed={sidebarCollapsed}
+              onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
+              activeSubSection={activeSubSection}
+              onSubSectionChange={(section) => {
+                if (window.innerWidth < 1024) setSidebarCollapsed(true);
+                setActiveSubSection(section);
+              }}
+            />
+            {!sidebarCollapsed && (
+              <button
+                type="button"
+                className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden transition-opacity w-full h-full border-none p-0 cursor-default focus:outline-none"
+                onClick={() => setSidebarCollapsed(true)}
+                aria-label="Close sidebar"
+                tabIndex={-1}
               />
-              {!props.sidebarCollapsed && (
-                <button
-                  type="button"
-                  className="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden transition-opacity w-full h-full border-none p-0 cursor-default focus:outline-none"
-                  onClick={() => props.setSidebarCollapsed(true)}
-                  aria-label="Close sidebar"
-                  tabIndex={-1}
-                />
-              )}
-              <ShellBackdropProvider>
-                <AppMainColumn
-                  activeTab={props.activeTab}
-                  setActiveTab={props.setActiveTab}
-                  activeSubSection={props.activeSubSection}
-                  setActiveSubSection={props.setActiveSubSection}
-                  onWorkspaceClick={props.onWorkspaceClick}
-                  navigateRegister={props.navigateRegister}
-                  navigateWedding={props.navigateWedding}
-                  pendingWmPartyId={props.pendingWmPartyId}
-                  onClearPendingWmPartyId={props.onClearPendingWmPartyId}
-                  setPendingPosCustomer={props.setPendingPosCustomer}
-                  setPendingPosTransactionId={props.setPendingPosTransactionId}
-                  transactionsDeepLinkTxnId={props.transactionsDeepLinkTxnId}
-                  onTransactionsDeepLinkConsumed={() => props.setTransactionsDeepLinkTxnId(null)}
-                  onOpenTransactionInBackoffice={props.onOpenTransactionInBackoffice}
-                  setGlobalSearchDrawer={props.setGlobalSearchDrawer}
-                  globalSearchDrawer={props.globalSearchDrawer}
-                  cashierName={props.cashierName}
-                  setPosMode={props.setPosMode}
-                  setInsightsMode={props.setInsightsMode}
-                  isRegisterOpen={props.isRegisterOpen}
-                  refreshSignal={props.refreshSignal}
-                  alterationsDeepLinkId={props.alterationsDeepLinkId}
-                  onAlterationsDeepLinkConsumed={() => props.setAlterationsDeepLinkId(null)}
-                  procurementDeepLinkPoId={props.procurementDeepLinkPoId}
-                  onProcurementDeepLinkConsumed={() => props.setProcurementDeepLinkPoId(null)}
-                  inventoryProductHubProductId={props.inventoryProductHubProductId}
-                  onInventoryProductHubConsumed={() => props.setInventoryProductHubProductId(null)}
-                  qboDeepLinkSyncLogId={props.qboDeepLinkSyncLogId}
-                  onQboDeepLinkConsumed={() => props.setQboDeepLinkSyncLogId(null)}
-                  staffTasksFocusInstanceId={props.staffTasksFocusInstanceId}
-                  onStaffTasksFocusConsumed={props.handleStaffTasksFocusConsumed}
-                  customersMessagingFocusCustomerId={props.customersMessagingFocusCustomerId}
-                  customersMessagingFocusHubTab={props.customersMessagingFocusHubTab}
-                  onCustomersMessagingFocusConsumed={() => {
-                    props.setCustomersMessagingFocusCustomerId(null);
-                    props.setCustomersMessagingFocusHubTab(null);
-                  }}
-                  onOpenCustomerHubFromInbox={props.openCustomerHubFromInbox}
-                  onOpenMetabaseExplore={props.onOpenMetabaseExplore}
-                  onNavigateRegisterReports={props.onNavigateRegisterReports}
-                  onNavigateCommissionPayouts={props.onNavigateCommissionPayouts}
-                  registerReportsDeepLinkTxnId={props.registerReportsDeepLinkTxnId}
-                  setRegisterReportsDeepLinkTxnId={props.setRegisterReportsDeepLinkTxnId}
-                  bugReportsDeepLinkId={props.bugReportsDeepLinkId}
-                  setBugReportsDeepLinkId={props.setBugReportsDeepLinkId}
-                />
-              </ShellBackdropProvider>
-            </div>
-          )}
-        </div>
+            )}
+            <ShellBackdropProvider>
+              <AppMainColumn
+                activeTab={activeTab}
+                setActiveTab={setActiveTab}
+                activeSubSection={activeSubSection}
+                setActiveSubSection={setActiveSubSection}
+                onWorkspaceClick={onWorkspaceClick}
+                navigateRegister={navigateRegister}
+                navigateWedding={navigateWedding}
+                pendingWmPartyId={pendingWmPartyId}
+                onClearPendingWmPartyId={onClearPendingWmPartyId}
+                setPendingPosCustomer={setPendingPosCustomer}
+                setPendingPosTransactionId={setPendingPosTransactionId}
+                transactionsDeepLinkTxnId={transactionsDeepLinkTxnId}
+                onTransactionsDeepLinkConsumed={() => setTransactionsDeepLinkTxnId(null)}
+                onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+                setGlobalSearchDrawer={setGlobalSearchDrawer}
+                globalSearchDrawer={globalSearchDrawer}
+                cashierName={cashierName}
+                setPosMode={setPosMode}
+                setInsightsMode={setInsightsMode}
+                isRegisterOpen={isRegisterOpen}
+                refreshSignal={refreshSignal}
+                alterationsDeepLinkId={alterationsDeepLinkId}
+                onAlterationsDeepLinkConsumed={() => setAlterationsDeepLinkId(null)}
+                procurementDeepLinkPoId={procurementDeepLinkPoId}
+                onProcurementDeepLinkConsumed={() => setProcurementDeepLinkPoId(null)}
+                inventoryProductHubProductId={inventoryProductHubProductId}
+                onInventoryProductHubConsumed={() => setInventoryProductHubProductId(null)}
+                qboDeepLinkSyncLogId={qboDeepLinkSyncLogId}
+                onQboDeepLinkConsumed={() => setQboDeepLinkSyncLogId(null)}
+                staffTasksFocusInstanceId={staffTasksFocusInstanceId}
+                onStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
+                customersMessagingFocusCustomerId={customersMessagingFocusCustomerId}
+                customersMessagingFocusHubTab={customersMessagingFocusHubTab}
+                onCustomersMessagingFocusConsumed={() => {
+                  setCustomersMessagingFocusCustomerId(null);
+                  setCustomersMessagingFocusHubTab(null);
+                }}
+                onOpenCustomerHubFromInbox={openCustomerHubFromInbox}
+                onOpenMetabaseExplore={onOpenMetabaseExplore}
+                onNavigateRegisterReports={onNavigateRegisterReports}
+                onNavigateCommissionPayouts={onNavigateCommissionPayouts}
+                registerReportsDeepLinkTxnId={registerReportsDeepLinkTxnId}
+                setRegisterReportsDeepLinkTxnId={setRegisterReportsDeepLinkTxnId}
+                bugReportsDeepLinkId={bugReportsDeepLinkId}
+                setBugReportsDeepLinkId={setBugReportsDeepLinkId}
+              />
+            </ShellBackdropProvider>
+          </div>
+        )}
+      </div>
 
       <HelpCenterDrawer
-        isOpen={props.helpDrawerOpen}
-        onClose={() => props.setHelpDrawerOpen(false)}
+        isOpen={helpDrawerOpen}
+        onClose={() => setHelpDrawerOpen(false)}
       />
 
       <BugReportFlow
-        isOpen={props.bugReportOpen}
-        onClose={() => props.setBugReportOpen(false)}
+        isOpen={bugReportOpen}
+        onClose={() => setBugReportOpen(false)}
         navigationContext={{
-          active_tab: props.activeTab,
-          active_sub_section: props.activeSubSection,
-          pos_mode: props.posMode,
-          wedding_mode: props.weddingMode,
-          insights_mode: props.insightsMode,
-          register_session_id: props.sessionId,
+          active_tab: activeTab,
+          active_sub_section: activeSubSection,
+          pos_mode: posMode,
+          wedding_mode: weddingMode,
+          insights_mode: insightsMode,
+          register_session_id: sessionId,
         }}
       />
 
-      {props.showCloseModal &&
-        props.sessionId &&
-        (props.registerLane === 1 || props.registerLane == null) && (
+      {showCloseModal &&
+        sessionId &&
+        (registerLane === 1 || registerLane == null) && (
           <CloseRegisterModal
-            sessionId={props.sessionId}
-            cashierName={props.cashierName}
-            registerLane={props.registerLane}
-            registerOrdinal={props.registerOrdinal}
-            onReconcilingBegun={props.onRegisterReconcilingBegun}
-            onCloseComplete={props.handleSessionClosed}
+            sessionId={sessionId}
+            cashierName={cashierName}
+            registerLane={registerLane}
+            registerOrdinal={registerOrdinal}
+            onReconcilingBegun={onRegisterReconcilingBegun}
+            onCloseComplete={handleSessionClosed}
             onCancel={() => {
-              props.setShowCloseModal(false);
-              props.refreshOpenSessionMeta();
+              setShowCloseModal(false);
+              refreshOpenSessionMeta();
             }}
           />
         )}
@@ -1230,50 +1338,54 @@ function AppShell(props: AppShellProps) {
   return (
     <div className="flex flex-col min-h-screen bg-app-bg antialiased font-sans">
       <GlobalTopBar
-        segments={props.breadcrumbSegments}
-        onNavigateRegister={props.navigateRegister}
-        onSelectCustomerForPos={(c: Customer) => props.setPendingPosCustomer(c)}
+        segments={breadcrumbSegments}
+        onNavigateRegister={navigateRegister}
+        onSelectCustomerForPos={(c: Customer) => setPendingPosCustomer(c)}
         onSearchOpenCustomerDrawer={(c: Customer) =>
-          props.setGlobalSearchDrawer({ kind: "customer", customer: c })
+          setGlobalSearchDrawer({ kind: "customer", customer: c })
         }
         onSearchOpenProductDrawer={(sku: string, hintName?: string) =>
-          props.setGlobalSearchDrawer({ kind: "product", sku, hintName })
+          setGlobalSearchDrawer({ kind: "product", sku, hintName })
         }
         onSearchOpenWeddingPartyCustomers={(partyQuery: string) =>
-          props.setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })
+          setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })
         }
         onSearchOpenOrder={(transactionId: string) => {
-          props.setPosMode(false);
-          props.setWeddingMode(false);
-          props.setInsightsMode(false);
-          props.setActiveTab("orders");
-          props.onOpenTransactionInBackoffice(transactionId);
+          setPosMode(false);
+          setWeddingMode(false);
+          setInsightsMode(false);
+          setActiveTab("orders");
+          onOpenTransactionInBackoffice(transactionId);
         }}
         onSearchOpenShipment={(shipmentId: string) =>
-          props.setGlobalSearchDrawer({ kind: "shipment", shipmentId })
+          setGlobalSearchDrawer({ kind: "shipment", shipmentId })
         }
         onSearchOpenWeddingParty={(partyId: string) => {
-          props.setPosMode(false);
-          props.setInsightsMode(false);
-          props.navigateWedding(partyId);
+          setPosMode(false);
+          setInsightsMode(false);
+          navigateWedding(partyId);
         }}
         onSearchOpenAlteration={(alterationId: string) => {
-          props.setPosMode(false);
-          props.setWeddingMode(false);
-          props.setInsightsMode(false);
-          props.setActiveTab("alterations");
-          props.setAlterationsDeepLinkId(alterationId);
+          setPosMode(false);
+          setWeddingMode(false);
+          setInsightsMode(false);
+          setActiveTab("alterations");
+          setAlterationsDeepLinkId(alterationId);
         }}
-        onToggleSidebar={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
-        isRegisterOpen={props.isRegisterOpen}
-        onOpenHelp={() => props.setHelpDrawerOpen(true)}
-        onOpenBugReport={() => props.setBugReportOpen(true)}
-        themeMode={props.themeMode}
+        onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
+        isRegisterOpen={isRegisterOpen}
+        onOpenHelp={() => setHelpDrawerOpen(true)}
+        onOpenBugReport={() => setBugReportOpen(true)}
+        onNavigateToTab={(tab, section) => {
+          setActiveTab(tab);
+          if (section) setActiveSubSection(section);
+        }}
+        themeMode={themeMode}
         onThemeToggle={() =>
-          props.setThemeMode(props.themeMode === "light" ? "dark" : "light")
+          setThemeMode(themeMode === "light" ? "dark" : "light")
         }
-        cashierName={props.cashierName}
-        cashierAvatarKey={props.cashierAvatarKey}
+        cashierName={cashierName}
+        cashierAvatarKey={cashierAvatarKey}
       />
       {content}
     </div>

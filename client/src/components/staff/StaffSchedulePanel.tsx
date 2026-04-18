@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2, Save, Trash2 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import StaffWeeklyGridView from "./StaffWeeklyGridView";
+import { LayoutGrid, User } from "lucide-react";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -50,6 +52,8 @@ export default function StaffSchedulePanel() {
   const [eligible, setEligible] = useState<EligibleRow[]>([]);
   const [staffId, setStaffId] = useState("");
   const [weeklyWorks, setWeeklyWorks] = useState<boolean[]>(() => Array(7).fill(true));
+  const [weeklyShiftLabels, setWeeklyShiftLabels] = useState<string[]>(() => Array(7).fill(""));
+
   const [monthCursor, setMonthCursor] = useState(() => new Date());
   const [effective, setEffective] = useState<EffectiveDay[]>([]);
   const [exceptions, setExceptions] = useState<ExceptionRow[]>([]);
@@ -58,14 +62,18 @@ export default function StaffSchedulePanel() {
 
   const [excDate, setExcDate] = useState(() => toYmdLocal(new Date()));
   const [excKind, setExcKind] = useState<string>("sick");
+  const [excShiftLabel, setExcShiftLabel] = useState("");
   const [excNotes, setExcNotes] = useState("");
 
   const [absDate, setAbsDate] = useState(() => toYmdLocal(new Date()));
   const [absKind, setAbsKind] = useState<string>("sick");
+  const [absShiftLabel, setAbsShiftLabel] = useState("");
   const [absNotes, setAbsNotes] = useState("");
   const [absAction, setAbsAction] = useState<"none" | "unassign" | "reassign">("unassign");
   const [absReassignTo, setAbsReassignTo] = useState("");
   const [absBusy, setAbsBusy] = useState(false);
+
+  const [viewMode, setViewMode] = useState<"individual" | "grid">("grid");
 
   const headers = useMemo(() => {
     const h = new Headers(backofficeHeaders());
@@ -104,12 +112,17 @@ export default function StaffSchedulePanel() {
         ),
       ]);
       if (wRes.ok) {
-        const wrows = (await wRes.json()) as WeeklyRow[];
-        const next = Array(7).fill(true) as boolean[];
+        const wrows = (await wRes.json()) as (WeeklyRow & { shift_label: string | null })[];
+        const nextWorks = Array(7).fill(true) as boolean[];
+        const nextLabels = Array(7).fill("") as string[];
         for (const r of wrows) {
-          if (r.weekday >= 0 && r.weekday <= 6) next[r.weekday] = r.works;
+          if (r.weekday >= 0 && r.weekday <= 6) {
+            nextWorks[r.weekday] = r.works;
+            nextLabels[r.weekday] = r.shift_label || "";
+          }
         }
-        setWeeklyWorks(next);
+        setWeeklyWorks(nextWorks);
+        setWeeklyShiftLabels(nextLabels);
       }
       if (eRes.ok) {
         const body = (await eRes.json()) as { days: EffectiveDay[] };
@@ -139,7 +152,11 @@ export default function StaffSchedulePanel() {
     if (!canEdit || !staffId) return;
     setSavingWeekly(true);
     try {
-      const weekdays = weeklyWorks.map((works, weekday) => ({ weekday, works }));
+      const weekdays = weeklyWorks.map((works, weekday) => ({ 
+        weekday, 
+        works, 
+        shift_label: weeklyShiftLabels[weekday].trim() || null 
+      }));
       const res = await fetch(`${baseUrl}/api/staff/schedule/weekly`, {
         method: "PUT",
         headers: { ...Object.fromEntries(headers.entries()), "Content-Type": "application/json" },
@@ -166,6 +183,7 @@ export default function StaffSchedulePanel() {
         staff_id: staffId,
         exception_date: excDate,
         kind: excKind,
+        shift_label: excShiftLabel.trim() || null,
         notes: excNotes.trim() || null,
       }),
     });
@@ -211,8 +229,9 @@ export default function StaffSchedulePanel() {
         headers: { ...Object.fromEntries(headers.entries()), "Content-Type": "application/json" },
         body: JSON.stringify({
           staff_id: staffId,
-          absence_date: absDate,
+          exception_date: absDate,
           kind: absKind,
+          shift_label: absShiftLabel.trim() || null,
           notes: absNotes.trim() || null,
           unassign_appointments: absAction === "unassign",
           reassign_to_staff_id:
@@ -270,7 +289,32 @@ export default function StaffSchedulePanel() {
 
   return (
     <section className="ui-card flex min-h-0 flex-1 flex-col gap-6 overflow-y-auto p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-app-border pb-4">
+        <div className="flex gap-2 p-1 rounded-2xl bg-app-surface-2 border border-app-border">
+          <button
+            type="button"
+            onClick={() => setViewMode("grid")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === "grid" ? "bg-app-accent text-white shadow-lg shadow-app-accent/20" : "text-app-text-muted hover:text-app-text"}`}
+          >
+            <LayoutGrid size={14} />
+            Master Grid
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("individual")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === "individual" ? "bg-app-accent text-white shadow-lg shadow-app-accent/20" : "text-app-text-muted hover:text-app-text"}`}
+          >
+            <User size={14} />
+            Individual View
+          </button>
+        </div>
+      </div>
+
+      {viewMode === "grid" ? (
+        <StaffWeeklyGridView />
+      ) : (
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--app-accent)_14%,var(--app-surface-2))] text-[var(--app-accent)]">
             <CalendarDays className="h-5 w-5" aria-hidden />
@@ -313,26 +357,39 @@ export default function StaffSchedulePanel() {
               <p className="text-xs text-app-text-muted">
                 0 = Sunday through 6 = Saturday. Uncheck days they are normally off.
               </p>
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                {WEEKDAY_LABELS.map((label, wd) => (
-                  <label
-                    key={label}
-                    className="flex cursor-pointer items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm"
-                  >
-                    <input
-                      type="checkbox"
-                      className="h-4 w-4 rounded border-app-border"
-                      checked={weeklyWorks[wd]}
-                      disabled={!canEdit}
-                      onChange={(e) => {
-                        const next = [...weeklyWorks];
-                        next[wd] = e.target.checked;
-                        setWeeklyWorks(next);
-                      }}
-                    />
-                    <span className="font-bold">{label}</span>
-                  </label>
-                ))}
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {WEEKDAY_LABELS.map((label, wd) => (
+                    <div key={label} className="flex flex-col gap-1">
+                      <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm bg-app-surface-2/30">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded border-app-border"
+                          checked={weeklyWorks[wd]}
+                          disabled={!canEdit}
+                          onChange={(e) => {
+                            const next = [...weeklyWorks];
+                            next[wd] = e.target.checked;
+                            setWeeklyWorks(next);
+                          }}
+                        />
+                        <span className="font-bold">{label}</span>
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Shift (optional)"
+                        className="ui-input h-8 px-2 text-[10px] font-bold"
+                        value={weeklyShiftLabels[wd]}
+                        disabled={!canEdit || !weeklyWorks[wd]}
+                        onChange={(e) => {
+                          const next = [...weeklyShiftLabels];
+                          next[wd] = e.target.value;
+                          setWeeklyShiftLabels(next);
+                        }}
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
               <button
                 type="button"
@@ -383,17 +440,30 @@ export default function StaffSchedulePanel() {
                   </select>
                 </label>
               </div>
-              <label className="block text-[10px] font-black uppercase text-app-text-muted">
-                Notes (optional)
-                <input
-                  type="text"
-                  className="ui-input mt-1 w-full text-sm"
-                  value={excNotes}
-                  disabled={!canEdit}
-                  onChange={(e) => setExcNotes(e.target.value)}
-                  placeholder="e.g. Doctor note on file"
-                />
-              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                  Shift Label (optional)
+                  <input
+                    type="text"
+                    className="ui-input mt-1 w-full text-sm font-bold"
+                    value={excShiftLabel}
+                    disabled={!canEdit}
+                    onChange={(e) => setExcShiftLabel(e.target.value)}
+                    placeholder="e.g. 9:30-6"
+                  />
+                </label>
+                <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                  Notes (optional)
+                  <input
+                    type="text"
+                    className="ui-input mt-1 w-full text-sm"
+                    value={excNotes}
+                    disabled={!canEdit}
+                    onChange={(e) => setExcNotes(e.target.value)}
+                    placeholder="e.g. Doctor note on file"
+                  />
+                </label>
+              </div>
               <button
                 type="button"
                 disabled={!canEdit}
@@ -482,16 +552,28 @@ export default function StaffSchedulePanel() {
                 </select>
               </label>
             </div>
-            <label className="block text-[10px] font-black uppercase text-app-text-muted">
-              Notes (optional)
-              <input
-                type="text"
-                className="ui-input mt-1 w-full text-sm"
-                value={absNotes}
-                disabled={!canEdit}
-                onChange={(e) => setAbsNotes(e.target.value)}
-              />
-            </label>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                Shift Label (optional)
+                <input
+                  type="text"
+                  className="ui-input mt-1 w-full text-sm font-bold"
+                  value={absShiftLabel}
+                  disabled={!canEdit}
+                  onChange={(e) => setAbsShiftLabel(e.target.value)}
+                />
+              </label>
+              <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                Notes (optional)
+                <input
+                  type="text"
+                  className="ui-input mt-1 w-full text-sm"
+                  value={absNotes}
+                  disabled={!canEdit}
+                  onChange={(e) => setAbsNotes(e.target.value)}
+                />
+              </label>
+            </div>
             <fieldset disabled={!canEdit} className="space-y-2 text-sm">
               <legend className="text-[10px] font-black uppercase text-app-text-muted">
                 Appointments that day
@@ -551,7 +633,9 @@ export default function StaffSchedulePanel() {
             >
               {absBusy ? "Saving…" : "Record absence"}
             </button>
-          </div>
+            </div>
+          </>
+        )}
         </>
       )}
     </section>

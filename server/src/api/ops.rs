@@ -20,6 +20,12 @@ fn bad_request(msg: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))).into_response()
 }
 
+fn json_payload_len(value: &Value) -> usize {
+    serde_json::to_vec(value)
+        .map(|b| b.len())
+        .unwrap_or(usize::MAX)
+}
+
 async fn require_view(
     state: &AppState,
     headers: &HeaderMap,
@@ -99,6 +105,9 @@ async fn post_station_heartbeat(
     ops_dev_center::upsert_station_heartbeat(&state.db, &body)
         .await
         .map_err(|e| {
+            if matches!(e, sqlx::Error::Protocol(_)) {
+                return bad_request("invalid heartbeat payload");
+            }
             tracing::error!(error = %e, "ops station heartbeat failed");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -201,9 +210,25 @@ async fn post_ops_action(
             "guarded action requires confirm_primary=true and confirm_secondary=true",
         ));
     }
+    if !ops_dev_center::is_allowed_action_key(&action_key) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "unknown action key",
+                "allowed": ops_dev_center::allowed_action_keys(),
+            })),
+        )
+            .into_response());
+    }
     let reason = body.reason.trim();
     if reason.is_empty() {
         return Err(bad_request("reason is required"));
+    }
+    if reason.chars().count() > 500 {
+        return Err(bad_request("reason exceeds 500 characters"));
+    }
+    if json_payload_len(&body.payload) > 32 * 1024 {
+        return Err(bad_request("payload exceeds 32KB"));
     }
 
     let result: GuardedActionResult = ops_dev_center::run_guarded_action(
@@ -305,6 +330,9 @@ async fn post_bug_alert_link(
     Json(body): Json<LinkBugAlertBody>,
 ) -> Result<Json<Value>, Response> {
     let staff = require_actions(&state, &headers).await?;
+    if body.note.chars().count() > 1200 {
+        return Err(bad_request("note exceeds 1200 characters"));
+    }
     ops_dev_center::link_bug_to_alert(
         &state.db,
         body.bug_report_id,
