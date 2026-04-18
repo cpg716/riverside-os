@@ -51,8 +51,8 @@ jobs:
         id: updater_meta
         shell: pwsh
         run: |
-          $bundleRoot = "src-tauri/target/release/bundle"
-          $sig = Get-ChildItem -Path $bundleRoot -Recurse -Filter *.sig | Select-Object -First 1
+          $targetRoot = "src-tauri/target"
+          $sig = Get-ChildItem -Path $targetRoot -Recurse -Filter *.sig | Select-Object -First 1
           if ($null -eq $sig) {
             throw "No updater signature file (*.sig) found. Ensure TAURI_SIGNING_PRIVATE_KEY is configured."
           }
