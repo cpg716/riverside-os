@@ -96,8 +96,11 @@ interface BackupFile {
 
 interface SettingsWorkspaceProps {
   activeSection?: string;
+  settingsActiveSection?: string;
   bugReportsDeepLinkId?: string | null;
   onBugReportsDeepLinkConsumed?: () => void;
+  onOpenQbo?: () => void;
+  onSettingsSectionNavigate?: (sectionId: string) => void;
   // POS Specific
   posSessionId?: string | null;
   posCashierCode?: string | null;
@@ -108,8 +111,11 @@ interface SettingsWorkspaceProps {
 
 export default function SettingsWorkspace({
   activeSection,
+  settingsActiveSection,
   bugReportsDeepLinkId,
   onBugReportsDeepLinkConsumed,
+  onOpenQbo,
+  onSettingsSectionNavigate,
   posSessionId,
   posCashierCode,
   posLifecycleStatus,
@@ -119,7 +125,8 @@ export default function SettingsWorkspace({
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
   // Navigation - synced with sidebar activeSection; default to profile
-  const activeTab = activeSection || "profile";
+  const activeTab = activeSection || settingsActiveSection || "profile";
+  const navigateToTab = onNavigateToTab ?? onSettingsSectionNavigate;
 
   // Settings State
   const [backupCfg, setBackupCfg] = useState<BackupSettings | null>(null);
@@ -1048,7 +1055,15 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "quickbooks" && hasPermission("settings.admin") && (
-              <QuickBooksSettingsPanel onOpenQbo={() => onNavigateToTab?.("qbo")} />
+              <QuickBooksSettingsPanel
+                onOpenQbo={() => {
+                  if (onOpenQbo) {
+                    onOpenQbo();
+                    return;
+                  }
+                  navigateToTab?.("qbo");
+                }}
+              />
             )}
 
             {activeTab === "stripe" && hasPermission("settings.admin") && (
