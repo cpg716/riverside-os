@@ -4,7 +4,6 @@ import {
   useState,
   useEffect,
   useCallback,
-  useMemo,
 } from "react";
 import {
   Database,
@@ -16,32 +15,27 @@ import {
   History,
   Gauge,
   Cloud,
-  Printer,
-  FileText,
-  Settings as SettingsIcon,
   Info,
-  User,
   ClipboardList,
   MessageSquare,
   BarChart3,
   CreditCard,
   ArrowUpRight,
-  ShoppingBag,
   Search,
-  BookOpen,
   Monitor,
-  Shield,
   Star,
-  Bug,
   Save,
-  Link,
 } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import {
+  checkForAppUpdate,
+  installAppUpdate,
+  type UpdateCheckResult,
+} from "../../lib/appUpdater";
 
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
-import StaffAvatarPicker from "../staff/StaffAvatarPicker";
 import OnlineStoreSettingsPanel from "./OnlineStoreSettingsPanel";
 import HelpCenterSettingsPanel from "./HelpCenterSettingsPanel";
 import CounterpointSyncSettingsPanel from "./CounterpointSyncSettingsPanel";
@@ -56,8 +50,14 @@ import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import StripeSettingsPanel from "./StripeSettingsPanel";
 import RemoteAccessPanel from "./RemoteAccessPanel";
+import RegisterSettings from "../pos/RegisterSettings";
+import StaffProfilePanel from "./StaffProfilePanel";
+
+
 
 const ReceiptBuilderPanel = lazy(() => import("./ReceiptBuilderPanel"));
+const TagDesignerPanel = lazy(() => import("./TagDesignerPanel"));
+const PrintersAndScannersPanel = lazy(() => import("./PrintersAndScannersPanel"));
 
 export interface ReceiptConfig {
   store_name: string;
@@ -92,42 +92,41 @@ interface BackupFile {
 
 
 
-interface DbStats {
-  database_size: string;
-  table_count: number;
-}
+
 
 interface SettingsWorkspaceProps {
-  onOpenQbo: () => void;
-  /** Sidebar subsection under Settings (`profile` | `general`). */
-  settingsActiveSection?: string;
-  /** Keeps app sidebar subsection in sync when using the in-workspace System Control rail. */
-  onSettingsSectionNavigate?: (sectionId: string) => void;
+  activeSection?: string;
   bugReportsDeepLinkId?: string | null;
   onBugReportsDeepLinkConsumed?: () => void;
+  // POS Specific
+  posSessionId?: string | null;
+  posCashierCode?: string | null;
+  posLifecycleStatus?: string | null;
+  onPosRefreshMeta?: () => Promise<void>;
+  onNavigateToTab?: (tab: string) => void;
 }
 
 export default function SettingsWorkspace({
-  onOpenQbo,
-  settingsActiveSection,
-  onSettingsSectionNavigate,
+  activeSection,
   bugReportsDeepLinkId,
   onBugReportsDeepLinkConsumed,
+  posSessionId,
+  posCashierCode,
+  posLifecycleStatus,
+  onPosRefreshMeta,
+  onNavigateToTab,
 }: SettingsWorkspaceProps) {
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
-  // Navigation
-  const [activeTab, setActiveTab] = useState("backups");
+  // Navigation - synced with sidebar activeSection; default to profile
+  const activeTab = activeSection || "profile";
 
   // Settings State
-  const [cfg, setCfg] = useState<ReceiptConfig | null>(null);
   const [backupCfg, setBackupCfg] = useState<BackupSettings | null>(null);
-  const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
   // Database State
   const [backups, setBackups] = useState<BackupFile[]>([]);
-  const [stats, setStats] = useState<DbStats | null>(null);
   const [backupBusy, setBackupBusy] = useState(false);
   const [optimizeBusy, setOptimizeBusy] = useState(false);
   const [restoreConfirmFile, setRestoreConfirmFile] = useState<string | null>(
@@ -139,37 +138,10 @@ export default function SettingsWorkspace({
   const { toast } = useToast();
   const {
     backofficeHeaders,
-    staffAvatarKey,
-    refreshPermissions,
     hasPermission,
   } = useBackofficeAuth();
-  const [profileAvatarDraft, setProfileAvatarDraft] = useState(staffAvatarKey);
-  const [profileSaving, setProfileSaving] = useState(false);
-  console.log("[SettingsWorkspace] Init - activeTab:", activeTab, "settingsActiveSection:", settingsActiveSection);
 
 
-  useEffect(() => {
-    setProfileAvatarDraft(staffAvatarKey);
-  }, [staffAvatarKey]);
-
-  useEffect(() => {
-    const s = settingsActiveSection?.trim();
-    if (s === "profile") setActiveTab("profile");
-    else if (s === "general") setActiveTab("general");
-    else if (s === "backups") setActiveTab("backups");
-    else if (s === "printing") setActiveTab("printing");
-    else if (s === "integrations") setActiveTab("integrations");
-    else if (s === "staff-access-defaults")
-      setActiveTab("staff-access-defaults");
-    else if (s === "counterpoint") setActiveTab("counterpoint");
-    else if (s === "remote-access") setActiveTab("remote-access");
-    else if (s === "online-store") setActiveTab("online-store");
-    else if (s === "help-center") setActiveTab("help-center");
-    else if (s === "bug-reports") setActiveTab("bug-reports");
-    else if (s === "receipt-builder") setActiveTab("receipt-builder");
-    else if (s === "nuorder") setActiveTab("nuorder");
-    else if (s === "meilisearch") setActiveTab("meilisearch");
-  }, [settingsActiveSection]);
 
   const [staffSopMarkdown, setStaffSopMarkdown] = useState("");
   const [staffSopLoaded, setStaffSopLoaded] = useState(false);
@@ -195,17 +167,6 @@ export default function SettingsWorkspace({
     }
   }, [baseUrl, backofficeHeaders]);
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/database/stats`, {
-        headers: backofficeHeaders() as Record<string, string>,
-      });
-      if (res.ok) setStats((await res.json()) as DbStats);
-    } catch (e) {
-      console.error("Failed to fetch stats", e);
-    }
-  }, [baseUrl, backofficeHeaders]);
-
   const fetchBackupSettings = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/api/settings/backup/config`, {
@@ -218,24 +179,12 @@ export default function SettingsWorkspace({
   }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const res = await fetch(`${baseUrl}/api/settings/receipt`, {
-          headers: backofficeHeaders() as Record<string, string>,
-        });
-        if (res.ok) setCfg((await res.json()) as ReceiptConfig);
-      } catch {
-        /* ignore */
-      }
-    })();
     void fetchBackups();
-    void fetchStats();
     void fetchBackupSettings();
   }, [
     baseUrl,
     backofficeHeaders,
     fetchBackups,
-    fetchStats,
     fetchBackupSettings,
   ]);
 
@@ -339,32 +288,9 @@ export default function SettingsWorkspace({
     }
   };
 
-  const saveReceiptSettings = async () => {
-    if (!cfg) return;
-    setBusy(true);
-    setSaved(false);
-    try {
-      const res = await fetch(`${baseUrl}/api/settings/receipt`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify(cfg),
-      });
-      if (res.ok) {
-        setCfg((await res.json()) as ReceiptConfig);
-        setSaved(true);
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const saveBackupSettings = async () => {
     if (!backupCfg) return;
     setBusy(true);
-    setSaved(false);
     try {
       const res = await fetch(`${baseUrl}/api/settings/backup/config`, {
         method: "PATCH",
@@ -376,7 +302,7 @@ export default function SettingsWorkspace({
       });
       if (res.ok) {
         setBackupCfg((await res.json()) as BackupSettings);
-        setSaved(true);
+        toast("Backup settings saved", "success");
       }
     } finally {
       setBusy(false);
@@ -452,7 +378,6 @@ export default function SettingsWorkspace({
       });
       if (res.ok) {
         toast("Database optimized successfully", "success");
-        void fetchStats();
       }
     } finally {
       setOptimizeBusy(false);
@@ -508,6 +433,10 @@ export default function SettingsWorkspace({
   const [tauriShellVersion, setTauriShellVersion] = useState<string | null>(
     null,
   );
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheckResult | null>(
+    null,
+  );
+  const [updateBusy, setUpdateBusy] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -521,154 +450,50 @@ export default function SettingsWorkspace({
     })();
   }, []);
 
-  const [receiptPrinterIp, setReceiptPrinterIp] = useState(
-    () => window.localStorage.getItem("ros.pos.printerIp") || "127.0.0.1",
-  );
-  const [receiptPrinterPort, setReceiptPrinterPort] = useState(
-    () => window.localStorage.getItem("ros.pos.printerPort") || "9100",
-  );
-  const [reportPrinterIp, setReportPrinterIp] = useState(
-    () => window.localStorage.getItem("ros.report.printerIp") || "",
-  );
-
-  const saveReceiptPrinter = (ip: string, port: string) => {
-    setReceiptPrinterIp(ip);
-    setReceiptPrinterPort(port);
-    window.localStorage.setItem("ros.pos.printerIp", ip);
-    window.localStorage.setItem("ros.pos.printerPort", port);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleCheckForUpdates = async () => {
+    setUpdateBusy(true);
+    try {
+      const result = await checkForAppUpdate();
+      setUpdateCheck(result);
+      if (!result.enabled && result.message) {
+        toast(result.message, "error");
+        return;
+      }
+      if (result.available) {
+        toast(`Update ${result.version ?? ""} is available`, "success");
+      } else {
+        toast(result.message ?? "No update available", "success");
+      }
+    } catch {
+      toast("Failed to check for updates", "error");
+    } finally {
+      setUpdateBusy(false);
+    }
   };
 
-  const saveReportPrinter = (ip: string) => {
-    setReportPrinterIp(ip);
-    window.localStorage.setItem("ros.report.printerIp", ip);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+  const handleInstallUpdate = async () => {
+    setUpdateBusy(true);
+    try {
+      const result = await installAppUpdate();
+      if (!result.enabled && result.message) {
+        toast(result.message, "error");
+        return;
+      }
+      if (result.installed) {
+        toast(
+          result.message ??
+            "Update installed. Relaunch the desktop app when prompted.",
+          "success",
+        );
+      } else {
+        toast(result.message ?? "No update available", "success");
+      }
+    } catch {
+      toast("Failed to install update", "error");
+    } finally {
+      setUpdateBusy(false);
+    }
   };
-
-  const groups = useMemo(() => {
-    const base: {
-      title: string;
-      id: string;
-      items: {
-        id: string;
-        label: string;
-        icon: React.ElementType;
-        permission?: string;
-      }[];
-    }[] = [
-      {
-        title: "User",
-        id: "user",
-        items: [{ id: "profile", label: "Profile", icon: User }],
-      },
-      {
-        title: "Configuration",
-        id: "configuration",
-        items: [
-          { id: "general", label: "Store Info", icon: SettingsIcon },
-          { id: "printing", label: "Hardware & Printing", icon: Printer },
-          { id: "receipt-builder", label: "Receipt Studio", icon: FileText },
-          { id: "online-store", label: "Online Store", icon: ShoppingBag },
-          {
-            id: "staff-access-defaults",
-            label: "Role Permissions",
-            icon: Shield,
-            permission: "settings.admin",
-          },
-        ],
-      },
-      {
-        title: "Integrations & Bridges",
-        id: "integrations",
-        items: [
-          {
-            id: "meilisearch",
-            label: "Meilisearch",
-            icon: Search,
-            permission: "settings.admin",
-          },
-          {
-            id: "insights",
-            label: "Metabase Insights",
-            icon: BarChart3,
-            permission: "settings.admin",
-          },
-          {
-            id: "weather",
-            label: "Live Weather",
-            icon: Cloud,
-            permission: "settings.admin",
-          },
-          {
-            id: "podium",
-            label: "Podium SMS/Email",
-            icon: MessageSquare,
-            permission: "settings.admin",
-          },
-          {
-            id: "nuorder",
-            label: "NuORDER Retail",
-            icon: Monitor,
-            permission: "settings.admin",
-          },
-          {
-            id: "counterpoint",
-            label: "Counterpoint Bridge",
-            icon: RefreshCw,
-            permission: "counterpoint.sync",
-          },
-          { id: "remote-access", label: "Remote Access", icon: Link },
-          {
-            id: "quickbooks",
-            label: "QuickBooks Ledger",
-            icon: ArrowUpRight,
-            permission: "settings.admin",
-          },
-          {
-            id: "stripe",
-            label: "Stripe Terminal",
-            icon: CreditCard,
-            permission: "settings.admin",
-          },
-        ],
-      },
-      {
-        title: "System & Health",
-        id: "system",
-        items: [
-          {
-            id: "backups",
-            label: "Cloud Backups",
-            icon: Database,
-            permission: "settings.admin",
-          },
-          {
-            id: "bug-reports",
-            label: "Bug Reports",
-            icon: Bug,
-            permission: "settings.admin",
-          },
-          {
-            id: "help-center",
-            label: "Help Center Manager",
-            icon: BookOpen,
-            permission: "help.manage",
-          },
-        ],
-      },
-    ];
-
-    return base
-      .map((group) => ({
-        ...group,
-        items: group.items.filter(
-          (item) => !item.permission || hasPermission(item.permission),
-        ),
-      }))
-      .filter((group) => group.items.length > 0);
-  }, [hasPermission]);
 
   const saveStaffSop = async () => {
     if (staffSopBusy) return;
@@ -708,137 +533,17 @@ export default function SettingsWorkspace({
     }
   };
 
-  const saveProfileAvatar = async () => {
-    setProfileSaving(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/staff/self/avatar`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({
-          avatar_key: profileAvatarDraft.trim() || "ros_default",
-        }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(j.error ?? "Could not save profile icon", "error");
-        return;
-      }
-      await refreshPermissions();
-      toast("Profile icon updated", "success");
-    } catch {
-      toast("Could not save profile icon", "error");
-    } finally {
-      setProfileSaving(false);
-    }
-  };
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg">
       <div className="flex flex-1">
-        {/* Settings Sidebar */}
-        <aside className="w-64 shrink-0 border-r border-app-border bg-app-surface/50 p-6 flex flex-col gap-8 sticky top-0 h-screen overflow-y-auto no-scrollbar">
-          <div>
-            <h1 className="text-xl font-black uppercase tracking-tight text-app-text italic">
-              System Control
-            </h1>
-            <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] mt-1">
-              Environment Overrides
-            </p>
-          </div>
-
-          <nav className="flex flex-col gap-8">
-            {groups.map((group) => (
-              <div key={group.id} className="flex flex-col gap-1">
-                <h3 className="px-4 text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted mb-2 opacity-60">
-                  {group.title}
-                </h3>
-                {group.items.map((tab) => (
-                  <button
-                    key={tab.id}
-                    onClick={() => {
-                      setActiveTab(tab.id);
-                      onSettingsSectionNavigate?.(tab.id);
-                    }}
-                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl text-sm font-black transition-all group ${activeTab === tab.id ? "bg-slate-900 text-white dark:bg-white dark:text-slate-900 shadow-xl shadow-black/20 translate-x-1" : "text-app-text-muted hover:text-app-text hover:bg-app-border/30"}`}
-                  >
-                    <tab.icon
-                      size={16}
-                      className={
-                        activeTab === tab.id
-                          ? ""
-                          : "text-app-accent group-hover:scale-110 transition-transform"
-                      }
-                    />
-                    <span className="uppercase tracking-widest text-[10px]">
-                      {tab.label}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            ))}
-          </nav>
-
-          <div className="mt-auto space-y-4">
-            {stats && (
-              <div className="ui-card p-4 bg-app-text/5 border-app-border/50">
-                <div className="flex items-center gap-3 mb-2">
-                  <Database size={14} className="text-app-accent" />
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Storage Info
-                  </span>
-                </div>
-                <p className="text-xl font-black tabular-nums tracking-tighter text-app-text">
-                  {stats.database_size}
-                </p>
-                <p className="text-[9px] font-bold uppercase text-app-text-muted opacity-60 mt-1">
-                  {stats.table_count} tables initialized
-                </p>
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* Content Area */}
+        {/* Content Area - Full Workspace */}
         <main className="flex-1 scroll-smooth">
           <div
-            className={`p-10 mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500 ${
-              activeTab === "counterpoint" ? "max-w-6xl" : "max-w-5xl"
-            }`}
+            className="p-10 w-full animate-in fade-in slide-in-from-bottom-4 duration-500"
           >
             {activeTab === "profile" && (
-              <div className="space-y-8">
-                <header className="mb-6">
-                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                    Your profile
-                  </h2>
-                  <p className="mt-2 text-sm font-medium text-app-text-muted">
-                    Choose a portrait for the sidebar, notifications, and staff
-                    lists. Icons are bundled in the app (no external requests at
-                    runtime).
-                  </p>
-                </header>
-                <section className="ui-card p-6">
-                  <StaffAvatarPicker
-                    value={profileAvatarDraft}
-                    onChange={setProfileAvatarDraft}
-                    disabled={profileSaving}
-                  />
-                  <button
-                    type="button"
-                    disabled={
-                      profileSaving ||
-                      profileAvatarDraft.trim() === staffAvatarKey.trim()
-                    }
-                    onClick={() => void saveProfileAvatar()}
-                    className="ui-btn-primary mt-6 h-11 px-6 text-sm font-black disabled:opacity-50"
-                  >
-                    {profileSaving ? "Saving…" : "Save profile icon"}
-                  </button>
-                </section>
-              </div>
+              <StaffProfilePanel isPos={!!posSessionId} />
             )}
 
             {activeTab === "backups" && (
@@ -1131,202 +836,24 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "printing" && (
-              <div className="space-y-12">
-                <header className="mb-10">
-                  <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-                    Printing Hub & Layouts
-                  </h2>
-                  <p className="text-sm text-app-text-muted mt-2 font-medium">
-                    Manage station-specific thermal printers and universal
-                    reporting destinations.
+              <Suspense 
+                fallback={
+                   <p className="text-sm font-medium text-app-text-muted">
+                    Loading Printers & Scanners…
                   </p>
-                </header>
-
-                <div className="grid grid-cols-1 xl:grid-cols-12 gap-10">
-                  <div className="xl:col-span-12 xl:grid xl:grid-cols-2 gap-10">
-                    {/* Station Printer Hub */}
-                    <section className="ui-card p-8 border-l-4 border-app-accent">
-                      <div className="flex items-center gap-4 mb-4">
-                        <div className="p-3 rounded-2xl bg-app-accent/10 text-app-accent">
-                          <Printer size={24} />
-                        </div>
-                        <div>
-                          <h3 className="text-lg font-black uppercase tracking-tighter italic text-app-text">
-                            Hardware Bridging
-                          </h3>
-                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
-                            Local Thermal Station
-                          </p>
-                        </div>
-                      </div>
-
-                      {saved && activeTab === "printing" && (
-                        <div className="mb-6 rounded-lg bg-emerald-500/10 px-3 py-2 text-[10px] text-emerald-500 font-black uppercase tracking-widest border border-emerald-500/20 flex items-center gap-2 animate-in fade-in zoom-in duration-300">
-                          <CheckCircle2 className="w-3 h-3" /> Hardware configs
-                          cached.
-                        </div>
-                      )}
-
-                      <div className="space-y-6">
-                        <div className="grid grid-cols-2 gap-4">
-                          <label className="block">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              Receipt Printer IP
-                            </span>
-                            <input
-                              value={receiptPrinterIp}
-                              onChange={(e) =>
-                                saveReceiptPrinter(
-                                  e.target.value,
-                                  receiptPrinterPort,
-                                )
-                              }
-                              placeholder="127.0.0.1"
-                              className="ui-input mt-2 w-full font-mono font-bold"
-                            />
-                          </label>
-                          <label className="block">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              TCP Port
-                            </span>
-                            <input
-                              value={receiptPrinterPort}
-                              onChange={(e) =>
-                                saveReceiptPrinter(
-                                  receiptPrinterIp,
-                                  e.target.value,
-                                )
-                              }
-                              placeholder="9100"
-                              className="ui-input mt-2 w-full font-mono font-bold"
-                            />
-                          </label>
-                        </div>
-
-                        <label className="block pt-4 border-t border-app-border">
-                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                            Universal Report Printer
-                          </span>
-                          <input
-                            value={reportPrinterIp}
-                            onChange={(e) => saveReportPrinter(e.target.value)}
-                            placeholder="e.g. office-laser.local or IP"
-                            className="ui-input mt-2 w-full font-mono font-bold"
-                          />
-                          <p className="text-[10px] text-app-text-muted mt-2 italic">
-                            Destination for PDF End-of-Day and Commission
-                            Reports.
-                          </p>
-                        </label>
-                      </div>
-                    </section>
-
-                    {/* Receipt Content Builder */}
-                    {cfg && (
-                      <section className="ui-card p-8 border-l-4 border-app-text">
-                        <div className="flex items-center justify-between mb-8">
-                          <div className="flex items-center gap-4">
-                            <div className="p-3 rounded-2xl bg-app-text text-white shadow-lg">
-                              <FileText size={24} />
-                            </div>
-                            <div>
-                              <h3 className="text-lg font-black uppercase tracking-tighter italic text-app-text">
-                                Thermal receipt (ZPL)
-                              </h3>
-                              <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest">
-                                Header text &amp; line toggles
-                              </p>
-                            </div>
-                          </div>
-                          <button
-                            onClick={saveReceiptSettings}
-                            disabled={busy}
-                            className="h-10 px-6 rounded-xl bg-app-text text-white text-[10px] font-black uppercase tracking-widest hover:bg-black/80 transition-all flex items-center gap-2"
-                          >
-                            {busy ? (
-                              <RefreshCw className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Save size={14} />
-                            )}
-                            Apply
-                          </button>
-                        </div>
-
-                        <div className="space-y-6">
-                          <label className="block">
-                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                              Store Identifier (Header)
-                            </span>
-                            <input
-                              value={cfg.store_name}
-                              onChange={(e) =>
-                                setCfg({ ...cfg, store_name: e.target.value })
-                              }
-                              className="ui-input mt-2 w-full font-black text-lg tracking-tighter italic"
-                            />
-                          </label>
-
-                          <div className="grid grid-cols-2 gap-4">
-                            {[
-                              [
-                                "show_address",
-                                "Store Address",
-                                "123 Main St...",
-                              ],
-                              ["show_phone", "Phone Number", "(555) 123..."],
-                              ["show_email", "Email Contact", "sales@..."],
-                              ["show_barcode", "Order Barcode", "CODE-128"],
-                              [
-                                "show_loyalty_earned",
-                                "Loyalty Rewards",
-                                "Earned Points",
-                              ],
-                              [
-                                "show_loyalty_balance",
-                                "Points Balance",
-                                "Total Tier",
-                              ],
-                            ].map(([k, label, sub]) => (
-                              <label
-                                key={k}
-                                className="flex items-center gap-3 p-3 rounded-xl border border-app-border hover:border-app-accent cursor-pointer group transition-all"
-                              >
-                                <div
-                                  className={`h-5 w-5 rounded border-2 flex items-center justify-center transition-all ${cfg[k as keyof ReceiptConfig] === true ? "bg-app-accent border-app-accent text-white" : "border-app-border group-hover:border-app-accent"}`}
-                                >
-                                  {cfg[k as keyof ReceiptConfig] === true ? (
-                                    <CheckCircle2 size={12} />
-                                  ) : null}
-                                </div>
-                                <input
-                                  type="checkbox"
-                                  checked={
-                                    cfg[k as keyof ReceiptConfig] === true
-                                  }
-                                  onChange={(e) =>
-                                    setCfg({ ...cfg, [k]: e.target.checked })
-                                  }
-                                  className="sr-only"
-                                />
-                                <div>
-                                  <p className="text-[10px] font-black uppercase text-app-text tracking-widest leading-none">
-                                    {label}
-                                  </p>
-                                  <p className="text-[9px] text-app-text-muted mt-1 opacity-60 font-bold">
-                                    {sub}
-                                  </p>
-                                </div>
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                      </section>
-                    )}
-                  </div>
-                </div>
-              </div>
+                }
+              >
+                <PrintersAndScannersPanel />
+              </Suspense>
             )}
-
+            {activeTab === "register" && (
+              <RegisterSettings 
+                sessionId={posSessionId}
+                cashierCode={posCashierCode}
+                lifecycleStatus={posLifecycleStatus}
+                onRefreshMeta={onPosRefreshMeta}
+              />
+            )}
             {activeTab === "integrations" && (
               <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <header className="mb-10">
@@ -1391,10 +918,9 @@ export default function SettingsWorkspace({
                       color: "bg-indigo-600 focus:ring-indigo-500",
                     },
                   ].map((item) => (
-                    <button
+                    <div
                       key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      className="ui-card p-8 flex flex-col items-center text-center group hover:border-app-text transition-all"
+                      className="ui-card p-8 flex flex-col items-center text-center group transition-all"
                     >
                       <div
                         className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform`}
@@ -1407,7 +933,7 @@ export default function SettingsWorkspace({
                       <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider">
                         {item.desc}
                       </p>
-                    </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -1522,7 +1048,7 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "quickbooks" && hasPermission("settings.admin") && (
-              <QuickBooksSettingsPanel onOpenQbo={onOpenQbo} />
+              <QuickBooksSettingsPanel onOpenQbo={() => onNavigateToTab?.("qbo")} />
             )}
 
             {activeTab === "stripe" && hasPermission("settings.admin") && (
@@ -1538,6 +1064,18 @@ export default function SettingsWorkspace({
                 }
               >
                 <ReceiptBuilderPanel baseUrl={baseUrl} />
+              </Suspense>
+            )}
+
+            {activeTab === "tag-designer" && (
+              <Suspense
+                fallback={
+                  <p className="text-sm font-medium text-app-text-muted">
+                    Loading Tag Designer…
+                  </p>
+                }
+              >
+                <TagDesignerPanel />
               </Suspense>
             )}
 
@@ -1763,6 +1301,35 @@ export default function SettingsWorkspace({
                       </dd>
                     </div>
                   </dl>
+                  {tauriShellVersion != null ? (
+                    <div className="mt-6 border-t border-app-border/60 pt-4 space-y-3">
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={updateBusy}
+                          onClick={() => void handleCheckForUpdates()}
+                          className="ui-btn-primary h-10 px-4 text-xs font-black disabled:opacity-50"
+                        >
+                          {updateBusy ? "Checking..." : "Check for updates"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={updateBusy}
+                          onClick={() => void handleInstallUpdate()}
+                          className="h-10 px-4 rounded-xl border border-app-border bg-app-surface text-xs font-black uppercase tracking-widest text-app-text hover:bg-app-surface-2 disabled:opacity-50"
+                        >
+                          {updateBusy ? "Installing..." : "Install update"}
+                        </button>
+                      </div>
+                      {updateCheck != null ? (
+                        <p className="text-xs text-app-text-muted font-medium">
+                          {updateCheck.available
+                            ? `Update ${updateCheck.version ?? ""} available.`
+                            : updateCheck.message ?? "No update available."}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
                 </section>
               </div>
             )}

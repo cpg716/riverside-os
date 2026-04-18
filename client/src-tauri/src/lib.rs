@@ -1,3 +1,5 @@
+#[cfg(desktop)]
+pub mod app_updates;
 pub mod hardware;
 pub mod llama_server;
 
@@ -6,6 +8,7 @@ pub fn run() {
     tauri::Builder::default()
         .manage(llama_server::LlamaSidecarState::default())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             if cfg!(debug_assertions) {
                 app.handle().plugin(
@@ -23,6 +26,10 @@ pub fn run() {
             llama_server::rosie_llama_start,
             llama_server::rosie_llama_stop,
             llama_server::rosie_llama_status,
+            #[cfg(desktop)]
+            app_updates::check_app_update,
+            #[cfg(desktop)]
+            app_updates::install_app_update,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

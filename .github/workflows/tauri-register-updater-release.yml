@@ -1,0 +1,107 @@
+name: Tauri register updater release (Windows)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: "Release notes shown in updater prompts"
+        required: false
+        default: "Riverside POS update"
+
+permissions:
+  contents: write
+
+jobs:
+  build-updater:
+    runs-on: windows-latest
+    if: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY != '' && secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
+    defaults:
+      run:
+        working-directory: client
+    env:
+      RIVERSIDE_UPDATER_ENDPOINT: https://github.com/${{ github.repository }}/releases/latest/download/latest.json
+      RIVERSIDE_UPDATER_PUBLIC_KEY: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      RIVERSIDE_UPDATER_BASE_URL: https://github.com/${{ github.repository }}/releases/latest/download
+      RELEASE_NOTES: ${{ github.event.inputs.release_notes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        run: npm ci
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: clippy, rustfmt
+
+      - name: Build signed updater bundle
+        shell: pwsh
+        run: |
+          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value '{"bundle":{"createUpdaterArtifacts":true}}' -NoNewline
+          npm run tauri:build -- --config src-tauri/tauri.updater.conf.json
+
+      - name: Build updater manifest bundle
+        id: updater_meta
+        shell: pwsh
+        run: |
+          $bundleRoot = "src-tauri/target/release/bundle"
+          $sig = Get-ChildItem -Path $bundleRoot -Recurse -Filter *.sig | Select-Object -First 1
+          if ($null -eq $sig) {
+            throw "No updater signature file (*.sig) found. Ensure TAURI_SIGNING_PRIVATE_KEY is configured."
+          }
+
+          $artifactPath = [System.IO.Path]::GetFullPath(($sig.FullName.Substring(0, $sig.FullName.Length - 4)))
+          if (-not (Test-Path $artifactPath)) {
+            throw "Could not find updater artifact paired with signature: $artifactPath"
+          }
+
+          $pkg = Get-Content "package.json" | ConvertFrom-Json
+          $version = $pkg.version
+          $tag = "v$version"
+          $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+          $artifactName = [System.IO.Path]::GetFileName($artifactPath)
+          $signature = (Get-Content $sig.FullName -Raw).Trim()
+          $notes = if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { "Riverside POS update" } else { $env:RELEASE_NOTES }
+
+          $manifest = @{
+            version = $version
+            notes = $notes
+            pub_date = $pubDate
+            platforms = @{
+              "windows-x86_64" = @{
+                signature = $signature
+                url = "$($env:RIVERSIDE_UPDATER_BASE_URL.TrimEnd('/'))/$artifactName"
+              }
+            }
+          } | ConvertTo-Json -Depth 6
+
+          New-Item -ItemType Directory -Force -Path updater-dist | Out-Null
+          Copy-Item -Path $artifactPath -Destination "updater-dist/$artifactName" -Force
+          Copy-Item -Path $sig.FullName -Destination "updater-dist/$($sig.Name)" -Force
+          Set-Content -Path "updater-dist/latest.json" -Value $manifest -NoNewline
+          "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tauri-windows-updater-dist
+          path: client/updater-dist/
+
+      - name: Publish updater assets to GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.updater_meta.outputs.tag }}
+        run: |
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:TAG --title "Riverside POS $env:TAG" --notes "$env:RELEASE_NOTES"
+          }
+          gh release upload $env:TAG updater-dist/* --clobber

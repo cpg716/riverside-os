@@ -139,10 +139,18 @@ Before announcing “all clear”:
 
 ## 6. Workstations (Tauri / desktop)
 
-There is **no** in-repo automatic updater for Tauri ([`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section D). For each PC:
+Use the desktop updater release pipeline (`.github/workflows/tauri-register-updater-release.yml`) for recurring Windows updates:
 
-1. Install or replace with the **new** MSI/NSIS (or portable) build from `npm run tauri:build`.
-2. **`VITE_API_BASE`** is fixed **at build time** — rebuilding the desktop app must still target the same API origin staff use (LAN hostname, HTTPS URL, etc.). See [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 3.2.
+1. Run the workflow after business hours with:
+   - GitHub variable: `RIVERSIDE_UPDATER_PUBLIC_KEY` (from `~/.tauri/riverside-updater.key.pub`)
+   - GitHub secret: `TAURI_SIGNING_PRIVATE_KEY` (+ optional `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`)
+2. The workflow publishes `updater-dist/latest.json`, updater artifact, and `.sig` file to the GitHub release tag for that version.
+3. On stations, use **Settings → General → About this build → Check for updates / Install update**.
+4. Keep the previous installer available for rollback.
+
+If you need a manual fallback, install/replace with the latest MSI/NSIS build.
+
+**`VITE_API_BASE`** remains fixed **at build time** — any desktop rebuild must still target the same API origin staff use (LAN hostname, HTTPS URL, etc.). See [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 3.2.
 
 ---
 
