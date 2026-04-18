@@ -14,7 +14,6 @@ permissions:
 jobs:
   build-updater:
     runs-on: windows-latest
-    if: ${{ vars.RIVERSIDE_UPDATER_PUBLIC_KEY != '' && secrets.TAURI_SIGNING_PRIVATE_KEY != '' }}
     defaults:
       run:
         working-directory: client
