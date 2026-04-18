@@ -21,6 +21,7 @@ pub mod inventory;
 pub mod loyalty;
 pub mod metabase_proxy;
 pub mod notifications;
+pub mod ops;
 pub mod payments;
 pub mod physical_inventory;
 pub mod pos;
@@ -118,6 +119,7 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/loyalty", loyalty::router())
         .nest("/api/reviews", reviews::router())
         .nest("/api/notifications", notifications::router())
+        .nest("/api/ops", ops::router())
         .nest(
             "/api/settings",
             settings::router().merge(bug_reports::settings_subrouter()),

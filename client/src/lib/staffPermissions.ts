@@ -58,6 +58,16 @@ export const STAFF_PERMISSION_CATALOG: {
     group: "Settings",
   },
   {
+    key: "ops.dev_center.view",
+    label: "View ROS Dev Center",
+    group: "Settings",
+  },
+  {
+    key: "ops.dev_center.actions",
+    label: "Run ROS Dev Center guarded actions",
+    group: "Settings",
+  },
+  {
     key: "online_store.manage",
     label: "Online store CMS pages & web coupons",
     group: "Settings",
@@ -65,6 +75,7 @@ export const STAFF_PERMISSION_CATALOG: {
   { key: "gift_cards.manage", label: "Gift card issue, void, inventory", group: "Gift cards" },
   { key: "weddings.view", label: "View weddings, compass, appointments", group: "Weddings" },
   { key: "weddings.mutate", label: "Edit wedding parties & appointments", group: "Weddings" },
+  { key: "wedding_manager.open", label: "Open full Wedding Manager shell", group: "Weddings" },
   { key: "register.reports", label: "Register Z/X reports & reconciliation (BO)", group: "Register" },
   {
     key: "register.open_drawer",

@@ -52,6 +52,8 @@ pub const GIFT_CARDS_MANAGE: &str = "gift_cards.manage";
 pub const LOYALTY_PROGRAM_SETTINGS: &str = "loyalty.program_settings";
 pub const WEDDINGS_VIEW: &str = "weddings.view";
 pub const WEDDINGS_MUTATE: &str = "weddings.mutate";
+/// Open the full Wedding Manager shell from POS / Back Office navigation.
+pub const WEDDING_MANAGER_OPEN: &str = "wedding_manager.open";
 /// Back Office: read Z/X reports and reconciliation for a register session without POS token.
 pub const REGISTER_REPORTS: &str = "register.reports";
 /// Back Office: record paid-in / paid-out drawer adjustments without POS session token.
@@ -98,6 +100,8 @@ pub const TASKS_COMPLETE: &str = "tasks.complete";
 
 /// Edit Help Center manual policies (visibility, markdown overrides, RBAC gates).
 pub const HELP_MANAGE: &str = "help.manage";
+pub const OPS_DEV_CENTER_VIEW: &str = "ops.dev_center.view";
+pub const OPS_DEV_CENTER_ACTIONS: &str = "ops.dev_center.actions";
 
 pub const NUORDER_MANAGE: &str = "nuorder.manage";
 pub const NUORDER_SYNC: &str = "nuorder.sync";
@@ -140,6 +144,7 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     LOYALTY_PROGRAM_SETTINGS,
     WEDDINGS_VIEW,
     WEDDINGS_MUTATE,
+    WEDDING_MANAGER_OPEN,
     REGISTER_REPORTS,
     REGISTER_OPEN_DRAWER,
     REGISTER_SHIFT_HANDOFF,
@@ -160,6 +165,8 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     TASKS_VIEW_TEAM,
     TASKS_COMPLETE,
     HELP_MANAGE,
+    OPS_DEV_CENTER_VIEW,
+    OPS_DEV_CENTER_ACTIONS,
     CUSTOMERS_DUPLICATE_REVIEW,
     CUSTOMERS_RMS_CHARGE,
     SHIPMENTS_VIEW,

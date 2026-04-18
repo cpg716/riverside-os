@@ -250,6 +250,7 @@ pub fn router() -> Router<AppState> {
         .route("/effective-permissions", get(effective_permissions_self))
         .route("/verify-pin", post(legacy_verify_pin))
         .route("/avatar/{id}", get(get_staff_avatar))
+        .route("/self", get(self_get_profile).patch(self_patch_profile))
         .route("/self/avatar", patch(self_patch_staff_avatar))
         .route("/self/pricing-limits", get(self_pricing_limits))
         .route("/self/register-metrics", get(self_register_metrics))
@@ -451,6 +452,149 @@ async fn effective_permissions_self(
         "permissions": list,
         "employee_customer_id": employee_customer_id,
     })))
+}
+
+async fn self_get_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<StaffHubRow>, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    let row = sqlx::query_as::<_, StaffHubRow>(
+        r#"
+        SELECT
+            s.id,
+            s.full_name,
+            s.cashier_code,
+            s.role,
+            s.is_active,
+            s.base_commission_rate,
+            (s.pin_hash IS NOT NULL AND length(trim(s.pin_hash)) > 0) AS has_pin,
+            (
+                SELECT COALESCE(
+                    SUM((oi.unit_price * oi.quantity)::numeric(14, 2)),
+                    0
+                )::numeric(14, 2)
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
+                WHERE oi.salesperson_id = s.id
+                  AND o.status::text NOT IN ('cancelled')
+                  AND o.booked_at >= date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+                  AND o.booked_at < date_trunc('month', CURRENT_TIMESTAMP AT TIME ZONE 'UTC')
+                    + INTERVAL '1 month'
+            ) AS sales_mtd,
+            NULLIF(trim(s.phone), '') AS phone,
+            NULLIF(trim(s.email), '') AS email,
+            s.avatar_key,
+            s.max_discount_percent,
+            s.employment_start_date,
+            s.employment_end_date,
+            s.employee_customer_id,
+            NULLIF(trim(c.customer_code), '') AS employee_customer_code
+        FROM staff s
+        LEFT JOIN customers c ON c.id = s.employee_customer_id
+        WHERE s.id = $1
+        "#,
+    )
+    .bind(staff.id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(row))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchSelfRequest {
+    pub full_name: Option<String>,
+    pub phone: Option<String>,
+    pub email: Option<String>,
+    pub avatar_key: Option<String>,
+    pub employee_customer_id: Option<Uuid>,
+    #[serde(default)]
+    pub detach_employee_customer: bool,
+}
+
+async fn self_patch_profile(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PatchSelfRequest>,
+) -> Result<Json<serde_json::Value>, StaffApiError> {
+    let staff = require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|_| StaffApiError::Forbidden)?;
+
+    if let Some(ref e) = body.email {
+        if !validate_email(e) {
+            return Err(StaffApiError::InvalidPayload("invalid email".to_string()));
+        }
+    }
+    if let Some(ref p) = body.phone {
+        if !validate_phone(p) {
+            return Err(StaffApiError::InvalidPayload("invalid phone".to_string()));
+        }
+    }
+    if let Some(ref k) = body.avatar_key {
+        if !staff_avatar::is_allowed_staff_avatar_key(k) {
+            return Err(StaffApiError::InvalidPayload(
+                "invalid avatar_key".to_string(),
+            ));
+        }
+    }
+
+    let mut tx = state.db.begin().await?;
+
+    if let Some(ref n) = body.full_name {
+        sqlx::query("UPDATE staff SET full_name = $1 WHERE id = $2")
+            .bind(n.trim())
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref p) = body.phone {
+        sqlx::query("UPDATE staff SET phone = $1 WHERE id = $2")
+            .bind(p.trim())
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref e) = body.email {
+        sqlx::query("UPDATE staff SET email = $1 WHERE id = $2")
+            .bind(e.trim())
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref k) = body.avatar_key {
+        sqlx::query("UPDATE staff SET avatar_key = $1 WHERE id = $2")
+            .bind(k.trim())
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if body.detach_employee_customer {
+        sqlx::query("UPDATE staff SET employee_customer_id = NULL WHERE id = $1")
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    } else if let Some(ec) = body.employee_customer_id {
+        sqlx::query("UPDATE staff SET employee_customer_id = $1 WHERE id = $2")
+            .bind(ec)
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
+
+    spawn_meilisearch_staff_upsert(&state, staff.id);
+
+    Ok(Json(json!({ "status": "updated" })))
 }
 
 async fn self_patch_staff_avatar(
@@ -767,6 +911,57 @@ async fn admin_patch_staff(
         .await?;
     if !exists {
         return Err(StaffApiError::InvalidPayload("staff not found".to_string()));
+    }
+
+    let current_staff: (DbStaffRole, bool, String) =
+        sqlx::query_as("SELECT role, is_active, full_name FROM staff WHERE id = $1")
+            .bind(staff_id)
+            .fetch_one(&state.db)
+            .await?;
+
+    let next_role = body.role.unwrap_or(current_staff.0);
+    let next_is_active = body.is_active.unwrap_or(current_staff.1);
+    let admin_access_removed = current_staff.0 == DbStaffRole::Admin
+        && (next_role != DbStaffRole::Admin || !next_is_active);
+
+    if admin_access_removed {
+        let other_active_admins: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM staff
+            WHERE role = 'admin'::staff_role
+              AND is_active = TRUE
+              AND id <> $1
+            "#,
+        )
+        .bind(staff_id)
+        .fetch_one(&state.db)
+        .await?;
+        if other_active_admins == 0 {
+            return Err(StaffApiError::InvalidPayload(
+                "cannot deactivate or demote the last active admin".to_string(),
+            ));
+        }
+    }
+
+    if !next_is_active {
+        let open_register_count: i64 = sqlx::query_scalar(
+            r#"
+            SELECT COUNT(*)::bigint
+            FROM register_sessions
+            WHERE is_open = TRUE
+              AND (opened_by = $1 OR shift_primary_staff_id = $1)
+            "#,
+        )
+        .bind(staff_id)
+        .fetch_one(&state.db)
+        .await?;
+        if open_register_count > 0 {
+            return Err(StaffApiError::InvalidPayload(format!(
+                "cannot deactivate {} while they still own open register sessions",
+                current_staff.2
+            )));
+        }
     }
 
     if let Some(cid) = body.employee_customer_id {

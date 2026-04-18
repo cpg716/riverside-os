@@ -24,21 +24,23 @@ export default function RegisterSettings({
     return "classic";
   });
 
-  const [receiptPrinterIp, setReceiptPrinterIp] = React.useState(() => window.localStorage.getItem("ros.pos.receiptPrinterIp") || "127.0.0.1");
-  const [receiptPrinterPort, setReceiptPrinterPort] = React.useState(() => window.localStorage.getItem("ros.pos.receiptPrinterPort") || "9100");
-  const [autoPrintReceipts, setAutoPrintReceipts] = React.useState(() => window.localStorage.getItem("ros.pos.autoPrintReceipts") === "true");
+  const [receiptPrinterIp, setReceiptPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1");
+  const [receiptPrinterPort, setReceiptPrinterPort] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.receipt.port") || "9100");
+  const [autoPrintReceipts, setAutoPrintReceipts] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.receipt.autoPrint") === "true");
   
-  const [reportPrinterName, setReportPrinterName] = React.useState(() => window.localStorage.getItem("ros.pos.reportPrinterName") || "Default");
-  const [autoPrintReports, setAutoPrintReports] = React.useState(() => window.localStorage.getItem("ros.pos.autoPrintReports") === "true");
+  const [tagPrinterIp, setTagPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.tag.ip") || "127.0.0.1");
+  const [reportPrinterIp, setReportPrinterIp] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.report.ip") || "");
+  const [autoPrintReports, setAutoPrintReports] = React.useState(() => window.localStorage.getItem("ros.hardware.printer.report.autoPrint") === "true");
 
   const [busy, setBusy] = React.useState(false);
 
-  const saveReceiptIp = (val: string) => { setReceiptPrinterIp(val); window.localStorage.setItem("ros.pos.receiptPrinterIp", val); };
-  const saveReceiptPort = (val: string) => { setReceiptPrinterPort(val); window.localStorage.setItem("ros.pos.receiptPrinterPort", val); };
-  const toggleAutoPrintReceipts = () => { const next = !autoPrintReceipts; setAutoPrintReceipts(next); window.localStorage.setItem("ros.pos.autoPrintReceipts", String(next)); };
+  const saveReceiptIp = (val: string) => { setReceiptPrinterIp(val); window.localStorage.setItem("ros.hardware.printer.receipt.ip", val); };
+  const saveReceiptPort = (val: string) => { setReceiptPrinterPort(val); window.localStorage.setItem("ros.hardware.printer.receipt.port", val); };
+  const toggleAutoPrintReceipts = () => { const next = !autoPrintReceipts; setAutoPrintReceipts(next); window.localStorage.setItem("ros.hardware.printer.receipt.autoPrint", String(next)); };
 
-  const saveReportPrinter = (val: string) => { setReportPrinterName(val); window.localStorage.setItem("ros.pos.reportPrinterName", val); };
-  const toggleAutoPrintReports = () => { const next = !autoPrintReports; setAutoPrintReports(next); window.localStorage.setItem("ros.pos.autoPrintReports", String(next)); };
+  const saveTagIp = (val: string) => { setTagPrinterIp(val); window.localStorage.setItem("ros.hardware.printer.tag.ip", val); };
+  const saveReportIp = (val: string) => { setReportPrinterIp(val); window.localStorage.setItem("ros.hardware.printer.report.ip", val); };
+  const toggleAutoPrintReports = () => { const next = !autoPrintReports; setAutoPrintReports(next); window.localStorage.setItem("ros.hardware.printer.report.autoPrint", String(next)); };
 
   const handleSoundChange = (val: PosSoundProfile) => {
     setSoundProfile(val);
@@ -188,19 +190,36 @@ export default function RegisterSettings({
                 </button>
               </div>
 
+              {/* Tag Printer (ZPL) */}
+              <div className="ui-card p-6 border-app-border space-y-6">
+                <div className="flex items-center justify-between border-b border-app-border pb-3">
+                  <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Tag Station (ZPL)</p>
+                  <div className="h-2 w-2 rounded-full bg-blue-500/40" />
+                </div>
+                <label className="flex flex-col gap-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Zebra Station IP</span>
+                  <input 
+                    value={tagPrinterIp} 
+                    onChange={e => saveTagIp(e.target.value)}
+                    placeholder="192.168.1.101"
+                    className="ui-input font-mono text-xs"
+                  />
+                </label>
+              </div>
+
               {/* Report Printer (Full Page) */}
               <div className="ui-card p-6 border-app-border space-y-6">
                 <div className="flex items-center justify-between border-b border-app-border pb-3">
                   <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Report Station (Audit)</p>
-                  <div className="h-2 w-2 rounded-full bg-blue-500/40" />
+                  <div className="h-2 w-2 rounded-full bg-violet-500/40" />
                 </div>
                 <label className="flex flex-col gap-2">
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">System Printer Name</span>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Reporting Bridge IP</span>
                   <input 
-                    value={reportPrinterName} 
-                    onChange={e => saveReportPrinter(e.target.value)}
-                    placeholder="e.g. Office LaserJet"
-                    className="ui-input font-semibold text-sm"
+                    value={reportPrinterIp} 
+                    onChange={e => saveReportIp(e.target.value)}
+                    placeholder="e.g. 192.168.1.50"
+                    className="ui-input font-mono text-xs"
                   />
                 </label>
                 <button 

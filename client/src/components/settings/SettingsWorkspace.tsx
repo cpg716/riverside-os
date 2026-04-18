@@ -52,6 +52,7 @@ import StripeSettingsPanel from "./StripeSettingsPanel";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
+import RosDevCenterPanel from "./RosDevCenterPanel";
 
 
 
@@ -1033,6 +1034,13 @@ export default function SettingsWorkspace({
                 onDeepLinkConsumed={onBugReportsDeepLinkConsumed}
               />
             )}
+            {activeTab === "ros-dev-center" &&
+              hasPermission("ops.dev_center.view") && (
+                <RosDevCenterPanel
+                  bugReportsDeepLinkId={bugReportsDeepLinkId}
+                  onBugReportsDeepLinkConsumed={onBugReportsDeepLinkConsumed}
+                />
+              )}
 
             {activeTab === "meilisearch" && hasPermission("settings.admin") && (
               <MeilisearchSettingsPanel />

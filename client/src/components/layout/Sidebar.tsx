@@ -18,6 +18,8 @@ import {
   ChevronLeft,
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
+import RiversideJustLogo from "../../assets/images/logo1.png";
+
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   SIDEBAR_TAB_PERMISSION,
@@ -58,8 +60,6 @@ export default function Sidebar({
     permissionsLoaded &&
     hasPermission("customers.hub_view") &&
     podiumInboxUnread > 0;
-
-
 
   const menuItems = useMemo(
     () =>
@@ -129,17 +129,17 @@ export default function Sidebar({
     >
       {/* Brand row */}
       <div className={`mb-5 flex min-h-[44px] items-center ${collapsed ? "justify-center" : "justify-between"}`}>
-        {!collapsed && (
-          <div className="flex min-w-0 items-center gap-2">
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-app-border bg-[linear-gradient(145deg,color-mix(in_srgb,var(--app-accent)_18%,var(--app-surface-2)),var(--app-surface-2))] text-[10px] font-black tracking-tight text-app-text">
-              ROS
-            </div>
+        <div className={`flex items-center gap-2 ${collapsed ? "justify-center" : ""}`}>
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-app-surface-2 shadow-sm border border-app-border">
+            <img src={RiversideJustLogo} alt="Riverside" className="h-full w-full object-contain" />
+          </div>
+          {!collapsed && (
             <div className="min-w-0">
               <p className="truncate text-xs font-black tracking-tight text-app-text">Riverside OS</p>
               <p className="truncate text-[9px] uppercase tracking-[0.14em] text-app-text-muted leading-tight">POS Office</p>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Nav */}
@@ -215,7 +215,7 @@ export default function Sidebar({
                       key={sub.id}
                       type="button"
                       onClick={() => onSubSectionChange(sub.id)}
-                      className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                      className={`flex w-full items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors ${
                         activeSubSection === sub.id
                           ? "bg-app-surface-2 font-black text-app-accent"
                           : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"

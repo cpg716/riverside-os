@@ -1,8 +1,8 @@
 # Shipping, Shippo, and the unified shipments hub
 
-**Audience:** Developers and operators shipping from **POS**, the **online storefront**, or **manual** CRM workflows.
+**Audience:** Developers and operators shipping from **POS**, the **Back Office**, the **online storefront**, or **manual** CRM workflows.
 
-**Purpose:** Describe what is **shipped today** (schema, env, APIs, UI) versus what remains on the roadmap (**[`docs/PLAN_SHIPPO_SHIPPING.md`](PLAN_SHIPPO_SHIPPING.md)**).
+**Purpose:** Describe the unified shipping architecture where the **Shipments Hub** is mirrored between both the Back Office and the POS to support salespersons and support staff. Details today's state (schema, env, APIs, UI) versus what remains on the roadmap (**[`docs/PLAN_SHIPPO_SHIPPING.md`](PLAN_SHIPPO_SHIPPING.md)**).
 
 ---
 
@@ -64,8 +64,9 @@ Sidebar **Customers → Shipments** maps subsection permission **`customers:ship
 
 ## UI
 
-- **Customers → Shipments** — full-store list, filters, manual shipment modal, detail panel (rates, apply quote, status/tracking), **event timeline** (`ShipmentsHubSection.tsx`).
-- **Relationship Hub → Shipments** — same component with **`customerIdFilter`** for the open customer.
+- **Customers → Shipments** (BO) — full-store list, filters, manual shipment modal, detail panel (rates, apply quote, status/tracking), **event timeline** (`ShipmentsHubSection.tsx`).
+- **POS Sidebar → Shipping** (Register) — mirrored access to the hub for floor staff and sales support.
+- **Relationship Hub → Shipments** (Joint) — same component with **`customerIdFilter`** for the open customer, available in both BO and POS.
 - **Relationship Hub → Interaction timeline** — append-only **`shipment_event`** rows for this customer appear as **`shipping`** entries (requires **`customers.timeline`**), with **`reference_type`** **`shipment`**. Staff with **`shipments.view`** can **click the summary** to jump to the **Shipments** tab with that shipment opened (detail + list).
 
 Roadmap UI (orders workspace label buy, fulfillment gates) remains in **`PLAN_SHIPPO_SHIPPING.md`**.

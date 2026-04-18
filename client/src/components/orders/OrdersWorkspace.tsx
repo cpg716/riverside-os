@@ -35,6 +35,7 @@ function cn(...inputs: (string | undefined | null | boolean)[]) {
 
 interface TransactionRow {
   transaction_id: string;
+  display_id: string;
   booked_at: string;
   status: string;
   total_price: string;
@@ -47,16 +48,8 @@ interface TransactionRow {
   party_name: string | null;
   primary_salesperson_name?: string | null;
   item_count: number;
-}
-
-interface FulfillmentOrderRow {
-  fulfillment_id: string;
-  transaction_id: string;
-  customer_name: string;
-  party_name: string | null;
-  status: string;
-  item_summary: string;
-  created_at: string;
+  order_kind: string;
+  counterpoint_customer_code?: string | null;
 }
 
 interface OrderItem {
@@ -151,8 +144,23 @@ interface OrderRowActions {
 
 
 
-function FulfillmentTableRow({ row, isSelected, onClick, detail, audit, actions }: { 
-  row: FulfillmentOrderRow; 
+function orderKindLabel(kind: string) {
+  switch (kind) {
+    case "wedding_order":
+      return "Wedding";
+    case "special_order":
+      return "Order";
+    case "custom":
+      return "Custom";
+    case "layaway":
+      return "Layaway";
+    default:
+      return "Order";
+  }
+}
+
+function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
+  row: TransactionRow;
   isSelected: boolean; 
   onClick: () => void;
   detail: OrderDetail | null;
@@ -170,29 +178,47 @@ function FulfillmentTableRow({ row, isSelected, onClick, detail, audit, actions 
         )}
       >
         <td className="px-6 py-5">
-           <p className="text-[11px] font-black tracking-tight text-app-text mb-1">ORD #{row.fulfillment_id.slice(-8).toUpperCase()}</p>
-           <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">TXN #{row.transaction_id.slice(0, 8)}</p>
+           <p className="text-[11px] font-black tracking-tight text-app-text mb-1">{row.display_id}</p>
+           <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
+             {new Date(row.booked_at).toLocaleDateString()}
+           </p>
         </td>
         <td className="px-6 py-5">
            <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 text-[10px] font-black">
-                {row.customer_name?.[0] ?? "W"}
+                {row.customer_name?.[0] ?? row.counterpoint_customer_code?.[0] ?? "W"}
               </div>
               <div>
                 <p className="text-[11px] font-bold text-app-text flex items-center gap-1.5">
-                  {row.customer_name ?? "Walk-in"}
+                  {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
                   {row.party_name && <Heart size={10} className="text-rose-500" />}
                 </p>
-                {row.party_name && <p className="text-[9px] font-bold text-rose-500/60 uppercase tracking-tighter italic">{row.party_name}</p>}
+                <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                  <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
+                    {orderKindLabel(row.order_kind)}
+                  </p>
+                  {row.counterpoint_customer_code && (
+                    <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-emerald-600">
+                      CP Open Doc
+                    </span>
+                  )}
+                  {row.party_name && <p className="text-[9px] font-bold text-rose-500/60 uppercase tracking-tighter italic">{row.party_name}</p>}
+                </div>
               </div>
            </div>
         </td>
         <td className="px-6 py-5 max-w-[300px]">
-           <p className="text-[10px] font-bold text-app-text-muted italic opacity-80 truncate">{row.item_summary}</p>
+           <p className="text-[10px] font-bold text-app-text-muted italic opacity-80 truncate">
+             {row.item_count} item{row.item_count === 1 ? "" : "s"}
+             {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
+           </p>
         </td>
         <td className="px-6 py-5">
            <span className={cn(
-             "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+             "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
+             row.counterpoint_customer_code
+               ? "border-sky-500/20 bg-sky-500/10 text-sky-600"
+               : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
            )}>
              {row.status}
            </span>
@@ -201,7 +227,9 @@ function FulfillmentTableRow({ row, isSelected, onClick, detail, audit, actions 
            {detail ? (
              <>
                <p className="text-[11px] font-black text-app-text">{money(detail.total_price)}</p>
-               <p className="text-[9px] font-bold text-emerald-600 opacity-80 mt-1">Ready for pickup</p>
+               <p className="text-[9px] font-bold text-app-text-muted opacity-80 mt-1">
+                 Paid {money(detail.amount_paid)}
+               </p>
              </>
            ) : (
              <p className="text-[9px] font-bold text-app-text-muted opacity-40 italic tracking-widest">Select record...</p>
@@ -248,9 +276,9 @@ function FulfillmentTableRow({ row, isSelected, onClick, detail, audit, actions 
 
                 <div className="grid grid-cols-2 gap-12">
                    {/* Items Sub-Table */}
-                   <div>
+                     <div>
                      <div className="flex items-center justify-between mb-4 px-2">
-                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic">Fulfillment Orders</h4>
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic">Order Lines</h4>
                         {actions.canModify && detail.status !== "cancelled" && (
                           <div className="flex gap-2">
                             <input 
@@ -291,7 +319,7 @@ function FulfillmentTableRow({ row, isSelected, onClick, detail, audit, actions 
 
                    {/* Audit / Logistics */}
                    <div>
-                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic mb-4 px-2">Fulfillment Logistics</h4>
+                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic mb-4 px-2">Order Activity</h4>
                      <div className="p-6 rounded-2xl border border-app-border bg-app-surface/40 space-y-4">
                         {audit.slice(0, 4).map((e: OrderAuditEvent) => (
                            <div key={e.id} className="flex gap-4">
@@ -309,7 +337,7 @@ function FulfillmentTableRow({ row, isSelected, onClick, detail, audit, actions 
             ) : (
               <div className="flex items-center justify-center p-20 gap-4 opacity-50">
                  <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                 <p className="text-[11px] font-black uppercase tracking-widest italic">Decrypting fulfillment data...</p>
+                 <p className="text-[11px] font-black uppercase tracking-widest italic">Loading order record...</p>
               </div>
             )}
           </td>
@@ -349,8 +377,6 @@ export default function OrdersWorkspace({
   const canRefund = hasPermission("orders.refund_process");
   const _canSuitSwap = hasPermission("orders.suit_component_swap") && canModify;
 
-  const [activeTab] = useState<"fulfillment" | "transactions">("fulfillment");
-  const [fulfillmentRows, setFulfillmentRows] = useState<FulfillmentOrderRow[]>([]);
   const [transactionRows, setTransactionRows] = useState<TransactionRow[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
@@ -402,14 +428,6 @@ export default function OrdersWorkspace({
   useEffect(() => {
     setPage(0);
   }, [debouncedSearch, kindFilter, paymentFilter, salespersonFilter, datePreset, dateFrom, dateTo, section]);
-  const loadFulfillmentQueue = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/transactions/fulfillment-queue`, {
-        headers: backofficeHeaders(),
-      });
-      if (res.ok) setFulfillmentRows((await res.json()) as FulfillmentOrderRow[]);
-    } catch { /* ignore */ }
-  }, [baseUrl, backofficeHeaders]);
 
   const loadPipelineStats = useCallback(async () => {
     try {
@@ -429,6 +447,7 @@ export default function OrdersWorkspace({
     const params = new URLSearchParams();
     params.set("limit", String(limit));
     params.set("offset", String(page * limit));
+    params.set("status_scope", section === "open" ? "open" : "closed");
     if (debouncedSearch) params.set("search", debouncedSearch);
     if (kindFilter !== "all") params.set("kind_filter", kindFilter);
     if (paymentFilter !== "all") params.set("payment_filter", paymentFilter);
@@ -444,12 +463,7 @@ export default function OrdersWorkspace({
        setTransactionRows(data.items);
        setTotalCount(data.total_count);
     }
-  }, [baseUrl, backofficeHeaders, page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, dateFrom, dateTo]);
-
-  useEffect(() => {
-    if (activeTab === "fulfillment") void loadFulfillmentQueue();
-    else void loadTransactions();
-  }, [activeTab, loadFulfillmentQueue, loadTransactions]);
+  }, [baseUrl, backofficeHeaders, page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, dateFrom, dateTo, section]);
 
   const loadDetail = useCallback(async (id: string) => {
     const res = await fetch(`${baseUrl}/api/transactions/${id}`, {
@@ -716,7 +730,9 @@ export default function OrdersWorkspace({
       <div className="flex shrink-0 items-center justify-between p-6 sm:p-10 pb-4">
         <div className="flex flex-col gap-1">
           <h1 className="text-xl font-black uppercase tracking-widest text-app-text">Order Management Hub</h1>
-          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] italic opacity-60">Active Fulfillment & Logistical Flow</p>
+          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] italic opacity-60">
+            {section === "open" ? "Current Open Orders & Counterpoint Open Docs" : "Closed Order History"}
+          </p>
         </div>
         
         <div className="flex items-center gap-3">
@@ -735,23 +751,21 @@ export default function OrdersWorkspace({
             <RotateCcw size={14} />
             Reset
           </button>
-          {activeTab === "fulfillment" && (
-             <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 shadow-soft-xs">
-                <Activity size={14} className="animate-pulse" />
-                <p className="text-[10px] font-black uppercase tracking-widest italic">
-                  Active Monitoring
-                </p>
-             </div>
-          )}
+          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 shadow-soft-xs">
+            <Activity size={14} className={section === "open" ? "animate-pulse" : ""} />
+            <p className="text-[10px] font-black uppercase tracking-widest italic">
+              {section === "open" ? "Open Order View" : "Closed Order View"}
+            </p>
+          </div>
         </div>
       </div>
 
       <div className="flex flex-1 p-6 sm:p-10 sm:pt-4">
         {/* Unified Order Dashboard */}
         <DashboardGridCard 
-          title={activeTab === "fulfillment" ? "Fulfillment Queue" : "Order History"}
-          subtitle={`${totalCount || fulfillmentRows.length} active records detected`}
-          icon={activeTab === "fulfillment" ? Package : Activity}
+          title={section === "open" ? "Open Orders" : "Closed Orders"}
+          subtitle={`${totalCount} records detected`}
+          icon={Package}
           className="flex-1"
           contentClassName="p-0 flex flex-col"
         >
@@ -763,6 +777,7 @@ export default function OrdersWorkspace({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="SEARCH ORDERS (By name, phone number, Order #, etc)"
+                
                 className="w-full h-11 rounded-xl border border-app-border bg-app-surface px-11 text-[11px] font-black uppercase tracking-wider transition-all focus:border-app-accent/40 focus:ring-4 focus:ring-app-accent/5 outline-none shadow-soft-sm"
               />
             </div>
@@ -831,16 +846,16 @@ export default function OrdersWorkspace({
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
-                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Items</th>
+                  <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Order Summary</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Status</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Financials</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted text-right">Balance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border/40">
-                {fulfillmentRows.map((r) => (
-                  <FulfillmentTableRow 
-                    key={r.fulfillment_id} 
+                {transactionRows.map((r) => (
+                  <OrderTableRow 
+                    key={r.transaction_id} 
                     row={r} 
                     isSelected={selectedId === r.transaction_id}
                     onClick={() => setSelectedId(selectedId === r.transaction_id ? null : r.transaction_id)}
@@ -868,7 +883,7 @@ export default function OrdersWorkspace({
               </tbody>
             </table>
 
-            {fulfillmentRows.length === 0 && (
+            {transactionRows.length === 0 && (
               <div className="flex flex-col items-center justify-center p-20 opacity-30 italic">
                 <Search size={48} className="mb-4" />
                 <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>

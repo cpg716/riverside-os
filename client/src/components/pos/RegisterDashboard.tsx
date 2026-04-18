@@ -182,6 +182,8 @@ export default function RegisterDashboard({
   };
 
   const headline = useMemo(() => roleHeadline(staffRole), [staffRole]);
+  const canOpenWeddingManager =
+    permissionsLoaded && hasPermission("wedding_manager.open");
 
   const suggestedQueue = useMemo(
     () => buildMorningCompassQueue({
@@ -288,12 +290,27 @@ export default function RegisterDashboard({
                 title="Wedding Pulse" 
                 subtitle="Registry activity and status"
                 icon={Heart}
-                actionLabel="View All Weddings"
-                onAction={onGoToWeddings}
+                actionLabel={
+                  canOpenWeddingManager ? "Open Wedding Manager" : undefined
+                }
+                onAction={canOpenWeddingManager ? onGoToWeddings : undefined}
               >
-                  <div className="p-12 text-center opacity-30 italic font-medium text-app-text-muted text-sm uppercase tracking-[0.2em]">
-                    Real-time wedding activity stream initializing...
-                  </div>
+                  {canOpenWeddingManager ? (
+                    <div className="p-12 text-center opacity-30 italic font-medium text-app-text-muted text-sm uppercase tracking-[0.2em]">
+                      Real-time wedding activity stream initializing...
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center">
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                        Wedding Manager Access
+                      </p>
+                      <p className="mt-3 text-sm font-medium text-app-text-muted">
+                        This role does not currently include Wedding Manager
+                        access. Enable <span className="font-black">wedding_manager.open</span>{" "}
+                        in Admin staff permissions to open it from POS.
+                      </p>
+                    </div>
+                  )}
               </DashboardGridCard>
            </div>
 

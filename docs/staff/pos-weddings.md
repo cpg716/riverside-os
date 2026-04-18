@@ -4,7 +4,7 @@
 
 **Where in ROS:** POS mode → left rail **Weddings** (heart icon).
 
-**Related permissions:** **weddings.view** to read; **weddings.mutate** to change party/member state.
+**Related permissions:** **weddings.view** to read wedding data; **weddings.mutate** to change party/member state; **wedding_manager.open** to open the full Wedding Manager shell/tab.
 
 ---
 
@@ -43,7 +43,7 @@ POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside
 
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
-| Tab missing | **weddings.view** | Manager |
+| Wedding Manager tab missing | **wedding_manager.open** | Manager |
 | Stale balance | **Refresh** / re-open party | Network |
 | Cannot save edit | **weddings.mutate** | Manager |
 | Wrong member paid | **Disbursement** reversal needs lead | [WEDDING_GROUP_PAY_AND_RETURNS.md](../WEDDING_GROUP_PAY_AND_RETURNS.md) |

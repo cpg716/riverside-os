@@ -1,5 +1,5 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Shield } from "lucide-react";
+import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { ShieldCheck } from "lucide-react";
 import {
   useBackofficeAuth,
   type StaffRole,
@@ -7,6 +7,7 @@ import {
 import { useToast } from "../ui/ToastProviderLogic";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
+import RiversideLogo from "../../assets/images/riverside_logo.jpg";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -35,6 +36,12 @@ export default function BackofficeSignInGate({
   const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
     return localStorage.getItem("ros_last_staff_id") || "";
   });
+
+  const isTailscaleRemote = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const h = window.location.hostname;
+    return h.startsWith("100.") || h.endsWith(".tailscale.net") || h.endsWith(".ts.net");
+  }, []);
 
   useEffect(() => {
     void (async () => {
@@ -84,6 +91,7 @@ export default function BackofficeSignInGate({
       }
       const data = (await res.json()) as {
         id?: string;
+        staff_id?: string;
         permissions?: string[];
         full_name?: string;
         avatar_key?: string;
@@ -107,9 +115,9 @@ export default function BackofficeSignInGate({
         data.role === "admin" ||
         data.role === "salesperson" ||
         data.role === "sales_support"
-          ? data.role
+          ? (data.role as StaffRole)
           : null;
-      adoptPermissionsFromServer(list, display, avatar || null, roleParsed);
+      adoptPermissionsFromServer(list, display, avatar || null, roleParsed, data.id || data.staff_id);
 
       if (data.id) {
         handleStaffChange(data.id);
@@ -141,12 +149,9 @@ export default function BackofficeSignInGate({
     <div className="flex flex-1 flex-col items-center justify-center bg-app-bg p-6 font-sans antialiased w-full h-full">
       <div className="w-full max-w-md overflow-hidden rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
         <div className="border-b border-app-border bg-app-surface-2 px-8 py-6 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-[color-mix(in_srgb,var(--app-accent)_16%,var(--app-surface))] text-[var(--app-accent)]">
-            <Shield className="h-6 w-6" aria-hidden />
+          <div className="mx-auto mb-4 h-16 w-auto flex items-center justify-center overflow-hidden rounded-xl">
+             <img src={RiversideLogo} alt="Riverside Men's Shop" className="h-full w-auto object-contain" />
           </div>
-          <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-            Riverside OS
-          </p>
           <h1 className="mt-1 text-xl font-black tracking-tight text-app-text">
             Sign in
           </h1>
@@ -218,6 +223,14 @@ export default function BackofficeSignInGate({
             </button>
           </div>
         </div>
+        {isTailscaleRemote && (
+          <div className="bg-indigo-600/10 border-t border-app-border flex items-center justify-center gap-2 py-3">
+             <ShieldCheck size={14} className="text-indigo-600" />
+             <span className="text-[10px] font-black uppercase tracking-widest text-indigo-600">
+               Remote Tailscale Session
+             </span>
+          </div>
+        )}
       </div>
     </div>
   );

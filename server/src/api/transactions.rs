@@ -1879,8 +1879,18 @@ pub(crate) async fn load_transaction_detail(
         SELECT COALESCE(
             STRING_AGG(
                 DISTINCT CASE 
+                    WHEN pt.payment_method = 'card_terminal' THEN 'Stripe Card'
+                    WHEN pt.payment_method = 'card_manual' THEN 'Stripe Manual'
+                    WHEN pt.payment_method = 'card_saved' THEN 'Stripe Vault'
+                    WHEN pt.payment_method = 'card_credit' THEN 'Stripe Credit'
+                    WHEN pt.payment_method = 'gift_card' THEN 'Gift Card'
+                    WHEN pt.payment_method = 'store_credit' THEN 'Store Credit'
+                    WHEN pt.payment_method = 'on_account_rms' THEN 'RMS Charge'
+                    WHEN pt.payment_method = 'on_account_rms90' THEN 'RMS 90'
+                    WHEN pt.payment_method = 'cash' THEN 'Cash'
                     WHEN pt.payment_method = 'check' AND pt.check_number IS NOT NULL AND btrim(pt.check_number) <> ''
                     THEN 'Check (#' || pt.check_number || ')'
+                    WHEN pt.payment_method = 'check' THEN 'Check'
                     ELSE pt.payment_method 
                 END, 
                 ', ' 

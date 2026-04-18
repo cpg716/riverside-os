@@ -15,6 +15,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::FromRow;
+use sqlx::QueryBuilder;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -111,6 +112,18 @@ pub struct ListGiftCardsQuery {
     pub limit: Option<i64>,
     pub offset: Option<i64>,
     pub search: Option<String>,
+    pub kind: Option<String>,
+    pub status: Option<String>,
+    pub open_only: Option<bool>,
+    pub sort: Option<String>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct GiftCardSummary {
+    pub open_cards_count: i64,
+    pub active_liability_balance: Decimal,
+    pub loyalty_cards_count: i64,
+    pub donated_cards_count: i64,
 }
 
 async fn list_gift_cards(
@@ -121,57 +134,99 @@ async fn list_gift_cards(
     require_gift_cards_manage(&state, &headers).await?;
     let limit = q.limit.unwrap_or(100);
     let offset = q.offset.unwrap_or(0);
-    let search = q.search.as_deref().unwrap_or("");
+    let search = q.search.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let kind = q.kind.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let status = q.status.as_deref().map(str::trim).filter(|s| !s.is_empty());
+    let open_only = q.open_only.unwrap_or(false);
+    let sort = q.sort.as_deref().unwrap_or("created_desc");
 
-    let rows = if search.is_empty() {
-        sqlx::query_as::<_, GiftCardRow>(
-            r#"
-            SELECT
-                gc.id, gc.code, gc.card_kind::text, gc.card_status::text,
-                gc.current_balance, gc.original_value, gc.is_liability,
-                gc.expires_at, gc.customer_id,
-                CASE WHEN c.id IS NOT NULL
-                     THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
-                     ELSE NULL END AS customer_name,
-                gc.notes, gc.created_at
-            FROM gift_cards gc
-            LEFT JOIN customers c ON c.id = gc.customer_id
-            ORDER BY gc.created_at DESC
-            LIMIT $1 OFFSET $2
-            "#,
-        )
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?
-    } else {
-        sqlx::query_as::<_, GiftCardRow>(
-            r#"
-            SELECT
-                gc.id, gc.code, gc.card_kind::text, gc.card_status::text,
-                gc.current_balance, gc.original_value, gc.is_liability,
-                gc.expires_at, gc.customer_id,
-                CASE WHEN c.id IS NOT NULL
-                     THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
-                     ELSE NULL END AS customer_name,
-                gc.notes, gc.created_at
-            FROM gift_cards gc
-            LEFT JOIN customers c ON c.id = gc.customer_id
-            WHERE gc.code ILIKE $1
-               OR c.first_name ILIKE $1
-               OR c.last_name ILIKE $1
-            ORDER BY gc.created_at DESC
-            LIMIT $2 OFFSET $3
-            "#,
-        )
-        .bind(format!("%{search}%"))
-        .bind(limit)
-        .bind(offset)
-        .fetch_all(&state.db)
-        .await?
+    let mut qb = QueryBuilder::<sqlx::Postgres>::new(
+        r#"
+        SELECT
+            gc.id, gc.code, gc.card_kind::text, gc.card_status::text,
+            gc.current_balance, gc.original_value, gc.is_liability,
+            gc.expires_at, gc.customer_id,
+            CASE WHEN c.id IS NOT NULL
+                 THEN TRIM(COALESCE(c.first_name,'') || ' ' || COALESCE(c.last_name,''))
+                 ELSE NULL END AS customer_name,
+            gc.notes, gc.created_at
+        FROM gift_cards gc
+        LEFT JOIN customers c ON c.id = gc.customer_id
+        WHERE 1=1
+        "#,
+    );
+
+    if let Some(search) = search {
+        let like = format!("%{search}%");
+        qb.push(" AND (gc.code ILIKE ");
+        qb.push_bind(like.clone());
+        qb.push(" OR c.first_name ILIKE ");
+        qb.push_bind(like.clone());
+        qb.push(" OR c.last_name ILIKE ");
+        qb.push_bind(like.clone());
+        qb.push(" OR COALESCE(gc.notes, '') ILIKE ");
+        qb.push_bind(like);
+        qb.push(") ");
+    }
+
+    if let Some(kind) = kind {
+        qb.push(" AND gc.card_kind::text = ");
+        qb.push_bind(kind);
+    }
+
+    if let Some(status) = status {
+        qb.push(" AND gc.card_status::text = ");
+        qb.push_bind(status);
+    }
+
+    if open_only {
+        qb.push(" AND gc.card_status = 'active'::gift_card_status AND gc.current_balance > 0 ");
+    }
+
+    match sort {
+        "recent_activity" => qb.push(" ORDER BY gc.created_at DESC, gc.current_balance DESC "),
+        "balance_desc" => qb.push(" ORDER BY gc.current_balance DESC, gc.created_at DESC "),
+        _ => qb.push(" ORDER BY gc.created_at DESC "),
     };
 
+    qb.push(" LIMIT ");
+    qb.push_bind(limit);
+    qb.push(" OFFSET ");
+    qb.push_bind(offset);
+
+    let rows: Vec<GiftCardRow> = qb.build_query_as().fetch_all(&state.db).await?;
+
     Ok(Json(rows))
+}
+
+async fn get_gift_card_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<GiftCardSummary>, GiftCardError> {
+    require_gift_cards_manage(&state, &headers).await?;
+    let row = sqlx::query_as::<_, GiftCardSummary>(
+        r#"
+        SELECT
+            COUNT(*) FILTER (
+                WHERE gc.card_status = 'active'::gift_card_status
+                  AND gc.current_balance > 0
+            )::bigint AS open_cards_count,
+            COALESCE(
+                SUM(gc.current_balance) FILTER (
+                    WHERE gc.is_liability = TRUE
+                      AND gc.card_status = 'active'::gift_card_status
+                      AND gc.current_balance > 0
+                ),
+                0
+            )::numeric(14,2) AS active_liability_balance,
+            COUNT(*) FILTER (WHERE gc.card_kind = 'loyalty_reward'::gift_card_kind)::bigint AS loyalty_cards_count,
+            COUNT(*) FILTER (WHERE gc.card_kind = 'donated_giveaway'::gift_card_kind)::bigint AS donated_cards_count
+        FROM gift_cards gc
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    Ok(Json(row))
 }
 
 async fn list_gift_cards_open(
@@ -613,6 +668,7 @@ async fn get_card_row(pool: &sqlx::PgPool, id: Uuid) -> Result<Json<GiftCardRow>
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_gift_cards))
+        .route("/summary", get(get_gift_card_summary))
         .route("/open", get(list_gift_cards_open))
         .route("/code/{code}/events", get(get_gift_card_events_by_code))
         .route("/code/{code}", get(get_gift_card_by_code))

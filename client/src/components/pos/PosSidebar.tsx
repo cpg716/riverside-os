@@ -4,6 +4,7 @@ import {
   Gift,
   LayoutDashboard,
   ListChecks,
+  Users,
   Settings,
   ShoppingCart,
   Star,
@@ -13,21 +14,28 @@ import {
   Heart,
   Scissors,
   Clock,
+  Truck,
+  Package,
 } from "lucide-react";
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
+import { SIDEBAR_SUB_SECTIONS, SidebarTabId } from "../layout/sidebarSections";
 
 export type PosTabId =
   | "dashboard"
   | "register"
   | "tasks"
+  | "customers"
   | "inventory"
+  | "orders"
   | "weddings"
   | "alterations"
   | "reports"
   | "gift-cards"
   | "loyalty"
   | "layaways"
+  | "shipping"
   | "settings";
 
 interface PosSidebarProps {
@@ -35,6 +43,8 @@ interface PosSidebarProps {
   onTabChange: (tab: PosTabId) => void;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  activeSubSection?: string;
+  onSubSectionChange?: (section: string) => void;
 }
 
 export default function PosSidebar({
@@ -42,6 +52,8 @@ export default function PosSidebar({
   onTabChange,
   collapsed,
   onToggleCollapse,
+  activeSubSection,
+  onSubSectionChange,
 }: PosSidebarProps) {
   const { hasPermission, permissionsLoaded } =
     useBackofficeAuth();
@@ -56,19 +68,40 @@ export default function PosSidebar({
       { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
       { id: "register", label: "Register", icon: ShoppingCart },
       { id: "tasks", label: "Tasks", icon: ListChecks },
-      { id: "weddings", label: "Weddings", icon: Heart },
+      { id: "customers", label: "Customers", icon: Users },
     ];
-    if (!permissionsLoaded || hasPermission("alterations.manage")) {
-      out.push({ id: "alterations", label: "Alterations", icon: Scissors });
+
+    // Mirroring Back Office permission gate logic for POS rails
+    const items: { id: PosTabId; label: string; icon: typeof ShoppingCart; permission?: string; permissionsAny?: string[] }[] = [
+      { id: "weddings", label: "Weddings", icon: Heart, permission: "wedding_manager.open" },
+      { id: "alterations", label: "Alterations", icon: Scissors, permission: "alterations.manage" },
+      { id: "inventory", label: "Inventory", icon: Box }, // catalog.view is usually a baseline for catalog discovery
+      { id: "orders", label: "Orders", icon: Package, permission: "orders.view" },
+      { id: "reports", label: "Reports", icon: FileBarChart, permission: "insights.view" },
+      { id: "gift-cards", label: "Gift Cards", icon: Gift, permission: "gift_cards.manage" },
+      { id: "loyalty", label: "Loyalty", icon: Star, permissionsAny: ["loyalty.program_settings", "loyalty.adjust_points"] },
+      { id: "layaways", label: "Layaways", icon: Clock }, // customer-hub access usually includes layaways
+      { id: "shipping", label: "Shipping", icon: Truck, permission: "shipments.view" },
+      { id: "settings", label: "Settings", icon: Settings }, // settings.admin or staff.manage_access
+    ];
+
+    for (const item of items) {
+       if (!permissionsLoaded) {
+         out.push(item);
+         continue;
+       }
+       if (item.permission && !hasPermission(item.permission)) continue;
+       if (item.permissionsAny && !item.permissionsAny.some(p => hasPermission(p))) continue;
+       
+       // Extra check for settings: mirror SIDEBAR_TAB_PERMISSIONS_ANY
+       if (item.id === "settings") {
+         const canAdmin = hasPermission("settings.admin") || hasPermission("staff.manage_access");
+         if (!canAdmin) continue;
+       }
+
+       out.push(item);
     }
-    out.push(
-      { id: "inventory", label: "Inventory", icon: Box },
-      { id: "reports", label: "Reports", icon: FileBarChart },
-      { id: "gift-cards", label: "Gift Cards", icon: Gift },
-      { id: "loyalty", label: "Loyalty", icon: Star },
-      { id: "layaways", label: "Layaways", icon: Clock },
-      { id: "settings", label: "Settings", icon: Settings },
-    );
+
     return out;
   }, [hasPermission, permissionsLoaded]);
 
@@ -104,39 +137,58 @@ export default function PosSidebar({
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
+            let subItems = SIDEBAR_SUB_SECTIONS[tab.id as keyof typeof SIDEBAR_SUB_SECTIONS] || [];
+            if (tab.id === "settings") {
+              subItems = subItems.filter(s => s.id === "profile" || s.id === "printing");
+            }
+
+
             return (
-              <SidebarRailTooltip
-                key={tab.id}
-                enabled={collapsed}
-                label={`${tab.label} (POS)`}
-              >
-                <button
-                  type="button"
-                  data-testid={
-                    tab.id === "register"
-                      ? "pos-sidebar-tab-register"
-                      : tab.id === "dashboard"
-                        ? "pos-sidebar-tab-dashboard"
-                        : undefined
-                  }
-                  onClick={() => onTabChange(tab.id)}
-                  aria-label={tab.label}
-                  aria-current={isActive ? "page" : undefined}
-                  className={`ui-touch-target group relative flex items-center gap-2.5 rounded-xl transition-all duration-150 ${
-                    collapsed ? "h-11 w-full justify-center" : "min-h-11 w-full px-3 py-3"
-                  } ${
-                    isActive
-                      ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm"
-                      : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-                  }`}
+              <div key={tab.id}>
+                <SidebarRailTooltip
+                  enabled={collapsed}
+                  label={`${tab.label} (POS)`}
                 >
-                  {isActive && !collapsed && (
-                    <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-app-accent" />
-                  )}
-                  <Icon size={18} aria-hidden className={`relative shrink-0 ${isActive ? 'text-app-accent' : ''}`} />
-                  {!collapsed && <span className={`truncate text-sm ${isActive ? 'font-black' : 'font-semibold'}`}>{tab.label}</span>}
-                </button>
-              </SidebarRailTooltip>
+                  <button
+                    type="button"
+                    onClick={() => onTabChange(tab.id)}
+                    aria-label={tab.label}
+                    aria-current={isActive ? "page" : undefined}
+                    className={`ui-touch-target group relative flex items-center gap-2.5 rounded-xl transition-all duration-150 ${
+                      collapsed ? "h-11 w-full justify-center" : "min-h-11 w-full px-3 py-3"
+                    } ${
+                      isActive
+                        ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm"
+                        : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                    }`}
+                  >
+                    {isActive && !collapsed && (
+                      <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-app-accent" />
+                    )}
+                    <Icon size={18} aria-hidden className={`relative shrink-0 ${isActive ? 'text-app-accent' : ''}`} />
+                    {!collapsed && <span className={`truncate text-sm ${isActive ? 'font-black' : 'font-semibold'}`}>{tab.label}</span>}
+                  </button>
+                </SidebarRailTooltip>
+
+                {isActive && !collapsed && subItems.length > 0 && (
+                  <div className="ml-3 mt-1 mb-2 flex flex-col gap-0.5 border-l-2 border-app-border/40 pl-3">
+                    {subItems.filter(sub => subSectionVisible(tab.id as SidebarTabId, sub.id, hasPermission, permissionsLoaded)).map(sub => (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={() => onSubSectionChange?.(sub.id)}
+                        className={`flex w-full items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                          activeSubSection === sub.id
+                            ? "bg-app-surface-2 font-black text-app-accent"
+                            : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                        }`}
+                      >
+                        <span className="min-w-0 flex-1 truncate">{sub.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
             );
           })}
         </nav>

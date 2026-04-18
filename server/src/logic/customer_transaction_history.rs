@@ -8,12 +8,22 @@ use uuid::Uuid;
 
 use crate::models::{DbOrderStatus, DbSaleChannel};
 
+#[derive(Debug, Deserialize, Clone, Copy, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomerHistoryRecordScope {
+    #[default]
+    Transactions,
+    Orders,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CustomerTransactionHistoryQuery {
     pub from: Option<String>,
     pub to: Option<String>,
     pub limit: Option<i64>,
     pub offset: Option<i64>,
+    #[serde(default)]
+    pub record_scope: CustomerHistoryRecordScope,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,6 +38,8 @@ pub struct CustomerTransactionHistoryItem {
     pub balance_due: Decimal,
     pub item_count: i64,
     pub is_fulfillment_order: bool,
+    pub is_counterpoint_import: bool,
+    pub counterpoint_customer_code: Option<String>,
     pub primary_salesperson_name: Option<String>,
 }
 
@@ -49,6 +61,8 @@ struct Row {
     balance_due: Decimal,
     item_count: i64,
     is_fulfillment_order: bool,
+    is_counterpoint_import: bool,
+    counterpoint_customer_code: Option<String>,
     primary_salesperson_name: Option<String>,
     total_count: i64,
 }
@@ -73,6 +87,8 @@ pub async fn query_customer_transaction_history(
             o.balance_due,
             COUNT(oi.id)::bigint AS item_count,
             EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = o.id AND fulfillment != 'takeaway') AS is_fulfillment_order,
+            o.is_counterpoint_import,
+            o.counterpoint_customer_code,
             ps.full_name AS primary_salesperson_name,
             COUNT(*) OVER()::bigint AS total_count
         FROM transactions o
@@ -85,6 +101,18 @@ pub async fn query_customer_transaction_history(
     qb.push_bind(customer_id);
     qb.push(") AND couple_id IS NOT NULL)) ");
     qb.push(" AND o.status != 'cancelled'::order_status ");
+    match q.record_scope {
+        CustomerHistoryRecordScope::Transactions => {
+            // Counterpoint tickets belong in Transactions; Counterpoint open docs do not.
+            qb.push(" AND o.counterpoint_doc_ref IS NULL ");
+        }
+        CustomerHistoryRecordScope::Orders => {
+            // Orders should show Counterpoint open docs plus ROS order-style activity.
+            qb.push(
+                " AND (o.counterpoint_doc_ref IS NOT NULL OR EXISTS(SELECT 1 FROM transaction_lines tl_scope WHERE tl_scope.transaction_id = o.id AND tl_scope.fulfillment != 'takeaway')) ",
+            );
+        }
+    }
     if let Some(from) = &q.from {
         if !from.trim().is_empty() {
             qb.push(" AND o.booked_at >= ");
@@ -102,7 +130,7 @@ pub async fn query_customer_transaction_history(
         }
     }
     qb.push(
-        " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, ps.full_name ",
+        " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, o.is_counterpoint_import, o.counterpoint_customer_code, ps.full_name ",
     );
     qb.push(" ORDER BY o.booked_at DESC LIMIT ");
     qb.push_bind(limit);
@@ -124,6 +152,8 @@ pub async fn query_customer_transaction_history(
             balance_due: r.balance_due,
             item_count: r.item_count,
             is_fulfillment_order: r.is_fulfillment_order,
+            is_counterpoint_import: r.is_counterpoint_import,
+            counterpoint_customer_code: r.counterpoint_customer_code,
             primary_salesperson_name: r.primary_salesperson_name,
         })
         .collect();

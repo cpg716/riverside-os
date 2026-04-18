@@ -31,6 +31,7 @@ Riverside OS has transitioned from a windowed/nested-scroll model to a **high-pe
 - **Edge-to-Edge Design**: Main workspace containers must utilize the full viewport width and remove redundant shadows/rounded corners to create a "Flush" professional feel.
 - **Root Scrolling**: Avoid `h-screen` and `overflow-hidden` on main application containers. The root document handles scrolling, eliminating "window-inside-window" scrollbars.
 - **Sticky Persistence**: The `GlobalTopBar` and `Sidebar` use `sticky top-0` and `sticky left-0` with high z-index to remain accessible while the workspace content scrolls behind them.
+- **Station Isolation and settings Persistence**: Hardware and operational flags (e.g. Printer IPs, Scan Feedback mode) are typically persisted in `localStorage` under the `ros.*` namespace to ensure workstation-specific isolation.
 - **Resolution Optimization**: Layouts must handle 1080p, 1440p, and iPad 11 Pro (11") resolutions gracefully. Use `max-w-[1200px]` or `max-w-7xl` centered for content that becomes too sparse on ultra-wide screens, but allow the outer background to flush to the edges.
 - **Exception (Alterations Hub)**: The Alterations Hub remains the legacy exception using the windowed/drawer model for tactical density. New workspaces MUST follow the full-width model.
 
@@ -38,11 +39,23 @@ Riverside OS has transitioned from a windowed/nested-scroll model to a **high-pe
 Riverside OS utilize a persistent, touch-friendly Top Bar that remains visible across all shells (POS, Insights, Wedding Manager, Back Office).
 
 - **Identity & Context**: Displays the logged-in staff member (Avatar + Name) and the **Register Access** status.
+- **Staff Identity Prioritization (v0.2.1+)**: The UI MUST always prioritize the **Authenticated Staff Member** (`staffDisplayName`) over the register session owner (`cashierName`). The persona shown in the Top Bar and sidebar MUST reflect the person who explicitly signed in at the gate.
+- **Top Bar Branding**: Redundant logos are removed from the `GlobalTopBar`. The sidebar rail is the sole authority for visual identity.
+- **Full Identity**: The full logo-with-name (`riverside_logo.jpg`) is reserved for unauthenticated entry points like the `BackofficeSignInGate`.
 - **Access Toggles**: Standard staff session is indicated by **Staff Access** (green icon). Privileged status for overrides is indicated by **Manager Access** (crown icon).
 - **Universal Search**: Centered lookup for Customers and Products, accessible from any operational section.
 - **Global Actions**: Quick access to Bug Reporting, Help Center, Theme Toggle (Sun/Moon), and Notifications.
 - **Breadcrumbs**: Dynamic navigation path on the left for quick context-switching and section exits.
 - **Shell-Specific Data**: Right-side injection slot for shell-specific status (e.g., POS Register Balance).
+
+### Settings & Profile (v0.2.1+)
+The implementation of the Settings module follows a unified, reactive pattern across all operational shells.
+
+- **Profile-First Entry**: The settings workspace MUST initialize to the **Staff Profile** by default. Current staff meta (Avatar, Permissions, Identity) is the primary anchor.
+- **Unified Navigator**: Settings navigation is driven by the global sidebar (BO) or the navigation rail (POS). Workspace-internal tab switching should be avoided in favor of direct sub-section routing.
+- **POS Restriction (v0.2.1+)**: When in the POS shell, the Settings navigator is restricted to **Staff Profile** and **Printers & Scanners**. This prevents unauthorized access to administrative configurations (Data Backups, Stripe Integration) while at a public register station.
+- **Change Staff / Logout**: These actions are unified in the Profile dropdown. Both successfully clear the active persona and trigger the `BackofficeSignInGate` across all shell modes.
+- **Mirrored Workspaces**: Settings, including **Printers & Scanners** and **Terminal Overrides**, are mirrored between Back Office and POS to ensure staff can manage their workstation environment without switching shells.
 
 ### Dashboard Primitives
 Located in `client/src/components/ui/`, these components serve as the foundation for all operational views:
@@ -110,3 +123,12 @@ The POS checkout system is a high-stakes operational environment requiring extre
 - **Tax Exemption UI**: When an order is marked as tax-exempt, the UI MUST strike through tax lines and dynamically update the **Balance Due**. A required reasoning selector must be provided and persisted for the audit trail.
 - **Tax Parity Invariant**: Every line calculation (manual, discount, override) MUST use `calculateNysErieTaxStringsForUnit` on the client. Server-side `checkout_validate.rs` is authoritative. Search results (`InventoryControlRow`) and single-variant hydration (`get_variant`) MUST include the authoritative `tax_category` to prevent divergence.
 - **Revenue Protocol compliance**: All ledgers MUST explicitly separate Net Retail, Shipping, and dual Taxes (NYS + Local). Never consolidate these into a single "Total" line.
+
+## Staff Identity & Authentication Context (v0.2.1+)
+
+Riverside OS follows a strict **"Authenticated Persona First"** identity model. 
+
+- **Identity Prioritization**: The `GlobalTopBar` and all navigational shells MUST always prioritize the **Authenticated Staff Member** (`staffDisplayName` from `useBackofficeAuth`) as the primary visual persona. 
+- **Register Session Ownership**: While a register session may be opened by a specific cashier (`cashierName`), this metadata is strictly **secondary**. If a staff member explicitly authenticates at the workstation's sign-in gate, the UI must reflect their identity, not the session opener's.
+- **Identity Toggles**: The staff profile button in the `GlobalTopBar` includes a dropdown for **Change Staff Member** and **Logout**. These actions MUST always be accessible to the operator, even if a register session is currently active.
+- **Session Continuity**: Logging out of the application persona (`clearStaffCredentials`) does not automatically close a physical register till. These are separate operational layers; identity is a user context, while a register session is a workstation state.

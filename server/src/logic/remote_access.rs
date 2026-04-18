@@ -8,6 +8,30 @@ pub struct TailscaleStatus {
     pub self_node: Option<TailscaleNode>,
     #[serde(rename = "BackendState")]
     pub backend_state: String,
+    /// Whether MagicDNS is enabled on the tailnet
+    #[serde(rename = "MagicDNS", default)]
+    pub magic_dns: bool,
+    /// The tailnet name (e.g. "example.tailnet.net")
+    #[serde(rename = "TailnetName", default)]
+    pub tailnet_name: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+pub struct TailscalePeerInfo {
+    #[serde(rename = "UserProfile")]
+    pub user_profile: Option<TailscaleUserProfile>,
+    #[serde(rename = "NodeKey")]
+    pub node_key: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct TailscaleUserProfile {
+    #[serde(rename = "LoginName")]
+    pub login_name: String,
+    #[serde(rename = "DisplayName")]
+    pub display_name: String,
+    #[serde(rename = "ProfilePicURL")]
+    pub profile_pic_url: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -83,6 +107,43 @@ impl RemoteAccessManager {
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
             return Err(anyhow::anyhow!("Tailscale disconnect failed: {err}"));
+        }
+
+        Ok(())
+    }
+
+    /// Identify a remote peer by their Tailscale IP using 'tailscale whois'.
+    pub async fn whois(&self, remote_ip: &str) -> Result<TailscalePeerInfo> {
+        let output = TokioCommand::new(&self.binary_path)
+            .arg("whois")
+            .arg("--json")
+            .arg(remote_ip)
+            .output()
+            .await
+            .context("Failed to execute tailscale whois")?;
+
+        if !output.status.success() {
+            // If the IP is not a Tailscale IP, whois might fail. Return a default/empty.
+            return Ok(TailscalePeerInfo::default());
+        }
+
+        let info: TailscalePeerInfo = serde_json::from_slice(&output.stdout)
+            .context("Failed to parse tailscale whois JSON")?;
+        Ok(info)
+    }
+
+    /// Provision a TLS certificate for the MagicDNS name using 'tailscale cert'.
+    pub async fn generate_cert(&self, dns_name: &str) -> Result<()> {
+        let output = TokioCommand::new(&self.binary_path)
+            .arg("cert")
+            .arg(dns_name)
+            .output()
+            .await
+            .context("Failed to execute tailscale cert")?;
+
+        if !output.status.success() {
+            let err = String::from_utf8_lossy(&output.stderr);
+            return Err(anyhow::anyhow!("Tailscale cert failed: {err}"));
         }
 
         Ok(())

@@ -6,6 +6,7 @@ import type { Customer, ResolvedSkuItem } from "../pos/types";
 import DetailDrawer from "./DetailDrawer";
 import SmartButton from "../ui/SmartButton";
 import { CustomerRelationshipHubDrawer } from "../customers/CustomerRelationshipHubDrawer";
+import ShipmentsHubSection from "../customers/ShipmentsHubSection";
 
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
@@ -14,7 +15,8 @@ const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 export type GlobalSearchDrawerState =
   | { kind: "customer"; customer: Customer }
   | { kind: "product"; sku: string; hintName?: string }
-  | { kind: "wedding-party-customers"; partyQuery: string };
+  | { kind: "wedding-party-customers"; partyQuery: string }
+  | { kind: "shipment"; shipmentId: string };
 
 function fmtUsd(v: string | number | null | undefined): string {
   if (v === null || v === undefined || v === "") return "—";
@@ -71,6 +73,24 @@ export default function GlobalSearchDrawerHost({
         onBookAppointment={onBookCustomerAppointment}
         onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
+    );
+  }
+
+  if (state.kind === "shipment") {
+    return (
+      <DetailDrawer
+        isOpen
+        onClose={onClose}
+        title="Shipment"
+        subtitle="Shared shipping hub"
+      >
+        <ShipmentsHubSection
+          embedded
+          openShipmentId={state.shipmentId}
+          onOpenShipmentIdConsumed={() => {}}
+          onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+        />
+      </DetailDrawer>
     );
   }
 

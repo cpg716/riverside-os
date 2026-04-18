@@ -4,9 +4,9 @@
 
 use crate::logic::backups::{BackupFile, BackupManager, BackupSettings};
 use crate::logic::insights_config::StoreInsightsConfig;
-use crate::logic::remote_access::{RemoteAccessManager, TailscaleStatus};
+use crate::logic::remote_access::RemoteAccessManager;
 use axum::{
-    extract::{Path, Query, State},
+    extract::{ConnectInfo, Path, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{delete, get, post},
@@ -15,6 +15,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::Row;
+use std::net::SocketAddr;
 use thiserror::Error;
 
 use crate::api::AppState;
@@ -1307,14 +1308,29 @@ async fn patch_review_policy(
 
 async fn get_remote_access_status(
     State(_state): State<AppState>,
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     _headers: HeaderMap,
-) -> Result<Json<TailscaleStatus>, SettingsError> {
+) -> Result<Json<serde_json::Value>, SettingsError> {
     let manager = RemoteAccessManager::new();
     let status = manager
         .get_status()
         .await
         .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
-    Ok(Json(status))
+
+    let ip = addr.ip().to_string();
+    let mut current_peer = None;
+
+    // Tailscale IPs start with 100.
+    if ip.starts_with("100.") {
+        if let Ok(peer) = manager.whois(&ip).await {
+            current_peer = Some(peer);
+        }
+    }
+
+    Ok(Json(json!({
+        "status": status,
+        "current_peer": current_peer,
+    })))
 }
 
 #[derive(Deserialize)]

@@ -5,6 +5,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import { VitePWA } from "vite-plugin-pwa";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const pkg = JSON.parse(
@@ -32,6 +33,14 @@ const pwaManifest = JSON.parse(
 // https://v2.tauri.app/start/frontend/vite/
 export default defineConfig({
   plugins: [
+    nodePolyfills({
+      globals: {
+        Buffer: true,
+        global: true,
+        process: true,
+      },
+      protocolImports: true,
+    }),
     react(),
     {
       name: "ros-manifest-link-dev",
@@ -64,12 +73,22 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "src"),
+      util: "util",
+      stream: "stream-browserify",
+      buffer: "buffer",
+      process: "process/browser",
+      path: "path-browserify",
+      string_decoder: "string_decoder",
     },
+  },
+  optimizeDeps: {
+    include: ["util", "stream-browserify", "buffer", "process/browser", "path-browserify", "string_decoder"],
   },
   envPrefix: ["VITE_", "TAURI_"],
   define: {
     __ROS_CLIENT_SEMVER__: JSON.stringify(pkg.version),
     __ROS_GIT_SHORT__: JSON.stringify(gitShort()),
+    global: "globalThis",
   },
   server: {
     port: 5173,

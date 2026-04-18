@@ -23,7 +23,7 @@ Re-designed in v0.2.0 using the **WowDash** layout system (`DashboardStatsCard` 
 
 | Block | Source | Permission / role |
 |-------|--------|-------------------|
-| Headline | `staffRole` + name from context | **Register Manager** for admins; salesperson otherwise |
+| Headline | `staffDisplayName` (Authenticated) | **Staff Identity Priority (v0.2.1)**: Always reflects the persona who explicitly signed in, NOT the register opener. |
 | Weather | `GET /api/weather/forecast` | Public (no RBAC) |
 | **Attributed sales (store day)** | `GET /api/staff/self/register-metrics` | **Salesperson** and **sales_support** only (by `staffRole`); logs **`register_metrics_view`** in `staff_access_log` |
 | Wedding pulse | `GET /api/weddings/morning-compass` | **`weddings.view`**; staff headers via **`mergedPosStaffHeaders`** |

@@ -2,7 +2,7 @@
 
 **Audience:** Developers and operators configuring **Staff → Role access** / **User overrides**.
 
-**Purpose:** Single map from **HTTP routes** to **permission keys** and **middleware** for the Back Office **Relationship hub** drawer (`CustomerRelationshipHubDrawer`) and aligned POS/customer reads. Staff-facing behavior is summarized in [`docs/staff/customers-back-office.md`](staff/customers-back-office.md) and [`docs/staff/permissions-and-access.md`](staff/permissions-and-access.md).
+**Purpose:** Single map from **HTTP routes** to **permission keys** and **middleware** for the Back Office **Relationship hub** drawer (`CustomerRelationshipHubDrawer`) and mirrored POS/customer components. Staff-facing behavior is summarized in [`docs/staff/customers-back-office.md`](staff/customers-back-office.md) and [`docs/staff/permissions-and-access.md`](staff/permissions-and-access.md).
 
 ---
 
@@ -74,6 +74,16 @@ Many browse/search/create paths use **`require_customer_access`** (signed-in sta
   - **Payments**: Customer gift card vault and payment history.
   - **RBAC Enforcement**: The drawer waits for **`permissionsLoaded`** and requires **`customers.hub_view`** to render; individual tabs are gated by their respective keys (e.g., **`orders.view`** for both Transactions and Fulfillments).
 - **`AddCustomerDrawer`** (inside `CustomersWorkspace`): initial **VIP** PATCH and **note** POST after create are skipped with a toast if **`customers.hub_edit`** / **`customers.timeline`** are missing.
+
+### Mirrored Workspaces (v0.2.0+)
+
+To maintain operational consistency, the **Customers Workspace** (`CustomersWorkspace.tsx`) is mirrored into the **POS Shell**. This allows floor staff to:
+- Search and browse the full customer catalog.
+- Open the **Relationship Hub Drawer** for any customer.
+- Start a sale directly from a customer profile.
+- View linked joint accounts and historical transactions.
+
+The POS version of the hub filters out Back Office landing redirections to keep staff within the register context.
 
 ---
 

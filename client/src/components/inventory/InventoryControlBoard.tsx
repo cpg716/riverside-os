@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import ProductHubDrawer from "./ProductHubDrawer";
 import InventoryBulkBar from "./InventoryBulkBar";
-import { openShelfLabelsWindow } from "./labelPrint";
+import { getInventoryTagPrintConfig, openInventoryTagsWindow } from "./labelPrint";
 import { apiUrl } from "../../lib/apiUrl";
 import { useScanner } from "../../hooks/useScanner";
 import { playScanSuccess, playScanError } from "../../lib/scanSounds";
@@ -163,14 +163,131 @@ function FilterChip({
   );
 }
 
+function InventoryTagPrintModal({
+  product,
+  onClose,
+  onPrint,
+}: {
+  product: ProductListRow;
+  onClose: () => void;
+  onPrint: (quantities: Record<string, number>) => void;
+}) {
+  const [quantities, setQuantities] = useState<Record<string, number>>(() =>
+    Object.fromEntries(product.variant_rows.map((row) => [row.variant_id, 1])),
+  );
+
+  const totalTags = useMemo(
+    () =>
+      product.variant_rows.reduce(
+        (sum, row) => sum + Math.max(0, quantities[row.variant_id] ?? 0),
+        0,
+      ),
+    [product.variant_rows, quantities],
+  );
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-3xl rounded-[2rem] border border-app-border bg-app-surface shadow-2xl">
+        <div className="flex items-center justify-between border-b border-app-border/50 px-6 py-5">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
+              Inventory Tags
+            </p>
+            <h3 className="mt-1 text-2xl font-black tracking-tight text-app-text">
+              {product.product_name}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-app-text-muted transition-all hover:text-app-text"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="space-y-3 px-6 py-5">
+          {product.variant_rows.map((row) => (
+            <div
+              key={row.variant_id}
+              className="grid grid-cols-[minmax(0,1fr)_7rem_7rem] items-center gap-3 rounded-2xl border border-app-border/60 bg-app-bg/20 px-4 py-3"
+            >
+              <div className="min-w-0">
+                <p className="truncate text-base font-black text-app-text">
+                  {row.variation_label ?? "Standard"}
+                </p>
+                <p className="mt-1 font-mono text-[12px] font-bold text-app-text-muted">
+                  {row.sku}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  In Stock
+                </p>
+                <p className="mt-1 text-xl font-black tracking-tight text-app-text">
+                  {row.stock_on_hand}
+                </p>
+              </div>
+              <div>
+                <label className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Tags
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  value={quantities[row.variant_id] ?? 0}
+                  onChange={(e) =>
+                    setQuantities((prev) => ({
+                      ...prev,
+                      [row.variant_id]: Math.max(
+                        0,
+                        Number.parseInt(e.target.value || "0", 10) || 0,
+                      ),
+                    }))
+                  }
+                  className="mt-2 w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-black text-app-text outline-none focus:ring-2 focus:ring-app-accent/30"
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-4 border-t border-app-border/50 px-6 py-5">
+          <p className="text-sm font-bold text-app-text-muted">
+            {totalTags} tag{totalTags === 1 ? "" : "s"} ready to print
+          </p>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-app-border bg-app-surface px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-app-text-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => onPrint(quantities)}
+              className="rounded-xl border-b-4 border-app-accent/80 bg-app-accent px-5 py-2.5 text-[11px] font-black uppercase tracking-[0.18em] text-white shadow-lg transition-all active:translate-y-1 active:border-b-0"
+            >
+              Print Inventory Tags
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface InventoryControlBoardProps {
   openProductHubProductId?: string | null;
   onProductHubDeepLinkConsumed?: () => void;
+  surface?: "backoffice" | "pos";
 }
 
 export default function InventoryControlBoard({
   openProductHubProductId = null,
   onProductHubDeepLinkConsumed,
+  surface = "backoffice",
 }: InventoryControlBoardProps) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -179,6 +296,7 @@ export default function InventoryControlBoard({
     [backofficeHeaders],
   );
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const isPosSurface = surface === "pos";
   const [rows, setRows] = useState<BoardRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
@@ -186,6 +304,7 @@ export default function InventoryControlBoard({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [boardRefreshing, setBoardRefreshing] = useState(true);
   const [oosLowOnly, setOosLowOnly] = useState(false);
+  const [inStockOnly, setInStockOnly] = useState(false);
   const [oosOnly, setOosOnly] = useState(false);
   const [negativeStockOnly, setNegativeStockOnly] = useState(false);
   const [clothingOnly, setClothingOnly] = useState(false);
@@ -194,14 +313,12 @@ export default function InventoryControlBoard({
   const [quickPick, setQuickPick] = useState<QuickPick>(null);
   const [categoryId, setCategoryId] = useState("");
   const [vendorId, setVendorId] = useState("");
-  const [brandQuery, setBrandQuery] = useState("");
-  const [brandDraft, setBrandDraft] = useState("");
-  const [groupByBrand, setGroupByBrand] = useState(false);
   const [groupByPrimaryVendor, setGroupByPrimaryVendor] = useState(false);
   const [webOnly, setWebOnly] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [hubProductId, setHubProductId] = useState<string | null>(null);
   const [hubSeedTitle, setHubSeedTitle] = useState("");
+  const [printTarget, setPrintTarget] = useState<ProductListRow | null>(null);
   const [cursor, setCursor] = useState(0);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
@@ -291,7 +408,6 @@ export default function InventoryControlBoard({
       params.set("min_line_value", String(HIGH_VALUE_MIN_USD));
     if (categoryId) params.set("category_id", categoryId);
     if (vendorId) params.set("vendor_id", vendorId);
-    if (brandQuery.trim()) params.set("brand", brandQuery.trim());
     if (webOnly) params.set("web_published_only", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", "0");
@@ -322,7 +438,6 @@ export default function InventoryControlBoard({
     highValueOnly,
     categoryId,
     vendorId,
-    brandQuery,
     webOnly,
     boardPageLimit,
     apiAuth,
@@ -353,7 +468,6 @@ export default function InventoryControlBoard({
       params.set("min_line_value", String(HIGH_VALUE_MIN_USD));
     if (categoryId) params.set("category_id", categoryId);
     if (vendorId) params.set("vendor_id", vendorId);
-    if (brandQuery.trim()) params.set("brand", brandQuery.trim());
     if (webOnly) params.set("web_published_only", "true");
     params.set("limit", String(boardPageLimit));
     params.set("offset", String(rows.length));
@@ -385,7 +499,6 @@ export default function InventoryControlBoard({
     highValueOnly,
     categoryId,
     vendorId,
-    brandQuery,
     webOnly,
     boardPageLimit,
     rows.length,
@@ -437,6 +550,7 @@ export default function InventoryControlBoard({
         brand: first.brand,
         product_name: first.product_name,
         category_id: first.category_id,
+        category_name: first.category_name,
         is_clothing_footwear: first.is_clothing_footwear,
         base_retail_price: first.base_retail_price,
         base_cost: first.base_cost,
@@ -460,29 +574,24 @@ export default function InventoryControlBoard({
     return [...selected];
   }, [selected]);
 
-  const groupedRows = useMemo(() => {
-    if (!groupByBrand) return null;
-    const m = new Map<string, ProductListRow[]>();
-    for (const r of productRows) {
-      const k = r.brand?.trim() || "— No brand —";
-      const arr = m.get(k) ?? [];
-      arr.push(r);
-      m.set(k, arr);
-    }
-    return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [productRows, groupByBrand]);
+  const visibleProductRows = useMemo(() => {
+    return productRows.filter((row) => {
+      if (inStockOnly && row.stock_on_hand <= 0) return false;
+      return true;
+    });
+  }, [inStockOnly, productRows]);
 
   const groupedRowsByVendor = useMemo(() => {
     if (!groupByPrimaryVendor) return null;
     const m = new Map<string, ProductListRow[]>();
-    for (const r of productRows) {
+    for (const r of visibleProductRows) {
       const k = r.primary_vendor_name?.trim() || "— No primary vendor —";
       const arr = m.get(k) ?? [];
       arr.push(r);
       m.set(k, arr);
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [productRows, groupByPrimaryVendor]);
+  }, [visibleProductRows, groupByPrimaryVendor]);
 
   const groupStats = useCallback((list: ProductListRow[]) => {
     let units = 0;
@@ -587,11 +696,13 @@ export default function InventoryControlBoard({
     const chosenProducts = productRows.filter((r) => selected.has(r.product_id));
     if (chosenProducts.length === 0) return;
     const chosenVariants = chosenProducts.flatMap((p) => p.variant_rows);
-    openShelfLabelsWindow(
+    openInventoryTagsWindow(
       chosenVariants.map((r) => ({
         sku: r.sku,
         productName: r.product_name,
         variation: r.variation_label ?? "Standard",
+        brand: r.brand,
+        price: money(r.retail_price),
       })),
     );
     const res = await fetch(
@@ -609,13 +720,60 @@ export default function InventoryControlBoard({
     );
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "Could not mark shelf labels", "error");
+      toast(err.error ?? "Could not mark inventory tags printed", "error");
     } else {
-      toast("Labels processed", "success");
+      toast("Inventory tags queued for printing", "success");
     }
     setSelected(new Set());
     await refreshBoard();
   };
+
+  const printInventoryTags = useCallback(
+    async (items: BoardRow[], quantities?: Record<string, number>) => {
+      const expandedItems = items.flatMap((row) => {
+        const qty = Math.max(0, quantities?.[row.variant_id] ?? 1);
+        return Array.from({ length: qty }, () => ({
+          sku: row.sku,
+          productName: row.product_name,
+          variation: row.variation_label ?? "Standard",
+          brand: row.brand,
+          price: money(row.retail_price),
+        }));
+      });
+      if (expandedItems.length === 0) {
+        toast("Choose at least one tag to print", "info");
+        return;
+      }
+      openInventoryTagsWindow(expandedItems, getInventoryTagPrintConfig());
+      const res = await fetch(
+        `${baseUrl}/api/products/variants/bulk-mark-shelf-labeled`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            variant_ids: items.map((row) => row.variant_id),
+          }),
+        },
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(err.error ?? "Could not mark inventory tags printed", "error");
+        return;
+      }
+      toast(
+        expandedItems.length === 1
+          ? "Inventory tag sent to print"
+          : `${expandedItems.length} inventory tags sent to print`,
+        "success",
+      );
+      setPrintTarget(null);
+      await refreshBoard();
+    },
+    [apiAuth, baseUrl, refreshBoard, toast],
+  );
 
   const onMassAssign = async (payload: {
     brand: string | null;
@@ -795,23 +953,25 @@ export default function InventoryControlBoard({
         }`}
       >
         {/* Selection Indicator */}
-        <div className="flex shrink-0 items-center justify-center">
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={() => toggleSelect(row.product_id)}
-            className="h-4 w-4 rounded-lg border-app-border bg-app-surface text-app-accent transition-all focus:ring-app-accent shadow-sm"
-          />
-        </div>
+        {!isPosSurface && (
+          <div className="flex shrink-0 items-center justify-center">
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={() => toggleSelect(row.product_id)}
+              className="h-4 w-4 rounded-lg border-app-border bg-app-surface text-app-accent transition-all focus:ring-app-accent shadow-sm"
+            />
+          </div>
+        )}
 
         {/* Product Identity Cluster */}
-        <div className="flex min-w-0 flex-[3.5] items-center gap-3">
+        <div className="flex min-w-0 flex-[3.9] items-center gap-3">
           <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 shadow-inner group-hover:scale-105 transition-transform ${oos ? 'opacity-40 grayscale' : ''}`}>
              {row.is_clothing_footwear ? <Gem size={16} className="text-violet-500" /> : <Box size={16} className="text-app-text-muted" />}
           </div>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-2 mb-0.5">
-              <h3 className="truncate text-xs font-black uppercase tracking-tight text-app-text leading-tight group-hover:text-app-accent transition-colors">
+            <div className="flex items-center gap-2 mb-1">
+              <h3 className="truncate text-[1rem] font-black tracking-tight text-app-text leading-none group-hover:text-app-accent transition-colors">
                 {row.product_name}
               </h3>
               {highValue && (
@@ -820,16 +980,21 @@ export default function InventoryControlBoard({
                 </span>
               )}
             </div>
-            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-              <span className="font-mono text-[9px] font-bold text-app-text-muted">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span className="font-mono text-[12px] font-black text-app-text-muted">
                 {primaryVariant?.sku || "NO SKU"}
               </span>
-              <span className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted opacity-40">
-                {row.brand || "—"}
+              <span className="text-[12px] font-semibold text-app-text-muted">
+                {primaryVariant?.variation_label ?? `${row.variant_count} variations`}
               </span>
-              <span className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted/60">
+              <span className="text-[10px] font-black uppercase tracking-tighter text-app-text-muted/70">
                 {row.category_name || "Misc"}
               </span>
+              {row.primary_vendor_name ? (
+                <span className="text-[10px] font-bold uppercase tracking-[0.14em] text-app-text-muted/50">
+                  {row.primary_vendor_name}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
@@ -881,22 +1046,34 @@ export default function InventoryControlBoard({
         </div>
 
         {/* Quick Actions (Reveal on group-hover) */}
-        <div className="flex shrink-0 items-center justify-end min-w-[80px]">
+        <div className="flex shrink-0 items-center justify-end min-w-[120px]">
           <div className={`flex items-center gap-1 transition-all duration-300 ${focused || 'opacity-0 translate-x-4 group-hover:opacity-100 group-hover:translate-x-0'}`}>
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                if (singleVariant && primaryVariant) {
-                  setAdjustRow(primaryVariant);
-                } else {
-                  openProductHub(row);
-                }
+                setPrintTarget(row);
               }}
-              className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-emerald-500 hover:border-emerald-500 transition-all"
-              title="Quick Adjust"
+              className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all"
+              title="Print inventory tags"
             >
-              <BarChart3 size={14} />
+              <Printer size={14} />
             </button>
+            {!isPosSurface && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (singleVariant && primaryVariant) {
+                    setAdjustRow(primaryVariant);
+                  } else {
+                    openProductHub(row);
+                  }
+                }}
+                className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-emerald-500 hover:border-emerald-500 transition-all"
+                title="Quick Adjust"
+              >
+                <BarChart3 size={14} />
+              </button>
+            )}
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -926,44 +1103,65 @@ export default function InventoryControlBoard({
               type="text"
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
-              placeholder="Filter by SKU, Brand, or Product name..."
+              placeholder="Search product, SKU, or variation..."
               className="w-full h-12 bg-app-surface/20 border border-app-border/40 rounded-2xl pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/50 focus:outline-none focus:ring-2 focus:ring-app-accent/50 focus:border-app-accent transition-all"
               aria-busy={boardRefreshing}
             />
           </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <div className="flex items-center gap-1 rounded-2xl border border-app-border/40 bg-app-surface/20 p-1 backdrop-blur-md">
-              <button
-                type="button"
-                onClick={() => setGroupByBrand(!groupByBrand)}
-                className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
-                  groupByBrand
-                    ? "bg-app-accent text-white shadow-lg"
-                    : "text-app-text-muted hover:text-app-text hover:bg-app-surface/40"
-                }`}
-              >
-                Brand Mode
-              </button>
-              <button
-                type="button"
-                onClick={() => setGroupByPrimaryVendor(!groupByPrimaryVendor)}
-                className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
-                  groupByPrimaryVendor
-                    ? "bg-app-accent text-white shadow-lg"
-                    : "text-app-text-muted hover:text-app-text hover:bg-app-surface/40"
-                }`}
-              >
-                Vendor Mode
-              </button>
+          {!isPosSurface ? (
+            <div className="flex shrink-0 items-center gap-2">
+              <div className="flex items-center gap-1 rounded-2xl border border-app-border/40 bg-app-surface/20 p-1 backdrop-blur-md">
+                <button
+                  type="button"
+                  onClick={() => setGroupByPrimaryVendor(!groupByPrimaryVendor)}
+                  className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
+                    groupByPrimaryVendor
+                      ? "bg-app-accent text-white shadow-lg"
+                      : "text-app-text-muted hover:text-app-text hover:bg-app-surface/40"
+                  }`}
+                >
+                  Stack by Vendor
+                </button>
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-3">
+          <select
+            value={vendorId}
+            onChange={(e) => setVendorId(e.target.value)}
+            className="h-11 min-w-[14rem] rounded-2xl border border-app-border/40 bg-app-surface/20 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text outline-none transition-all focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
+          >
+            <option value="">All vendors</option>
+            {vendors.map((vendor) => (
+              <option key={vendor.id} value={vendor.id}>
+                {vendor.name}
+              </option>
+            ))}
+          </select>
+          <select
+            value={categoryId}
+            onChange={(e) => {
+              setQuickPick(null);
+              setCategoryId(e.target.value);
+            }}
+            className="h-11 min-w-[14rem] rounded-2xl border border-app-border/40 bg-app-surface/20 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text outline-none transition-all focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
+          >
+            <option value="">All categories</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+          {discoveryBtn(inStockOnly, "In Stock", () =>
+            setInStockOnly(!inStockOnly),
+          )}
           {discoveryBtn(oosLowOnly, "Low Stock (≤2)", () =>
             setOosLowOnly(!oosLowOnly),
           )}
-          {discoveryBtn(oosOnly, "Zero Stock", () =>
+          {discoveryBtn(oosOnly, "Out of Stock", () =>
             setOosOnly(!oosOnly),
           )}
           {discoveryBtn(negativeStockOnly, "Negative Stock", () =>
@@ -1019,20 +1217,20 @@ export default function InventoryControlBoard({
               onRemove={() => setVendorId("")}
             />
           )}
-          {brandQuery && (
-            <FilterChip
-              label={`Brand: ${brandQuery}`}
-              onRemove={() => {
-                setBrandQuery("");
-                setBrandDraft("");
-              }}
-            />
+          {inStockOnly && (
+            <FilterChip label="In Stock" onRemove={() => setInStockOnly(false)} />
           )}
           {webOnly && (
             <FilterChip label="On web" onRemove={() => setWebOnly(false)} />
           )}
+          {oosLowOnly && (
+            <FilterChip label="Low Stock" onRemove={() => setOosLowOnly(false)} />
+          )}
           {oosOnly && (
-            <FilterChip label="Zero Stock" onRemove={() => setOosOnly(false)} />
+            <FilterChip
+              label="Out of Stock"
+              onRemove={() => setOosOnly(false)}
+            />
           )}
           {negativeStockOnly && (
             <FilterChip label="Negative Stock" onRemove={() => setNegativeStockOnly(false)} />
@@ -1049,31 +1247,7 @@ export default function InventoryControlBoard({
           tabIndex={0}
         >
           <div className="flex flex-col gap-px bg-app-border/20">
-            {groupByBrand && groupedRows ? (
-              groupedRows.map(([brand, items]) => {
-                const stats = groupStats(items);
-                return (
-                  <Fragment key={brand}>
-                    <div className="sticky top-0 z-20 flex items-center justify-between border-b border-app-border bg-app-surface-2/95 px-6 py-2 backdrop-blur-md">
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-black uppercase tracking-tight text-app-text italic">
-                          {brand}
-                        </span>
-                        <span className="rounded-full bg-app-border/50 px-2 py-0.5 text-[9px] font-black text-app-text-muted">
-                          {items.length} Product Templates
-                        </span>
-                      </div>
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted opacity-60">
-                        {stats.units} units ·{" "}
-                        {money(stats.value)}{" "}
-                        asset value
-                      </div>
-                    </div>
-                    {items.map((item, localIdx) => renderRow(item, localIdx))}
-                  </Fragment>
-                );
-              })
-            ) : groupByPrimaryVendor && groupedRowsByVendor ? (
+            {groupByPrimaryVendor && groupedRowsByVendor ? (
               groupedRowsByVendor.map(([v, items]) => {
                 const stats = groupStats(items);
                 return (
@@ -1099,10 +1273,10 @@ export default function InventoryControlBoard({
                 );
               })
             ) : (
-              productRows.map((item, idx) => renderRow(item, idx))
+              visibleProductRows.map((item, idx) => renderRow(item, idx))
             )}
 
-            {!boardRefreshing && productRows.length === 0 ? (
+            {!boardRefreshing && visibleProductRows.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-32 text-app-text-muted">
                 <Search size={48} className="mb-4 opacity-20" />
                 <p className="text-sm font-black uppercase tracking-widest opacity-60">
@@ -1111,7 +1285,7 @@ export default function InventoryControlBoard({
               </div>
             ) : null}
 
-            {boardHasMore && productRows.length > 0 ? (
+            {boardHasMore && visibleProductRows.length > 0 ? (
               <div className="flex justify-center border-t border-app-border py-8 bg-app-surface/30">
                 <button
                   type="button"
@@ -1119,7 +1293,7 @@ export default function InventoryControlBoard({
                   onClick={() => void loadMoreBoard()}
                   className="rounded-2xl border border-app-border bg-app-surface px-10 py-4 text-xs font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:shadow-2xl active:scale-95 disabled:opacity-50 shadow-xl"
                 >
-                  {boardLoadingMore ? "Synchronizing SKUs..." : "Expand Discovery Plane"}
+                  {boardLoadingMore ? "Loading Inventory..." : "Load More Inventory"}
                 </button>
               </div>
             ) : null}
@@ -1128,7 +1302,7 @@ export default function InventoryControlBoard({
       </div>
 
       {/* Standardized Bulk Action Bar */}
-      {selected.size > 0 && (
+      {!isPosSurface && selected.size > 0 && (
         <InventoryBulkBar
           selectedCount={selected.size}
           onClearSelection={() => setSelected(new Set())}
@@ -1143,41 +1317,29 @@ export default function InventoryControlBoard({
       )}
 
       {/* Modern Filter Discovery Footer (Replacing legacy fixed stats) */}
+      {!isPosSurface && (
       <div className="border-t border-app-border/30 bg-app-surface/20 px-6 py-8">
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-4">
-            <div className="relative min-w-[16rem]">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted" />
-              <input
-                value={brandDraft}
-                onChange={(e) => setBrandDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    setBrandQuery(brandDraft);
-                  }
-                }}
-                placeholder="Brand filter..."
-                className="w-full h-10 bg-app-surface/20 border border-app-border/40 rounded-xl pl-10 pr-4 text-[10px] font-black uppercase tracking-widest placeholder:text-app-text-muted/40 focus:outline-none focus:ring-2 focus:ring-app-accent/30 transition-all"
-              />
-            </div>
             <button
               onClick={() => void refresh()}
               className="h-10 px-6 rounded-xl bg-app-accent/90 text-[10px] font-black uppercase tracking-widest text-white shadow-lg hover:brightness-110 active:scale-95 transition-all backdrop-blur-md"
             >
-              Refresh Lattice
+              Refresh Inventory
             </button>
           </div>
 
           <div className="flex items-center gap-1 opacity-40 hover:opacity-100 transition-opacity">
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-              Synchronized Local Registry
+              Inventory Synced Locally
             </span>
             <div className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse ml-2" />
           </div>
         </div>
       </div>
+      )}
 
-      {adjustRow && (
+      {!isPosSurface && adjustRow && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
           <div className="w-full max-w-sm rounded-[2.5rem] bg-app-surface p-8 shadow-2xl ring-1 ring-black/5">
             <div className="mb-6 flex flex-col items-center text-center">
@@ -1246,7 +1408,7 @@ export default function InventoryControlBoard({
         </div>
       )}
 
-      {maintenanceTarget && (
+      {!isPosSurface && maintenanceTarget && (
         <div className="ui-overlay-backdrop flex items-center justify-center p-4">
           <div className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300">
             <div className="ui-modal-header flex items-center justify-between">
@@ -1314,6 +1476,16 @@ export default function InventoryControlBoard({
             </div>
           </div>
         </div>
+      )}
+
+      {printTarget && (
+        <InventoryTagPrintModal
+          product={printTarget}
+          onClose={() => setPrintTarget(null)}
+          onPrint={(quantities) =>
+            void printInventoryTags(printTarget.variant_rows, quantities)
+          }
+        />
       )}
 
       {scanToast && (

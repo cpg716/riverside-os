@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
@@ -11,6 +12,9 @@ import {
   Menu,
   Sun,
   Moon,
+  LogOut,
+  Users,
+  ShieldCheck,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
 import { useOfflineSync } from "../../lib/offlineQueue";
@@ -22,6 +26,7 @@ import { BugReportTriggerButton } from "../bug-report/BugReportFlow";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import type { ThemeMode } from "../../App";
+
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -40,6 +45,61 @@ interface ControlBoardRow {
   variation_label: string | null;
 }
 
+interface OrderSearchHit {
+  transaction_id: string;
+  display_id: string;
+  customer_name: string | null;
+  status: string;
+  order_kind: string;
+  party_name?: string | null;
+  counterpoint_customer_code?: string | null;
+}
+
+interface ShipmentSearchHit {
+  id: string;
+  source: string;
+  status: string;
+  customer_first_name: string | null;
+  customer_last_name: string | null;
+  tracking_number: string | null;
+  carrier: string | null;
+  service_name: string | null;
+  dest_summary: string | null;
+}
+
+interface WeddingSearchHit {
+  id: string;
+  party_name: string;
+  groom_name: string | null;
+  event_date: string | null;
+}
+
+interface AlterationSearchHit {
+  id: string;
+  customer_first_name: string | null;
+  customer_last_name: string | null;
+  customer_code: string | null;
+  status: string;
+  due_at: string | null;
+}
+
+interface ProductSearchGroup {
+  productId: string;
+  sku: string;
+  productName: string;
+  variationLabels: string[];
+  matchedSkus: string[];
+}
+
+type SearchResultEntry =
+  | { kind: "sku"; key: string; title: string; subtitle: string; meta: string }
+  | { kind: "customer"; key: string; customer: Customer }
+  | { kind: "order"; key: string; order: OrderSearchHit }
+  | { kind: "shipment"; key: string; shipment: ShipmentSearchHit }
+  | { kind: "product"; key: string; product: ProductSearchGroup }
+  | { kind: "wedding"; key: string; wedding: WeddingSearchHit }
+  | { kind: "alteration"; key: string; alteration: AlterationSearchHit };
+
 interface GlobalTopBarProps {
   segments: BreadcrumbSegment[];
   onNavigateRegister: () => void;
@@ -50,6 +110,10 @@ interface GlobalTopBarProps {
   onSearchOpenProductDrawer?: (sku: string, hintName?: string) => void;
   /** Opens customer list filtered by wedding party name. */
   onSearchOpenWeddingPartyCustomers?: (partyQuery: string) => void;
+  onSearchOpenOrder?: (transactionId: string) => void;
+  onSearchOpenShipment?: (shipmentId: string) => void;
+  onSearchOpenWeddingParty?: (partyId: string) => void;
+  onSearchOpenAlteration?: (alterationId: string) => void;
   /** Toggles the responsive sidebar. */
   onToggleSidebar?: () => void;
   /** When false, show optional Back Office "Switch staff" (register not required for BO). */
@@ -73,19 +137,68 @@ function looksLikeSku(q: string): boolean {
 const GLOBAL_SEARCH_PRODUCT_CAP = 8;
 const GLOBAL_SEARCH_CONTROL_BOARD_LIMIT = 48;
 
-function pickDistinctProductRows(
+function groupProductRows(
   rows: ControlBoardRow[],
   maxProducts: number,
-): ControlBoardRow[] {
-  const seen = new Set<string>();
-  const out: ControlBoardRow[] = [];
+): ProductSearchGroup[] {
+  const out: ProductSearchGroup[] = [];
+  const seen = new Map<string, ProductSearchGroup>();
   for (const r of rows) {
-    if (seen.has(r.product_id)) continue;
-    seen.add(r.product_id);
-    out.push(r);
-    if (out.length >= maxProducts) break;
+    let group = seen.get(r.product_id);
+    if (!group) {
+      group = {
+        productId: r.product_id,
+        sku: r.sku,
+        productName: r.product_name,
+        variationLabels: [],
+        matchedSkus: [],
+      };
+      seen.set(r.product_id, group);
+      out.push(group);
+    }
+    if (r.variation_label && !group.variationLabels.includes(r.variation_label)) {
+      group.variationLabels.push(r.variation_label);
+    }
+    if (!group.matchedSkus.includes(r.sku)) {
+      group.matchedSkus.push(r.sku);
+    }
   }
-  return out;
+  return out.slice(0, maxProducts);
+}
+
+function humanizeStatus(value: string | null | undefined): string {
+  const raw = (value ?? "").trim();
+  if (!raw) return "Unknown";
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function humanizeOrderKind(kind: string | null | undefined): string {
+  switch (kind) {
+    case "regular_order":
+      return "Order";
+    case "special_order":
+      return "Special Order";
+    case "custom":
+    case "custom_order":
+      return "Custom";
+    case "wedding_order":
+      return "Wedding";
+    case "layaway":
+      return "Layaway";
+    default:
+      return humanizeStatus(kind);
+  }
+}
+
+function fmtDateShort(value: string | null | undefined): string {
+  if (!value) return "No date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 }
 
 export default function GlobalTopBar({
@@ -95,6 +208,10 @@ export default function GlobalTopBar({
   onSearchOpenCustomerDrawer,
   onSearchOpenProductDrawer,
   onSearchOpenWeddingPartyCustomers,
+  onSearchOpenOrder,
+  onSearchOpenShipment,
+  onSearchOpenWeddingParty,
+  onSearchOpenAlteration,
   onToggleSidebar,
   isRegisterOpen = false,
   onOpenHelp,
@@ -111,12 +228,29 @@ export default function GlobalTopBar({
   const [skuHit, setSkuHit] = useState<{ sku: string; name: string } | null>(
     null,
   );
-  const [products, setProducts] = useState<ControlBoardRow[]>([]);
+  const [products, setProducts] = useState<ProductSearchGroup[]>([]);
+  const [orders, setOrders] = useState<OrderSearchHit[]>([]);
+  const [shipments, setShipments] = useState<ShipmentSearchHit[]>([]);
+  const [weddings, setWeddings] = useState<WeddingSearchHit[]>([]);
+  const [alterations, setAlterations] = useState<AlterationSearchHit[]>([]);
   const [highlightIndex, setHighlightIndex] = useState(-1);
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (userMenuRef.current && !userMenuRef.current.contains(event.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const { slotContent } = useTopBar();
 
@@ -131,9 +265,145 @@ export default function GlobalTopBar({
     [backofficeHeaders],
   );
   const { isOnline, queueCount } = useOfflineSync(baseUrl, apiAuth);
+  
+  const isTailscaleRemote = useMemo(() => {
+    if (typeof window === "undefined") return false;
+    const h = window.location.hostname;
+    return h.startsWith("100.") || h.endsWith(".tailscale.net") || h.endsWith(".ts.net");
+  }, []);
 
-  const pickCount =
-    (skuHit ? 1 : 0) + customers.length + products.length;
+  const resultEntries = useMemo<SearchResultEntry[]>(
+    () => [
+      ...(skuHit
+        ? [
+            {
+              kind: "sku" as const,
+              key: `sku:${skuHit.sku}`,
+              title: skuHit.sku,
+              subtitle: skuHit.name,
+              meta: "ROS > Inventory > Exact SKU",
+            },
+          ]
+        : []),
+      ...customers.slice(0, 8).map((customer) => ({
+        kind: "customer" as const,
+        key: `customer:${customer.id}`,
+        customer,
+      })),
+      ...orders.slice(0, 8).map((order) => ({
+        kind: "order" as const,
+        key: `order:${order.transaction_id}`,
+        order,
+      })),
+      ...shipments.slice(0, 8).map((shipment) => ({
+        kind: "shipment" as const,
+        key: `shipment:${shipment.id}`,
+        shipment,
+      })),
+      ...products.map((product) => ({
+        kind: "product" as const,
+        key: `product:${product.productId}`,
+        product,
+      })),
+      ...weddings.slice(0, 8).map((wedding) => ({
+        kind: "wedding" as const,
+        key: `wedding:${wedding.id}`,
+        wedding,
+      })),
+      ...alterations.slice(0, 8).map((alteration) => ({
+        kind: "alteration" as const,
+        key: `alteration:${alteration.id}`,
+        alteration,
+      })),
+    ],
+    [alterations, customers, orders, products, shipments, skuHit, weddings],
+  );
+  const indexedEntries = useMemo(
+    () => resultEntries.map((entry, index) => ({ entry, index })),
+    [resultEntries],
+  );
+  const skuEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is { entry: Extract<SearchResultEntry, { kind: "sku" }>; index: number } =>
+          item.entry.kind === "sku",
+      ),
+    [indexedEntries],
+  );
+  const customerEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is {
+          entry: Extract<SearchResultEntry, { kind: "customer" }>;
+          index: number;
+        } => item.entry.kind === "customer",
+      ),
+    [indexedEntries],
+  );
+  const orderEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is { entry: Extract<SearchResultEntry, { kind: "order" }>; index: number } =>
+          item.entry.kind === "order",
+      ),
+    [indexedEntries],
+  );
+  const shipmentEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is {
+          entry: Extract<SearchResultEntry, { kind: "shipment" }>;
+          index: number;
+        } => item.entry.kind === "shipment",
+      ),
+    [indexedEntries],
+  );
+  const productEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is {
+          entry: Extract<SearchResultEntry, { kind: "product" }>;
+          index: number;
+        } => item.entry.kind === "product",
+      ),
+    [indexedEntries],
+  );
+  const weddingEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is {
+          entry: Extract<SearchResultEntry, { kind: "wedding" }>;
+          index: number;
+        } => item.entry.kind === "wedding",
+      ),
+    [indexedEntries],
+  );
+  const alterationEntries = useMemo(
+    () =>
+      indexedEntries.filter(
+        (
+          item,
+        ): item is {
+          entry: Extract<SearchResultEntry, { kind: "alteration" }>;
+          index: number;
+        } => item.entry.kind === "alteration",
+      ),
+    [indexedEntries],
+  );
+
+  const pickCount = resultEntries.length;
 
   const runSearch = useCallback(async (raw: string) => {
     const q = raw.trim();
@@ -141,12 +411,22 @@ export default function GlobalTopBar({
       setCustomers([]);
       setSkuHit(null);
       setProducts([]);
+      setOrders([]);
+      setShipments([]);
+      setWeddings([]);
+      setAlterations([]);
       setLoading(false);
       return;
     }
 
     setLoading(true);
+    setCustomers([]);
     setSkuHit(null);
+    setProducts([]);
+    setOrders([]);
+    setShipments([]);
+    setWeddings([]);
+    setAlterations([]);
     const requests: Promise<void>[] = [];
 
     if (q.length >= 2) {
@@ -186,14 +466,55 @@ export default function GlobalTopBar({
       ).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as { rows: ControlBoardRow[] };
-          setProducts(
-            pickDistinctProductRows(
-              data.rows ?? [],
-              GLOBAL_SEARCH_PRODUCT_CAP
-            )
-          );
+          setProducts(groupProductRows(data.rows ?? [], GLOBAL_SEARCH_PRODUCT_CAP));
         }
       })
+    );
+
+    requests.push(
+      fetch(
+        `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&show_closed=true&limit=8&offset=0`,
+        { headers: apiAuth() },
+      ).then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as { items?: OrderSearchHit[] };
+          setOrders(data.items ?? []);
+        }
+      }),
+    );
+
+    requests.push(
+      fetch(`${baseUrl}/api/shipments?search=${encodeURIComponent(q)}&limit=8`, {
+        headers: apiAuth(),
+      }).then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as { items?: ShipmentSearchHit[] };
+          setShipments(data.items ?? []);
+        }
+      }),
+    );
+
+    requests.push(
+      fetch(
+        `${baseUrl}/api/weddings/parties?search=${encodeURIComponent(q)}&page=1&limit=8`,
+        { headers: apiAuth() },
+      ).then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as { data?: WeddingSearchHit[] };
+          setWeddings(data.data ?? []);
+        }
+      }),
+    );
+
+    requests.push(
+      fetch(`${baseUrl}/api/alterations?search=${encodeURIComponent(q)}`, {
+        headers: apiAuth(),
+      }).then(async (res) => {
+        if (res.ok) {
+          const data = (await res.json()) as AlterationSearchHit[];
+          setAlterations(data.slice(0, 8));
+        }
+      }),
     );
 
     try {
@@ -211,6 +532,10 @@ export default function GlobalTopBar({
       setCustomers([]);
       setSkuHit(null);
       setProducts([]);
+      setOrders([]);
+      setShipments([]);
+      setWeddings([]);
+      setAlterations([]);
       setLoading(false);
       return;
     }
@@ -296,51 +621,79 @@ export default function GlobalTopBar({
     onNavigateRegister();
   };
 
-  const pickProduct = (r: ControlBoardRow) => {
+  const pickProduct = (r: ProductSearchGroup) => {
     setOpen(false);
     setQuery("");
     setHighlightIndex(-1);
     if (onSearchOpenProductDrawer) {
       onSearchOpenProductDrawer(
         r.sku,
-        `${r.product_name}${r.variation_label ? ` · ${r.variation_label}` : ""}`,
+        `${r.productName}${r.variationLabels[0] ? ` · ${r.variationLabels[0]}` : ""}`,
       );
       return;
     }
     onNavigateRegister();
   };
 
+  const pickOrder = (transactionId: string) => {
+    setOpen(false);
+    setQuery("");
+    setHighlightIndex(-1);
+    onSearchOpenOrder?.(transactionId);
+  };
+
+  const pickShipment = (shipmentId: string) => {
+    setOpen(false);
+    setQuery("");
+    setHighlightIndex(-1);
+    onSearchOpenShipment?.(shipmentId);
+  };
+
+  const pickWedding = (partyId: string) => {
+    setOpen(false);
+    setQuery("");
+    setHighlightIndex(-1);
+    onSearchOpenWeddingParty?.(partyId);
+  };
+
+  const pickAlteration = (alterationId: string) => {
+    setOpen(false);
+    setQuery("");
+    setHighlightIndex(-1);
+    onSearchOpenAlteration?.(alterationId);
+  };
+
   const activateHighlighted = (e: KeyboardEvent, altRegister: boolean) => {
     if (pickCount === 0 || loading) return;
-    const i = highlightIndex >= 0 ? highlightIndex : 0;
-    let cursor = 0;
-    if (skuHit) {
-      if (i === cursor) {
-        e.preventDefault();
+    const entry = resultEntries[highlightIndex >= 0 ? highlightIndex : 0];
+    if (!entry) return;
+    e.preventDefault();
+    switch (entry.kind) {
+      case "sku":
         pickSku();
         return;
-      }
-      cursor += 1;
-    }
-    for (const c of customers) {
-      if (i === cursor) {
-        e.preventDefault();
+      case "customer":
         if (altRegister && onSearchOpenCustomerDrawer) {
-          pickCustomerRegister(c);
+          pickCustomerRegister(entry.customer);
         } else {
-          pickCustomer(c);
+          pickCustomer(entry.customer);
         }
         return;
-      }
-      cursor += 1;
-    }
-    for (const r of products) {
-      if (i === cursor) {
-        e.preventDefault();
-        pickProduct(r);
+      case "order":
+        pickOrder(entry.order.transaction_id);
         return;
-      }
-      cursor += 1;
+      case "shipment":
+        pickShipment(entry.shipment.id);
+        return;
+      case "product":
+        pickProduct(entry.product);
+        return;
+      case "wedding":
+        pickWedding(entry.wedding.id);
+        return;
+      case "alteration":
+        pickAlteration(entry.alteration.id);
+        return;
     }
   };
 
@@ -484,68 +837,272 @@ export default function GlobalTopBar({
               {loading ? (
                 <p className="px-4 py-3 text-sm text-app-text-muted">Working…</p>
               ) : null}
-              {!loading && !customers.length && !skuHit && !products.length ? (
+              {!loading && resultEntries.length === 0 ? (
                 <p className="px-4 py-3 text-sm text-app-text-muted">No matches.</p>
               ) : null}
-              {skuHit ? (
-                <button
-                  type="button"
-                  role="option"
-                  aria-selected={highlightIndex === 0}
-                  data-search-index={0}
-                  onMouseEnter={() => setHighlightIndex(0)}
-                  onClick={() => pickSku()}
-                  className={`flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left ${
-                    highlightIndex === 0
-                      ? "bg-app-surface-2"
-                      : "hover:bg-app-surface-2"
-                  }`}
-                >
-                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    SKU
-                  </span>
-                  <span className="font-mono text-sm font-bold text-app-text">
-                    {skuHit.sku}
-                  </span>
-                  <span className="text-xs text-app-text-muted">{skuHit.name}</span>
-                </button>
-              ) : null}
-              {customers.length > 0 ? (
-                <div className="border-t border-app-border pt-2">
-                  <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Customers
-                  </p>
-                  {customers.map((c, ci) => {
-                    const idx = (skuHit ? 1 : 0) + ci;
-                    const active = highlightIndex === idx;
-                    return (
-                      <div
-                        key={c.id}
+              {resultEntries.length > 0 ? (
+                <div className="space-y-2">
+                  {skuEntries.map(({ entry, index }) => (
+                      <button
+                        key={entry.key}
+                        type="button"
                         role="option"
-                        aria-selected={active}
-                        data-search-index={idx}
-                        onMouseEnter={() => setHighlightIndex(idx)}
-                        className={`flex w-full items-stretch gap-0 border-b border-app-border last:border-0 ${
-                          active ? "bg-app-surface-2" : ""
-                        }`}
+                        aria-selected={highlightIndex === index}
+                        data-search-index={index}
+                        onMouseEnter={() => setHighlightIndex(index)}
+                        onClick={() => pickSku()}
+                        className={cn(
+                          "flex w-full flex-col items-start gap-0.5 border-t border-app-border px-4 py-2.5 text-left",
+                          highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                        )}
                       >
-                        <button
-                          type="button"
-                          onClick={() => pickCustomer(c)}
-                          className="min-w-0 flex-1 px-4 py-2.5 text-left hover:bg-app-surface-2"
-                        >
-                          <span className="font-semibold text-app-text">
-                            {c.first_name} {c.last_name}
-                          </span>
-                          {c.customer_code ? (
-                            <span className="ml-2 font-mono text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
-                              {c.customer_code}
+                        <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          {entry.meta}
+                        </span>
+                        <span className="font-mono text-sm font-bold text-app-text">{entry.title}</span>
+                        <span className="text-xs text-app-text-muted">{entry.subtitle}</span>
+                      </button>
+                    ))}
+
+                  {customers.length > 0 ? (
+                    <div className="border-t border-app-border pt-2">
+                      <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Customers
+                      </p>
+                      {customerEntries.map(({ entry, index }) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightIndex === index}
+                            data-search-index={index}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                            onClick={() => pickCustomer(entry.customer)}
+                            className={cn(
+                              "flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left",
+                              highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-app-text">
+                                {entry.customer.first_name} {entry.customer.last_name}
+                              </span>
+                              {entry.customer.customer_code ? (
+                                <span className="font-mono text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
+                                  {entry.customer.customer_code}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS &gt; Customers &gt; Profile
                             </span>
-                          ) : null}
-                        </button>
-                      </div>
-                    );
-                  })}
+                            <span className="text-xs text-app-text-muted">
+                              {entry.customer.phone ?? entry.customer.email ?? "No contact info"}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+
+                  {orders.length > 0 ? (
+                    <div className="border-t border-app-border pt-2">
+                      <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Orders
+                      </p>
+                      {orderEntries.map(({ entry, index }) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightIndex === index}
+                            data-search-index={index}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                            onClick={() => pickOrder(entry.order.transaction_id)}
+                            className={cn(
+                              "flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left",
+                              highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-app-text">{entry.order.display_id}</span>
+                              <span className="rounded-full border border-app-border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                {humanizeOrderKind(entry.order.order_kind)}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS &gt; Orders
+                            </span>
+                            <span className="text-xs text-app-text-muted">
+                              {entry.order.customer_name ??
+                                (entry.order.counterpoint_customer_code
+                                  ? `CP: ${entry.order.counterpoint_customer_code}`
+                                  : "No customer")}
+                              {" · "}
+                              {humanizeStatus(entry.order.status)}
+                              {entry.order.party_name ? ` · ${entry.order.party_name}` : ""}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+
+                  {shipments.length > 0 ? (
+                    <div className="border-t border-app-border pt-2">
+                      <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Shipping
+                      </p>
+                      {shipmentEntries.map(({ entry, index }) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightIndex === index}
+                            data-search-index={index}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                            onClick={() => pickShipment(entry.shipment.id)}
+                            className={cn(
+                              "flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left",
+                              highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-app-text">
+                                {entry.shipment.tracking_number ?? entry.shipment.id.slice(0, 8)}
+                              </span>
+                              <span className="rounded-full border border-app-border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                {humanizeStatus(entry.shipment.status)}
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS &gt; Shipping
+                            </span>
+                            <span className="text-xs text-app-text-muted">
+                              {[entry.shipment.customer_first_name, entry.shipment.customer_last_name]
+                                .filter(Boolean)
+                                .join(" ") || "No customer"}
+                              {entry.shipment.dest_summary ? ` · ${entry.shipment.dest_summary}` : ""}
+                              {entry.shipment.carrier ? ` · ${entry.shipment.carrier}` : ""}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+
+                  {products.length > 0 ? (
+                    <div className="border-t border-app-border pt-2">
+                      <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Inventory
+                      </p>
+                      {productEntries.map(({ entry, index }) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightIndex === index}
+                            data-search-index={index}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                            onClick={() => pickProduct(entry.product)}
+                            className={cn(
+                              "flex w-full flex-col items-start gap-1 px-4 py-2.5 text-left",
+                              highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                            )}
+                          >
+                            <span className="font-semibold text-app-text">{entry.product.productName}</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS &gt; Inventory &gt; Product Hub
+                            </span>
+                            <span className="text-xs text-app-text-muted">
+                              {entry.product.matchedSkus.slice(0, 2).join(" · ")}
+                            </span>
+                            {entry.product.variationLabels.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {entry.product.variationLabels.slice(0, 4).map((label: string) => (
+                                  <span
+                                    key={`${entry.product.productId}-${label}`}
+                                    className="rounded-full border border-app-border px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted"
+                                  >
+                                    {label}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : null}
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+
+                  {weddings.length > 0 ? (
+                    <div className="border-t border-app-border pt-2">
+                      <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Weddings
+                      </p>
+                      {weddingEntries.map(({ entry, index }) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightIndex === index}
+                            data-search-index={index}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                            onClick={() => pickWedding(entry.wedding.id)}
+                            className={cn(
+                              "flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left",
+                              highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                            )}
+                          >
+                            <span className="font-semibold text-app-text">{entry.wedding.party_name}</span>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS &gt; Weddings &gt; Wedding Manager
+                            </span>
+                            <span className="text-xs text-app-text-muted">
+                              {entry.wedding.groom_name ?? "No groom name"} · {fmtDateShort(entry.wedding.event_date)}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
+
+                  {alterations.length > 0 ? (
+                    <div className="border-t border-app-border pt-2">
+                      <p className="px-4 pb-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Alterations
+                      </p>
+                      {alterationEntries.map(({ entry, index }) => (
+                          <button
+                            key={entry.key}
+                            type="button"
+                            role="option"
+                            aria-selected={highlightIndex === index}
+                            data-search-index={index}
+                            onMouseEnter={() => setHighlightIndex(index)}
+                            onClick={() => pickAlteration(entry.alteration.id)}
+                            className={cn(
+                              "flex w-full flex-col items-start gap-0.5 px-4 py-2.5 text-left",
+                              highlightIndex === index ? "bg-app-surface-2" : "hover:bg-app-surface-2",
+                            )}
+                          >
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-app-text">
+                                {[entry.alteration.customer_first_name, entry.alteration.customer_last_name]
+                                  .filter(Boolean)
+                                  .join(" ") || "Alteration"}
+                              </span>
+                              {entry.alteration.customer_code ? (
+                                <span className="font-mono text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
+                                  {entry.alteration.customer_code}
+                                </span>
+                              ) : null}
+                            </div>
+                            <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              ROS &gt; Alterations
+                            </span>
+                            <span className="text-xs text-app-text-muted">
+                              {humanizeStatus(entry.alteration.status)} · Due {fmtDateShort(entry.alteration.due_at)}
+                            </span>
+                          </button>
+                        ))}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -578,9 +1135,18 @@ export default function GlobalTopBar({
 
         {/* User Profile Hookup */}
         <div className="flex items-center gap-3 pl-2">
-          <div className="text-right hidden sm:block">
+            {isTailscaleRemote && (
+              <div 
+                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-[10px] font-black uppercase tracking-widest animate-in fade-in slide-in-from-right-2"
+                title="Connected via Tailscale Remote Access"
+              >
+                <ShieldCheck size={12} className="shrink-0" />
+                Remote Node
+              </div>
+            )}
+            <div className="text-right hidden sm:block">
             <p className="text-xs font-bold text-app-text leading-tight">
-              {isRegisterOpen ? (cashierName || staffDisplayName || "Cashier") : (staffDisplayName || "User")}
+              {staffDisplayName || (isRegisterOpen ? (cashierName || "Cashier") : "User")}
             </p>
             <div className="flex items-center justify-end gap-1.5">
                <div className={cn("h-1.5 w-1.5 rounded-full", isRegisterOpen ? "bg-emerald-500" : "bg-rose-500")} />
@@ -590,27 +1156,52 @@ export default function GlobalTopBar({
             </div>
           </div>
           
-          <div className="relative group">
+          <div className="relative" ref={userMenuRef}>
             <button
                type="button"
-               disabled={isRegisterOpen}
-               onClick={() => !isRegisterOpen && clearStaffCredentials()}
+               onClick={() => setUserMenuOpen(!userMenuOpen)}
                className={cn(
                  "flex h-11 w-11 items-center justify-center rounded-2xl border-2 overflow-hidden transition-all",
-                 isRegisterOpen ? "border-emerald-500/20" : "border-app-border hover:border-app-accent/40"
+                 isRegisterOpen ? "border-emerald-500/20" : "border-app-border hover:border-app-accent/40",
+                 userMenuOpen && "border-app-accent ring-4 ring-app-accent/10"
                )}
+               aria-expanded={userMenuOpen}
+               aria-haspopup="true"
             >
               <img 
-                src={staffAvatarUrl(isRegisterOpen ? (cashierAvatarKey || staffAvatarKey) : staffAvatarKey)} 
+                src={staffAvatarUrl(staffAvatarKey || (isRegisterOpen ? cashierAvatarKey : null))} 
                 alt="" 
                 className="h-full w-full object-cover" 
               />
             </button>
-            {!isRegisterOpen && (
-              <div className="absolute top-full right-0 mt-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity">
-                <div className="bg-app-surface border border-app-border rounded-lg shadow-xl px-3 py-1.5 text-[9px] font-bold uppercase tracking-widest whitespace-nowrap">
-                  Click to log out / switch
+            {userMenuOpen && (
+              <div className="absolute right-0 top-full z-[100] mt-2 w-56 origin-top-right rounded-2xl border border-app-border bg-app-surface p-1.5 shadow-2xl animate-in fade-in zoom-in-95 duration-100">
+                <div className="px-3 py-2 border-b border-app-border mb-1.5">
+                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Identity</p>
+                   <p className="text-xs font-black truncate text-app-text">{staffDisplayName || "Authenticated Staff"}</p>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    clearStaffCredentials();
+                  }}
+                  className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-xs font-bold text-app-text hover:bg-app-surface-2 transition-all active:scale-95"
+                >
+                  <Users size={16} className="text-app-accent" />
+                  <span>Change Staff Member</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserMenuOpen(false);
+                    clearStaffCredentials();
+                  }}
+                  className="flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-left text-xs font-bold text-rose-500 hover:bg-rose-500/5 transition-all active:scale-95"
+                >
+                  <LogOut size={16} />
+                  <span>Logout</span>
+                </button>
               </div>
             )}
           </div>

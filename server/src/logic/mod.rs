@@ -37,6 +37,7 @@ pub mod notifications;
 pub mod notifications_jobs;
 pub mod nuorder;
 pub mod nuorder_sync;
+pub mod ops_dev_center;
 pub mod physical_inventory;
 pub mod podium;
 pub mod podium_inbound;

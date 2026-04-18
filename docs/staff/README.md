@@ -129,7 +129,7 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Settings | Profile | [settings-back-office.md](settings-back-office.md) |
 | Settings | General | [settings-back-office.md](settings-back-office.md) |
 | Settings | Data & Backups | [settings-back-office.md](settings-back-office.md) |
-| Settings | Printing Hub | [settings-back-office.md](settings-back-office.md) |
+| Settings | Printers & Scanners | [settings-back-office.md](settings-back-office.md) |
 | Settings | Receipt Builder | [../RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md) (product doc; staff: test receipts after edits) |
 | Settings | Integrations | [settings-back-office.md](settings-back-office.md) |
 | Settings | Staff access defaults | [settings-back-office.md](settings-back-office.md) |

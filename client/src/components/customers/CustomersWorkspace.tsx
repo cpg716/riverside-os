@@ -24,7 +24,10 @@ import {
   X as CloseIcon,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
-import { CustomerRelationshipHubDrawer } from "./CustomerRelationshipHubDrawer";
+import {
+  CustomerRelationshipHubDrawer,
+  type HubTab,
+} from "./CustomerRelationshipHubDrawer";
 import DuplicateReviewQueueSection from "./DuplicateReviewQueueSection";
 import RmsChargeAdminSection from "./RmsChargeAdminSection";
 import ShipmentsHubSection from "./ShipmentsHubSection";
@@ -308,9 +311,7 @@ export default function CustomersWorkspace({
   const [mergeOpen, setMergeOpen] = useState(false);
   const [mergeMasterId, setMergeMasterId] = useState<string | null>(null);
   const [mergeBusy, setMergeBusy] = useState(false);
-  const [hubInitialTab, setHubInitialTab] = useState<
-    "relationship" | "messages" | null
-  >(null);
+  const [hubInitialTab, setHubInitialTab] = useState<HubTab | null>(null);
   const [mergePreview, setMergePreview] = useState<{
     orders: number;
     wedding_members: number;

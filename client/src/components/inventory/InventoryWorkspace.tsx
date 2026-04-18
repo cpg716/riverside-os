@@ -36,6 +36,7 @@ interface InventoryWorkspaceProps {
   onProcurementDeepLinkConsumed?: () => void;
   openProductHubProductId?: string | null;
   onProductHubDeepLinkConsumed?: () => void;
+  surface?: "backoffice" | "pos";
 }
 
 const SECTION_META: Record<InventorySection, { title: string; subtitle: string }> = {
@@ -103,6 +104,7 @@ export default function InventoryWorkspace({
   onProcurementDeepLinkConsumed,
   openProductHubProductId,
   onProductHubDeepLinkConsumed,
+  surface = "backoffice",
 }: InventoryWorkspaceProps) {
   const [section, setSection] = useState<InventorySection>("list");
   const { backofficeHeaders } = useBackofficeAuth();
@@ -160,12 +162,14 @@ export default function InventoryWorkspace({
   }, [activeSection]);
 
   const meta = SECTION_META[section];
+  const isPosSurface = surface === "pos";
 
   return (
     <div className="flex flex-1 flex-col bg-transparent animate-in fade-in duration-700">
-      <div className="flex-1 p-6 sm:p-10">
+      <div className={isPosSurface ? "flex-1 p-4 sm:p-6" : "flex-1 p-6 sm:p-10"}>
         
         {/* Harmonized Dashboard Header */}
+        {!isPosSurface && (
         <div className="flex flex-col gap-6 mb-10">
           <div className="flex flex-wrap items-center justify-between gap-6">
             <div className="space-y-3">
@@ -210,6 +214,7 @@ export default function InventoryWorkspace({
             </div>
           </div>
         </div>
+        )}
 
         {/* Section Delivery Plane */}
         <div className="min-h-0">
@@ -218,10 +223,11 @@ export default function InventoryWorkspace({
               <InventoryControlBoard
                 openProductHubProductId={openProductHubProductId ?? null}
                 onProductHubDeepLinkConsumed={onProductHubDeepLinkConsumed}
+                surface={surface}
               />
             </div>
           )}
-          {section === "purchase_orders" && (
+          {!isPosSurface && section === "purchase_orders" && (
             <div className="animate-in fade-in slide-in-from-bottom-4 duration-700">
               <PurchaseOrderPanel
                 initialPoId={procurementDeepLinkPoId ?? null}
@@ -229,7 +235,7 @@ export default function InventoryWorkspace({
               />
             </div>
           )}
-          {section === "receiving" && (
+          {!isPosSurface && section === "receiving" && (
             <div className="flex flex-col items-center justify-center p-12 py-24 animate-in zoom-in-95 duration-1000">
               <div className="relative group max-w-2xl w-full p-16 rounded-[40px] border-2 border-app-border bg-app-surface shadow-2xl text-center space-y-10 overflow-hidden">
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-32 w-32 rounded-3xl bg-app-bg border-4 border-app-border shadow-3xl text-app-accent flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-700">
@@ -257,15 +263,15 @@ export default function InventoryWorkspace({
           )}
           
           <div className="space-y-20">
-             {section === "vendors" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><VendorHub /></div>}
-             {section === "add" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><ProductMasterForm /></div>}
-             {section === "categories" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><CategoryManager /></div>}
-             {section === "discount_events" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><DiscountEventsPanel /></div>}
-             {section === "import" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><UniversalImporter /></div>}
-             {section === "physical" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><PhysicalInventoryWorkspace /></div>}
-             {section === "damaged" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="damaged" /></div>}
-             {section === "rtv" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="return_to_vendor" /></div>}
-             {section === "intelligence" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><IntelligencePanel /></div>}
+             {!isPosSurface && section === "vendors" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><VendorHub /></div>}
+             {!isPosSurface && section === "add" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><ProductMasterForm /></div>}
+             {!isPosSurface && section === "categories" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><CategoryManager /></div>}
+             {!isPosSurface && section === "discount_events" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><DiscountEventsPanel /></div>}
+             {!isPosSurface && section === "import" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><UniversalImporter /></div>}
+             {!isPosSurface && section === "physical" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><PhysicalInventoryWorkspace /></div>}
+             {!isPosSurface && section === "damaged" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="damaged" /></div>}
+             {!isPosSurface && section === "rtv" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><MaintenanceLedgerPanel type="return_to_vendor" /></div>}
+             {!isPosSurface && section === "intelligence" && <div className="animate-in fade-in slide-in-from-bottom-8 duration-700"><IntelligencePanel /></div>}
           </div>
         </div>
       </div>

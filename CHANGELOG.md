@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] — 2026-04-18
+### Added
+- **Printing & Layout Refactor**: 
+  - Renamed hardware settings to **Printers & Scanners** to include support for barcode/QR peripherals.
+  - Removed the redundant **System Control** sidebar in favor of a unified main-sidebar navigation, enabling **Full Workspace** width for all settings panels.
+  - Moved **Receipt Builder** and **Tag Designer** to dedicated sections in the main sidebar for better organizational clarity.
+  - **Live Thermal Preview**: Integrated the `receiptline` library into the Receipt Builder to provide a high-fidelity, CLI-style preview for legacy thermal (Standard) modes.
+  - **Standard Mode Consolidation**: Integrated previously fragmented thermal settings (Store Identifier, Address/Phone toggles) directly into the Unified Receipt Builder.
+- **Node.js Polyfill Architecture**: Instrumented the Vite build with `vite-plugin-node-polyfills` and explicit aliases (`util`, `stream`, `buffer`, `process`) to support SDK-level libraries in the Tauri browser environment.
+
 ## [0.2.0] — 2026-04-16
 ### Added
 - **Full-Width Workspace Modernization**: Transformed all primary workspaces (Orders, Customers, Inventory, etc.) into a high-performance, edge-to-edge layout. Deprecated nested scrolling in favor of native root document scrolling for a smoother "Pro" experience on 1080p, 1440p, and iPad 11 Pro screens.

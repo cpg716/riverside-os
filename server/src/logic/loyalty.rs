@@ -1,7 +1,7 @@
 //! Loyalty point accrual — 5 pts per $1 on product lines (excluding service / excluded SKUs).
 //!
 //! Entry point: `try_accrue_for_order` — safe to call multiple times; idempotent via
-//! `order_loyalty_accrual` guard table.
+//! `transaction_loyalty_accrual` guard table.
 
 use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
@@ -51,7 +51,7 @@ pub async fn try_accrue_for_order(
 ) -> Result<Option<LoyaltyAccrualOutcome>, sqlx::Error> {
     // Idempotency guard — if already accrued for this order, skip.
     let already: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM order_loyalty_accrual WHERE transaction_id = $1)",
+        "SELECT EXISTS(SELECT 1 FROM transaction_loyalty_accrual WHERE transaction_id = $1)",
     )
     .bind(transaction_id)
     .fetch_one(pool)
@@ -133,7 +133,7 @@ pub async fn try_accrue_for_order(
 
     // Double-check inside the transaction (race guard).
     let already2: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM order_loyalty_accrual WHERE transaction_id = $1)",
+        "SELECT EXISTS(SELECT 1 FROM transaction_loyalty_accrual WHERE transaction_id = $1)",
     )
     .bind(transaction_id)
     .fetch_one(&mut *tx)
@@ -180,7 +180,7 @@ pub async fn try_accrue_for_order(
 
     sqlx::query(
         r#"
-        INSERT INTO order_loyalty_accrual (transaction_id, points_earned, product_subtotal)
+        INSERT INTO transaction_loyalty_accrual (transaction_id, points_earned, product_subtotal)
         VALUES ($1, $2, $3)
         "#,
     )
@@ -207,7 +207,7 @@ pub async fn reverse_order_accrual_in_tx(
     let row: Option<(Uuid, i32)> = sqlx::query_as(
         r#"
         SELECT ola.transaction_id, ola.points_earned
-        FROM order_loyalty_accrual ola
+        FROM transaction_loyalty_accrual ola
         WHERE ola.transaction_id = $1
         FOR UPDATE
         "#,
@@ -228,7 +228,7 @@ pub async fn reverse_order_accrual_in_tx(
             .flatten();
 
     let Some(customer_id) = customer_id else {
-        sqlx::query("DELETE FROM order_loyalty_accrual WHERE transaction_id = $1")
+        sqlx::query("DELETE FROM transaction_loyalty_accrual WHERE transaction_id = $1")
             .bind(transaction_id)
             .execute(&mut **tx)
             .await?;
@@ -236,7 +236,7 @@ pub async fn reverse_order_accrual_in_tx(
     };
 
     if points_earned <= 0 {
-        sqlx::query("DELETE FROM order_loyalty_accrual WHERE transaction_id = $1")
+        sqlx::query("DELETE FROM transaction_loyalty_accrual WHERE transaction_id = $1")
             .bind(transaction_id)
             .execute(&mut **tx)
             .await?;
@@ -273,7 +273,7 @@ pub async fn reverse_order_accrual_in_tx(
     .execute(&mut **tx)
     .await?;
 
-    sqlx::query("DELETE FROM order_loyalty_accrual WHERE transaction_id = $1")
+    sqlx::query("DELETE FROM transaction_loyalty_accrual WHERE transaction_id = $1")
         .bind(transaction_id)
         .execute(&mut **tx)
         .await?;
@@ -329,7 +329,7 @@ pub async fn clawback_points_for_returned_subtotal_in_tx(
 
     sqlx::query(
         r#"
-        UPDATE order_loyalty_accrual
+        UPDATE transaction_loyalty_accrual
         SET points_earned = GREATEST(points_earned - $1, 0),
             product_subtotal = GREATEST(product_subtotal - $2, 0::numeric)
         WHERE transaction_id = $3

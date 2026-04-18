@@ -16,10 +16,12 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import StaffEditDrawer, { type HubRow } from "./StaffEditDrawer";
+import { useToast } from "../ui/ToastProviderLogic";
 
 const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
 type StaffRole = "admin" | "salesperson" | "sales_support";
+type StaffStatusFilter = "all" | "active" | "inactive";
 
 // HubRow is imported from StaffEditDrawer
 
@@ -66,6 +68,7 @@ export default function StaffWorkspace({
   tasksFocusInstanceId,
   onTasksFocusConsumed,
 }: StaffWorkspaceProps) {
+  const { toast } = useToast();
   const {
     backofficeHeaders,
     hasPermission,
@@ -92,7 +95,11 @@ export default function StaffWorkspace({
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [searchInput, setSearchInput] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StaffStatusFilter>("active");
   const [auditSearchInput, setAuditSearchInput] = useState("");
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkRole, setBulkRole] = useState<StaffRole>("sales_support");
 
   const [editRow, setEditRow] = useState<HubRow | null>(null);
 
@@ -166,6 +173,181 @@ export default function StaffWorkspace({
   const openEdit = (r: HubRow) => {
     setEditRow(r);
   };
+
+  const filteredRoster = useMemo(
+    () =>
+      roster.filter((r) => {
+        if (statusFilter === "active" && !r.is_active) return false;
+        if (statusFilter === "inactive" && r.is_active) return false;
+        if (!searchInput.trim()) return true;
+        const q = searchInput.toLowerCase();
+        return (
+          r.full_name.toLowerCase().includes(q) ||
+          r.cashier_code.toLowerCase().includes(q) ||
+          r.role.toLowerCase().includes(q)
+        );
+      }),
+    [roster, searchInput, statusFilter],
+  );
+
+  useEffect(() => {
+    setSelectedStaffIds((prev) => prev.filter((id) => roster.some((r) => r.id === id)));
+  }, [roster]);
+
+  const visibleSelectedCount = useMemo(
+    () => filteredRoster.filter((r) => selectedStaffIds.includes(r.id)).length,
+    [filteredRoster, selectedStaffIds],
+  );
+
+  const allVisibleSelected =
+    filteredRoster.length > 0 && filteredRoster.every((r) => selectedStaffIds.includes(r.id));
+
+  const toggleStaffSelection = useCallback((staffId: string) => {
+    setSelectedStaffIds((prev) =>
+      prev.includes(staffId) ? prev.filter((id) => id !== staffId) : [...prev, staffId],
+    );
+  }, []);
+
+  const toggleSelectAllVisible = useCallback(() => {
+    setSelectedStaffIds((prev) => {
+      if (filteredRoster.length === 0) return prev;
+      const visibleIds = filteredRoster.map((r) => r.id);
+      const visibleSet = new Set(visibleIds);
+      const allSelected = visibleIds.every((id) => prev.includes(id));
+      if (allSelected) {
+        return prev.filter((id) => !visibleSet.has(id));
+      }
+      const next = new Set(prev);
+      visibleIds.forEach((id) => next.add(id));
+      return Array.from(next);
+    });
+  }, [filteredRoster]);
+
+  const bulkSetActive = useCallback(
+    async (isActive: boolean) => {
+      if (selectedStaffIds.length === 0) return;
+      setBulkBusy(true);
+      setLoadErr(null);
+      try {
+        const staffNameById = new Map(roster.map((row) => [row.id, row.full_name]));
+        const succeeded: string[] = [];
+        const failed: string[] = [];
+        for (const staffId of selectedStaffIds) {
+          const res = await fetch(`${baseUrl}/api/staff/admin/${encodeURIComponent(staffId)}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...backofficeHeaders() },
+            body: JSON.stringify({ is_active: isActive }),
+          });
+          if (!res.ok) {
+            const b = (await res.json().catch(() => ({}))) as { error?: string };
+            const label = staffNameById.get(staffId) ?? "Unknown staff";
+            failed.push(`${label}: ${b.error ?? "Bulk update failed"}`);
+            continue;
+          }
+          succeeded.push(staffId);
+        }
+        await refreshRoster();
+        setSelectedStaffIds((prev) => prev.filter((id) => !succeeded.includes(id)));
+        if (succeeded.length > 0) {
+          toast(
+            `${isActive ? "Activated" : "Deactivated"} ${succeeded.length} staff account${succeeded.length === 1 ? "" : "s"}.`,
+            "success",
+          );
+        }
+        if (failed.length > 0) {
+          setLoadErr(failed.join(" | "));
+          toast(
+            `${failed.length} staff account${failed.length === 1 ? "" : "s"} could not be ${isActive ? "activated" : "deactivated"}.`,
+            "error",
+          );
+        } else {
+          setLoadErr(null);
+        }
+      } catch (e) {
+        setLoadErr(e instanceof Error ? e.message : "Bulk update failed");
+        toast(e instanceof Error ? e.message : "Bulk update failed", "error");
+      } finally {
+        setBulkBusy(false);
+      }
+    },
+    [backofficeHeaders, refreshRoster, roster, selectedStaffIds, toast],
+  );
+
+  const bulkSetRole = useCallback(async () => {
+    if (selectedStaffIds.length === 0) return;
+    setBulkBusy(true);
+    setLoadErr(null);
+    try {
+      const staffNameById = new Map(roster.map((row) => [row.id, row.full_name]));
+      const succeeded: string[] = [];
+      const failed: string[] = [];
+      for (const staffId of selectedStaffIds) {
+        const roleRes = await fetch(
+          `${baseUrl}/api/staff/admin/${encodeURIComponent(staffId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...backofficeHeaders() },
+            body: JSON.stringify({ role: bulkRole }),
+          },
+        );
+        if (!roleRes.ok) {
+          const body = (await roleRes.json().catch(() => ({}))) as { error?: string };
+          const label = staffNameById.get(staffId) ?? "Unknown staff";
+          failed.push(`${label}: ${body.error ?? "Role update failed"}`);
+          continue;
+        }
+
+        if (bulkRole !== "admin" && hasPermission("staff.manage_access")) {
+          const defaultsRes = await fetch(
+            `${baseUrl}/api/staff/admin/${encodeURIComponent(staffId)}/apply-role-defaults`,
+            {
+              method: "POST",
+              headers: backofficeHeaders(),
+            },
+          );
+          if (!defaultsRes.ok) {
+            const body = (await defaultsRes.json().catch(() => ({}))) as { error?: string };
+            const label = staffNameById.get(staffId) ?? "Unknown staff";
+            failed.push(`${label}: ${body.error ?? "Role defaults update failed"}`);
+            continue;
+          }
+        }
+
+        succeeded.push(staffId);
+      }
+
+      await refreshRoster();
+      setSelectedStaffIds((prev) => prev.filter((id) => !succeeded.includes(id)));
+      if (succeeded.length > 0) {
+        toast(
+          `Updated ${succeeded.length} staff account${succeeded.length === 1 ? "" : "s"} to ${roleLabel(bulkRole)}.`,
+          "success",
+        );
+      }
+      if (failed.length > 0) {
+        setLoadErr(failed.join(" | "));
+        toast(
+          `${failed.length} staff account${failed.length === 1 ? "" : "s"} could not be updated.`,
+          "error",
+        );
+      } else {
+        setLoadErr(null);
+      }
+    } catch (e) {
+      setLoadErr(e instanceof Error ? e.message : "Bulk role update failed");
+      toast(e instanceof Error ? e.message : "Bulk role update failed", "error");
+    } finally {
+      setBulkBusy(false);
+    }
+  }, [
+    backofficeHeaders,
+    bulkRole,
+    hasPermission,
+    refreshRoster,
+    roster,
+    selectedStaffIds,
+    toast,
+  ]);
 
   const saveCategoryRate = async (categoryId: string, pctStr: string) => {
     const rate = decimalFromPctInput(pctStr);
@@ -287,34 +469,95 @@ export default function StaffWorkspace({
       {tab === "team" ? (
         <section className="ui-card flex flex-col p-4 gap-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="relative w-full max-w-sm">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
-              <input
-                type="text"
-                placeholder="Search staff by name, PIN or role…"
-                className="ui-input w-full pl-10"
-                value={searchInput}
-                onChange={(e) => setSearchInput(e.target.value)}
-              />
+            <div className="flex w-full max-w-2xl flex-wrap items-center gap-3">
+              <div className="relative min-w-[18rem] flex-1">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
+                <input
+                  type="text"
+                  placeholder="Search staff by name, PIN or role…"
+                  className="ui-input w-full pl-10"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                />
+              </div>
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value as StaffStatusFilter)}
+                className="ui-input min-w-[12rem] px-3 py-2"
+              >
+                <option value="active">Active Staff</option>
+                <option value="inactive">Inactive Staff</option>
+                <option value="all">All Staff</option>
+              </select>
             </div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-              {roster.length} Total · {roster.filter(r => r.is_active).length} Active
+              {filteredRoster.length} Showing · {roster.length} Total · {roster.filter(r => r.is_active).length} Active
             </p>
           </div>
 
+          {hasPermission("staff.edit") ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <label className="inline-flex items-center gap-2 text-[11px] font-bold text-app-text">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={() => toggleSelectAllVisible()}
+                    className="h-4 w-4 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
+                  />
+                  Select visible
+                </label>
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  {selectedStaffIds.length} selected
+                </span>
+                {visibleSelectedCount > 0 ? (
+                  <span className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                    {visibleSelectedCount} in current view
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={bulkRole}
+                  onChange={(e) => setBulkRole(e.target.value as StaffRole)}
+                  disabled={bulkBusy || selectedStaffIds.length === 0}
+                  className="ui-input min-w-[11rem] px-3 py-2 disabled:opacity-50"
+                >
+                  <option value="sales_support">Sales Support</option>
+                  <option value="salesperson">Salesperson</option>
+                  <option value="admin">Admin</option>
+                </select>
+                <button
+                  type="button"
+                  disabled={bulkBusy || selectedStaffIds.length === 0}
+                  onClick={() => void bulkSetRole()}
+                  className="ui-btn-secondary px-3 py-2 disabled:opacity-50"
+                >
+                  Set Staff Type
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkBusy || selectedStaffIds.length === 0}
+                  onClick={() => void bulkSetActive(true)}
+                  className="ui-btn-secondary px-3 py-2 disabled:opacity-50"
+                >
+                  Make Active
+                </button>
+                <button
+                  type="button"
+                  disabled={bulkBusy || selectedStaffIds.length === 0}
+                  onClick={() => void bulkSetActive(false)}
+                  className="ui-btn-secondary px-3 py-2 disabled:opacity-50"
+                >
+                  Deactivate
+                </button>
+              </div>
+            </div>
+          ) : null}
+
           <div className="pt-2">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {roster
-                .filter((r) => {
-                  if (!searchInput.trim()) return true;
-                  const q = searchInput.toLowerCase();
-                  return (
-                    r.full_name.toLowerCase().includes(q) ||
-                    r.cashier_code.toLowerCase().includes(q) ||
-                    r.role.toLowerCase().includes(q)
-                  );
-                })
-                .map((r) => (
+              {filteredRoster.map((r) => (
                 <div
                   key={r.id}
                   className="ui-card flex flex-col p-4 active:bg-app-surface-2 transition-colors cursor-pointer select-none"
@@ -322,6 +565,16 @@ export default function StaffWorkspace({
                 >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex min-w-0 items-start gap-3">
+                    {hasPermission("staff.edit") ? (
+                      <input
+                        type="checkbox"
+                        checked={selectedStaffIds.includes(r.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={() => toggleStaffSelection(r.id)}
+                        className="mt-3 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
+                        aria-label={`Select ${r.full_name}`}
+                      />
+                    ) : null}
                     <img
                       src={staffAvatarUrl(r.avatar_key)}
                       alt=""

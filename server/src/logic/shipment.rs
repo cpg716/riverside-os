@@ -31,6 +31,7 @@ pub struct ShipmentListQuery {
     pub customer_id: Option<Uuid>,
     pub status: Option<String>,
     pub source: Option<String>,
+    pub search: Option<String>,
     #[serde(default)]
     pub open_only: bool,
     #[serde(default)]
@@ -234,6 +235,32 @@ pub async fn list_shipments(
         if !src.trim().is_empty() {
             qb.push(" AND s.source::text = ");
             qb.push_bind(src.trim().to_string());
+        }
+    }
+    if let Some(ref search) = q.search {
+        let trimmed = search.trim();
+        if !trimmed.is_empty() {
+            let like = format!("%{trimmed}%");
+            qb.push(" AND (");
+            qb.push(" s.id::text ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(s.tracking_number, '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(s.carrier, '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(s.service_name, '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(c.first_name, '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(c.last_name, '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(s.ship_to->>'city', '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(s.ship_to->>'state', '') ILIKE ");
+            qb.push_bind(like.clone());
+            qb.push(" OR COALESCE(s.ship_to->>'zip', '') ILIKE ");
+            qb.push_bind(like);
+            qb.push(") ");
         }
     }
 

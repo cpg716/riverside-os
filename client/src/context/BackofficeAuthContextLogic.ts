@@ -32,6 +32,8 @@ export function initialStaffCredentials(initialCode: string | null): {
 export type BackofficeAuthContextValue = {
   staffCode: string;
   staffPin: string;
+  /** Internal staff UUID from `effective-permissions`. */
+  staffId: string;
   /** Display name from the server (`full_name`) after a successful `effective-permissions` response; empty when unknown. */
   staffDisplayName: string;
   /** Bundled portrait key from `effective-permissions` (`avatar_key`). */
@@ -49,6 +51,7 @@ export type BackofficeAuthContextValue = {
     staffDisplayName?: string | null,
     staffAvatarKey?: string | null,
     staffRole?: StaffRole | null,
+    idFromServer?: string | null,
   ) => void;
   backofficeHeaders: () => HeadersInit;
   hasPermission: (key: string) => boolean;

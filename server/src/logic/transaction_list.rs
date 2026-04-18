@@ -80,6 +80,8 @@ pub struct TransactionListQuery {
     #[serde(default)]
     pub kind_filter: Option<String>,
     #[serde(default)]
+    pub status_scope: Option<String>,
+    #[serde(default)]
     pub limit: Option<i64>,
     #[serde(default)]
     pub offset: Option<i64>,
@@ -148,7 +150,7 @@ pub async fn query_paged_transactions(
         r#"
         SELECT
             o.id AS transaction_id,
-            o.display_id,
+            COALESCE(o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
             o.booked_at,
             o.total_price,
             o.amount_paid,
@@ -192,8 +194,26 @@ pub async fn query_paged_transactions(
         qb.push(" AND c.id IS NOT NULL "); // Only show orders with customers (not walk-ins)
     }
 
-    if !q.show_closed {
-        qb.push(" AND EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.is_fulfilled = false) ");
+    let status_scope = q.status_scope.as_deref().map(str::trim);
+    let open_orders_predicate =
+        "(o.counterpoint_doc_ref IS NOT NULL OR EXISTS (SELECT 1 FROM transaction_lines tl WHERE tl.transaction_id = o.id AND tl.is_fulfilled = false))";
+    match status_scope {
+        Some("open") => {
+            qb.push(" AND ");
+            qb.push(open_orders_predicate);
+            qb.push(" ");
+        }
+        Some("closed") => {
+            qb.push(" AND NOT ");
+            qb.push(open_orders_predicate);
+            qb.push(" ");
+        }
+        _ if !q.show_closed => {
+            qb.push(" AND ");
+            qb.push(open_orders_predicate);
+            qb.push(" ");
+        }
+        _ => {}
     }
 
     if let Some(sid) = q.register_session_id {
@@ -220,6 +240,10 @@ pub async fn query_paged_transactions(
             qb.push(" AND (o.id::text ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR o.display_id ILIKE ");
+            qb.push_bind(s.clone());
+            qb.push(" OR o.counterpoint_doc_ref ILIKE ");
+            qb.push_bind(s.clone());
+            qb.push(" OR o.counterpoint_ticket_ref ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR c.first_name ILIKE ");
             qb.push_bind(s.clone());

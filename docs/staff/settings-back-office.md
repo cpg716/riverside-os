@@ -2,7 +2,7 @@
 
 **Audience:** Store admins.
 
-**Where in ROS:** Back Office → **Settings**. The settings are now organized into distinct groups: **User** (Profile), **Configuration** (General, Printing, Backups, Database), **Integrations** (Podium, Weather, etc.), and **System** (Bug Reports, Online Store).
+**Where in ROS:** Back Office → **Settings**. The settings workspace initializes to your **Staff Profile** by default. Settings are organized into distinct groups: **User** (Profile), **Configuration** (General, Printers & Scanners, Backups, Database), **Integrations** (Podium, Weather, etc.), and **System** (Bug Reports, Online Store).
 
 **Related permissions:** **settings.admin** for most store-wide configuration. **Staff access defaults** is visible with **settings.admin** **or** **staff.manage_access** (role permission templates + template discount caps). **Online store** uses **online_store.manage** (admins also have access via **settings.admin** on the same APIs). **Profile** / **avatar** may be self-service for any signed-in staff.
 
@@ -19,11 +19,11 @@
 1. **Settings** → **Staff access defaults** (requires **settings.admin** **or** **staff.manage_access**).
 2. Edit **role permissions** and **role discount caps** with care; per-person edits stay on each profile in **Staff → Team**.
 
-## Profile
-
 1. **Settings** → **Profile**.
-2. Update **avatar** from bundled icons (or admin sets on **Staff → Team**).
-3. Save; **header** portrait may need **refresh** to update.
+2. Update **Personal Info** (Name, Phone, Email) or your **Staff Icon**.
+3. **CRM Linkage**: Link your profile to your customer account for automatic employee discount application and transaction history.
+4. View-only access (POS mode): Identity-sensitive fields like **Role**, **Economics**, and **Permissions** are read-only to prevent unauthorized modification during sales operations; full management is available in the Back Office.
+5. Save; the sidebar and top-bar identity will update instantly upon confirmation.
 
 ## General
 

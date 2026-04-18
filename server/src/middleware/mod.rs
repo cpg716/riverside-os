@@ -69,7 +69,19 @@ pub async fn require_staff_with_permission(
                 axum::Json(json!({ "error": "permission resolution failed" })),
             )
         })?;
-    if !staff_has_permission(&eff, permission) {
+
+    let has = staff_has_permission(&eff, permission);
+
+    tracing::info!(
+        staff_id = %staff.id,
+        staff_name = %staff.full_name,
+        staff_role = ?staff.role,
+        requested_permission = %permission,
+        permitted = %has,
+        "Permission check"
+    );
+
+    if !has {
         return Err((
             StatusCode::FORBIDDEN,
             axum::Json(json!({

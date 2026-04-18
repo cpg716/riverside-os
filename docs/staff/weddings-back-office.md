@@ -4,7 +4,7 @@
 
 **Where in ROS:** Back Office → **Weddings**. Subsections: **Action Board**, **Parties**, **Calendar**.
 
-**Related permissions:** **weddings.view** to read; **weddings.mutate** to create/update/delete parties, members, appointments.
+**Related permissions:** **weddings.view** to read wedding data; **weddings.mutate** to create/update/delete parties, members, appointments; **wedding_manager.open** to open the full Wedding Manager shell/tab from navigation.
 
 ---
 

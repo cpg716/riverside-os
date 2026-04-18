@@ -25,7 +25,8 @@ Riverside OS hides **entire tabs** or **subsections** when your role does not in
 | **Staff** tab | **staff.view** |
 | **QBO bridge** | **qbo.view** |
 | **Orders** | **orders.view** |
-| **Weddings** | **weddings.view** |
+| **Weddings data / wedding reads** | **weddings.view** |
+| **Wedding Manager shell** | **wedding_manager.open** |
 | **Alterations** | **alterations.manage** |
 | **Gift Cards** | **gift_cards.manage** |
 | **Settings** (most tabs) | **settings.admin** |

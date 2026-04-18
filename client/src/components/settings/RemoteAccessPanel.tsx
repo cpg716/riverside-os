@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import QRCode from "qrcode";
 
 interface TailscaleNode {
   ID: string;
@@ -29,6 +30,7 @@ export default function RemoteAccessPanel() {
   const [loading, setLoading] = useState(true);
   const [authKey, setAuthKey] = useState("");
   const [connecting, setConnecting] = useState(false);
+  const [qrCodeData, setQrCodeData] = useState<string | null>(null);
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 
@@ -55,6 +57,19 @@ export default function RemoteAccessPanel() {
   useEffect(() => {
     void fetchStatus();
   }, [fetchStatus]);
+
+  useEffect(() => {
+    if (status?.Self?.DNSName) {
+      // MagicDNS names often have a trailing dot like "machine.tailnet.net."
+      const cleanDns = status.Self.DNSName.replace(/\.$/, "");
+      const url = `http://${cleanDns}:3000`;
+      QRCode.toDataURL(url, { margin: 2, scale: 10, color: { dark: "#059669", light: "#ffffff" } })
+        .then(setQrCodeData)
+        .catch(console.error);
+    } else {
+      setQrCodeData(null);
+    }
+  }, [status]);
 
   const handleConnect = async () => {
     if (!authKey.trim()) return;
@@ -103,10 +118,12 @@ export default function RemoteAccessPanel() {
 
   const isConnected = status?.BackendState === "Running";
 
-  // Basic heuristic: if we are accessing via a 100.x.x.x IP, we are remote.
+  // Basic heuristic: if we are accessing via a 100.x.x.x IP or a .tailscale.net / .ts.net domain, we are remote.
   const isRemoteSession =
     typeof window !== "undefined" &&
-    window.location.hostname.startsWith("100.");
+    (window.location.hostname.startsWith("100.") ||
+      window.location.hostname.endsWith(".tailscale.net") ||
+      window.location.hostname.endsWith(".ts.net"));
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto">
@@ -201,7 +218,7 @@ export default function RemoteAccessPanel() {
                           navigator.clipboard.writeText(
                             status.Self!.TailscaleIPs[0],
                           );
-                          toast("Copied: IP copied to clipboard.", "success");
+                          toast("Copied IP to clipboard.", "success");
                         }}
                         className="ml-2 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
                       >
@@ -210,6 +227,36 @@ export default function RemoteAccessPanel() {
                     </div>
                   </div>
                 </div>
+
+                {status.Self.DNSName && (
+                  <div className="p-6 rounded-2xl bg-white/50 border border-app-border flex items-center justify-between gap-6">
+                    <div className="flex-1">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                        MagicDNS Discovery Address
+                      </span>
+                      <div className="text-sm font-black text-app-text mt-1 truncate">
+                        http://{status.Self.DNSName.replace(/\.$/, "")}:3000
+                      </div>
+                      <button
+                        onClick={() => {
+                          const url = `http://${status.Self!.DNSName.replace(/\.$/, "")}:3000`;
+                          navigator.clipboard.writeText(url);
+                          toast("Copied MagicDNS URL.", "success");
+                        }}
+                        className="mt-2 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+                      >
+                        Copy address
+                      </button>
+                    </div>
+                    {qrCodeData ? (
+                      <div className="shrink-0 p-2 bg-white rounded-xl shadow-lg border border-app-border">
+                        <img src={qrCodeData} alt="MagicDNS QR Code" className="w-24 h-24" title="Scan to open on iPhone" />
+                      </div>
+                    ) : (
+                      <div className="w-24 h-24 bg-app-bg-accent rounded-xl animate-pulse" />
+                    )}
+                  </div>
+                )}
 
                 <div className="pt-6 border-t border-app-border/40 flex items-center justify-between">
                   <div className="flex items-center gap-3">

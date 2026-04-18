@@ -7,7 +7,7 @@ export type BulkCategoryOption = { id: string; name: string };
 interface InventoryBulkBarProps {
   selectedCount: number;
   onClearSelection: () => void;
-  /** Opens combined print job; parent marks shelf-labeled for selected variants. */
+  /** Opens combined print job; parent marks inventory tags printed for selected variants. */
   onBulkPrintLabels: () => void;
   onBulkArchive: () => void;
   categories: BulkCategoryOption[];
@@ -130,7 +130,7 @@ export default function InventoryBulkBar({
                 className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-app-accent to-app-accent px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/25 transition-transform hover:brightness-105 active:scale-[0.98]"
               >
                 <Printer size={15} aria-hidden />
-                Bulk print labels
+                Bulk print tags
               </button>
 
               <button

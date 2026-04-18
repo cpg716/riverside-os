@@ -2,16 +2,21 @@ import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import PosSidebar, { type PosTabId } from "../pos/PosSidebar";
 import Cart from "../pos/Cart";
-import ProcurementHub from "../pos/ProcurementHub";
 import CloseRegisterModal from "../pos/CloseRegisterModal";
 import RegisterShiftHandoffModal from "../pos/RegisterShiftHandoffModal";
 import RegisterOverlay from "../pos/RegisterOverlay";
 import RegisterReports from "../pos/RegisterReports";
-import RegisterLookupHub from "../pos/RegisterLookupHub";
-import RegisterSettings from "../pos/RegisterSettings";
 import RegisterTasksPanel from "../tasks/RegisterTasksPanel";
 import RegisterDashboard from "../pos/RegisterDashboard";
 import LayawayWorkspace from "../pos/LayawayWorkspace";
+const CustomersWorkspace = lazy(() => import("../customers/CustomersWorkspace"));
+const LoyaltyWorkspace = lazy(() => import("../loyalty/LoyaltyWorkspace"));
+const ShipmentsHubSection = lazy(() => import("../customers/ShipmentsHubSection"));
+const SettingsWorkspace = lazy(() => import("../settings/SettingsWorkspace"));
+
+const OrdersWorkspace = lazy(() => import("../orders/OrdersWorkspace"));
+const InventoryWorkspace = lazy(() => import("../inventory/InventoryWorkspace"));
+const GiftCardsWorkspace = lazy(() => import("../gift-cards/GiftCardsWorkspace"));
 
 const AlterationsWorkspace = lazy(() => import("../alterations/AlterationsWorkspace"));
 import type { Customer } from "../pos/CustomerSelector";
@@ -64,7 +69,9 @@ interface PosShellProps {
   receiptTimezone: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
+  activeSubSection: string;
   onSubSectionChange: (id: string) => void;
+
 }
 
 export default function PosShell({
@@ -79,6 +86,7 @@ export default function PosShell({
   pendingPosCustomer,
   pendingPosTransactionId,
   setPendingPosTransactionId,
+  setPendingPosCustomer,
   clearPendingPosCustomer,
   clearPendingPosOrder,
   pendingWeddingPosLink,
@@ -93,12 +101,14 @@ export default function PosShell({
   receiptTimezone,
   collapsed,
   onToggleCollapse,
+  activeSubSection,
   onSubSectionChange,
+
 }: PosShellProps) {
   const [activePosTab, setActivePosTab] = useState<PosTabId>(() => {
     const search = new URLSearchParams(window.location.search);
     const t = search.get("tab");
-    if (t === "dashboard" || t === "register" || t === "tasks" || t === "inventory" || t === "weddings" || t === "alterations" || t === "reports" || t === "gift-cards" || t === "loyalty" || t === "layaways" || t === "settings") {
+    if (t === "dashboard" || t === "register" || t === "tasks" || t === "customers" || t === "inventory" || t === "orders" || t === "weddings" || t === "alterations" || t === "reports" || t === "gift-cards" || t === "loyalty" || t === "layaways" || t === "shipping" || t === "settings") {
       return t as PosTabId;
     }
     return "register";
@@ -148,13 +158,6 @@ export default function PosShell({
     const code = p.cashierCode.trim();
     if (code.length === 4) { setStaffCredentials(code, code); }
     onSessionOpened(p);
-  };
-
-  const handleAddItemFromHub = (sku: string) => {
-    const s = sku.trim();
-    if (!s) return;
-    setPendingInventorySku(s);
-    setActivePosTab("register");
   };
 
   const { setSlotContent } = useTopBar();
@@ -223,6 +226,8 @@ export default function PosShell({
         onTabChange={setActivePosTab}
         collapsed={collapsed}
         onToggleCollapse={onToggleCollapse}
+        activeSubSection={activeSubSection}
+        onSubSectionChange={onSubSectionChange}
       />
 
       <div className="flex flex-1 flex-col">
@@ -252,6 +257,9 @@ export default function PosShell({
                   onInitialWeddingPosLinkConsumed={clearPendingWeddingPosLink}
                   pendingInventorySku={pendingInventorySku}
                   onPendingInventorySkuConsumed={() => setPendingInventorySku(null)}
+                  onCartInteraction={() => {
+                    if (!collapsed) onToggleCollapse();
+                  }}
                   onSaleCompleted={() => setActivePosTab("register")}
                   onExitPosMode={onExitPosMode}
                 />
@@ -263,7 +271,51 @@ export default function PosShell({
             <div className="flex flex-1 items-center justify-center bg-app-bg p-6 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Matrix Inactive: Open till to initialize task stream.</div>
           ) : null}
 
-          {activePosTab === "inventory" && <ProcurementHub onAddItemToCart={handleAddItemFromHub} />}
+          {activePosTab === "customers" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Customers...</div>}>
+                <CustomersWorkspace
+                  activeSection="all"
+                  onOpenWeddingParty={(id) => onOpenWeddingParty?.(id)}
+                  onStartSaleInPos={(customer) => {
+                    clearPendingPosOrder();
+                    setPendingPosCustomer(customer);
+                    setActivePosTab("register");
+                  }}
+                  onNavigateRegister={() => setActivePosTab("register")}
+                  onAddToWedding={() => setActivePosTab("weddings")}
+                  onBookAppointment={() => setActivePosTab("tasks")}
+                  onOpenTransactionInBackoffice={(orderId) => {
+                    setPendingPosTransactionId(orderId);
+                    clearPendingPosCustomer();
+                    setActivePosTab("register");
+                  }}
+                />
+              </Suspense>
+            </div>
+          )}
+
+          {activePosTab === "inventory" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Inventory...</div>}>
+                <InventoryWorkspace activeSection="list" surface="pos" />
+              </Suspense>
+            </div>
+          )}
+          {activePosTab === "orders" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Order Hub...</div>}>
+                <OrdersWorkspace 
+                  activeSection="open"
+                  onOpenInRegister={(orderId) => {
+                    setPendingPosTransactionId(orderId);
+                    clearPendingPosCustomer();
+                    setActivePosTab("register");
+                  }} 
+                />
+              </Suspense>
+            </div>
+          )}
           {activePosTab === "alterations" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Alterations...</div>}>
@@ -272,10 +324,47 @@ export default function PosShell({
             </div>
           )}
           {activePosTab === "reports" && <RegisterReports sessionId={sessionId} />}
-          {activePosTab === "gift-cards" && ( <RegisterLookupHub initialTab="giftcard" registerSessionId={sessionId} /> )}
-          {activePosTab === "loyalty" && ( <RegisterLookupHub initialTab="loyalty" registerSessionId={sessionId} /> )}
+          {activePosTab === "gift-cards" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Gift Card Hub...</div>}>
+                <GiftCardsWorkspace activeSection="inventory" />
+              </Suspense>
+            </div>
+          )}
+          {activePosTab === "loyalty" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Loyalty Hub...</div>}>
+                <LoyaltyWorkspace activeSection="eligible" />
+              </Suspense>
+            </div>
+          )}
           {activePosTab === "layaways" && ( <LayawayWorkspace registerSessionId={sessionId} onOpenTransaction={(orderId) => { setPendingPosTransactionId(orderId); setActivePosTab("register"); }} /> )}
-          {activePosTab === "settings" && ( <RegisterSettings sessionId={sessionId} cashierCode={cashierCode} lifecycleStatus={lifecycleStatus} onRefreshMeta={refreshOpenSessionMeta} /> )}
+          {activePosTab === "shipping" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Shipping...</div>}>
+                <ShipmentsHubSection 
+                  onOpenTransactionInBackoffice={(orderId) => {
+                    setPendingPosTransactionId(orderId);
+                    clearPendingPosCustomer();
+                    setActivePosTab("register");
+                  }} 
+                />
+              </Suspense>
+            </div>
+          )}
+          {activePosTab === "settings" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Settings...</div>}>
+                <SettingsWorkspace 
+                  activeSection={activeSubSection}
+                  posSessionId={sessionId}
+                  posCashierCode={cashierCode}
+                  posLifecycleStatus={lifecycleStatus}
+                  onPosRefreshMeta={refreshOpenSessionMeta}
+                />
+              </Suspense>
+            </div>
+          )}
         </div>
       </div>
 

@@ -106,6 +106,7 @@ interface CartProps {
   onExitPosMode?: () => void;
   pendingInventorySku?: string | null;
   onPendingInventorySkuConsumed?: () => void;
+  onCartInteraction?: () => void;
   /** IANA zone from open register session — live clock only; receipt uses server time at checkout. */
   receiptTimezone?: string;
 }
@@ -126,6 +127,7 @@ export default function Cart({
   onInitialWeddingPosLinkConsumed,
   onSaleCompleted,
   onExitPosMode,
+  onCartInteraction,
   receiptTimezone: receiptTimezoneProp,
 }: CartProps) {
   const receiptTimezone =
@@ -793,14 +795,21 @@ export default function Cart({
   }, [lines]);
 
   return (
-    <div className="relative flex h-full w-full bg-app-bg overflow-hidden">
+    <div
+      className="relative grid h-full w-full bg-app-bg overflow-hidden"
+      style={{
+        gridTemplateColumns: "minmax(0, 1fr) clamp(332px, 25vw, 376px)",
+      }}
+      onPointerDownCapture={() => onCartInteraction?.()}
+      onFocusCapture={() => onCartInteraction?.()}
+    >
       {checkoutDrawerOpen ? (
         <div
           className="pointer-events-none absolute inset-0 z-[95] bg-black/25"
           aria-hidden
         />
       ) : null}
-      <div className="relative z-0 flex flex-[2] flex-col border-r border-app-border">
+      <div className="relative z-0 flex min-w-0 flex-col border-r border-app-border">
         <div className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2 shadow-sm sm:px-4 lg:px-6 lg:py-3">
           <div className="space-y-2 rounded-2xl border border-app-border/90 bg-gradient-to-br from-app-surface via-app-surface to-app-surface-2/40 p-2.5 shadow-[0_14px_48px_-24px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.04] dark:from-app-surface dark:via-app-surface dark:to-app-surface-2/25 dark:ring-white/[0.06]">
           {/* Wedding link badge */}
@@ -1107,7 +1116,7 @@ export default function Cart({
       </div>
 
       <aside
-        className={`relative z-0 flex h-full w-[min(380px,100%)] min-w-[280px] max-w-[400px] shrink-0 flex-col border-l border-app-border/80 bg-gradient-to-b from-app-surface via-app-surface-2/25 to-app-bg shadow-[-8px_0_32px_-12px_rgba(0,0,0,0.12)] lg:min-w-[300px] lg:max-w-[min(440px,34vw)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
+        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-gradient-to-b from-app-surface via-app-surface-2/25 to-app-bg shadow-[-8px_0_32px_-12px_rgba(0,0,0,0.12)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
         aria-label="Customer, sale totals and keypad"
       >
         {/* ── Customer selector (payment rail) ── */}
@@ -2203,5 +2212,3 @@ export default function Cart({
     </div>
   );
 }
-
-

@@ -1,8 +1,12 @@
 # Receipt Builder and delivery (print, email, text)
 
-Staff design receipts in **Settings → Receipt Builder** (GrapesJS Studio **document** mode). Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`): **`receipt_studio_project_json`**, **`receipt_studio_exported_html`**, and **`receipt_thermal_mode`**.
+Staff design receipts in **Settings → Receipt Builder**. The builder supports two primary modes:
+- **Standard (ZPL/Manual)**: Optimized for legacy Zebra thermal printers. Includes a live high-fidelity preview powered by **`receiptline`**.
+- **Studio (Visual/HTML)**: Full GrapesJS Studio **document** mode for modern raster printing.
 
-**Implementation sketch:** `PLAN_GRAPESJS_RECEIPT_BUILDER.md` (repo root). **Tokens / merge:** `server/src/logic/receipt_studio_html.rs`. **ZPL (legacy thermal):** `server/src/logic/receipt_zpl.rs`. **ESC/POS raster:** `server/src/logic/receipt_escpos_raster.rs`, `POST /api/hardware/escpos-from-png`. **POS UI:** `client/src/components/pos/ReceiptSummaryModal.tsx`, receipt builder under `client/src/components/settings/`.
+Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`): **`receipt_studio_project_json`**, **`receipt_studio_exported_html`**, and **`receipt_thermal_mode`**.
+
+**Implementation sketch:** `PLAN_GRAPESJS_RECEIPT_BUILDER.md` (repo root). **Tokens / merge:** `server/src/logic/receipt_studio_html.rs`. **Thermal Preview:** `client/src/components/settings/ReceiptBuilderPanel.tsx` using **`receiptline`**. **ZPL (legacy thermal):** `server/src/logic/receipt_zpl.rs`. **ESC/POS raster:** `server/src/logic/receipt_escpos_raster.rs`, `POST /api/hardware/escpos-from-png`. **POS UI:** `client/src/components/pos/ReceiptSummaryModal.tsx`. Hardware management is centralized in the **Printers & Scanners** hub (`client/src/components/settings/PrintersAndScannersPanel.tsx`).
 
 ---
 

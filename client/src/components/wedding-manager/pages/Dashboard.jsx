@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import Icon from '../components/Icon';
-import logo from '../assets/riverside_logo.jpg';
+import logo from '../../../assets/images/riverside_logo.jpg';
 
 import SettingsModal from '../components/SettingsModal';
 import ImportDataModal from '../components/ImportDataModal';

@@ -40,6 +40,7 @@ pub struct AlterationOrderRow {
 pub struct ListAlterationsQuery {
     pub status: Option<String>,
     pub customer_id: Option<Uuid>,
+    pub search: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -123,73 +124,40 @@ async fn list_alterations(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let search = q
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("%{s}%"));
 
-    let rows = if let Some(cid) = q.customer_id {
-        if let Some(ref status) = st {
-            sqlx::query_as::<_, AlterationOrderRow>(
-                r#"
-                SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-                       c.customer_code, a.wedding_member_id, a.status::text AS status,
-                       a.due_at, a.notes, a.transaction_id AS linked_transaction_id, a.created_at, a.updated_at
-                FROM alteration_orders a
-                LEFT JOIN customers c ON a.customer_id = c.id
-                WHERE a.customer_id = $1 AND a.status::text = $2
-                ORDER BY a.created_at DESC
-                LIMIT 200
-                "#,
-            )
-            .bind(cid)
-            .bind(status)
-            .fetch_all(&state.db)
-            .await?
-        } else {
-            sqlx::query_as::<_, AlterationOrderRow>(
-                r#"
-                SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-                       c.customer_code, a.wedding_member_id, a.status::text AS status,
-                       a.due_at, a.notes, a.transaction_id AS linked_transaction_id, a.created_at, a.updated_at
-                FROM alteration_orders a
-                LEFT JOIN customers c ON a.customer_id = c.id
-                WHERE a.customer_id = $1
-                ORDER BY a.created_at DESC
-                LIMIT 200
-                "#,
-            )
-            .bind(cid)
-            .fetch_all(&state.db)
-            .await?
-        }
-    } else if let Some(ref status) = st {
-        sqlx::query_as::<_, AlterationOrderRow>(
-            r#"
-            SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-                   c.customer_code, a.wedding_member_id, a.status::text AS status,
-                   a.due_at, a.notes, a.transaction_id AS linked_transaction_id, a.created_at, a.updated_at
-            FROM alteration_orders a
-            LEFT JOIN customers c ON a.customer_id = c.id
-            WHERE a.status::text = $1
-            ORDER BY a.created_at DESC
-            LIMIT 200
-            "#,
-        )
-        .bind(status)
-        .fetch_all(&state.db)
-        .await?
-    } else {
-        sqlx::query_as::<_, AlterationOrderRow>(
-            r#"
-            SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-                   c.customer_code, a.wedding_member_id, a.status::text AS status,
-                   a.due_at, a.notes, a.transaction_id AS linked_transaction_id, a.created_at, a.updated_at
-            FROM alteration_orders a
-            LEFT JOIN customers c ON a.customer_id = c.id
-            ORDER BY a.created_at DESC
-            LIMIT 200
-            "#,
-        )
-        .fetch_all(&state.db)
-        .await?
-    };
+    let rows = sqlx::query_as::<_, AlterationOrderRow>(
+        r#"
+        SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
+               c.customer_code, a.wedding_member_id, a.status::text AS status,
+               a.due_at, a.notes, a.transaction_id AS linked_transaction_id, a.created_at, a.updated_at
+        FROM alteration_orders a
+        LEFT JOIN customers c ON a.customer_id = c.id
+        WHERE ($1::uuid IS NULL OR a.customer_id = $1)
+          AND ($2::text IS NULL OR a.status::text = $2)
+          AND (
+            $3::text IS NULL
+            OR a.id::text ILIKE $3
+            OR COALESCE(c.first_name, '') ILIKE $3
+            OR COALESCE(c.last_name, '') ILIKE $3
+            OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $3
+            OR COALESCE(c.customer_code, '') ILIKE $3
+            OR COALESCE(a.notes, '') ILIKE $3
+          )
+        ORDER BY a.created_at DESC
+        LIMIT 200
+        "#,
+    )
+    .bind(q.customer_id)
+    .bind(st)
+    .bind(search)
+    .fetch_all(&state.db)
+    .await?;
 
     Ok(Json(rows))
 }

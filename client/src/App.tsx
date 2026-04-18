@@ -722,7 +722,11 @@ function App() {
         { label: "Inventory", onClick: tabClick },
         ...(subLabel ? [{ label: subLabel }] : []),
       ];
-    if (activeTab === "settings") return [{ label: "Settings", onClick: tabClick }];
+    if (activeTab === "settings")
+      return [
+        { label: "Settings", onClick: tabClick },
+        ...(subLabel ? [{ label: subLabel }] : []),
+      ];
     if (activeTab === "reports") return [{ label: "Reports", onClick: tabClick }];
     if (activeTab === "dashboard")
       return [
@@ -1013,7 +1017,7 @@ function AppShell(props: AppShellProps) {
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
 
   const content = (
-    <>
+    <BackofficeSignInGate>
       <div className="flex flex-1">
         {props.posMode ? (
           <PosShell
@@ -1033,6 +1037,7 @@ function AppShell(props: AppShellProps) {
             }}
             collapsed={props.sidebarCollapsed}
             onToggleCollapse={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
+            activeSubSection={props.activeSubSection}
             onSubSectionChange={props.setActiveSubSection}
             onExitPosMode={() => {
               props.navigateDashboard();
@@ -1085,7 +1090,6 @@ function AppShell(props: AppShellProps) {
             }}
           />
         ) : (
-          <BackofficeSignInGate>
             <div className="flex flex-1">
               <Sidebar
                 activeTab={props.activeTab}
@@ -1175,9 +1179,8 @@ function AppShell(props: AppShellProps) {
                 />
               </ShellBackdropProvider>
             </div>
-          </BackofficeSignInGate>
-        )}
-      </div>
+          )}
+        </div>
 
       <HelpCenterDrawer
         isOpen={props.helpDrawerOpen}
@@ -1213,7 +1216,7 @@ function AppShell(props: AppShellProps) {
             }}
           />
         )}
-    </>
+    </BackofficeSignInGate>
   );
 
   if (!isAuthenticated) {
@@ -1239,6 +1242,28 @@ function AppShell(props: AppShellProps) {
         onSearchOpenWeddingPartyCustomers={(partyQuery: string) =>
           props.setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })
         }
+        onSearchOpenOrder={(transactionId: string) => {
+          props.setPosMode(false);
+          props.setWeddingMode(false);
+          props.setInsightsMode(false);
+          props.setActiveTab("orders");
+          props.onOpenTransactionInBackoffice(transactionId);
+        }}
+        onSearchOpenShipment={(shipmentId: string) =>
+          props.setGlobalSearchDrawer({ kind: "shipment", shipmentId })
+        }
+        onSearchOpenWeddingParty={(partyId: string) => {
+          props.setPosMode(false);
+          props.setInsightsMode(false);
+          props.navigateWedding(partyId);
+        }}
+        onSearchOpenAlteration={(alterationId: string) => {
+          props.setPosMode(false);
+          props.setWeddingMode(false);
+          props.setInsightsMode(false);
+          props.setActiveTab("alterations");
+          props.setAlterationsDeepLinkId(alterationId);
+        }}
         onToggleSidebar={() => props.setSidebarCollapsed(!props.sidebarCollapsed)}
         isRegisterOpen={props.isRegisterOpen}
         onOpenHelp={() => props.setHelpDrawerOpen(true)}
@@ -1393,16 +1418,12 @@ function AppMainColumn({
     if (!permissionsLoaded) return;
     const subs = SIDEBAR_SUB_SECTIONS[activeTab];
     if (!subs?.length) return;
-    if (
-      subSectionVisible(
-        activeTab,
-        activeSubSection,
-        hasPermission,
-        permissionsLoaded,
-      )
-    ) {
-      return;
-    }
+    const isValidAndVisible = subs.some(
+      (s) =>
+        s.id === activeSubSection &&
+        subSectionVisible(activeTab, s.id, hasPermission, permissionsLoaded),
+    );
+    if (isValidAndVisible) return;
     const first =
       subs.find((s) =>
         subSectionVisible(activeTab, s.id, hasPermission, permissionsLoaded),
@@ -1629,18 +1650,14 @@ function AppMainColumn({
                   );
                 if (activeTab === "settings")
                   return (
-                    <SettingsWorkspace
-                      onOpenQbo={() => {
-                        setActiveTab("qbo");
-                        setActiveSubSection("staging");
-                      }}
-                      settingsActiveSection={activeSubSection}
-                      onSettingsSectionNavigate={setActiveSubSection}
-                      bugReportsDeepLinkId={bugReportsDeepLinkId}
-                      onBugReportsDeepLinkConsumed={() =>
-                        setBugReportsDeepLinkId(null)
-                      }
-                    />
+                      <SettingsWorkspace
+                        activeSection={activeSubSection}
+                        bugReportsDeepLinkId={bugReportsDeepLinkId}
+                        onBugReportsDeepLinkConsumed={() =>
+                          setBugReportsDeepLinkId(null)
+                        }
+                        onNavigateToTab={setActiveSubSection}
+                      />
                   );
 
                 return (

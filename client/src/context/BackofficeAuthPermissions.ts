@@ -5,7 +5,7 @@ export const SIDEBAR_TAB_PERMISSION: Partial<Record<string, string>> = {
   staff: "staff.view",
   qbo: "qbo.view",
   orders: "orders.view",
-  weddings: "weddings.view",
+  weddings: "wedding_manager.open",
   alterations: "alterations.manage",
   "gift-cards": "gift_cards.manage",
   appointments: "weddings.view",
@@ -35,6 +35,7 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
   "customers:ship": "shipments.view",
   "settings:help-center": "help.manage",
   "settings:bug-reports": "settings.admin",
+  "settings:ros-dev-center": "ops.dev_center.view",
   "home:reviews": "reviews.view",
 };
 

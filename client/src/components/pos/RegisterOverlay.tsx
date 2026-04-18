@@ -15,6 +15,7 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import RiversideJustLogo from "../../assets/images/logo1.png";
 
 export interface SessionOpenedPayload {
   cashierName: string;
@@ -706,17 +707,22 @@ export default function RegisterOverlay({
           className="ui-modal-body p-8 sm:p-10 flex flex-col gap-8"
         >
           {/* Header */}
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-app-border/10 pb-6">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
-                POS Terminal Authorization
-              </p>
-              <h2
-                id={titleId}
-                className="mt-1 text-3xl font-black tracking-tight text-app-text"
-              >
-                Riverside Register
-              </h2>
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 border-b border-app-border/10 pb-8">
+            <div className="flex items-center gap-6">
+              <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-[20px] bg-app-surface shadow-xl border border-app-border/40">
+                <img src={RiversideJustLogo} alt="Riverside" className="h-full w-full object-contain" />
+              </div>
+              <div>
+                <p className="text-[11px] font-black uppercase tracking-[0.2em] text-app-accent">
+                  POS Terminal Authorization
+                </p>
+                <h2
+                  id={titleId}
+                  className="mt-1 text-3xl font-black tracking-tighter uppercase italic text-app-text"
+                >
+                  Register Access
+                </h2>
+              </div>
             </div>
             <div className="hidden md:block text-right">
               <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest opacity-60">

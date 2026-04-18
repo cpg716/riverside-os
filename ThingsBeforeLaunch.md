@@ -222,6 +222,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [x] **Concurrency Guard:** Implemented `isTickRunning` lock to prevent overlapping sync cycles.
   - [x] **Targeted Sync:** Added support for manual requests to sync specific entities (e.g., just `customers` or `vendors`).
   - [x] **Ack/Complete Handshake:** Added `ack-request` and `complete-request` callbacks for improved orchestration.
+- [ ] **Transactions vs Orders terminology sweep (launch blocker):** Audit the full app for stale pre-v0.2.0 “orders” usage where the live business model now requires a strict split between **Transactions** (financial receipt/ledger record) and **Orders** (fulfillment / operational record). Check UI labels, API payloads, query params, DB/table references, notification payloads, reporting shims, and drawer/workspace copy. Explicitly confirm no launch-critical flow still uses legacy “order” language or deprecated `order_*` contracts where it should now be `transaction_*`, while preserving intentional fulfillment-order naming for true operational order paths.
 - [ ] **Opening Balance Audit:** Confirm migrated customer deposits and store credits match Counterpoint exactly.
 - [ ] **Tax Rate Verification:** Final audit of NYS/NYC clothing tax rules vs Riverside logic.
 - [ ] **Hardware Stress Test:** Validate thermal printing from multiple registers simultaneously.

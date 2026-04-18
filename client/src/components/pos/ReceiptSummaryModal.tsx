@@ -33,15 +33,18 @@ type OrderCustomer = {
 };
 
 type OrderLineRow = {
-  order_item_id: string;
+  transaction_line_id: string;
   product_name: string;
   sku: string;
   quantity: number;
+  is_fulfilled?: boolean;
+  is_internal?: boolean;
 };
 
 type OrderDetail = {
   transaction_id?: string;
   transaction_display_id?: string;
+  status?: string;
   amount_paid?: string;
   payment_methods_summary?: string;
   customer?: OrderCustomer | null;
@@ -76,7 +79,7 @@ export default function ReceiptSummaryModal({
   const [giftLinePick, setGiftLinePick] = useState<Record<string, boolean>>({});
 
   const buildReceiptQuery = useCallback(
-    (extra?: { gift?: boolean; orderItemIds?: string[] }) => {
+    (extra?: { gift?: boolean; transactionLineIds?: string[] }) => {
       const sp = new URLSearchParams();
       if (registerSessionId) {
         sp.set("register_session_id", registerSessionId);
@@ -84,8 +87,8 @@ export default function ReceiptSummaryModal({
       if (extra?.gift) {
         sp.set("gift", "1");
       }
-      if (extra?.orderItemIds?.length) {
-        sp.set("order_item_ids", extra.orderItemIds.join(","));
+      if (extra?.transactionLineIds?.length) {
+        sp.set("transaction_line_ids", extra.transactionLineIds.join(","));
       }
       const s = sp.toString();
       return s ? `?${s}` : "";
@@ -102,8 +105,8 @@ export default function ReceiptSummaryModal({
     setGiftLinePick((prev) => {
       const next = { ...prev };
       for (const it of rows) {
-        if (next[it.order_item_id] === undefined) {
-          next[it.order_item_id] = true;
+        if (next[it.transaction_line_id] === undefined) {
+          next[it.transaction_line_id] = true;
         }
       }
       return next;
@@ -148,7 +151,12 @@ export default function ReceiptSummaryModal({
       !!transactionDetail.customer &&
       transactionDetail.store_review_invites_enabled === true &&
       !transactionDetail.review_invite_sent_at &&
-      !transactionDetail.review_invite_suppressed_at;
+      !transactionDetail.review_invite_suppressed_at &&
+      transactionDetail.status === "fulfilled" &&
+      (transactionDetail.items ?? []).length > 0 &&
+      (transactionDetail.items ?? [])
+        .filter((it) => !it.is_internal)
+        .every((it) => it.is_fulfilled === true);
     if (eligible) {
       setSkipReviewInvite(transactionDetail.store_send_review_invite_by_default === false);
     } else {
@@ -162,7 +170,12 @@ export default function ReceiptSummaryModal({
       !!transactionDetail.customer &&
       transactionDetail.store_review_invites_enabled === true &&
       !transactionDetail.review_invite_sent_at &&
-      !transactionDetail.review_invite_suppressed_at;
+      !transactionDetail.review_invite_suppressed_at &&
+      transactionDetail.status === "fulfilled" &&
+      (transactionDetail.items ?? []).length > 0 &&
+      (transactionDetail.items ?? [])
+        .filter((it) => !it.is_internal)
+        .every((it) => it.is_fulfilled === true);
     if (!eligible) return;
     setReviewInviteSaving(true);
     try {
@@ -200,10 +213,10 @@ export default function ReceiptSummaryModal({
   }, [submitReviewInviteIfNeeded, onClose]);
 
   const handlePrint = useCallback(
-    async (opts?: { gift?: boolean; orderItemIds?: string[] }) => {
+    async (opts?: { gift?: boolean; transactionLineIds?: string[] }) => {
       if (!transactionId) return;
       if (opts?.gift) {
-        const ids = opts.orderItemIds;
+        const ids = opts.transactionLineIds;
         if (ids !== undefined && ids.length === 0) {
           toast("Select at least one line for the gift receipt.", "error");
           return;
@@ -213,8 +226,8 @@ export default function ReceiptSummaryModal({
       setError(null);
       try {
         const q = buildReceiptQuery(
-          opts?.gift || opts?.orderItemIds?.length
-            ? { gift: opts?.gift, orderItemIds: opts?.orderItemIds }
+          opts?.gift || opts?.transactionLineIds?.length
+            ? { gift: opts?.gift, transactionLineIds: opts?.transactionLineIds }
             : undefined,
         );
 
@@ -244,8 +257,8 @@ export default function ReceiptSummaryModal({
           if (typeof j.escpos_base64 !== "string" || !j.escpos_base64) {
             throw new Error("Missing ESC/POS payload from server");
           }
-          const printerIp = localStorage.getItem("ros.pos.receiptPrinterIp") || "127.0.0.1";
-          const printerPort = parseInt(localStorage.getItem("ros.pos.receiptPrinterPort") || "9100", 10);
+          const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
+          const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100", 10);
           await printRawEscPosBase64(j.escpos_base64, printerIp, printerPort);
           return;
         }
@@ -282,8 +295,8 @@ export default function ReceiptSummaryModal({
         if (!res.ok) throw new Error("Receipt generation failed");
         const zpl = await res.text();
 
-        const printerIp = localStorage.getItem("ros.pos.receiptPrinterIp") || "127.0.0.1";
-        const printerPort = parseInt(localStorage.getItem("ros.pos.receiptPrinterPort") || "9100");
+        const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
+        const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100");
 
         if (!isTauri()) {
           throw new Error("Physical printing requires the Riverside OS Desktop App.");
@@ -301,15 +314,15 @@ export default function ReceiptSummaryModal({
   );
 
   useEffect(() => {
-    if (transactionDetail && localStorage.getItem("ros.pos.autoPrintReceipts") === "true") {
+    if (transactionDetail && localStorage.getItem("ros.hardware.printer.receipt.autoPrint") === "true") {
       void handlePrint();
     }
   }, [transactionDetail, handlePrint]);
 
   const getGiftLineIds = (): string[] =>
     (transactionDetail?.items ?? [])
-      .filter((it) => giftLinePick[it.order_item_id])
-      .map((it) => it.order_item_id);
+      .filter((it) => giftLinePick[it.transaction_line_id])
+      .map((it) => it.transaction_line_id);
 
   const saveCustomerContact = async () => {
     const cid = transactionDetail?.customer?.id;
@@ -376,14 +389,14 @@ export default function ReceiptSummaryModal({
       const baseBody: {
         to_email?: string;
         gift?: boolean;
-        order_item_ids?: string[];
+        transaction_line_ids?: string[];
       } = typed ? { to_email: typed } : {};
       if (gift) {
         baseBody.gift = true;
         const rows = transactionDetail?.items ?? [];
         const picked = getGiftLineIds();
         if (rows.length > 0 && picked.length > 0 && picked.length < rows.length) {
-          baseBody.order_item_ids = picked;
+          baseBody.transaction_line_ids = picked;
         }
       }
       const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt/send-email${q}`, {
@@ -436,7 +449,7 @@ export default function ReceiptSummaryModal({
           ? picked
           : undefined;
       const htmlQ = buildReceiptQuery(
-        gift ? { gift: true, orderItemIds: giftItemParam } : undefined,
+        gift ? { gift: true, transactionLineIds: giftItemParam } : undefined,
       );
 
       let pngBase64: string | undefined;
@@ -462,14 +475,14 @@ export default function ReceiptSummaryModal({
         to_phone?: string;
         png_base64?: string;
         gift?: boolean;
-        order_item_ids?: string[];
+        transaction_line_ids?: string[];
       } = {};
       if (typed) payload.to_phone = typed;
       if (pngBase64) payload.png_base64 = pngBase64;
       if (gift) {
         payload.gift = true;
         if (rows.length > 0 && picked.length > 0 && picked.length < rows.length) {
-          payload.order_item_ids = picked;
+          payload.transaction_line_ids = picked;
         }
       }
 
@@ -512,6 +525,14 @@ export default function ReceiptSummaryModal({
   const cust = transactionDetail?.customer;
   const itemRows = transactionDetail?.items ?? [];
   const giftPickEmpty = itemRows.length > 0 && getGiftLineIds().length === 0;
+  const reviewInviteEligible =
+    !!transactionDetail?.customer &&
+    transactionDetail.store_review_invites_enabled === true &&
+    !transactionDetail.review_invite_sent_at &&
+    !transactionDetail.review_invite_suppressed_at &&
+    transactionDetail.status === "fulfilled" &&
+    itemRows.length > 0 &&
+    itemRows.filter((it) => !it.is_internal).every((it) => it.is_fulfilled === true);
 
   const runGiftPrint = () => {
     if (giftPickEmpty) {
@@ -524,7 +545,7 @@ export default function ReceiptSummaryModal({
     const ids = getGiftLineIds();
     void handlePrint({
       gift: true,
-      orderItemIds: ids.length > 0 && ids.length < itemRows.length ? ids : undefined,
+      transactionLineIds: ids.length > 0 && ids.length < itemRows.length ? ids : undefined,
     });
   };
 
@@ -539,8 +560,8 @@ export default function ReceiptSummaryModal({
       }}
     >
       {/* 24" 1080p: lg/xl widen dialog; iPad Pro 11: md+ = two columns, 44px+ taps, dvh height */}
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:rounded-[2.5rem] lg:max-w-3xl xl:max-w-[42rem]">
-        <div className="relative flex max-h-[min(92dvh,40rem)] flex-col gap-4 overflow-hidden p-5 text-app-text sm:gap-5 sm:p-7 lg:max-h-[min(88vh,44rem)] lg:gap-6 lg:p-8">
+      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:rounded-[2.5rem] lg:max-w-5xl xl:max-w-[72rem]">
+        <div className="relative flex max-h-[min(90dvh,42rem)] flex-col gap-4 overflow-hidden p-5 text-app-text sm:gap-4 sm:p-6 lg:max-h-[min(88vh,43rem)] lg:gap-5 lg:p-7">
           <button
             type="button"
             onClick={() => void closeWithReviewChoice()}
@@ -625,8 +646,9 @@ export default function ReceiptSummaryModal({
             </button>
           </div>
 
+          <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] xl:gap-4">
           {itemRows.length > 0 ? (
-            <div className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:px-5 sm:py-4">
+            <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:px-5 sm:py-4">
               <div className="mb-2 flex items-center gap-2">
                 <Gift className="h-4 w-4 text-violet-600 dark:text-violet-400" strokeWidth={2} />
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
@@ -639,15 +661,15 @@ export default function ReceiptSummaryModal({
               </p>
               <ul className="mb-1 max-h-28 space-y-1.5 overflow-y-auto pr-1 text-left">
                 {itemRows.map((it) => (
-                  <li key={it.order_item_id}>
+                  <li key={it.transaction_line_id}>
                     <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-app-border bg-app-surface px-2 py-1.5 touch-manipulation">
                       <input
                         type="checkbox"
-                        checked={giftLinePick[it.order_item_id] !== false}
+                        checked={giftLinePick[it.transaction_line_id] !== false}
                         onChange={(e) =>
                           setGiftLinePick((p) => ({
                             ...p,
-                            [it.order_item_id]: e.target.checked,
+                            [it.transaction_line_id]: e.target.checked,
                           }))
                         }
                         className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
@@ -664,22 +686,22 @@ export default function ReceiptSummaryModal({
               </ul>
             </div>
           ) : transactionDetail ? (
-            <p className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
+            <p className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
               Line items are not listed for this transaction here. Gift and full receipts still include all
               lines from the server when you print.
             </p>
           ) : (
-            <p className="shrink-0 rounded-2xl border border-dashed border-app-border bg-app-surface-2 px-3 py-2 text-center text-[10px] font-semibold text-app-text-muted">
+            <p className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 px-3 py-2 text-center text-[10px] font-semibold text-app-text-muted">
               Loading transaction…
             </p>
           )}
 
           {cust ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-hidden">
+            <div className="flex flex-col gap-3">
               <p className="shrink-0 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Customer · {cust.first_name} {cust.last_name}
               </p>
-              <div className="grid min-h-0 shrink grid-cols-1 gap-3 md:grid-cols-2 md:gap-4 lg:gap-5">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-3 lg:gap-4">
                 <div className="flex min-h-0 flex-col rounded-xl border border-app-border bg-app-surface-2 p-3 sm:p-4">
                   <label className="block shrink-0">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-app-text-muted md:text-[10px]">
@@ -760,19 +782,16 @@ export default function ReceiptSummaryModal({
                 Email sends inline HTML from Receipt Builder (not an attachment). SMS uses a receipt
                 image when MMS is supported; otherwise plain summary. Requires Podium in Integrations.
               </p>
-              {transactionDetail?.store_review_invites_enabled === true &&
-              transactionDetail.customer &&
-              !transactionDetail.review_invite_sent_at &&
-              !transactionDetail.review_invite_suppressed_at ? (
+              {reviewInviteEligible ? (
                 <label className="flex shrink-0 cursor-pointer items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 touch-manipulation">
                   <input
                     type="checkbox"
-                    checked={skipReviewInvite}
-                    onChange={(e) => setSkipReviewInvite(e.target.checked)}
+                    checked={!skipReviewInvite}
+                    onChange={(e) => setSkipReviewInvite(!e.target.checked)}
                     className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
                   />
                   <span className="text-left text-[10px] font-semibold leading-snug text-app-text">
-                    Do not send a post-sale review invite for this customer (stored with the transaction).
+                    Send post-sale review invite for this fully fulfilled sale. This is on by default, and staff can turn it off for this transaction.
                   </span>
                 </label>
               ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
@@ -782,11 +801,12 @@ export default function ReceiptSummaryModal({
               ) : null}
             </div>
           ) : (
-            <p className="shrink-0 rounded-xl border border-amber-500/35 bg-[color-mix(in_srgb,var(--app-warning)_12%,var(--app-surface-2))] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-app-text">
+            <p className="rounded-xl border border-amber-500/35 bg-[color-mix(in_srgb,var(--app-warning)_12%,var(--app-surface-2))] px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wide text-app-text">
               Walk-in — no customer on file. Attach a customer on the next sale to send a receipt by
               SMS or email.
             </p>
           )}
+          </div>
 
           <button
             type="button"

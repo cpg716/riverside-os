@@ -2,6 +2,34 @@ import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@tauri-apps/api/core";
 import { sessionPollAuthHeaders } from "./posRegisterAuth";
 
+export type PrintDocType = "receipt" | "tag" | "report";
+
+export interface HardwareAddress {
+  ip: string;
+  port: number;
+}
+
+/** Resolves the local station's configured address for a specific document type. */
+export function resolvePrinterAddress(type: PrintDocType): HardwareAddress {
+  if (type === "receipt") {
+    return {
+      ip: window.localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1",
+      port: parseInt(window.localStorage.getItem("ros.hardware.printer.receipt.port") || "9100", 10)
+    };
+  }
+  if (type === "tag") {
+    return {
+      ip: window.localStorage.getItem("ros.hardware.printer.tag.ip") || "127.0.0.1",
+      port: 9100 // Tag printers usually use standard ZPL port
+    };
+  }
+  // Default to report / system
+  return {
+    ip: window.localStorage.getItem("ros.hardware.printer.report.ip") || "",
+    port: 9100
+  };
+}
+
 /**
  * Thermal print bridge: Tauri uses native TCP; browser/PWA tries server `/api/hardware/print`,
  * then `window.open` fallback. PWA note: popup blockers may block the blank window unless the
@@ -122,5 +150,22 @@ function fallbackBrowserPrint(payload: string) {
     // setTimeout(() => w.print(), 200);
   } else {
     throw new Error("Popup blocker blocked fallback receipt");
+  }
+}
+
+/** 
+ * Automatically routes a document to the correct station printer based on type.
+ * Ensures the right protocol (ZPL vs ESC/POS) is used for the destination.
+ */
+export async function autoRoutePrint(type: PrintDocType, payload: string, format: "zpl" | "escpos" = "zpl") {
+  const { ip, port } = resolvePrinterAddress(type);
+  if (!ip) {
+    throw new Error(`No printer IP configured for ${type} documents.`);
+  }
+
+  if (format === "zpl") {
+    return printZplReceipt(payload, ip, port);
+  } else {
+    return printEscPosReceipt(payload, ip, port);
   }
 }

@@ -162,7 +162,9 @@ Shared classes `ui-caution-text`, `ui-info-text`, `ui-positive-text` in `index.c
 - Renamed Top Bar Overrides: Staff Session -> **Staff Access**, Manager Override -> **Manager Access**.
 - Standardized on `DashboardStatsCard` (KPIs + Sparklines) and `DashboardGridCard` (Feed/Grid containers).
 - Integrated live sales-pivot data for operational sparklines.
-- **Customer Relationship Hub (COMPLETE):** Refactored the drawer into a tabbed interface (Transactions vs. Fulfillments) with SaaS-style density and integrated financial KPIs.
+- **Customer Relationship Hub (COMPLETE):** Refactored the drawer into a tabbed interface (Transactions vs. Fulfillments) with SaaS-style density and integrated financial KPIs. Mirrored the full hub into the POS rail.
+- **Shipping Hub (COMPLETE):** Integrated Shippo rate quoting and shipment tracking into a unified hub mirrored between Back Office and POS.
+- **Orders Hub (COMPLETE):** Full-width Order Management Hub mirrored into the POS rail for streamlined inventory and sale tracking.
 - **Register Workspace Modernization (COMPLETE):** Hardened the "Fixed Rail" layout with a bottom-anchored Pay button. Implemented native root scrolling and percentage-based discount logic on the on-screen keypad. Integrated **Pennyless (Swedish Rounding)** for cash accuracy and expanded keypad touch-targets (`h-16`) for reliable terminal interaction.
 
 ### Next Steps (IN PLANNING)

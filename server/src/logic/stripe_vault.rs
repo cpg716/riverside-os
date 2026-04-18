@@ -34,13 +34,16 @@ pub async fn list_vaulted_methods(
     customer_id: Uuid,
 ) -> Result<Vec<VaultedPaymentMethod>, StripeVaultError> {
     // 1. Get stripe_customer_id
-    let stripe_cust_id: String = sqlx::query_scalar::<_, Option<String>>(
+    let stripe_cust_id: Option<String> = sqlx::query_scalar::<_, Option<String>>(
         "SELECT stripe_customer_id FROM customers WHERE id = $1",
     )
     .bind(customer_id)
     .fetch_one(pool)
-    .await?
-    .ok_or_else(|| StripeVaultError::NotFound("Customer has no Stripe ID".to_string()))?;
+    .await?;
+
+    let Some(stripe_cust_id) = stripe_cust_id.filter(|id| !id.trim().is_empty()) else {
+        return Ok(Vec::new());
+    };
 
     // 2. Fetch from Stripe
     let mut list_params = ListPaymentMethods::new();

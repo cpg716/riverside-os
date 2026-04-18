@@ -14,6 +14,19 @@ The main shell component is a critical part of the application that manages UI s
 - **Access Status**: Use **Staff Access** (standard identity) and **Manager Access** (privileged override status).
 - **Identity**: Use **Access PIN** for the 4-digit credential. Internal **Employee Tracking IDs** are auto-assigned and not used for login.
 
+### Branding & Identity (v0.2.1+)
+
+- **Primary Brand Anchor**: The Riverside Logo Icon (`logo1.png`) is the universal anchor for navigation and secure entry points (Register PIN entry).
+- **Full Identity**: The full logo-with-name (`riverside_logo.jpg`) is reserved for primary unauthenticated entry points like the `BackofficeSignInGate`.
+- **Top Bar Branding**: Do not render the logo in the `GlobalTopBar`. The sidebar rail is the sole authority for visual identity.
+- **Unified Staff Profile**: Every workstation mode (BO, POS) utilizes the same `StaffProfilePanel` for account management.
+  - **Context-Aware Permissions**: Sensitivity-aware fields (Role, Economics, Permissions) are view-only in POS mode but fully editable in Back Office.
+  - **CRM Linkage**: Staff are encouraged to link their personal customer account to their profile for automatic discount application and transaction history.
+- **Staff Identity Prioritization**: The UI MUST always prioritize the **Authenticated Staff Member** (`staffDisplayName`) over the register session owner (`cashierName`). The persona shown in the Top Bar and sidebar MUST reflect the person who explicitly signed in at the gate.
+- **POS Settings Restriction**: In POS mode, the navigation menu specifically restricts access to 'Staff Profile' and 'Printers & Scanners'. All other administrative settings are hidden to prevent unauthorized station configuration.
+- **Unified Auth Guard**: The `BackofficeSignInGate` is the authoritative root guard for the POS, Back Office, and Insights shells. "Logout" or "Change Staff Member" globally clears the persona and returns the workstation to the sign-in entry point.
+
+
 Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
 
 Priorities, in order:
@@ -50,6 +63,7 @@ Then read the domain doc most relevant to the task.
 - **Staff permissions / auth** — `docs/STAFF_PERMISSIONS.md`
 - **Customer Hub / RBAC** — `docs/CUSTOMER_HUB_AND_RBAC.md`
 - **Search / pagination / Meilisearch** — `docs/SEARCH_AND_PAGINATION.md`
+- **Hardware / Printers / Scanners** — `docs/HARDWARE_MANAGEMENT.md`
 - **Appointments / scheduler** — `docs/APPOINTMENTS_AND_CALENDAR.md`
 - **Notification center** — `docs/PLAN_NOTIFICATION_CENTER.md`
 - **Stripe vault / credits** — `docs/STRIPE_POWER_INTEGRATION.md`
@@ -69,8 +83,8 @@ If a change affects a staff-facing workflow, update the relevant staff docs in t
 
 Primary codepaths:
 
-- POS
-- Inventory
+- POS (incl. full parity for Customers, Shipping, Orders, Loyalty, Gift Cards, Alterations, and Layaways)
+- Inventory (incl. POS-optimized Receiving)
 - Weddings / parties
 - Customers / CRM
 - Register sessions
@@ -301,7 +315,7 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | Inventory / control board / importer         | `client/src/components/inventory/`, related server inventory routes                                                                                                |
 | Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI                                                                            |
 | Staff tasks / scheduling                     | `server/src/api/tasks.rs`, `server/src/logic/tasks.rs`, `server/src/logic/staff_schedule.rs`, `client/src/components/tasks/`                                       |
-| Settings / integrations                      | `server/src/api/settings.rs`, related settings panels                                                                                                              |
+| Settings / Hardware / Scanners               | `server/src/api/settings.rs`, `PrintersAndScannersPanel.tsx`, `SettingsWorkspace.tsx`                                                                                                               |
 | Weather / Visual Crossing                    | `server/src/logic/weather.rs`, `server/src/api/weather.rs`, settings UI                                                                                            |
 | Podium SMS / inbox / reviews                 | `server/src/logic/podium*.rs`, `messaging.rs`, `api/webhooks.rs`, customer podium routes, Settings + Inbox UI                                                      |
 | Meilisearch                                  | `server/src/logic/meilisearch_*.rs`, `api/help.rs`, settings reindex UI                                                                                            |
@@ -436,6 +450,21 @@ for new fetch calls unless a project-specific helper already exists.
 
 ---
 
+## Workspace Mirroring & Component Reuse
+
+To ensure institutional consistency and minimize code duplication, major tactical hubs are mirrored between the Back Office (BO) and POS shells. The following sections utilize the same foundation components across both surfaces:
+
+- **Customers Hub**: Full CRM capabilities, joint accounts, and relationship tracking.
+- **Shipping Hub**: Full Shippo integration, rate quoting, and shipment tracking.
+- **Orders Hub**: Full order management, historical sales, and fulfillment tracking.
+- **Loyalty & Gift Cards**: Balance management and transaction history.
+- **Alterations**: Work queue and fitting hub.
+- **Layaways**: Installment tracking and fulfillment.
+
+When modifying these components, verify behavior in both **Operations** (BO) and **Register** (POS) modes.
+
+---
+
 ## UX alignment notes
 
 ### Global shell
@@ -461,6 +490,12 @@ The main shell component is the central hub of the application, responsible for 
 3. **Deep Link Handling**:
    - Access via URL: Use deep links to directly access specific features like alterations, procurement, inventory product hub, QBO sync logs, etc.
    - Example: `https://app.example.com/alterations` will take you directly to the alterations section.
+
+4. **Settings Navigation & Unified Workspace (v0.2.1+)**:
+   - The **Settings** module uses a unified `SettingsWorkspace` across both Back Office and POS shells.
+   - **Profile-First Default**: All settings entry points MUST default to the **Staff Profile** section.
+   - **Sidebar Authority**: The global sidebar (or POS rail) is the sole authority for sub-section selection. Internal tab-switching within the workspace is deprecated.
+   - **Terminal Overrides**: POS-specific hardware settings are integrated as the **Terminal Overrides** sub-section within the unified workspace.
 
 ### POS design invariants
 
@@ -498,7 +533,12 @@ The main shell component is the central hub of the application, responsible for 
 
 - Back Office sidebar item **POS** is the launchpad into `PosShell`
 - Subsection **Register** opens the POS launchpad
-- Inside POS mode, the rail tab **Register** is the selling surface (`Cart.tsx`)
+- Inside POS mode, the rail provides direct access to mirrored hubs:
+  - **Register**: The selling surface (`Cart.tsx`)
+  - **Customers**: Full mirrored BO Customers workspace
+  - **Shipping**: Full mirrored BO Shipments hub
+  - **Inventory**: POS-optimized product list and receiving
+  - **Alterations / Weddings / Loyalty / Gift Cards / Layaways**: Standardized mirrored workspaces
 - Do not relabel the whole shell “Register”
 
 ### POS design invariants
