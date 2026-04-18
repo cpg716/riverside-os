@@ -44,7 +44,30 @@ jobs:
       - name: Build signed updater bundle
         shell: pwsh
         run: |
-          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value '{"bundle":{"createUpdaterArtifacts":true}}' -NoNewline
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_ENDPOINT)) {
+            throw "RIVERSIDE_UPDATER_ENDPOINT is required"
+          }
+          if ([string]::IsNullOrWhiteSpace($env:RIVERSIDE_UPDATER_PUBLIC_KEY)) {
+            throw "RIVERSIDE_UPDATER_PUBLIC_KEY is required"
+          }
+
+          $updaterConfig = @{
+            bundle = @{
+              createUpdaterArtifacts = $true
+            }
+            plugins = @{
+              updater = @{
+                active = $true
+                endpoints = @($env:RIVERSIDE_UPDATER_ENDPOINT)
+                pubkey = $env:RIVERSIDE_UPDATER_PUBLIC_KEY
+                windows = @{
+                  installMode = "passive"
+                }
+              }
+            }
+          } | ConvertTo-Json -Depth 8
+
+          Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value $updaterConfig -NoNewline
           npx tauri build --config src-tauri/tauri.updater.conf.json
 
       - name: Build updater manifest bundle
