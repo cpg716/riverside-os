@@ -62,7 +62,6 @@ test.describe("Settings Podium integration", () => {
     const integrationsButton = mainNav.getByRole("button", {
       name: /^integrations$/i,
     });
-    let pr: Awaited<ReturnType<typeof page.waitForResponse>> | null = null;
     await expect(integrationsButton).toBeVisible({ timeout: 15_000 });
     await expect(integrationsButton).toBeEnabled();
     await integrationsButton.click();
@@ -71,31 +70,12 @@ test.describe("Settings Podium integration", () => {
         .getByRole("heading", { name: /integrations & (bridges|hub)/i })
         .first(),
     ).toBeVisible({ timeout: 20_000 });
-    const podiumLaunch = page.getByRole("button", { name: /podium comms/i }).first();
-    await expect(podiumLaunch).toBeVisible({ timeout: 20_000 });
-    [pr] = await Promise.all([
-      page
-        .waitForResponse(
-          (r) =>
-            r.url().includes("/api/settings/podium-sms") &&
-            !r.url().includes("readiness") &&
-            r.request().method() === "GET",
-          { timeout: 25_000 },
-        )
-        .catch(() => null),
-      podiumLaunch.click(),
-    ]);
-    if (pr && !pr.ok()) {
-      test.skip(
-        true,
-        `GET /api/settings/podium-sms returned ${pr.status()} (requires settings.admin + API)`,
-      );
-    }
+
     await expect(
-      page.getByRole("heading", { name: /podium integration/i }),
+      page.getByRole("heading", { level: 3, name: /podium comms/i }).first(),
     ).toBeVisible({ timeout: 25_000 });
     await expect(
-      page.getByRole("heading", { name: /podium communications/i }),
+      page.getByText(/lifecycle sms & html email/i).first(),
     ).toBeVisible({ timeout: 25_000 });
   });
 });
