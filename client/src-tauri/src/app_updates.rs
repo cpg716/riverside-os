@@ -59,7 +59,9 @@ pub async fn check_app_update(app: AppHandle) -> Result<UpdateCheckResult, Strin
 
     let update = app
         .updater_builder()
-        .endpoints(vec![endpoint.parse().map_err(|e| format!("Invalid updater endpoint: {e}"))?])
+        .endpoints(vec![endpoint
+            .parse()
+            .map_err(|e| format!("Invalid updater endpoint: {e}"))?])
         .map_err(|e| format!("Failed to configure updater endpoint: {e}"))?
         .pubkey(pubkey)
         .build()
@@ -105,7 +107,9 @@ pub async fn install_app_update(app: AppHandle) -> Result<InstallUpdateResult, S
 
     let update = app
         .updater_builder()
-        .endpoints(vec![endpoint.parse().map_err(|e| format!("Invalid updater endpoint: {e}"))?])
+        .endpoints(vec![endpoint
+            .parse()
+            .map_err(|e| format!("Invalid updater endpoint: {e}"))?])
         .map_err(|e| format!("Failed to configure updater endpoint: {e}"))?
         .pubkey(pubkey)
         .build()
@@ -125,10 +129,7 @@ pub async fn install_app_update(app: AppHandle) -> Result<InstallUpdateResult, S
 
     let target_version = update.version.clone();
     update
-        .download_and_install(
-            |_chunk_length, _content_length| {},
-            || {},
-        )
+        .download_and_install(|_chunk_length, _content_length| {}, || {})
         .await
         .map_err(|e| format!("Failed to download/install update: {e}"))?;
 
