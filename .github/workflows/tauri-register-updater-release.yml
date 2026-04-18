@@ -90,6 +90,7 @@ jobs:
           $tag = "v$version"
           $pubDate = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
           $artifactName = [System.IO.Path]::GetFileName($artifactPath)
+          $releaseAssetName = $artifactName -replace ' ', '.'
           $signature = (Get-Content $sig.FullName -Raw).Trim()
           $notes = if ([string]::IsNullOrWhiteSpace($env:RELEASE_NOTES)) { "Riverside POS update" } else { $env:RELEASE_NOTES }
 
@@ -100,13 +101,13 @@ jobs:
             platforms = @{
               "windows-x86_64" = @{
                 signature = $signature
-                url = "$($env:RIVERSIDE_UPDATER_BASE_URL.TrimEnd('/'))/$artifactName"
+                url = "$($env:RIVERSIDE_UPDATER_BASE_URL.TrimEnd('/'))/$releaseAssetName"
               }
             }
           } | ConvertTo-Json -Depth 6
 
           New-Item -ItemType Directory -Force -Path updater-dist | Out-Null
-          Copy-Item -Path $artifactPath -Destination "updater-dist/$artifactName" -Force
+          Copy-Item -Path $artifactPath -Destination "updater-dist/$releaseAssetName" -Force
           Copy-Item -Path $sig.FullName -Destination "updater-dist/$($sig.Name)" -Force
           Set-Content -Path "updater-dist/latest.json" -Value $manifest -NoNewline
           "tag=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
