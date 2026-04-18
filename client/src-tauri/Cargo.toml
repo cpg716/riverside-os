@@ -1,6 +1,6 @@
 [package]
 name = "riverside-pos-tauri"
-version = "0.2.0"
+version = "0.2.1"
 description = "Riverside POS (Tauri shell)"
 authors = ["Riverside OS"]
 edition = "2021"
