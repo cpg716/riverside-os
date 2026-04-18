@@ -25,22 +25,12 @@ async function openSettingsHelpCenterManager(
   await expect(settingsBtn).toBeEnabled();
   await settingsBtn.click();
 
-  const systemControlHeading = page.getByRole("heading", {
-    level: 1,
-    name: /system control/i,
+  const helpCenterButton = mainNav.getByRole("button", {
+    name: /^help center$/i,
   });
-  await expect(systemControlHeading).toBeVisible({ timeout: 20_000 });
-
-  const settingsAside = page.locator("aside").filter({
-    has: page.getByRole("heading", { level: 1, name: /system control/i }),
-  });
-
-  const helpCenterManagerButton = settingsAside.getByRole("button", {
-    name: /help center manager/i,
-  });
-  await expect(helpCenterManagerButton).toBeVisible({ timeout: 15_000 });
-  await expect(helpCenterManagerButton).toBeEnabled();
-  await helpCenterManagerButton.click();
+  await expect(helpCenterButton).toBeVisible({ timeout: 15_000 });
+  await expect(helpCenterButton).toBeEnabled();
+  await helpCenterButton.click();
 
   await expect(
     page.getByRole("heading", { name: /help center manager/i }),

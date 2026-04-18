@@ -51,41 +51,21 @@ test.describe("Settings Podium integration", () => {
     test.setTimeout(90_000);
     await signInToBackOffice(page);
     const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
-    const systemControlHeading = page.getByRole("heading", {
-      level: 1,
-      name: /system control/i,
+    await expect(mainNav).toBeVisible({ timeout: 20_000 });
+    const settingsButton = mainNav.getByRole("button", {
+      name: /^settings(\s+bo)?$/i,
     });
-    const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb" });
-    await expect
-      .poll(
-        async () => {
-          const settingsButton = mainNav.getByRole("button", {
-            name: /^settings(\s+bo)?$/i,
-          });
-          if (!(await settingsButton.isVisible().catch(() => false))) return false;
-          if (!(await settingsButton.isEnabled().catch(() => false))) return false;
-          await settingsButton.click();
-          const asideOk = await systemControlHeading
-            .isVisible()
-            .catch(() => false);
-          const crumbOk = await breadcrumb
-            .getByText(/settings/i)
-            .first()
-            .isVisible()
-            .catch(() => false);
-          return asideOk && crumbOk;
-        },
-        { timeout: 45_000 },
-      )
-      .toBeTruthy();
-    const integrationsButton = page.getByRole("button", {
+    await expect(settingsButton).toBeVisible({ timeout: 15_000 });
+    await expect(settingsButton).toBeEnabled();
+    await settingsButton.click();
+
+    const integrationsButton = mainNav.getByRole("button", {
       name: /^integrations$/i,
     });
     let pr: Awaited<ReturnType<typeof page.waitForResponse>> | null = null;
-    if (await integrationsButton.isVisible().catch(() => false)) {
-      await expect(integrationsButton).toBeEnabled();
-      await integrationsButton.click();
-    }
+    await expect(integrationsButton).toBeVisible({ timeout: 15_000 });
+    await expect(integrationsButton).toBeEnabled();
+    await integrationsButton.click();
     await expect(
       page
         .getByRole("heading", { name: /integrations & (bridges|hub)/i })
