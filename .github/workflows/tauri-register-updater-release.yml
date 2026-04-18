@@ -45,7 +45,7 @@ jobs:
         shell: pwsh
         run: |
           Set-Content -Path "src-tauri/tauri.updater.conf.json" -Value '{"bundle":{"createUpdaterArtifacts":true}}' -NoNewline
-          npm run tauri:build -- --config src-tauri/tauri.updater.conf.json
+          npx tauri build --config src-tauri/tauri.updater.conf.json
 
       - name: Build updater manifest bundle
         id: updater_meta
