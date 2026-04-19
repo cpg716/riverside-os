@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useState, useEffect, useCallback } from "react";
 import {
   CreditCard,
@@ -36,7 +37,7 @@ interface MerchantActivity {
 
 const StripeSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MerchantActivity | null>(null);

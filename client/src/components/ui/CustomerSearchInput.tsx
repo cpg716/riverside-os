@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Loader2, User } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -27,7 +28,7 @@ export default function CustomerSearchInput({
 }: CustomerSearchInputProps) {
   const effectiveInitial = defaultValue ?? initialValue;
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   
   const [query, setQuery] = useState(effectiveInitial);
   const [results, setResults] = useState<Customer[]>([]);

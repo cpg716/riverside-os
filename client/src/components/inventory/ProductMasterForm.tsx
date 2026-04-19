@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import VariationsBuilder, {
   type GeneratedVariationRow,
@@ -43,7 +44,7 @@ export default function ProductMasterForm({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const [step, setStep] = useState<FormStep>("shell");
   const [categories, setCategories] = useState<Category[]>([]);

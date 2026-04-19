@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Search, Loader2, Users } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -35,7 +36,7 @@ export default function WeddingPartySearchInput({
   disabled,
 }: WeddingPartySearchInputProps) {
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<WeddingPartySearchResult[]>([]);

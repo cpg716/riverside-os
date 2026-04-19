@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import {
   useCallback,
   useEffect,
@@ -30,7 +31,7 @@ import type { ThemeMode } from "../../App";
 import type { SidebarTabId } from "./sidebarSections";
 
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 const GLOBAL_SEARCH_CUSTOMER_PAGE = 40;
 

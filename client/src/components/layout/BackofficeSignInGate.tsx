@@ -8,8 +8,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import RiversideLogo from "../../assets/images/riverside_logo.jpg";
-
-const DEFAULT_BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+import { DEFAULT_BASE_URL } from "../../lib/apiConfig";
 
 /**
  * Blocks the Back Office shell until a valid 4-digit staff credential is stored.

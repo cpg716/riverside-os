@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import {
   Fragment,
   useCallback,
@@ -295,7 +296,7 @@ export default function InventoryControlBoard({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const isPosSurface = surface === "pos";
   const [rows, setRows] = useState<BoardRow[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);

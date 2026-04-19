@@ -2,6 +2,9 @@ import React, { useState, useEffect } from 'react';
 import Icon from './Icon';
 
 import { formatDate } from '../lib/utils';
+import { getBaseUrl } from '../../../lib/apiConfig';
+
+const baseUrl = getBaseUrl();
 
 const ReportsTab = ({ isOpen }) => {
     const [data, setData] = useState(null);
@@ -17,7 +20,7 @@ const ReportsTab = ({ isOpen }) => {
     const fetchStats = async () => {
         setLoading(true);
         try {
-            const res = await fetch('http://localhost:3000/api/reports/stats');
+            const res = await fetch(`${baseUrl}/api/reports/stats`);
             if (!res.ok) throw new Error('Failed to fetch reports');
             const json = await res.json();
             setData(json);

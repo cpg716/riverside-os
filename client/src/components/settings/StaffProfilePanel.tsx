@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import { 
   User, 
@@ -55,7 +56,7 @@ export default function StaffProfilePanel() {
   const [phone, setPhone] = useState("");
   const [avatarKey, setAvatarKey] = useState("");
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const loadProfile = useCallback(async () => {
     setLoading(true);

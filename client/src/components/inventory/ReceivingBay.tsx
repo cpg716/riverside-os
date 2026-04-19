@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import {
   useCallback,
   useEffect,
@@ -28,7 +29,7 @@ import {
   sessionPollAuthHeaders,
 } from "../../lib/posRegisterAuth";
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const BASE_URL = getBaseUrl();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

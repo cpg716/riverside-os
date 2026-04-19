@@ -1,9 +1,10 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect } from "react";
 import { X, Plus, Trash2 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 const DNA = {
   heading: "text-[10px] font-black uppercase tracking-widest text-slate-500",

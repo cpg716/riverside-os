@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
@@ -18,7 +19,7 @@ import { staffAvatarUrl } from "../../lib/staffAvatars";
 import StaffEditDrawer, { type HubRow } from "./StaffEditDrawer";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 type StaffRole = "admin" | "salesperson" | "sales_support" | "staff_support" | "alterations";
 type StaffStatusFilter = "all" | "active" | "inactive";

@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import {
   RefreshCw,
@@ -25,7 +26,7 @@ interface NuorderSyncLog {
 export default function NuorderSettingsPanel() {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const [loading, setLoading] = useState(false);
   const [syncBusy, setSyncBusy] = useState<string | null>(null);

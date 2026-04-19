@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../lib/apiConfig";
 import {
   useCallback,
   useEffect,
@@ -20,7 +21,7 @@ import {
   type StaffRole,
 } from "./BackofficeAuthContextLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 const STATION_KEY_STORAGE = "ros_station_key";
 
 function getStableStationKey(): string {

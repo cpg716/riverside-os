@@ -1,10 +1,11 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useRef, useState } from "react";
 import { Gift, X, Plus, Award, User, ShoppingCart, CreditCard, Sparkles, TrendingDown, AlertTriangle } from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const BASE = getBaseUrl();
 
 import {
   type LoyaltyEligibleCustomer,

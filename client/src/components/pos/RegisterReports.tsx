@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -22,7 +23,7 @@ import ReceiptSummaryModal from "./ReceiptSummaryModal";
 import ProductHubDrawer from "../inventory/ProductHubDrawer";
 import { openProfessionalDailySalesPrint } from "./zReportPrint";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 type PresetId = "today" | "yesterday" | "this_week" | "this_month" | "this_year" | "custom";
 type ZPresetId = "recent" | "today" | "yesterday" | "this_week" | "this_month" | "custom";

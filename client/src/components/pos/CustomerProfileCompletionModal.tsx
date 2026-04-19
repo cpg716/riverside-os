@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
@@ -7,7 +8,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { CustomerProfile } from "./customerProfileTypes";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 interface Props {
   customerId: string;

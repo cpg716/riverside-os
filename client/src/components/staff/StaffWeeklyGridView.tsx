@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { 
   FileUp, 
@@ -11,7 +12,7 @@ import ExcelJS from "exceljs";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 interface EligibleStaff {
   id: string;

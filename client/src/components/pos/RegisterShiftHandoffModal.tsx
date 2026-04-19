@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
 import { UserRoundCog, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
@@ -7,7 +8,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 interface RegisterShiftHandoffModalProps {
   isOpen: boolean;

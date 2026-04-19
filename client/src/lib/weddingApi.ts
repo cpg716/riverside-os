@@ -1,4 +1,5 @@
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+import { getBaseUrl } from "./apiConfig";
+const baseUrl = getBaseUrl();
 
 /** Normalized appointment for scheduler / modals (camelCase). */
 export type WeddingAppointmentClient = {

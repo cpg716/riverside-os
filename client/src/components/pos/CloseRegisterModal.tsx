@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -141,7 +142,7 @@ export default function CloseRegisterModal({
   const [fullDrawerTotal, setFullDrawerTotal] = useState("");
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const onReconcilingBegunRef = useRef(onReconcilingBegun);
   onReconcilingBegunRef.current = onReconcilingBegun;
 

@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import html2canvas from "html2canvas";
@@ -14,7 +15,7 @@ import {
 } from "../../lib/clientDiagnostics";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 /** 1×1 transparent PNG — used when screenshot skipped or capture fails. */
 const PLACEHOLDER_PNG_B64 =

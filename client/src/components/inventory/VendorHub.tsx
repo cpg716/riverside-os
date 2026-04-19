@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { Building2, Clock3, Package, Plus, Search, Trash2, Wallet, ShieldCheck, Merge, TrendingUp } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
@@ -48,7 +49,7 @@ function formatMoney(v: string): string {
 export default function VendorHub() {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [vendorId, setVendorId] = useState("");
   const [hub, setHub] = useState<VendorHubDto | null>(null);

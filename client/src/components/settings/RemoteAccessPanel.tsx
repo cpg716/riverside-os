@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
@@ -37,7 +38,7 @@ export default function RemoteAccessPanel() {
   const [srvPort, setSrvPort] = useState(3000);
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const fetchStatus = useCallback(async () => {
     setLoading(true);

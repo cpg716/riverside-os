@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { 
   ArrowRight, 
@@ -27,7 +28,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import StaffSearchInput, { StaffSearchResult } from "../ui/StaffSearchInput";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 function parseBroadcastSender(
   deepLink: NotificationRow["deep_link"],

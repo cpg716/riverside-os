@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
@@ -58,7 +59,7 @@ export default function QBOMapping() {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const accountNameById = useMemo(
     () => new Map(accounts.map((a) => [a.id, a.name])),

@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import {
   QueryClient,
   QueryClientProvider,
@@ -21,7 +22,7 @@ import { Label } from "@/components/ui-shadcn/label";
 import { Separator } from "@/components/ui-shadcn/separator";
 import { Skeleton } from "@/components/ui-shadcn/skeleton";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const API_BASE = getBaseUrl();
 
 const storefrontQueryClient = new QueryClient({
   defaultOptions: {

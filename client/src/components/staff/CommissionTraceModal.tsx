@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect } from "react";
 import { Info, CheckCircle, ShieldCheck, X } from "lucide-react";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
@@ -30,7 +31,7 @@ export default function CommissionTraceModal({ lineId, onClose, authHeaders }: C
     useEffect(() => {
         const fetchTrace = async () => {
             try {
-                const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+                const baseUrl = getBaseUrl();
                 const res = await fetch(`${baseUrl}/api/insights/commission-trace/${lineId}`, {
                     headers: authHeaders(),
                 });

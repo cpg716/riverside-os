@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CreditCard, Gift, RefreshCw, X, TrendingUp, Wallet, BadgeDollarSign } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -6,7 +7,7 @@ import CustomerSearchInput from "../ui/CustomerSearchInput";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const BASE = getBaseUrl();
 
 interface GiftCardRow {
   id: string;

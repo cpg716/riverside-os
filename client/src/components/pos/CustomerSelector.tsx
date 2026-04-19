@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -81,7 +82,7 @@ export default function CustomerSelector({
     marketing_sms_opt_in: false,
   });
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   useEffect(() => {
     if (query.trim().length < 2) {

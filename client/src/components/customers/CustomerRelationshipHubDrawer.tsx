@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   CalendarDays,
@@ -29,7 +30,7 @@ import ShipmentsHubSection from "./ShipmentsHubSection";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 
-const defaultBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const defaultBase = getBaseUrl();
 
 export interface CustomerHubStats {
   lifetime_spend_usd: string;

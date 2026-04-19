@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
 import { 
   Package, 
@@ -51,7 +52,7 @@ export default function ProductIntelligenceDrawer({
   const [error, setError] = useState<string | null>(null);
   const [priceOverride, setPriceOverride] = useState("");
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   useEffect(() => {
     if (!variantId) {

@@ -2,14 +2,10 @@ import { useEffect, useState } from "react";
 import { LayoutDashboard } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useTopBar } from "../../context/TopBarContextLogic";
+import { getBaseUrl } from "../../lib/apiConfig";
 
-/** Same-origin `/api` when VITE_API_BASE is unset or empty (Vite proxy → Axum). */
 function rosApiOrigin(): string {
-  const raw = import.meta.env.VITE_API_BASE;
-  if (typeof raw === "string" && raw.trim()) {
-    return raw.trim().replace(/\/$/, "");
-  }
-  return "";
+  return getBaseUrl();
 }
 
 /** Path prefix for proxied Metabase (must match JWT `return_to` after SSO). */

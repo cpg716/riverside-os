@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useRef } from "react";
 
 /**
@@ -11,7 +12,7 @@ export default function StorefrontEmbedHost() {
     const enabled = import.meta.env.VITE_STOREFRONT_EMBEDS === "true";
     if (!enabled || done.current) return;
 
-    const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+    const baseUrl = getBaseUrl();
 
     void (async () => {
       try {

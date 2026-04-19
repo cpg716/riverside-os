@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { readPersistedBackofficeSession } from "../../lib/backofficeSessionPersistence";
 import {
@@ -7,7 +8,7 @@ import {
 } from "../../lib/podiumOAuth";
 import { useToast } from "../ui/ToastProviderLogic";
 
-const apiBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const apiBase = getBaseUrl();
 
 type ExchangeOk = { refresh_token: string; expires_in?: number | null };
 

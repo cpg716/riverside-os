@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ClipboardCheck,
@@ -14,7 +15,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import TaskChecklistDrawer from "../tasks/TaskChecklistDrawer";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 type MeJson = {
   open: {

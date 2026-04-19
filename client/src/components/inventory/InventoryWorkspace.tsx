@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState, useCallback } from "react";
 import { AlertCircle, Package, Building2, TrendingUp, Truck, ArrowUpRight } from "lucide-react";
 import CategoryManager from "./CategoryManager";
@@ -108,7 +109,7 @@ export default function InventoryWorkspace({
 }: InventoryWorkspaceProps) {
   const [section, setSection] = useState<InventorySection>("list");
   const { backofficeHeaders } = useBackofficeAuth();
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const [globalStats, setGlobalStats] = useState<BoardStats>({
     total_asset_value: "0.00",
     skus_out_of_stock: 0,

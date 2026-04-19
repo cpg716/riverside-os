@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowRight, BarChart3, ChevronLeft, Download, RefreshCw, Printer } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -9,9 +10,9 @@ import {
   type ReportDef,
   type ReportUrlContext,
 } from "../../lib/reportsCatalog";
-
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
 import { openProfessionalTablePrint } from "../pos/zReportPrint";
+
+const baseUrl = getBaseUrl();
 
 function ymd(d: Date): string {
   const y = d.getFullYear();

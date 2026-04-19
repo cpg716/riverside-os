@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState, type ChangeEvent } from "react";
 import {
   ArrowRight,
@@ -191,7 +192,7 @@ function parseCsv(text: string): {
 }
 
 export default function UniversalImporter() {
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const { backofficeHeaders } = useBackofficeAuth();
   const [step, setStep] = useState<Step>("mode");
   const [mode, setMode] = useState<ImportMode>(null);

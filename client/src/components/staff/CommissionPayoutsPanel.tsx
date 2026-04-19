@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { Receipt, Info, ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -9,7 +10,7 @@ import {
 } from "../../lib/money";
 import CommissionTraceModal from "./CommissionTraceModal";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 const COMMISSION_UNASSIGNED = "__unassigned__";
 
