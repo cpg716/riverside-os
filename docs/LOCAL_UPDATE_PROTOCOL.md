@@ -104,10 +104,10 @@ If any file fails, **stop** and restore from backup (section 8) or fix forward w
 
 ### 5.4 Deploy binary and static UI
 
-The server serves the SPA from **`FRONTEND_DIST`**, defaulting to **`../client/dist`** relative to the **process working directory** if unset (see `server/src/main.rs`). Your production layout must stay consistent.
+The server serves the SPA from **`FRONTEND_DIST`**. If unset, development falls back to **`../client/dist`** relative to the **process working directory**, but production service installs should treat that as unsafe. On hardened production hosts, set **`RIVERSIDE_STRICT_PRODUCTION=true`** and provide an explicit **`FRONTEND_DIST`** path so startup refuses a missing or wrong static bundle directory.
 
 1. Replace the **server executable** with the one from the release bundle.
-2. Replace the **contents** of the static UI directory (the folder pointed to by `FRONTEND_DIST`, or `client/dist` next to your chosen CWD):
+2. Replace the **contents** of the static UI directory (the folder pointed to by `FRONTEND_DIST`):
    - Prefer **atomic swap:** copy new files to `dist.new`, then rename/swap with `dist` to avoid half-written assets if a client requests mid-copy.
 
 ### 5.5 Environment variables
@@ -117,7 +117,10 @@ Merge any **new** keys from release notes into the server’s `.env` (or system 
 Pay attention to:
 
 - `DATABASE_URL`
-- `RIVERSIDE_CORS_ORIGINS` (production browser allowlist when applicable)
+- `RIVERSIDE_CORS_ORIGINS` (production browser allowlist)
+- `RIVERSIDE_STRICT_PRODUCTION=true` (recommended for browser-facing production hosts)
+- `RIVERSIDE_STORE_CUSTOMER_JWT_SECRET` (required when `/api/store/account/*` is exposed)
+- `FRONTEND_DIST` (explicit deployed static bundle path)
 - `RIVERSIDE_HTTP_BIND` / firewall alignment — [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 4
 - Optional caps and integrations (`RIVERSIDE_MAX_BODY_BYTES`, weather, backup S3, etc.)
 - ROS-AI help RAG: **`RIVERSIDE_REPO_ROOT`** (absolute path to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`**) if you use **`POST /api/ai/admin/reindex-docs`**; **`AI_EMBEDDINGS_ENABLED`** to disable ONNX embeddings on constrained hosts — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md)

@@ -19,7 +19,10 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ## Server environment and security
 
 - [ ] **Secrets** set on the server only (DB, Stripe if used, QBO if used, integration tokens). Nothing sensitive in client env except allowed **`VITE_*`** (see **`DEVELOPER.md`** env table).
-- [ ] **`RIVERSIDE_CORS_ORIGINS`** set to real browser origins when staff use HTTPS hostnames or multiple entry URLs (avoid accidental wide-open CORS in production).
+- [ ] **`RIVERSIDE_CORS_ORIGINS`** set to the exact production browser origins (HTTPS hostname, Tailscale hostname, etc.). Do not rely on permissive CORS for launch.
+- [ ] **`RIVERSIDE_STRICT_PRODUCTION=true`** on browser-facing production hosts so startup refuses missing CORS allowlists, missing storefront JWT secret, and missing static bundle paths.
+- [ ] **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** set to a long random value on any host exposing `/api/store/account/*`; no insecure dev fallback at launch.
+- [ ] **`FRONTEND_DIST`** explicitly points to the deployed static bundle on the production host; do not rely on `../client/dist` relative-CWD assumptions in service installs.
 - [ ] **`RIVERSIDE_HTTP_BIND`** aligned with your TLS/reverse-proxy plan (**`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`REMOTE_ACCESS_GUIDE.md`**).
 - [ ] **Staff auth:** No dev bypasses; PINs and RBAC match store policy (**`docs/STAFF_PERMISSIONS.md`**).
 - [ ] **Stripe PCI safeguards enforced:** ROS never stores raw PAN/CVC; Stripe Elements + SetupIntents only; only non-sensitive metadata persisted (brand/last4/expiry/intents).
@@ -40,7 +43,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 ## Clients (Tauri + PWA)
 
-- [ ] **`VITE_API_BASE`** correct **per build** (LAN hostname, Tailscale name, or HTTPS origin) — **`client/.env.register`**, **`client/.env.pwa`**, not `127.0.0.1` unless the API is truly local to that device.
+- [ ] **`VITE_API_BASE`** correct **per build** (LAN hostname, Tailscale name, HTTPS origin, or intentionally same-origin). Do not ship a browser/PWA build that accidentally falls back to `127.0.0.1`.
 - [ ] **Production artifacts:** Server serves **`client/dist`**; Register/Back Office PCs run **Tauri** build; iPad/phones use **PWA** build — **`docs/STORE_DEPLOYMENT_GUIDE.md`**, **`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`**.
 - [ ] **Register 1 (Tauri):** Thermal printer path validated (**TCP** target as deployed).
 - [ ] **Shared devices:** Train staff: log out / close register when unattended on PWA (**`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`**).

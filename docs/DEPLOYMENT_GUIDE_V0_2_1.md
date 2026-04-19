@@ -38,11 +38,19 @@ CREATE DATABASE riverside_os;
 
 ## 3. Configuration
 
+This guide is a lightweight overview only. For current production-safe environment posture, use **[`docs/STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md)** as the canonical reference.
+
 ### Hosting the Shop
 On your Main PC:
 1. Go to **Settings -> Network Bridge**.
 2. Start the **Unified Engine**.
 3. Verify that the status indicator turns **Green (Active)**.
+
+Production browser deployments still need explicit environment hardening on the host:
+- Set **`RIVERSIDE_CORS_ORIGINS`** to the exact browser origins in use.
+- Set **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** for any storefront account routes.
+- Set **`FRONTEND_DIST`** explicitly for standalone/service-style hosts.
+- Prefer **`RIVERSIDE_STRICT_PRODUCTION=true`** so startup rejects unsafe defaults.
 
 ### Register Setup
 On all other devices:

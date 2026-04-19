@@ -1,5 +1,6 @@
 import React from "react";
 import { warmUpPosAudio, playPosScanSuccess, type PosSoundProfile } from "../../lib/posAudio";
+import { getBaseUrl } from "../../lib/apiConfig";
 import { Volume2, Printer } from "lucide-react";
 
 
@@ -57,7 +58,7 @@ export default function RegisterSettings({
     if (!sessionId || !cashierCode) return;
     setBusy(true);
     try {
-      const baseUrl = import.meta.env.VITE_API_BASE ?? "";
+      const baseUrl = getBaseUrl();
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },

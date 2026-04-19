@@ -9,11 +9,11 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 ## A. Build targets and configuration
 
 - [x] **Three artifacts:** (1) server binary + `client/dist`, (2) PWA (same bundle served by Axum or CDN), (3) Tauri installer (`npm run tauri:build` in `client/`).
-- [x] **`VITE_API_BASE` per environment** — set at Vite build time; dev default remains `http://127.0.0.1:3000` when unset.
+- [x] **`VITE_API_BASE` per environment** — set at Vite build time when UI and API differ; when unset, browser/PWA builds use same-origin and desktop/non-HTTP shells fall back to `http://127.0.0.1:3000`.
 
 | Environment | Example `VITE_API_BASE` |
 |-------------|-------------------------|
-| Dev | *(omit)* → default `http://127.0.0.1:3000` |
+| Dev | *(omit)* → same-origin browser `/api/*` via Vite proxy; desktop/non-HTTP fallback `http://127.0.0.1:3000` |
 | LAN | `http://ros-server.local:3000` |
 | Tailscale / HTTPS | `https://your-host...` (see `REMOTE_ACCESS_GUIDE.md`) |
 
@@ -36,7 +36,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 ## C. Network, TLS, and remote access
 
 - [x] **HTTPS in production:** Follow `REMOTE_ACCESS_GUIDE.md` (Tailscale Serve, reverse proxy, or equivalent). Do not expose plain HTTP to the public internet for staff-facing PWA.
-- [x] **CORS:** `server/src/main.rs` — when **`RIVERSIDE_CORS_ORIGINS`** is unset, `allow_origin(Any)` (dev/Tauri). When set to a comma-separated origin list, the server uses that allowlist. Documented in **`DEVELOPER.md`** (environment variables).
+- [x] **CORS:** `server/src/main.rs` / `launcher.rs` — when **`RIVERSIDE_CORS_ORIGINS`** is unset, `allow_origin(Any)` (dev/Tauri). Production browser hosts should set **`RIVERSIDE_STRICT_PRODUCTION=true`** so startup refuses missing CORS allowlists, missing storefront JWT secret, and invalid `FRONTEND_DIST`.
 - [x] **Server bind:** Defaults to `0.0.0.0:3000`. Override with **`RIVERSIDE_HTTP_BIND`** (e.g. `127.0.0.1:3000` behind a local reverse proxy).
 
 ---

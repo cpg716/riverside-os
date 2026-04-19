@@ -31,6 +31,68 @@ pub struct LauncherConfig {
     pub max_body_bytes: Option<usize>,
 }
 
+fn resolve_store_customer_jwt_secret(
+    strict_production: bool,
+) -> Result<std::sync::Arc<[u8]>, Box<dyn std::error::Error>> {
+    match std::env::var("RIVERSIDE_STORE_CUSTOMER_JWT_SECRET") {
+        Ok(s) if !s.trim().is_empty() => {
+            let trimmed = s.trim();
+            if trimmed.len() < 32 {
+                tracing::warn!(
+                    length = trimmed.len(),
+                    "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET is set but shorter than 32 characters"
+                );
+            }
+            Ok(std::sync::Arc::from(
+                trimmed.as_bytes().to_vec().into_boxed_slice(),
+            ))
+        }
+        _ if strict_production => Err(
+            "Strict production requires RIVERSIDE_STORE_CUSTOMER_JWT_SECRET for storefront account JWT signing"
+                .into(),
+        ),
+        _ => {
+            tracing::warn!(
+                "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET not set; using insecure development default"
+            );
+            Ok(std::sync::Arc::from(
+                b"riverside-dev-store-customer-jwt-secret-change-me!!!!".as_slice(),
+            ))
+        }
+    }
+}
+
+fn resolve_frontend_dist(
+    frontend_dist: Option<PathBuf>,
+    strict_production: bool,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let configured = frontend_dist.unwrap_or_else(|| PathBuf::from("../client/dist"));
+    let resolved = if configured.is_absolute() {
+        configured
+    } else {
+        std::env::current_dir()?.join(configured)
+    };
+
+    if resolved.is_dir() {
+        tracing::info!(path = %resolved.display(), "Frontend dist directory resolved");
+        return Ok(resolved);
+    }
+
+    if strict_production {
+        return Err(format!(
+            "Strict production requires FRONTEND_DIST to point to an existing static bundle directory (resolved: {})",
+            resolved.display()
+        )
+        .into());
+    }
+
+    tracing::warn!(
+        path = %resolved.display(),
+        "Frontend dist directory does not exist; SPA/static asset requests will fail until the bundle is deployed"
+    );
+    Ok(resolved)
+}
+
 pub async fn launch_server(
     config: LauncherConfig,
     server_log_ring: ServerLogRing,
@@ -70,20 +132,7 @@ pub async fn launch_server(
             .and_then(|s| s.parse().ok())
             .unwrap_or(120);
 
-    let store_customer_jwt_secret: std::sync::Arc<[u8]> =
-        match std::env::var("RIVERSIDE_STORE_CUSTOMER_JWT_SECRET") {
-            Ok(s) if !s.trim().is_empty() => {
-                std::sync::Arc::from(s.trim().as_bytes().to_vec().into_boxed_slice())
-            }
-            _ => {
-                tracing::warn!(
-                "RIVERSIDE_STORE_CUSTOMER_JWT_SECRET not set; using insecure development default"
-            );
-                std::sync::Arc::from(
-                    b"riverside-dev-store-customer-jwt-secret-change-me!!!!".as_slice(),
-                )
-            }
-        };
+    let store_customer_jwt_secret = resolve_store_customer_jwt_secret(config.strict_production)?;
 
     let http_client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(25))
@@ -193,10 +242,16 @@ pub async fn launch_server(
         .collect();
 
     if config.strict_production && cors_header_values.is_empty() {
-        return Err("Strict production requires CORS origins".into());
+        return Err(
+            "Strict production requires RIVERSIDE_CORS_ORIGINS for browser-facing deployments"
+                .into(),
+        );
     }
 
     let cors = if cors_header_values.is_empty() {
+        tracing::warn!(
+            "CORS allow_origin(Any) enabled; set RIVERSIDE_CORS_ORIGINS and RIVERSIDE_STRICT_PRODUCTION=true for production browser deployments"
+        );
         CorsLayer::new()
             .allow_origin(Any)
             .allow_methods([
@@ -209,6 +264,10 @@ pub async fn launch_server(
             ])
             .allow_headers(Any)
     } else {
+        tracing::info!(
+            count = cors_header_values.len(),
+            "CORS allowlist loaded from RIVERSIDE_CORS_ORIGINS"
+        );
         CorsLayer::new()
             .allow_origin(AllowOrigin::list(cors_header_values))
             .allow_methods([
@@ -223,9 +282,7 @@ pub async fn launch_server(
     };
 
     // Static Files
-    let dist_path = config
-        .frontend_dist
-        .unwrap_or_else(|| PathBuf::from("../client/dist"));
+    let dist_path = resolve_frontend_dist(config.frontend_dist.clone(), config.strict_production)?;
     let index_path = dist_path.join("index.html");
     let serve_dir = ServeDir::new(dist_path)
         .append_index_html_on_directories(true)
