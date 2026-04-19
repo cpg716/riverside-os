@@ -43,7 +43,7 @@
 |--------|-------------------|---------------|
 | No earn on sale | Category excluded | Manager reads **Program Settings** |
 | Wrong customer points | Detach / reattach profile | Privacy — verify ID |
-| Redeem + return loop | See **orders** return policy | [ORDERS_RETURNS_EXCHANGES.md](../ORDERS_RETURNS_EXCHANGES.md) |
+| Redeem + return loop | See **transactions** return policy | [TRANSACTION_RETURNS_EXCHANGES.md](../TRANSACTION_RETURNS_EXCHANGES.md) |
 | Balance API error | Retry once | IT if repeated |
 
 ## When to get a manager

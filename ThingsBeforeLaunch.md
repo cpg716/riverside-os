@@ -9,7 +9,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ## Database and migrations
 
 - [x] **PostgreSQL** running with a production-appropriate **`DATABASE_URL`** (Compose local dev: **`localhost:5433`** → container **5432** — do not aim the API at the wrong port/instance; **`DEVELOPER.md`**).
-- [x] **Final Migration Consistency check (v0.2.0):** Run `./scripts/migration-status-docker.sh` and ensure migrations through **143** are applied and all probe statuses are **ok** (including the **Schema Repair Baseline** and **Transaction Refactor**). Confirm ledger matches repo head.
+- [x] **Final Migration Consistency check (v0.2.1):** Run `./scripts/migration-status-docker.sh` and ensure migrations through **150** are applied and all probe statuses are **ok** (including the **Schema Repair Baseline**, **Transaction Refactor**, **ROS Dev Center**, and reporting parity probes). Confirm ledger matches repo head.
 - [x] **Authentication Endpoint Verification:** Verify that the POS `Cart.tsx` uses the modern `/api/staff/verify-cashier-code` endpoint and the legacy `/api/auth/verify-pin` correctly handles manager overrides (v0.2.0 Stabilization).
 - [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
 - [ ] **Backup drill** on a **non-production** copy: **`BACKUP_RESTORE_GUIDE.md`** (restore confidence before you need it).
@@ -32,8 +32,8 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Staff roster:** Roles and permissions; **change default/bootstrap credentials** if the DB still uses dev seeds (**`docs/STAFF_PERMISSIONS.md`**, migration **53** on greenfield). After migration **97**, effective Back Office keys live in **`staff_permission`**; role-wide templates are under **Settings → Staff access defaults**.
 - [ ] **Commission Roster (v0.1.8):** Audit Sales Rep base rates in the **Staff -> Commission** ledger and initialize overrides for high-priority products/variants — **`docs/COMMISSION_AND_SPIFF_OPERATIONS.md`**.
 - [ ] **Staff Identity & UI Logic (v0.2.0):**
-  - [ ] **Top Bar Resolution:** Confirm `GlobalTopBar` correctly displays the Back-Office avatar when signed in.
-  - [ ] **POS Context:** Confirm active `cashierName` and `cashierAvatarKey` take precedence in the Top Bar during an open register session.
+  - [ ] **Top Bar Resolution:** Confirm `GlobalTopBar` prioritizes the authenticated Back Office staff member (`staffDisplayName` / `staffAvatarKey`) and only falls back to register session identity when no authenticated persona is present.
+  - [ ] **POS Context:** Confirm register session identity (`cashierName` / `cashierAvatarKey`) remains visible only as secondary operational context in POS surfaces that intentionally show lane ownership, without replacing the authenticated staff persona in the Top Bar.
   - [ ] **Redundancy Audit:** Confirm `PosSidebar` and other child shells NO LONGER contain staff profile cards (centralized in Top Bar).
 
 ---
@@ -136,7 +136,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 
 **Pair with Riverside:** **`DEVELOPER.md`** — **Back Office → Reports** (curated **`/api/insights/*`** tiles; **Margin pivot** = **Riverside Admin role** API-enforced). **Insights** = Metabase iframe — enforce sensitivity with Metabase accounts below.
 
-- [ ] **Postgres:** **`reporting`** views require **`90`**, **`96`**, **`106`**, **`107`**, and **`143`** (Transaction vs Fulfillment refactor). Migration **143** provides `transactions_core` and `fulfillment_orders_core` views. Role **`metabase_ro`** exists with a **strong password** (`ALTER ROLE ... PASSWORD`).
+- [ ] **Postgres:** **`reporting`** views require **`90`**, **`96`**, **`106`**, **`107`**, **`143`**, and **`150`** for the current release baseline. Migration **143** provides `transactions_core` and `fulfillment_orders_core`; migration **150** restores `reporting.order_lines.line_gross_margin_pre_tax` and probe parity. Role **`metabase_ro`** exists with a **strong password** (`ALTER ROLE ... PASSWORD`).
 - [ ] **Metabase connection:** DB **`riverside_os`**, user **`metabase_ro`**, schema **`reporting`** only; sync schema after deploy.
 - [ ] **Booked vs completed (revenue / tax / commission alignment):** Use **`reporting.transactions_core` / `reporting.order_lines`** (now pointing to `transaction_lines` via shim): **`booked_business_date`** = sale booked day; **`recognition_at`** / **`recognition_business_date`** = completed-revenue day.
 - [ ] **Fulfillment Log:** Use **`reporting.fulfillment_orders_core`** to track logistical status of Special/Custom/Wedding orders in Metabase.
@@ -222,7 +222,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [x] **Concurrency Guard:** Implemented `isTickRunning` lock to prevent overlapping sync cycles.
   - [x] **Targeted Sync:** Added support for manual requests to sync specific entities (e.g., just `customers` or `vendors`).
   - [x] **Ack/Complete Handshake:** Added `ack-request` and `complete-request` callbacks for improved orchestration.
-- [ ] **Transactions vs Orders terminology sweep (launch blocker):** Audit the full app for stale pre-v0.2.0 “orders” usage where the live business model now requires a strict split between **Transactions** (financial receipt/ledger record) and **Orders** (fulfillment / operational record). Check UI labels, API payloads, query params, DB/table references, notification payloads, reporting shims, and drawer/workspace copy. Explicitly confirm no launch-critical flow still uses legacy “order” language or deprecated `order_*` contracts where it should now be `transaction_*`, while preserving intentional fulfillment-order naming for true operational order paths.
+- [ ] **Transactions vs Orders terminology follow-up:** The obvious doc/path sweep is complete, but do one more pass on user-facing labels and deep-link copy for ambiguous “Order” usage. Preserve intentional compatibility names that are still live in the codebase and migrations, including **`orders.*`** permission keys, historical migration/table names such as **`order_items`**, and reporting shims like **`reporting.order_lines`** / **`reporting.orders_core`** while the financial API/routes remain **`/api/transactions/*`**.
 - [ ] **Opening Balance Audit:** Confirm migrated customer deposits and store credits match Counterpoint exactly.
 - [ ] **Tax Rate Verification:** Final audit of NYS/NYC clothing tax rules vs Riverside logic.
 - [ ] **Hardware Stress Test:** Validate thermal printing from multiple registers simultaneously.
@@ -238,7 +238,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 ### 1. The "Truth Trace" Invariant
 - [ ] **Audit Trail Integrity:** Confirm that all commission payouts, inventory adjustments, and price overrides carry a human-readable `reason` or `trace` log (**`AGENTS.md`**).
 - [ ] **Immutability:** Verify that completed `orders` cannot be edited; errors must be corrected via `returns` or `exchanges` with cross-linked IDs.
-- [ ] **Checkout Idempotency:** Test "Double-Click" on Place Order; confirm `orders.checkout_client_id` prevents duplicate charges/decrementing.
+- [ ] **Checkout Idempotency:** Test "Double-Click" on Place Order; confirm `transactions.checkout_client_id` prevents duplicate charges/decrementing.
 
 ### 2. Tax & Compliance
 - [ ] **NYC/NYS Clothing Threshold:** Verify $110 rule (tax-free under $110 for specific categories) with mixed carts (Taxable vs Non-Taxable items).
@@ -246,7 +246,7 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Refund Logic:** Ensure tax is correctly calculated and returned on partial returns.
 
 ### 3. Inventory Valuation & Costing
-- [ ] **Cost Capture at Checkout:** Confirm `order_items.unit_cost` is non-null and frozen at the moment of sale to prevent historical cost drift from affecting margin reports.
+- [ ] **Cost Capture at Checkout:** Confirm `transaction_lines.unit_cost` is non-null and frozen at the moment of sale to prevent historical cost drift from affecting margin reports.
 - [ ] **Inventory Reconciliation:** Perform a blind-count of 20 high-velocity SKUs and verify they match the system `stock_on_hand` exactly.
 - [ ] **Receiving Bay Hardening:** Verify that posting inventory from the Receiving Bay is a single, atomic operation that cannot be partially interrupted.
 
@@ -326,6 +326,20 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
 - [ ] **Pre-commit validation gate:** run `cargo fmt --check`, `npm run lint`, and `npm --prefix client run build`; block launch candidate if any fail.
 - [ ] **Go-live cutover safeguard:** perform a timed “open register → complete sample sale → close register” dress rehearsal on production-like hardware/network before first customer.
 - [ ] **Rollback readiness:** define owner + exact rollback command path (DB restore point + previous app artifact) and confirm contact chain for launch hour.
+
+---
+
+## Stability & Performance Baseline (v0.2.1 Hardening)
+
+**Goal:** Zero-vibration UI. The shell must remain responsive and loop-free even during network instability or rapid navigation.
+
+- [x] **Auth Context Stabilization:** `BackofficeAuthContext` uses strict value-equality for permissions to prevent phantom re-renders of the entire app tree.
+- [x] **Global API "Single Source of Truth":** All components utilize `getBaseUrl()` from `apiConfig.ts` to ensure consistent server targeting across all registers.
+- [x] **Fetch Circuit Breakers:** Background data tasks (Compass stats, Weather, Notifications) must implement loading/error guards that prevent infinite retry-storms on failure.
+- [x] **Unidirectional Navigation:** Register/POS navigation state must flow from parent to child only. Child shells (e.g. `PosShell`) must not attempt to counter-sync tab state to the root.
+- [x] **Connection Refusal Cleanup:** Verify console logs are clear of recurring `ERR_INSUFFICIENT_RESOURCES` or `ERR_CONNECTION_REFUSED` during standard operation.
+- [x] **Bridge Polling Silence:** Confirm Counterpoint Bridge is configured for "boot-check only" mode (idle heartbeat disabled).
+- [x] **Frontend Poll Guard:** Verify `CounterpointSyncSettingsPanel` and similar components do not trigger infinite re-render loops on network failure.
 
 ---
 
@@ -427,6 +441,17 @@ Use `- [ ]` for work not yet done and `- [x]` when complete (optional).
   - [ ] POS cart + checkout
   - [ ] reports access
 - [ ] Announce status to store team and update incident log.
+
+
+---
+
+## POS Wedding Hub Restoration (v0.2.1)
+
+- [x] **Component Restoration:** Replace full-screen `WeddingManagerApp` in the POS shell with the slimmed-down `WeddingPOSWorkspace`.
+- [x] **Slideout Integration:** Verify that "Action Board", "Parties", and "Calendar" tabs correctly respond to sidebar sub-section navigation in the POS shell.
+- [x] **Action Board Priority Feed:** Confirm that the Action Board correctly pulls from the priority-feed-bundle (`morning-compass`) and allows clicking into wedding party details.
+- [x] **POS Detail Redirect:** Verify that clicking a party or member in the POS Wedding Hub correctly triggers the `onOpenWeddingParty` callback to open the appropriate detail drawer or view.
+- [x] **Performance Check:** Ensure the Wedding Hub does not trigger excessive re-renders when switching between sub-sections in the POS.
 
 ---
 

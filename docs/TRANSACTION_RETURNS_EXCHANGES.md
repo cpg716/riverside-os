@@ -1,6 +1,6 @@
 # Transactions: refunds, line returns, exchanges, and post-sale adjustments
 
-Operational reference for **Back Office** and **register** flows after migrations **`36_transactions_rbac_permissions.sql`** and **`37_transaction_returns_and_exchange.sql`**. Optional idempotent replays use **`transactions.checkout_client_id`** from **`38_register_pos_token_and_checkout_idempotency.sql`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/transactions/TransactionsWorkspace.tsx`.
+Operational reference for **Back Office** and **register** flows after migrations **`36_orders_rbac_permissions.sql`** and **`37_order_returns_and_exchange.sql`**. Optional idempotent replays use **`transactions.checkout_client_id`** from **`38_register_pos_token_and_checkout_idempotency.sql`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/orders/OrdersWorkspace.tsx`.
 
 For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **special-transaction stock** (checkout vs PO vs pickup), see **`INVENTORY_GUIDE.md`** and **`AGENTS.md`**.
 
@@ -10,17 +10,17 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 
 | Key | Use |
 |-----|-----|
-| `transactions.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
-| `transactions.modify` | Add/edit/delete lines, pickup, `POST .../returns`, `POST .../exchange-link`. |
-| `transactions.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`transactions.modify`** as well; BO staff only (no register_session bypass). Seeded in **`migrations/50_suit_component_swap_register_open_drawer.sql`**. |
-| `transactions.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
-| `transactions.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`transactions.cancel`** or **`transactions.void_sale`** suffices when there are no allocations. Seeded in **`migrations/49_transactions_void_sale_permission.sql`**. |
-| `transactions.refund_process` | `GET /api/transactions/refunds/due`, `POST /api/transactions/{id}/refunds/process`. |
-| `transactions.edit_attribution` | `PATCH .../attribution` (unchanged). |
+| `orders.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
+| `orders.modify` | Add/edit/delete lines, pickup, `POST .../returns`, `POST .../exchange-link`. |
+| `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded in **`migrations/50_suit_component_swap_register_open_drawer.sql`**. |
+| `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
+| `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded in **`migrations/49_orders_void_sale_permission.sql`**. |
+| `orders.refund_process` | `GET /api/transactions/refunds/due`, `POST /api/transactions/{id}/refunds/process`. |
+| `orders.edit_attribution` | `PATCH .../attribution` (unchanged). |
 
-**Role defaults** are seeded in **`migrations/36_transactions_rbac_permissions.sql`** (admin: all; salesperson: view + refund_process; sales_support: all four) and **`transactions.void_sale`** in **`migrations/49_transactions_void_sale_permission.sql`** (all three roles). Adjust via Staff → Role matrix or overrides.
+**Role defaults** are seeded in **`migrations/36_orders_rbac_permissions.sql`** (admin: all; salesperson: view + refund_process; sales_support: all four) and **`orders.void_sale`** in **`migrations/49_orders_void_sale_permission.sql`** (all three roles). Adjust via Staff → Role matrix or overrides.
 
-**Checkout** (`POST /api/transactions/checkout`) requires a **POS register session** whose headers match **`session_id`** in the body (not the `transactions.*` keys). Operator and line-level staff fields are validated in the payload.
+**Checkout** (`POST /api/transactions/checkout`) requires a **POS register session** whose headers match **`session_id`** in the body (not the `orders.*` keys). Operator and line-level staff fields are validated in the payload.
 
 ---
 
@@ -38,7 +38,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 | Line returns | `POST /api/transactions/{id}/returns` query `?register_session_id=…` | Same. |
 | Exchange link | `POST /api/transactions/{id}/exchange-link?register_session_id=…` | Same positive-allocation rule for **both** transactions being linked. |
 
-**Refund processing** requires **Back Office** staff headers and **`transactions.refund_process`** (no register-only bypass). **Exchange link** may use the same register session query/body pattern as returns when linking two transactions tied to that session.
+**Refund processing** requires **Back Office** staff headers and **`orders.refund_process`** (no register-only bypass). **Exchange link** may use the same register session query/body pattern as returns when linking two transactions tied to that session.
 
 ---
 
@@ -51,7 +51,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 2. **Process cash-out**
    - **`POST /api/transactions/{transaction_id}/refunds/process`**  
      Body: `session_id` (open register session), `payment_method`, `amount`, optional `gift_card_code` when refunding to a gift card.
-   - Requires **`transactions.refund_process`** and an **open** register session matching `session_id`.
+   - Requires **`orders.refund_process`** and an **open** register session matching `session_id`.
    - Records negative **`payment_transactions`** + **`payment_allocations`**, updates queue and **`transactions.amount_paid`**, runs **`transaction_recalc`** (totals respect returned qty).
    - **Loyalty:** full accrual clawback when **`amount_paid`** reaches zero after the refund (same transaction).
    - **Gift card:** if `payment_method` indicates a gift-card tender, **`gift_card_code`** is required; balance is credited in the same transaction.
@@ -69,7 +69,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 - **`POST /api/transactions/{id}/returns`**  
   Body: `{ "lines": [ { "transaction_item_id", "quantity", "reason?", "restock?" } ] }`  
-  Requires **`transactions.modify`** (or register session path above).
+  Requires **`orders.modify`** (or register session path above).
 
 - **Rules**
   - Cannot return more than **sold qty minus prior returns** per line.
@@ -87,7 +87,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 - **`POST /api/transactions/{id}/exchange-link`**  
   Body: `{ "other_transaction_id": "<uuid>" }`  
-  Sets the same **`transactions.exchange_group_id`** on both transactions (new UUID). With **`?register_session_id=…`**, uses the same session authorization as line returns (both transactions must be modifiable on that session). Without it, requires **`transactions.modify`** (Back Office).
+  Sets the same **`transactions.exchange_group_id`** on both transactions (new UUID). With **`?register_session_id=…`**, uses the same session authorization as line returns (both transactions must be modifiable on that session). Without it, requires **`orders.modify`** (Back Office).
 
 - **Recommended operational pattern:** return lines on the original transaction (and process refund queue as needed), then **new checkout** for the replacement merchandise; link the two transactions with **exchange-link** for reporting.
 
@@ -107,10 +107,10 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 | File | Purpose |
 |------|---------|
-| `21_transactions_audit_and_refund_queue.sql` | `transaction_activity_log`, `transaction_refund_queue` |
+| `21_orders_audit_and_refund_queue.sql` | `transaction_activity_log`, `transaction_refund_queue` |
 | `24_performance_and_integrity.sql` | Partial unique index: one **open** queue row per `transaction_id` |
-| `36_transactions_rbac_permissions.sql` | Seeds for `transactions.*` keys on `staff_role_permission` |
-| `37_transaction_returns_and_exchange.sql` | `transaction_return_lines`, `transactions.exchange_group_id` |
+| `36_orders_rbac_permissions.sql` | Seeds for `orders.*` keys on `staff_role_permission` |
+| `37_order_returns_and_exchange.sql` | `transaction_return_lines`, `transactions.exchange_group_id` |
 
 ---
 
@@ -118,7 +118,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 | Area | Location |
 |------|----------|
-| Transactions BO workspace | `client/src/components/transactions/TransactionsWorkspace.tsx` |
+| Transactions BO workspace | `client/src/components/orders/OrdersWorkspace.tsx` |
 | Permission catalog labels | `client/src/lib/staffPermissions.ts` |
 | Transactions tab gate | `client/src/context/BackofficeAuthContext.tsx` → `SIDEBAR_TAB_PERMISSION.transactions` |
 | Receipt after checkout (session-scoped read) | `client/src/components/pos/ReceiptSummaryModal.tsx` |

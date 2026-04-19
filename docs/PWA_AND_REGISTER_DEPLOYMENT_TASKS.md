@@ -2,7 +2,7 @@
 
 **Intent:** PWA is the primary surface for phones, tablets, laptops, and remote access; the **main register** runs the **Tauri desktop** build on the cash-wrap PC. This file tracks **repo implementation** plus **one-time store sign-off** before production.
 
-Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build commands), `BACKUP_RESTORE_GUIDE.md`, `docs/ORDERS_RETURNS_EXCHANGES.md` (orders RBAC, refunds, returns, exchanges), `docs/SEARCH_AND_PAGINATION.md` (POS customer + inventory directory paging), **`docs/REGISTER_DASHBOARD.md`** (POS **Dashboard** tab, metrics, notifications, **`weddings.view`** on morning board APIs), **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`** (lanes **66–67**, one drawer + satellite registers, combined Z-close), **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (migrations **68–69**: server **Park**, Z-close purge, **`pos_rms_charge_record`** **charge** vs **payment**, Sales Support **notifications** + **tasks**, **Customers → RMS charge**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, optional **`VITE_POS_OFFLINE_CARD_SIM`**).
+Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build commands), `BACKUP_RESTORE_GUIDE.md`, `docs/TRANSACTION_RETURNS_EXCHANGES.md` (`/api/transactions/*` routes with `orders.*` RBAC), `docs/SEARCH_AND_PAGINATION.md` (POS customer + inventory directory paging), **`docs/REGISTER_DASHBOARD.md`** (POS **Dashboard** tab, metrics, notifications, **`weddings.view`** on morning board APIs), **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`** (lanes **66–67**, one drawer + satellite registers, combined Z-close), **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (migrations **68–69**: server **Park**, Z-close purge, **`pos_rms_charge_record`** **charge** vs **payment**, Sales Support **notifications** + **tasks**, **Customers → RMS charge**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, optional **`VITE_POS_OFFLINE_CARD_SIM`**).
 
 ---
 
@@ -55,7 +55,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 
 - [x] **Session lifetime / shared iPads:** Register session lives until close; there is no long-lived browser JWT. **Training:** log out or close the register when leaving a shared device; back-office actions re-verify PIN when configured.
 - [x] **Admin headers / PIN:** Same code paths for PWA and Tauri; no dev auth bypass in middleware (see project invariants).
-- [x] **Orders / refunds / returns:** Back Office **Orders** and refund/return actions require the `orders.*` permission keys (migration **36**); behavior and endpoints are summarized in `docs/ORDERS_RETURNS_EXCHANGES.md` and `docs/STAFF_PERMISSIONS.md`.
+- [x] **Orders / refunds / returns:** Back Office **Orders** and refund/return actions require the `orders.*` permission keys (migration **36**); behavior and endpoints are summarized in `docs/TRANSACTION_RETURNS_EXCHANGES.md` and `docs/STAFF_PERMISSIONS.md`.
 - [x] **POS Dashboard / morning board:** Register opens to **Dashboard** by default (see **`docs/REGISTER_DASHBOARD.md`**). **`GET /api/weddings/morning-compass`** and **`activity-feed`** require staff auth + **`weddings.view`**; floor staff without that key still get tasks/notifications/metrics where permitted. Train stores that **Operations** wedding widgets need **`weddings.view`**.
 - [x] **Secrets:** Client bundle exposes only `VITE_*` (today: `VITE_API_BASE`). Stripe, QBO, DB, and `STRIPE_SECRET_KEY` stay server-side (`server/src/main.rs`).
 
@@ -63,7 +63,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 
 ## F. Offline and degraded operation
 
-- [x] **POS offline queue:** Documented in `client/src/lib/offlineQueue.ts`. **Queued:** checkout payload when offline. **Not queued:** session open/close, BO writes. **Flush:** on `online`, queue syncs to `/api/orders/checkout`.
+- [x] **POS offline queue:** Documented in `client/src/lib/offlineQueue.ts`. **Queued:** checkout payload when offline. **Not queued:** session open/close, BO writes. **Flush:** on `online`, queue syncs to `/api/transactions/checkout`.
 - [x] **User-visible copy:** Header **Offline Mode** / **Pending Syncs**; checkout offline toast; failed checkout / session bootstrap toasts reference Settings (General) for API URL. Production-only toast on initial session fetch failure (avoids dev noise).
 - [x] **Wedding / BO offline:** Mutations require API; no silent persistence beyond the POS checkout queue above.
 - [x] **Customer & inventory lookup (online):** POS **client search**, **customer picker**, and **fuzzy product search** call `/api/customers/*` and `/api/products/control-board` (or `/api/inventory/scan`). None of this is queued offline—only **checkout** is. On Tailscale / cellular, expect extra latency on first keystrokes; very large directories use **Load more** / paging (**`docs/SEARCH_AND_PAGINATION.md`**).

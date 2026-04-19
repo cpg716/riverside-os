@@ -14,7 +14,7 @@ Separately, **`Cart.tsx`** may keep an **automatic local draft** of the open sal
 
 **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — Tender grid and balance summary can scroll on very short viewports; the **amount field, numeric keypad, and primary actions** stay in a **fixed strip** (no keypad scroll). **Apply payment** (primary tender) and **Apply deposit** (ledger release for special / wedding lines) are stacked; **Split deposit (wedding party)** opens **`WeddingLookupDrawer`** in group-pay mode so members and amounts follow the wedding disbursement flow.
 
-**Checkout payload (`POST /api/orders/checkout`, `server/src/logic/order_checkout.rs`):**
+**Checkout payload (`POST /api/transactions/checkout`, `server/src/logic/order_checkout.rs`):**
 
 - **`total_price`** must match **cart lines + shipping only** (±$0.02). **`wedding_disbursements`** amounts are **not** included in **`total_price`**; they are paid from the same collected **`amount_paid`** pool. **`amount_toward_order` = `amount_paid` − sum(`wedding_disbursements`)**; **`balance_due` = `total_price` − `amount_toward_order`**. Party disbursements cannot exceed **`amount_paid`**.
 - **Takeaway** (lines + tax): **cash-equivalent tenders** (everything except **`deposit_ledger`** and **`open_deposit`**) must cover the full takeaway total, and **`amount_toward_order`** must fully cover takeaway before any balance remains on special/wedding lines. Deposits are for order liability, not for walking out unpaid takeaway.
@@ -28,7 +28,7 @@ Separately, **`Cart.tsx`** may keep an **automatic local draft** of the open sal
 
 ### API (POS session gate)
 
-Merged under **`/api/sessions`** (same router nest as register session routes). All routes require **`middleware::require_pos_register_session_for_checkout`**: headers **`x-riverside-pos-session-id`** and **`x-riverside-pos-session-token`** must match the **`session_id`** in the path (same rule as **`POST /api/orders/checkout`**).
+Merged under **`/api/sessions`** (same router nest as register session routes). All routes require **`middleware::require_pos_register_session_for_checkout`**: headers **`x-riverside-pos-session-id`** and **`x-riverside-pos-session-token`** must match the **`session_id`** in the path (same rule as **`POST /api/transactions/checkout`**).
 
 | Method | Path | Body / query | Notes |
 |--------|------|--------------|--------|

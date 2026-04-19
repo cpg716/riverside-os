@@ -148,9 +148,9 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 | Key | Use |
 |-----|-----|
-| `transactions.view` | List transactions, read detail |
-| `transactions.modify` | Pickup, fulfill items |
-| `transactions.cancel` | Cancel transaction |
+| `orders.view` | List transactions, read detail |
+| `orders.modify` | Pickup, fulfill items |
+| `orders.cancel` | Cancel transaction |
 
 ---
 

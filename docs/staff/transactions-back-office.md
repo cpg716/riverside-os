@@ -4,7 +4,7 @@
 
 **Where in ROS:** Back Office → **Transactions**. Subsections: **Open Transactions**, **All Transactions**.
 
-**Related permissions:** **transactions.view** for tab. **transactions.refund_process**, **transactions.cancel**, **transactions.modify**, **transactions.void_sale** for destructive paths.
+**Related permissions:** **orders.view** for tab. **orders.refund_process**, **orders.cancel**, **orders.modify**, **orders.void_sale** for destructive paths.
 
 ---
 
@@ -50,7 +50,7 @@ POS may read the same transaction via **register session** headers. If **Back Of
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
 | Transaction not found | Widen dates | Wrong store DB |
-| Cannot refund | **403** | **transactions.refund_process** |
+| Cannot refund | **403** | **orders.refund_process** |
 | Pickup blocked | Unpaid line | Read banner |
 | Balance wrong after return | **Refresh** transaction | Finance lead |
 
