@@ -221,7 +221,11 @@ async fn post_bulk_weekly(
     Json(body): Json<BulkPutWeeklyBody>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let _actor = require_editor(&state, &headers).await?;
-    let mut tx = state.db.begin().await.map_err(|e| map_err(StaffScheduleError::Database(e)))?;
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| map_err(StaffScheduleError::Database(e)))?;
     for s in body.schedules {
         let mut flat: Vec<(i16, bool, Option<String>)> = s
             .weekdays
@@ -233,7 +237,9 @@ async fn post_bulk_weekly(
             .await
             .map_err(map_err)?;
     }
-    tx.commit().await.map_err(|e| map_err(StaffScheduleError::Database(e)))?;
+    tx.commit()
+        .await
+        .map_err(|e| map_err(StaffScheduleError::Database(e)))?;
     Ok(Json(json!({ "ok": true })))
 }
 

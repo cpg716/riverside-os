@@ -503,7 +503,7 @@ pub async fn get_effective_day_details(
     d: NaiveDate,
 ) -> Result<EffectiveDay, sqlx::Error> {
     let working = is_working_day(pool, staff_id, d).await?;
-    
+
     let shift_label: Option<String> = sqlx::query_scalar(
         r#"
         SELECT 

@@ -33,6 +33,9 @@ export default function BackofficeSignInGate({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState<string>(() => {
+    return localStorage.getItem("ros_last_staff_id") || "";
+  });
   const [serverUrl, setServerUrl] = useState(() => {
     return localStorage.getItem("ros_api_base_override") || DEFAULT_BASE_URL;
   });
@@ -94,6 +97,10 @@ export default function BackofficeSignInGate({
 
   const trySignIn = async () => {
     const code = credential.trim();
+    if (!selectedStaffId) {
+      setError("Select your name first.");
+      return;
+    }
     if (code.length !== 4) {
       setError("Enter 4-digit PIN.");
       return;
@@ -237,7 +244,7 @@ export default function BackofficeSignInGate({
             </button>
             <button
               type="button"
-              disabled={busy || credential.length !== 4}
+              disabled={busy || credential.length !== 4 || !selectedStaffId}
               onClick={() => void trySignIn()}
               className="ui-btn-primary h-14 flex-[2] text-sm font-black disabled:opacity-50"
             >

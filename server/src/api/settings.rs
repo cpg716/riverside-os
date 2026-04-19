@@ -1049,7 +1049,10 @@ async fn post_podium_oauth_exchange(
     )
     .await
     .map_err(|e| {
-        tracing::warn!(error = e.to_string(), "Podium OAuth authorization_code exchange failed");
+        tracing::warn!(
+            error = e.to_string(),
+            "Podium OAuth authorization_code exchange failed"
+        );
         SettingsError::InvalidPayload(format!("Podium token exchange failed: {e}"))
     })?;
 

@@ -615,11 +615,13 @@ async fn self_set_pin(
     }
 
     // Check if new PIN is already in use
-    let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1 AND id != $2)")
-        .bind(pin_t)
-        .bind(staff.id)
-        .fetch_one(&state.db)
-        .await?;
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1 AND id != $2)",
+    )
+    .bind(pin_t)
+    .bind(staff.id)
+    .fetch_one(&state.db)
+    .await?;
     if exists {
         return Err(StaffApiError::InvalidPayload(
             "This PIN is already in use by another staff member".to_string(),
