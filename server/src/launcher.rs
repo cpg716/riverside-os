@@ -31,6 +31,41 @@ pub struct LauncherConfig {
     pub max_body_bytes: Option<usize>,
 }
 
+fn resolve_stripe_secret_key(
+    stripe_secret_key: String,
+    strict_production: bool,
+) -> Result<String, Box<dyn std::error::Error>> {
+    let trimmed = stripe_secret_key.trim();
+    let looks_dummy = trimmed.is_empty()
+        || trimmed.contains("dummy")
+        || trimmed.contains("replace_me")
+        || trimmed.contains("changeme");
+    let is_test_key = trimmed.starts_with("sk_test_");
+    let is_live_key = trimmed.starts_with("sk_live_");
+
+    if strict_production {
+        if !is_live_key || looks_dummy {
+            return Err(
+                "Strict production requires STRIPE_SECRET_KEY to be configured with a valid live Stripe secret key (sk_live_...)"
+                    .into(),
+            );
+        }
+        return Ok(trimmed.to_string());
+    }
+
+    if looks_dummy {
+        tracing::warn!(
+            "STRIPE_SECRET_KEY is missing or using the built-in dummy development fallback; live payment flows will fail until a real Stripe key is configured"
+        );
+    } else if !is_test_key && !is_live_key {
+        tracing::warn!(
+            "STRIPE_SECRET_KEY is set but does not look like a standard Stripe secret key (expected sk_test_... or sk_live_...)"
+        );
+    }
+
+    Ok(trimmed.to_string())
+}
+
 fn resolve_store_customer_jwt_secret(
     strict_production: bool,
 ) -> Result<std::sync::Arc<[u8]>, Box<dyn std::error::Error>> {
@@ -97,6 +132,9 @@ pub async fn launch_server(
     config: LauncherConfig,
     server_log_ring: ServerLogRing,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let stripe_secret_key =
+        resolve_stripe_secret_key(config.stripe_secret_key.clone(), config.strict_production)?;
+
     tracing::info!("Unified Engine: Connecting to PostgreSQL...");
     let pool = PgPoolOptions::new()
         .max_connections(10)
@@ -157,7 +195,7 @@ pub async fn launch_server(
     let state = AppState {
         db: pool,
         global_employee_markup,
-        stripe_client: stripe::Client::new(config.stripe_secret_key.clone()),
+        stripe_client: stripe::Client::new(stripe_secret_key),
         http_client,
         podium_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(
             crate::logic::podium::PodiumTokenCache::default(),
@@ -307,6 +345,33 @@ pub async fn launch_server(
     .await?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_stripe_secret_key;
+
+    #[test]
+    fn strict_production_rejects_dummy_and_test_stripe_keys() {
+        assert!(
+            resolve_stripe_secret_key("sk_test_dummy_replace_me_later".to_string(), true).is_err()
+        );
+        assert!(resolve_stripe_secret_key("sk_test_123".to_string(), true).is_err());
+        assert!(resolve_stripe_secret_key("".to_string(), true).is_err());
+    }
+
+    #[test]
+    fn strict_production_accepts_live_stripe_key() {
+        let key = resolve_stripe_secret_key(" sk_live_123 ".to_string(), true).unwrap();
+        assert_eq!(key, "sk_live_123");
+    }
+
+    #[test]
+    fn non_strict_mode_preserves_dev_fallback_behavior() {
+        let key =
+            resolve_stripe_secret_key("sk_test_dummy_replace_me_later".to_string(), false).unwrap();
+        assert_eq!(key, "sk_test_dummy_replace_me_later");
+    }
 }
 
 async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
