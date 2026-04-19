@@ -11,6 +11,7 @@
 - You are on the intended release branch (`main` for direct releases, or a validated release branch).
 - Database/services are available for local verification.
 - No uncommitted local changes you don’t intend to ship.
+- Browser-facing RC/production candidates must define **`RIVERSIDE_STRICT_PRODUCTION=true`**, **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and **`FRONTEND_DIST`** before signoff. Local permissive defaults are for development only.
 
 Recommended sanity checks:
 

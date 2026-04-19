@@ -112,23 +112,9 @@ test.beforeEach(() => {
 async function requireOpenSessionId(
   request: Parameters<typeof test>[0]["request"],
 ): Promise<string> {
-  const listRes = await request.get(`${apiBase()}/api/sessions/list-open`, {
-    headers: adminHeaders(),
-    failOnStatusCode: false,
-  });
-
-  requireOrSkip(
-    listRes.status() !== 401 && listRes.status() !== 403,
-    `Admin staff ${e2eAdminCode()} missing/unauthorized for /api/sessions/list-open`,
-  );
-
-  expect(listRes.status()).toBe(200);
-  const rows = (await listRes.json()) as SessionListRow[];
-  requireOrSkip(Array.isArray(rows) && rows.length > 0, "No open register session");
-  const first = rows[0] ?? {};
-  const sid = (first.session_id || first.id || "").trim();
-  requireOrSkip(Boolean(sid), "Open session row missing session id");
-  return sid;
+  const { sessionId } = await ensureSessionAuth(request);
+  expect(sessionId).toBeTruthy();
+  return sessionId;
 }
 
 async function ensureSessionAuth(

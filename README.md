@@ -68,7 +68,7 @@ Environment variables:
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
-For production browser deployments, set **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and an explicit **`FRONTEND_DIST`**. This preserves local dev flexibility while refusing unsafe production startup defaults.
+Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and an explicit **`FRONTEND_DIST`**. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
 
 ## Quality checks
 
@@ -98,12 +98,12 @@ npm run test:e2e:v020
 # Direct client commands
 cd client
 npm run test:e2e -- --list
-E2E_BASE_URL="http://localhost:5173" npm run test:e2e
-E2E_BASE_URL="http://localhost:5173" npx playwright test --workers=1
-E2E_BASE_URL="http://localhost:5173" npm run test:e2e:update-snapshots
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx playwright test --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e:update-snapshots
 ```
 
-> Use `localhost` for `E2E_BASE_URL` — `127.0.0.1` may fail browser tests. Full-suite CI-style runs: **`--workers=1`** (see **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5).
+> Use `npm run dev:e2e` for the local deterministic browser stack. It serves the UI on `http://localhost:43173` and the API on `http://127.0.0.1:43300` so release-gate runs do not collide with an ordinary `npm run dev` session on `5173/3000`. Use `localhost` for `E2E_BASE_URL` — `127.0.0.1` may fail browser tests. Full-suite CI-style runs: **`--workers=1`** (see **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 
