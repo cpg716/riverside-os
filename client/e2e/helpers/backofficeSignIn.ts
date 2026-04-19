@@ -8,9 +8,9 @@ function e2eBackofficeStaffName(): string {
 
 async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRole"]>) {
   const preferredName = e2eBackofficeStaffName();
-  const selectorButton = container
-    .getByText(/select your name/i)
-    .locator("xpath=following::button[1]");
+  const selectorButton = container.getByRole("button", {
+    name: /select staff member|select\.\.\.|select your name/i,
+  });
   if (!(await selectorButton.isVisible().catch(() => false))) {
     return;
   }
@@ -21,6 +21,7 @@ async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRo
   const preferredOption = container.getByRole("button", {
     name: new RegExp(preferredName, "i"),
   });
+  await preferredOption.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
     return;
@@ -29,9 +30,10 @@ async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRo
     .locator("button")
     .filter({ has: container.locator("img") })
     .filter({ hasNotText: /select staff member/i });
+  await options.first().waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
   const optionCount = await options.count();
   if (optionCount > 0) {
-    await options.nth(Math.min(1, optionCount - 1)).click();
+    await options.first().click();
   }
 }
 

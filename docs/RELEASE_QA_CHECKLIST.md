@@ -43,19 +43,22 @@ If any fail, fix before release commit.
 ## 2) E2E prerequisites
 
 Playwright UI tests require a reachable frontend at `E2E_BASE_URL` and API at `E2E_API_BASE`.
+The deterministic local browser stack uses `http://localhost:43173` for the UI and `http://127.0.0.1:43300` for the API so it does not collide with an everyday `npm run dev` session on `5173/3000` or other local Vite projects.
 
-### Terminal 1 (repo root): start app stack
+### Deterministic local browser stack
 
 ```bash
-npm run dev
+npm run dev:e2e
 ```
+
+This boots Docker Postgres, reapplies any pending migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus the Vite UI used by browser specs.
 
 ### Terminal 2: run tests from client
 
 ```bash
 cd client
 npm run test:e2e -- --list
-E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- --workers=1
 ```
 
 ### Root shortcuts (recommended for release flow)
@@ -78,7 +81,8 @@ npm run test:e2e:tender
 - `test:e2e:phase2` runs the Phase 2 finance/help lifecycle suite.
 - `test:e2e:tender` runs the deterministic tender contract suite.
 
-> If you see `ERR_CONNECTION_REFUSED` to `localhost:5173`, the UI server is not running.
+> If you see `ERR_CONNECTION_REFUSED` to `localhost:43173`, the dedicated E2E UI server is not running.
+> Local Playwright now auto-boots this same dedicated stack unless `E2E_AUTO_BOOT=0` is set.
 
 ---
 
@@ -199,7 +203,7 @@ git push origin main
 ## 9) Troubleshooting quick map
 
 - **`test:e2e` missing at repo root:** run from `client/` or use `npm --prefix client run test:e2e`.
-- **`ERR_CONNECTION_REFUSED :5173`:** start `npm run dev` first.
+- **`ERR_CONNECTION_REFUSED :43173`:** start `npm run dev:e2e` first, or leave Playwright auto-boot enabled.
 - **API gate skips:** ensure seed users and DB are loaded (admin + non-admin test staff).
 - **Build succeeds but E2E flaky:** rerun with `--workers=1` and inspect first failure trace/screenshots.
 
@@ -220,10 +224,10 @@ Equivalent explicit forms:
 
 ```bash
 cd client
-E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- --workers=1
-E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/high-risk-regressions.spec.ts --workers=1
-E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1
-E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- e2e/high-risk-regressions.spec.ts --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1
 ```
 
 This is a release gate, not optional.

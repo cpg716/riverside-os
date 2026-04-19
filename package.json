@@ -11,6 +11,7 @@
     "generate:help:components:cleanup": "cd client && npm run generate:help:components:cleanup --",
     "check:server": "bash scripts/cargo-server.sh check",
     "dev": "concurrently -n api,ui,bridge -c blue,magenta,green \"npm run dev:server\" \"npm run dev:client:wait\" \"npm run dev:bridge\"",
+    "dev:e2e": "bash scripts/e2e-local-stack.sh",
     "dev:server": "bash scripts/dev-server.sh",
     "dev:client:wait": "wait-on -t 600000 tcp:127.0.0.1:3000 && npm run dev:client",
     "dev:client": "cd client && npm run dev",
