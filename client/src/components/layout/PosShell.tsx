@@ -19,7 +19,7 @@ const InventoryWorkspace = lazy(() => import("../inventory/InventoryWorkspace"))
 const GiftCardsWorkspace = lazy(() => import("../gift-cards/GiftCardsWorkspace"));
 
 const AlterationsWorkspace = lazy(() => import("../alterations/AlterationsWorkspace"));
-const WeddingManagerApp = lazy(() => import("../wedding-manager/WeddingManagerApp"));
+const WeddingPOSWorkspace = lazy(() => import("../wedding-manager/WeddingPOSWorkspace"));
 import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { SIDEBAR_SUB_SECTIONS, type SidebarTabId } from "./sidebarSections";
@@ -113,15 +113,33 @@ export default function PosShell({
 }: PosShellProps) {
   const [activePosTab, setActivePosTab] = useState<PosTabId>(activeTab as PosTabId || "pos-dashboard");
 
+  const [managerMode, setManagerMode] = useState(false);
+  const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
+  const { hasPermission, permissionsLoaded, setStaffCredentials } = useBackofficeAuth();
+  const [shiftHandoffOpen, setShiftHandoffOpen] = useState(false);
+
+  // Sync LOCAL -> PARENT
+  useEffect(() => {
+    if (activePosTab !== activeTab) {
+      onTabChange(activePosTab as SidebarTabId);
+
+      // Handle default sub-section for the new tab
+      const subSections = SIDEBAR_SUB_SECTIONS[activePosTab as SidebarTabId] ?? [];
+      const defaultSubSection = subSections[0]?.id;
+      if (defaultSubSection && activeSubSection !== defaultSubSection) {
+        onSubSectionChange(defaultSubSection);
+      }
+    }
+  }, [activePosTab, activeTab, activeSubSection, onSubSectionChange, onTabChange]);
+
+  // Sync PARENT -> LOCAL (e.g. on mount or deep links)
   useEffect(() => {
     if (activeTab && activeTab !== activePosTab) {
       setActivePosTab(activeTab as PosTabId);
     }
   }, [activeTab, activePosTab]);
-  const [managerMode, setManagerMode] = useState(false);
-  const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
-  const { hasPermission, permissionsLoaded, setStaffCredentials } = useBackofficeAuth();
-  const [shiftHandoffOpen, setShiftHandoffOpen] = useState(false);
+
+  // Landing / Session Initialization
   useEffect(() => {
     if (!isRegisterOpen || !sessionId) return;
     
@@ -144,25 +162,6 @@ export default function PosShell({
       setActivePosTab(isRegisterOpen && sessionId ? "pos-dashboard" : "register");
     }
   }, [activePosTab, permissionsLoaded, hasPermission, isRegisterOpen, sessionId]);
-
-  useEffect(() => {
-    const nextTab = activePosTab as SidebarTabId;
-    if (activeTab !== nextTab) {
-      onTabChange(nextTab);
-    }
-
-    const subSections = SIDEBAR_SUB_SECTIONS[nextTab] ?? [];
-    const defaultSubSection = subSections[0]?.id;
-    if (defaultSubSection && activeSubSection !== defaultSubSection) {
-      onSubSectionChange(defaultSubSection);
-    }
-  }, [
-    activePosTab,
-    activeTab,
-    activeSubSection,
-    onSubSectionChange,
-    onTabChange,
-  ]);
 
   const handleSessionOpenedWithAuth: typeof onSessionOpened = (p) => {
     const code = p.cashierCode.trim();
@@ -352,10 +351,14 @@ export default function PosShell({
           {activePosTab === "weddings" && (
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Wedding Hub...</div>}>
-                <WeddingManagerApp 
-                  rosActorName={cashierName} 
+                <WeddingPOSWorkspace 
+                  activeSection={activeSubSection}
+                  rosActorName={cashierName || "Riverside POS"}
                   initialPartyId={pendingWmPartyId}
                   onInitialPartyConsumed={onClearPendingWmPartyId}
+                  onOpenPartyDetail={(party) => {
+                    onOpenWeddingParty?.(party.id);
+                  }}
                 />
               </Suspense>
             </div>
