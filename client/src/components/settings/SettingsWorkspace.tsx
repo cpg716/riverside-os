@@ -1,3 +1,6 @@
+import { getBaseUrl } from "../../lib/apiConfig";
+
+
 import {
   lazy,
   Suspense,
@@ -123,7 +126,7 @@ export default function SettingsWorkspace({
   onPosRefreshMeta,
   onNavigateToTab,
 }: SettingsWorkspaceProps) {
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   // Navigation - synced with sidebar activeSection; default to profile
   const activeTab = activeSection || settingsActiveSection || "profile";
@@ -1319,8 +1322,7 @@ export default function SettingsWorkspace({
                         API base
                       </dt>
                       <dd className="font-mono text-xs text-app-text break-all text-right max-w-[min(100%,20rem)]">
-                        {import.meta.env.VITE_API_BASE ??
-                          "http://127.0.0.1:3000 (default)"}
+                        {baseUrl}
                       </dd>
                     </div>
                   </dl>

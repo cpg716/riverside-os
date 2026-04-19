@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { isTauri } from "@tauri-apps/api/core";
+import { getBaseUrl } from "./apiConfig";
 import { sessionPollAuthHeaders } from "./posRegisterAuth";
 
 export type PrintDocType = "receipt" | "tag" | "report";
@@ -39,7 +40,7 @@ export async function printZplReceipt(payload: string, ip: string, port = 9100) 
   // If we're not running inside the Tauri shell (e.g. dev browser)
   // we must fallback to the classic window.open print method.
   if (!isTauri()) {
-    const baseUrl = import.meta.env.VITE_API_BASE ?? "";
+    const baseUrl = getBaseUrl();
     try {
       const res = await fetch(`${baseUrl}/api/hardware/print`, {
         method: "POST",
@@ -71,7 +72,7 @@ export async function printZplReceipt(payload: string, ip: string, port = 9100) 
 /** Pre-built ESC/POS binary as standard base64 (init/raster/cut already included). */
 export async function printRawEscPosBase64(payloadB64: string, ip: string, port = 9100) {
   if (!isTauri()) {
-    const baseUrl = import.meta.env.VITE_API_BASE ?? "";
+    const baseUrl = getBaseUrl();
     const res = await fetch(`${baseUrl}/api/hardware/print`, {
       method: "POST",
       headers: {
@@ -106,7 +107,7 @@ export async function printRawEscPosBase64(payloadB64: string, ip: string, port 
 
 export async function printEscPosReceipt(payload: string, ip: string, port = 9100) {
   if (!isTauri()) {
-    const baseUrl = import.meta.env.VITE_API_BASE ?? "";
+    const baseUrl = getBaseUrl();
     try {
       const res = await fetch(`${baseUrl}/api/hardware/print`, {
         method: "POST",
