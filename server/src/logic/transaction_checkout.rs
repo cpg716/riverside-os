@@ -1524,17 +1524,7 @@ pub async fn execute_checkout(
             .await?;
         }
 
-        let pos_kind: Option<String> = sqlx::query_scalar(
-            r#"
-            SELECT p.pos_line_kind
-            FROM product_variants v
-            INNER JOIN products p ON p.id = v.product_id
-            WHERE v.id = $1
-            "#,
-        )
-        .bind(item.variant_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
 
         if is_fully_paid && pos_kind.as_deref() == Some("pos_gift_card_load") {
             let code = item
@@ -2237,11 +2227,12 @@ pub async fn evaluate_combo_incentives(
     for item in items {
         *prod_counts.entry(item.product_id).or_default() += item.quantity;
         if let Some(cid) =
-            sqlx::query_scalar::<_, Uuid>("SELECT category_id FROM products WHERE id = $1")
+            sqlx::query_scalar::<_, Option<Uuid>>("SELECT category_id FROM products WHERE id = $1")
                 .bind(item.product_id)
                 .fetch_optional(&mut *conn)
                 .await
                 .map_err(CheckoutError::Database)?
+                .flatten()
         {
             *cat_counts.entry(cid).or_default() += item.quantity;
             item_cat_map.insert(item.product_id, cid);
@@ -2325,5 +2316,83 @@ fn estimate_stripe_fee(amount: Decimal, is_terminal: bool) -> Decimal {
         let pct = amount * Decimal::new(29, 3); // 0.029
         let fixed = Decimal::new(30, 2); // 0.30
         (pct + fixed).round_dp(2)
+    }
+}
+
+async fn fetch_variant_pos_line_kind<'e, E>(
+    conn: E,
+    variant_id: Uuid,
+) -> Result<Option<String>, sqlx::Error>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    sqlx::query_scalar::<_, Option<String>>(
+        r#"
+        SELECT p.pos_line_kind
+        FROM product_variants v
+        INNER JOIN products p ON p.id = v.product_id
+        WHERE v.id = $1
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_optional(conn)
+    .await
+    .map(|row| row.flatten())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fetch_variant_pos_line_kind;
+    use rust_decimal::Decimal;
+    use sqlx::Connection;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn fetch_variant_pos_line_kind_allows_null_product_kind() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("E2E-NULL-KIND-{}", Uuid::new_v4().simple());
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, pos_line_kind)
+            VALUES ($1, $2, $3, $4, NULL)
+            "#,
+        )
+        .bind(product_id)
+        .bind("Null POS kind regression product")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&mut *tx)
+        .await
+        .expect("insert product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values)
+            VALUES ($1, $2, $3, '{}'::jsonb)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&mut *tx)
+        .await
+        .expect("insert variant");
+
+        let pos_kind = fetch_variant_pos_line_kind(&mut *tx, variant_id)
+            .await
+            .expect("query should decode null pos_line_kind");
+
+        assert_eq!(pos_kind, None);
+
+        tx.rollback().await.expect("rollback transaction");
     }
 }
