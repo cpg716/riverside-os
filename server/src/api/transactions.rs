@@ -238,12 +238,10 @@ pub struct TransactionFinancialSummary {
 }
 
 impl TransactionDetailResponse {
-    /// Build customer-facing receipt data. When `transaction_line_ids` is `Some`, only those lines are
-    /// included (must match at least one line or returns `InvalidPayload`).
-    pub(crate) fn receipt_for_zpl_filtered(
-        &self,
+    fn selected_receipt_items_with_effective_qty<'a>(
+        &'a self,
         transaction_line_ids: Option<&[Uuid]>,
-    ) -> Result<receipt_zpl::ReceiptOrderForZpl, TransactionError> {
+    ) -> Result<Vec<(&'a TransactionDetailItem, i32)>, TransactionError> {
         use std::collections::HashSet;
 
         let selected: Vec<&TransactionDetailItem> = match transaction_line_ids {
@@ -269,6 +267,32 @@ impl TransactionDetailResponse {
             }
         };
 
+        let active: Vec<_> = selected
+            .into_iter()
+            .filter_map(|it| {
+                let effective_qty = (it.quantity - it.quantity_returned).max(0);
+                (effective_qty > 0).then_some((it, effective_qty))
+            })
+            .collect();
+
+        if active.is_empty() {
+            return Err(TransactionError::InvalidPayload(
+                "No active order lines remained after applied returns for this receipt."
+                    .to_string(),
+            ));
+        }
+
+        Ok(active)
+    }
+
+    /// Build customer-facing receipt data. When `transaction_line_ids` is `Some`, only those lines are
+    /// included (must match at least one line or returns `InvalidPayload`).
+    pub(crate) fn receipt_for_zpl_filtered(
+        &self,
+        transaction_line_ids: Option<&[Uuid]>,
+    ) -> Result<receipt_zpl::ReceiptOrderForZpl, TransactionError> {
+        let selected = self.selected_receipt_items_with_effective_qty(transaction_line_ids)?;
+
         Ok(receipt_zpl::ReceiptOrderForZpl {
             transaction_id: self.transaction_id,
             booked_at: self.booked_at,
@@ -289,10 +313,10 @@ impl TransactionDetailResponse {
             }),
             items: selected
                 .into_iter()
-                .map(|it| receipt_zpl::ReceiptLineForZpl {
+                .map(|(it, effective_qty)| receipt_zpl::ReceiptLineForZpl {
                     product_name: it.product_name.clone(),
                     sku: it.sku.clone(),
-                    quantity: it.quantity,
+                    quantity: effective_qty,
                     unit_price: it.unit_price,
                     fulfillment: it.fulfillment,
                     salesperson_name: crate::logic::receipt_privacy::mask_name_for_receipt(
@@ -304,6 +328,122 @@ impl TransactionDetailResponse {
                 })
                 .collect(),
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_transaction_detail(items: Vec<TransactionDetailItem>) -> TransactionDetailResponse {
+        TransactionDetailResponse {
+            transaction_id: Uuid::nil(),
+            transaction_display_id: "TXN-TEST".to_string(),
+            booked_at: Utc::now(),
+            status: DbOrderStatus::Open,
+            total_price: Decimal::new(1000, 2),
+            amount_paid: Decimal::new(1000, 2),
+            balance_due: Decimal::ZERO,
+            is_forfeited: false,
+            forfeited_at: None,
+            forfeiture_reason: None,
+            fulfillment_method: DbOrderFulfillmentMethod::Pickup,
+            ship_to: None,
+            shipping_amount_usd: None,
+            shippo_shipment_object_id: None,
+            shippo_transaction_object_id: None,
+            tracking_number: None,
+            tracking_url_provider: None,
+            shipping_label_url: None,
+            exchange_group_id: None,
+            payment_methods_summary: "Card".to_string(),
+            operator_staff_id: None,
+            operator_name: None,
+            primary_salesperson_id: None,
+            primary_salesperson_name: None,
+            wedding_member_id: None,
+            customer: None,
+            financial_summary: TransactionFinancialSummary {
+                total_allocated_payments: Decimal::new(1000, 2),
+                total_applied_deposit_amount: Decimal::ZERO,
+            },
+            items,
+            is_tax_exempt: false,
+            tax_exempt_reason: None,
+            register_session_id: None,
+            receipt_studio_layout_available: false,
+            receipt_thermal_mode: "zpl".to_string(),
+            store_review_invites_enabled: false,
+            store_send_review_invite_by_default: false,
+            review_invite_sent_at: None,
+            review_invite_suppressed_at: None,
+        }
+    }
+
+    fn sample_item(quantity: i32, quantity_returned: i32) -> TransactionDetailItem {
+        TransactionDetailItem {
+            transaction_line_id: Uuid::new_v4(),
+            product_id: Uuid::new_v4(),
+            variant_id: Uuid::new_v4(),
+            sku: "SKU-1".to_string(),
+            product_name: "Navy Suit".to_string(),
+            variation_label: Some("42R".to_string()),
+            quantity,
+            quantity_returned,
+            unit_price: Decimal::new(25000, 2),
+            unit_cost: Decimal::new(10000, 2),
+            state_tax: Decimal::new(1000, 2),
+            local_tax: Decimal::new(500, 2),
+            fulfillment: DbFulfillmentType::Takeaway,
+            is_fulfilled: true,
+            is_internal: false,
+            salesperson_id: None,
+            salesperson_name: Some("Taylor Manager".to_string()),
+            receipt_original_unit_price: None,
+            discount_event_label: None,
+        }
+    }
+
+    #[test]
+    fn receipt_builder_uses_effective_quantity_after_partial_return() {
+        let detail = sample_transaction_detail(vec![sample_item(3, 1)]);
+
+        let receipt = detail
+            .receipt_for_zpl_filtered(None)
+            .expect("receipt builds");
+
+        assert_eq!(receipt.items.len(), 1);
+        assert_eq!(receipt.items[0].quantity, 2);
+    }
+
+    #[test]
+    fn receipt_builder_omits_fully_returned_lines() {
+        let detail = sample_transaction_detail(vec![sample_item(2, 2), sample_item(1, 0)]);
+
+        let receipt = detail
+            .receipt_for_zpl_filtered(None)
+            .expect("receipt builds");
+
+        assert_eq!(receipt.items.len(), 1);
+        assert_eq!(receipt.items[0].quantity, 1);
+        assert_eq!(receipt.items[0].sku, "SKU-1");
+    }
+
+    #[test]
+    fn receipt_builder_rejects_subset_when_all_selected_lines_were_returned() {
+        let returned = sample_item(1, 1);
+        let active = sample_item(2, 0);
+        let returned_id = returned.transaction_line_id;
+        let detail = sample_transaction_detail(vec![returned, active]);
+
+        let err = detail
+            .receipt_for_zpl_filtered(Some(&[returned_id]))
+            .expect_err("fully returned subset should fail");
+
+        assert!(matches!(err, TransactionError::InvalidPayload(_)));
+        assert!(err
+            .to_string()
+            .contains("No active order lines remained after applied returns"));
     }
 }
 
