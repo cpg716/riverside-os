@@ -1450,11 +1450,25 @@ pub async fn execute_checkout(
             crate::logic::tax::TaxCategory::Other
         };
 
-        // Recalculate taxes on server to ensure "Iron Cage" precision and NYS threshold compliance.
-        let state_tax =
-            crate::logic::tax::nys_state_tax_usd(logic_tax_cat, item.unit_price, item.unit_price);
-        let local_tax =
-            crate::logic::tax::erie_local_tax_usd(logic_tax_cat, item.unit_price, item.unit_price);
+        let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
+        // Internal POS-only RMS payment collection must remain non-taxable.
+        let (state_tax, local_tax) = if pos_kind.as_deref() == Some("rms_charge_payment") {
+            (Decimal::ZERO, Decimal::ZERO)
+        } else {
+            (
+                crate::logic::tax::nys_state_tax_usd(
+                    logic_tax_cat,
+                    item.unit_price,
+                    item.unit_price,
+                ),
+                crate::logic::tax::erie_local_tax_usd(
+                    logic_tax_cat,
+                    item.unit_price,
+                    item.unit_price,
+                ),
+            )
+        };
+        let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
 
         let transaction_line_id: Uuid = sqlx::query_scalar(
                 r#"
@@ -1490,7 +1504,7 @@ pub async fn execute_checkout(
             .bind(item.is_rush)
             .bind(item.need_by_date)
             .bind(item.needs_gift_wrap)
-            .bind(false)
+            .bind(line_is_internal)
             .fetch_one(&mut *tx)
             .await?;
 
@@ -1523,8 +1537,6 @@ pub async fn execute_checkout(
             .execute(&mut *tx)
             .await?;
         }
-
-        let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
 
         if is_fully_paid && pos_kind.as_deref() == Some("pos_gift_card_load") {
             let code = item
@@ -1835,7 +1847,7 @@ pub async fn execute_checkout(
                 pos_rms_charge::insert_rms_record(
                     &mut *tx,
                     "charge",
-                    payment_tx_id,
+                    transaction_id,
                     payload.session_id,
                     payload.customer_id,
                     method,
@@ -1855,7 +1867,7 @@ pub async fn execute_checkout(
                 pos_rms_charge::insert_rms_record(
                     &mut *tx,
                     "payment",
-                    payment_tx_id,
+                    transaction_id,
                     payload.session_id,
                     payload.customer_id,
                     method,

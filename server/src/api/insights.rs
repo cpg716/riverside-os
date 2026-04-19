@@ -194,6 +194,12 @@ fn default_basis() -> String {
     "sale".to_string()
 }
 
+const SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL: &str = r#"
+        AND COALESCE(oi.is_internal, false) = FALSE
+        AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
+        AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+"#;
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct SalesPivotRow {
     pub bucket: String,
@@ -276,6 +282,7 @@ pub async fn run_sales_pivot(
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             {returns_join}
             WHERE {date_filter}
+              {SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL}
             GROUP BY o.customer_id
             ORDER BY gross_revenue DESC NULLS LAST
             LIMIT 201
@@ -327,6 +334,7 @@ pub async fn run_sales_pivot(
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
                 {returns_join}
                 WHERE {date_filter}
+                  {SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL}
                 GROUP BY {date_key}
             )
             SELECT
@@ -381,6 +389,7 @@ pub async fn run_sales_pivot(
             LEFT JOIN staff st ON st.id = oi.salesperson_id
             {returns_join}
             WHERE {date_filter}
+              {SALES_PIVOT_EXCLUDED_LINE_KINDS_SQL}
             GROUP BY {dim_sql}
             ORDER BY gross_revenue DESC NULLS LAST
             LIMIT 201

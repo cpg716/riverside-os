@@ -276,6 +276,15 @@ impl TransactionDetailResponse {
             .collect();
 
         if active.is_empty() {
+            let allow_internal_only_receipt = transaction_line_ids.is_none()
+                && self.items.iter().any(|it| it.is_internal)
+                && self
+                    .items
+                    .iter()
+                    .all(|it| it.is_internal || (it.quantity - it.quantity_returned).max(0) == 0);
+            if allow_internal_only_receipt {
+                return Ok(Vec::new());
+            }
             return Err(TransactionError::InvalidPayload(
                 "No active order lines remained after applied returns for this receipt."
                     .to_string(),
@@ -404,6 +413,14 @@ mod tests {
         }
     }
 
+    fn sample_internal_item() -> TransactionDetailItem {
+        let mut item = sample_item(1, 0);
+        item.product_name = "RMS CHARGE PAYMENT".to_string();
+        item.sku = "ROS-RMS-CHARGE-PAYMENT".to_string();
+        item.is_internal = true;
+        item
+    }
+
     #[test]
     fn receipt_builder_uses_effective_quantity_after_partial_return() {
         let detail = sample_transaction_detail(vec![sample_item(3, 1)]);
@@ -444,6 +461,19 @@ mod tests {
         assert!(err
             .to_string()
             .contains("No active order lines remained after applied returns"));
+    }
+
+    #[test]
+    fn receipt_builder_allows_internal_only_transaction_summary() {
+        let detail = sample_transaction_detail(vec![sample_internal_item()]);
+
+        let receipt = detail
+            .receipt_for_zpl_filtered(None)
+            .expect("internal-only receipt should build");
+
+        assert!(receipt.items.is_empty());
+        assert_eq!(receipt.total_price, Decimal::new(1000, 2));
+        assert_eq!(receipt.payment_methods_summary, "Card");
     }
 }
 
