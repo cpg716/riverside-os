@@ -39,6 +39,37 @@ type SessionListRow = {
   lifecycle_status?: string;
 };
 
+type SessionOpenResponse = {
+  session_id: string;
+  pos_api_token?: string | null;
+};
+
+type VerifyCashierResponse = {
+  staff_id: string;
+};
+
+type RmsPaymentLineMeta = {
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  name: string;
+};
+
+type CustomerProfileRow = {
+  id: string;
+};
+
+type CheckoutResponse = {
+  transaction_id: string;
+};
+
+type TransactionDetailResponse = {
+  items: Array<{
+    product_name: string;
+    is_internal: boolean;
+  }>;
+};
+
 type IntentResponse = {
   intent_id?: string;
   client_secret?: string;
@@ -98,6 +129,138 @@ async function requireOpenSessionId(
   const sid = (first.session_id || first.id || "").trim();
   requireOrSkip(Boolean(sid), "Open session row missing session id");
   return sid;
+}
+
+async function ensureSessionAuth(
+  request: Parameters<typeof test>[0]["request"],
+): Promise<{ sessionId: string; sessionToken: string }> {
+  const listRes = await request.get(`${apiBase()}/api/sessions/list-open`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+
+  requireOrSkip(
+    listRes.status() !== 401 && listRes.status() !== 403,
+    `Admin staff ${e2eAdminCode()} missing/unauthorized for /api/sessions/list-open`,
+  );
+
+  expect(listRes.status()).toBe(200);
+  const rows = (await listRes.json()) as SessionListRow[];
+  let sessionId = (rows[0]?.session_id || rows[0]?.id || "").trim();
+
+  if (!sessionId) {
+    const openRes = await request.post(`${apiBase()}/api/sessions/open`, {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        cashier_code: e2eAdminCode(),
+        pin: e2eAdminCode(),
+        opening_float: "200.00",
+        register_lane: 1,
+      },
+      failOnStatusCode: false,
+    });
+    expect(openRes.status()).toBe(200);
+    const opened = (await openRes.json()) as SessionOpenResponse;
+    sessionId = opened.session_id;
+    expect(opened.pos_api_token).toBeTruthy();
+    return {
+      sessionId,
+      sessionToken: opened.pos_api_token ?? "",
+    };
+  }
+
+  const tokenRes = await request.post(
+    `${apiBase()}/api/sessions/${sessionId}/pos-api-token`,
+    {
+      headers: {
+        ...adminHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        cashier_code: e2eAdminCode(),
+        pin: e2eAdminCode(),
+      },
+      failOnStatusCode: false,
+    },
+  );
+  expect(tokenRes.status()).toBe(200);
+  const tokenBody = (await tokenRes.json()) as { pos_api_token?: string };
+  expect(tokenBody.pos_api_token).toBeTruthy();
+  return {
+    sessionId,
+    sessionToken: tokenBody.pos_api_token ?? "",
+  };
+}
+
+async function verifyAdminStaffId(
+  request: Parameters<typeof test>[0]["request"],
+): Promise<string> {
+  const res = await request.post(`${apiBase()}/api/staff/verify-cashier-code`, {
+    headers: { "Content-Type": "application/json" },
+    data: {
+      cashier_code: e2eAdminCode(),
+      pin: e2eAdminCode(),
+    },
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+  const body = (await res.json()) as VerifyCashierResponse;
+  expect(body.staff_id).toBeTruthy();
+  return body.staff_id;
+}
+
+async function fetchRmsPaymentMeta(
+  request: Parameters<typeof test>[0]["request"],
+): Promise<RmsPaymentLineMeta> {
+  const res = await request.get(`${apiBase()}/api/pos/rms-payment-line-meta`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+  const body = (await res.json()) as RmsPaymentLineMeta | null;
+  expect(body?.product_id).toBeTruthy();
+  expect(body?.variant_id).toBeTruthy();
+  return body as RmsPaymentLineMeta;
+}
+
+async function createDeterministicCustomer(
+  request: Parameters<typeof test>[0]["request"],
+): Promise<CustomerProfileRow> {
+  const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
+  const res = await request.post(`${apiBase()}/api/customers`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      first_name: "E2E RMS",
+      last_name: `Customer ${suffix}`,
+      email: null,
+      phone: null,
+      company_name: null,
+      address_line1: null,
+      address_line2: null,
+      city: null,
+      state: null,
+      postal_code: null,
+      date_of_birth: null,
+      anniversary_date: null,
+      custom_field_1: null,
+      custom_field_2: null,
+      custom_field_3: null,
+      custom_field_4: null,
+      marketing_email_opt_in: false,
+      marketing_sms_opt_in: false,
+      transactional_sms_opt_in: false,
+      transactional_email_opt_in: false,
+    },
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+  return (await res.json()) as CustomerProfileRow;
 }
 
 test.describe("Tender matrix payment-intent contract", () => {
@@ -285,5 +448,132 @@ test.describe("Tender matrix payment-intent contract", () => {
       expect(typeof j.session_id).toBe("string");
       expect(typeof j.register_lane).toBe("number");
     }
+  });
+
+  test("RMS payment collection stays internal to receipts and sales pivot revenue", async ({
+    request,
+  }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const staffId = await verifyAdminStaffId(request);
+    const customer = await createDeterministicCustomer(request);
+    const rmsMeta = await fetchRmsPaymentMeta(request);
+    const today = new Date().toISOString().split("T")[0];
+
+    const beforePivotRes = await request.get(
+      `${apiBase()}/api/insights/sales-pivot?group_by=customer&basis=sale&from=${today}&to=${today}`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(beforePivotRes.status()).toBe(200);
+    const beforePivot = (await beforePivotRes.json()) as {
+      rows?: Array<{ customer_id?: string | null }>;
+    };
+    expect(
+      (beforePivot.rows ?? []).some((row) => row.customer_id === customer.id),
+    ).toBeFalsy();
+
+    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
+      headers: {
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: staffId,
+        primary_salesperson_id: staffId,
+        customer_id: customer.id,
+        payment_method: "cash",
+        total_price: "50.00",
+        amount_paid: "50.00",
+        items: [
+          {
+            product_id: rmsMeta.product_id,
+            variant_id: rmsMeta.variant_id,
+            fulfillment: "takeaway",
+            quantity: 1,
+            unit_price: "50.00",
+            unit_cost: "0.00",
+            state_tax: "0.00",
+            local_tax: "0.00",
+            salesperson_id: staffId,
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    });
+    expect(checkoutRes.status()).toBe(200);
+    const checkout = (await checkoutRes.json()) as CheckoutResponse;
+    expect(checkout.transaction_id).toBeTruthy();
+
+    const detailRes = await request.get(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(detailRes.status()).toBe(200);
+    const detail = (await detailRes.json()) as TransactionDetailResponse;
+    expect(detail.items).toHaveLength(1);
+    expect(detail.items[0]?.product_name).toBe("RMS CHARGE PAYMENT");
+    expect(detail.items[0]?.is_internal).toBe(true);
+
+    const receiptRes = await request.get(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/receipt.zpl?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(receiptRes.status()).toBe(200);
+    const receipt = await receiptRes.text();
+    expect(receipt).not.toContain("RMS CHARGE PAYMENT");
+    expect(receipt).toContain("Total 50.00");
+    expect(receipt).toContain("Cash");
+
+    const rmsRecordsRes = await request.get(
+      `${apiBase()}/api/customers/rms-charge/records?kind=payment&customer_id=${encodeURIComponent(customer.id)}&from=${today}&to=${today}`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(rmsRecordsRes.status()).toBe(200);
+    const rmsRecords = (await rmsRecordsRes.json()) as Array<{
+      transaction_id?: string;
+      amount?: string;
+      payment_method?: string;
+      record_kind?: string;
+    }>;
+    const rmsRecord = rmsRecords.find(
+      (row) => row.transaction_id === checkout.transaction_id,
+    );
+    expect(rmsRecord?.record_kind).toBe("payment");
+    expect(rmsRecord?.payment_method).toBe("cash");
+    expect(rmsRecord?.amount).toBe("50.00");
+
+    const afterPivotRes = await request.get(
+      `${apiBase()}/api/insights/sales-pivot?group_by=customer&basis=sale&from=${today}&to=${today}`,
+      {
+        headers: adminHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(afterPivotRes.status()).toBe(200);
+    const afterPivot = (await afterPivotRes.json()) as {
+      rows?: Array<{ customer_id?: string | null }>;
+    };
+    expect(
+      (afterPivot.rows ?? []).some((row) => row.customer_id === customer.id),
+    ).toBeFalsy();
   });
 });

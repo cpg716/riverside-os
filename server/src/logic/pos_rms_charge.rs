@@ -39,7 +39,7 @@ pub async fn insert_rms_record<'e, E>(
     operator_staff_id: Uuid,
     payment_transaction_id: Uuid,
     customer_display: Option<&str>,
-    transaction_short_ref: &str,
+    order_short_ref: &str,
 ) -> Result<(), sqlx::Error>
 where
     E: Executor<'e, Database = Postgres>,
@@ -48,7 +48,7 @@ where
         r#"
         INSERT INTO pos_rms_charge_record (
             transaction_id, register_session_id, customer_id, payment_method, amount,
-            operator_staff_id, payment_transaction_id, customer_display, transaction_short_ref,
+            operator_staff_id, payment_transaction_id, customer_display, order_short_ref,
             record_kind
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -62,7 +62,7 @@ where
     .bind(operator_staff_id)
     .bind(payment_transaction_id)
     .bind(customer_display)
-    .bind(transaction_short_ref)
+    .bind(order_short_ref)
     .bind(record_kind)
     .execute(ex)
     .await?;
@@ -77,7 +77,7 @@ pub async fn notify_sales_support_after_checkout(
     register_session_id: Uuid,
     customer_id: Option<Uuid>,
     customer_display: Option<&str>,
-    transaction_short_ref: &str,
+    order_short_ref: &str,
     operator_staff_id: Uuid,
     charges: &[RmsChargeNotify],
 ) -> Result<(), sqlx::Error> {
@@ -113,7 +113,7 @@ pub async fn notify_sales_support_after_checkout(
         };
         let body = format!(
             "Submit R2S charge in portal. Order ref: {}. Method: {}. Amount: ${}. Customer: {}. Transaction: {}.",
-            transaction_short_ref,
+            order_short_ref,
             method_label,
             c.amount,
             cust_label,

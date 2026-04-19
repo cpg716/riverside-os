@@ -97,6 +97,7 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 ### POS client (payment collection)
 
 - **`client/src/components/pos/Cart.tsx`** — product search keyword **`PAYMENT`** (case-insensitive) injects the seeded line via **`GET /api/pos/rms-payment-line-meta`**; **Price** numpad sets amount (**`price_override_reason`**: **`rms_charge_payment`**); **no tax** on the line; **Customers → RMS charge** is documented for admins, not a separate POS screen.
+- Customer-facing receipts for this transaction shape suppress the internal **RMS CHARGE PAYMENT** merchandise line and print the payment summary / totals only.
 - **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — prop **`rmsPaymentCollectionMode`**: only **Cash** and **Check** tender tabs; **`check`** uses payment method **`check`** (map in QBO **Settings → QBO Bridge → Mappings** matrix). Deposit / split-deposit controls are suppressed where inappropriate for RMS payment collection.
 
 ### Customers (Back Office) — RMS charge
