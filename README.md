@@ -23,21 +23,50 @@ Local PostgreSQL is managed via **OrbStack** (recommended) or Docker Desktop. Th
 The **`db` image** is **`pgvector/pgvector:pg16`** (PostgreSQL 16; image includes **pgvector**). If switching engines, run **`docker compose up -d --build`** to ensure a fresh build on the new optimization layer.
 
 ```bash
+# 0. Install JS dependencies used by root scripts (dev:e2e, test:e2e:*, pack) and client scripts
+npm install
+
 # 1. Start Postgres (and optional Meilisearch sidecar on :7700) and apply migrations (from repo root; skips files already in ros_schema_migrations)
 docker compose up -d
 ./scripts/apply-migrations-docker.sh
 # Optional: ./scripts/migration-status-docker.sh  (ledger vs schema probes)
 # Existing DB without ledger rows: ./scripts/backfill-migration-ledger-docker.sh then apply again
 
-# 2. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.88 first on PATH when Homebrew rustc shadows rustup):
+# 2. Server env: copy server/.env.example -> server/.env for local runs.
+#    DATABASE_URL must point at localhost:5433 (the repo Docker Postgres), not localhost:5432.
+#    If you expect automatic Metabase sign-in in local/RC runs, server/.env must also carry the
+#    local RIVERSIDE_METABASE_* shared-auth values (or export them in your shell).
+#
+# 3. API server (http://127.0.0.1:3000) — from repo root, prefer npm (`dev-server.sh` / `cargo-server.sh` put Rust 1.88 first on PATH when Homebrew rustc shadows rustup):
 npm run dev:server
 
-# 3. Web client (http://localhost:5173)
+# 4. Web client (http://localhost:5173)
 cd client && npm install && npm run dev
 
-# 4. Desktop (Tauri)
+# 5. Desktop (Tauri)
 cd client && npm run tauri:dev
 ```
+
+## Local Runtime Prerequisites (RC parity)
+
+For this repo to behave the same way in a local RC worktree as it does in the validated release flow, the following are effectively required:
+
+- Run **`npm install`** from the repo root. Root scripts such as **`npm run dev:e2e`**, **`npm run test:e2e:*`**, and **`npm run pack`** depend on root package binaries being present in this worktree.
+- Run **`cd client && npm install`** for the Vite/Playwright client toolchain.
+- Keep a real **`server/.env`** for local parity (copy from **`server/.env.example`**). The server can boot with fallbacks, but validated local behavior depends on that file.
+- For local Docker Postgres, **`DATABASE_URL`** must use **`postgresql://postgres:password@localhost:5433/riverside_os`**.
+- If you expect automatic Metabase login in local/RC runs, **`server/.env`** must also define the local **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** shared-auth values.
+- Expected local services and ports:
+  - Postgres: **`localhost:5433`**
+  - API: **`127.0.0.1:3000`**
+  - Vite dev UI: **`localhost:5173`**
+  - Deterministic E2E API/UI: **`127.0.0.1:43300`** / **`localhost:43173`**
+  - Metabase: **`localhost:3001`**
+  - Meilisearch when used: **`localhost:7700`**
+- Expected local DB/application state:
+  - **`store_settings`** row **`id = 1`**
+  - seeded E2E staff accounts **`1234`** (Admin) and **`5678`** (non-Admin) for the release-focused browser/API suites
+- **`npm run pack`** is expected to work directly from the repo root on a normal install; release validation should not rely on borrowed `node_modules` or symlinks from another checkout.
 
 Environment variables:
 
@@ -64,6 +93,8 @@ Environment variables:
 | `RIVERSIDE_VISUAL_CROSSING_ENABLED` | _(unset)_ | Optional; force live weather on/off — see **`docs/WEATHER_VISUAL_CROSSING.md`** |
 | `RIVERSIDE_MEILISEARCH_URL` | _(unset)_ | Optional; e.g. `http://127.0.0.1:7700` when **`docker compose`** **`meilisearch`** is up — enables fuzzy catalog/CRM/inventory/transaction search with SQL hydration + fallback — **`docs/SEARCH_AND_PAGINATION.md`**, **`server/.env.example`** |
 | `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional; Meilisearch master/API key when the instance requires auth (match **`MEILI_MASTER_KEY`** in Compose for local dev) |
+| `RIVERSIDE_METABASE_ADMIN_EMAIL` / `RIVERSIDE_METABASE_ADMIN_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for Admin staff in local/RC runs. |
+| `RIVERSIDE_METABASE_STAFF_EMAIL` / `RIVERSIDE_METABASE_STAFF_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for staff-class Metabase sessions in local/RC runs. |
 | `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **Planned** (**ROSIE**): Axum BFF upstream for **`POST /api/help/rosie/v1/chat/completions`** — **`docs/PLAN_LOCAL_LLM_HELP.md`** § Ship decision |
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
@@ -104,6 +135,7 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 ```
 
 > Use `npm run dev:e2e` for the local deterministic browser stack. It serves the UI on `http://localhost:43173` and the API on `http://127.0.0.1:43300` so release-gate runs do not collide with an ordinary `npm run dev` session on `5173/3000`. Use `localhost` for `E2E_BASE_URL` — `127.0.0.1` may fail browser tests. Full-suite CI-style runs: **`--workers=1`** (see **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5).
+> Root shortcuts like `npm run dev:e2e`, `npm run test:e2e:*`, and `npm run pack` require a real repo-root `npm install`; they should not depend on borrowed `node_modules` from another worktree.
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 

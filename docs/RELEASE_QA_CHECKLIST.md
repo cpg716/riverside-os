@@ -13,6 +13,24 @@
 - No uncommitted local changes you don’t intend to ship.
 - Browser-facing RC/production candidates must define **`RIVERSIDE_STRICT_PRODUCTION=true`**, **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and **`FRONTEND_DIST`** before signoff. Local permissive defaults are for development only.
 
+### Local Runtime Prerequisites / RC parity
+
+- Run **`npm install`** from the repo root.
+- Run **`cd client && npm install`**.
+- Keep **`server/.env`** present for local parity (copy from **`server/.env.example`**). For local Docker Postgres, **`DATABASE_URL`** must use **`localhost:5433`**.
+- If you expect automatic local Metabase sign-in, **`server/.env`** must also define the local **`RIVERSIDE_METABASE_ADMIN_*`** and **`RIVERSIDE_METABASE_STAFF_*`** shared-auth values.
+- Expected local services and ports:
+  - Postgres **5433**
+  - API **3000**
+  - Vite **5173**
+  - deterministic E2E API/UI **43300 / 43173**
+  - Metabase **3001**
+  - Meilisearch **7700** when used
+- Expected seed/state assumptions:
+  - **`store_settings`** row **`id = 1`**
+  - E2E staff **`1234`** and **`5678`**
+- **`npm run pack`** is expected to work from the repo root on a normal install.
+
 Recommended sanity checks:
 
 ```bash
@@ -49,10 +67,14 @@ The deterministic local browser stack uses `http://localhost:43173` for the UI a
 ### Deterministic local browser stack
 
 ```bash
+npm install
 npm run dev:e2e
 ```
 
 This boots Docker Postgres, reapplies any pending migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus the Vite UI used by browser specs.
+
+**Local env requirement:** the API process still reads **`server/.env`** (or exported shell env). For local Docker runs, **`DATABASE_URL`** must target **`localhost:5433`**. If your RC validation expects automatic Metabase sign-in instead of a standalone Metabase login screen, ensure **`server/.env`** also carries the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth credentials before starting the stack.
+**Root dependency requirement:** repo-root helpers such as **`npm run dev:e2e`**, **`npm run test:e2e:*`**, and **`npm run pack`** expect the root package dependencies to be installed in this worktree, not borrowed through ad hoc symlinks.
 
 ### Terminal 2: run tests from client
 
@@ -232,6 +254,14 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 ```
 
 This is a release gate, not optional.
+
+---
+
+## Known limitations / deferred hardening
+
+- **Strict-production Stripe secret hardening:** `STRIPE_SECRET_KEY` should fail fast in strict production instead of surfacing only when payment flows are exercised. Deferred from this RC.
+- **API base centralization:** remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites should be consolidated on the shared helper. Deferred from this RC.
+- **Degraded-mode UX warnings:** clearer UI warnings for Metabase shared-auth fallback, search fallback, and weather/mock fallback are deferred from this RC.
 
 ---
 

@@ -256,6 +256,25 @@ npm run dev
 
 Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.sh) — prepends **Rust 1.88** `bin` to **`PATH`** when needed) and **`cd client && npm run dev`** in parallel (requires [concurrently](https://www.npmjs.com/package/concurrently) from the root `package.json`). Stop with one Ctrl+C. Ensure Postgres is up first (**`npm run docker:db`**) so the API can connect.
 
+**Local env requirement:** keep a real **`server/.env`** in your working tree (copy from **`server/.env.example`**). For local Docker Postgres, **`DATABASE_URL`** must use **`localhost:5433`**. If you expect automatic Metabase sign-in in local/RC browser runs, that same file must also define the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth credentials (or export them in the shell before **`npm run dev:server`**).
+
+### Local Runtime Prerequisites / RC parity
+
+- Run **`npm install`** at the repo root before using root scripts (**`dev`**, **`dev:e2e`**, **`test:e2e:*`**, **`pack`**).
+- Run **`cd client && npm install`** before Vite, Playwright, or build validation.
+- Keep **`server/.env`** present for local parity; do not assume a fresh checkout with only **`.env.example`** behaves the same.
+- Local Docker services/ports expected by the validated RC flow:
+  - Postgres **5433**
+  - API **3000**
+  - Vite **5173**
+  - deterministic E2E API/UI **43300 / 43173**
+  - Metabase **3001**
+  - Meilisearch **7700** when enabled
+- DB state assumptions for release validation:
+  - **`store_settings.id = 1`** exists
+  - seeded E2E staff **`1234`** / **`5678`** exist when running the release-focused browser/API suites
+- **`npm run pack`** should succeed from the repo root after a normal root install; do not rely on borrowed **`node_modules`** from another worktree.
+
 ### 3c. Metabase (Insights)
 
 - **UI:** Sidebar **Insights** opens **`InsightsShell`** with a same-origin iframe to **`/metabase/`** (optional override **`VITE_METABASE_PUBLIC_PATH`**). Gated by **`insights.view`**.
@@ -263,6 +282,7 @@ Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.
 - **Docker:** **`metabase`** and **`metabase-db`** are in root **`docker-compose.yml`** and start with **`docker compose up -d`** alongside **`db`** and **`meilisearch`**. Metabase listens on **host port 3001** (container **3000**). Metabase’s **application** metadata DB is **`metabase-db`** — not `riverside_os`.
 - **Axum proxy:** Routes under **`/metabase/*`** forward to **`RIVERSIDE_METABASE_UPSTREAM`** (see **`server/.env.example`**; **unset or empty** defaults to **`http://127.0.0.1:3001`**). Set to **`0`**, **`off`**, **`false`**, or **`disabled`** to turn the proxy off (503). The Rust proxy does not handle **WebSocket upgrades**; for full Metabase live behavior in production, terminate **`/metabase/`** at nginx/Caddy (or similar) with upgrade headers, as in **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**.
 - **Vite dev:** **`client/vite.config.ts`** proxies **`/metabase`** to the API host so the SPA and iframe share one origin on **:5173**.
+- **Automatic local sign-in:** The existing local/RC “silent shared auth” handoff only runs when **`server/.env`** (or the shell) provides **`RIVERSIDE_METABASE_ADMIN_EMAIL`**, **`RIVERSIDE_METABASE_ADMIN_PASSWORD`**, **`RIVERSIDE_METABASE_STAFF_EMAIL`**, and **`RIVERSIDE_METABASE_STAFF_PASSWORD`**. If those are absent, **`/api/insights/metabase-launch`** falls back to plain **`/metabase/`** and Metabase will show its own login page.
 - **Metabase setup:** In Metabase admin, set **Site URL** to the URL browsers use (include **`/metabase`** when using this path). Add **`riverside_os`** as a PostgreSQL database: when Metabase runs in this Compose file, use host **`db`**, port **`5432`**, and the same **`POSTGRES_USER`** / **`POSTGRES_PASSWORD`** as the **`db`** service (internal Docker network — not host port **5433**). If Metabase runs on the host instead, use **`localhost:5433`**.
 
 ### 4. Web UI (Production Build / PWA)

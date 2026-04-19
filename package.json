@@ -29,6 +29,7 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "cross-env": "^7.0.3",
+    "repomix": "^1.13.1",
     "shadcn": "^4.2.0",
     "wait-on": "^8.0.5"
   },
