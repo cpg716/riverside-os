@@ -50,7 +50,7 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 ## 2. Routing cheatsheet (intent → first source)
 
 - **“I can’t see [tab]” / 403** → `permissions-and-access.md` → `STAFF_PERMISSIONS.md` → suggest **Role access** / **User overrides** in **Staff**.
-- **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `orders-back-office.md` → technical detail `ORDERS_RETURNS_EXCHANGES.md` (link only if needed).
+- **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `orders-back-office.md` → technical detail `TRANSACTION_RETURNS_EXCHANGES.md` (link only if needed).
 - **“Special order / reserved / available stock”** → `abstracts/special-orders-and-stock.md` → `INVENTORY_GUIDE.md` (repo root) for depth.
 - **“Wedding group pay”** → `abstracts/wedding-group-pay.md` → `WEDDING_GROUP_PAY_AND_RETURNS.md`.
 - **“What reports or data can I query?”** → `AI_REPORTING_DATA_CATALOG.md` §0 inventory of GETs.

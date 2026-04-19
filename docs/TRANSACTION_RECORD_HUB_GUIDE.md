@@ -41,6 +41,6 @@ The **Transaction Record Hub** is the unified administrative view for historical
 
 ## Development Standards
 
-- **Permissions**: Viewing details requires `transactions.view`. Reprinting requires `register.reports` (inherited via the Receipt Modal).
+- **Permissions**: Viewing details requires `orders.view`. Reprinting requires `register.reports` (inherited via the Receipt Modal).
 - **Navigation**: Always prefer the slideout (Drawer) pattern over full-page redirects for transaction review to preserve the user's primary workspace state.
 - **Deep-Link Usage**: When generating new app notifications for transactions, always include the `transaction_id` in the `link_data` payload.

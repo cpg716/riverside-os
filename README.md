@@ -138,7 +138,8 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
 | `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint bridge, mapping, heartbeats | Ops / devs |
-| `docs/ORDERS_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
+| `docs/STAFF_SCHEDULE_XLSX_IMPORTER.md` | Staff Schedule Maker weekly grid + `.xlsx` import format and troubleshooting | Ops / devs |
+| `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
 | `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |
 | `docs/PLAN_BUG_REPORTS.md` | In-app bug report architecture and triage | Devs / ops |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |

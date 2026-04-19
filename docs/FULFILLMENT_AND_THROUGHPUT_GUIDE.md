@@ -24,7 +24,7 @@ The fulfillment queue ([fulfillment_queue.rs](file:///server/src/logic/fulfillme
 
 ## API Integration
 
-The `GET /api/orders/fulfillment-queue` endpoint returns a summary of these counts and a ranked list of orders. 
+The `GET /api/transactions/fulfillment-queue` endpoint returns a summary of these counts and a ranked list of transactions. 
 *   **Query Params**: `limit`, `offset`.
 *   **Permissions**: `orders.view`.
 

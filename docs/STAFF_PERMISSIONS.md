@@ -40,7 +40,7 @@ Migration **34** creates contacts + role/override tables; **36** and **39** seed
 
 **`migrations/36_orders_rbac_permissions.sql`** adds role defaults for **`orders.view`**, **`orders.modify`**, **`orders.cancel`**, and **`orders.refund_process`** (admin: all true; salesperson: view + refund_process; sales_support: all true). These keys must exist in **`server/src/auth/permissions.rs`** / **`ALL_PERMISSION_KEYS`** before the migration runs.
 
-Operational behavior (refund queue, returns, register session bypass): **`docs/ORDERS_RETURNS_EXCHANGES.md`**.
+Operational behavior (refund queue, returns, register session bypass): **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**.
 
 ### Extended Back Office keys (migration 39)
 
@@ -62,7 +62,7 @@ Operational behavior (refund queue, returns, register session bypass): **`docs/O
 | `register.open_drawer` | Back Office **paid-in / paid-out** drawer adjustments (`POST /api/sessions/{id}/adjustments`) **without** matching POS session token; open register devices still use session headers. Seeded in migration **50**. |
 | `register.shift_handoff` | **`POST /api/sessions/{id}/shift-primary`** — set **register shift primary** (`shift_primary_staff_id`) without closing the drawer; valid POS session token for that session **or** this permission from Back Office. Seeded in migration **55**. See **`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`**. |
 | `register.session_attach` | **`GET /api/sessions/list-open`** and **`POST /api/sessions/{id}/attach`** — pick or join an open lane when several registers are in use (migration **66**). Satellite open UI also calls **list-open** to link lane 2+ to an open **Register #1** in the same **`till_close_group_id`** (migration **67**). |
-| `orders.suit_component_swap` | **`POST /api/orders/{id}/items/{line}/suit-swap`** — inventory-aware variant replacement on a line. Seeded in migration **50**. |
+| `orders.suit_component_swap` | **`POST /api/transactions/{id}/items/{line}/suit-swap`** — inventory-aware variant replacement on a line. Seeded in migration **50**. |
 | `ops.dev_center.view` | **Settings → ROS Dev Center** read access (health, integrations, stations, alerts, audit, bug overlays). Seeded in migration **149** (admin default only). |
 | `ops.dev_center.actions` | ROS Dev Center guarded mutations (alert ack, guarded action execution, bug↔incident links). Requires explicit reason + dual confirmation and writes immutable action-audit rows. Seeded in migration **149** (admin default only). |
 
@@ -240,7 +240,7 @@ Any `fetch` to a permission-gated API must pass **`...(backofficeHeaders() as Re
 4. Confirm gated workspaces send **`backofficeHeaders`** on every relevant request (Insights, QBO, Staff, physical inventory, etc.).
 5. Confirm **sidebar** hides tabs and subsections (e.g. Physical count, **Commission payouts**, Staff sub-panels) when mapped permissions are absent.
 6. Confirm **deep links** or stale subsections **redirect** to the first allowed subsection after permissions load (`App.tsx`).
-7. **Orders:** With **`orders.view`** only, confirm list/detail work with **`backofficeHeaders`**; confirm **`orders.refund_process`** is required for **`/api/orders/refunds/due`** and **process refund**; confirm **`orders.modify`** is required for line edits and **returns** (see **`docs/ORDERS_RETURNS_EXCHANGES.md`**).
+7. **Orders:** With **`orders.view`** only, confirm list/detail work with **`backofficeHeaders`**; confirm **`orders.refund_process`** is required for **`/api/transactions/refunds/due`** and **process refund**; confirm **`orders.modify`** is required for line edits and **returns** (see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**).
 
 ---
 
@@ -278,7 +278,7 @@ Lightspeed’s [Setting user roles and permissions](https://x-series-support.lig
 ## Operational notes
 
 - **Migration 34** must be applied before relying on RBAC; missing tables or columns will surface as database errors in staff or wedding paths if other features assume newer schema.
-- **Migrations 36–37** are required for **orders** permission seeds and **line returns** / **exchange_group_id**; see **`docs/ORDERS_RETURNS_EXCHANGES.md`**.
+- **Migrations 36–37** are required for **orders** permission seeds and **line returns** / **exchange_group_id**; see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**.
 - **Migration 39** extends **`staff_role_permission`** with **catalog / procurement / settings / gift cards / loyalty program / weddings / register.reports**; apply after **34**.
 - **Migration 40** adds **`staff_role_pricing_limits`** (template discount caps; copied to **`staff.max_discount_percent`** per person).
 - **Migration 97** adds **`staff_permission`**, per-staff cap, employment + **`employee_customer_id`**, and backfill from legacy effective permissions.
