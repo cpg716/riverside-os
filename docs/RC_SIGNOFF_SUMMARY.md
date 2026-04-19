@@ -63,10 +63,11 @@ Local runtime parity for this RC branch expects:
 
 ## Release-readiness statement
 
-**Code RC gate passed; production release still requires operational signoff for envs, services, hardware, and external integrations.**
+**Code RC gate passed. Operational signoff is approved for v0.2.1, and the branch is ready for final release tagging.**
 
 ## Release-cut condition
 
 - Code RC gate passed on **`release/rc-gate-blocker-fixes`**.
-- Human operational signoff is still required before shipping.
-- Cut the release tag only after the operational checklist in **`docs/RELEASE_OPERATIONAL_SIGNOFF.md`** is complete.
+- Human operational signoff completed on **2026-04-19**.
+- Approved by **Christopher Garcia**.
+- The release tag may be cut after normal release mechanics (`npm run bump <version>`, commit, tag, and push) are executed.

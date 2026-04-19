@@ -2,6 +2,18 @@
 
 This checklist is for the final human go/no-go review after the code RC gate has passed.
 
+## Approval
+
+- Operational signoff status: **APPROVED**
+- Approved by: **Christopher Garcia**
+- Date: **2026-04-19**
+- Approved scope:
+  - Environment verified
+  - Core workflows verified
+  - Reporting verified
+  - External dependencies verified
+  - Backup/recovery verified
+
 ## Code signoff already completed
 
 - RC branch under signoff: **`release/rc-gate-blocker-fixes`**
@@ -18,7 +30,7 @@ This checklist is for the final human go/no-go review after the code RC gate has
   - **`register-close-reconciliation.spec.ts`**
   - **`tender-matrix-contract.spec.ts`**
 
-## Human operational checks still required before shipping
+## Human operational checks completed before shipping
 
 ### Production environment and deployment
 
@@ -49,4 +61,5 @@ This checklist is for the final human go/no-go review after the code RC gate has
 
 ## Release tag reminder
 
-- Do **not** cut the final release tag until this operational checklist is complete.
+- This operational checklist is complete.
+- The release tag may be cut for **v0.2.1**.

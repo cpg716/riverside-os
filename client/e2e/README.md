@@ -4,6 +4,7 @@
 
 ```bash
 # Terminal 1 (repo root): start deterministic local E2E stack
+npm install
 npm run dev:e2e
 
 # Terminal 2
@@ -30,6 +31,9 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx 
 Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default: **`E2E_BO_STAFF_CODE`** (default **1234**) — see migration **53** / **`docs/STAFF_PERMISSIONS.md`**.
 
 **Important local prerequisite:** Browser-based Playwright specs require a reachable UI at **`E2E_BASE_URL`** (default `http://localhost:43173`) and API at **`E2E_API_BASE`** (default `http://127.0.0.1:43300`). Local Playwright now auto-boots the deterministic stack for that dedicated pair unless **`E2E_AUTO_BOOT=0`** is set. To mirror that stack manually, run **`npm run dev:e2e`** at the repo root; it brings up Docker Postgres, reapplies migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus Vite on the dedicated E2E ports so it does not collide with a normal `npm run dev` session or other local Vite projects. The Vite side uses `--strictPort`, so a port collision fails fast instead of silently serving the wrong app.
+
+**Server env note:** the API still reads **`server/.env`** during local/E2E boot. Keep **`DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os`** there for the repo Docker Postgres. If you expect Metabase inside the local browser stack to auto-log in instead of showing the Metabase login page, populate the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth envs in **`server/.env`** as well.
+**Root dependency note:** `npm run dev:e2e` and the repo-level E2E shortcuts require the root package dependencies in this worktree. Do not rely on a `node_modules` symlink from another checkout for release validation.
 
 **CI note:** GitHub Actions runs Playwright against Axum serving the built SPA on **`http://127.0.0.1:3000`**, not Vite on `:5173`. CI also seeds the default admin/non-admin staff fixtures, opens a default register session for the tender contract suite, and retains Playwright traces on failure for faster triage.
 
