@@ -64,3 +64,9 @@ Local runtime parity for this RC branch expects:
 ## Release-readiness statement
 
 **Code RC gate passed; production release still requires operational signoff for envs, services, hardware, and external integrations.**
+
+## Release-cut condition
+
+- Code RC gate passed on **`release/rc-gate-blocker-fixes`**.
+- Human operational signoff is still required before shipping.
+- Cut the release tag only after the operational checklist in **`docs/RELEASE_OPERATIONAL_SIGNOFF.md`** is complete.

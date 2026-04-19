@@ -50,7 +50,13 @@ This script updates all required JSON and TOML files, as well as the `README.md`
    git commit -m "chore: bump version to v0.2.x"
    git tag -a v0.2.x -m "Release v0.2.x"
    ```
-4. Push: `git push origin main && git push origin --tags`
+4. Push the release branch and tags:
+   ```bash
+   git push origin <branch>
+   git push origin --tags
+   ```
+
+Only cut the release tag after the code RC gate has passed and the human operational checklist in `docs/RELEASE_OPERATIONAL_SIGNOFF.md` is complete.
 
 ---
 

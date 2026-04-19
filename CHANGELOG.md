@@ -36,6 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added migration **149** for ROS Dev Center telemetry/audit schema.
   - Added migration **150** restoring `reporting.order_lines.line_gross_margin_pre_tax` and keeping migration probes in sync.
 
+### Changed
+- **Release-candidate parity documentation**:
+  - Documented local RC/runtime prerequisites, deterministic E2E stack ports, root/client install requirements, and local Metabase shared-auth expectations.
+  - Added explicit RC signoff and operational signoff artifacts for final release review.
+
+### Fixed
+- **Release hardening and validation**:
+  - Hardened production-facing config guidance for API base selection, CORS, storefront JWT secrets, and frontend dist expectations.
+  - Corrected returns/exchanges checkout null handling and aligned receipt/reporting behavior with return-adjusted quantities.
+  - Hardened RMS payment collection receipt/reporting behavior and unified historical Z-close reporting to canonical Register #1 rows.
+  - Restored deterministic RC E2E execution, including the exchange flow, tender matrix coverage, and root `npm run pack` packaging workflow.
+
 ## [0.2.0] — 2026-04-16
 ### Added
 - **Full-Width Workspace Modernization**: Transformed all primary workspaces (Orders, Customers, Inventory, etc.) into a high-performance, edge-to-edge layout. Deprecated nested scrolling in favor of native root document scrolling for a smoother "Pro" experience on 1080p, 1440p, and iPad 11 Pro screens.
