@@ -1120,6 +1120,7 @@ async fn rms_charges_report(
 #[derive(Debug, Serialize, FromRow)]
 pub struct RegisterSessionHistoryRow {
     pub id: Uuid,
+    pub register_lane: i16,
     pub register_ordinal: i64,
     pub opened_at: DateTime<Utc>,
     pub closed_at: Option<DateTime<Utc>>,
@@ -1262,6 +1263,7 @@ async fn register_session_history(
         r#"
         SELECT
             rs.id,
+            rs.register_lane,
             rs.session_ordinal AS register_ordinal,
             rs.opened_at,
             rs.closed_at,
@@ -1277,14 +1279,16 @@ async fn register_session_history(
                     SELECT 1
                     FROM payment_allocations pa
                     INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+                    INNER JOIN register_sessions rs_group ON rs_group.id = pt.session_id
                     WHERE pa.target_transaction_id = o.id
-                      AND pt.session_id = rs.id
+                      AND rs_group.till_close_group_id = rs.till_close_group_id
                       AND pa.amount_allocated > 0
                 )
             ) AS total_sales
         FROM register_sessions rs
         JOIN staff s ON s.id = rs.opened_by
         WHERE rs.closed_at IS NOT NULL
+          AND rs.register_lane = 1
           AND rs.closed_at >= $1
           AND rs.closed_at < $2
         ORDER BY rs.closed_at DESC

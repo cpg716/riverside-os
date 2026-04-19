@@ -97,6 +97,7 @@ interface RegisterDaySummary {
 
 interface RegisterSessionRow {
   id: string;
+  register_lane: number;
   register_ordinal: number;
   opened_at: string;
   closed_at: string | null;
@@ -813,7 +814,9 @@ export default function RegisterReports({
                   {zLogs.map((session) => (
                     <li key={session.id} className="flex items-center gap-4 px-4 py-4 sm:px-6 hover:bg-app-surface/50">
                       <div className="flex-1">
-                        <p className="text-xs font-bold text-app-text-muted">Lane {session.register_ordinal}</p>
+                        <p className="text-xs font-bold text-app-text-muted">
+                          Register #{session.register_lane} · Session #{session.register_ordinal}
+                        </p>
                         <p className="font-black text-app-text">{session.cashier_name}</p>
                         <p className="text-sm text-app-text-muted">{new Date(session.opened_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p>
                       </div>
