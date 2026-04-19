@@ -7,10 +7,11 @@
 ```bash
 cd client
 npm run test:e2e -- --list
-E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npx playwright test --workers=1
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx playwright test --workers=1
 ```
 
-Prefer **`localhost`** for `E2E_BASE_URL` (see **`AGENTS.md`**). Full UI specs need **`npm run dev`** (API + Vite). **`api-gates.spec.ts`** needs only the **API** on **`E2E_API_BASE`**.
+Prefer **`localhost`** for `E2E_BASE_URL` (see **`AGENTS.md`**). Full UI specs need a reachable API + Vite pair. **`api-gates.spec.ts`** needs only the **API** on **`E2E_API_BASE`**.
+For deterministic local browser runs, prefer **`npm run dev:e2e`** from the repo root. That stack uses dedicated local ports (**`http://127.0.0.1:43300`** API + **`http://localhost:43173`** UI) so it does not collide with a normal `npm run dev` session on `3000/5173` or other local Vite apps. The Vite side uses `--strictPort` so collisions fail fast. Playwright also auto-boots that same dedicated stack unless **`E2E_AUTO_BOOT=0`** is set.
 
 Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`E2E_BO_STAFF_CODE`** default **1234**), **`client/e2e/helpers/openPosRegister.ts`**.
 
@@ -22,7 +23,7 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 |------|----------------|------------------------|
 | **`backoffice-signin.spec.ts`** | Back Office keypad gate; wrong code; **Switch staff** | API + migration **53** staff; serial mode |
 | **`pos-golden.spec.ts`** | POS shell: open till, cashier overlay, product search / checkout drawer path | Same + register session |
-| **`exchange-wizard.spec.ts`** | Exchange wizard opens from cart | Open till + cashier signed in |
+| **`exchange-wizard.spec.ts`** | Exchange wizard opens from cart; return recalculation parity across transaction detail, refund queue, and receipt ZPL | Open till + cashier signed in; deterministic local stack seeds Admin (`1234`) |
 | **`morning-compass-coach.spec.ts`** | **Suggested next** coach on **Register dashboard** + **Operations** morning home | Permissions: **`weddings.view`** or **`tasks.complete`** or **`notifications.view`** |
 | **`staff-tasks.spec.ts`** | **Staff → Tasks** → **My tasks** | Migration **56**, task permissions |
 | **`podium-settings.spec.ts`** | **Settings → Integrations** Podium section | **`settings.admin`**-ish paths |
@@ -102,7 +103,7 @@ These are **not** exhaustive RBAC tests; they catch **totally open** regressions
 - **`playwright-e2e.yml`:** on **PR** and **push** to **`main`** — Postgres (**`pgvector/pgvector:pg16`**), **`scripts/apply-migrations-psql.sh`**, **`scripts/seed_e2e_non_admin_staff.sql`**, **`scripts/seed_staff_register_test.sql`**, **`cargo build` / `cargo run`** with **`RIVERSIDE_HTTP_BIND=127.0.0.1:3000`**, **`client` `npm ci` + `npm run build`**, Playwright Chromium + **`npx playwright test --workers=1`**. **`E2E_BASE_URL` / `E2E_API_BASE`** target **`http://127.0.0.1:3000`** (SPA from Axum). CI opens a default Register #1 session before the suite so the tender contract coverage cannot silently skip due to missing session state. Failure uploads **`playwright-output`** artifact, and CI now retains Playwright traces on failure for faster debugging. Visual baselines are **non-blocking by default** because they are opt-in via **`E2E_RUN_VISUAL=1`**; when enabled, use stabilized visual settings (animations disabled, UTC timezone, en-US locale) and a pinned environment for snapshot authority.
 - **`tauri-register-build.yml`:** Windows Tauri bundle (**`workflow_dispatch`** only).
 
-Local release gate remains **`E2E_BASE_URL=http://localhost:5173`** + **`npm run dev`** when exercising Vite-specific behavior.
+Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localhost:43173`** and **`E2E_API_BASE=http://127.0.0.1:43300`** with **`npm run dev:e2e`** (or Playwright auto-boot) so DB, seed staff, API, and UI all come up together without clashing with an ordinary dev stack.
 
 ---
 

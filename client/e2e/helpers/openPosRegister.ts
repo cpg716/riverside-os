@@ -40,9 +40,9 @@ async function closeStaffDropdownIfOpen(
 
 async function selectFirstStaffMember(dialog: Page["locator"]): Promise<void> {
   const preferredName = e2eBackofficeStaffName();
-  const selectorButton = dialog
-    .getByText(/select your name/i)
-    .locator("xpath=following::button[1]");
+  const selectorButton = dialog.getByRole("button", {
+    name: /select staff member|select\.\.\.|select your name/i,
+  });
   if (!(await selectorButton.isVisible().catch(() => false))) {
     return;
   }
@@ -69,6 +69,7 @@ async function selectFirstStaffMember(dialog: Page["locator"]): Promise<void> {
   const preferredOption = dialog.getByRole("button", {
     name: new RegExp(preferredName, "i"),
   });
+  await preferredOption.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
     await closeStaffDropdownIfOpen(dialog, selectorButton, preferredName);
