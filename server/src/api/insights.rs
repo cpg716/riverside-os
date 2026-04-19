@@ -227,6 +227,14 @@ pub async fn run_sales_pivot(
     let completed = basis.is_completed();
 
     let gb = q.group_by.to_lowercase();
+    let returns_join = r#"
+            LEFT JOIN (
+                SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+                FROM transaction_return_lines
+                GROUP BY transaction_line_id
+            ) orl ON orl.transaction_line_id = oi.id
+    "#;
+    let effective_qty_sql = "GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)";
     if gb == "customer" {
         let date_filter = if completed {
             order_date_filter_sql(ReportBasis::Completed)
@@ -253,10 +261,10 @@ pub async fn run_sales_pivot(
                         || ' · '
                         || COALESCE(MAX(cust.customer_code), '')
                 END AS bucket,
-                COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14, 2) AS gross_revenue,
-                COALESCE(SUM((oi.state_tax + oi.local_tax)::numeric), 0)::numeric(14, 2) AS tax_collected,
+                COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS gross_revenue,
+                COALESCE(SUM(((oi.state_tax + oi.local_tax) * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS tax_collected,
                 COUNT(DISTINCT o.id)::bigint AS order_count,
-                COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
+                COALESCE(SUM(({effective_qty_sql})::bigint), 0)::bigint AS line_units,
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 o.customer_id AS customer_id
@@ -266,6 +274,7 @@ pub async fn run_sales_pivot(
             LEFT JOIN customers cust ON cust.id = o.customer_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
+            {returns_join}
             WHERE {date_filter}
             GROUP BY o.customer_id
             ORDER BY gross_revenue DESC NULLS LAST
@@ -305,10 +314,10 @@ pub async fn run_sales_pivot(
             WITH agg AS (
                 SELECT
                     {date_key}::text AS bucket,
-                    COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14, 2) AS gross_revenue,
-                    COALESCE(SUM((oi.state_tax + oi.local_tax)::numeric), 0)::numeric(14, 2) AS tax_collected,
+                    COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS gross_revenue,
+                    COALESCE(SUM(((oi.state_tax + oi.local_tax) * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS tax_collected,
                     COUNT(DISTINCT o.id)::bigint AS order_count,
-                    COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
+                    COALESCE(SUM(({effective_qty_sql})::bigint), 0)::bigint AS line_units,
                     {date_key} AS sale_day,
                     NULL::uuid AS customer_id
                 FROM transaction_lines oi
@@ -316,6 +325,7 @@ pub async fn run_sales_pivot(
                 INNER JOIN products p ON p.id = oi.product_id
                 LEFT JOIN categories c ON c.id = p.category_id
                 LEFT JOIN staff st ON st.id = oi.salesperson_id
+                {returns_join}
                 WHERE {date_filter}
                 GROUP BY {date_key}
             )
@@ -357,10 +367,10 @@ pub async fn run_sales_pivot(
             r#"
             SELECT
                 {dim_sql} AS bucket,
-                COALESCE(SUM((oi.unit_price * oi.quantity)::numeric), 0)::numeric(14, 2) AS gross_revenue,
-                COALESCE(SUM((oi.state_tax + oi.local_tax)::numeric), 0)::numeric(14, 2) AS tax_collected,
+                COALESCE(SUM((oi.unit_price * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS gross_revenue,
+                COALESCE(SUM(((oi.state_tax + oi.local_tax) * {effective_qty_sql})::numeric), 0)::numeric(14, 2) AS tax_collected,
                 COUNT(DISTINCT o.id)::bigint AS order_count,
-                COALESCE(SUM(oi.quantity::bigint), 0)::bigint AS line_units,
+                COALESCE(SUM(({effective_qty_sql})::bigint), 0)::bigint AS line_units,
                 NULL::jsonb AS weather_snapshot,
                 NULL::text AS closing_comments,
                 NULL::uuid AS customer_id
@@ -369,6 +379,7 @@ pub async fn run_sales_pivot(
             INNER JOIN products p ON p.id = oi.product_id
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN staff st ON st.id = oi.salesperson_id
+            {returns_join}
             WHERE {date_filter}
             GROUP BY {dim_sql}
             ORDER BY gross_revenue DESC NULLS LAST
@@ -773,7 +784,7 @@ async fn nys_tax_audit(
                   AND oi.local_tax > 0
             )::bigint AS local_only_exempt_lines,
             COALESCE(
-                SUM((oi.unit_price * oi.quantity)::numeric) FILTER (
+                SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
                     WHERE COALESCE(c.is_clothing_footwear, false)
                       AND oi.state_tax = 0
                       AND oi.local_tax > 0
@@ -781,7 +792,7 @@ async fn nys_tax_audit(
                 0
             )::numeric(14, 2) AS local_only_exempt_net_revenue,
             COALESCE(
-                SUM(oi.state_tax::numeric) FILTER (
+                SUM((oi.state_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
                     WHERE COALESCE(c.is_clothing_footwear, false)
                       AND oi.state_tax = 0
                       AND oi.local_tax > 0
@@ -789,7 +800,7 @@ async fn nys_tax_audit(
                 0
             )::numeric(14, 2) AS local_only_exempt_state_tax,
             COALESCE(
-                SUM(oi.local_tax::numeric) FILTER (
+                SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
                     WHERE COALESCE(c.is_clothing_footwear, false)
                       AND oi.state_tax = 0
                       AND oi.local_tax > 0
@@ -798,12 +809,12 @@ async fn nys_tax_audit(
             )::numeric(14, 2) AS local_only_exempt_local_tax,
             COUNT(*) FILTER (
                 WHERE COALESCE(c.is_clothing_footwear, false)
-                  AND (oi.unit_price * oi.quantity)::numeric >= $3
+                  AND (oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric >= $3
             )::bigint AS clothing_at_or_over_threshold_lines,
             COALESCE(
-                SUM((oi.unit_price * oi.quantity)::numeric) FILTER (
+                SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
                     WHERE COALESCE(c.is_clothing_footwear, false)
-                      AND (oi.unit_price * oi.quantity)::numeric >= $3
+                      AND (oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric >= $3
                 ),
                 0
             )::numeric(14, 2) AS clothing_at_or_over_threshold_net,
@@ -815,7 +826,7 @@ async fn nys_tax_audit(
                       )
             )::bigint AS standard_path_lines,
             COALESCE(
-                SUM((oi.unit_price * oi.quantity)::numeric) FILTER (
+                SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric) FILTER (
                     WHERE NOT COALESCE(c.is_clothing_footwear, false)
                        OR (
                             COALESCE(c.is_clothing_footwear, false)
@@ -824,12 +835,17 @@ async fn nys_tax_audit(
                 ),
                 0
             )::numeric(14, 2) AS standard_path_net,
-            COALESCE(SUM(oi.state_tax::numeric), 0)::numeric(14, 2) AS total_state_tax,
-            COALESCE(SUM(oi.local_tax::numeric), 0)::numeric(14, 2) AS total_local_tax
+            COALESCE(SUM((oi.state_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric), 0)::numeric(14, 2) AS total_state_tax,
+            COALESCE(SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric), 0)::numeric(14, 2) AS total_local_tax
         FROM transaction_lines oi
         INNER JOIN transactions o ON o.id = oi.transaction_id
         INNER JOIN products p ON p.id = oi.product_id
         LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN (
+            SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
+            FROM transaction_return_lines
+            GROUP BY transaction_line_id
+        ) orl ON orl.transaction_line_id = oi.id
         WHERE {order_filter}
         "#
     ))
