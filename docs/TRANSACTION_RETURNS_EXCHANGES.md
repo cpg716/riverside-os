@@ -68,7 +68,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 ## Line-level returns
 
 - **`POST /api/transactions/{id}/returns`**  
-  Body: `{ "lines": [ { "transaction_item_id", "quantity", "reason?", "restock?" } ] }`  
+  Body: `{ "lines": [ { "transaction_line_id", "quantity", "reason?", "restock?" } ] }`  
   Requires **`orders.modify`** (or register session path above).
 
 - **Rules**
