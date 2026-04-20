@@ -2,6 +2,7 @@ import { expect, test } from "@playwright/test";
 import {
   clearBackofficeSession,
   e2eBackofficeStaffCode,
+  selectBackofficeStaffMember,
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
 
@@ -74,6 +75,7 @@ test.describe("Back Office sign-in gate", () => {
     await expect(
       page.getByRole("heading", { name: /^sign in$/i }),
     ).toBeVisible({ timeout: 20_000 });
+    await selectBackofficeStaffMember(page);
 
     for (const digit of "9999") {
       await page.getByRole("button", { name: digit, exact: true }).click();

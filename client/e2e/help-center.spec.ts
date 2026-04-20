@@ -7,7 +7,12 @@
  *   E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/help-center.spec.ts --workers=1
  */
 import { expect, test } from "@playwright/test";
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  ensureMainNavigationVisible,
+  openBackofficeSidebarTab,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
+import { enterPosShell } from "./helpers/openPosRegister";
 
 const base = () =>
   (process.env.E2E_BASE_URL ?? "http://localhost:5173").replace(/\/$/, "");
@@ -15,22 +20,28 @@ const base = () =>
 async function openSettingsHelpCenterManager(
   page: Parameters<typeof test>[0]["page"],
 ) {
-  const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
-  await expect(mainNav).toBeVisible({ timeout: 20_000 });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await openBackofficeSidebarTab(page, "settings");
+    const mainNav = await ensureMainNavigationVisible(page);
+    const helpCenterButton = mainNav.getByRole("button", {
+      name: /^help center$/i,
+    });
+    await helpCenterButton.scrollIntoViewIfNeeded();
+    await expect(helpCenterButton).toBeVisible({ timeout: 15_000 });
+    await expect(helpCenterButton).toBeEnabled();
+    await helpCenterButton.click();
 
-  const settingsBtn = mainNav.getByRole("button", {
-    name: /^settings(\s+bo)?$/i,
-  });
-  await expect(settingsBtn).toBeVisible({ timeout: 15_000 });
-  await expect(settingsBtn).toBeEnabled();
-  await settingsBtn.click();
-
-  const helpCenterButton = mainNav.getByRole("button", {
-    name: /^help center$/i,
-  });
-  await expect(helpCenterButton).toBeVisible({ timeout: 15_000 });
-  await expect(helpCenterButton).toBeEnabled();
-  await helpCenterButton.click();
+    const managerHeading = page.getByRole("heading", {
+      name: /help center manager/i,
+    });
+    if (await managerHeading.isVisible().catch(() => false)) {
+      return;
+    }
+    await managerHeading.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+    if (await managerHeading.isVisible().catch(() => false)) {
+      return;
+    }
+  }
 
   await expect(
     page.getByRole("heading", { name: /help center manager/i }),
@@ -48,7 +59,8 @@ test("opens Help from Back Office header", async ({ page }) => {
 
 test("opens Help from POS top bar", async ({ page }) => {
   await signInToBackOffice(page);
-  await page.goto(`${base()}/pos`, { waitUntil: "domcontentloaded" });
+  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await enterPosShell(page);
   await page.getByTestId("help-center-trigger").click();
   await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();
   await expect(page.getByTestId("help-center-search")).toBeVisible();

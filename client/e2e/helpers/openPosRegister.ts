@@ -1,5 +1,8 @@
 import { expect, type Page } from "@playwright/test";
-import { e2eBackofficeStaffCode } from "./backofficeSignIn";
+import {
+  e2eBackofficeStaffCode,
+  openBackofficeSidebarTab,
+} from "./backofficeSignIn";
 
 function e2eBackofficeStaffName(): string {
   return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
@@ -110,11 +113,12 @@ async function selectFirstStaffMember(dialog: Page["locator"]): Promise<void> {
   await closeStaffDropdownIfOpen(dialog, selectorButton, preferredName);
 }
 
-/**
- * Completes `RegisterOverlay` when the till is closed (lane 1 + opening float).
- * No-op if the dialog is not shown (session already open).
- */
-export async function ensurePosRegisterSessionOpen(page: Page): Promise<void> {
+export async function ensurePosRegisterSessionOpen(
+  page: Page,
+  options?: {
+    staffCode?: string;
+  },
+): Promise<void> {
   // 1. Wait for initial bootstrap to clear
   await expect(page.getByText(/loading riverside pos/i)).toBeHidden({ timeout: 20_000 });
 
@@ -149,9 +153,14 @@ export async function ensurePosRegisterSessionOpen(page: Page): Promise<void> {
     )
     .toBeTruthy();
 
-  if (!(await registerDialog.isVisible().catch(() => false))) return;
+  if (!(await registerDialog.isVisible().catch(() => false))) {
+    if (!(await posNav.isVisible().catch(() => false))) {
+      await enterPosShell(page);
+    }
+    return;
+  }
 
-  const code = e2eBackofficeStaffCode();
+  const code = e2eBackofficeStaffCode(options?.staffCode);
   for (const digit of code) {
     // No force: true, let Playwright wait for enablement
     await registerDialog.getByTestId(`pin-key-${digit}`).click();
@@ -165,6 +174,9 @@ export async function ensurePosRegisterSessionOpen(page: Page): Promise<void> {
   await registerDialog.getByRole("button", { name: /^open register$/i }).click();
 
   await expect(registerDialog).toBeHidden({ timeout: 30_000 });
+  if (!(await posNav.isVisible().catch(() => false))) {
+    await enterPosShell(page);
+  }
 }
 
 /**
@@ -216,4 +228,66 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
       { timeout: 20_000 },
     )
     .toBeTruthy();
+}
+
+export async function enterPosShell(page: Page): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await openBackofficeSidebarTab(page, "register");
+    const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+    const enterPosButton = page.getByRole("button", {
+      name: /^(enter|return) to pos$/i,
+    });
+    const posDashboardPlaceholder = page.getByText(
+      /pos-dashboard module coming soon\./i,
+    );
+    const operationsOverview = page.getByRole("heading", {
+      name: /operations overview/i,
+    });
+
+    const readLandingState = async () => {
+      if (await posNav.isVisible().catch(() => false)) return "nav";
+      if (await enterPosButton.isVisible().catch(() => false)) return "launch";
+      if (await posDashboardPlaceholder.isVisible().catch(() => false)) {
+        return "placeholder";
+      }
+      if (await operationsOverview.isVisible().catch(() => false)) {
+        return "backoffice";
+      }
+      return "pending";
+    };
+
+    await expect
+      .poll(readLandingState, {
+        timeout: 10_000,
+        message: "POS entry never reached a recognizable shell state",
+      })
+      .not.toBe("pending");
+
+    const landingState = await readLandingState();
+
+    if (landingState === "launch") {
+      await expect(enterPosButton).toBeEnabled();
+      await enterPosButton.click();
+      await expect(posNav).toBeVisible({ timeout: 20_000 });
+    }
+
+    await expect
+      .poll(readLandingState, {
+        timeout: 5_000,
+        message: "POS shell never stabilized after entry",
+      })
+      .not.toBe("pending");
+
+    const settledState = await readLandingState();
+    if (settledState === "nav") {
+      return;
+    }
+    if (settledState === "backoffice" || settledState === "placeholder") {
+      continue;
+    }
+  }
+
+  await expect(
+    page.getByRole("navigation", { name: "POS Navigation" }),
+  ).toBeVisible({ timeout: 20_000 });
 }

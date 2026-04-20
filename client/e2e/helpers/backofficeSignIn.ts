@@ -2,12 +2,15 @@ import { expect, type Page } from "@playwright/test";
 
 const SESSION_KEY = "ros.backoffice.session.v1";
 
-function e2eBackofficeStaffName(): string {
-  return process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
+function resolveBackofficeStaffName(staffName?: string): string {
+  return staffName?.trim() || process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
 }
 
-async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRole"]>) {
-  const preferredName = e2eBackofficeStaffName();
+export async function selectBackofficeStaffMember(
+  container: Page | ReturnType<Page["getByRole"]>,
+  staffName?: string,
+) {
+  const preferredName = resolveBackofficeStaffName(staffName);
   const selectorButton = container.getByRole("button", {
     name: /select staff member|select\.\.\.|select your name/i,
   });
@@ -21,9 +24,13 @@ async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRo
   const preferredOption = container.getByRole("button", {
     name: new RegExp(preferredName, "i"),
   });
+  const selectedStaffButton = container
+    .getByRole("button", { name: new RegExp(preferredName, "i") })
+    .first();
   await preferredOption.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
+    await expect(selectedStaffButton).toBeVisible({ timeout: 5_000 });
     return;
   }
   const options = container
@@ -35,11 +42,86 @@ async function selectFirstStaffMember(container: Page | ReturnType<Page["getByRo
   if (optionCount > 0) {
     await options.first().click();
   }
+  if (staffName) {
+    await expect(selectedStaffButton).toBeVisible({ timeout: 5_000 });
+  }
+}
+
+export async function ensureMainNavigationVisible(page: Page) {
+  const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+  if (await mainNav.isVisible().catch(() => false)) {
+    return mainNav;
+  }
+  const menuToggle = page.getByRole("button", { name: "Toggle menu" });
+  if (await menuToggle.isVisible().catch(() => false)) {
+    await menuToggle.click();
+  }
+  await expect(mainNav).toBeVisible({ timeout: 20_000 });
+  return mainNav;
+}
+
+export async function openBackofficeSidebarTab(
+  page: Page,
+  tabId:
+    | "home"
+    | "register"
+    | "customers"
+    | "alterations"
+    | "orders"
+    | "inventory"
+    | "weddings"
+    | "gift-cards"
+    | "loyalty"
+    | "staff"
+    | "qbo"
+    | "appointments"
+    | "reports"
+    | "dashboard"
+    | "settings",
+) {
+  const mainNav = await ensureMainNavigationVisible(page);
+  const tabLabelPatterns: Record<typeof tabId, RegExp> = {
+    home: /^operations(?:\s+bo)?$/i,
+    register: /^pos$/i,
+    customers: /^customers(?:\s+pos)?$/i,
+    alterations: /^alterations(?:\s+pos)?$/i,
+    orders: /^orders(?:\s+pos)?$/i,
+    inventory: /^inventory(?:\s+bo)?$/i,
+    weddings: /^weddings(?:\s+bo)?$/i,
+    "gift-cards": /^gift cards(?:\s+bo)?$/i,
+    loyalty: /^loyalty(?:\s+bo)?$/i,
+    staff: /^staff(?:\s+bo)?$/i,
+    qbo: /^qbo bridge(?:\s+bo)?$/i,
+    appointments: /^appointments(?:\s+bo)?$/i,
+    reports: /^reports(?:\s+bo)?$/i,
+    dashboard: /^insights(?:\s+bo)?$/i,
+    settings: /^settings(?:\s+bo)?$/i,
+  };
+  const tabButton = mainNav.getByRole("button", {
+    name: tabLabelPatterns[tabId],
+  });
+  await tabButton.scrollIntoViewIfNeeded();
+  await expect(tabButton).toBeVisible({ timeout: 15_000 });
+  await expect(tabButton).toBeEnabled();
+  await tabButton.click();
+  if (tabId === "register") {
+    return tabButton;
+  }
+  if (tabId === "settings") {
+    await expect(
+      mainNav.getByRole("button", { name: /^help center$/i }),
+    ).toBeVisible({ timeout: 20_000 });
+  } else {
+    await expect(tabButton).toHaveAttribute("aria-current", "page", {
+      timeout: 15_000,
+    });
+  }
+  return tabButton;
 }
 
 /** Default seeded admin in `scripts/seed_staff_register_test.sql` + migration `53_default_admin_chris_g_pin.sql`. */
-export function e2eBackofficeStaffCode(): string {
-  return process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
+export function e2eBackofficeStaffCode(staffCode?: string): string {
+  return staffCode?.trim() || process.env.E2E_BO_STAFF_CODE?.trim() || "1234";
 }
 
 /**
@@ -51,15 +133,18 @@ export async function clearBackofficeSession(page: Page): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
 }
 
-/**
- * Completes Back Office sign-in via the 4-digit keypad when the gate is shown.
- * No-op if the main shell is already visible (e.g. session restored).
- */
-export async function signInToBackOffice(page: Page): Promise<void> {
-  const code = e2eBackofficeStaffCode();
+export async function signInToBackOffice(
+  page: Page,
+  options?: {
+    staffCode?: string;
+    staffName?: string;
+    persistSession?: boolean;
+  },
+): Promise<void> {
+  const code = e2eBackofficeStaffCode(options?.staffCode);
   if (code.length !== 4 || !/^\d{4}$/.test(code)) {
     throw new Error(
-      "E2E_BO_STAFF_CODE must be exactly four digits when set (default 1234).",
+      "Back Office E2E staff code must be exactly four digits.",
     );
   }
 
@@ -83,6 +168,41 @@ export async function signInToBackOffice(page: Page): Promise<void> {
     : null;
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
+  if (options?.persistSession) {
+    await page.evaluate(
+      ({ key, staffCode }) => {
+        sessionStorage.setItem(
+          key,
+          JSON.stringify({ staffCode, staffPin: staffCode }),
+        );
+      },
+      { key: SESSION_KEY, staffCode: code },
+    );
+    await page.reload({ waitUntil: "networkidle" }).catch(() =>
+      page.reload({ waitUntil: "domcontentloaded" }),
+    );
+    await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
+      timeout: 30_000,
+    });
+    await expect
+      .poll(
+        async () =>
+          (await page
+            .getByRole("heading", { name: /operations overview/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page
+            .getByRole("navigation", { name: "POS Navigation" })
+            .isVisible()
+            .catch(() => false)) ||
+          (await ensureMainNavigationVisible(page)
+            .then(() => true)
+            .catch(() => false)),
+        { timeout: 20_000, message: "Back Office shell never stabilized after session restore" },
+      )
+      .toBeTruthy();
+    return;
+  }
   await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
   await page.reload({ waitUntil: "networkidle" }).catch(() =>
     page.reload({ waitUntil: "domcontentloaded" }),
@@ -96,10 +216,24 @@ export async function signInToBackOffice(page: Page): Promise<void> {
     if (effectivePermAfterShellLoad) await effectivePermAfterShellLoad;
     else
       await page.waitForLoadState("domcontentloaded", { timeout: 25_000 }).catch(() => {});
+    await expect
+      .poll(
+        async () =>
+          (await page
+            .getByRole("heading", { name: /operations overview/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page
+            .getByRole("navigation", { name: "POS Navigation" })
+            .isVisible()
+            .catch(() => false)),
+        { timeout: 20_000, message: "Back Office shell never stabilized after session restore" },
+      )
+      .toBeTruthy();
     return;
   }
 
-  await selectFirstStaffMember(page);
+  await selectBackofficeStaffMember(page, options?.staffName);
 
   const effectivePerm200 = page.waitForResponse(
     (r) =>
@@ -108,6 +242,14 @@ export async function signInToBackOffice(page: Page): Promise<void> {
       r.status() === 200,
     { timeout: 25_000 },
   );
+  const sessionBootstrapSettled = page
+    .waitForResponse(
+      (r) =>
+        r.url().includes("/api/sessions/current") &&
+        r.request().method() === "GET",
+      { timeout: 25_000 },
+    )
+    .catch(() => null);
 
   for (const digit of code) {
     await page.getByTestId(`pin-key-${digit}`).click();
@@ -132,4 +274,19 @@ export async function signInToBackOffice(page: Page): Promise<void> {
     .toBeTruthy();
 
   await effectivePerm200;
+  await sessionBootstrapSettled;
+  await expect
+    .poll(
+      async () =>
+        (await page
+          .getByRole("heading", { name: /operations overview/i })
+          .isVisible()
+          .catch(() => false)) ||
+        (await page
+          .getByRole("navigation", { name: "POS Navigation" })
+          .isVisible()
+          .catch(() => false)),
+      { timeout: 20_000, message: "Back Office shell never finished bootstrap after sign-in" },
+    )
+    .toBeTruthy();
 }

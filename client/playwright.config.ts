@@ -28,7 +28,7 @@ export default defineConfig({
           command: `E2E_BASE_URL="${baseURL}" E2E_API_BASE="${apiBase}" bash ../scripts/e2e-local-stack.sh`,
           url: baseURL,
           timeout: 600_000,
-          reuseExistingServer: false,
+          reuseExistingServer: true,
         }
       : undefined,
   use: {
