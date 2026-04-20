@@ -789,16 +789,16 @@ fn generate_mock_weather(date: NaiveDate) -> DailyWeatherContext {
     let mut precip = 0.0;
     let mut condition = "Sunny".to_string();
 
-    if seed % 4 == 0 {
+    if seed.is_multiple_of(4) {
         precip = (seed as f32 % 5.0) * 0.15 + 0.05;
         condition = if temp_high < 34.0 {
             "Snow".to_string()
         } else {
             "Rain".to_string()
         };
-    } else if seed % 3 == 0 {
+    } else if seed.is_multiple_of(3) {
         condition = "Cloudy".to_string();
-    } else if seed % 7 == 0 {
+    } else if seed.is_multiple_of(7) {
         condition = "Partly Cloudy".to_string();
     }
 

@@ -1111,7 +1111,7 @@ pub async fn collect_integrations(
             .collect();
         cp_failed = !stale_entities.is_empty();
         if cp_failed {
-            cp_detail = format!("{}", stale_entities.join(", "));
+            cp_detail = stale_entities.join(", ");
         } else {
             cp_detail = "All Counterpoint entities recently healthy".to_string();
         }

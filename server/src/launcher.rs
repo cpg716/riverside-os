@@ -532,10 +532,10 @@ async fn start_backup_worker(state: AppState) -> Result<(), anyhow::Error> {
                     let manager = BackupManager::new(st.database_url.clone());
                     if let Ok(filename) = manager.create_backup().await {
                         let _ = record_local_backup_success(&st.db).await;
-                        if settings.cloud_storage_enabled {
-                            if manager.sync_to_cloud(&filename, &settings).await.is_ok() {
-                                let _ = record_cloud_backup_success(&st.db).await;
-                            }
+                        if settings.cloud_storage_enabled
+                            && manager.sync_to_cloud(&filename, &settings).await.is_ok()
+                        {
+                            let _ = record_cloud_backup_success(&st.db).await;
                         }
                     }
                 }

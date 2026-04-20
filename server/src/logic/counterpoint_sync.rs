@@ -488,7 +488,6 @@ pub async fn execute_counterpoint_inventory_batch(
     }
 
     let mut updated = 0i32;
-    let mut skipped = 0i32;
 
     let mut tx = pool.begin().await?;
 
@@ -505,7 +504,6 @@ pub async fn execute_counterpoint_inventory_batch(
     for row in &payload.rows {
         let sku = row.sku.trim();
         if sku.is_empty() {
-            skipped += 1;
             continue;
         }
         if let Some(ref key) = trim_opt(&row.counterpoint_item_key) {
@@ -566,7 +564,7 @@ pub async fn execute_counterpoint_inventory_batch(
         updated += r.rows_affected() as i32;
     }
 
-    skipped = (payload.rows.len() as i32) - updated;
+    let skipped = (payload.rows.len() as i32) - updated;
 
     tx.commit().await?;
 
