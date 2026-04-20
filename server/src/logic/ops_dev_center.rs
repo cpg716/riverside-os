@@ -13,9 +13,12 @@ use uuid::Uuid;
 use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::BackupManager;
 use crate::logic::help_corpus;
+use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::notifications::{
     fan_out_to_staff_ids, insert_app_notification_deduped, staff_ids_with_permission,
 };
+use crate::logic::shippo::load_effective_shippo_config;
+use crate::logic::weather::load_store_weather_settings;
 
 #[derive(Debug, Serialize, sqlx::FromRow, Clone)]
 pub struct IntegrationHealthItem {
@@ -124,6 +127,21 @@ pub struct OpsHealthSnapshot {
 }
 
 #[derive(Debug, Serialize)]
+pub struct RuntimeDiagnosticItem {
+    pub key: String,
+    pub label: String,
+    pub value: String,
+    pub detail: String,
+    pub severity: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RuntimeDiagnosticsSnapshot {
+    pub generated_at: DateTime<Utc>,
+    pub items: Vec<RuntimeDiagnosticItem>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct GuardedActionResult {
     pub ok: bool,
     pub message: String,
@@ -170,6 +188,255 @@ fn help_manifest_script_path() -> PathBuf {
         .join("client")
         .join("scripts")
         .join("generate-help-manifest.mjs")
+}
+
+fn env_truthy(key: &str) -> bool {
+    match std::env::var(key) {
+        Ok(value) => matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        ),
+        Err(_) => false,
+    }
+}
+
+fn nonempty_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn looks_placeholder(value: &str) -> bool {
+    let lower = value.trim().to_ascii_lowercase();
+    lower.is_empty()
+        || lower.contains("dummy")
+        || lower.contains("replace_me")
+        || lower.contains("changeme")
+        || lower.contains("placeholder")
+        || lower.contains("example")
+}
+
+fn metabase_jwt_secret_configured() -> bool {
+    match nonempty_env("RIVERSIDE_METABASE_JWT_SECRET") {
+        Some(secret) => secret.len() >= 16,
+        None => false,
+    }
+}
+
+pub async fn runtime_diagnostics_snapshot(
+    pool: &PgPool,
+    meilisearch_configured: bool,
+) -> Result<RuntimeDiagnosticsSnapshot, sqlx::Error> {
+    let strict_production = env_truthy("RIVERSIDE_STRICT_PRODUCTION");
+
+    let stripe_secret = nonempty_env("STRIPE_SECRET_KEY");
+    let stripe_public = nonempty_env("STRIPE_PUBLIC_KEY");
+    let stripe_webhook = nonempty_env("STRIPE_WEBHOOK_SECRET");
+    let stripe_secret_ok = stripe_secret
+        .as_deref()
+        .map(|value| value.starts_with("sk_") && !looks_placeholder(value))
+        .unwrap_or(false);
+    let stripe_public_ok = stripe_public
+        .as_deref()
+        .map(|value| value.starts_with("pk_") && !looks_placeholder(value))
+        .unwrap_or(false);
+    let stripe_value = if stripe_secret_ok && stripe_public_ok {
+        "Configured"
+    } else if stripe_secret_ok || stripe_public_ok {
+        "Partial"
+    } else {
+        "Not configured"
+    };
+    let stripe_detail = format!(
+        "Secret key {} • public key {} • webhook {}",
+        if stripe_secret_ok {
+            "present"
+        } else {
+            "missing"
+        },
+        if stripe_public_ok {
+            "present"
+        } else {
+            "missing"
+        },
+        if stripe_webhook
+            .as_deref()
+            .map(|value| value.starts_with("whsec_") && !looks_placeholder(value))
+            .unwrap_or(false)
+        {
+            "signed"
+        } else if stripe_webhook.is_some() {
+            "configured-invalid"
+        } else {
+            "not configured"
+        }
+    );
+    let stripe_severity = if stripe_secret_ok && stripe_public_ok {
+        "info"
+    } else {
+        "warning"
+    };
+
+    let shippo = load_effective_shippo_config(pool).await?;
+    let (shippo_value, shippo_detail, shippo_severity) = if !shippo.store.enabled {
+        (
+            "Disabled".to_string(),
+            "Store Shippo integration is turned off in settings.".to_string(),
+            "info".to_string(),
+        )
+    } else if shippo.store.live_rates_enabled && shippo.api_token_configured {
+        (
+            "Live rates".to_string(),
+            "Store shipping quotes use live Shippo rates.".to_string(),
+            "info".to_string(),
+        )
+    } else if shippo.store.live_rates_enabled {
+        (
+            "Stub fallback".to_string(),
+            "Live rates are enabled in settings, but SHIPPO_API_TOKEN is missing so rate quotes fall back to stub data.".to_string(),
+            "warning".to_string(),
+        )
+    } else {
+        (
+            "Stub mode".to_string(),
+            "Shippo is enabled, but store settings keep rate quotes on deterministic stub data."
+                .to_string(),
+            "info".to_string(),
+        )
+    };
+
+    let insights_raw: Value =
+        sqlx::query_scalar("SELECT insights_config FROM store_settings WHERE id = 1")
+            .fetch_one(pool)
+            .await?;
+    let insights = StoreInsightsConfig::from_json_value(insights_raw);
+    let shared_auth_ready = [
+        "RIVERSIDE_METABASE_ADMIN_EMAIL",
+        "RIVERSIDE_METABASE_ADMIN_PASSWORD",
+        "RIVERSIDE_METABASE_STAFF_EMAIL",
+        "RIVERSIDE_METABASE_STAFF_PASSWORD",
+    ]
+    .iter()
+    .all(|key| nonempty_env(key).is_some());
+    let metabase_jwt_ready = insights.metabase_jwt_sso_enabled && metabase_jwt_secret_configured();
+    let (metabase_value, metabase_detail, metabase_severity) = if metabase_jwt_ready {
+        (
+            "JWT SSO".to_string(),
+            "Insights uses signed staff JWT handoff into Metabase.".to_string(),
+            "info".to_string(),
+        )
+    } else if !insights.metabase_jwt_sso_enabled && shared_auth_ready {
+        (
+            "Shared auth".to_string(),
+            "Insights uses the shared Metabase session fallback for staff launch.".to_string(),
+            "warning".to_string(),
+        )
+    } else if insights.metabase_jwt_sso_enabled {
+        (
+            "Fallback login".to_string(),
+            "JWT SSO is enabled in settings, but the server-side JWT secret is missing or too short, so staff fall back to the Metabase login screen.".to_string(),
+            "warning".to_string(),
+        )
+    } else {
+        (
+            "Fallback login".to_string(),
+            "No automatic Metabase auth is fully configured, so staff land on the Metabase login screen.".to_string(),
+            "warning".to_string(),
+        )
+    };
+
+    let search_value = if meilisearch_configured {
+        "Live search".to_string()
+    } else {
+        "Bundled fallback".to_string()
+    };
+    let search_detail = if meilisearch_configured {
+        "Help and related search surfaces have Meilisearch available.".to_string()
+    } else {
+        "Meilisearch is unavailable, so bundled/manual fallback behavior is active where supported."
+            .to_string()
+    };
+    let search_severity = if meilisearch_configured {
+        "info"
+    } else {
+        "warning"
+    };
+
+    let weather = load_store_weather_settings(pool).await;
+    let weather_live = weather.enabled && !weather.api_key.trim().is_empty();
+    let weather_value = if weather_live {
+        "Live weather"
+    } else {
+        "Mock weather"
+    };
+    let weather_detail = if weather_live {
+        "Weather surfaces can call Visual Crossing with the current effective runtime settings."
+            .to_string()
+    } else {
+        "Weather surfaces will use deterministic mock weather fallback.".to_string()
+    };
+    let weather_severity = if weather_live { "info" } else { "warning" };
+
+    Ok(RuntimeDiagnosticsSnapshot {
+        generated_at: Utc::now(),
+        items: vec![
+            RuntimeDiagnosticItem {
+                key: "environment_mode".to_string(),
+                label: "Environment Mode".to_string(),
+                value: if strict_production {
+                    "Strict production".to_string()
+                } else {
+                    "Development".to_string()
+                },
+                detail: if strict_production {
+                    "Production startup guards and config enforcement are active.".to_string()
+                } else {
+                    "Local/runtime development defaults remain permissive.".to_string()
+                },
+                severity: if strict_production {
+                    "info".to_string()
+                } else {
+                    "warning".to_string()
+                },
+            },
+            RuntimeDiagnosticItem {
+                key: "stripe".to_string(),
+                label: "Stripe".to_string(),
+                value: stripe_value.to_string(),
+                detail: stripe_detail,
+                severity: stripe_severity.to_string(),
+            },
+            RuntimeDiagnosticItem {
+                key: "shippo".to_string(),
+                label: "Shippo".to_string(),
+                value: shippo_value,
+                detail: shippo_detail,
+                severity: shippo_severity,
+            },
+            RuntimeDiagnosticItem {
+                key: "metabase_auth".to_string(),
+                label: "Metabase Auth".to_string(),
+                value: metabase_value,
+                detail: metabase_detail,
+                severity: metabase_severity,
+            },
+            RuntimeDiagnosticItem {
+                key: "search_mode".to_string(),
+                label: "Search Mode".to_string(),
+                value: search_value,
+                detail: search_detail,
+                severity: search_severity.to_string(),
+            },
+            RuntimeDiagnosticItem {
+                key: "weather_mode".to_string(),
+                label: "Weather Mode".to_string(),
+                value: weather_value.to_string(),
+                detail: weather_detail,
+                severity: weather_severity.to_string(),
+            },
+        ],
+    })
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]

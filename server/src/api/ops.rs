@@ -89,6 +89,25 @@ async fn get_ops_integrations(
     Ok(Json(rows))
 }
 
+async fn get_runtime_diagnostics(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ops_dev_center::RuntimeDiagnosticsSnapshot>, Response> {
+    let _ = require_view(&state, &headers).await?;
+    let snapshot =
+        ops_dev_center::runtime_diagnostics_snapshot(&state.db, state.meilisearch.is_some())
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "ops runtime diagnostics failed");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "could not load runtime diagnostics" })),
+                )
+                    .into_response()
+            })?;
+    Ok(Json(snapshot))
+}
+
 async fn post_station_heartbeat(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -358,6 +377,7 @@ pub fn router() -> Router<AppState> {
         .route("/health/snapshot", get(get_health_snapshot))
         .route("/overview", get(get_ops_overview))
         .route("/integrations", get(get_ops_integrations))
+        .route("/runtime-diagnostics", get(get_runtime_diagnostics))
         .route("/stations", get(get_ops_stations))
         .route("/stations/heartbeat", post(post_station_heartbeat))
         .route("/alerts", get(get_ops_alerts))

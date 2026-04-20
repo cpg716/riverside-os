@@ -61,10 +61,29 @@ Base path: `/api/ops`
 - `GET /health/snapshot`
 - `GET /overview` (alias of `health/snapshot`)
 - `GET /integrations`
+- `GET /runtime-diagnostics`
 - `GET /stations`
 - `GET /alerts`
 - `GET /audit-log`
 - `GET /bugs/overview`
+
+### Runtime diagnostics surface
+
+The Dev Center also includes a read-only **Runtime Diagnostics** section for developer/admin visibility.
+
+Current signals:
+- resolved client API base
+- environment mode (`development` vs `strict production`)
+- Stripe config state
+- Shippo mode
+- Metabase auth mode
+- search mode
+- weather mode
+
+The panel is intentionally safe:
+- no secrets are returned
+- no mutations are triggered
+- the client-only API base is computed in the browser; the rest comes from `/api/ops/runtime-diagnostics`
 
 ### Mutation endpoints (`ops.dev_center.actions` unless noted)
 
