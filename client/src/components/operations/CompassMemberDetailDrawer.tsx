@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -21,7 +22,7 @@ import SmartButton from "../ui/SmartButton";
 import { formatUsdFromCents, parseMoneyToCents, sumMoneyToCents } from "../../lib/money";
 import { WEDDING_MEMBER_RETAIL_SIZE_FIELDS } from "../customers/retailMeasurementLabels";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 function money(s: string) {
   return formatUsdFromCents(parseMoneyToCents(s));

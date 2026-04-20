@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useCallback, useEffect } from "react";
 import {
   Percent,
@@ -16,7 +17,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ComboEditorModal from "./ComboEditorModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 const DNA = {
   bg: "bg-app-bg",

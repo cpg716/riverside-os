@@ -1,9 +1,10 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
 import { Shield, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 /**
  * Full-screen gate for “cashier for this sale” — same visual language as

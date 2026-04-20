@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 
 import { useCallback, useEffect, useState } from "react";
 import { 
@@ -32,7 +33,7 @@ interface LoyaltyPipelineStats {
   active_30d_adjustments: number;
 }
 
-const BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const BASE = getBaseUrl();
 
 interface RewardFulfillmentRow {
   reward_id: string;

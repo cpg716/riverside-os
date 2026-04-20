@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -41,7 +42,7 @@ import {
   type RushOrderRow,
 } from "../../lib/morningCompassQueue";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 export type { CompassActionRow };
 

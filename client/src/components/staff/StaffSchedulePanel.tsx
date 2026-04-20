@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { CalendarDays, Loader2, Save, Trash2 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -5,7 +6,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import StaffWeeklyGridView from "./StaffWeeklyGridView";
 import { LayoutGrid, User } from "lucide-react";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 type EligibleRow = { id: string; full_name: string; role: string };
 type WeeklyRow = { weekday: number; works: boolean };

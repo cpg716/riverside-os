@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Package,
@@ -144,7 +145,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
   const [loadingMore, setLoadingMore] = useState(false);
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const products = useMemo(() => boardRowsToProducts(boardRows), [boardRows]);
 

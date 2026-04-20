@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Calendar, AlertTriangle, Trash, CheckCircle } from 'lucide-react';
 import CustomerSearchInput from '../ui/CustomerSearchInput';
@@ -8,7 +9,7 @@ import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import ConfirmationModal from '../ui/ConfirmationModal';
 
-const apiBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const apiBase = getBaseUrl();
 
 interface AppointmentModalProps {
   isOpen: boolean;

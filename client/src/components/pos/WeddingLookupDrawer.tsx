@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import { 
   Search, 
@@ -76,7 +77,7 @@ export default function WeddingLookupDrawer({
   const [selectedMemberIds, setSelectedMemberIds] = useState<Set<string>>(new Set());
   const [financials, setFinancials] = useState<Record<string, { balance_due: string }>>({});
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const fetchParties = useCallback(async (query: string) => {
     if (!query || query.length < 2) {

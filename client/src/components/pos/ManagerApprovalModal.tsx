@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect } from "react";
 import { X, ShieldCheck } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
@@ -6,7 +7,7 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 interface ManagerApprovalModalProps {
   isOpen: boolean;

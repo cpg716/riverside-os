@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import React, {
   useCallback,
   useEffect,
@@ -46,7 +47,7 @@ import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import WeddingPartySearchInput from "../ui/WeddingPartySearchInput";
 // Redundant CloseIcon import removed
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 interface CustomerPipelineStats {
   total_customers: number;

@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FolderTree, Clock3, ShieldAlert, Tag, Settings2, History, ShieldCheck, Zap } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
@@ -135,7 +136,7 @@ export default function CategoryManager() {
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const [tree, setTree] = useState<CategoryNode[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);

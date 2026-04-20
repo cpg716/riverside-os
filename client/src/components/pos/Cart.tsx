@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import {
   useCallback,
   useEffect,
@@ -151,7 +152,7 @@ export default function Cart({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   // --- External States (managed by hooks) ---
   const [rmsPaymentMeta, setRmsPaymentMeta] = useState<RmsPaymentLineMeta | null>(null);

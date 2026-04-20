@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
 import ReceivingBay from "./ReceivingBay";
 import { apiUrl } from "../../lib/apiUrl";
@@ -32,7 +33,7 @@ interface Vendor {
   name: string;
 }
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 export default function PurchaseOrderPanel({
   initialPoId,

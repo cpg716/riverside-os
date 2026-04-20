@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 /**
  * PhysicalInventoryWorkspace — multi-phase physical inventory management.
  * Phases: Session Manager → Counting → Review & Publish
@@ -44,7 +45,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput from "../ui/VariantSearchInput";
 
-const BASE_URL = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const BASE_URL = getBaseUrl();
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 

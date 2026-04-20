@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useRef, useEffect } from "react";
 import { ChevronDown, User } from "lucide-react";
 
@@ -16,7 +17,7 @@ interface StaffMiniSelectorProps {
   showAvatar?: boolean;
 }
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 const AvatarIcon = ({ 
   id, 

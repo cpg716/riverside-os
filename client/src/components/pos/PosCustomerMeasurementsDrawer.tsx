@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
 import { Ruler, X } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -9,7 +10,7 @@ import {
   serializeMeasurementPatch,
 } from "../customers/CustomerMeasurementLogic";
 
-const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const baseUrl = getBaseUrl();
 
 interface VaultResp {
   latest: Record<string, string | number | null> | null;

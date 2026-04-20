@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import React, {
   useCallback,
   useEffect,
@@ -105,7 +106,7 @@ export default function RegisterOverlay({
   const [credential, setCredential] = useState("");
   const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   useEffect(() => {
     void (async () => {

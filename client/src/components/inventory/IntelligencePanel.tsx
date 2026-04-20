@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import {
   BrainCircuit,
@@ -33,7 +34,7 @@ const IntelligencePanel = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
 
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
 
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),

@@ -1,10 +1,11 @@
+import { getBaseUrl } from "../../../lib/apiConfig";
 import {
   partyIdFromWeddingCreateResponse,
   splitWeddingPartyWithMembers,
 } from "../../../lib/weddingPartyApiShape";
 import { formatWeddingPartyTrackingLabel } from "../../../lib/weddingPartyDisplay";
 
-const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const API_BASE = getBaseUrl();
 const API_URL = `${API_BASE}/api`;
 
 const WM_CLIENT_KEY = "ros_wm_client_id";

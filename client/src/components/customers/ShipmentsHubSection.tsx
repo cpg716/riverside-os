@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Package,
@@ -14,7 +15,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import { CheckCircle2 } from "lucide-react";
 
-const defaultBase = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+const defaultBase = getBaseUrl();
 
 interface ShipmentListItem {
   id: string;

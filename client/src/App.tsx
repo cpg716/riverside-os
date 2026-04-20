@@ -1,3 +1,4 @@
+import { getBaseUrl } from "./lib/apiConfig";
 import {
   lazy,
   Suspense,
@@ -169,7 +170,7 @@ function App() {
   >(null);
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
   const [bugReportOpen, setBugReportOpen] = useState(false);
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const registerMetaRefreshRef = useRef<(() => Promise<void>) | null>(null);
 
   const onRegisterReconcilingBegun = useCallback(() => {

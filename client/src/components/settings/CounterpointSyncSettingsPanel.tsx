@@ -1,3 +1,4 @@
+import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
   RefreshCw,
@@ -201,7 +202,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
   variant?: CounterpointSyncPanelVariant;
 }) {
   const variant = props?.variant ?? "card";
-  const baseUrl = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:3000";
+  const baseUrl = getBaseUrl();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
 
