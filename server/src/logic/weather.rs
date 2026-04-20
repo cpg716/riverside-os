@@ -132,6 +132,7 @@ pub struct WeatherForecastResponse {
     pub days: Vec<DailyWeatherContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub current: Option<CurrentWeatherContext>,
+    pub source: String,
 }
 
 fn vc_max_pulls_per_day() -> i32 {
@@ -471,7 +472,11 @@ pub async fn fetch_weather_forecast(
     if !settings.enabled || settings.api_key.trim().is_empty() {
         let days = mock_range(today, tomorrow);
         let current = days.first().map(mock_current_from_daily);
-        return WeatherForecastResponse { days, current };
+        return WeatherForecastResponse {
+            days,
+            current,
+            source: "mock".to_string(),
+        };
     }
 
     match fetch_visual_crossing(
@@ -489,17 +494,29 @@ pub async fn fetch_weather_forecast(
                 warn!("visual crossing returned no days; using mock forecast");
                 let days = mock_range(today, tomorrow);
                 let current = days.first().map(mock_current_from_daily);
-                return WeatherForecastResponse { days, current };
+                return WeatherForecastResponse {
+                    days,
+                    current,
+                    source: "mock".to_string(),
+                };
             }
             days.sort_by_key(|r| r.date);
             let current = current.or_else(|| days.first().map(mock_current_from_daily));
-            WeatherForecastResponse { days, current }
+            WeatherForecastResponse {
+                days,
+                current,
+                source: "live".to_string(),
+            }
         }
         Err(e) => {
             warn!(error = %e, "visual crossing forecast failed; using mock");
             let days = mock_range(today, tomorrow);
             let current = days.first().map(mock_current_from_daily);
-            WeatherForecastResponse { days, current }
+            WeatherForecastResponse {
+                days,
+                current,
+                source: "mock".to_string(),
+            }
         }
     }
 }

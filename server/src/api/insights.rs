@@ -1682,9 +1682,11 @@ async fn metabase_launch_resolve(
                             let iframe_src = format!(
                                 "/metabase/?metabase_session_id={session_id}&return_to={rt}"
                             );
-                            return Ok(Json(
-                                json!({ "iframe_src": iframe_src, "session_id": session_id }),
-                            ));
+                            return Ok(Json(json!({
+                                "iframe_src": iframe_src,
+                                "session_id": session_id,
+                                "launch_mode": "shared-auth"
+                            })));
                         }
                     }
                 }
@@ -1696,7 +1698,10 @@ async fn metabase_launch_resolve(
     let secret_trim = secret.trim();
     let secret_ok = !secret_trim.is_empty() && secret_trim.len() >= 16;
 
-    let fallback = json!({ "iframe_src": "/metabase/" });
+    let fallback = json!({
+        "iframe_src": "/metabase/",
+        "launch_mode": "metabase-login"
+    });
 
     if !cfg.metabase_jwt_sso_enabled || !secret_ok {
         return Ok(Json(fallback));
@@ -1722,7 +1727,10 @@ async fn metabase_launch_resolve(
     let enc = urlencoding::encode(&token);
     let rt = urlencoding::encode(return_to);
     let iframe_src = format!("/metabase/auth/sso?jwt={enc}&return_to={rt}");
-    Ok(Json(json!({ "iframe_src": iframe_src })))
+    Ok(Json(json!({
+        "iframe_src": iframe_src,
+        "launch_mode": "jwt-sso"
+    })))
 }
 
 async fn get_metabase_launch(

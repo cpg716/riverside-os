@@ -30,6 +30,11 @@ type ApiHit = {
   excerpt: string;
 };
 
+type HelpSearchResponse = {
+  hits?: ApiHit[];
+  search_mode?: "meilisearch" | "unavailable";
+};
+
 type ResultRow =
   | (ApiHit & { source: "api" })
   | {
@@ -259,6 +264,7 @@ export default function HelpCenterDrawer({
   const [debouncedQ, setDebouncedQ] = useState("");
   const [searchBusy, setSearchBusy] = useState(false);
   const [resultRows, setResultRows] = useState<ResultRow[] | null>(null);
+  const [searchFallbackActive, setSearchFallbackActive] = useState(false);
   const [scrollTarget, setScrollTarget] = useState<{
     manualId: string;
     slug: string;
@@ -395,12 +401,14 @@ export default function HelpCenterDrawer({
       setSearchQ("");
       setDebouncedQ("");
       setResultRows(null);
+      setSearchFallbackActive(false);
       setScrollTarget(null);
       setImageLightbox(null);
       return;
     }
     if (debouncedQ.length < 2) {
       setResultRows(null);
+      setSearchFallbackActive(false);
       setSearchBusy(false);
       return;
     }
@@ -410,22 +418,25 @@ export default function HelpCenterDrawer({
 
     const run = async () => {
       let apiHits: ApiHit[] = [];
+      let serverSearchMode: HelpSearchResponse["search_mode"] = "meilisearch";
       try {
         const res = await fetch(
           `${baseUrl}/api/help/search?q=${encodeURIComponent(debouncedQ)}&limit=12`,
           { headers: apiAuth() },
         );
         if (res.ok) {
-          const j = (await res.json()) as { hits?: ApiHit[] };
+          const j = (await res.json()) as HelpSearchResponse;
           apiHits = j.hits ?? [];
+          serverSearchMode = j.search_mode ?? "meilisearch";
         }
       } catch {
-        /* offline / CORS — use local only */
+        serverSearchMode = "unavailable";
       }
       if (cancelled) return;
 
       if (apiHits.length > 0) {
         setResultRows(apiHits.map((h) => ({ ...h, source: "api" as const })));
+        setSearchFallbackActive(false);
         setSearchBusy(false);
         return;
       }
@@ -441,6 +452,7 @@ export default function HelpCenterDrawer({
           excerpt: c.excerpt,
         }));
       setResultRows(local);
+      setSearchFallbackActive(serverSearchMode === "unavailable" && local.length > 0);
       setSearchBusy(false);
     };
 
@@ -558,8 +570,18 @@ export default function HelpCenterDrawer({
           {manualList === null && isOpen ? (
             <p className="text-xs text-app-text-muted">Loading manuals…</p>
           ) : null}
+          {helpListSource === "static" ? (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+              Using bundled manuals because the live help catalog is unavailable.
+            </p>
+          ) : null}
           {helpListSource === "api" && detailLoading && !displayMarkdown ? (
             <p className="text-xs text-app-text-muted">Loading article…</p>
+          ) : null}
+          {searchFallbackActive ? (
+            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+              Server search is unavailable, so results are coming from bundled manual content on this station.
+            </p>
           ) : null}
         </div>
 
