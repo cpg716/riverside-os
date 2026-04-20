@@ -70,6 +70,7 @@ interface ForecastCurrent {
 interface WeatherForecastPayload {
   days: ForecastDay[];
   current?: ForecastCurrent | null;
+  source?: string;
 }
 
 
@@ -327,7 +328,12 @@ export default function RegisterDashboard({
                     <div>
                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
-                          <div className="h-1 w-1 rounded-full bg-emerald-500" />
+                          <div className={`h-1 w-1 rounded-full ${forecast?.source === "mock" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                          {forecast?.source === "mock" ? (
+                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                              Mock Weather
+                            </span>
+                          ) : null}
                        </div>
                        <p className="text-3xl font-bold text-app-text">
                          {current != null ? `${current.temp.toFixed(0)}°` : todayWeather ? `${todayWeather.temp_high.toFixed(0)}°` : "72°"}
@@ -335,6 +341,11 @@ export default function RegisterDashboard({
                        <p className="text-xs font-bold text-app-text-muted uppercase tracking-widest mt-1">
                          {cond || "Clear Skies"}
                        </p>
+                       {forecast?.source === "mock" ? (
+                         <p className="mt-2 max-w-[16rem] text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                           Live weather is unavailable, so this register view is showing fallback conditions.
+                         </p>
+                       ) : null}
                     </div>
                     <WxIcon size={48} className="text-app-accent opacity-20" />
                  </div>

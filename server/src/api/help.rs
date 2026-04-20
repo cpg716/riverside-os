@@ -78,6 +78,21 @@ struct HelpSearchHitOut {
     excerpt: String,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum HelpSearchMode {
+    Meilisearch,
+    Unavailable,
+}
+
+impl HelpSearchMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Meilisearch => "meilisearch",
+            Self::Unavailable => "unavailable",
+        }
+    }
+}
+
 fn excerpt_from_body(body: &str, max: usize) -> String {
     let t = body.split_whitespace().collect::<Vec<_>>().join(" ");
     if t.len() <= max {
@@ -225,11 +240,17 @@ async fn search_help(
 
     let query = q.q.trim();
     if query.is_empty() {
-        return Ok(Json(serde_json::json!({ "hits": [] })));
+        return Ok(Json(serde_json::json!({
+            "hits": [],
+            "search_mode": HelpSearchMode::Meilisearch.as_str(),
+        })));
     }
 
     let Some(client) = state.meilisearch.as_ref() else {
-        return Ok(Json(serde_json::json!({ "hits": [] })));
+        return Ok(Json(serde_json::json!({
+            "hits": [],
+            "search_mode": HelpSearchMode::Unavailable.as_str(),
+        })));
     };
 
     match help_search_hits(client, query, q.limit).await {
@@ -246,11 +267,17 @@ async fn search_help(
                 })
                 .map(map_hit)
                 .collect();
-            Ok(Json(serde_json::json!({ "hits": hits })))
+            Ok(Json(serde_json::json!({
+                "hits": hits,
+                "search_mode": HelpSearchMode::Meilisearch.as_str(),
+            })))
         }
         Err(e) => {
             tracing::warn!(error = %e, "help_search_hits failed; returning empty hits");
-            Ok(Json(serde_json::json!({ "hits": [] })))
+            Ok(Json(serde_json::json!({
+                "hits": [],
+                "search_mode": HelpSearchMode::Unavailable.as_str(),
+            })))
         }
     }
 }

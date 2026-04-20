@@ -118,6 +118,7 @@ interface ForecastCurrent {
 interface WeatherForecastPayload {
   days: ForecastDay[];
   current?: ForecastCurrent | null;
+  source?: string;
 }
 
 function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
@@ -172,7 +173,12 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
-              <div className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+              <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-amber-500" : "bg-emerald-500"}`} />
+              {forecast?.source === "mock" ? (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                  Mock Weather
+                </span>
+              ) : null}
             </div>
             <h3 className="text-4xl font-bold tracking-tight text-app-text leading-none">
               {current != null ? `${current.temp.toFixed(0)}°` : `${today.temp_high.toFixed(0)}°`}
@@ -183,6 +189,11 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
             <p className="text-xs font-medium text-app-text-muted">
               {today.temp_high.toFixed(0)}° / {today.temp_low.toFixed(0)}° · {today.precipitation_inches > 0 ? `${today.precipitation_inches}"` : "0"} Precip
             </p>
+            {forecast?.source === "mock" ? (
+              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                Live weather is unavailable, so this dashboard is showing deterministic fallback conditions.
+              </p>
+            ) : null}
           </div>
         </div>
 

@@ -33,6 +33,7 @@ export default function InsightsShell({
 }: InsightsShellProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const [iframeSrc, setIframeSrc] = useState(() => metabaseIframeSrc());
+  const [launchMode, setLaunchMode] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const { setSlotContent } = useTopBar();
 
@@ -53,6 +54,7 @@ export default function InsightsShell({
   useEffect(() => {
     let cancelled = false;
     setLoaded(false);
+    setLaunchMode(null);
     (async () => {
       try {
         const origin = rosApiOrigin();
@@ -64,10 +66,16 @@ export default function InsightsShell({
           headers: backofficeHeaders() as Record<string, string>,
         });
         if (!res.ok) {
-          if (!cancelled) setIframeSrc(metabaseIframeSrc());
+          if (!cancelled) {
+            setIframeSrc(metabaseIframeSrc());
+            setLaunchMode("metabase-login");
+          }
           return;
         }
-        const data = (await res.json()) as { iframe_src?: string };
+        const data = (await res.json()) as {
+          iframe_src?: string;
+          launch_mode?: string;
+        };
         if (
           !cancelled &&
           typeof data.iframe_src === "string" &&
@@ -75,8 +83,14 @@ export default function InsightsShell({
         ) {
           setIframeSrc(data.iframe_src);
         }
+        if (!cancelled) {
+          setLaunchMode(data.launch_mode ?? null);
+        }
       } catch {
-        if (!cancelled) setIframeSrc(metabaseIframeSrc());
+        if (!cancelled) {
+          setIframeSrc(metabaseIframeSrc());
+          setLaunchMode("metabase-login");
+        }
       }
     })();
     return () => {
@@ -90,7 +104,11 @@ export default function InsightsShell({
 
   return (
     <div className="flex flex-1 flex-col bg-app-bg font-sans antialiased">
-
+      {launchMode === "metabase-login" ? (
+        <div className="border-b border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs font-medium text-amber-900 dark:text-amber-100">
+          Automatic Metabase sign-in is unavailable on this station. Continue in the Metabase sign-in screen.
+        </div>
+      ) : null}
       <div className="relative flex-1 bg-app-surface-2 min-h-[85vh]">
         {!loaded ? (
           <div
