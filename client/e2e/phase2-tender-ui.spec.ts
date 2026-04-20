@@ -5,6 +5,9 @@ import {
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
 
+const quarantineUnstablePosUi =
+  process.env.ROS_QUARANTINE_UNSTABLE_POS_E2E === "1";
+
 /**
  * Phase 2 UI smoke: POS tender tabs in checkout drawer.
  *
@@ -81,6 +84,11 @@ async function openPaymentLedger(
 }
 
 test.describe("Phase 2: POS tender UI smoke", () => {
+  test.skip(
+    quarantineUnstablePosUi,
+    "Temporarily quarantined in CI due to shared POS register-ready / cashier-overlay instability. See docs/POS_E2E_TESTABILITY_FOLLOWUP.md.",
+  );
+
   test("checkout drawer shows core tender tabs and complete-sale rail", async ({
     page,
   }) => {

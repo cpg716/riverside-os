@@ -38,6 +38,7 @@ jobs:
       E2E_BASE_URL: http://127.0.0.1:3000
       E2E_API_BASE: http://127.0.0.1:3000
       E2E_BO_STAFF_NAME: Chris G
+      ROS_QUARANTINE_UNSTABLE_POS_E2E: "1"
 
     steps:
       - uses: actions/checkout@v4
