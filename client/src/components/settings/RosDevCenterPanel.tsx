@@ -1,4 +1,4 @@
-import { getBaseUrl } from "../../lib/apiConfig";
+import { getBaseUrl, getBaseUrlDiagnostics } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
@@ -40,6 +40,19 @@ type OpsHealthSnapshot = {
   stations_online: number;
   stations_offline: number;
   pending_bug_reports: number;
+};
+
+type RuntimeDiagnosticItem = {
+  key: string;
+  label: string;
+  value: string;
+  detail: string;
+  severity: string;
+};
+
+type RuntimeDiagnosticsSnapshot = {
+  generated_at: string;
+  items: RuntimeDiagnosticItem[];
 };
 
 type StationRow = {
@@ -125,6 +138,16 @@ function statusClass(status: string): string {
   return "bg-emerald-500/20 text-emerald-200";
 }
 
+function infoBadgeClass(severity: string): string {
+  if (severity === "warning") {
+    return "bg-amber-500/20 text-amber-200 border border-amber-500/40";
+  }
+  if (severity === "critical") {
+    return "bg-red-500/20 text-red-200 border border-red-500/40";
+  }
+  return "bg-sky-500/20 text-sky-200 border border-sky-500/40";
+}
+
 export default function RosDevCenterPanel({
   bugReportsDeepLinkId = null,
   onBugReportsDeepLinkConsumed,
@@ -141,6 +164,8 @@ export default function RosDevCenterPanel({
   const [alerts, setAlerts] = useState<AlertEventRow[]>([]);
   const [auditRows, setAuditRows] = useState<ActionAuditRow[]>([]);
   const [bugsOverview, setBugsOverview] = useState<BugOverviewRow[]>([]);
+  const [runtimeDiagnostics, setRuntimeDiagnostics] =
+    useState<RuntimeDiagnosticsSnapshot | null>(null);
 
   const [actionBusy, setActionBusy] = useState<GuardedActionKey | null>(null);
   const [actionReason, setActionReason] = useState("");
@@ -165,20 +190,22 @@ export default function RosDevCenterPanel({
     setLoading(true);
     try {
       const headers = backofficeHeaders() as Record<string, string>;
-      const [o, s, a, au, b] = await Promise.all([
+      const [o, r, s, a, au, b] = await Promise.all([
         fetch(`${baseUrl}/api/ops/overview`, { headers }),
+        fetch(`${baseUrl}/api/ops/runtime-diagnostics`, { headers }),
         fetch(`${baseUrl}/api/ops/stations`, { headers }),
         fetch(`${baseUrl}/api/ops/alerts`, { headers }),
         fetch(`${baseUrl}/api/ops/audit-log`, { headers }),
         fetch(`${baseUrl}/api/ops/bugs/overview`, { headers }),
       ]);
 
-      if (!o.ok || !s.ok || !a.ok || !au.ok || !b.ok) {
+      if (!o.ok || !r.ok || !s.ok || !a.ok || !au.ok || !b.ok) {
         toast("Could not load ROS Dev Center data", "error");
         return;
       }
 
       setOverview((await o.json()) as OpsHealthSnapshot);
+      setRuntimeDiagnostics((await r.json()) as RuntimeDiagnosticsSnapshot);
       setStations((await s.json()) as StationRow[]);
       setAlerts((await a.json()) as AlertEventRow[]);
       setAuditRows((await au.json()) as ActionAuditRow[]);
@@ -198,6 +225,7 @@ export default function RosDevCenterPanel({
     () => alerts.filter((a) => a.status === "open" || a.status === "acked"),
     [alerts],
   );
+  const apiBaseDiagnostics = useMemo(() => getBaseUrlDiagnostics(), []);
 
   const runGuardedAction = useCallback(
     async (actionKey: GuardedActionKey, payload: Record<string, unknown>) => {
@@ -414,6 +442,69 @@ export default function RosDevCenterPanel({
             {overview?.pending_bug_reports ?? 0}
           </div>
         </div>
+      </section>
+
+      <section className="ui-card p-6">
+        <div className="mb-4 flex items-center gap-2">
+          <Activity className="h-5 w-5 text-app-accent" />
+          <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+            Runtime Diagnostics
+          </h3>
+        </div>
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
+          <div className="rounded-xl border border-app-border bg-app-surface p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-black text-app-text">API Base</p>
+                <p className="mt-1 break-all font-mono text-xs text-app-text">
+                  {apiBaseDiagnostics.resolved}
+                </p>
+                <p className="mt-2 text-xs text-app-text-muted">
+                  Source:{" "}
+                  {apiBaseDiagnostics.source === "override"
+                    ? "local override"
+                    : apiBaseDiagnostics.source === "vite-env"
+                      ? "Vite env"
+                      : apiBaseDiagnostics.source === "same-origin"
+                        ? "same-origin browser"
+                        : "desktop fallback"}
+                </p>
+              </div>
+              <span className="rounded-full border border-sky-500/40 bg-sky-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-sky-200">
+                client
+              </span>
+            </div>
+          </div>
+
+          {(runtimeDiagnostics?.items ?? []).map((item) => (
+            <div
+              key={item.key}
+              className="rounded-xl border border-app-border bg-app-surface p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-sm font-black text-app-text">{item.label}</p>
+                  <p className="mt-1 text-lg font-black text-app-text">{item.value}</p>
+                  <p className="mt-2 text-xs leading-relaxed text-app-text-muted">
+                    {item.detail}
+                  </p>
+                </div>
+                <span
+                  className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${infoBadgeClass(item.severity)}`}
+                >
+                  {item.severity}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 text-[11px] text-app-text-muted">
+          Read-only runtime snapshot for developer/admin debugging. Secrets are
+          never exposed.
+          {runtimeDiagnostics?.generated_at
+            ? ` Server snapshot: ${fmtTs(runtimeDiagnostics.generated_at)}`
+            : ""}
+        </p>
       </section>
 
       <section className="ui-card p-6">
