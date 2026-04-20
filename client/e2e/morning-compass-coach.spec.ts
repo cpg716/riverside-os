@@ -1,7 +1,10 @@
 import { expect, test } from "@playwright/test";
 
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
-import { ensurePosRegisterSessionOpen } from "./helpers/openPosRegister";
+import {
+  ensurePosRegisterSessionOpen,
+  enterPosShell,
+} from "./helpers/openPosRegister";
 
 /**
  * Morning Compass coach: register dashboard + Operations morning home.
@@ -13,18 +16,12 @@ test.describe("Morning Compass coach", () => {
   }) => {
     test.setTimeout(60_000);
     await signInToBackOffice(page);
-    const posButton = page
-      .getByRole("navigation", { name: "Main Navigation" })
-      .getByRole("button", { name: "POS", exact: true });
-    await expect(posButton).toBeVisible({ timeout: 15_000 });
-    await expect(posButton).toBeEnabled();
-    await posButton.click();
-    await expect(
-      page.getByRole("navigation", { name: "POS Navigation" }),
-    ).toBeVisible({ timeout: 15_000 });
+    await enterPosShell(page);
     await ensurePosRegisterSessionOpen(page);
 
-    const dashboardTab = page.getByTestId("pos-sidebar-tab-dashboard");
+    const dashboardTab = page
+      .getByRole("navigation", { name: "POS Navigation" })
+      .getByRole("button", { name: /^dashboard$/i });
     await expect(dashboardTab).toBeVisible({ timeout: 15_000 });
     await expect(dashboardTab).toBeEnabled();
     await dashboardTab.click();
