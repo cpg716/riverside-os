@@ -43,6 +43,27 @@ interface ShipmentEvent {
   staff_id: string | null;
 }
 
+interface ShippoReadiness {
+  enabled: boolean;
+  live_rates_enabled: boolean;
+  from_address: {
+    name: string;
+    street1: string;
+    city: string;
+    state: string;
+    zip: string;
+    country: string;
+  };
+  default_parcel: {
+    length_in: string | number;
+    width_in: string | number;
+    height_in: string | number;
+    weight_oz: string | number;
+  };
+  api_token_configured: boolean;
+  webhook_secret_configured: boolean;
+}
+
 interface ShipmentsHubSectionProps {
   baseUrl?: string;
   /** When set, list is restricted to this customer (hub tab). */
@@ -71,6 +92,18 @@ function moneyOrDash(s: string | null | undefined): string {
   return `$${n.toFixed(2)}`;
 }
 
+function shippoAddressReady(readiness: ShippoReadiness) {
+  const from = readiness.from_address;
+  return [
+    from.name,
+    from.street1,
+    from.city,
+    from.state,
+    from.zip,
+    from.country,
+  ].every((value) => value.trim().length > 0);
+}
+
 export default function ShipmentsHubSection({
   baseUrl = defaultBase,
   customerIdFilter = null,
@@ -92,6 +125,9 @@ export default function ShipmentsHubSection({
   const [openOnly, setOpenOnly] = useState(true);
   const [items, setItems] = useState<ShipmentListItem[]>([]);
   const [loading, setLoading] = useState(false);
+  const [shippoReadiness, setShippoReadiness] = useState<ShippoReadiness | null>(
+    null,
+  );
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<{
     shipment: Record<string, unknown>;
@@ -164,6 +200,32 @@ export default function ShipmentsHubSection({
   useEffect(() => {
     void loadList();
   }, [loadList]);
+
+  useEffect(() => {
+    if (!canView) {
+      setShippoReadiness(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/settings/shippo/readiness`, {
+          headers: apiAuth(),
+        });
+        if (!res.ok) {
+          if (!cancelled) setShippoReadiness(null);
+          return;
+        }
+        const next = (await res.json()) as ShippoReadiness;
+        if (!cancelled) setShippoReadiness(next);
+      } catch {
+        if (!cancelled) setShippoReadiness(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [apiAuth, baseUrl, canView]);
 
   const openDetail = useCallback(
     async (id: string) => {
@@ -452,6 +514,72 @@ export default function ShipmentsHubSection({
     [],
   );
 
+  const shippoStatus = useMemo(() => {
+    if (!shippoReadiness) return null;
+    const addressReady = shippoAddressReady(shippoReadiness);
+    const hasAnyConfig =
+      shippoReadiness.enabled ||
+      shippoReadiness.live_rates_enabled ||
+      shippoReadiness.api_token_configured ||
+      shippoReadiness.webhook_secret_configured ||
+      Object.values(shippoReadiness.from_address).some(
+        (value) => String(value ?? "").trim().length > 0,
+      );
+
+    if (
+      shippoReadiness.enabled &&
+      shippoReadiness.live_rates_enabled &&
+      shippoReadiness.api_token_configured &&
+      addressReady
+    ) {
+      return {
+        label: "Ready",
+        tone: "emerald" as const,
+        message:
+          "Live Shippo quoting is ready. Rates and label purchase can use the configured carrier account on this station.",
+      };
+    }
+
+    if (
+      shippoReadiness.enabled &&
+      shippoReadiness.live_rates_enabled &&
+      !shippoReadiness.api_token_configured
+    ) {
+      return {
+        label: "Stub fallback",
+        tone: "amber" as const,
+        message:
+          "Shippo live rates are enabled in settings, but no API token is provisioned. Quotes stay on demo pricing and label purchase remains unavailable.",
+      };
+    }
+
+    if (shippoReadiness.enabled && !shippoReadiness.live_rates_enabled) {
+      return {
+        label: "Stub mode",
+        tone: "amber" as const,
+        message:
+          "Shipping is enabled with demo pricing only. Live carrier quotes and label purchase stay offline until live rates are enabled and a Shippo token is configured.",
+      };
+    }
+
+    if (hasAnyConfig) {
+      return {
+        label: "Partially configured",
+        tone: "amber" as const,
+        message: addressReady
+          ? "Shippo is only partially configured. Complete the remaining token or enablement steps before relying on live rates or label purchase."
+          : "Shippo setup is incomplete. Finish the origin address and token setup before relying on live rates or label purchase.",
+      };
+    }
+
+    return {
+      label: "Not configured",
+      tone: "slate" as const,
+      message:
+        "Shippo is not configured yet. This hub can still track shipments, but rate quoting and label purchase stay in demo-only mode until setup is completed.",
+    };
+  }, [shippoReadiness]);
+
   if (!permissionsLoaded) {
     return (
       <div className="p-6 text-sm text-app-text-muted">
@@ -515,6 +643,80 @@ export default function ShipmentsHubSection({
           ) : null}
         </div>
       </div>
+
+      {shippoStatus && shippoReadiness ? (
+        <div
+          className={`rounded-2xl border p-4 ${
+            shippoStatus.tone === "emerald"
+              ? "border-emerald-500/30 bg-emerald-500/10"
+              : shippoStatus.tone === "amber"
+                ? "border-amber-500/30 bg-amber-500/10"
+                : "border-app-border bg-app-surface"
+          }`}
+        >
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                  Shippo readiness
+                </p>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
+                    shippoStatus.tone === "emerald"
+                      ? "bg-emerald-600 text-white"
+                      : shippoStatus.tone === "amber"
+                        ? "bg-amber-500/20 text-amber-800 dark:text-amber-200"
+                        : "bg-app-surface-2 text-app-text"
+                  }`}
+                >
+                  {shippoStatus.label}
+                </span>
+              </div>
+              <p className="max-w-3xl text-xs text-app-text-muted">
+                {shippoStatus.message}
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {[
+                {
+                  label: "Rates",
+                  value: shippoReadiness.live_rates_enabled
+                    ? "Live enabled"
+                    : "Demo only",
+                },
+                {
+                  label: "API token",
+                  value: shippoReadiness.api_token_configured
+                    ? "Configured"
+                    : "Missing",
+                },
+                {
+                  label: "Origin",
+                  value: shippoAddressReady(shippoReadiness)
+                    ? "Ready"
+                    : "Incomplete",
+                },
+                {
+                  label: "Webhook",
+                  value: shippoReadiness.webhook_secret_configured
+                    ? "Configured"
+                    : "Optional",
+                },
+              ].map((stat) => (
+                <div
+                  key={stat.label}
+                  className="rounded-xl border border-app-border bg-app-surface/70 p-3"
+                >
+                  <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {stat.label}
+                  </p>
+                  <p className="text-xs font-black text-app-text">{stat.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1fr_minmax(300px,400px)]">
         <div className="min-h-0 overflow-auto rounded-2xl border border-app-border bg-app-surface">

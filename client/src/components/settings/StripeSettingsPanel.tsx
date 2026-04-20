@@ -1,6 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useState, useEffect, useCallback } from "react";
 import {
+  AlertTriangle,
   CreditCard,
   Zap,
   Shield,
@@ -12,6 +13,7 @@ import {
   ExternalLink,
   Search,
   Calendar,
+  CheckCircle2,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
@@ -35,12 +37,41 @@ interface MerchantActivity {
   transactions: MerchantTransaction[];
 }
 
+interface StripeReadiness {
+  secret_key_state: "missing" | "placeholder" | "invalid" | "test" | "live";
+  public_key_state: "missing" | "placeholder" | "invalid" | "test" | "live";
+  webhook_secret_state: "missing" | "invalid" | "configured";
+}
+
+function isStripeKeyReady(state: StripeReadiness["secret_key_state"]) {
+  return state === "live" || state === "test";
+}
+
+function formatStripeEnvState(state: string) {
+  switch (state) {
+    case "live":
+      return "Live key";
+    case "test":
+      return "Test key";
+    case "configured":
+      return "Configured";
+    case "placeholder":
+      return "Placeholder";
+    case "invalid":
+      return "Invalid";
+    case "missing":
+    default:
+      return "Missing";
+  }
+}
+
 const StripeSettingsPanel: React.FC = () => {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
 
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<MerchantActivity | null>(null);
+  const [readiness, setReadiness] = useState<StripeReadiness | null>(null);
   const [, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
@@ -55,8 +86,18 @@ const StripeSettingsPanel: React.FC = () => {
       } else {
         setError("Failed to fetch merchant data");
       }
+
+      const readinessRes = await fetch(`${baseUrl}/api/settings/stripe/readiness`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (readinessRes.ok) {
+        setReadiness((await readinessRes.json()) as StripeReadiness);
+      } else {
+        setReadiness(null);
+      }
     } catch {
       setError("Network error fetching merchant data");
+      setReadiness(null);
     } finally {
       setLoading(false);
     }
@@ -73,6 +114,35 @@ const StripeSettingsPanel: React.FC = () => {
       </div>
     );
   }
+
+  const secretReady = readiness ? isStripeKeyReady(readiness.secret_key_state) : false;
+  const publicReady = readiness ? isStripeKeyReady(readiness.public_key_state) : false;
+  const webhookReady = readiness?.webhook_secret_state === "configured";
+  const stripeReady = secretReady && publicReady;
+  const stripePartiallyConfigured =
+    !!readiness &&
+    !stripeReady &&
+    (readiness.secret_key_state !== "missing" ||
+      readiness.public_key_state !== "missing" ||
+      readiness.webhook_secret_state !== "missing");
+
+  const readinessHeadline = !readiness
+    ? "Readiness unavailable"
+    : stripeReady
+      ? "Stripe ready"
+      : stripePartiallyConfigured
+        ? "Stripe partially configured"
+        : "Stripe not configured";
+
+  const readinessMessage = !readiness
+    ? "Runtime readiness could not be loaded for this station."
+    : stripeReady
+      ? webhookReady
+        ? "Vaulted cards, Stripe-powered payment flows, and webhook-backed reconciliation are provisioned."
+        : "Vaulted cards and Stripe-powered payment flows are provisioned. Webhook-backed reconciliation stays limited until STRIPE_WEBHOOK_SECRET is configured."
+      : stripePartiallyConfigured
+        ? "Stripe is only partially provisioned. Vaulted cards and processor-backed payment flows will stay unreliable until both STRIPE_SECRET_KEY and STRIPE_PUBLIC_KEY are configured."
+        : "Stripe is not configured on this host yet. Vaulted cards and processor-backed payment flows remain unavailable until both STRIPE_SECRET_KEY and STRIPE_PUBLIC_KEY are provisioned.";
 
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -99,6 +169,62 @@ const StripeSettingsPanel: React.FC = () => {
           Refresh Stats
         </button>
       </header>
+
+      {readiness ? (
+        <section className="ui-card p-8 max-w-5xl border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent shadow-xl">
+          {!stripeReady ? (
+            <div className="mb-8 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm">
+              <h4 className="flex items-center gap-2 font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                <AlertTriangle className="h-4 w-4" />
+                {readinessHeadline}
+              </h4>
+              <p className="mt-3 font-medium leading-relaxed text-app-text-muted">
+                {readinessMessage}
+              </p>
+            </div>
+          ) : (
+            <div className="mb-8 rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-6 text-sm">
+              <h4 className="flex items-center gap-2 font-black uppercase tracking-widest text-emerald-800 dark:text-emerald-200">
+                <CheckCircle2 className="h-4 w-4" />
+                {readinessHeadline}
+              </h4>
+              <p className="mt-3 font-medium leading-relaxed text-app-text-muted">
+                {readinessMessage}
+              </p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+            {[
+              { label: "Overall", val: readinessHeadline.replace("Stripe ", "") },
+              {
+                label: "Server key",
+                val: formatStripeEnvState(readiness.secret_key_state),
+              },
+              {
+                label: "Publishable key",
+                val: formatStripeEnvState(readiness.public_key_state),
+              },
+              {
+                label: "Webhook signing",
+                val: formatStripeEnvState(readiness.webhook_secret_state),
+              },
+            ].map((stat) => (
+              <div
+                key={stat.label}
+                className="rounded-xl border border-app-border bg-app-surface-2/40 p-3"
+              >
+                <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  {stat.label}
+                </p>
+                <p className="text-xs font-black text-app-text truncate">
+                  {stat.val}
+                </p>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -294,10 +420,10 @@ const StripeSettingsPanel: React.FC = () => {
             </p>
             <div className="flex flex-wrap justify-center md:justify-start gap-4 pt-2">
               <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-indigo-600 ring-1 ring-indigo-500/20 italic">
-                Validated integration
+                {stripeReady ? "Ready for vaulting" : "Provisioning required"}
               </span>
               <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-emerald-600 ring-1 ring-emerald-500/20 italic">
-                Auto-Reconcile active
+                {webhookReady ? "Webhook sync ready" : "Webhook sync limited"}
               </span>
             </div>
           </div>

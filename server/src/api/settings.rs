@@ -19,7 +19,7 @@ use std::net::SocketAddr;
 use thiserror::Error;
 
 use crate::api::AppState;
-use crate::auth::permissions::SETTINGS_ADMIN;
+use crate::auth::permissions::{SETTINGS_ADMIN, SHIPMENTS_VIEW};
 use crate::auth::pins::log_staff_access;
 use crate::logic::nuorder::{NuorderClient, NuorderCredentials};
 use crate::logic::nuorder_sync;
@@ -155,6 +155,68 @@ fn default_footer() -> Vec<String> {
 
 fn default_receipt_thermal_mode() -> String {
     "zpl".to_string()
+}
+
+fn nonempty_env(name: &str) -> Option<String> {
+    std::env::var(name)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn looks_placeholder(value: &str) -> bool {
+    let normalized = value.trim().to_ascii_lowercase();
+    normalized.contains("dummy")
+        || normalized.contains("replace_me")
+        || normalized.contains("changeme")
+        || normalized.contains("placeholder")
+}
+
+#[derive(Debug, Serialize)]
+pub struct StripeReadinessResponse {
+    pub secret_key_state: &'static str,
+    pub public_key_state: &'static str,
+    pub webhook_secret_state: &'static str,
+}
+
+fn classify_stripe_secret_key() -> &'static str {
+    match nonempty_env("STRIPE_SECRET_KEY") {
+        Some(value) if looks_placeholder(&value) => "placeholder",
+        Some(value) if value.starts_with("sk_live_") => "live",
+        Some(value) if value.starts_with("sk_test_") => "test",
+        Some(_) => "invalid",
+        None => "missing",
+    }
+}
+
+fn classify_stripe_public_key() -> &'static str {
+    match nonempty_env("STRIPE_PUBLIC_KEY") {
+        Some(value) if looks_placeholder(&value) => "placeholder",
+        Some(value) if value.starts_with("pk_live_") => "live",
+        Some(value) if value.starts_with("pk_test_") => "test",
+        Some(_) => "invalid",
+        None => "missing",
+    }
+}
+
+fn classify_stripe_webhook_secret() -> &'static str {
+    match nonempty_env("STRIPE_WEBHOOK_SECRET") {
+        Some(value) if value.starts_with("whsec_") => "configured",
+        Some(_) => "invalid",
+        None => "missing",
+    }
+}
+
+async fn get_stripe_readiness(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<StripeReadinessResponse>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    Ok(Json(StripeReadinessResponse {
+        secret_key_state: classify_stripe_secret_key(),
+        public_key_state: classify_stripe_public_key(),
+        webhook_secret_state: classify_stripe_webhook_secret(),
+    }))
 }
 
 impl Default for ReceiptConfig {
@@ -677,6 +739,20 @@ async fn get_shippo_settings(
     headers: HeaderMap,
 ) -> Result<Json<ShippoSettingsResponse>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
+    let raw: Value = sqlx::query_scalar("SELECT shippo_config FROM store_settings WHERE id = 1")
+        .fetch_one(&state.db)
+        .await?;
+    let cfg = StoreShippoConfig::load_from_json(raw);
+    Ok(Json(shippo_settings_response(&cfg)))
+}
+
+async fn get_shippo_readiness(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ShippoSettingsResponse>, SettingsError> {
+    middleware::require_staff_perm_or_pos_session(&state, &headers, SHIPMENTS_VIEW)
+        .await
+        .map_err(map_set_perm)?;
     let raw: Value = sqlx::query_scalar("SELECT shippo_config FROM store_settings WHERE id = 1")
         .fetch_one(&state.db)
         .await?;
@@ -1239,6 +1315,8 @@ pub fn router() -> Router<AppState> {
             "/shippo",
             get(get_shippo_settings).patch(patch_shippo_settings),
         )
+        .route("/shippo/readiness", get(get_shippo_readiness))
+        .route("/stripe/readiness", get(get_stripe_readiness))
         .route(
             "/podium-sms",
             get(get_podium_sms_settings).patch(patch_podium_sms_settings),
