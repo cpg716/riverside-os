@@ -1102,7 +1102,12 @@ function AppShell({
 
   useEffect(() => {
     // POS-only workspaces should never render through Back Office fallback surfaces.
-    const posOnlyTabs = new Set<SidebarTabId>(["shipping", "tasks", "layaways"]);
+    const posOnlyTabs = new Set<SidebarTabId>([
+      "pos-dashboard",
+      "shipping",
+      "tasks",
+      "layaways",
+    ]);
     if (!posMode && posOnlyTabs.has(activeTab)) {
       setPosMode(true);
     }
@@ -1111,6 +1116,7 @@ function AppShell({
   const handlePosShellTabChange = useCallback(
     (tab: SidebarTabId) => {
       const posTabs: SidebarTabId[] = [
+        "pos-dashboard",
         "register",
         "customers",
         "orders",
