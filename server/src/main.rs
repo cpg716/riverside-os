@@ -21,6 +21,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let stripe_secret_key = std::env::var("STRIPE_SECRET_KEY")
         .unwrap_or_else(|_| "sk_test_dummy_replace_me_later".to_string());
+    let stripe_public_key = std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default();
+    let stripe_webhook_secret = std::env::var("STRIPE_WEBHOOK_SECRET").ok();
 
     let bind_addr =
         std::env::var("RIVERSIDE_HTTP_BIND").unwrap_or_else(|_| "0.0.0.0:3000".to_string());
@@ -45,6 +47,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = LauncherConfig {
         database_url,
         stripe_secret_key,
+        stripe_public_key,
+        stripe_webhook_secret,
         bind_addr,
         frontend_dist,
         cors_origins,
