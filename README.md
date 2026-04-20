@@ -73,7 +73,7 @@ Environment variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
-| `STRIPE_SECRET_KEY` | dummy | Stripe client |
+| `STRIPE_SECRET_KEY` | dummy | Stripe secret key for server payment calls. Local dev may use the dummy/test fallback; when **`RIVERSIDE_STRICT_PRODUCTION=true`**, startup now requires a valid live **`sk_live_...`** key. |
 | `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
 | `VITE_POS_OFFLINE_CARD_SIM` | _(unset)_ | When **`true`**, register **Credit Card** tender can open the **training** reader simulation if **`POST /api/payments/intent`** fails — **`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`** |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
