@@ -73,7 +73,9 @@ Environment variables:
 | Variable | Default | Notes |
 |---|---|---|
 | `DATABASE_URL` | `postgresql://postgres:password@localhost:5433/riverside_os` | Must match Docker `db` host port (**5433** avoids conflict with native Postgres on 5432; see `server/.env.example`) |
-| `STRIPE_SECRET_KEY` | dummy | Stripe secret key for server payment calls. Local dev may use the dummy/test fallback; when **`RIVERSIDE_STRICT_PRODUCTION=true`**, startup now requires a valid live **`sk_live_...`** key. |
+| `STRIPE_SECRET_KEY` | dummy | Stripe secret key for server payment calls. Local dev may use the dummy/test fallback; when **`RIVERSIDE_STRICT_PRODUCTION=true`**, startup requires a valid live **`sk_live_...`** key. |
+| `STRIPE_PUBLIC_KEY` | unset | Stripe publishable key served by **`GET /api/payments/config`** for Elements/vaulting flows. Local dev may leave it unset; when **`RIVERSIDE_STRICT_PRODUCTION=true`**, startup requires a valid live **`pk_live_...`** key. |
+| `STRIPE_WEBHOOK_SECRET` | unset | Optional Stripe webhook signing secret for **`POST /api/webhooks/stripe`** fee reconciliation. Startup warns when unset because reconciliation stays disabled; in strict production any configured value must look like **`whsec_...`**. |
 | `VITE_API_BASE` | unset → same-origin in browser/PWA, else `http://127.0.0.1:3000` fallback for non-HTTP shells | API origin for client; set explicitly for production when UI and API are on different origins |
 | `VITE_POS_OFFLINE_CARD_SIM` | _(unset)_ | When **`true`**, register **Credit Card** tender can open the **training** reader simulation if **`POST /api/payments/intent`** fails — **`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`** |
 | `VITE_STOREFRONT_EMBEDS` | _(unset)_ | When **`true`**, loads **`GET /api/public/storefront-embeds`** once (Podium widget when configured) — public storefront builds only — **`docs/PLAN_PODIUM_SMS_INTEGRATION.md`** |
@@ -99,7 +101,7 @@ Environment variables:
 | `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
-Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, and an explicit **`FRONTEND_DIST`**. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory.
+Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, a live **`STRIPE_SECRET_KEY`**, and a live **`STRIPE_PUBLIC_KEY`**. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory. **`STRIPE_WEBHOOK_SECRET`** remains optional unless that deployment expects signed Stripe webhook reconciliation.
 
 ## Quality checks
 

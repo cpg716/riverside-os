@@ -68,6 +68,12 @@ ROS supports issuing credits directly to a customer's card via the Stripe termin
 
 ## 🧪 Environmental Requirements
 
-The following environment variables must be set:
-- `STRIPE_SECRET_KEY`: Server-side API authentication.
-- `VITE_STRIPE_PUBLIC_KEY`: Client-side Stripe Elements initialization.
+Runtime environment variables used by the shipped Stripe integration:
+- `STRIPE_SECRET_KEY`: Server-side API authentication for PaymentIntents, refunds, and vault linkage.
+- `STRIPE_PUBLIC_KEY`: Publishable key returned by `GET /api/payments/config` for Stripe Elements card vaulting.
+- `STRIPE_WEBHOOK_SECRET`: Optional signing secret for `POST /api/webhooks/stripe` exact fee reconciliation.
+
+Strict-production behavior:
+- `RIVERSIDE_STRICT_PRODUCTION=true` requires a live `STRIPE_SECRET_KEY` (`sk_live_...`).
+- `RIVERSIDE_STRICT_PRODUCTION=true` also requires a live `STRIPE_PUBLIC_KEY` (`pk_live_...`) because the shipped vaulting flow depends on it.
+- `STRIPE_WEBHOOK_SECRET` remains optional, but if configured it must be a valid Stripe signing secret (`whsec_...`).
