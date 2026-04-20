@@ -35,6 +35,8 @@ pub async fn start_unified_server(
     let config = LauncherConfig {
         database_url,
         stripe_secret_key: stripe_key,
+        stripe_public_key: std::env::var("STRIPE_PUBLIC_KEY").unwrap_or_default(),
+        stripe_webhook_secret: std::env::var("STRIPE_WEBHOOK_SECRET").ok(),
         bind_addr,
         frontend_dist: None, // We'll need to figure out where the PWA files are bundled
         cors_origins: vec![],
@@ -56,5 +58,9 @@ pub async fn start_unified_server(
 
 #[tauri::command]
 pub fn get_unified_server_status(state: State<'_, UnifiedServerState>) -> bool {
-    *state.is_running.lock().unwrap_or_else(|_| &mut false)
+    state
+        .is_running
+        .lock()
+        .map(|running| *running)
+        .unwrap_or(false)
 }
