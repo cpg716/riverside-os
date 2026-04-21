@@ -96,6 +96,8 @@ interface ReviewRow {
 
 interface ReviewSummary {
   total_counted: number;
+  total_variants_in_scope: number;
+  missing_variants: number;
   total_shrinkage: number;
   total_surplus: number;
 }
@@ -969,12 +971,25 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         </div>
 
         {reviewSummary && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+            <DashboardStatsCard
+              title="Scope Variants"
+              value={reviewSummary.total_variants_in_scope}
+              icon={Package}
+              trend={{ value: "In review", label: "catalog" }}
+            />
             <DashboardStatsCard
               title="Counted Resources"
               value={reviewSummary.total_counted}
               icon={ClipboardList}
               trend={{ value: "Aggregated", label: "volume" }}
+            />
+            <DashboardStatsCard
+              title="Missing In Scope"
+              value={reviewSummary.missing_variants}
+              icon={AlertCircle}
+              trend={{ value: "Needs review", label: "uncounted", isUp: false }}
+              color="orange"
             />
             <DashboardStatsCard
               title="Total Shrinkage"
@@ -990,6 +1005,20 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               trend={{ value: "Found", label: "resources", isUp: true }}
               color="green"
             />
+          </div>
+        )}
+
+        {reviewSummary && reviewSummary.missing_variants > 0 && (
+          <div className="flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-5 py-4 text-amber-700">
+            <AlertCircle className="mt-0.5 shrink-0" size={18} />
+            <div>
+              <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
+                Incomplete Scope Surfaced
+              </p>
+              <p className="text-sm font-bold leading-relaxed">
+                {reviewSummary.missing_variants} in-scope SKU{reviewSummary.missing_variants === 1 ? "" : "s"} were never counted. They are now included in review and will reconcile to zero unless you resume counting or enter an override.
+              </p>
+            </div>
           </div>
         )}
 
@@ -1033,6 +1062,11 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                         {r.adjusted_qty != null && (
                           <span className="ml-2 px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-600 text-[10px]">→{r.adjusted_qty}</span>
                         )}
+                        {r.counted_qty === 0 && r.adjusted_qty == null && (
+                          <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-600 text-[10px]">
+                            not counted
+                          </span>
+                        )}
                       </td>
                       <td className="px-6 py-4 text-center font-bold text-app-text-muted opacity-60">{r.sales_since_start}</td>
                       <td className="px-6 py-4 text-right">
@@ -1070,7 +1104,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           title="Apply Reconciled Logic?"
           message={
             reviewSummary 
-              ? `Publishing session ${activeSession.session_number} will overwrite current inventory with reviewed levels. (Count: ${reviewSummary.total_counted}, Delta: ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}). Permanent.`
+              ? `Publishing session ${activeSession.session_number} will overwrite current inventory with reviewed levels. (${reviewSummary.total_variants_in_scope} scoped variants, ${reviewSummary.total_counted} counted, ${reviewSummary.missing_variants} missing in scope, delta ${reviewSummary.total_surplus - reviewSummary.total_shrinkage}). Permanent.`
               : `Publishing session ${activeSession.session_number} will overwrite the current catalog stock levels. Permanent.`
           }
           confirmLabel="Commit Changes"

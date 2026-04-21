@@ -95,6 +95,32 @@ pub struct PublishResult {
     pub total_surplus: i32,
 }
 
+/// Ensure every in-scope snapshot variant has a review/count row before review or publish.
+/// Uncounted in-scope variants are materialized with counted_qty = 0 so they are visible
+/// during reconciliation instead of being silently skipped.
+pub async fn materialize_review_scope_rows(pool: &PgPool, session_id: Uuid) -> Result<i64> {
+    let inserted = sqlx::query(
+        r#"
+        INSERT INTO physical_inventory_counts (session_id, variant_id, counted_qty, scan_source)
+        SELECT pis.session_id, pis.variant_id, 0, 'manual'
+        FROM physical_inventory_snapshots pis
+        LEFT JOIN physical_inventory_counts pic
+          ON pic.session_id = pis.session_id
+         AND pic.variant_id = pis.variant_id
+        WHERE pis.session_id = $1
+          AND pic.id IS NULL
+        ON CONFLICT (session_id, variant_id) DO NOTHING
+        "#,
+    )
+    .bind(session_id)
+    .execute(pool)
+    .await
+    .context("Failed to materialize review scope rows")?
+    .rows_affected() as i64;
+
+    Ok(inserted)
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Session Lifecycle
 // ─────────────────────────────────────────────────────────────────────────────
@@ -297,6 +323,8 @@ pub async fn move_to_review(pool: &PgPool, session_id: Uuid, staff_id: Option<Uu
         return Err(anyhow!("Session not found or not in 'open' status"));
     }
 
+    let _ = materialize_review_scope_rows(pool, session_id).await?;
+
     sqlx::query(
         "INSERT INTO physical_inventory_audit (session_id, event_type, performed_by, note) VALUES ($1, 'session_move_review', $2, 'Session moved to review phase')",
     )
@@ -422,6 +450,7 @@ pub async fn apply_review_adjustment(
 
 /// Build the full review dataset: counted + snapshot + sales deduction.
 pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewRow>> {
+    let _ = materialize_review_scope_rows(pool, session_id).await?;
     let started_at: DateTime<Utc> =
         sqlx::query_scalar("SELECT started_at FROM physical_inventory_sessions WHERE id = $1")
             .bind(session_id)
@@ -448,21 +477,21 @@ pub async fn build_review(pool: &PgPool, session_id: Uuid) -> Result<Vec<ReviewR
         r#"
         SELECT
             pic.id         AS count_id,
-            pic.variant_id,
+            pis.variant_id,
             pv.sku,
             p.name         AS product_name,
             pv.variation_label,
-            COALESCE(pis.stock_at_start, 0) AS stock_at_start,
-            pic.counted_qty,
+            pis.stock_at_start,
+            COALESCE(pic.counted_qty, 0) AS counted_qty,
             pic.adjusted_qty,
-            pic.review_status,
+            COALESCE(pic.review_status, 'pending') AS review_status,
             pic.review_note
-        FROM physical_inventory_counts pic
-        JOIN product_variants pv ON pv.id = pic.variant_id
+        FROM physical_inventory_snapshots pis
+        JOIN product_variants pv ON pv.id = pis.variant_id
         JOIN products p ON p.id = pv.product_id
-        LEFT JOIN physical_inventory_snapshots pis
-            ON pis.session_id = pic.session_id AND pis.variant_id = pic.variant_id
-        WHERE pic.session_id = $1
+        LEFT JOIN physical_inventory_counts pic
+            ON pic.session_id = pis.session_id AND pic.variant_id = pis.variant_id
+        WHERE pis.session_id = $1
         ORDER BY p.name, pv.sku
         "#,
     )
@@ -729,6 +758,161 @@ pub async fn resolve_scan_code(
     }
 
     Ok(None)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_review, materialize_review_scope_rows};
+    use chrono::{Duration, Utc};
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn build_review_surfaces_uncounted_in_scope_variants() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let session_id = Uuid::new_v4();
+        let product_one_id = Uuid::new_v4();
+        let product_two_id = Uuid::new_v4();
+        let variant_one_id = Uuid::new_v4();
+        let variant_two_id = Uuid::new_v4();
+        let started_at = Utc::now() - Duration::hours(1);
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active)
+            VALUES ($1, $2, $3, $4, true), ($5, $6, $7, $8, true)
+            "#,
+        )
+        .bind(product_one_id)
+        .bind("PI Counted Variant")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .bind(product_two_id)
+        .bind("PI Missing Variant")
+        .bind(Decimal::new(12000, 2))
+        .bind(Decimal::new(5000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert products");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand)
+            VALUES
+              ($1, $2, $3, '{}'::jsonb, $4),
+              ($5, $6, $7, '{}'::jsonb, $8)
+            "#,
+        )
+        .bind(variant_one_id)
+        .bind(product_one_id)
+        .bind(format!("PI-COUNTED-{}", Uuid::new_v4().simple()))
+        .bind(5_i32)
+        .bind(variant_two_id)
+        .bind(product_two_id)
+        .bind(format!("PI-MISSING-{}", Uuid::new_v4().simple()))
+        .bind(3_i32)
+        .execute(&pool)
+        .await
+        .expect("insert variants");
+
+        sqlx::query(
+            r#"
+            INSERT INTO physical_inventory_sessions (
+              id, session_number, status, scope, category_ids, started_at, last_saved_at
+            )
+            VALUES ($1, $2, 'published', 'full', '{}', $3, $3)
+            "#,
+        )
+        .bind(session_id)
+        .bind(format!("TEST-PI-{}", Uuid::new_v4().simple()))
+        .bind(started_at)
+        .execute(&pool)
+        .await
+        .expect("insert session");
+
+        sqlx::query(
+            r#"
+            INSERT INTO physical_inventory_snapshots (session_id, variant_id, stock_at_start)
+            VALUES ($1, $2, 5), ($1, $3, 3)
+            "#,
+        )
+        .bind(session_id)
+        .bind(variant_one_id)
+        .bind(variant_two_id)
+        .execute(&pool)
+        .await
+        .expect("insert snapshots");
+
+        sqlx::query(
+            r#"
+            INSERT INTO physical_inventory_counts (session_id, variant_id, counted_qty, scan_source)
+            VALUES ($1, $2, 5, 'manual')
+            "#,
+        )
+        .bind(session_id)
+        .bind(variant_one_id)
+        .execute(&pool)
+        .await
+        .expect("insert counted row");
+
+        let inserted = materialize_review_scope_rows(&pool, session_id)
+            .await
+            .expect("materialize missing scope rows");
+        assert_eq!(inserted, 1);
+
+        let review = build_review(&pool, session_id)
+            .await
+            .expect("build review for full scope");
+        assert_eq!(review.len(), 2);
+
+        let counted = review
+            .iter()
+            .find(|row| row.variant_id == variant_one_id)
+            .expect("counted variant in review");
+        assert_eq!(counted.counted_qty, 5);
+        assert_eq!(counted.final_stock, 5);
+        assert_eq!(counted.delta, 0);
+
+        let missing = review
+            .iter()
+            .find(|row| row.variant_id == variant_two_id)
+            .expect("missing variant in review");
+        assert_eq!(missing.counted_qty, 0);
+        assert_eq!(missing.adjusted_qty, None);
+        assert_eq!(missing.final_stock, 0);
+        assert_eq!(missing.delta, -3);
+
+        let materialized_count_rows: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM physical_inventory_counts WHERE session_id = $1",
+        )
+        .bind(session_id)
+        .fetch_one(&pool)
+        .await
+        .expect("count materialized rows");
+        assert_eq!(materialized_count_rows, 2);
+
+        sqlx::query("DELETE FROM physical_inventory_sessions WHERE id = $1")
+            .bind(session_id)
+            .execute(&pool)
+            .await
+            .expect("delete session");
+        sqlx::query("DELETE FROM product_variants WHERE id = ANY($1)")
+            .bind(vec![variant_one_id, variant_two_id])
+            .execute(&pool)
+            .await
+            .expect("delete variants");
+        sqlx::query("DELETE FROM products WHERE id = ANY($1)")
+            .bind(vec![product_one_id, product_two_id])
+            .execute(&pool)
+            .await
+            .expect("delete products");
+    }
 }
 
 async fn try_resolve(pool: &PgPool, code: &str, field: &str) -> Result<Option<ScanResolveResult>> {

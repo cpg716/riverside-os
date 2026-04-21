@@ -300,7 +300,12 @@ async fn get_review(
         .map_err(|_| anyhow::anyhow!("physical_inventory.view permission required"))?;
 
     let rows = physical_inventory::build_review(&state.db, id).await?;
-    let total_counted = rows.len() as i64;
+    let total_counted = rows.iter().filter(|r| r.counted_qty > 0).count() as i64;
+    let total_variants_in_scope = rows.len() as i64;
+    let missing_variants = rows
+        .iter()
+        .filter(|r| r.counted_qty == 0 && r.adjusted_qty.is_none())
+        .count() as i64;
     let total_shrinkage: i32 = rows
         .iter()
         .filter(|r| r.delta < 0)
@@ -311,6 +316,8 @@ async fn get_review(
         "rows": rows,
         "summary": {
             "total_counted": total_counted,
+            "total_variants_in_scope": total_variants_in_scope,
+            "missing_variants": missing_variants,
             "total_shrinkage": total_shrinkage,
             "total_surplus": total_surplus,
         }
