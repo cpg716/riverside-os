@@ -174,6 +174,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
                 </label>
                 <input
                     type="number"
+                    min="0"
                     value={defaultStock}
                     onChange={(e) => setDefaultStock(Number.parseInt(e.target.value || "0", 10))}
                     className="ui-input h-12 w-32 text-sm font-black tabular-nums"

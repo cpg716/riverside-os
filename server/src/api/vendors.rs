@@ -117,6 +117,50 @@ pub struct VendorBrandRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+fn trimmed_opt(input: Option<&str>) -> Option<&str> {
+    input.map(str::trim).filter(|s| !s.is_empty())
+}
+
+async fn validate_create_vendor_payload(
+    pool: &sqlx::PgPool,
+    payload: &CreateVendorRequest,
+) -> Result<(), VendorError> {
+    let name = payload.name.trim();
+    if name.is_empty() {
+        return Err(VendorError::InvalidPayload("name is required".to_string()));
+    }
+
+    let duplicate_name: Option<String> = sqlx::query_scalar(
+        "SELECT name FROM vendors WHERE lower(trim(name)) = lower(trim($1)) LIMIT 1",
+    )
+    .bind(name)
+    .fetch_optional(pool)
+    .await?;
+    if let Some(existing_name) = duplicate_name {
+        return Err(VendorError::InvalidPayload(format!(
+            "vendor name already exists: {}",
+            existing_name.trim()
+        )));
+    }
+
+    if let Some(vendor_code) = trimmed_opt(payload.vendor_code.as_deref()) {
+        let duplicate_code: Option<String> = sqlx::query_scalar(
+            "SELECT vendor_code FROM vendors WHERE vendor_code IS NOT NULL AND lower(trim(vendor_code)) = lower(trim($1)) LIMIT 1",
+        )
+        .bind(vendor_code)
+        .fetch_optional(pool)
+        .await?;
+        if let Some(existing_code) = duplicate_code {
+            return Err(VendorError::InvalidPayload(format!(
+                "vendor_code already exists: {}",
+                existing_code.trim()
+            )));
+        }
+    }
+
+    Ok(())
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_vendors).post(create_vendor))
@@ -160,10 +204,8 @@ async fn create_vendor(
     Json(payload): Json<CreateVendorRequest>,
 ) -> Result<Json<serde_json::Value>, VendorError> {
     require_v(&state, &headers, CATALOG_EDIT).await?;
+    validate_create_vendor_payload(&state.db, &payload).await?;
     let name = payload.name.trim();
-    if name.is_empty() {
-        return Err(VendorError::InvalidPayload("name is required".to_string()));
-    }
     let v = sqlx::query_as::<_, Vendor>(
         r#"
         INSERT INTO vendors (name, email, phone, account_number, payment_terms, vendor_code)
@@ -173,40 +215,18 @@ async fn create_vendor(
     )
     .bind(name)
     .bind(
-        payload
-            .email
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty()),
+        trimmed_opt(payload.email.as_deref()),
     )
     .bind(
-        payload
-            .phone
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty()),
+        trimmed_opt(payload.phone.as_deref()),
     )
     .bind(
-        payload
-            .account_number
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty()),
+        trimmed_opt(payload.account_number.as_deref()),
     )
     .bind(
-        payload
-            .payment_terms
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty()),
+        trimmed_opt(payload.payment_terms.as_deref()),
     )
-    .bind(
-        payload
-            .vendor_code
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty()),
-    )
+    .bind(trimmed_opt(payload.vendor_code.as_deref()))
     .fetch_one(&state.db)
     .await?;
 
@@ -484,4 +504,58 @@ async fn merge_vendors(
     Ok(Json(
         json!({ "status": "merged", "source": payload.source_vendor_id, "target": payload.target_vendor_id }),
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_create_vendor_payload, CreateVendorRequest, VendorError};
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    fn sample_vendor() -> CreateVendorRequest {
+        CreateVendorRequest {
+            name: "Vendor Validation".to_string(),
+            email: None,
+            phone: None,
+            account_number: None,
+            payment_terms: None,
+            vendor_code: Some("VEND-001".to_string()),
+        }
+    }
+
+    #[tokio::test]
+    async fn validate_create_vendor_payload_rejects_duplicate_name_and_vendor_code() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        sqlx::query(
+            "INSERT INTO vendors (id, name, vendor_code, is_active) VALUES ($1, $2, $3, true)",
+        )
+        .bind(Uuid::new_v4())
+        .bind("Existing Vendor Validation")
+        .bind("VAL-001")
+        .execute(&pool)
+        .await
+        .expect("insert vendor");
+
+        let mut duplicate_name = sample_vendor();
+        duplicate_name.name = " existing vendor validation ".to_string();
+        assert!(matches!(
+            validate_create_vendor_payload(&pool, &duplicate_name).await,
+            Err(VendorError::InvalidPayload(message))
+            if message == "vendor name already exists: Existing Vendor Validation"
+        ));
+
+        let mut duplicate_code = sample_vendor();
+        duplicate_code.name = format!("Fresh Vendor {}", Uuid::new_v4().simple());
+        duplicate_code.vendor_code = Some(" val-001 ".to_string());
+        assert!(matches!(
+            validate_create_vendor_payload(&pool, &duplicate_code).await,
+            Err(VendorError::InvalidPayload(message))
+            if message == "vendor_code already exists: VAL-001"
+        ));
+    }
 }

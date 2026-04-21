@@ -89,9 +89,36 @@ export default function ProductMasterForm({
   );
 
   const canContinueToFinancials = name.trim() && categoryId;
+  const baseRetailCents = parseMoneyToCents(baseRetail || "0");
+  const baseCostCents = parseMoneyToCents(baseCost || "0");
+  const hasInvalidGeneratedRows = rows.some(
+    (row) => !row.sku.trim() || row.stock_on_hand < 0,
+  );
+  const canSubmitProduct =
+    !busy &&
+    name.trim().length > 0 &&
+    rows.length > 0 &&
+    baseRetailCents >= 0 &&
+    baseCostCents >= 0 &&
+    !hasInvalidGeneratedRows;
 
   const submitProduct = async () => {
     if (!name.trim() || rows.length === 0) return;
+    if (baseRetailCents < 0) {
+      toast("Benchmark retail must be non-negative.", "error");
+      return;
+    }
+    if (baseCostCents < 0) {
+      toast("Average acquisition cost must be non-negative.", "error");
+      return;
+    }
+    if (hasInvalidGeneratedRows) {
+      toast(
+        "Each generated SKU must be present and start with non-negative stock.",
+        "error",
+      );
+      return;
+    }
     setBusy(true);
     try {
       const images = imagesRaw
@@ -110,10 +137,8 @@ export default function ProductMasterForm({
           name: name.trim(),
           brand: brand.trim() || null,
           description: description.trim() || null,
-          base_retail_price: centsToFixed2(
-            parseMoneyToCents(baseRetail || "0"),
-          ),
-          base_cost: centsToFixed2(parseMoneyToCents(baseCost || "0")),
+          base_retail_price: centsToFixed2(baseRetailCents),
+          base_cost: centsToFixed2(baseCostCents),
           variation_axes: axes,
           images,
           track_low_stock: trackLowStockTemplate,
@@ -317,6 +342,7 @@ export default function ProductMasterForm({
                       value={baseRetail}
                       onChange={(e) => setBaseRetail(e.target.value)}
                       type="number"
+                      min="0"
                       className="ui-input h-16 text-2xl font-black tabular-nums tracking-tighter"
                     />
                   </div>
@@ -328,6 +354,7 @@ export default function ProductMasterForm({
                       value={baseCost}
                       onChange={(e) => setBaseCost(e.target.value)}
                       type="number"
+                      min="0"
                       className="ui-input h-16 text-xl font-black tabular-nums tracking-tighter text-app-text-muted"
                     />
                   </div>
@@ -486,15 +513,15 @@ export default function ProductMasterForm({
                       Master Form Ready
                     </p>
                     <p className="text-[10px] font-bold text-emerald-700/80">
-                      All validations passed. Click below to commit these models
-                      to the registry.
+                      Non-negative pricing, valid categories, and unique SKUs are
+                      required before these models can be committed.
                     </p>
                   </div>
                 </div>
                 <button
                   type="button"
                   onClick={submitProduct}
-                  disabled={busy}
+                  disabled={!canSubmitProduct}
                   className="h-14 px-8 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-500/30 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
                 >
                   {busy

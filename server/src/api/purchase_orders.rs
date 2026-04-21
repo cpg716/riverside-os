@@ -10,6 +10,7 @@ use rust_decimal::RoundingStrategy;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sqlx::FromRow;
+use std::fmt::Write as _;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -103,6 +104,108 @@ pub struct AddPoLineRequest {
     pub unit_cost: Decimal,
 }
 
+#[derive(Debug, FromRow)]
+struct EditablePoContext {
+    vendor_id: Uuid,
+    status: String,
+    po_kind: String,
+}
+
+async fn ensure_active_vendor_exists(
+    pool: &sqlx::PgPool,
+    vendor_id: Uuid,
+) -> Result<(), PurchaseOrderError> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1 AND is_active = TRUE)",
+    )
+    .bind(vendor_id)
+    .fetch_one(pool)
+    .await?;
+
+    if !exists {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "vendor_id not found or inactive".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+async fn load_editable_po_context(
+    pool: &sqlx::PgPool,
+    po_id: Uuid,
+) -> Result<EditablePoContext, PurchaseOrderError> {
+    let context = sqlx::query_as::<_, EditablePoContext>(
+        r#"
+        SELECT vendor_id, status::text AS status, po_kind
+        FROM purchase_orders
+        WHERE id = $1
+        "#,
+    )
+    .bind(po_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or(PurchaseOrderError::NotFound)?;
+
+    if context.status != "draft" {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "purchase order lines can only be changed while the document is in draft".to_string(),
+        ));
+    }
+
+    Ok(context)
+}
+
+async fn validate_po_line_vendor_linkage(
+    pool: &sqlx::PgPool,
+    vendor_id: Uuid,
+    variant_id: Uuid,
+) -> Result<(), PurchaseOrderError> {
+    #[derive(Debug, FromRow)]
+    struct VariantVendorRow {
+        sku: String,
+        primary_vendor_id: Option<Uuid>,
+        primary_vendor_name: Option<String>,
+    }
+
+    let variant = sqlx::query_as::<_, VariantVendorRow>(
+        r#"
+        SELECT
+            pv.sku,
+            p.primary_vendor_id,
+            v.name AS primary_vendor_name
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+        WHERE pv.id = $1
+        "#,
+    )
+    .bind(variant_id)
+    .fetch_optional(pool)
+    .await?
+    .ok_or_else(|| PurchaseOrderError::InvalidPayload("variant_id not found".to_string()))?;
+
+    if let Some(primary_vendor_id) = variant.primary_vendor_id {
+        if primary_vendor_id != vendor_id {
+            let mut message = format!(
+                "sku {} is linked to a different primary vendor",
+                variant.sku.trim()
+            );
+            if let Some(name) = variant
+                .primary_vendor_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                let _ = write!(&mut message, " ({name})");
+            }
+            return Err(PurchaseOrderError::InvalidPayload(message));
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(Debug, Deserialize)]
 pub struct ReceivePoRequest {
     pub invoice_number: Option<String>,
@@ -187,6 +290,7 @@ async fn create_draft_po(
     Json(payload): Json<CreateDraftPoRequest>,
 ) -> Result<Json<PurchaseOrderSummary>, PurchaseOrderError> {
     require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    ensure_active_vendor_exists(&state.db, payload.vendor_id).await?;
     let po = sqlx::query_as::<_, PurchaseOrderSummary>(
         r#"
         INSERT INTO purchase_orders (po_number, vendor_id, expected_at, notes, po_kind)
@@ -256,6 +360,20 @@ async fn add_po_line(
             "quantity_ordered must be > 0".to_string(),
         ));
     }
+    if payload.unit_cost < Decimal::ZERO {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "unit_cost must be non-negative".to_string(),
+        ));
+    }
+
+    let po_context = load_editable_po_context(&state.db, po_id).await?;
+    if po_context.po_kind != "standard" && po_context.po_kind != "direct_invoice" {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "purchase order kind is not supported for line entry".to_string(),
+        ));
+    }
+    validate_po_line_vendor_linkage(&state.db, po_context.vendor_id, payload.variant_id).await?;
+
     sqlx::query(
         r#"
         INSERT INTO purchase_order_lines (purchase_order_id, variant_id, quantity_ordered, unit_cost)

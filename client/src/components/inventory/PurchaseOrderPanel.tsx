@@ -120,7 +120,8 @@ export default function PurchaseOrderPanel({
       body: JSON.stringify({ vendor_id: vendorId }),
     });
     if (!res.ok) {
-      toast("Failed to create PO draft", "error");
+      const body = await res.json().catch(() => ({}));
+      toast(body.error ?? "Failed to create PO draft", "error");
       return;
     }
     refresh();
@@ -137,7 +138,8 @@ export default function PurchaseOrderPanel({
       body: JSON.stringify({ vendor_id: vendorId }),
     });
     if (!res.ok) {
-      toast("Failed to create direct invoice draft", "error");
+      const body = await res.json().catch(() => ({}));
+      toast(body.error ?? "Failed to create direct invoice draft", "error");
       return;
     }
     refresh();
@@ -145,6 +147,14 @@ export default function PurchaseOrderPanel({
 
   const addLine = async () => {
     if (!selectedPo || !variantId.trim()) return;
+    if (qty <= 0) {
+      toast("Quantity must be greater than zero", "error");
+      return;
+    }
+    if (parseMoneyToCents(unitCost) < 0) {
+      toast("Unit cost must be non-negative", "error");
+      return;
+    }
     const res = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}/lines`, {
       method: "POST",
       headers: {
@@ -357,6 +367,7 @@ export default function PurchaseOrderPanel({
             <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Quantity</label>
             <input
               type="number"
+              min="1"
               value={qty}
               onChange={(e) => setQty(Number.parseInt(e.target.value || "1", 10))}
               className="w-full h-12 bg-app-surface shadow-inner border border-app-border rounded-2xl px-5 text-sm font-black focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"

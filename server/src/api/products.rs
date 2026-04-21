@@ -10,6 +10,7 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sqlx::{FromRow, QueryBuilder};
+use std::collections::HashSet;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -160,7 +161,7 @@ pub struct CreateProductRequest {
     pub variants: Vec<CreateVariantInput>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 pub struct CreateVariantInput {
     pub sku: String,
     pub variation_values: Value,
@@ -170,6 +171,184 @@ pub struct CreateVariantInput {
     pub cost_override: Option<Decimal>,
     #[serde(default)]
     pub track_low_stock: bool,
+}
+
+fn normalize_sku_key(raw: &str) -> String {
+    raw.trim().to_lowercase()
+}
+
+fn validate_variation_axes(axes: &[String]) -> Result<Vec<String>, ProductError> {
+    let mut seen = HashSet::new();
+    let mut normalized = Vec::with_capacity(axes.len());
+    for axis in axes {
+        let trimmed = axis.trim();
+        if trimmed.is_empty() {
+            return Err(ProductError::InvalidPayload(
+                "variation_axes cannot contain blank names".to_string(),
+            ));
+        }
+        let key = trimmed.to_lowercase();
+        if !seen.insert(key) {
+            return Err(ProductError::InvalidPayload(format!(
+                "duplicate variation axis: {trimmed}"
+            )));
+        }
+        normalized.push(trimmed.to_string());
+    }
+    Ok(normalized)
+}
+
+fn validate_variant_shape(
+    variation_axes: &[String],
+    variant: &CreateVariantInput,
+) -> Result<(), ProductError> {
+    let Some(values) = variant.variation_values.as_object() else {
+        return Err(ProductError::InvalidPayload(format!(
+            "variant {} variation_values must be an object",
+            variant.sku.trim()
+        )));
+    };
+
+    let expected_axes: HashSet<&str> = variation_axes.iter().map(String::as_str).collect();
+    let actual_axes: HashSet<&str> = values.keys().map(String::as_str).collect();
+    if expected_axes != actual_axes {
+        return Err(ProductError::InvalidPayload(format!(
+            "variant {} variation_values must match variation_axes exactly",
+            variant.sku.trim()
+        )));
+    }
+
+    for (axis, value) in values {
+        if !value.is_string()
+            || value
+                .as_str()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none()
+        {
+            return Err(ProductError::InvalidPayload(format!(
+                "variant {} has an invalid value for axis {}",
+                variant.sku.trim(),
+                axis
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_create_product_payload(
+    payload: &CreateProductRequest,
+) -> Result<(Vec<String>, Vec<String>), ProductError> {
+    if payload.name.trim().is_empty() {
+        return Err(ProductError::InvalidPayload("name is required".to_string()));
+    }
+    if payload.base_retail_price < Decimal::ZERO {
+        return Err(ProductError::InvalidPayload(
+            "base_retail_price must be non-negative".to_string(),
+        ));
+    }
+    if payload.base_cost < Decimal::ZERO {
+        return Err(ProductError::InvalidPayload(
+            "base_cost must be non-negative".to_string(),
+        ));
+    }
+    if payload.variants.is_empty() {
+        return Err(ProductError::InvalidPayload(
+            "at least one variant is required".to_string(),
+        ));
+    }
+
+    let variation_axes = validate_variation_axes(&payload.variation_axes)?;
+    let mut sku_set = HashSet::new();
+    let mut normalized_skus = Vec::with_capacity(payload.variants.len());
+
+    for variant in &payload.variants {
+        let trimmed_sku = variant.sku.trim();
+        if trimmed_sku.is_empty() {
+            return Err(ProductError::InvalidPayload(
+                "variant sku is required".to_string(),
+            ));
+        }
+        let sku_key = normalize_sku_key(trimmed_sku);
+        if !sku_set.insert(sku_key.clone()) {
+            return Err(ProductError::InvalidPayload(format!(
+                "duplicate sku in request: {trimmed_sku}"
+            )));
+        }
+        if variant.stock_on_hand.unwrap_or(0) < 0 {
+            return Err(ProductError::InvalidPayload(format!(
+                "variant {} stock_on_hand must be non-negative",
+                trimmed_sku
+            )));
+        }
+        if variant
+            .retail_price_override
+            .is_some_and(|price| price < Decimal::ZERO)
+        {
+            return Err(ProductError::InvalidPayload(format!(
+                "variant {} retail_price_override must be non-negative",
+                trimmed_sku
+            )));
+        }
+        if variant
+            .cost_override
+            .is_some_and(|cost| cost < Decimal::ZERO)
+        {
+            return Err(ProductError::InvalidPayload(format!(
+                "variant {} cost_override must be non-negative",
+                trimmed_sku
+            )));
+        }
+        validate_variant_shape(&variation_axes, variant)?;
+        normalized_skus.push(sku_key);
+    }
+
+    Ok((variation_axes, normalized_skus))
+}
+
+async fn ensure_category_exists(
+    pool: &sqlx::PgPool,
+    category_id: Option<Uuid>,
+) -> Result<(), ProductError> {
+    if let Some(category_id) = category_id {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
+                .bind(category_id)
+                .fetch_one(pool)
+                .await?;
+        if !exists {
+            return Err(ProductError::InvalidPayload(
+                "category_id does not exist".to_string(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+async fn ensure_skus_do_not_exist(
+    pool: &sqlx::PgPool,
+    normalized_skus: &[String],
+) -> Result<(), ProductError> {
+    if normalized_skus.is_empty() {
+        return Ok(());
+    }
+
+    let existing: Option<String> = sqlx::query_scalar(
+        "SELECT sku FROM product_variants WHERE lower(trim(sku)) = ANY($1) LIMIT 1",
+    )
+    .bind(normalized_skus)
+    .fetch_optional(pool)
+    .await?;
+
+    if let Some(existing) = existing {
+        return Err(ProductError::InvalidPayload(format!(
+            "sku already exists: {}",
+            existing.trim()
+        )));
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -694,14 +873,9 @@ async fn create_product(
     Json(payload): Json<CreateProductRequest>,
 ) -> Result<Json<ProductRow>, ProductError> {
     require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
-    if payload.name.trim().is_empty() {
-        return Err(ProductError::InvalidPayload("name is required".to_string()));
-    }
-    if payload.variants.is_empty() {
-        return Err(ProductError::InvalidPayload(
-            "at least one variant is required".to_string(),
-        ));
-    }
+    let (normalized_axes, normalized_skus) = validate_create_product_payload(&payload)?;
+    ensure_category_exists(&state.db, payload.category_id).await?;
+    ensure_skus_do_not_exist(&state.db, &normalized_skus).await?;
 
     let mut tx = state.db.begin().await?;
 
@@ -721,18 +895,13 @@ async fn create_product(
     .bind(payload.description.as_deref().map(str::trim).filter(|s| !s.is_empty()))
     .bind(payload.base_retail_price)
     .bind(payload.base_cost)
-    .bind(payload.variation_axes)
+    .bind(normalized_axes)
     .bind(payload.images.unwrap_or_default())
     .bind(payload.track_low_stock)
     .fetch_one(&mut *tx)
     .await?;
 
     for variant in payload.variants {
-        if variant.sku.trim().is_empty() {
-            return Err(ProductError::InvalidPayload(
-                "variant sku is required".to_string(),
-            ));
-        }
         sqlx::query(
             r#"
             INSERT INTO product_variants (
@@ -1216,6 +1385,7 @@ async fn patch_product_model(
         sep.push("category_id = NULL");
         n += 1;
     } else if let Some(cid) = body.category_id {
+        ensure_category_exists(&state.db, Some(cid)).await?;
         sep.push("category_id = ").push_bind(cid);
         n += 1;
     }
@@ -2230,4 +2400,157 @@ async fn get_variant(
     })?;
 
     Ok(Json(resolved))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ensure_skus_do_not_exist, validate_create_product_payload, CreateProductRequest,
+        CreateVariantInput, ProductError,
+    };
+    use rust_decimal::Decimal;
+    use serde_json::json;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    fn sample_request() -> CreateProductRequest {
+        CreateProductRequest {
+            category_id: None,
+            name: "Validation Product".to_string(),
+            brand: Some("Riverside".to_string()),
+            description: Some("Test".to_string()),
+            base_retail_price: Decimal::new(10000, 2),
+            base_cost: Decimal::new(4000, 2),
+            variation_axes: vec!["Color".to_string(), "Size".to_string()],
+            images: None,
+            track_low_stock: false,
+            publish_variants_to_web: false,
+            variants: vec![CreateVariantInput {
+                sku: "SKU-1".to_string(),
+                variation_values: json!({
+                    "Color": "Navy",
+                    "Size": "40R"
+                }),
+                variation_label: Some("Navy / 40R".to_string()),
+                stock_on_hand: Some(0),
+                retail_price_override: None,
+                cost_override: None,
+                track_low_stock: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn validate_create_product_payload_rejects_negative_values_and_duplicate_skus() {
+        let mut payload = sample_request();
+        payload.base_cost = Decimal::new(-1, 0);
+        assert!(matches!(
+            validate_create_product_payload(&payload),
+            Err(ProductError::InvalidPayload(message))
+            if message == "base_cost must be non-negative"
+        ));
+
+        let mut payload = sample_request();
+        payload.base_retail_price = Decimal::new(-1, 0);
+        assert!(matches!(
+            validate_create_product_payload(&payload),
+            Err(ProductError::InvalidPayload(message))
+            if message == "base_retail_price must be non-negative"
+        ));
+
+        let mut payload = sample_request();
+        payload.variants = vec![
+            payload.variants[0].clone(),
+            CreateVariantInput {
+                sku: " sku-1 ".to_string(),
+                variation_values: json!({
+                    "Color": "Black",
+                    "Size": "42R"
+                }),
+                variation_label: Some("Black / 42R".to_string()),
+                stock_on_hand: Some(0),
+                retail_price_override: None,
+                cost_override: None,
+                track_low_stock: false,
+            },
+        ];
+        assert!(matches!(
+            validate_create_product_payload(&payload),
+            Err(ProductError::InvalidPayload(message))
+            if message == "duplicate sku in request: sku-1"
+        ));
+    }
+
+    #[test]
+    fn validate_create_product_payload_requires_axes_to_match_variant_values() {
+        let mut payload = sample_request();
+        payload.variants[0].variation_values = json!({
+            "Color": "Navy"
+        });
+        assert!(matches!(
+            validate_create_product_payload(&payload),
+            Err(ProductError::InvalidPayload(message))
+            if message == "variant SKU-1 variation_values must match variation_axes exactly"
+        ));
+
+        let mut payload = sample_request();
+        payload.variants[0].variation_values = json!(["Navy", "40R"]);
+        assert!(matches!(
+            validate_create_product_payload(&payload),
+            Err(ProductError::InvalidPayload(message))
+            if message == "variant SKU-1 variation_values must be an object"
+        ));
+
+        let mut payload = sample_request();
+        payload.variants[0].stock_on_hand = Some(-1);
+        assert!(matches!(
+            validate_create_product_payload(&payload),
+            Err(ProductError::InvalidPayload(message))
+            if message == "variant SKU-1 stock_on_hand must be non-negative"
+        ));
+    }
+
+    #[tokio::test]
+    async fn ensure_skus_do_not_exist_rejects_existing_sku() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let product_id = Uuid::new_v4();
+        let sku = format!("PRODUCT-VALIDATION-{}", Uuid::new_v4().simple());
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, is_active)
+            VALUES ($1, $2, $3, $4, true)
+            "#,
+        )
+        .bind(product_id)
+        .bind("Existing Product Validation")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (product_id, sku, variation_values, stock_on_hand)
+            VALUES ($1, $2, '{}'::jsonb, 0)
+            "#,
+        )
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        assert!(matches!(
+            ensure_skus_do_not_exist(&pool, &[sku.to_lowercase()]).await,
+            Err(ProductError::InvalidPayload(message))
+            if message == format!("sku already exists: {}", sku)
+        ));
+    }
 }
