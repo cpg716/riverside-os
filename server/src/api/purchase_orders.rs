@@ -324,6 +324,7 @@ async fn create_direct_invoice_draft(
     Json(payload): Json<CreateDirectInvoiceRequest>,
 ) -> Result<Json<PurchaseOrderSummary>, PurchaseOrderError> {
     require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    ensure_active_vendor_exists(&state.db, payload.vendor_id).await?;
     let po = sqlx::query_as::<_, PurchaseOrderSummary>(
         r#"
         INSERT INTO purchase_orders (po_number, vendor_id, notes, po_kind)
@@ -480,6 +481,137 @@ async fn submit_po(
     }
 
     Ok(Json(json!({ "status": "submitted" })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        ensure_active_vendor_exists, load_editable_po_context, validate_po_line_vendor_linkage,
+        PurchaseOrderError,
+    };
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn ensure_active_vendor_exists_rejects_inactive_vendor() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let vendor_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, false)")
+            .bind(vendor_id)
+            .bind(format!("Inactive Vendor {}", Uuid::new_v4().simple()))
+            .execute(&pool)
+            .await
+            .expect("insert vendor");
+
+        assert!(matches!(
+            ensure_active_vendor_exists(&pool, vendor_id).await,
+            Err(PurchaseOrderError::InvalidPayload(message))
+            if message == "vendor_id not found or inactive"
+        ));
+    }
+
+    #[tokio::test]
+    async fn load_editable_po_context_rejects_non_draft_purchase_orders() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let vendor_id = Uuid::new_v4();
+        let po_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, true)")
+            .bind(vendor_id)
+            .bind(format!("PO Context Vendor {}", Uuid::new_v4().simple()))
+            .execute(&pool)
+            .await
+            .expect("insert vendor");
+
+        sqlx::query(
+            "INSERT INTO purchase_orders (id, po_number, vendor_id, status, po_kind) VALUES ($1, $2, $3, 'submitted', 'standard')",
+        )
+        .bind(po_id)
+        .bind(format!("PO-CTX-{}", Uuid::new_v4().simple()))
+        .bind(vendor_id)
+        .execute(&pool)
+        .await
+        .expect("insert po");
+
+        assert!(matches!(
+            load_editable_po_context(&pool, po_id).await,
+            Err(PurchaseOrderError::InvalidPayload(message))
+            if message == "purchase order lines can only be changed while the document is in draft"
+        ));
+    }
+
+    #[tokio::test]
+    async fn validate_po_line_vendor_linkage_rejects_variant_from_different_primary_vendor() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let po_vendor_id = Uuid::new_v4();
+        let product_vendor_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let variant_id = Uuid::new_v4();
+        let sku = format!("PO-VENDOR-LINK-{}", Uuid::new_v4().simple());
+
+        sqlx::query(
+            r#"
+            INSERT INTO vendors (id, name, is_active)
+            VALUES ($1, $2, true), ($3, $4, true)
+            "#,
+        )
+        .bind(po_vendor_id)
+        .bind(format!("PO Vendor {}", Uuid::new_v4().simple()))
+        .bind(product_vendor_id)
+        .bind(format!("Primary Vendor {}", Uuid::new_v4().simple()))
+        .execute(&pool)
+        .await
+        .expect("insert vendors");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, name, base_retail_price, base_cost, primary_vendor_id, is_active)
+            VALUES ($1, $2, $3, $4, $5, true)
+            "#,
+        )
+        .bind(product_id)
+        .bind("PO Vendor Link Product")
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .bind(product_vendor_id)
+        .execute(&pool)
+        .await
+        .expect("insert product");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (id, product_id, sku, variation_values, stock_on_hand)
+            VALUES ($1, $2, $3, '{}'::jsonb, 0)
+            "#,
+        )
+        .bind(variant_id)
+        .bind(product_id)
+        .bind(&sku)
+        .execute(&pool)
+        .await
+        .expect("insert variant");
+
+        assert!(matches!(
+            validate_po_line_vendor_linkage(&pool, po_vendor_id, variant_id).await,
+            Err(PurchaseOrderError::InvalidPayload(message))
+            if message.starts_with(&format!("sku {} is linked to a different primary vendor", sku))
+        ));
+    }
 }
 
 #[derive(Debug, FromRow)]
