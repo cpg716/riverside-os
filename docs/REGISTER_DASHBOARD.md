@@ -32,6 +32,10 @@ Re-designed in v0.2.0 using the **WowDash** layout system (`DashboardStatsCard` 
 
 **Client context:** [`BackofficeAuthContext`](../client/src/context/BackofficeAuthContext.tsx) exposes **`staffRole`** (`admin` \| `salesperson` \| `sales_support` \| `null`) from **`GET /api/staff/effective-permissions`** (`role` field). Authorization remains **server-side** on every API.
 
+### Weather fallback visibility
+
+When the weather service falls back to mock data, the dashboard shows a visible **Mock Weather** badge and short note so floor staff know the forecast is degraded but still safe to view.
+
 ## Server: register metrics
 
 - **Logic:** [`server/src/logic/register_staff_metrics.rs`](../server/src/logic/register_staff_metrics.rs)

@@ -22,6 +22,12 @@ Inside POS mode, the left rail **Register** tab is the **live selling screen** (
 4. Confirm the **profile** shows **till open** / **drawer active** (not **Till closed** / **No Active Session** as appropriate).
 5. You should see the POS rail: **Dashboard**, **Register** (cart), **Tasks**, **Weddings**, etc.
 
+### Shell behavior
+
+- Once ROS enters **POS mode**, the app should stay inside the POS shell until you take an explicit exit path.
+- **Return to POS** and **Go to Register** are POS-shell transitions; they should not silently bounce you back into the Back Office workspace.
+- If POS cannot keep a valid shell/session state, the app may fall back to the launchpad or Back Office so the station can recover cleanly.
+
 ## Leaving POS mode
 
 1. Finish or **park** sales — **never** abandon an open tender.
@@ -55,4 +61,4 @@ When the drawer opens, ROS often lands on **Dashboard** unless you are resuming 
 - [../REGISTER_DASHBOARD.md](../REGISTER_DASHBOARD.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)
 
-**Last reviewed:** 2026-04-06
+**Last reviewed:** 2026-04-21

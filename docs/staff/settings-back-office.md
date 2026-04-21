@@ -128,9 +128,16 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 
 1. **Ops Health Board**: Confirm DB/API/integrations are healthy from one status panel.
 2. **Station Fleet Board**: Verify each Register station heartbeat, version, and online/offline transitions.
-3. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
-4. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
-5. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
+3. **Runtime Diagnostics**: Confirm the station's resolved API base, strict-production status, Stripe readiness, Shippo mode, Metabase auth mode, help-search mode, and weather mode without exposing any secrets.
+4. **Alert Center**: Acknowledge active incidents and verify suppression/recurrence behavior.
+5. **Guarded Actions**: Run maintenance actions only with explicit reason + dual confirmation.
+6. **Bug Manager Overlay**: Keep ROS bug reports as source-of-truth and attach bugs to active incidents for triage context.
+
+### Current operator-visible fallback states
+
+- **Insights**: if automatic Metabase sign-in is unavailable, the station shows an inline Riverside warning and continues to the normal Metabase sign-in screen.
+- **Help Center**: if live search is unavailable, the drawer clearly indicates bundled/manual fallback mode.
+- **Weather**: Operations and the POS dashboard show a `Mock Weather` badge and note when weather data is coming from mock mode.
 
 ### Guardrails
 
@@ -177,4 +184,4 @@ Short version: **Settings** → **Bug reports** (**`settings.admin`** only). Sub
 - [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md)
 - [pos-settings.md](pos-settings.md)
 
-**Last reviewed:** 2026-04-18
+**Last reviewed:** 2026-04-21

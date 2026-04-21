@@ -57,9 +57,8 @@ Local runtime parity for this RC branch expects:
 
 ## Known limitations
 
-- `STRIPE_SECRET_KEY` still does not fail fast in strict production; payment-path failure remains the current detection point.
 - Remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites are not fully centralized yet.
-- Degraded-mode UI warnings for Metabase shared-auth fallback, search fallback, and weather/mock fallback are still deferred.
+- The unstable POS UI subset is temporarily quarantined in CI behind `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` while explicit POS testability contracts are implemented.
 
 ## Release-readiness statement
 

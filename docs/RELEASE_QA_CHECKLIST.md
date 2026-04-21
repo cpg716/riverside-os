@@ -259,10 +259,9 @@ This is a release gate, not optional.
 
 ## Known limitations / deferred hardening
 
-- **Strict-production Stripe secret hardening:** `STRIPE_SECRET_KEY` should fail fast in strict production instead of surfacing only when payment flows are exercised. Deferred from this RC.
 - **API base centralization:** remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites should be consolidated on the shared helper. Deferred from this RC.
-- **Degraded-mode UX warnings:** clearer UI warnings for Metabase shared-auth fallback, search fallback, and weather/mock fallback are deferred from this RC.
+- **Quarantined POS UI E2E subset:** CI temporarily skips `phase2-tender-ui`, `pos-golden`, `tax-exempt-and-stripe-branding`, and the UI-open path in `exchange-wizard` behind `ROS_QUARANTINE_UNSTABLE_POS_E2E=1`. Until the POS testability redesign lands, release spot checks should still include POS launchpad → dashboard → register persistence and cashier-overlay behavior.
 
 ---
 
-**Last reviewed:** 2026-04-11
+**Last reviewed:** 2026-04-21

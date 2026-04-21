@@ -73,17 +73,29 @@ The Dev Center also includes a read-only **Runtime Diagnostics** section for dev
 
 Current signals:
 - resolved client API base
-- environment mode (`development` vs `strict production`)
+- environment mode (`Development` vs `Strict production`)
 - Stripe config state
 - Shippo mode
 - Metabase auth mode
 - search mode
 - weather mode
 
+Current labels:
+- **Stripe**: `Configured`, `Partial`, `Not configured`
+- **Shippo**: `Disabled`, `Live rates`, `Stub fallback`, `Stub mode`
+- **Metabase auth**: `JWT SSO`, `Shared auth`, `Fallback login`
+- **Search**: `Live search`, `Bundled fallback`
+- **Weather**: `Live weather`, `Mock weather`
+
 The panel is intentionally safe:
 - no secrets are returned
 - no mutations are triggered
 - the client-only API base is computed in the browser; the rest comes from `/api/ops/runtime-diagnostics`
+
+Related operator-visible fallback surfaces:
+- **Insights** shows an inline warning when automatic Metabase sign-in falls back to the normal Metabase login page.
+- **Help Center** shows local/manual fallback messaging when bundled search is being used instead of live search.
+- **Operations** and the **Register dashboard** show a `Mock Weather` badge and short note when weather data is coming from mock mode.
 
 ### Mutation endpoints (`ops.dev_center.actions` unless noted)
 

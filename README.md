@@ -16,6 +16,21 @@ Current Version: **v0.2.1** (See [CHANGELOG.md](CHANGELOG.md))
 | Timezone | `chrono-tz` (IANA; configurable per store in receipt settings) |
 | Money | `rust_decimal` only — no f32/f64 for currency anywhere |
 
+## Runtime shell behavior
+
+Riverside has one parent Back Office app shell with three embedded runtime shells:
+
+- **POS shell** for Register, Dashboard, and mirrored POS workspaces
+- **Wedding shell** for full Wedding Manager workflows
+- **Insights shell** for embedded Metabase analytics
+
+Current runtime contract:
+
+- entering **POS**, **Weddings**, or **Insights** transfers shell ownership to that embedded shell
+- while a valid shell is active, the app should stay in that shell until the user takes an explicit exit path
+- child-shell tab changes must not silently bounce the user back to Back Office
+- invalid shell state should fall back cleanly only when the owning shell is no longer valid
+
 ## Quick start
 
 Local PostgreSQL is managed via **OrbStack** (recommended) or Docker Desktop. The **`db` service** in [`docker-compose.yml`](docker-compose.yml) is published on **`localhost:5433`** so it does not conflict with a system Postgres on **5432**. See [**`docs/ORBSTACK_GUIDE.md`**](docs/ORBSTACK_GUIDE.md) for setup and performance tuning.
@@ -138,6 +153,11 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm 
 
 > Use `npm run dev:e2e` for the local deterministic browser stack. It serves the UI on `http://localhost:43173` and the API on `http://127.0.0.1:43300` so release-gate runs do not collide with an ordinary `npm run dev` session on `5173/3000`. Use `localhost` for `E2E_BASE_URL` — `127.0.0.1` may fail browser tests. Full-suite CI-style runs: **`--workers=1`** (see **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5).
 > Root shortcuts like `npm run dev:e2e`, `npm run test:e2e:*`, and `npm run pack` require a real repo-root `npm install`; they should not depend on borrowed `node_modules` from another worktree.
+
+Current CI note:
+
+- The unstable POS UI subset (`phase2-tender-ui`, `pos-golden`, `tax-exempt-and-stripe-branding`, and the UI-open path in `exchange-wizard`) is **temporarily quarantined in CI** behind `ROS_QUARANTINE_UNSTABLE_POS_E2E=1`.
+- Stable Playwright and API coverage remains required; see [`docs/E2E_REGRESSION_MATRIX.md`](docs/E2E_REGRESSION_MATRIX.md) and [`docs/POS_E2E_TESTABILITY_FOLLOWUP.md`](docs/POS_E2E_TESTABILITY_FOLLOWUP.md).
 
 For complete pre-release validation (service boot order, lint/build gates, and E2E checklist), see **`docs/RELEASE_QA_CHECKLIST.md`**.
 

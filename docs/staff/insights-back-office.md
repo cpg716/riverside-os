@@ -39,9 +39,10 @@ Give **staff-class** Metabase credentials to floor teams; reserve **admin-class*
 **Purpose:** Deep analytics — questions, dashboards, and (when enabled) SQL — using **Metabase’s** interface inside Riverside.
 
 1. Select **Insights** in the left rail. The normal Back Office layout is replaced by the **Insights** shell.
-2. If Metabase asks you to **log in**, use the **Metabase username** you were assigned (**staff** or **admin** class per store policy). Riverside staff sign-in does **not** pass through to Metabase unless IT enabled optional JWT handoff.
-3. Work in Metabase as trained (filters, time ranges, collections your Metabase admins configured for **your** login).
-4. Use **Back to Back Office** in the top bar when finished.
+2. If Riverside shows a warning that automatic sign-in is unavailable, continue into the normal Metabase sign-in screen. This means the station fell back to standard Metabase login for this session.
+3. If Metabase asks you to **log in**, use the **Metabase username** you were assigned (**staff** or **admin** class per store policy). Riverside staff sign-in does **not** pass through to Metabase unless IT enabled optional JWT handoff.
+4. Work in Metabase as trained (filters, time ranges, collections your Metabase admins configured for **your** login).
+5. Use **Back to Back Office** in the top bar when finished.
 
 **Same browser:** Metabase keeps its own session. Log out of Metabase when switching between **staff** and **admin** Metabase identities on a shared PC, or use separate browser profiles per policy.
 
@@ -95,4 +96,4 @@ Operational **RMS charge** and **RMS payment** lines are listed under **Customer
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)
 - [../PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md](../PRODUCT_ROADMAP_MENS_WEDDING_RETAIL.md)
 
-**Last reviewed:** 2026-04-08
+**Last reviewed:** 2026-04-21
