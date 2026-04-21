@@ -6,7 +6,6 @@ import {
   FileSpreadsheet,
   ShieldCheck,
   Table,
-  Zap,
   Loader2,
 } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
@@ -15,7 +14,7 @@ import DashboardGridCard from "../ui/DashboardGridCard";
 
 type Step = "mode" | "upload" | "map" | "review";
 
-type ImportMode = "lightspeed" | "manual" | null;
+type ImportMode = "catalog_csv" | null;
 
 interface Category {
   id: string;
@@ -31,21 +30,6 @@ interface ImportSummaryResponse {
 
 type ImportRunState = "idle" | "running" | "success" | "error";
 
-const LIGHTSPEED_PRESET: Record<string, string> = {
-  product_identity: "handle",
-  sku: "sku",
-  barcode: "barcode",
-  product_name: "name",
-  retail_price: "retail_price",
-  // Unit cost in X-Series is `supply_price` (numeric). Not `supplier_code` (vendor/style code text).
-  unit_cost: "supply_price",
-  stock_on_hand: "stock_on_hand",
-  brand: "brand_name",
-  category: "product_category",
-  supplier: "supplier_name",
-  supplier_code: "supplier_code",
-};
-
 const REQUIRED_MAPPING_FIELDS = [
   "product_identity",
   "sku",
@@ -56,7 +40,6 @@ const REQUIRED_MAPPING_FIELDS = [
 ] as const;
 const OPTIONAL_MAPPING_FIELDS = [
   "barcode",
-  "stock_on_hand",
   "category",
   "supplier",
   "supplier_code",
@@ -64,80 +47,7 @@ const OPTIONAL_MAPPING_FIELDS = [
 const MAPPING_FIELDS = [
   ...REQUIRED_MAPPING_FIELDS,
   ...OPTIONAL_MAPPING_FIELDS,
-] as (keyof typeof LIGHTSPEED_PRESET)[];
-
-/** Alternate header labels Lightspeed may use; primary name is always `LIGHTSPEED_PRESET[field]` first. */
-const LIGHTSPEED_HEADER_ALIASES: Record<string, string[]> = {
-  product_identity: ["product_handle", "style_handle", "item_handle"],
-  sku: ["system_sku", "item_sku"],
-  barcode: ["barcode", "upc", "ean", "scan_code"],
-  product_name: ["product_name", "item_name", "description"],
-  retail_price: ["price", "default_price", "sell_price"],
-  unit_cost: ["cost", "cost_price", "default_cost"],
-  stock_on_hand: [
-    "on_hand",
-    "quantity_on_hand",
-    "current_quantity",
-    "qoh",
-    "Invenrory_Riverside_Men's_Shop",
-    "Inventory_Riverside_Men's_Shop",
-  ],
-  brand: ["brand", "vendor_brand"],
-  category: [
-    "category",
-    "Product Category",
-    "item_category",
-    "primary_category",
-    "Category Name",
-  ],
-  supplier: [
-    "Supplier",
-    "supplier",
-    "Supplier Name",
-    "vendor",
-    "Vendor",
-    "primary_supplier",
-    "Primary Supplier",
-    "distributor",
-  ],
-  supplier_code: ["Vendor Code", "vendor_code", "supplier_sku"],
-};
-
-/**
- * Lightspeed Quick-Sync: map only by case-insensitive exact header name (plus one X-Series stock rule).
- * No substring fuzzy matching — avoids collisions (e.g. supply_price vs supplier).
- */
-function matchLightspeedColumn(
-  headers: string[],
-  field: (typeof MAPPING_FIELDS)[number],
-): string {
-  const preset = LIGHTSPEED_PRESET[field];
-  const extras = LIGHTSPEED_HEADER_ALIASES[field] ?? [];
-  const seen = new Set<string>();
-  const candidates: string[] = [];
-  for (const c of [preset, ...extras]) {
-    const k = c.toLowerCase();
-    if (!seen.has(k)) {
-      seen.add(k);
-      candidates.push(c);
-    }
-  }
-  const byLower = new Map<string, string>();
-  for (const h of headers) {
-    const k = h.toLowerCase();
-    if (!byLower.has(k)) byLower.set(k, h);
-  }
-  for (const c of candidates) {
-    const hit = byLower.get(c.toLowerCase());
-    if (hit) return hit;
-  }
-  // X-Series per-outlet quantity column is always `inventory_<OutletName>` — not always named `stock_on_hand`.
-  if (field === "stock_on_hand") {
-    const inv = headers.find((h) => h.toLowerCase().startsWith("inventory_"));
-    if (inv) return inv;
-  }
-  return "";
-}
+] as string[];
 
 function parseCsvLine(line: string): string[] {
   const result: string[] = [];
@@ -237,17 +147,8 @@ export default function UniversalImporter() {
         setError("No data rows found in CSV.");
         return;
       }
-      if (mode === "lightspeed") {
-        const detected: Record<string, string> = {};
-        for (const key of MAPPING_FIELDS) {
-          detected[key] = matchLightspeedColumn(h, key);
-        }
-        setMapping(detected);
-        setStep("review");
-      } else {
-        setMapping({});
-        setStep("map");
-      }
+      setMapping({});
+      setStep("map");
     };
     reader.readAsText(file);
   };
@@ -308,55 +209,51 @@ export default function UniversalImporter() {
     <div className="mx-auto max-w-5xl overflow-y-auto px-6 py-12 lg:px-12 no-scrollbar animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="mb-12 px-4">
         <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Data Ingestion Engine</h3>
-        <h2 className="text-3xl font-black tracking-tight text-app-text">Catalog Importer</h2>
+        <h2 className="text-3xl font-black tracking-tight text-app-text">Catalog CSV Mapper</h2>
       </div>
       {step === "mode" && (
         <div className="grid gap-8 md:grid-cols-2">
           <button
             type="button"
             onClick={() => {
-              setMode("lightspeed");
+              setMode("catalog_csv");
               setStep("upload");
             }}
             className="group relative overflow-hidden rounded-[3rem] border border-app-border/40 bg-app-surface/20 p-12 text-left shadow-2xl transition-all hover:border-app-accent-2/60 hover:bg-app-accent-2/5 backdrop-blur-md"
           >
             <div className="relative z-10">
               <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-app-accent-2/10 text-app-accent-2 transition-all group-hover:scale-110 group-hover:bg-app-accent-2 group-hover:text-white group-hover:shadow-lg group-hover:shadow-app-accent-2/20">
-                <Zap size={32} />
-              </div>
-              <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-app-text">
-                Lightspeed Quick-Sync
-              </h3>
-              <p className="text-sm leading-relaxed text-app-text-muted opacity-80">
-                Optimized preset for X-Series exports. Automatically maps handles, axial variants, and supplier cost logic.
-              </p>
-            </div>
-            {/* Decorative background circle */}
-            <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-accent-2/5 blur-3xl transition-all group-hover:bg-app-accent-2/10" />
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              setMode("manual");
-              setStep("upload");
-            }}
-            className="group relative overflow-hidden rounded-[3rem] border border-app-border/40 bg-app-surface/20 p-12 text-left shadow-2xl transition-all hover:border-app-text/40 hover:bg-app-surface/40 backdrop-blur-md"
-          >
-            <div className="relative z-10">
-              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-app-surface shadow-inner text-app-text-muted transition-all group-hover:scale-110 group-hover:bg-app-text group-hover:text-white group-hover:shadow-lg group-hover:shadow-black/20">
                 <Table size={32} />
               </div>
               <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-app-text">
-                Universal Mapper
+                Catalog CSV
               </h3>
               <p className="text-sm leading-relaxed text-app-text-muted opacity-80">
-                Manual field binding for custom vendor manifests. Supports full schema mapping and category overrides.
+                Map vendor catalog files into products, variants, categories, and vendor links without touching live on-hand stock.
               </p>
             </div>
-             {/* Decorative background circle */}
-             <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-text/5 blur-3xl transition-all group-hover:bg-app-text/10" />
+            <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-accent-2/5 blur-3xl transition-all group-hover:bg-app-accent-2/10" />
           </button>
+
+          <div className="group relative overflow-hidden rounded-[3rem] border border-app-border/40 bg-app-surface/20 p-12 text-left shadow-2xl backdrop-blur-md">
+            <div className="relative z-10">
+              <div className="mb-8 flex h-16 w-16 items-center justify-center rounded-[24px] bg-app-surface shadow-inner text-app-text-muted transition-all group-hover:scale-110 group-hover:bg-app-text group-hover:text-white group-hover:shadow-lg group-hover:shadow-black/20">
+                <ShieldCheck size={32} />
+              </div>
+              <h3 className="mb-3 text-2xl font-black uppercase italic tracking-tighter text-app-text">
+                Counterpoint Sync
+              </h3>
+              <p className="text-sm leading-relaxed text-app-text-muted opacity-80">
+                Pre-launch inventory quantities now belong to Counterpoint sync. Use this CSV mapper for catalog structure only, then let Counterpoint stage authoritative stock.
+              </p>
+              <div className="mt-6 rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+                <p className="text-[11px] font-bold text-emerald-700">
+                  Live on-hand is protected here by design. Use Settings → Counterpoint for initial inventory load.
+                </p>
+              </div>
+            </div>
+            <div className="absolute -bottom-12 -right-12 h-48 w-48 rounded-full bg-app-text/5 blur-3xl transition-all group-hover:bg-app-text/10" />
+          </div>
         </div>
       )}
 
@@ -387,16 +284,16 @@ export default function UniversalImporter() {
             <h2 className="text-3xl font-black uppercase italic tracking-tighter text-app-text">
               Target Manifest
             </h2>
-            <p className="mt-3 text-sm font-bold tracking-tight text-app-text-muted">
+              <p className="mt-3 text-sm font-bold tracking-tight text-app-text-muted">
               {rows.length > 0
                 ? `${rows.length.toLocaleString()} rows detected · Ready for logic mapping`
-                : `Choose the ${mode === "lightspeed" ? "X-Series" : "Vendor"} source file`}
+                : `Choose the vendor or source file`}
             </p>
           </div>
         </div>
       )}
 
-      {step === "map" && mode === "manual" && (
+      {step === "map" && mode === "catalog_csv" && (
         <div className="grid animate-in fade-in gap-8 duration-500 lg:grid-cols-2">
            <button
              type="button"
@@ -479,15 +376,19 @@ export default function UniversalImporter() {
               <div className="space-y-6 text-sm leading-relaxed text-app-text-muted">
                 <p>
                   Map <strong className="text-app-text font-black">product identity</strong>{" "}
-                  to the column that groups variants (Lightspeed{" "}
-                  <strong className="text-app-text font-black">handle</strong>, or a style
-                  number). 
+                  to the column that groups variants, such as a catalog handle or style
+                  number.
                 </p>
                 <p>
                   The <strong className="text-app-text font-black">category</strong> binding
                   drives tax-exempt logic and POS organization. If the source file lacks a category column, 
                   the global fallback will be applied to all imported entities.
                 </p>
+                <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
+                  <p className="text-[11px] font-bold text-emerald-700">
+                    Stock quantities are intentionally excluded. This tool updates catalog structure only; Counterpoint sync is the authoritative pre-launch inventory load.
+                  </p>
+                </div>
                 <div className="p-5 rounded-2xl bg-amber-500/5 border border-amber-500/20">
                   <p className="text-[11px] font-bold text-amber-700">
                     SKUs are treated as unique variant identifiers. Duplicate SKUs in the source file will cause synchronization conflicts.
@@ -507,7 +408,7 @@ export default function UniversalImporter() {
           <button
             type="button"
             onClick={() =>
-              setStep(mode === "lightspeed" ? "upload" : "map")
+              setStep("map")
             }
             className="relative z-10 mb-10 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-white transition-colors"
           >
@@ -517,14 +418,14 @@ export default function UniversalImporter() {
           <div className="relative z-10 mb-12 flex flex-wrap items-end justify-between gap-6">
             <div>
               <h2 className="text-4xl font-black uppercase italic tracking-tighter leading-none mb-2">
-                Commit <span className="text-app-accent-2">Reconciliation</span>
+                Commit <span className="text-app-accent-2">Catalog Sync</span>
               </h2>
               <p className="font-bold text-app-text-muted tracking-wide">
-                {rows.length.toLocaleString()} rows detected · {mode === "lightspeed" ? "Lightspeed Axis Sync" : "Manual Schema Map"}
+                {rows.length.toLocaleString()} rows detected · Catalog-only field map
               </p>
             </div>
             <div className="flex items-center gap-3 rounded-2xl border border-white/5 bg-white/5 px-6 py-3 font-black uppercase tracking-widest text-emerald-400 text-[9px] backdrop-blur-md">
-              <CheckCircle2 size={16} /> Idempotent Transactional Sync
+              <CheckCircle2 size={16} /> Catalog-Only Transactional Sync
             </div>
           </div>
 
@@ -588,6 +489,11 @@ export default function UniversalImporter() {
                  <h3 className="text-xs font-black uppercase tracking-[0.2em]">Ingestion Parameters</h3>
               </div>
               <div className="space-y-4">
+                <div className="p-6 rounded-2xl bg-emerald-500/10 border border-emerald-500/20">
+                  <p className="text-[10px] font-bold text-emerald-300 leading-relaxed italic">
+                    This importer never changes live on-hand. Use Counterpoint sync for pre-launch inventory quantities, then Receiving and Physical Inventory for operational adjustments.
+                  </p>
+                </div>
                 <div className="p-6 rounded-2xl bg-white/5 border border-white/5">
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] opacity-40 mb-3">Global Taxonomy Fallback</p>
                   <select
@@ -623,8 +529,8 @@ export default function UniversalImporter() {
               {loading
                 ? `Syncing Catalog…`
                 : runState === "success"
-                ? "Import complete"
-                : "Commit inventory to catalog"}
+                ? "Catalog sync complete"
+                : "Commit catalog changes"}
             </div>
           </button>
         </div>

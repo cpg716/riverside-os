@@ -1,12 +1,11 @@
-//! CSV / Lightspeed X-Series style catalog import: group rows by product identity, upsert variants by SKU.
+//! Catalog CSV import: group rows by product identity, upsert variants by SKU.
 //! Optional `mapping["supplier"]` resolves to `vendors` (match or create) and sets `products.primary_vendor_id`.
-//! Optional `mapping["supplier_code"]` updates `vendors.vendor_code` (Lightspeed `supplier_code` — not unit cost;
-//! cost is `supply_price` → `mapping["unit_cost"]`).
+//! Optional `mapping["supplier_code"]` updates `vendors.vendor_code`.
+//! This importer is catalog-only: it does not mutate live `stock_on_hand`.
 
 use std::collections::HashMap;
 use std::str::FromStr;
 
-use rust_decimal::prelude::ToPrimitive;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -346,19 +345,7 @@ fn parse_money(raw: &str) -> Decimal {
     Decimal::from_str(&t).unwrap_or(Decimal::ZERO)
 }
 
-fn parse_i32(raw: &str) -> i32 {
-    let t = raw.trim().replace([',', ' '], "");
-    if t.is_empty() {
-        return 0;
-    }
-    if let Ok(v) = t.parse::<i32>() {
-        return v;
-    }
-    let d = Decimal::from_str(&t).unwrap_or(Decimal::ZERO);
-    d.round_dp(0).to_i32().unwrap_or(0)
-}
-
-fn lightspeed_variant_axes(row: &HashMap<String, String>) -> (Value, String) {
+fn variant_axes_from_row(row: &HashMap<String, String>) -> (Value, String) {
     let mut map = Map::new();
     let mut label_parts: Vec<String> = Vec::new();
     for slot in ["one", "two", "three"] {
@@ -424,9 +411,19 @@ pub async fn execute_import(
     let brand_key = mapping_col(&payload.mapping, "brand", "brand_name");
     let retail_key = mapping_col(&payload.mapping, "retail_price", "retail_price");
     let cost_key = mapping_col(&payload.mapping, "unit_cost", "supply_price");
-    let stock_key = mapping_col(&payload.mapping, "stock_on_hand", "stock_on_hand");
     let supplier_csv_col = mapping_col(&payload.mapping, "supplier", "");
     let supplier_code_csv_col = mapping_col(&payload.mapping, "supplier_code", "");
+    let stock_mapping_present = payload
+        .mapping
+        .get("stock_on_hand")
+        .map(|value| !value.trim().is_empty())
+        .unwrap_or(false);
+    if stock_mapping_present {
+        return Err(ImporterError::InvalidPayload(
+            "Catalog CSV import no longer accepts stock_on_hand mapping. Use Counterpoint sync for pre-launch inventory quantities, then Receiving or Physical Inventory for live stock changes."
+                .to_string(),
+        ));
+    }
     let mut vendor_lookup = if supplier_csv_col.is_empty() {
         None
     } else {
@@ -585,43 +582,25 @@ pub async fn execute_import(
             id
         };
 
-        let (variation_values, variation_label) = lightspeed_variant_axes(row);
+        let (variation_values, variation_label) = variant_axes_from_row(row);
 
         let label_opt = (!variation_label.is_empty()).then_some(variation_label.as_str());
 
         let retail_override = cell(row, &retail_key).map(|s| parse_money(&s));
         let cost_override = cell(row, &cost_key).map(|s| parse_money(&s));
-        let stock_on_hand = cell(row, &stock_key)
-            .or_else(|| {
-                cell_by_candidates(
-                    row,
-                    &[
-                        "stock_on_hand",
-                        "on_hand",
-                        "quantity_on_hand",
-                        "current_quantity",
-                        "qoh",
-                    ],
-                )
-            })
-            .or_else(|| fuzzy_cell(row, &["stock", "invent", "invenr", "quantity", "qoh"]))
-            .map(|s| parse_i32(&s))
-            .unwrap_or(0);
-
         sqlx::query(
             r#"
             INSERT INTO product_variants (
                 product_id, sku, variation_values, variation_label,
                 retail_price_override, cost_override, stock_on_hand
             )
-            VALUES ($1, $2, $3::jsonb, $4, $5, $6, $7)
+            VALUES ($1, $2, $3::jsonb, $4, $5, $6, 0)
             ON CONFLICT (sku) DO UPDATE SET
                 product_id = EXCLUDED.product_id,
                 variation_values = EXCLUDED.variation_values,
                 variation_label = EXCLUDED.variation_label,
                 retail_price_override = EXCLUDED.retail_price_override,
-                cost_override = EXCLUDED.cost_override,
-                stock_on_hand = EXCLUDED.stock_on_hand
+                cost_override = EXCLUDED.cost_override
             "#,
         )
         .bind(product_id)
@@ -630,7 +609,6 @@ pub async fn execute_import(
         .bind(label_opt)
         .bind(retail_override)
         .bind(cost_override)
-        .bind(stock_on_hand)
         .execute(&mut *tx)
         .await?;
 
@@ -645,4 +623,143 @@ pub async fn execute_import(
         variants_synced,
         rows_skipped,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{execute_import, ImportPayload};
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use std::collections::HashMap;
+    use uuid::Uuid;
+
+    #[tokio::test]
+    async fn execute_import_preserves_live_stock_and_starts_new_variants_at_zero() {
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        let pool = PgPool::connect(&database_url)
+            .await
+            .expect("connect test database");
+
+        let category_id = Uuid::new_v4();
+        let existing_product_id = Uuid::new_v4();
+        let new_product_id = Uuid::new_v4();
+        let existing_sku = format!("IMPORT-EXISTING-{}", Uuid::new_v4().simple());
+        let new_sku = format!("IMPORT-NEW-{}", Uuid::new_v4().simple());
+        let existing_handle = format!("existing-handle-{}", Uuid::new_v4().simple());
+        let new_handle = format!("new-handle-{}", Uuid::new_v4().simple());
+
+        sqlx::query(
+            "INSERT INTO categories (id, name, is_clothing_footwear) VALUES ($1, $2, true)",
+        )
+        .bind(category_id)
+        .bind(format!("Import Test Category {}", Uuid::new_v4().simple()))
+        .execute(&pool)
+        .await
+        .expect("insert category");
+
+        sqlx::query(
+            r#"
+            INSERT INTO products (id, catalog_handle, name, category_id, base_retail_price, base_cost, is_active)
+            VALUES ($1, $2, $3, $4, $5, $6, true), ($7, $8, $9, $4, $10, $11, true)
+            "#,
+        )
+        .bind(existing_product_id)
+        .bind(&existing_handle)
+        .bind("Existing Import Product")
+        .bind(category_id)
+        .bind(Decimal::new(10000, 2))
+        .bind(Decimal::new(4000, 2))
+        .bind(new_product_id)
+        .bind(&new_handle)
+        .bind("Unused New Product Seed")
+        .bind(Decimal::new(12000, 2))
+        .bind(Decimal::new(5000, 2))
+        .execute(&pool)
+        .await
+        .expect("insert products");
+
+        sqlx::query(
+            r#"
+            INSERT INTO product_variants (
+                product_id, sku, variation_values, stock_on_hand, retail_price_override, cost_override
+            )
+            VALUES ($1, $2, '{}'::jsonb, 7, $3, $4)
+            "#,
+        )
+        .bind(existing_product_id)
+        .bind(&existing_sku)
+        .bind(Decimal::new(11000, 2))
+        .bind(Decimal::new(4500, 2))
+        .execute(&pool)
+        .await
+        .expect("insert existing variant");
+
+        let mut mapping = HashMap::new();
+        mapping.insert("product_identity".to_string(), "handle".to_string());
+        mapping.insert("sku".to_string(), "sku".to_string());
+        mapping.insert("product_name".to_string(), "name".to_string());
+        mapping.insert("retail_price".to_string(), "retail_price".to_string());
+        mapping.insert("unit_cost".to_string(), "supply_price".to_string());
+        mapping.insert("brand".to_string(), "brand_name".to_string());
+        mapping.insert("category".to_string(), "product_category".to_string());
+
+        let mut existing_row = HashMap::new();
+        existing_row.insert("handle".to_string(), existing_handle.clone());
+        existing_row.insert("sku".to_string(), existing_sku.clone());
+        existing_row.insert(
+            "name".to_string(),
+            "Existing Import Product Updated".to_string(),
+        );
+        existing_row.insert("retail_price".to_string(), "129.99".to_string());
+        existing_row.insert("supply_price".to_string(), "55.00".to_string());
+        existing_row.insert("brand_name".to_string(), "Riverside".to_string());
+        existing_row.insert(
+            "product_category".to_string(),
+            "Import Existing".to_string(),
+        );
+        existing_row.insert("stock_on_hand".to_string(), "999".to_string());
+
+        let mut new_row = HashMap::new();
+        new_row.insert(
+            "handle".to_string(),
+            format!("brand-new-{}", Uuid::new_v4().simple()),
+        );
+        new_row.insert("sku".to_string(), new_sku.clone());
+        new_row.insert("name".to_string(), "Brand New Import Product".to_string());
+        new_row.insert("retail_price".to_string(), "149.99".to_string());
+        new_row.insert("supply_price".to_string(), "60.00".to_string());
+        new_row.insert("brand_name".to_string(), "Riverside".to_string());
+        new_row.insert("product_category".to_string(), "Import New".to_string());
+        new_row.insert("stock_on_hand".to_string(), "42".to_string());
+
+        let summary = execute_import(
+            &pool,
+            ImportPayload {
+                category_id: None,
+                rows: vec![existing_row, new_row],
+                mapping,
+            },
+        )
+        .await
+        .expect("execute import");
+
+        assert_eq!(summary.variants_synced, 2);
+
+        let existing_stock: i32 =
+            sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE sku = $1")
+                .bind(&existing_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch existing stock");
+        assert_eq!(existing_stock, 7);
+
+        let new_stock: i32 =
+            sqlx::query_scalar("SELECT stock_on_hand FROM product_variants WHERE sku = $1")
+                .bind(&new_sku)
+                .fetch_one(&pool)
+                .await
+                .expect("fetch new stock");
+        assert_eq!(new_stock, 0);
+    }
 }
