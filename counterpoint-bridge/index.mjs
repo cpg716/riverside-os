@@ -8,6 +8,7 @@
  * Heartbeat: idle/syncing each poll cycle; bridge polls for pending sync requests.
  */
 import fs from "node:fs";
+import net from "node:net";
 import path from "node:path";
 import readline from "node:readline";
 import { fileURLToPath } from "node:url";
@@ -384,8 +385,20 @@ function createSqlPool() {
   if (!conn) return new sql.ConnectionPool(conn);
   try {
     const parsed = sql.ConnectionPool.parseConnectionString(conn);
+    const usesIpServer = net.isIP(parsed.server ?? "") !== 0;
+    const trustsServerCertificate = parsed.options?.trustServerCertificate === true;
+    const explicitTlsServerName = String(process.env.SQL_TLS_SERVERNAME ?? "").trim();
+    const normalizedOptions = { ...(parsed.options ?? {}) };
+    if (usesIpServer && trustsServerCertificate) {
+      normalizedOptions.serverName =
+        explicitTlsServerName || normalizedOptions.serverName || "localhost";
+      console.info(
+        `[sql] SQL host is an IP (${parsed.server}); using TLS serverName "${normalizedOptions.serverName}" for driver compatibility.`,
+      );
+    }
     return new sql.ConnectionPool({
       ...parsed,
+      options: normalizedOptions,
       requestTimeout: SQL_REQUEST_TIMEOUT_MS,
       connectionTimeout: SQL_CONNECT_TIMEOUT_MS,
     });
