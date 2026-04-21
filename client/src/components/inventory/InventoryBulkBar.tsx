@@ -15,7 +15,7 @@ interface InventoryBulkBarProps {
     brand: string | null;
     categoryId: string | null;
   }) => Promise<void>;
-  /** Scan-to-receive: bump stock +1 for resolved SKU (barcode = SKU in this stack). */
+  /** Resolve a scanned SKU in the control board without mutating live stock. */
   onScanReceive: (sku: string) => Promise<void>;
   /** Publish all variants under selected templates to the online storefront. */
   onBulkPublishWeb?: () => void | Promise<void>;
@@ -89,7 +89,7 @@ export default function InventoryBulkBar({
         <div         className="pointer-events-auto w-full max-w-5xl rounded-2xl border border-white/30 bg-app-surface/85 shadow-[0_-12px_48px_-8px_color-mix(in_srgb,var(--app-accent)_28%,transparent),0_8px_32px_-12px_rgba(15,23,42,0.25)] backdrop-blur-xl supports-[backdrop-filter]:bg-app-surface/75">
           <div className="px-4 py-3">
             <label className="mb-1 block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              Scan to receive (+1)
+              Scan to locate SKU
             </label>
             <div className="flex items-center gap-2 rounded-xl border border-app-border/90 bg-app-surface/90 px-3 py-2 shadow-inner shadow-app-border/40">
               <ScanBarcode
@@ -109,7 +109,7 @@ export default function InventoryBulkBar({
               />
             </div>
             <p className="mt-1 text-[9px] font-medium text-app-text-muted">
-              Enter posts +1 on-hand without opening the Product Hub.
+              Enter filters the board to the matched SKU. Live stock posts only from Receiving Bay.
             </p>
           </div>
 

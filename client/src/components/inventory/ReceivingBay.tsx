@@ -24,10 +24,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import {
-  mergedPosStaffHeaders,
-  sessionPollAuthHeaders,
-} from "../../lib/posRegisterAuth";
+import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 
 const BASE_URL = getBaseUrl();
 
@@ -130,47 +127,29 @@ function mapApiLine(l: ApiLine): WorksheetLine {
   };
 }
 
-// ── Scan buffer: in-memory batching before POST (not persisted to localforage) ─
+function mergeWorksheetLines(
+  apiLines: ApiLine[],
+  existingLines: WorksheetLine[],
+): WorksheetLine[] {
+  const existingByLineId = new Map(
+    existingLines.map((line) => [line.line_id, line]),
+  );
 
-interface ScanQueueItem {
-  code: string;
-  vendor_id: string | null;
-  quantity: number;
-  source: string;
-  scanned_at: string;
-}
+  return apiLines.map((apiLine) => {
+    const mapped = mapApiLine(apiLine);
+    const existing = existingByLineId.get(mapped.line_id);
+    if (!existing) return mapped;
 
-const scanBuffer: ScanQueueItem[] = [];
-let flushTimer: ReturnType<typeof setTimeout> | null = null;
+    const remainingQty = Math.max(
+      0,
+      mapped.qty_ordered - mapped.qty_previously_received,
+    );
 
-async function flushScanBuffer(vendorId: string | null) {
-  if (scanBuffer.length === 0) return;
-  const batch = scanBuffer.splice(0, scanBuffer.length);
-  try {
-    await fetch(`${BASE_URL}/api/inventory/batch-scan`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...sessionPollAuthHeaders(),
-      },
-      body: JSON.stringify(
-        batch.map((b) => ({ ...b, vendor_id: vendorId })),
-      ),
-    });
-  } catch {
-    // Offline — items remain in buffer until next flush
-    scanBuffer.unshift(...batch);
-  }
-}
-
-function queueScan(item: ScanQueueItem, vendorId: string | null) {
-  scanBuffer.push(item);
-  if (flushTimer) clearTimeout(flushTimer);
-  if (scanBuffer.length >= 10) {
-    void flushScanBuffer(vendorId);
-  } else {
-    flushTimer = setTimeout(() => void flushScanBuffer(vendorId), 500);
-  }
+    return {
+      ...mapped,
+      qty_receiving: Math.min(existing.qty_receiving, remainingQty),
+    };
+  });
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────
@@ -251,7 +230,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       }
       const data = (await res.json()) as PurchaseOrderDetail;
       setDetail(data);
-      setLines(data.lines.map(mapApiLine));
+      setLines((prev) => mergeWorksheetLines(data.lines, prev));
 
       // Load vendor's use_vendor_upc setting
       if (data.vendor_id) {
@@ -299,7 +278,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   );
 
   const processScan = useCallback(
-    (code: string, source: ScanMode) => {
+    (code: string) => {
       const sku = code.trim();
       if (!sku) return;
 
@@ -327,14 +306,8 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       setScanCount((c) => c + 1);
       playScanSuccess();
       showFeedback({ type: "success", message: `${line.product_name} · ${line.qty_receiving + 1} received` });
-
-      // Buffer for backend sync
-      queueScan(
-        { code: sku, vendor_id: detail?.vendor_id ?? null, quantity: 1, source, scanned_at: new Date().toISOString() },
-        detail?.vendor_id ?? null,
-      );
     },
-    [lines, matchLine, detail, showFeedback],
+    [lines, matchLine, showFeedback],
   );
 
   // ── HID scanner detection in the dedicated scan input ─────────────────────
@@ -345,13 +318,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       const code = scanInput.trim();
       if (!code) return;
 
-      // Determine if it came from a scanner (fast) or manual keyboard (slow)
-      const intervals = charIntervalsRef.current;
-      const isScanner =
-        intervals.length >= 2 &&
-        intervals.reduce((a, b) => a + b, 0) / intervals.length < 80;
-
-      processScan(code, isScanner ? "laser" : "laser");
+      processScan(code);
       setScanInput("");
       charIntervalsRef.current = [];
       scannerRef.current?.focus();
@@ -370,7 +337,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   // ── Camera scan handler ────────────────────────────────────────────────────
 
   const handleCameraScan = useCallback(
-    (code: string) => processScan(code, "camera"),
+    (code: string) => processScan(code),
     [processScan],
   );
 

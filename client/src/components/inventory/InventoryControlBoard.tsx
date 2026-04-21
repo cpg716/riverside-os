@@ -674,15 +674,25 @@ export default function InventoryControlBoard({
         scanToastTimer.current = setTimeout(() => setScanToast(null), 2500);
         return;
       }
-      const data = (await res.json()) as { variant_id: string; product_name: string };
-      await bumpVariantStock(data.variant_id, 1);
+      const data = (await res.json()) as {
+        variant_id: string;
+        product_name: string;
+        sku?: string;
+      };
+      const matchedRow = rows.find((row) => row.variant_id === data.variant_id);
+      const nextSearch = matchedRow?.sku ?? data.sku ?? sku;
+      setSearchInput(nextSearch);
+      setDebouncedSearch(nextSearch);
       playScanSuccess();
-      setScanToast({ type: 'success', message: `+1 → ${data.product_name}` });
+      setScanToast({
+        type: 'success',
+        message: `${data.product_name} matched. Open Receiving Bay to post stock.`,
+      });
       if (scanToastTimer.current) clearTimeout(scanToastTimer.current);
       scanToastTimer.current = setTimeout(() => setScanToast(null), 2000);
     } catch (e: unknown) {
       playScanError();
-      setScanToast({ type: 'error', message: e instanceof Error ? e.message : 'Receive failed' });
+      setScanToast({ type: 'error', message: e instanceof Error ? e.message : 'Scan lookup failed' });
       if (scanToastTimer.current) clearTimeout(scanToastTimer.current);
       scanToastTimer.current = setTimeout(() => setScanToast(null), 2500);
     }

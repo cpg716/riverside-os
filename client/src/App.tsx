@@ -112,9 +112,12 @@ function App() {
   const [lifecycleStatus, setLifecycleStatus] = useState<string | null>(null);
   const [receiptTimezone, setReceiptTimezone] = useState("America/New_York");
   const [loading, setLoading] = useState(true);
+  const activeTabRef = useRef(activeTab);
+  const shellNavigationEpochRef = useRef(0);
   // Only log on actual state change or mount to reduce console noise
   const prevRef = useRef({ tab: activeTab, sub: activeSubSection });
   useEffect(() => {
+    activeTabRef.current = activeTab;
     if (prevRef.current.tab !== activeTab || prevRef.current.sub !== activeSubSection) {
       console.log(`[ROS App] Navigation: ${activeTab} > ${activeSubSection}`);
       prevRef.current = { tab: activeTab, sub: activeSubSection };
@@ -177,6 +180,26 @@ function App() {
     setLifecycleStatus("reconciling");
   }, []);
 
+  const enterBackofficeShell = useCallback(
+    (tab: SidebarTabId, section?: string) => {
+      setPosMode(false);
+      setWeddingMode(false);
+      setInsightsMode(false);
+      setActiveTab(tab);
+      if (section) {
+        setActiveSubSection(section);
+      }
+    },
+    [],
+  );
+
+  const enterInsightsShell = useCallback(() => {
+    setPosMode(false);
+    setWeddingMode(false);
+    setInsightsMode(true);
+    setActiveTab("dashboard");
+  }, []);
+
   const refreshOpenSessionMeta = useCallback(async () => {
     await registerMetaRefreshRef.current?.();
   }, []);
@@ -192,10 +215,12 @@ function App() {
 
   useEffect(() => {
     const subs = SIDEBAR_SUB_SECTIONS[activeTab];
-    if (subs.length > 0) {
+    if (subs.length === 0) return;
+    const hasValidSubSection = subs.some((sub) => sub.id === activeSubSection);
+    if (!hasValidSubSection) {
       setActiveSubSection(subs[0].id);
     }
-  }, [activeTab]);
+  }, [activeTab, activeSubSection]);
 
   useEffect(() => {
     if (!transactionsDeepLinkTxnId) return;
@@ -289,13 +314,10 @@ function App() {
       });
     }
 
-    if (p.role === "admin") {
-      setActiveTab("home");
-      setPosMode(false);
-    } else {
-      setActiveTab("register");
-      setPosMode(true);
-    }
+    setWeddingMode(false);
+    setInsightsMode(false);
+    setActiveTab("register");
+    setPosMode(true);
   };
 
   const handleSessionClosed = () => {
@@ -442,7 +464,7 @@ function App() {
       }
 
       if (t === "settings") {
-        setActiveTab("settings");
+        enterBackofficeShell("settings");
         const sec = linkStr(link, "section") || "profile";
         const allowed = new Set([
           "profile",
@@ -474,7 +496,7 @@ function App() {
       }
 
       if (t === "inventory") {
-        setActiveTab("inventory");
+        enterBackofficeShell("inventory");
         const sec = linkStr(link, "section") || "list";
         const allowedI = new Set([
           "list",
@@ -497,7 +519,7 @@ function App() {
       }
 
       if (t === "dashboard") {
-        setActiveTab("home");
+        enterBackofficeShell("home");
         const sec = linkStr(link, "subsection") || "dashboard";
         const allowedD = new Set([
           "dashboard",
@@ -519,7 +541,7 @@ function App() {
       }
 
       if (t === "home") {
-        setActiveTab("home");
+        enterBackofficeShell("home");
         const sub = linkStr(link, "subsection") || "dashboard";
         const allowedHome = new Set([
           "dashboard",
@@ -553,7 +575,7 @@ function App() {
       }
 
       if (t === "customers" || t === "layaways") {
-        setActiveTab("customers");
+        enterBackofficeShell("customers");
         const subRaw =
           t === "layaways" ? "layaways" : linkStr(link, "subsection") || "all";
         if (subRaw === "messaging") {
@@ -588,14 +610,14 @@ function App() {
       }
 
       if (t === "appointments") {
-        setActiveTab("appointments");
+        enterBackofficeShell("appointments");
         const sec = linkStr(link, "section") || "scheduler";
         setActiveSubSection(sec === "conflicts" ? "conflicts" : "scheduler");
         return;
       }
 
       if (t === "qbo") {
-        setActiveTab("qbo");
+        enterBackofficeShell("qbo");
         const sec = linkStr(link, "section") || "staging";
         const allowedQ = new Set([
           "connection",
@@ -616,10 +638,9 @@ function App() {
           "pins",
         ]);
         if (toSettingsAccess.has(sec)) {
-          setActiveTab("settings");
-          setActiveSubSection("staff-access-defaults");
+          enterBackofficeShell("settings", "staff-access-defaults");
         } else {
-          setActiveTab("staff");
+          enterBackofficeShell("staff");
           const allowedS = new Set([
             "team",
             "tasks",
@@ -634,7 +655,7 @@ function App() {
       }
 
       if (t === "gift-cards") {
-        setActiveTab("gift-cards");
+        enterBackofficeShell("gift-cards");
         const sec = linkStr(link, "section") || "inventory";
         const allowedG = new Set([
           "inventory",
@@ -646,7 +667,7 @@ function App() {
       }
 
       if (t === "loyalty") {
-        setActiveTab("loyalty");
+        enterBackofficeShell("loyalty");
         const sec = linkStr(link, "section") || "eligible";
         const allowedL = new Set(["eligible", "history", "adjust", "settings"]);
         setActiveSubSection(allowedL.has(sec) ? sec : "eligible");
@@ -654,11 +675,11 @@ function App() {
       }
 
       if (t === "reports") {
-        setActiveTab("reports");
+        enterBackofficeShell("reports");
         return;
       }
     },
-    [navigateWedding],
+    [enterBackofficeShell, navigateWedding],
   );
 
   const navigateDashboard = useCallback(() => {
@@ -776,17 +797,18 @@ function App() {
     if (window.innerWidth < 1024) setSidebarCollapsed(true);
   }, []);
 
-  const onOpenTransactionInBackoffice = useCallback((orderId: string) => {
-    setTransactionsDeepLinkTxnId(orderId);
-    setActiveTab("orders");
-    setActiveSubSection("all");
-    setPosMode(false);
+  const markShellNavigationIntent = useCallback(() => {
+    shellNavigationEpochRef.current += 1;
   }, []);
 
+  const onOpenTransactionInBackoffice = useCallback((orderId: string) => {
+    setTransactionsDeepLinkTxnId(orderId);
+    enterBackofficeShell("orders", "all");
+  }, [enterBackofficeShell]);
+
   const onOpenMetabaseExplore = useCallback(() => {
-    setInsightsMode(true);
-    setActiveTab("dashboard");
-  }, []);
+    enterInsightsShell();
+  }, [enterInsightsShell]);
 
   const onNavigateRegisterReports = useCallback(
     (transactionId?: string) => {
@@ -819,9 +841,11 @@ function App() {
           setLifecycleStatus={setLifecycleStatus}
           setReceiptTimezone={setReceiptTimezone}
           setIsRegisterOpen={setIsRegisterOpen}
+          activeTabRef={activeTabRef}
           setActiveTab={setActiveTab}
           setPosMode={setPosMode}
           metaRefreshRef={registerMetaRefreshRef}
+          shellNavigationEpochRef={shellNavigationEpochRef}
         />
         {loading ? (
           <div className="flex h-screen items-center justify-center bg-app-bg font-sans text-app-text-muted antialiased">
@@ -863,6 +887,8 @@ function App() {
             navigateRegister={navigateRegister}
             navigateDashboard={navigateDashboard}
             navigateWedding={navigateWedding}
+            enterBackofficeShell={enterBackofficeShell}
+            enterInsightsShell={enterInsightsShell}
             pendingWmPartyId={pendingWmPartyId}
             onClearPendingWmPartyId={clearPendingWmPartyId}
             handleSessionOpened={handleSessionOpened}
@@ -914,6 +940,7 @@ function App() {
             setHelpDrawerOpen={setHelpDrawerOpen}
             bugReportOpen={bugReportOpen}
             setBugReportOpen={setBugReportOpen}
+            markShellNavigationIntent={markShellNavigationIntent}
           />
         </NotificationCenterProvider>
       )}
@@ -965,6 +992,8 @@ interface AppShellProps {
   navigateRegister: () => void;
   navigateDashboard: () => void;
   navigateWedding: (partyId?: string | null) => void;
+  enterBackofficeShell: (tab: SidebarTabId, section?: string) => void;
+  enterInsightsShell: () => void;
   pendingWmPartyId: string | null;
   onClearPendingWmPartyId: () => void;
   handleSessionOpened: (p: PosSessionInfo) => void;
@@ -1016,7 +1045,25 @@ interface AppShellProps {
   setHelpDrawerOpen: (v: boolean) => void;
   bugReportOpen: boolean;
   setBugReportOpen: (v: boolean) => void;
+  markShellNavigationIntent: () => void;
 }
+
+const POS_SHELL_TABS = new Set<SidebarTabId>([
+  "pos-dashboard",
+  "register",
+  "tasks",
+  "customers",
+  "inventory",
+  "orders",
+  "weddings",
+  "alterations",
+  "reports",
+  "gift-cards",
+  "loyalty",
+  "layaways",
+  "shipping",
+  "settings",
+]);
 
 function AppShell({
   posMode,
@@ -1048,6 +1095,8 @@ function AppShell({
   navigateDashboard,
   navigateRegister,
   navigateWedding,
+  enterBackofficeShell,
+  enterInsightsShell,
   pendingWmPartyId,
   onClearPendingWmPartyId,
   handleSessionOpened,
@@ -1089,6 +1138,7 @@ function AppShell({
   setHelpDrawerOpen,
   bugReportOpen,
   setBugReportOpen,
+  markShellNavigationIntent,
   breadcrumbSegments,
   themeMode,
   setThemeMode,
@@ -1099,50 +1149,56 @@ function AppShell({
 }: AppShellProps) {
   const { staffCode, permissionsLoaded, permissions } = useBackofficeAuth();
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
-
   useEffect(() => {
-    // POS-only workspaces should never render through Back Office fallback surfaces.
-    const posOnlyTabs = new Set<SidebarTabId>([
-      "pos-dashboard",
-      "shipping",
-      "tasks",
-      "layaways",
-    ]);
-    if (!posMode && posOnlyTabs.has(activeTab)) {
+    // Shell entry tabs should reconcile their owning mode if the parent tab and mode drift.
+    if (
+      !posMode &&
+      (activeTab === "register" ||
+        activeTab === "pos-dashboard" ||
+        activeTab === "tasks" ||
+        activeTab === "shipping" ||
+        activeTab === "layaways")
+    ) {
       setPosMode(true);
+      return;
     }
-  }, [activeTab, posMode, setPosMode]);
+    if (!weddingMode && activeTab === "weddings") {
+      setPosMode(false);
+      setInsightsMode(false);
+      setWeddingMode(true);
+      return;
+    }
+    if (!insightsMode && activeTab === "dashboard") {
+      setPosMode(false);
+      setWeddingMode(false);
+      setInsightsMode(true);
+    }
+  }, [
+    activeTab,
+    insightsMode,
+    posMode,
+    setInsightsMode,
+    setPosMode,
+    setWeddingMode,
+    weddingMode,
+  ]);
 
   const handlePosShellTabChange = useCallback(
     (tab: SidebarTabId) => {
-      const posTabs: SidebarTabId[] = [
-        "pos-dashboard",
-        "register",
-        "customers",
-        "orders",
-        "alterations",
-        "inventory",
-        "weddings",
-        "gift-cards",
-        "loyalty",
-        "shipping",
-        "settings",
-        "reports",
-        "dashboard",
-        "tasks",
-      ];
-      if (!posTabs.includes(tab)) {
-        setPosMode(false);
-        triggerDashboardRefresh();
-      }
+      // Valid POS shell tabs stay inside POS; explicit exits are handled separately.
       setActiveTab(tab);
     },
-    [setActiveTab, setPosMode, triggerDashboardRefresh],
+    [setActiveTab],
   );
 
   const content = (
     <BackofficeSignInGate>
-      <div className="flex flex-1">
+      <div
+        className="flex flex-1"
+        data-testid="app-shell-state"
+        data-active-tab={activeTab}
+        data-pos-mode={posMode ? "true" : "false"}
+      >
         {posMode ? (
           <PosShell
             activeTab={activeTab}
@@ -1209,19 +1265,22 @@ function AppShell({
             <Sidebar
               activeTab={activeTab}
               onTabChange={(tab) => {
+                markShellNavigationIntent();
                 if (tab === "register") {
                   setPosMode(true);
-                }
-                if (tab === "weddings") {
+                  setWeddingMode(false);
+                  setInsightsMode(false);
+                } else if (tab === "weddings") {
                   setPosMode(false);
                   setWeddingMode(true);
-                } else {
-                  setWeddingMode(false);
-                }
-                if (tab === "dashboard") {
+                  setInsightsMode(false);
+                } else if (tab === "dashboard") {
                   setInsightsMode(true);
                   setPosMode(false);
+                  setWeddingMode(false);
                 } else {
+                  setPosMode(false);
+                  setWeddingMode(false);
                   setInsightsMode(false);
                 }
                 setActiveTab(tab);
@@ -1231,6 +1290,7 @@ function AppShell({
               onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)}
               activeSubSection={activeSubSection}
               onSubSectionChange={(section) => {
+                markShellNavigationIntent();
                 if (window.innerWidth < 1024) setSidebarCollapsed(true);
                 setActiveSubSection(section);
               }}
@@ -1358,10 +1418,7 @@ function AppShell({
           setGlobalSearchDrawer({ kind: "wedding-party-customers", partyQuery })
         }
         onSearchOpenOrder={(transactionId: string) => {
-          setPosMode(false);
-          setWeddingMode(false);
-          setInsightsMode(false);
-          setActiveTab("orders");
+          enterBackofficeShell("orders");
           onOpenTransactionInBackoffice(transactionId);
         }}
         onSearchOpenShipment={(shipmentId: string) =>
@@ -1373,10 +1430,7 @@ function AppShell({
           navigateWedding(partyId);
         }}
         onSearchOpenAlteration={(alterationId: string) => {
-          setPosMode(false);
-          setWeddingMode(false);
-          setInsightsMode(false);
-          setActiveTab("alterations");
+          enterBackofficeShell("alterations");
           setAlterationsDeepLinkId(alterationId);
         }}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -1384,8 +1438,38 @@ function AppShell({
         onOpenHelp={() => setHelpDrawerOpen(true)}
         onOpenBugReport={() => setBugReportOpen(true)}
         onNavigateToTab={(tab, section) => {
-          setActiveTab(tab);
-          if (section) setActiveSubSection(section);
+          if (tab === "dashboard") {
+            enterInsightsShell();
+            if (section) {
+              setActiveSubSection(section);
+            }
+            return;
+          }
+          if (tab === "weddings") {
+            setPosMode(false);
+            setWeddingMode(true);
+            setInsightsMode(false);
+            setActiveTab("weddings");
+            if (section) {
+              setActiveSubSection(section);
+            }
+            return;
+          }
+          if (tab === "register") {
+            navigateRegister();
+            if (section) {
+              setActiveSubSection(section);
+            }
+            return;
+          }
+          if (posMode && POS_SHELL_TABS.has(tab)) {
+            setActiveTab(tab);
+            if (section) {
+              setActiveSubSection(section);
+            }
+            return;
+          }
+          enterBackofficeShell(tab, section);
         }}
         themeMode={themeMode}
         onThemeToggle={() =>

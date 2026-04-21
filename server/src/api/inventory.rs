@@ -68,9 +68,9 @@ pub struct ScanItem {
     pub code: String,
     /// Optional vendor context for vendor_upc priority lookup.
     pub vendor_id: Option<Uuid>,
-    /// Quantity to add to stock_on_hand. Default 1.
+    /// Intended staged quantity from the scanner workflow. Does not mutate live stock.
     pub quantity: Option<i32>,
-    /// Source device type for audit logging.
+    /// Source device type for operational feedback.
     pub source: Option<String>,
 }
 
@@ -166,8 +166,8 @@ async fn scan_resolve(
     }
 }
 
-/// High-performance batch scan — atomically updates stock_on_hand for multiple scans.
-/// Used by ReceivingBay (localforage flush) and InventoryControlBoard.
+/// High-performance batch scan — validates and resolves scanned codes without mutating live stock.
+/// Used by receiving/staging workflows that need a single round-trip for many scans.
 async fn batch_scan(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -196,22 +196,9 @@ async fn batch_scan(
     let mut results: Vec<ScanItemResult> = Vec::with_capacity(items.len());
     let mut matched = 0usize;
 
-    // Process in a single transaction for atomicity
-    let mut tx = match state.db.begin().await {
-        Ok(t) => t,
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to begin batch-scan transaction");
-            return (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({ "error": "Database error" })),
-            )
-                .into_response();
-        }
-    };
-
     for item in &items {
-        let qty = item.quantity.unwrap_or(1).max(0);
-        let source = item.source.as_deref().unwrap_or("laser");
+        let _qty = item.quantity.unwrap_or(1).max(0);
+        let _source = item.source.as_deref().unwrap_or("laser");
 
         // Resolve the code (vendor_upc → barcode → sku) — query run on pool directly for read
         let resolved = match resolve_scan_code(&state.db, &item.code, item.vendor_id).await {
@@ -242,54 +229,16 @@ async fn batch_scan(
             Some(ScanResolveResult {
                 variant_id, sku, ..
             }) => {
-                // Update stock_on_hand
-                let new_stock: Option<i32> = sqlx::query_scalar(
-                    r#"
-                    UPDATE product_variants
-                    SET stock_on_hand = stock_on_hand + $1
-                    WHERE id = $2
-                    RETURNING stock_on_hand
-                    "#,
-                )
-                .bind(qty)
-                .bind(variant_id)
-                .fetch_optional(&mut *tx)
-                .await
-                .unwrap_or(None);
-
-                // Log to inventory_transactions
-                let _ = sqlx::query(
-                    r#"
-                    INSERT INTO inventory_transactions
-                        (variant_id, tx_type, quantity_delta, reference_table, notes)
-                    VALUES ($1, 'scan_receive', $2, 'batch_scan', $3)
-                    "#,
-                )
-                .bind(variant_id)
-                .bind(qty)
-                .bind(format!("Batch scan via {source}"))
-                .execute(&mut *tx)
-                .await;
-
                 matched += 1;
                 results.push(ScanItemResult {
                     code: item.code.clone(),
                     status: "matched".to_string(),
                     variant_id: Some(variant_id),
                     sku: Some(sku),
-                    new_stock,
+                    new_stock: None,
                 });
             }
         }
-    }
-
-    if let Err(e) = tx.commit().await {
-        tracing::error!(error = %e, "Failed to commit batch-scan transaction");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({ "error": "Database commit failed" })),
-        )
-            .into_response();
     }
 
     let not_found = results.len() - matched;

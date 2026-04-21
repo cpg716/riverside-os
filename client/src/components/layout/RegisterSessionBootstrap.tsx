@@ -93,9 +93,11 @@ export type RegisterSessionBootstrapProps = {
   setLifecycleStatus: (v: string | null) => void;
   setReceiptTimezone: (v: string) => void;
   setIsRegisterOpen: (v: boolean) => void;
+  activeTabRef: MutableRefObject<SidebarTabId>;
   setActiveTab: (t: SidebarTabId) => void;
   setPosMode: (v: boolean) => void;
   metaRefreshRef: MutableRefObject<(() => Promise<void>) | null>;
+  shellNavigationEpochRef: MutableRefObject<number>;
 };
 
 /**
@@ -115,9 +117,11 @@ export default function RegisterSessionBootstrap({
   setLifecycleStatus,
   setReceiptTimezone,
   setIsRegisterOpen,
+  activeTabRef,
   setActiveTab,
   setPosMode,
   metaRefreshRef,
+  shellNavigationEpochRef,
 }: RegisterSessionBootstrapProps) {
   const {
     backofficeHeaders,
@@ -130,6 +134,7 @@ export default function RegisterSessionBootstrap({
   const [registerPickSessions, setRegisterPickSessions] = useState<
     OpenRegisterOption[] | null
   >(null);
+  const shellNavigationBaselineEpochRef = useRef(shellNavigationEpochRef.current);
 
   /** Prevents {@link applyShellForLoggedInRole} from firing on every bootstrap re-run while the same register session stays open (would steal focus from QBO/Staff/etc. for admin). */
   const lastShellApplySessionIdRef = useRef<string | null>(null);
@@ -140,6 +145,10 @@ export default function RegisterSessionBootstrap({
    * undoing navigation (e.g. Reports, Staff). Still apply when a session just closed or credentials/role change.
    */
   const lastNoSessionShellKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    shellNavigationBaselineEpochRef.current = shellNavigationEpochRef.current;
+  }, [staffCode, staffPin, shellNavigationEpochRef]);
 
   const pollHeaders = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -233,7 +242,21 @@ export default function RegisterSessionBootstrap({
         if (!permissionsLoaded) {
           return;
         }
+        const bootstrapStartEpoch = shellNavigationEpochRef.current;
         const res = await fetchCurrentSession();
+        const canSteerShell = () => {
+          const shellStillNeutral =
+            activeTabRef.current === "home" || activeTabRef.current === "register";
+          const noManualNavigationSinceRequest =
+            shellNavigationEpochRef.current === bootstrapStartEpoch;
+          return (
+            noManualNavigationSinceRequest &&
+            (showLoadingGate ||
+              (shellStillNeutral &&
+                shellNavigationEpochRef.current ===
+                  shellNavigationBaselineEpochRef.current))
+          );
+        };
         if (res.ok) {
           setRegisterPickSessions(null);
           const contentType = res.headers.get("content-type");
@@ -276,8 +299,9 @@ export default function RegisterSessionBootstrap({
             openerCashierCode: staffCode,
             openerPin: staffPin,
           });
-          if (shouldApplyShell)
+          if (shouldApplyShell && canSteerShell()) {
             applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
+          }
         } else if (res.status === 409) {
           const body = (await res.json().catch(() => ({}))) as {
             error?: string;
@@ -300,7 +324,13 @@ export default function RegisterSessionBootstrap({
           setCashierCode(null);
           setCashierAvatarKey(null);
           setReceiptTimezone("America/New_York");
-          applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
+          const noSessionKey = `${staffCode.trim()}|${staffPin.trim()}|${staffRole ?? ""}|409`;
+          const shouldApplyNoSessionShell =
+            lastNoSessionShellKeyRef.current !== noSessionKey;
+          if (shouldApplyNoSessionShell && canSteerShell()) {
+            applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
+            lastNoSessionShellKeyRef.current = noSessionKey;
+          }
         } else {
           setRegisterPickSessions(null);
           const hadSession = lastShellApplySessionIdRef.current !== null;
@@ -317,7 +347,7 @@ export default function RegisterSessionBootstrap({
           const noSessionKey = `${staffCode.trim()}|${staffPin.trim()}|${staffRole ?? ""}`;
           const shouldApplyNoSessionShell =
             hadSession || lastNoSessionShellKeyRef.current !== noSessionKey;
-          if (shouldApplyNoSessionShell) {
+          if (shouldApplyNoSessionShell && canSteerShell()) {
             applyShellForLoggedInRole(staffRole, setActiveTab, setPosMode);
             lastNoSessionShellKeyRef.current = noSessionKey;
           }
@@ -344,6 +374,7 @@ export default function RegisterSessionBootstrap({
       staffCode,
       staffPin,
       fetchCurrentSession,
+      shellNavigationEpochRef,
       setLoading,
       setCashierName,
       setCashierCode,
@@ -354,6 +385,7 @@ export default function RegisterSessionBootstrap({
       setLifecycleStatus,
       setReceiptTimezone,
       setIsRegisterOpen,
+      activeTabRef,
       setActiveTab,
       setPosMode,
       toast,

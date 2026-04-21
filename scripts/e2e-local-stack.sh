@@ -31,4 +31,4 @@ docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < 
 
 exec npx concurrently -k -s first -n api,ui -c blue,magenta \
   "npm run dev:server" \
-  "npx wait-on -t 600000 tcp:$api_bind && cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort"
+  "cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort"

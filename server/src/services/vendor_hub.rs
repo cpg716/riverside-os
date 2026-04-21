@@ -13,6 +13,7 @@ pub struct VendorHubDto {
     pub payment_terms: Option<String>,
     pub vendor_code: Option<String>,
     pub nuorder_brand_id: Option<String>,
+    pub use_vendor_upc: bool,
     /// POs not in closed/cancelled — includes draft standard POs and in-flight docs.
     pub active_po_count: i64,
     /// Sum of `quantity_received * unit_cost` on non-cancelled PO lines (received value).
@@ -29,6 +30,7 @@ type VendorHubHeaderRow = (
     Option<String>,
     Option<String>,
     Option<String>,
+    bool,
 );
 
 pub async fn fetch_vendor_hub(
@@ -37,7 +39,13 @@ pub async fn fetch_vendor_hub(
 ) -> Result<Option<VendorHubDto>, sqlx::Error> {
     let header: Option<VendorHubHeaderRow> = sqlx::query_as(
         r#"
-        SELECT name, account_number, payment_terms, vendor_code, nuorder_brand_id
+        SELECT
+            name,
+            account_number,
+            payment_terms,
+            vendor_code,
+            nuorder_brand_id,
+            COALESCE(use_vendor_upc, false) AS use_vendor_upc
         FROM vendors
         WHERE id = $1 AND is_active = TRUE
         "#,
@@ -46,7 +54,14 @@ pub async fn fetch_vendor_hub(
     .fetch_optional(pool)
     .await?;
 
-    let Some((vendor_name, account_number, payment_terms, vendor_code, nuorder_brand_id)) = header
+    let Some((
+        vendor_name,
+        account_number,
+        payment_terms,
+        vendor_code,
+        nuorder_brand_id,
+        use_vendor_upc,
+    )) = header
     else {
         return Ok(None);
     };
@@ -106,6 +121,7 @@ pub async fn fetch_vendor_hub(
         payment_terms,
         vendor_code,
         nuorder_brand_id,
+        use_vendor_upc,
         active_po_count,
         total_received_spend,
         open_credits_usd: Decimal::ZERO,

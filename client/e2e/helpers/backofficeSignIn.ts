@@ -133,6 +133,31 @@ export async function clearBackofficeSession(page: Page): Promise<void> {
   await page.reload({ waitUntil: "domcontentloaded" });
 }
 
+async function waitForBackofficeShellReady(page: Page, message: string): Promise<void> {
+  const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
+  await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
+    timeout: 30_000,
+  });
+  await expect
+    .poll(
+      async () =>
+        (await page
+          .getByRole("heading", { name: /operations overview/i })
+          .isVisible()
+          .catch(() => false)) ||
+        (await page
+          .getByRole("navigation", { name: "POS Navigation" })
+          .isVisible()
+          .catch(() => false)) ||
+        (await ensureMainNavigationVisible(page)
+          .then(() => true)
+          .catch(() => false)) ||
+        (await mainNav.isVisible().catch(() => false)),
+      { timeout: 20_000, message },
+    )
+    .toBeTruthy();
+}
+
 export async function signInToBackOffice(
   page: Page,
   options?: {
@@ -169,6 +194,24 @@ export async function signInToBackOffice(
 
   await page.goto("/", { waitUntil: "domcontentloaded" });
   if (options?.persistSession) {
+    const effectivePermAfterRestore = page
+      .waitForResponse(
+        (r) =>
+          r.url().includes("/api/staff/effective-permissions") &&
+          r.request().method() === "GET" &&
+          r.status() === 200,
+        { timeout: 25_000 },
+      )
+      .catch(() => null);
+    const sessionBootstrapAfterRestore = page
+      .waitForResponse(
+        (r) =>
+          r.url().includes("/api/sessions/current") &&
+          r.request().method() === "GET" &&
+          (r.status() === 200 || r.status() === 409),
+        { timeout: 25_000 },
+      )
+      .catch(() => null);
     await page.evaluate(
       ({ key, staffCode }) => {
         sessionStorage.setItem(
@@ -178,36 +221,17 @@ export async function signInToBackOffice(
       },
       { key: SESSION_KEY, staffCode: code },
     );
-    await page.reload({ waitUntil: "networkidle" }).catch(() =>
-      page.reload({ waitUntil: "domcontentloaded" }),
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await effectivePermAfterRestore;
+    await sessionBootstrapAfterRestore;
+    await waitForBackofficeShellReady(
+      page,
+      "Back Office shell never stabilized after session restore",
     );
-    await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
-      timeout: 30_000,
-    });
-    await expect
-      .poll(
-        async () =>
-          (await page
-            .getByRole("heading", { name: /operations overview/i })
-            .isVisible()
-            .catch(() => false)) ||
-          (await page
-            .getByRole("navigation", { name: "POS Navigation" })
-            .isVisible()
-            .catch(() => false)) ||
-          (await ensureMainNavigationVisible(page)
-            .then(() => true)
-            .catch(() => false)),
-        { timeout: 20_000, message: "Back Office shell never stabilized after session restore" },
-      )
-      .toBeTruthy();
     return;
   }
   await page.evaluate((key) => sessionStorage.removeItem(key), SESSION_KEY);
-  await page.reload({ waitUntil: "networkidle" }).catch(() =>
-    page.reload({ waitUntil: "domcontentloaded" }),
-  );
-
+  await page.reload({ waitUntil: "domcontentloaded" });
   await expect(page.getByText(/loading riverside/i)).not.toBeVisible({
     timeout: 30_000,
   });
@@ -216,20 +240,10 @@ export async function signInToBackOffice(
     if (effectivePermAfterShellLoad) await effectivePermAfterShellLoad;
     else
       await page.waitForLoadState("domcontentloaded", { timeout: 25_000 }).catch(() => {});
-    await expect
-      .poll(
-        async () =>
-          (await page
-            .getByRole("heading", { name: /operations overview/i })
-            .isVisible()
-            .catch(() => false)) ||
-          (await page
-            .getByRole("navigation", { name: "POS Navigation" })
-            .isVisible()
-            .catch(() => false)),
-        { timeout: 20_000, message: "Back Office shell never stabilized after session restore" },
-      )
-      .toBeTruthy();
+    await waitForBackofficeShellReady(
+      page,
+      "Back Office shell never stabilized after session restore",
+    );
     return;
   }
 
@@ -246,7 +260,8 @@ export async function signInToBackOffice(
     .waitForResponse(
       (r) =>
         r.url().includes("/api/sessions/current") &&
-        r.request().method() === "GET",
+        r.request().method() === "GET" &&
+        (r.status() === 200 || r.status() === 409),
       { timeout: 25_000 },
     )
     .catch(() => null);
@@ -263,30 +278,10 @@ export async function signInToBackOffice(
    * On phone widths both the drawer nav and the menu toggle can exist — avoid `locator.or` + `toBeVisible`,
    * which errors in strict mode when two matches are visible.
    */
-  const menuToggle = page.getByRole("button", { name: "Toggle menu" });
-  await expect
-    .poll(
-      async () =>
-        (await menuToggle.isVisible().catch(() => false)) ||
-        (await mainNav.isVisible().catch(() => false)),
-      { timeout: 20_000 },
-    )
-    .toBeTruthy();
-
   await effectivePerm200;
   await sessionBootstrapSettled;
-  await expect
-    .poll(
-      async () =>
-        (await page
-          .getByRole("heading", { name: /operations overview/i })
-          .isVisible()
-          .catch(() => false)) ||
-        (await page
-          .getByRole("navigation", { name: "POS Navigation" })
-          .isVisible()
-          .catch(() => false)),
-      { timeout: 20_000, message: "Back Office shell never finished bootstrap after sign-in" },
-    )
-    .toBeTruthy();
+  await waitForBackofficeShellReady(
+    page,
+    "Back Office shell never finished bootstrap after sign-in",
+  );
 }

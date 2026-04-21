@@ -26,7 +26,7 @@ export default defineConfig({
     !isCi && autoBootLocalStack && usingLocalViteBase
       ? {
           command: `E2E_BASE_URL="${baseURL}" E2E_API_BASE="${apiBase}" bash ../scripts/e2e-local-stack.sh`,
-          url: baseURL,
+          url: apiBase,
           timeout: 600_000,
           reuseExistingServer: true,
         }

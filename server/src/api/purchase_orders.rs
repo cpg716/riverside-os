@@ -108,9 +108,10 @@ pub struct ReceivePoRequest {
     pub invoice_number: Option<String>,
     pub freight_total: Decimal,
     pub lines: Vec<ReceiveLine>,
+    pub receipt_request_id: Option<Uuid>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ReceiveLine {
     pub po_line_id: Uuid,
     pub quantity_received_now: i32,
@@ -121,6 +122,7 @@ pub struct PurchaseOrderDetailResponse {
     pub id: Uuid,
     pub po_number: String,
     pub status: String,
+    pub vendor_id: Uuid,
     pub vendor_name: String,
     pub po_kind: String,
     pub lines: Vec<PurchaseOrderLineDetail>,
@@ -131,6 +133,7 @@ pub struct PurchaseOrderLineDetail {
     pub line_id: Uuid,
     pub variant_id: Uuid,
     pub sku: String,
+    pub vendor_upc: Option<String>,
     pub product_name: String,
     pub variation_label: Option<String>,
     #[sqlx(json)]
@@ -275,6 +278,46 @@ async fn submit_po(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, PurchaseOrderError> {
     require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
+    #[derive(Debug, FromRow)]
+    struct SubmitContext {
+        status: String,
+        po_kind: String,
+        line_count: i64,
+    }
+
+    let context = sqlx::query_as::<_, SubmitContext>(
+        r#"
+        SELECT
+            po.status::text AS status,
+            po.po_kind,
+            COUNT(pol.id)::bigint AS line_count
+        FROM purchase_orders po
+        LEFT JOIN purchase_order_lines pol ON pol.purchase_order_id = po.id
+        WHERE po.id = $1
+        GROUP BY po.id
+        "#,
+    )
+    .bind(po_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or(PurchaseOrderError::NotFound)?;
+
+    if context.po_kind != "standard" {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "only standard purchase orders use the submit action".to_string(),
+        ));
+    }
+    if context.status != "draft" {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "only draft purchase orders can be submitted".to_string(),
+        ));
+    }
+    if context.line_count <= 0 {
+        return Err(PurchaseOrderError::InvalidPayload(
+            "purchase order must contain at least one line before submit".to_string(),
+        ));
+    }
+
     let result = sqlx::query(
         r#"
         UPDATE purchase_orders
@@ -326,6 +369,7 @@ struct PoHeaderRow {
     id: Uuid,
     po_number: String,
     status: String,
+    vendor_id: Uuid,
     vendor_name: String,
     po_kind: String,
 }
@@ -338,7 +382,13 @@ async fn get_po_details(
     require_po(&state, &headers, PROCUREMENT_VIEW).await?;
     let header = sqlx::query_as::<_, PoHeaderRow>(
         r#"
-        SELECT po.id, po.po_number, po.status::text AS status, v.name AS vendor_name, po.po_kind
+        SELECT
+            po.id,
+            po.po_number,
+            po.status::text AS status,
+            po.vendor_id,
+            v.name AS vendor_name,
+            po.po_kind
         FROM purchase_orders po
         JOIN vendors v ON v.id = po.vendor_id
         WHERE po.id = $1
@@ -355,6 +405,7 @@ async fn get_po_details(
             pol.id AS line_id,
             pv.id AS variant_id,
             pv.sku,
+            pv.vendor_upc,
             p.name AS product_name,
             pv.variation_label,
             pv.variation_values,
@@ -377,6 +428,7 @@ async fn get_po_details(
         id: header.id,
         po_number: header.po_number,
         status: header.status,
+        vendor_id: header.vendor_id,
         vendor_name: header.vendor_name,
         po_kind: header.po_kind,
         lines: line_rows,
@@ -391,12 +443,52 @@ struct ReceiveAllocationRow {
     quantity_received_now: i32,
 }
 
+#[derive(Debug, Serialize)]
+struct ReceivePoResponse {
+    status: &'static str,
+    receiving_event_id: Uuid,
+    freight_total_this_receipt: Decimal,
+    freight_ledger_key: &'static str,
+    backorder_created_for_short_lines: bool,
+    receipt_request_id: Uuid,
+    idempotent_replay: bool,
+}
+
+fn receipt_request_note(receipt_request_id: Uuid) -> String {
+    format!("receipt_request_id:{receipt_request_id}")
+}
+
+fn normalized_receipt_request_id(
+    po_id: Uuid,
+    invoice_number: Option<&str>,
+    freight_total: Decimal,
+    lines: &[ReceiveLine],
+) -> Uuid {
+    let mut ordered_lines = lines.to_vec();
+    ordered_lines.sort_by_key(|line| line.po_line_id);
+
+    let mut fingerprint = format!(
+        "{po_id}|{}|{}",
+        invoice_number.unwrap_or_default(),
+        freight_total.normalize()
+    );
+    for line in ordered_lines {
+        fingerprint.push('|');
+        fingerprint.push_str(&format!(
+            "{}:{}",
+            line.po_line_id, line.quantity_received_now
+        ));
+    }
+
+    Uuid::new_v5(&Uuid::NAMESPACE_OID, fingerprint.as_bytes())
+}
+
 async fn receive_po(
     State(state): State<AppState>,
     Path(po_id): Path<Uuid>,
     headers: HeaderMap,
     Json(payload): Json<ReceivePoRequest>,
-) -> Result<Json<serde_json::Value>, PurchaseOrderError> {
+) -> Result<Json<ReceivePoResponse>, PurchaseOrderError> {
     require_po(&state, &headers, PROCUREMENT_MUTATE).await?;
     let lines: Vec<ReceiveLine> = payload
         .lines
@@ -425,6 +517,28 @@ async fn receive_po(
         ));
     }
 
+    let invoice_number = payload
+        .invoice_number
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(ToOwned::to_owned);
+    let normalized_receipt_request_id = normalized_receipt_request_id(
+        po_id,
+        invoice_number.as_deref(),
+        payload.freight_total,
+        &lines,
+    );
+    if let Some(receipt_request_id) = payload.receipt_request_id {
+        if receipt_request_id != normalized_receipt_request_id {
+            return Err(PurchaseOrderError::InvalidPayload(
+                "receipt_request_id does not match the normalized receipt payload".to_string(),
+            ));
+        }
+    }
+    let receipt_request_id = normalized_receipt_request_id;
+    let receipt_note = receipt_request_note(receipt_request_id);
+
     let mut tx = state.db.begin().await?;
 
     #[derive(Debug, FromRow)]
@@ -445,6 +559,53 @@ async fn receive_po(
     .fetch_optional(&mut *tx)
     .await?
     .ok_or(PurchaseOrderError::NotFound)?;
+
+    let existing_receipt_event_id: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT id
+        FROM receiving_events
+        WHERE purchase_order_id = $1
+          AND notes = $2
+        LIMIT 1
+        "#,
+    )
+    .bind(po_id)
+    .bind(&receipt_note)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    if let Some(receiving_event_id) = existing_receipt_event_id {
+        let has_short = sqlx::query_scalar::<_, bool>(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM purchase_order_lines
+                WHERE purchase_order_id = $1
+                  AND quantity_received < quantity_ordered
+            )
+            "#,
+        )
+        .bind(po_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+
+        if has_short {
+            if let Err(e) = create_backorder_from_short_lines(&state.db, po_id).await {
+                tracing::error!(error = %e, "Backorder split failed after idempotent replay");
+            }
+        }
+
+        return Ok(Json(ReceivePoResponse {
+            status: "received",
+            receiving_event_id,
+            freight_total_this_receipt: payload.freight_total,
+            freight_ledger_key: "COGS_FREIGHT",
+            backorder_created_for_short_lines: has_short,
+            receipt_request_id,
+            idempotent_replay: true,
+        }));
+    }
 
     if po_lock.status == "cancelled" {
         return Err(PurchaseOrderError::InvalidPayload(
@@ -478,17 +639,17 @@ async fn receive_po(
         .await?;
     }
 
-    let invoice_number = payload.invoice_number.clone();
     let receive_event_id: Uuid = sqlx::query_scalar(
         r#"
-        INSERT INTO receiving_events (purchase_order_id, invoice_number, freight_total)
-        VALUES ($1, $2, $3)
+        INSERT INTO receiving_events (purchase_order_id, invoice_number, freight_total, notes)
+        VALUES ($1, $2, $3, $4)
         RETURNING id
         "#,
     )
     .bind(po_id)
     .bind(invoice_number.clone())
     .bind(payload.freight_total)
+    .bind(&receipt_note)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -558,6 +719,11 @@ async fn receive_po(
         procurement::freight_add_per_unit_by_extended_cost(&freight_inputs, payload.freight_total);
 
     for (i, row) in alloc_rows.iter().enumerate() {
+        if row.unit_cost < Decimal::ZERO {
+            return Err(PurchaseOrderError::InvalidPayload(
+                "received line unit_cost cannot be negative".to_string(),
+            ));
+        }
         let freight_add = freight_adds.get(i).copied().unwrap_or(Decimal::ZERO);
         // WAC and inventory capitalization use invoice unit only; freight is booked separately.
         let invoice_unit = procurement::round_unit_cost(row.unit_cost);
@@ -743,13 +909,15 @@ async fn receive_po(
         }
     }
 
-    Ok(Json(json!({
-        "status": "received",
-        "receiving_event_id": receive_event_id,
-        "freight_total_this_receipt": payload.freight_total,
-        "freight_ledger_key": "COGS_FREIGHT",
-        "backorder_created_for_short_lines": has_short
-    })))
+    Ok(Json(ReceivePoResponse {
+        status: "received",
+        receiving_event_id: receive_event_id,
+        freight_total_this_receipt: payload.freight_total,
+        freight_ledger_key: "COGS_FREIGHT",
+        backorder_created_for_short_lines: has_short,
+        receipt_request_id,
+        idempotent_replay: false,
+    }))
 }
 
 /// Draft PO with one line per unreceived remainder (same unit costs).

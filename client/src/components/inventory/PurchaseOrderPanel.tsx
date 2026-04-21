@@ -56,10 +56,6 @@ export default function PurchaseOrderPanel({
   const [variantId, setVariantId] = useState("");
   const [qty, setQty] = useState(1);
   const [unitCost, setUnitCost] = useState("0.00");
-  const [receiveLineId, setReceiveLineId] = useState("");
-  const [receiveQty, setReceiveQty] = useState(1);
-  const [invoiceNo, setInvoiceNo] = useState("");
-  const [freightTotal, setFreightTotal] = useState("0.00");
   const [receivingPoId, setReceivingPoId] = useState<string | null>(null);
   const [nonInventoryNeeds, setNonInventoryNeeds] = useState<WeddingNonInventoryItem[]>([]);
 
@@ -75,6 +71,10 @@ export default function PurchaseOrderPanel({
       })
       .catch(() => setOrders([]));
   }, [backofficeHeaders, selectedPo]);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
 
   useEffect(() => {
     const id = initialPoId?.trim();
@@ -158,41 +158,34 @@ export default function PurchaseOrderPanel({
       }),
     });
     if (!res.ok) {
-      toast("Failed to add PO line", "error");
+      const body = await res.json().catch(() => ({}));
+      toast(body.error ?? "Failed to add PO line", "error");
       return;
     }
     toast("PO line added", "success");
+    refresh();
   };
 
-  const receive = async () => {
+  const submitPo = async () => {
     if (!selectedPo) return;
-    const res = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}/receive`, {
+    const res = await fetch(`${baseUrl}/api/purchase-orders/${selectedPo}/submit`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(backofficeHeaders() as Record<string, string>),
-      },
-      body: JSON.stringify({
-        invoice_number: invoiceNo || null,
-        freight_total: centsToFixed2(parseMoneyToCents(freightTotal)),
-        lines: [
-          {
-            po_line_id: receiveLineId.trim(),
-            quantity_received_now: receiveQty,
-          },
-        ],
-      }),
+      headers: backofficeHeaders() as Record<string, string>,
     });
     if (!res.ok) {
       const body = await res.json().catch(() => ({}));
-      toast(body.error ?? "Receiving requires line items", "error");
+      toast(body.error ?? "Could not submit purchase order", "error");
       return;
     }
-    toast("Receiving posted", "success");
+    toast("Purchase order submitted", "success");
     refresh();
   };
 
   const selected = orders.find((o) => o.id === selectedPo);
+  const canSubmitSelected =
+    !!selected &&
+    selected.status === "draft" &&
+    selected.po_kind !== "direct_invoice";
   const canOpenReceiving =
     !!selected &&
     selected.status !== "cancelled" &&
@@ -282,12 +275,14 @@ export default function PurchaseOrderPanel({
                        <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-[9px] font-black uppercase tracking-widest shadow-sm ${
                          o.status === 'draft' ? 'bg-app-surface-2 text-app-text-muted border border-app-border' :
                          o.status === 'submitted' ? 'bg-app-accent/10 text-app-accent border border-app-accent/20' :
+                         o.status === 'partially_received' ? 'bg-amber-500/10 text-amber-600 border border-amber-500/20' :
                          o.status === 'closed' ? 'bg-emerald-500/10 text-emerald-600 border border-emerald-500/20' :
                          'bg-red-500/10 text-red-500 border border-red-500/20'
                        }`}>
                          <div className={`h-1.5 w-1.5 rounded-full ${
                            o.status === 'draft' ? 'bg-app-text-muted' :
                            o.status === 'submitted' ? 'bg-app-accent' :
+                           o.status === 'partially_received' ? 'bg-amber-500' :
                            o.status === 'closed' ? 'bg-emerald-500' :
                            'bg-red-500'
                          }`} />
@@ -295,17 +290,33 @@ export default function PurchaseOrderPanel({
                        </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                       <button
-                         type="button"
-                         disabled={selectedPo !== o.id || !canOpenReceiving}
-                         onClick={(e) => {
-                           e.stopPropagation();
-                           setReceivingPoId(o.id);
-                         }}
-                         className="inline-flex h-8 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-[9px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 hover:brightness-110 disabled:opacity-0 transition-all active:scale-95"
-                       >
-                         <Truck size={12} /> Receive
-                       </button>
+                      <div className="flex justify-end gap-2">
+                        {selectedPo === o.id &&
+                        o.status === "draft" &&
+                        o.po_kind !== "direct_invoice" ? (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              void submitPo();
+                            }}
+                            className="inline-flex h-8 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 text-[9px] font-black uppercase tracking-widest text-app-text shadow-sm hover:border-app-accent hover:text-app-accent transition-all active:scale-95"
+                          >
+                            Submit
+                          </button>
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={selectedPo !== o.id || !canOpenReceiving}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setReceivingPoId(o.id);
+                          }}
+                          className="inline-flex h-8 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-[9px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 hover:brightness-110 disabled:opacity-0 transition-all active:scale-95"
+                        >
+                          <Truck size={12} /> Receive
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -316,8 +327,8 @@ export default function PurchaseOrderPanel({
       </DashboardGridCard>
 
       <DashboardGridCard 
-        title="Quick Injection & Recovery"
-        subtitle={selected ? `Active Context: ${selected.po_number}` : 'Select a PO to inject lines'}
+        title="Line Builder"
+        subtitle={selected ? `Active Context: ${selected.po_number}` : "Select a PO to add receipt lines"}
         icon={Sparkles}
       >
         <div className="grid gap-6 md:grid-cols-[1fr_1fr_120px_160px]">
@@ -334,6 +345,7 @@ export default function PurchaseOrderPanel({
               <input
                 type="number"
                 step="0.01"
+                min="0"
                 value={unitCost}
                 onChange={(e) => setUnitCost(e.target.value)}
                 className="w-full h-12 bg-app-surface shadow-inner border border-app-border rounded-2xl px-10 text-sm font-black focus:ring-2 focus:ring-app-accent/20 transition-all outline-none"
@@ -362,53 +374,38 @@ export default function PurchaseOrderPanel({
           </div>
         </div>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-[1fr_180px_120px_160px_180px] border-t border-app-border/40 pt-10">
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Invoice Descriptor</label>
-            <input
-              value={invoiceNo}
-              onChange={(e) => setInvoiceNo(e.target.value)}
-              placeholder="Invoice Serial..."
-              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Line Pointer</label>
-            <input
-              value={receiveLineId}
-              onChange={(e) => setReceiveLineId(e.target.value)}
-              placeholder="UUID or ID..."
-              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-mono focus:ring-2 focus:ring-app-accent/20 transition-all"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Volume</label>
-            <input
-              value={receiveQty}
-              onChange={(e) => setReceiveQty(Number.parseInt(e.target.value || "1", 10))}
-              type="number"
-              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
-            />
-          </div>
-          <div className="space-y-2">
-            <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Freight (USD)</label>
-            <input
-              value={freightTotal}
-              onChange={(e) => setFreightTotal(e.target.value)}
-              step="0.01"
-              type="number"
-              className="w-full h-12 bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
-            />
-          </div>
-          <div className="flex flex-col justify-end">
-            <button
-              type="button"
-              disabled={!selectedPo || !receiveLineId || !canOpenReceiving}
-              onClick={receive}
-              className="h-12 rounded-2xl bg-emerald-600 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
-            >
-              Direct Receiving
-            </button>
+        <div className="mt-10 rounded-[2rem] border border-app-border/40 bg-app-surface/20 p-6">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="space-y-1">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                Receipt Posting
+              </p>
+              <p className="text-sm font-bold text-app-text">
+                Final stock posts only from the Receiving Bay overlay.
+              </p>
+              <p className="text-xs text-app-text-muted">
+                Standard purchase orders must be submitted before receiving. Direct invoices can open receiving immediately.
+              </p>
+            </div>
+            <div className="flex gap-3">
+              {canSubmitSelected ? (
+                <button
+                  type="button"
+                  onClick={() => void submitPo()}
+                  className="h-12 rounded-2xl border border-app-border bg-app-surface px-5 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm hover:border-app-accent hover:text-app-accent transition-all active:scale-95"
+                >
+                  Submit PO
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={!canOpenReceiving}
+                onClick={() => setReceivingPoId(selectedPo)}
+                className="h-12 rounded-2xl bg-emerald-600 px-5 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
+              >
+                Open Receiving Bay
+              </button>
+            </div>
           </div>
         </div>
       </DashboardGridCard>
