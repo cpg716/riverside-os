@@ -348,9 +348,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-control-board",
     title: "Inventory Control Board (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/InventoryControlBoard.tsx — replace with staff-facing help.",
+    summary: "High-density SKU discovery surface for catalog search, filtering, product hub access, and controlled inventory maintenance.",
     markdown: manual_26_raw,
-    tags: ["inventory-control-board","component","auto-scaffold"],
+    tags: ["inventory-control-board","inventory","control-board","catalog"],
   },
   {
     id: "inventory-intelligence-panel",
@@ -362,9 +362,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-workspace",
     title: "Inventory Workspace (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/InventoryWorkspace.tsx — replace with staff-facing help.",
+    summary: "Back Office inventory hub for control board, product setup, procurement, receiving, vendors, import, and physical count.",
     markdown: manual_28_raw,
-    tags: ["inventory-workspace","component","auto-scaffold"],
+    tags: ["inventory-workspace","inventory","back-office","operations"],
   },
   {
     id: "inventory-maintenance-ledger-panel",
@@ -376,9 +376,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-physical-inventory-workspace",
     title: "Physical Inventory Workspace (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/PhysicalInventoryWorkspace.tsx — replace with staff-facing help.",
+    summary: "Run full-store or category counts, surface missed in-scope SKUs during review, and publish reconciled stock with audit history.",
     markdown: manual_30_raw,
-    tags: ["inventory-physical-inventory-workspace","component","auto-scaffold"],
+    tags: ["inventory-physical-inventory-workspace","inventory","physical-count","reconciliation"],
   },
   {
     id: "inventory-product-hub-drawer",
@@ -390,30 +390,30 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-product-master-form",
     title: "Product Master Form (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/ProductMasterForm.tsx — replace with staff-facing help.",
+    summary: "Create new catalog templates with validated pricing, matrix axes, and SKU generation.",
     markdown: manual_32_raw,
-    tags: ["inventory-product-master-form","component","auto-scaffold"],
+    tags: ["inventory-product-master-form","inventory","product-master","catalog"],
   },
   {
     id: "inventory-purchase-order-panel",
     title: "Purchase Order Panel (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/PurchaseOrderPanel.tsx — replace with staff-facing help.",
+    summary: "Create draft purchase orders, submit standard POs, and open Receiving Bay with validated vendor and line rules.",
     markdown: manual_33_raw,
-    tags: ["inventory-purchase-order-panel","component","auto-scaffold"],
+    tags: ["inventory-purchase-order-panel","inventory","purchase-orders","vendors"],
   },
   {
     id: "inventory-receiving-bay",
     title: "Receiving Bay (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/ReceivingBay.tsx — replace with staff-facing help.",
+    summary: "Stage inbound quantities from submitted POs or direct invoices, then post stock exactly once from the final receipt action.",
     markdown: manual_34_raw,
-    tags: ["inventory-receiving-bay","component","auto-scaffold"],
+    tags: ["inventory-receiving-bay","inventory","receiving","purchase-orders"],
   },
   {
     id: "inventory-universal-importer",
     title: "Universal Importer (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/UniversalImporter.tsx — replace with staff-facing help.",
+    summary: "Catalog-only CSV mapper for vendor manifests; Counterpoint sync owns pre-launch inventory quantities.",
     markdown: manual_35_raw,
-    tags: ["inventory-universal-importer","component","auto-scaffold"],
+    tags: ["inventory-universal-importer","inventory","import","counterpoint"],
   },
   {
     id: "inventory-variation-grid-cell",
@@ -439,9 +439,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-vendor-hub",
     title: "Vendor Hub (inventory)",
-    summary: "Auto-generated stub for client/src/components/inventory/VendorHub.tsx — replace with staff-facing help.",
+    summary: "Review vendor health, brand links, and merge duplicate suppliers without losing PO history.",
     markdown: manual_39_raw,
-    tags: ["inventory-vendor-hub","component","auto-scaffold"],
+    tags: ["inventory-vendor-hub","inventory","vendors","procurement"],
   },
   {
     id: "inventory-variations-list",

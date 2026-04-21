@@ -26,15 +26,20 @@ Pick the subsection that matches the **job**, not the person: **look up** → **
 ## Add Inventory
 
 1. **Add Inventory** → follow wizard steps (category, matrix, initial SKU).
-2. **Save** each step; do not close the browser mid-wizard.
-3. Verify the SKU appears in **Inventory List** search.
+2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
+3. Keep generated SKUs unique. If a SKU already exists anywhere in ROS, the product will not save until the conflict is resolved.
+4. **Save** each step; do not close the browser mid-wizard.
+5. Verify the SKU appears in **Inventory List** search.
 
 ## Receiving
 
 1. **Receiving** → open expected **PO** or **direct receipt** flow your store uses.
 2. Scan or enter **quantities** to match the packing slip.
-3. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
-4. Watch for messages about **reserved** stock for open special orders after posting.
+3. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet.
+4. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
+5. Watch for messages about **reserved** stock for open special orders after posting.
+
+**Direct invoices** and submitted **standard POs** now share the same final posting path. If a receipt is retried, ROS prevents duplicate stock posting for the same receipt payload.
 
 **At the register**, staff browse the catalog and tap **Add to sale** from **POS → Inventory** (same data family as the control board) — [pos-inventory.md](pos-inventory.md).
 
@@ -62,21 +67,33 @@ Pick the subsection that matches the **job**, not the person: **look up** → **
 **Purpose:** Supplier records used by **receiving**, **PO** flows, and **catalog import** matching.
 
 1. **Inventory** → **Vendors**.
-2. Keep **vendor name** and **vendor code** consistent with **Import** CSV columns (see [CATALOG_IMPORT.md](../CATALOG_IMPORT.md)).
+2. Keep **vendor name** and **vendor code** unique and consistent with **Import** / **Counterpoint** mappings (see [CATALOG_IMPORT.md](../CATALOG_IMPORT.md)).
 3. When onboarding a new supplier, add the vendor **before** bulk import if your file keys off **vendor_code**.
-4. Do not delete vendors with **open PO** history without **manager** + accounting alignment.
+4. Use **Merge** to consolidate duplicate supplier records instead of letting PO and receiving history split across multiple vendors.
+5. Do not delete vendors with **open PO** history without **manager** + accounting alignment.
+
+## Purchase Orders
+
+1. Select the correct vendor **before** creating the PO or direct invoice.
+2. Standard POs stay editable only while they are **draft**.
+3. A standard PO must have at least one line before **Submit PO** is allowed.
+4. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
+5. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
 
 ## Import (CSV)
 
-1. **Import** → choose mapping preset (e.g. Lightspeed vs universal).
-2. Upload file under your IT **size limit**; if rejected, split file or ask for limit increase.
-3. Read **preview errors** row by row; do not assume “partial import” is safe without review.
+1. **Import** → use the **Catalog CSV** mapper for vendor or cleanup files.
+2. This tool updates **catalog structure only**. It does **not** replace live **on-hand** stock.
+3. For the initial inventory load before launch, use **Settings → Counterpoint**. After launch, quantity changes belong in **Receiving** or **Physical count**.
+4. Upload file under your IT **size limit**; if rejected, split file or ask for limit increase.
+5. Read **preview errors** row by row; do not assume “partial import” is safe without review.
 
 ## Physical count
 
 1. **Physical count** (requires **physical_inventory.view**).
 2. **Start or resume** session; scan **location** per SOP.
 3. **Review variances** before posting adjustments — large shrink hits **financial** review.
+4. For **full store** or category counts, review also surfaces in-scope SKUs that were **not counted**. Do not treat those rows as already reviewed just because they were not scanned.
 
 ## Common issues and fixes
 
@@ -105,4 +122,4 @@ Pick the subsection that matches the **job**, not the person: **look up** → **
 - [../SEARCH_AND_PAGINATION.md](../SEARCH_AND_PAGINATION.md)
 - [../PLAN_NOTIFICATION_CENTER.md](../PLAN_NOTIFICATION_CENTER.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-21

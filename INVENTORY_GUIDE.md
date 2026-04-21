@@ -1,6 +1,6 @@
 # Inventory Scanning & Physical Counts — Riverside OS
 
-Riverside OS features a high-performance inventory management system with support for multi-device scanning, real-time receiving, and unified physical inventory counts.
+Riverside OS features a high-performance inventory management system with support for multi-device scanning, staged receiving with final exact-once posting, and unified physical inventory counts.
 
 ## Unified Scanning Engine (`useScanner`)
 
@@ -12,6 +12,7 @@ The `useScanner` hook provides a global, timing-dependent listener for HID laser
 - **Context Awareness**: Does not capture input when the user is focused on standard text inputs (except in the `ReceivingBay` dedicated input).
 - **Receiving UX:** **Post inventory** uses the **emerald terminal completion** pattern (**`bg-emerald-600`**, **`border-b-8 border-emerald-800`**) for parity with POS primary actions — see **`UI_STANDARDS.md`**.
 - **Real-time Feedback**: The scanner is integrated into a non-blocking bar. SKU lookups and count increments provide immediate visual feedback (success/error states) without interrupting the scanning cadence. Browser dialogs are strictly prohibited.
+- **Receiving Integrity**: Receiving scans only stage receipt quantities inside the worksheet. Live `stock_on_hand` changes only when staff press the final **Post inventory** action, and standard POs plus direct invoices share that same final posting path.
 
 ### PWA Camera Scanning (Smartphone)
 For remote access via Tailscale, the `CameraScanner` component uses `html5-qrcode` to provide a native-feel scanning experience in a mobile browser.
@@ -37,7 +38,7 @@ The Physical Inventory system allows you to count stock without closing the stor
     ```text
     Final Stock = (Counted Quantity - Sales Since Start)
     ```
-- **Review Table**: Before publishing, users can review all counts, add adjustment notes, and fix any counting errors.
+- **Review Table**: Before publishing, users can review all counts, add adjustment notes, and fix any counting errors. In-scope SKUs that were not counted are still surfaced in review as missing rows so a full count cannot silently preserve them as if they were reviewed.
 - **Atomic Publish**: On publish, the system updates `product_variants.stock_on_hand` and logs `inventory_transactions` in a single database transaction.
 
 ## POS Inventory Resolution (Intelligent Search)
@@ -94,9 +95,9 @@ List data comes from **`GET /api/inventory/control-board`** (same handler as **`
 
 **Note:** **`GET /api/products`** (no path suffix) returns only active **product templates** (`LIMIT 200`) — not variant-level search. Use **`control-board`** for SKU/name/barcode discovery.
 
-## Catalog CSV import (Lightspeed / universal)
+## Catalog CSV import
 
-**Inventory → Import** uploads a vendor or Lightspeed X-Series export and posts to **`POST /api/products/import`**. Mapping keys, body-size limits, **`supply_price`** vs **`supplier_code`**, and **`vendors.vendor_code`** (migration **35**) are documented in **`docs/CATALOG_IMPORT.md`**.
+**Inventory → Import** is now a **catalog-only** CSV mapper. It updates product identity, variant structure, categories, vendors, price, and cost through **`POST /api/products/import`** but does **not** mutate live **`stock_on_hand`**. For pre-launch inventory quantities, use **Counterpoint sync** as the authoritative path; after launch, stock changes must come from **Receiving**, **Physical Inventory**, or other operational inventory flows. Product creation and PO workflows now also expect clean vendor linkage, unique vendor codes, and non-negative catalog pricing before downstream receiving begins. Mapping keys, body-size limits, and **`vendors.vendor_code`** behavior are documented in **`docs/CATALOG_IMPORT.md`**.
 
 ## Suit / 3-piece component swaps (planned)
 

@@ -51,7 +51,7 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string }
   },
   receiving: {
     title: "Receiving Bay",
-    subtitle: "Verify inbound shipments, scan verify invoices, and update WAC.",
+    subtitle: "Route submitted POs and direct invoices into the final receipt posting flow.",
   },
   vendors: {
     title: "Vendor Manager",
@@ -71,7 +71,7 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string }
   },
   import: {
     title: "Catalog Import",
-    subtitle: "Batch ingestion from Lightspeed X-Series or Generic CSV.",
+    subtitle: "Catalog-only CSV mapping for vendor manifests; Counterpoint sync owns pre-launch inventory quantities.",
   },
   physical: {
     title: "Physical Inventory",
