@@ -2,7 +2,7 @@
 
 **Audience:** Sales and CRM staff.
 
-**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **RMS charge** (R2S **charge** vs **payment** ledger; needs **`customers.rms_charge`**), **Duplicate review** (queue inbox; needs **`customers_duplicate_review`**).
+**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **RMS charge** (linked accounts plus R2S/CoreCard **charge** vs **payment** ledger; needs **`customers.rms_charge.view`** or legacy **`customers.rms_charge`**), **Duplicate review** (queue inbox; needs **`customers_duplicate_review`**).
 
 **Related permissions:** Browse/search/create use general customer access. The **Relationship hub** and aligned APIs use **fine-grained keys** (migration **63**): **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`**, plus **`orders.view`** for the **Orders** tab. An **open register** session can satisfy the same checks as staff with those keys for many calls — see **[`../CUSTOMER_HUB_AND_RBAC.md`](../CUSTOMER_HUB_AND_RBAC.md)** and **[`../STAFF_PERMISSIONS.md`](../STAFF_PERMISSIONS.md)**. **Joint Couple Accounts** (link/unlink partners) require **`customers.couple_manage`**. **Duplicate review queue** and **Merge** (two customers selected) need **`customers_duplicate_review`** and **`customers.merge`** respectively; migration **64** grants both to default **`salesperson`** and **`sales_support`** roles. **403** on a specific hub action usually means a **missing key**, not a bug.
 
@@ -36,12 +36,24 @@
 3. **Save**; read **toast**. Fix **red** inline validation first.
 4. Closing the drawer from the sidebar shortcut returns to **All Customers**.
 
-## RMS charge (admin reporting)
+## RMS charge (linked accounts and reporting)
 
-1. **Customers** → **RMS charge** (if your role includes **`customers.rms_charge`**).
-2. Set **from** / **to** dates and optional filters (**kind** = charge vs payment, **customer**, text **search**).
-3. Use the table to reconcile **R2S** activity with the portal: **charge** rows come from **RMS/RMS90** tenders on sales; **payment** rows come from register **PAYMENT** → **RMS CHARGE PAYMENT** checkouts (**cash/check**).
-4. Technical reference: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+1. **Customers** → **RMS charge** (if your role includes **`customers.rms_charge.view`** or legacy **`customers.rms_charge`**).
+2. Select a customer to review any linked CoreCredit/CoreCard accounts. Account cards show **masked** account ids, status, program group, and last verification timestamp.
+3. If your role also includes **`customers.rms_charge.manage_links`**, you can manually **link** or **unlink** an account from this workspace.
+4. Use the records table to reconcile **R2S** activity with the portal:
+   - **charge** rows now read as **RMS Charge** and can show program/account metadata
+   - **payment** rows still come from register **PAYMENT** → **RMS CHARGE PAYMENT** checkouts (**cash/check**)
+   - Phase 3 adds operational **Overview**, **Accounts**, **Transactions**, **Programs**, **Exceptions**, and **Reconciliation** sections with sync health and retry tools
+5. Exception queue and reconciliation actions require RMS operational permissions such as **`customers.rms_charge.resolve_exceptions`**, **`customers.rms_charge.reconcile`**, and **`customers.rms_charge.reporting`**.
+6. Live RMS refund/reversal actions are manager/admin-sensitive and should only be used by approved staff with the required permissions.
+7. Start with the role-based RMS manuals:
+   - **[RMS Charge overview](rms-charge-overview.md)**
+   - **[RMS Charge accounts](rms-charge-accounts.md)**
+   - **[RMS Charge transactions](rms-charge-transactions.md)**
+   - **[RMS Charge exceptions](rms-charge-exceptions.md)**
+   - **[RMS Charge reconciliation](rms-charge-reconciliation.md)**
+8. Use **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** when you need deeper engineering detail about APIs, persistence, or accounting support behavior.
 
 ## Groups and imports
 

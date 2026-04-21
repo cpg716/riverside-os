@@ -161,7 +161,7 @@ export default function DiscountEventsPanel() {
     );
     if (!res.ok) {
       setUsageRows([]);
-      toast("Analytical capture failed", "error");
+      toast("We couldn't load promotion results right now. Please try again.", "error");
       return;
     }
     setUsageRows(
@@ -204,12 +204,12 @@ export default function DiscountEventsPanel() {
   const createEvent = async () => {
     if (!canEdit) return;
     if (!name.trim() || !receiptLabel.trim() || !starts || !ends) {
-      toast("Essential parameters missing for event creation", "info");
+      toast("Enter the event name, receipt label, start date, and end date first.", "info");
       return;
     }
     const p = Number.parseFloat(pct);
     if (!Number.isFinite(p) || p <= 0 || p > 100) {
-      toast("Invalid percentage value", "error");
+      toast("Enter a discount percentage between 0 and 100.", "error");
       return;
     }
     const body: Record<string, unknown> = {
@@ -230,10 +230,10 @@ export default function DiscountEventsPanel() {
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Registry rejected promotion", "error");
+      toast(b.error ?? "We couldn't save this promotion. Please review the details and try again.", "error");
       return;
     }
-    toast("Promotion localized and activated", "success");
+    toast("Promotion saved and turned on.", "success");
     setName("");
     setReceiptLabel("");
     void load();
@@ -251,10 +251,10 @@ export default function DiscountEventsPanel() {
       body: JSON.stringify(body),
     });
     if (!res.ok) {
-      toast("Scope mutation failed", "error");
+      toast("We couldn't update where this promotion applies. Please try again.", "error");
       return;
     }
-    toast("Event scope re-localized", "success");
+    toast("Promotion scope updated.", "success");
     void load();
     void loadVars(sel);
   };
@@ -267,7 +267,7 @@ export default function DiscountEventsPanel() {
       body: JSON.stringify({ variant_id: v.variant_id }),
     });
     if (!res.ok) {
-      toast("SKU binding failed", "error");
+      toast("We couldn't add that SKU to this promotion. Please try again.", "error");
       return;
     }
     void loadVars(sel);

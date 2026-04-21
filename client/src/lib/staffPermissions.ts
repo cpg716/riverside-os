@@ -41,6 +41,22 @@ export const STAFF_PERMISSION_CATALOG: {
   },
   { key: "orders.refund_process", label: "Process refunds & view refund queue", group: "Orders" },
   { key: "orders.edit_attribution", label: "Edit order attribution", group: "Orders" },
+  { key: "pos.rms_charge.use", label: "Use RMS Charge tender in POS", group: "POS RMS Charge" },
+  {
+    key: "pos.rms_charge.lookup",
+    label: "Lookup / disambiguate RMS Charge accounts in POS",
+    group: "POS RMS Charge",
+  },
+  {
+    key: "pos.rms_charge.history_basic",
+    label: "View recent RMS Charge history in POS",
+    group: "POS RMS Charge",
+  },
+  {
+    key: "pos.rms_charge.payment_collect",
+    label: "Collect RMS Charge payments in POS",
+    group: "POS RMS Charge",
+  },
   { key: "loyalty.adjust_points", label: "Adjust loyalty points", group: "Loyalty" },
   {
     key: "loyalty.program_settings",
@@ -103,6 +119,41 @@ export const STAFF_PERMISSION_CATALOG: {
     group: "Tasks",
   },
   { key: "inventory.view_cost", label: "View unit cost (POS intelligence)", group: "Inventory" },
+  {
+    key: "customers.rms_charge",
+    label: "Legacy RMS charge access (compatibility)",
+    group: "Customers",
+  },
+  {
+    key: "customers.rms_charge.view",
+    label: "View RMS Charge linked accounts & records",
+    group: "Customers",
+  },
+  {
+    key: "customers.rms_charge.manage_links",
+    label: "Link / unlink RMS Charge accounts",
+    group: "Customers",
+  },
+  {
+    key: "customers.rms_charge.resolve_exceptions",
+    label: "Resolve RMS Charge exceptions",
+    group: "Customers",
+  },
+  {
+    key: "customers.rms_charge.reconcile",
+    label: "Run RMS Charge reconciliation",
+    group: "Customers",
+  },
+  {
+    key: "customers.rms_charge.reverse",
+    label: "Reverse / refund RMS Charge host actions",
+    group: "Customers",
+  },
+  {
+    key: "customers.rms_charge.reporting",
+    label: "View RMS Charge reporting and reconciliation views",
+    group: "Customers",
+  },
 ];
 
 export const STAFF_PERMISSION_KEYS = STAFF_PERMISSION_CATALOG.map((p) => p.key);

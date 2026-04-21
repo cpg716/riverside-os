@@ -282,6 +282,8 @@ pub struct Transaction {
     pub is_forfeited: bool,
     pub forfeited_at: Option<DateTime<Utc>>,
     #[sqlx(json)]
+    pub metadata: Option<serde_json::Value>,
+    #[sqlx(json)]
     pub weather_snapshot: Option<serde_json::Value>,
     pub created_at: DateTime<Utc>,
 }

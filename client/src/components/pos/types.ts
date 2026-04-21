@@ -73,6 +73,22 @@ export interface AppliedPaymentLine {
     card_brand?: string | null;
     card_last4?: string | null;
     check_number?: string | null;
+    tender_family?: string;
+    program_code?: string;
+    program_label?: string;
+    masked_account?: string;
+    linked_corecredit_customer_id?: string;
+    linked_corecredit_account_id?: string;
+    linked_corecredit_card_id?: string;
+    resolution_status?: string;
+    rms_charge_collection?: boolean;
+    posting_status?: string;
+    external_transaction_id?: string;
+    external_auth_code?: string;
+    external_transaction_type?: string;
+    host_reference?: string;
+    idempotency_key?: string;
+    [key: string]: string | number | boolean | null | undefined;
   };
 }
 
@@ -99,8 +115,7 @@ export type NexoTenderTab =
   | "cash"
   | "check"
   | "gift_card"
-  | "on_account_rms"
-  | "on_account_rms90"
+  | "rms_charge"
   | "store_credit";
 
 export interface CheckoutPaymentSplitPayload {

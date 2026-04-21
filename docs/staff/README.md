@@ -45,6 +45,11 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | POS tab → Register (launchpad) | [register-tab-back-office.md](register-tab-back-office.md) |
 | Till group, multi-lane Z (reference) | [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md) |
 | Parked cart + RMS / RMS90 ledger (reference) | [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md) |
+| RMS Charge overview | [rms-charge-overview.md](rms-charge-overview.md) |
+| RMS Charge accounts | [rms-charge-accounts.md](rms-charge-accounts.md) |
+| RMS Charge transactions | [rms-charge-transactions.md](rms-charge-transactions.md) |
+| RMS Charge exceptions | [rms-charge-exceptions.md](rms-charge-exceptions.md) |
+| RMS Charge reconciliation | [rms-charge-reconciliation.md](rms-charge-reconciliation.md) |
 | Customers | [customers-back-office.md](customers-back-office.md) |
 | Transactions | [transactions-back-office.md](transactions-back-office.md) |
 | Inventory (all BO subsections) | [inventory-back-office.md](inventory-back-office.md) |
@@ -66,6 +71,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Bug reports — **admin triage** | [bug-reports-admin-manual.md](bug-reports-admin-manual.md) |
 | POS Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | POS Register (cart) | [pos-register-cart.md](pos-register-cart.md) |
+| POS RMS Charge quick guide | [pos-rms-charge.md](pos-rms-charge.md) |
 | POS Tasks | [pos-tasks.md](pos-tasks.md) |
 | POS Weddings | [pos-weddings.md](pos-weddings.md) |
 | POS Alterations | [pos-alterations.md](pos-alterations.md) |

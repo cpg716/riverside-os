@@ -73,7 +73,7 @@ export function useCartCheckout({
       return;
     }
     if (lines.length === 0 && disbursementMembers.length === 0) {
-      toast("Cart is empty", "error");
+      toast("Add at least one item before checking out.", "error");
       return;
     }
     if (!navigator.onLine && posShipping) {

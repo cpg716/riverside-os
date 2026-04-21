@@ -100,8 +100,8 @@ export async function openBackofficeSidebarTab(
   const tabButton = mainNav.getByRole("button", {
     name: tabLabelPatterns[tabId],
   });
-  await tabButton.scrollIntoViewIfNeeded();
   await expect(tabButton).toBeVisible({ timeout: 15_000 });
+  await tabButton.scrollIntoViewIfNeeded().catch(() => {});
   await expect(tabButton).toBeEnabled();
   await tabButton.click();
   if (tabId === "register") {

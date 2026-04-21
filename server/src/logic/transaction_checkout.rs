@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::auth::pins::log_staff_access;
 use crate::logic::checkout_validate;
+use crate::logic::corecard;
 use crate::logic::customer_open_deposit;
 use crate::logic::gift_card_ops;
 use crate::logic::pos_rms_charge;
@@ -28,6 +29,8 @@ use crate::models::{
 };
 use crate::services::inventory;
 use sqlx::types::Json;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Debug, Error)]
 pub enum CheckoutError {
@@ -35,6 +38,8 @@ pub enum CheckoutError {
     InvalidPayload(String),
     #[error(transparent)]
     Database(#[from] sqlx::Error),
+    #[error("{0}")]
+    CoreCardHostFailure(String),
 }
 
 #[derive(Debug, Deserialize)]
@@ -153,6 +158,89 @@ pub struct ResolvedPaymentSplit {
     pub net_amount: Decimal,
     pub card_brand: Option<String>,
     pub card_last4: Option<String>,
+}
+
+fn metadata_required_text(
+    metadata: &Value,
+    key: &str,
+    message: &str,
+) -> Result<String, CheckoutError> {
+    metadata
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| CheckoutError::InvalidPayload(message.to_string()))
+}
+
+fn metadata_optional_text(metadata: &Value, key: &str) -> Option<String> {
+    metadata
+        .get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn corecard_error_to_checkout(error: corecard::CoreCardError) -> CheckoutError {
+    if let Some(failure) = error.as_host_failure() {
+        CheckoutError::CoreCardHostFailure(failure.message)
+    } else {
+        match error {
+            corecard::CoreCardError::Database(db) => CheckoutError::Database(db),
+            other => CheckoutError::CoreCardHostFailure(other.to_string()),
+        }
+    }
+}
+
+fn apply_corecard_result_to_metadata(
+    metadata: &mut Value,
+    idempotency_key: &str,
+    result: &corecard::CoreCardHostMutationResult,
+) {
+    let mut object = metadata.as_object().cloned().unwrap_or_default();
+    object.insert(
+        "posting_status".to_string(),
+        Value::String(result.posting_status.clone()),
+    );
+    object.insert(
+        "idempotency_key".to_string(),
+        Value::String(idempotency_key.to_string()),
+    );
+    if let Some(value) = &result.external_transaction_id {
+        object.insert(
+            "external_transaction_id".to_string(),
+            Value::String(value.clone()),
+        );
+    }
+    if let Some(value) = &result.external_auth_code {
+        object.insert(
+            "external_auth_code".to_string(),
+            Value::String(value.clone()),
+        );
+    }
+    if let Some(value) = &result.external_transaction_type {
+        object.insert(
+            "external_transaction_type".to_string(),
+            Value::String(value.clone()),
+        );
+    }
+    if let Some(value) = &result.host_reference {
+        object.insert("host_reference".to_string(), Value::String(value.clone()));
+    }
+    if let Some(value) = result.posted_at {
+        object.insert("posted_at".to_string(), Value::String(value.to_rfc3339()));
+    }
+    if let Some(value) = result.reversed_at {
+        object.insert("reversed_at".to_string(), Value::String(value.to_rfc3339()));
+    }
+    if let Some(value) = result.refunded_at {
+        object.insert("refunded_at".to_string(), Value::String(value.to_rfc3339()));
+    }
+    object.insert("host_metadata".to_string(), result.metadata.clone());
+    object.insert("response_snapshot".to_string(), result.metadata.clone());
+    *metadata = Value::Object(object);
 }
 
 fn takeaway_line_total_decimal(items: &[CheckoutItem]) -> Decimal {
@@ -453,20 +541,25 @@ fn resolve_payment_splits(
                     .map(str::to_string);
 
                 let incoming_meta = line.metadata.clone().unwrap_or_else(|| json!({}));
-                let stripe_intent_id = incoming_meta
+                let normalized_meta = if pos_rms_charge::is_rms_method(m) {
+                    pos_rms_charge::normalized_rms_metadata(m, &incoming_meta)
+                } else {
+                    incoming_meta
+                };
+                let stripe_intent_id = normalized_meta
                     .get("stripe_intent_id")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                let card_brand = incoming_meta
+                let card_brand = normalized_meta
                     .get("card_brand")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
-                let card_last4 = incoming_meta
+                let card_last4 = normalized_meta
                     .get("card_last4")
                     .and_then(|v| v.as_str())
                     .map(|s| s.to_string());
                 let check_number = line.check_number.clone().or_else(|| {
-                    incoming_meta
+                    normalized_meta
                         .get("check_number")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
@@ -486,7 +579,7 @@ fn resolve_payment_splits(
                     method: m.to_string(),
                     amount: a,
                     gift_card_code: gift_card_code.clone(),
-                    metadata: incoming_meta,
+                    metadata: normalized_meta,
                     stripe_intent_id,
                     check_number,
                     merchant_fee: fee,
@@ -541,9 +634,238 @@ fn resolve_payment_splits(
     ))
 }
 
+async fn prepare_live_corecard_postings(
+    pool: &PgPool,
+    http: &reqwest::Client,
+    config: &corecard::CoreCardConfig,
+    token_cache: &Arc<Mutex<corecard::CoreCardTokenCache>>,
+    payload: &CheckoutRequest,
+    payment_splits: &mut [ResolvedPaymentSplit],
+    is_rms_payment_collection: bool,
+) -> Result<(), CheckoutError> {
+    let Some(customer_id) = payload.customer_id else {
+        if payment_splits
+            .iter()
+            .any(|split| pos_rms_charge::is_rms_method(&split.method))
+            || is_rms_payment_collection
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "RMS Charge requires an active customer on the sale.".to_string(),
+            ));
+        }
+        return Ok(());
+    };
+
+    let checkout_client_id = payload.checkout_client_id.ok_or_else(|| {
+        CheckoutError::InvalidPayload(
+            "RMS Charge live posting requires checkout_client_id for idempotency.".to_string(),
+        )
+    })?;
+
+    for (index, split) in payment_splits.iter_mut().enumerate() {
+        if !pos_rms_charge::is_rms_method(&split.method) {
+            continue;
+        }
+
+        let linked_corecredit_customer_id = metadata_required_text(
+            &split.metadata,
+            "linked_corecredit_customer_id",
+            "RMS Charge checkout could not resolve the linked CoreCredit customer.",
+        )?;
+        let linked_corecredit_account_id = metadata_required_text(
+            &split.metadata,
+            "linked_corecredit_account_id",
+            "RMS Charge checkout could not resolve the linked CoreCredit account.",
+        )?;
+        let program_code = metadata_required_text(
+            &split.metadata,
+            "program_code",
+            "RMS Charge requires a financing program selection before checkout can continue.",
+        )?;
+        let linked_corecredit_card_id =
+            metadata_optional_text(&split.metadata, "linked_corecredit_card_id");
+        let stable_reference = format!("{checkout_client_id}:purchase:{index}");
+        let idempotency_key = corecard::build_idempotency_key(
+            corecard::CoreCardOperationType::Purchase,
+            &stable_reference,
+            &linked_corecredit_account_id,
+            split.amount,
+            Some(&program_code),
+        );
+        let request = corecard::CoreCardMutationRequest {
+            customer_id: Some(customer_id),
+            linked_corecredit_customer_id,
+            linked_corecredit_account_id,
+            linked_corecredit_card_id,
+            program_code: Some(program_code.clone()),
+            amount: split.amount,
+            idempotency_key: idempotency_key.clone(),
+            transaction_id: None,
+            payment_transaction_id: None,
+            pos_rms_charge_record_id: None,
+            reason: None,
+            reference_hint: Some(format!("ROS-CHECKOUT-{checkout_client_id}")),
+            metadata: json!({
+                "checkout_client_id": checkout_client_id.to_string(),
+                "program_label": metadata_optional_text(&split.metadata, "program_label"),
+                "masked_account": metadata_optional_text(&split.metadata, "masked_account"),
+            }),
+        };
+        let result = match corecard::post_purchase(pool, http, config, token_cache, &request).await
+        {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = log_staff_access(
+                    pool,
+                    payload.operator_staff_id,
+                    "rms_charge_purchase_post_failed",
+                    json!({
+                        "checkout_client_id": checkout_client_id,
+                        "account_id": request.linked_corecredit_account_id,
+                        "program_code": request.program_code,
+                        "amount": request.amount,
+                        "error": error.to_string(),
+                    }),
+                )
+                .await;
+                return Err(corecard_error_to_checkout(error));
+            }
+        };
+        let _ = log_staff_access(
+            pool,
+            payload.operator_staff_id,
+            "rms_charge_purchase_posted",
+            json!({
+                "checkout_client_id": checkout_client_id,
+                "account_id": request.linked_corecredit_account_id,
+                "program_code": request.program_code,
+                "amount": request.amount,
+                "host_reference": result.host_reference,
+                "external_transaction_id": result.external_transaction_id,
+            }),
+        )
+        .await;
+        apply_corecard_result_to_metadata(&mut split.metadata, &idempotency_key, &result);
+    }
+
+    if is_rms_payment_collection {
+        let resolve = corecard::resolve_customer_account(
+            pool,
+            &corecard::PosResolveAccountRequest {
+                customer_id: Some(customer_id),
+                preferred_account_id: payment_splits.iter().find_map(|split| {
+                    metadata_optional_text(&split.metadata, "linked_corecredit_account_id")
+                }),
+            },
+        )
+        .await
+        .map_err(corecard_error_to_checkout)?;
+
+        let selected_account = resolve.selected_account.ok_or_else(|| {
+            let message = resolve
+                .blocking_error
+                .as_ref()
+                .map(|value| value.message.clone())
+                .unwrap_or_else(|| {
+                    "RMS Charge payment collection requires a single linked account.".to_string()
+                });
+            CheckoutError::InvalidPayload(message)
+        })?;
+
+        let stable_reference = format!("{checkout_client_id}:payment");
+        let idempotency_key = corecard::build_idempotency_key(
+            corecard::CoreCardOperationType::Payment,
+            &stable_reference,
+            &selected_account.corecredit_account_id,
+            payload.total_price,
+            None,
+        );
+        let request = corecard::CoreCardMutationRequest {
+            customer_id: Some(customer_id),
+            linked_corecredit_customer_id: selected_account.corecredit_customer_id.clone(),
+            linked_corecredit_account_id: selected_account.corecredit_account_id.clone(),
+            linked_corecredit_card_id: None,
+            program_code: None,
+            amount: payload.total_price,
+            idempotency_key: idempotency_key.clone(),
+            transaction_id: None,
+            payment_transaction_id: None,
+            pos_rms_charge_record_id: None,
+            reason: None,
+            reference_hint: Some(format!("ROS-RMS-PAYMENT-{checkout_client_id}")),
+            metadata: json!({
+                "checkout_client_id": checkout_client_id.to_string(),
+                "masked_account": selected_account.masked_account,
+                "resolution_status": resolve.resolution_status,
+            }),
+        };
+        let result = match corecard::post_payment(pool, http, config, token_cache, &request).await {
+            Ok(result) => result,
+            Err(error) => {
+                let _ = log_staff_access(
+                    pool,
+                    payload.operator_staff_id,
+                    "rms_charge_payment_post_failed",
+                    json!({
+                        "checkout_client_id": checkout_client_id,
+                        "account_id": request.linked_corecredit_account_id,
+                        "amount": request.amount,
+                        "error": error.to_string(),
+                    }),
+                )
+                .await;
+                return Err(corecard_error_to_checkout(error));
+            }
+        };
+        let _ = log_staff_access(
+            pool,
+            payload.operator_staff_id,
+            "rms_charge_payment_posted",
+            json!({
+                "checkout_client_id": checkout_client_id,
+                "account_id": request.linked_corecredit_account_id,
+                "amount": request.amount,
+                "host_reference": result.host_reference,
+                "external_transaction_id": result.external_transaction_id,
+            }),
+        )
+        .await;
+        for split in payment_splits.iter_mut() {
+            let mut obj = split.metadata.as_object().cloned().unwrap_or_default();
+            obj.insert("rms_charge_collection".to_string(), Value::Bool(true));
+            obj.insert(
+                "tender_family".to_string(),
+                Value::String(pos_rms_charge::RMS_TENDER_FAMILY.to_string()),
+            );
+            obj.insert(
+                "linked_corecredit_customer_id".to_string(),
+                Value::String(selected_account.corecredit_customer_id.clone()),
+            );
+            obj.insert(
+                "linked_corecredit_account_id".to_string(),
+                Value::String(selected_account.corecredit_account_id.clone()),
+            );
+            obj.insert(
+                "masked_account".to_string(),
+                Value::String(selected_account.masked_account.clone()),
+            );
+            obj.insert(
+                "resolution_status".to_string(),
+                Value::String(resolve.resolution_status.clone()),
+            );
+            split.metadata = Value::Object(obj);
+            apply_corecard_result_to_metadata(&mut split.metadata, &idempotency_key, &result);
+        }
+    }
+
+    Ok(())
+}
+
 pub async fn execute_checkout(
     pool: &PgPool,
     http: &reqwest::Client,
+    corecard_config: &corecard::CoreCardConfig,
+    corecard_token_cache: &Arc<Mutex<corecard::CoreCardTokenCache>>,
     global_employee_markup: Decimal,
     mut payload: CheckoutRequest,
 ) -> Result<CheckoutDone, CheckoutError> {
@@ -899,11 +1221,26 @@ pub async fn execute_checkout(
         discount_event_labels.insert(idx, receipt_label);
     }
 
-    let (payment_splits, payment_activity_label) = resolve_payment_splits(&payload)?;
+    let (mut payment_splits, payment_activity_label) = resolve_payment_splits(&payload)?;
 
     let has_rms_charge = payment_splits
         .iter()
         .any(|s| pos_rms_charge::is_rms_method(&s.method));
+    prepare_live_corecard_postings(
+        pool,
+        http,
+        corecard_config,
+        corecard_token_cache,
+        &payload,
+        &mut payment_splits,
+        is_rms_payment_collection,
+    )
+    .await?;
+    let transaction_financing_metadata = pos_rms_charge::transaction_metadata_from_splits(
+        payment_splits
+            .iter()
+            .map(|split| (split.method.as_str(), &split.metadata)),
+    );
 
     for s in &payment_splits {
         if s.method.trim().eq_ignore_ascii_case("store_credit") && payload.customer_id.is_none() {
@@ -1232,7 +1569,7 @@ pub async fn execute_checkout(
             fulfillment_method, ship_to, shipping_amount_usd,
             is_employee_purchase, is_rush, need_by_date,
             is_tax_exempt, tax_exempt_reason, register_session_id,
-            rounding_adjustment, final_cash_due
+            rounding_adjustment, final_cash_due, metadata
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
@@ -1240,7 +1577,7 @@ pub async fn execute_checkout(
             $8, $9,
             $10, $11, $12,
             $13, $14, $15, $16, $17, $18,
-            $19, $20
+            $19, $20, $21
         )
         RETURNING id, display_id
         "#,
@@ -1265,6 +1602,7 @@ pub async fn execute_checkout(
     .bind(payload.session_id)
     .bind(payload.rounding_adjustment.unwrap_or(Decimal::ZERO))
     .bind(payload.final_cash_due)
+    .bind(&transaction_financing_metadata)
     .fetch_one(&mut *tx)
     .await;
 
@@ -1844,7 +2182,7 @@ pub async fn execute_checkout(
             .await?;
 
             if pos_rms_charge::is_rms_method(method) {
-                pos_rms_charge::insert_rms_record(
+                let rms_record_id = pos_rms_charge::insert_rms_record(
                     &mut *tx,
                     "charge",
                     transaction_id,
@@ -1856,15 +2194,30 @@ pub async fn execute_checkout(
                     payment_tx_id,
                     customer_display_rms.as_deref(),
                     &order_short_ref,
+                    Some(&split.metadata),
                 )
                 .await?;
+                if let Some(idempotency_key) =
+                    metadata_optional_text(&split.metadata, "idempotency_key")
+                {
+                    corecard::attach_posting_event_refs(
+                        &mut *tx,
+                        &idempotency_key,
+                        Some(transaction_id),
+                        Some(payment_tx_id),
+                        Some(rms_record_id),
+                    )
+                    .await
+                    .map_err(corecard_error_to_checkout)?;
+                }
                 rms_notifications.push(pos_rms_charge::RmsChargeNotify {
                     payment_transaction_id: payment_tx_id,
                     amount: split.amount,
                     method: method.to_string(),
+                    metadata: split.metadata.clone(),
                 });
             } else if is_rms_payment_collection {
-                pos_rms_charge::insert_rms_record(
+                let rms_record_id = pos_rms_charge::insert_rms_record(
                     &mut *tx,
                     "payment",
                     transaction_id,
@@ -1876,8 +2229,22 @@ pub async fn execute_checkout(
                     payment_tx_id,
                     customer_display_rms.as_deref(),
                     &order_short_ref,
+                    Some(&split.metadata),
                 )
                 .await?;
+                if let Some(idempotency_key) =
+                    metadata_optional_text(&split.metadata, "idempotency_key")
+                {
+                    corecard::attach_posting_event_refs(
+                        &mut *tx,
+                        &idempotency_key,
+                        Some(transaction_id),
+                        Some(payment_tx_id),
+                        Some(rms_record_id),
+                    )
+                    .await
+                    .map_err(corecard_error_to_checkout)?;
+                }
             }
 
             main_tx_ids.push(payment_tx_id);
@@ -2175,6 +2542,20 @@ pub async fn execute_checkout(
     )
     .await;
 
+    if has_rms_charge && transaction_financing_metadata != json!({}) {
+        let _ = log_staff_access(
+            pool,
+            operator_staff_id,
+            "rms_charge_program_selected",
+            json!({
+                "transaction_id": transaction_id,
+                "register_session_id": session_id_for_log,
+                "metadata": transaction_financing_metadata,
+            }),
+        )
+        .await;
+    }
+
     Ok(CheckoutDone::Completed {
         transaction_id,
         display_id: transaction_display_id,
@@ -2354,8 +2735,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::fetch_variant_pos_line_kind;
+    use super::{
+        apply_corecard_result_to_metadata, corecard_error_to_checkout, fetch_variant_pos_line_kind,
+    };
+    use crate::logic::corecard::{CoreCardFailureCode, CoreCardHostMutationResult};
     use rust_decimal::Decimal;
+    use serde_json::json;
     use sqlx::Connection;
     use uuid::Uuid;
 
@@ -2406,5 +2791,56 @@ mod tests {
         assert_eq!(pos_kind, None);
 
         tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[test]
+    fn apply_corecard_result_to_metadata_persists_host_reference() {
+        let mut metadata = json!({
+            "tender_family": "rms_charge",
+            "program_code": "rms90"
+        });
+        apply_corecard_result_to_metadata(
+            &mut metadata,
+            "idem-1",
+            &CoreCardHostMutationResult {
+                operation_type: "purchase".to_string(),
+                posting_status: "posted".to_string(),
+                external_transaction_id: Some("host-tx-1".to_string()),
+                external_auth_code: Some("AUTH".to_string()),
+                external_transaction_type: Some("purchase".to_string()),
+                host_reference: Some("REF-1".to_string()),
+                posted_at: None,
+                reversed_at: None,
+                refunded_at: None,
+                metadata: json!({ "status": "posted" }),
+            },
+        );
+        assert_eq!(
+            metadata
+                .get("host_reference")
+                .and_then(|value| value.as_str()),
+            Some("REF-1")
+        );
+        assert_eq!(
+            metadata
+                .get("posting_status")
+                .and_then(|value| value.as_str()),
+            Some("posted")
+        );
+    }
+
+    #[test]
+    fn corecard_host_failure_maps_to_checkout_block() {
+        let err = corecard_error_to_checkout(crate::logic::corecard::CoreCardError::host_failure(
+            CoreCardFailureCode::HostUnavailable,
+            "Host unavailable",
+            true,
+        ));
+        match err {
+            super::CheckoutError::CoreCardHostFailure(message) => {
+                assert!(message.contains("Host unavailable"));
+            }
+            other => panic!("expected CoreCardHostFailure, got {other:?}"),
+        }
     }
 }

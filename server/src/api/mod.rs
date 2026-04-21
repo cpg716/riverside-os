@@ -40,6 +40,7 @@ pub mod store;
 pub mod store_account;
 pub mod store_account_rate;
 pub mod tasks;
+pub mod test_support;
 pub mod transactions;
 pub mod vendors;
 pub mod weather;
@@ -49,6 +50,7 @@ pub mod weddings;
 use meilisearch_sdk::client::Client as MeilisearchClient;
 use stripe::Client as StripeClient;
 
+use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
 use crate::logic::wedding_push::WeddingEventBus;
 use crate::observability::ServerLogRing;
 
@@ -84,11 +86,15 @@ pub struct AppState {
     pub store_account_authed_per_minute: u32,
     /// Optional Meilisearch sidecar (`RIVERSIDE_MEILISEARCH_URL`). When `None`, search uses PostgreSQL only.
     pub meilisearch: Option<MeilisearchClient>,
+    /// CoreCard / CoreCredit integration broker settings (server-side only).
+    pub corecard_config: CoreCardConfig,
+    /// Cached CoreCard bearer token for server-to-server requests.
+    pub corecard_token_cache: std::sync::Arc<tokio::sync::Mutex<CoreCardTokenCache>>,
     /// Recent API server `tracing` lines (shared with [`ServerLogRingLayer`](crate::observability::ServerLogRingLayer)).
     pub server_log_ring: ServerLogRing,
 }
 pub fn build_router() -> Router<AppState> {
-    Router::new()
+    let mut router = Router::new()
         .merge(metabase_proxy::router())
         .nest("/api/inventory", inventory::router())
         .nest("/api/inventory/physical", physical_inventory::router())
@@ -130,6 +136,7 @@ pub fn build_router() -> Router<AppState> {
         .nest("/api/admin/store", store::admin_router())
         .nest("/api/public", public_api::router())
         .nest("/api/webhooks", webhooks::router())
+        .nest("/api/integrations", webhooks::integrations_router())
         .nest("/api/weddings", weddings::router())
         .nest("/api/weather", weather::router())
         .nest("/api/hardware", hardware::router())
@@ -137,5 +144,19 @@ pub fn build_router() -> Router<AppState> {
         .nest(
             "/api/settings/counterpoint-sync",
             counterpoint_sync::settings_router(),
-        )
+        );
+
+    if matches!(
+        std::env::var("RIVERSIDE_ENABLE_E2E_TEST_SUPPORT")
+            .ok()
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_ascii_lowercase)
+            .as_deref(),
+        Some("1" | "true" | "yes" | "on")
+    ) {
+        router = router.nest("/api/test-support", test_support::router());
+    }
+
+    router
 }

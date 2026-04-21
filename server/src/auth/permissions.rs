@@ -75,8 +75,29 @@ pub const CUSTOMERS_TIMELINE: &str = "customers.timeline";
 pub const CUSTOMERS_MEASUREMENTS: &str = "customers.measurements";
 /// R2S RMS charge/payment admin list under Customers.
 pub const CUSTOMERS_RMS_CHARGE: &str = "customers.rms_charge";
+/// Customers -> RMS Charge read surfaces (linked accounts, records, status).
+pub const CUSTOMERS_RMS_CHARGE_VIEW: &str = "customers.rms_charge.view";
+/// Customers -> RMS Charge link / unlink and verification actions.
+pub const CUSTOMERS_RMS_CHARGE_MANAGE_LINKS: &str = "customers.rms_charge.manage_links";
 /// Create/unlink customer couples (Pillar 6).
 pub const CUSTOMERS_COUPLE_MANAGE: &str = "customers.couple_manage";
+
+/// POS unified financing tender.
+pub const POS_RMS_CHARGE_USE: &str = "pos.rms_charge.use";
+/// POS account lookup / disambiguation outside the active sale default.
+pub const POS_RMS_CHARGE_LOOKUP: &str = "pos.rms_charge.lookup";
+/// POS view of recent RMS Charge activity summary.
+pub const POS_RMS_CHARGE_HISTORY_BASIC: &str = "pos.rms_charge.history_basic";
+/// POS RMS payment collection actions.
+pub const POS_RMS_CHARGE_PAYMENT_COLLECT: &str = "pos.rms_charge.payment_collect";
+/// Back Office RMS exception queue resolve / retry / assign.
+pub const CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS: &str = "customers.rms_charge.resolve_exceptions";
+/// Back Office RMS reconciliation views and runs.
+pub const CUSTOMERS_RMS_CHARGE_RECONCILE: &str = "customers.rms_charge.reconcile";
+/// Back Office RMS refund/reversal host actions.
+pub const CUSTOMERS_RMS_CHARGE_REVERSE: &str = "customers.rms_charge.reverse";
+/// Back Office RMS operational reporting and exports.
+pub const CUSTOMERS_RMS_CHARGE_REPORTING: &str = "customers.rms_charge.reporting";
 
 /// Shipments hub: list/read unified shipments (POS, web, manual) and timeline.
 pub const SHIPMENTS_VIEW: &str = "shipments.view";
@@ -154,9 +175,19 @@ pub static ALL_PERMISSION_KEYS: &[&str] = &[
     CUSTOMERS_HUB_EDIT,
     CUSTOMERS_TIMELINE,
     CUSTOMERS_MEASUREMENTS,
+    CUSTOMERS_RMS_CHARGE_VIEW,
+    CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
+    CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS,
+    CUSTOMERS_RMS_CHARGE_RECONCILE,
+    CUSTOMERS_RMS_CHARGE_REVERSE,
+    CUSTOMERS_RMS_CHARGE_REPORTING,
     ALTERATIONS_MANAGE,
     CUSTOMER_GROUPS_MANAGE,
     STORE_CREDIT_MANAGE,
+    POS_RMS_CHARGE_USE,
+    POS_RMS_CHARGE_LOOKUP,
+    POS_RMS_CHARGE_HISTORY_BASIC,
+    POS_RMS_CHARGE_PAYMENT_COLLECT,
     NOTIFICATIONS_VIEW,
     NOTIFICATIONS_BROADCAST,
     REVIEWS_VIEW,

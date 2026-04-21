@@ -15,10 +15,16 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::{
-    CUSTOMERS_COUPLE_MANAGE, CUSTOMERS_DUPLICATE_REVIEW, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW,
-    CUSTOMERS_MEASUREMENTS, CUSTOMERS_MERGE, CUSTOMERS_RMS_CHARGE, CUSTOMERS_TIMELINE,
-    CUSTOMER_GROUPS_MANAGE, ORDERS_VIEW, STORE_CREDIT_MANAGE,
+    effective_permissions_for_staff, staff_has_permission, CUSTOMERS_COUPLE_MANAGE,
+    CUSTOMERS_DUPLICATE_REVIEW, CUSTOMERS_HUB_EDIT, CUSTOMERS_HUB_VIEW, CUSTOMERS_MEASUREMENTS,
+    CUSTOMERS_MERGE, CUSTOMERS_RMS_CHARGE, CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
+    CUSTOMERS_RMS_CHARGE_RECONCILE, CUSTOMERS_RMS_CHARGE_REPORTING,
+    CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS, CUSTOMERS_RMS_CHARGE_REVERSE,
+    CUSTOMERS_RMS_CHARGE_VIEW, CUSTOMERS_TIMELINE, CUSTOMER_GROUPS_MANAGE, ORDERS_VIEW,
+    POS_RMS_CHARGE_HISTORY_BASIC, POS_RMS_CHARGE_LOOKUP, POS_RMS_CHARGE_PAYMENT_COLLECT,
+    POS_RMS_CHARGE_USE, STORE_CREDIT_MANAGE,
 };
+use crate::logic::corecard;
 use crate::logic::customer_duplicate_candidates::find_duplicate_candidates;
 use crate::logic::customer_hub::{days_since_last_visit, fetch_hub_stats};
 use crate::logic::customer_measurements;
@@ -159,6 +165,98 @@ fn map_perm_or_pos_err(
     } else {
         CustomerError::Unauthorized(msg)
     }
+}
+
+async fn require_staff_with_any_permission(
+    state: &AppState,
+    headers: &HeaderMap,
+    permissions: &[&str],
+) -> Result<crate::auth::pins::AuthenticatedStaff, CustomerError> {
+    let staff = middleware::require_authenticated_staff_headers(state, headers)
+        .await
+        .map_err(map_perm_or_pos_err)?;
+    let effective = effective_permissions_for_staff(&state.db, staff.id, staff.role)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "customer permission resolution failed");
+            CustomerError::Forbidden("permission resolution failed".to_string())
+        })?;
+    if permissions
+        .iter()
+        .any(|permission| staff_has_permission(&effective, permission))
+    {
+        Ok(staff)
+    } else {
+        Err(CustomerError::Forbidden("missing permission".to_string()))
+    }
+}
+
+async fn require_rms_charge_view_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::auth::pins::AuthenticatedStaff, CustomerError> {
+    require_staff_with_any_permission(
+        state,
+        headers,
+        &[
+            CUSTOMERS_RMS_CHARGE,
+            CUSTOMERS_RMS_CHARGE_VIEW,
+            CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
+            CUSTOMERS_RMS_CHARGE_REPORTING,
+            CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS,
+            CUSTOMERS_RMS_CHARGE_RECONCILE,
+            POS_RMS_CHARGE_USE,
+            POS_RMS_CHARGE_LOOKUP,
+            POS_RMS_CHARGE_HISTORY_BASIC,
+            POS_RMS_CHARGE_PAYMENT_COLLECT,
+        ],
+    )
+    .await
+}
+
+async fn require_rms_charge_manage_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::auth::pins::AuthenticatedStaff, CustomerError> {
+    require_staff_with_any_permission(
+        state,
+        headers,
+        &[CUSTOMERS_RMS_CHARGE_MANAGE_LINKS, CUSTOMERS_RMS_CHARGE],
+    )
+    .await
+}
+
+async fn require_rms_charge_exception_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::auth::pins::AuthenticatedStaff, CustomerError> {
+    require_staff_with_any_permission(
+        state,
+        headers,
+        &[
+            CUSTOMERS_RMS_CHARGE_RESOLVE_EXCEPTIONS,
+            CUSTOMERS_RMS_CHARGE_RECONCILE,
+            CUSTOMERS_RMS_CHARGE_REVERSE,
+            CUSTOMERS_RMS_CHARGE,
+        ],
+    )
+    .await
+}
+
+async fn require_rms_charge_reconcile_staff(
+    state: &AppState,
+    headers: &HeaderMap,
+) -> Result<crate::auth::pins::AuthenticatedStaff, CustomerError> {
+    require_staff_with_any_permission(
+        state,
+        headers,
+        &[
+            CUSTOMERS_RMS_CHARGE_RECONCILE,
+            CUSTOMERS_RMS_CHARGE_REPORTING,
+            CUSTOMERS_RMS_CHARGE,
+        ],
+    )
+    .await
 }
 
 /// Staff with **Back Office permission** or **valid open register POS session** (same pattern as receiving).
@@ -767,9 +865,67 @@ struct RmsChargeRecordsQuery {
     #[serde(default)]
     q: Option<String>,
     #[serde(default)]
+    account_id: Option<String>,
+    #[serde(default)]
+    program_code: Option<String>,
+    #[serde(default)]
+    posting_status: Option<String>,
+    #[serde(default)]
     limit: Option<i64>,
     #[serde(default)]
     offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsChargeOverviewQuery {
+    #[serde(default)]
+    customer_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsChargeExceptionsQuery {
+    #[serde(default)]
+    customer_id: Option<Uuid>,
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsChargeProgramsQuery {
+    #[serde(default)]
+    customer_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RmsChargeReconciliationQuery {
+    #[serde(default)]
+    limit: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RunReconciliationBody {
+    #[serde(default)]
+    run_scope: Option<String>,
+    #[serde(default)]
+    date_from: Option<String>,
+    #[serde(default)]
+    date_to: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExceptionAssignBody {
+    #[serde(default)]
+    assigned_to_staff_id: Option<Uuid>,
+    #[serde(default)]
+    notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ExceptionResolveBody {
+    #[serde(default)]
+    resolution_notes: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -786,9 +942,477 @@ struct RmsChargeRecordApiRow {
     payment_transaction_id: Option<Uuid>,
     customer_display: Option<String>,
     order_short_ref: Option<String>,
+    tender_family: Option<String>,
+    program_code: Option<String>,
+    program_label: Option<String>,
+    masked_account: Option<String>,
+    linked_corecredit_customer_id: Option<String>,
+    linked_corecredit_account_id: Option<String>,
+    resolution_status: Option<String>,
+    posting_status: String,
+    posting_error_code: Option<String>,
+    host_reference: Option<String>,
+    external_transaction_id: Option<String>,
     customer_name: Option<String>,
     customer_code: Option<String>,
     operator_name: Option<String>,
+}
+
+async fn link_customer_rms_charge_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<corecard::LinkCustomerCoreCreditAccountRequest>,
+) -> Result<Json<corecard::LinkedCoreCreditAccountView>, CustomerError> {
+    let staff = require_rms_charge_manage_staff(&state, &headers).await?;
+    let linked = corecard::link_customer_account(&state.db, &body, staff.id)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_link_account",
+        json!({
+            "customer_id": body.customer_id,
+            "corecredit_customer_id": body.corecredit_customer_id,
+            "corecredit_account_id": corecard::mask_account_identifier(&body.corecredit_account_id),
+            "is_primary": body.is_primary,
+        }),
+    )
+    .await;
+    Ok(Json(corecard::LinkedCoreCreditAccountView {
+        masked_account: corecard::mask_account_identifier(&linked.corecredit_account_id),
+        id: linked.id,
+        customer_id: linked.customer_id,
+        corecredit_customer_id: linked.corecredit_customer_id,
+        corecredit_account_id: linked.corecredit_account_id,
+        corecredit_card_id: linked.corecredit_card_id,
+        status: linked.status,
+        is_primary: linked.is_primary,
+        program_group: linked.program_group,
+        last_verified_at: linked.last_verified_at,
+        verified_by_staff_id: linked.verified_by_staff_id,
+        verification_source: linked.verification_source,
+        notes: linked.notes,
+        created_at: linked.created_at,
+        updated_at: linked.updated_at,
+    }))
+}
+
+async fn unlink_customer_rms_charge_account(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<corecard::UnlinkCustomerCoreCreditAccountRequest>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    let staff = require_rms_charge_manage_staff(&state, &headers).await?;
+    let removed = corecard::unlink_customer_account(&state.db, &body)
+        .await
+        .map_err(|error| match error {
+            corecard::CoreCardError::AccountNotFound => CustomerError::NotFound,
+            _ => CustomerError::BadRequest(error.to_string()),
+        })?;
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_unlink_account",
+        json!({
+            "customer_id": body.customer_id,
+            "link_id": body.link_id,
+            "corecredit_account_id": corecard::mask_account_identifier(&removed.corecredit_account_id),
+        }),
+    )
+    .await;
+    Ok(Json(json!({
+        "status": "unlinked",
+        "link_id": removed.id,
+    })))
+}
+
+async fn list_customer_rms_charge_accounts(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(customer_id): Path<Uuid>,
+) -> Result<Json<Vec<corecard::LinkedCoreCreditAccountView>>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let rows = corecard::list_customer_account_views(&state.db, customer_id)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(rows))
+}
+
+async fn get_customer_rms_charge_account_balances(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(account_id): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<corecard::CoreCardAccountBalancesResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let customer_id = query
+        .get("customer_id")
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .ok_or_else(|| CustomerError::BadRequest("customer_id is required".to_string()))?;
+    let response = corecard::account_balances_for_customer(
+        &state.db,
+        &state.http_client,
+        &state.corecard_config,
+        &state.corecard_token_cache,
+        customer_id,
+        account_id.trim(),
+    )
+    .await
+    .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(response))
+}
+
+async fn get_customer_rms_charge_account_transactions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(account_id): Path<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Result<Json<corecard::CoreCardAccountTransactionsResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let customer_id = query
+        .get("customer_id")
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .ok_or_else(|| CustomerError::BadRequest("customer_id is required".to_string()))?;
+    let response = corecard::account_transactions_for_customer(
+        &state.db,
+        &state.http_client,
+        &state.corecard_config,
+        &state.corecard_token_cache,
+        customer_id,
+        account_id.trim(),
+    )
+    .await
+    .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(response))
+}
+
+async fn get_rms_charge_record(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(record_id): Path<Uuid>,
+) -> Result<Json<corecard::RmsChargeRecordDetail>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let row = corecard::get_rms_charge_record_detail(&state.db, record_id)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(row))
+}
+
+async fn get_rms_charge_overview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<RmsChargeOverviewQuery>,
+) -> Result<Json<corecard::CoreCardOverviewResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let overview = corecard::fetch_overview(&state.db, query.customer_id)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(overview))
+}
+
+async fn get_rms_charge_exceptions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<RmsChargeExceptionsQuery>,
+) -> Result<Json<Vec<corecard::CoreCardExceptionQueueRow>>, CustomerError> {
+    require_rms_charge_exception_staff(&state, &headers).await?;
+    let rows = corecard::list_exceptions(
+        &state.db,
+        query.status.as_deref(),
+        query.customer_id,
+        query.limit.unwrap_or(50),
+    )
+    .await
+    .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(rows))
+}
+
+async fn assign_rms_charge_exception(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(exception_id): Path<Uuid>,
+    Json(body): Json<ExceptionAssignBody>,
+) -> Result<Json<corecard::CoreCardExceptionQueueRow>, CustomerError> {
+    let staff = require_rms_charge_exception_staff(&state, &headers).await?;
+    let row = corecard::assign_exception(
+        &state.db,
+        exception_id,
+        body.assigned_to_staff_id,
+        body.notes.as_deref(),
+    )
+    .await
+    .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_exception_assign",
+        json!({
+            "exception_id": exception_id,
+            "assigned_to_staff_id": body.assigned_to_staff_id,
+        }),
+    )
+    .await;
+    Ok(Json(row))
+}
+
+async fn resolve_rms_charge_exception(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(exception_id): Path<Uuid>,
+    Json(body): Json<ExceptionResolveBody>,
+) -> Result<Json<corecard::CoreCardExceptionQueueRow>, CustomerError> {
+    let staff = require_rms_charge_exception_staff(&state, &headers).await?;
+    let row =
+        corecard::resolve_exception(&state.db, exception_id, body.resolution_notes.as_deref())
+            .await
+            .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_exception_resolve",
+        json!({
+            "exception_id": exception_id,
+        }),
+    )
+    .await;
+    Ok(Json(row))
+}
+
+async fn retry_rms_charge_exception(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(exception_id): Path<Uuid>,
+) -> Result<Json<serde_json::Value>, CustomerError> {
+    let staff = require_rms_charge_exception_staff(&state, &headers).await?;
+    let exception = sqlx::query_as::<_, corecard::CoreCardExceptionQueueRow>(
+        r#"
+        SELECT
+            id,
+            rms_record_id,
+            account_id,
+            exception_type,
+            severity,
+            status,
+            assigned_to_staff_id,
+            opened_at,
+            resolved_at,
+            notes,
+            resolution_notes,
+            retry_count,
+            last_retry_at,
+            metadata_json
+        FROM corecredit_exception_queue
+        WHERE id = $1
+        "#,
+    )
+    .bind(exception_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let mut retried = false;
+    if let Some(record_id) = exception.rms_record_id {
+        let record = corecard::get_rms_charge_record_detail(&state.db, record_id)
+            .await
+            .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+        let stable_reference = record
+            .idempotency_key
+            .clone()
+            .unwrap_or_else(|| record.transaction_id.to_string());
+        let request = corecard::CoreCardMutationRequest {
+            customer_id: record.customer_id,
+            linked_corecredit_customer_id: record
+                .linked_corecredit_customer_id
+                .clone()
+                .unwrap_or_default(),
+            linked_corecredit_account_id: record
+                .linked_corecredit_account_id
+                .clone()
+                .unwrap_or_default(),
+            linked_corecredit_card_id: None,
+            program_code: record.program_code.clone(),
+            amount: record.amount,
+            idempotency_key: corecard::build_idempotency_key(
+                match record.external_transaction_type.as_deref() {
+                    Some("payment") => corecard::CoreCardOperationType::Payment,
+                    Some("refund") => corecard::CoreCardOperationType::Refund,
+                    Some("reversal") => corecard::CoreCardOperationType::Reversal,
+                    _ if record.record_kind == "payment" => {
+                        corecard::CoreCardOperationType::Payment
+                    }
+                    _ => corecard::CoreCardOperationType::Purchase,
+                },
+                &stable_reference,
+                record
+                    .linked_corecredit_account_id
+                    .as_deref()
+                    .unwrap_or_default(),
+                record.amount,
+                record.program_code.as_deref(),
+            ),
+            transaction_id: Some(record.transaction_id),
+            payment_transaction_id: record.payment_transaction_id,
+            pos_rms_charge_record_id: Some(record.id),
+            reason: Some("exception_retry".to_string()),
+            reference_hint: record.order_short_ref.clone(),
+            metadata: record.metadata_json.clone(),
+        };
+        let result = match request.idempotency_key.as_str() {
+            _ if record.external_transaction_type.as_deref() == Some("refund") => {
+                corecard::post_refund(
+                    &state.db,
+                    &state.http_client,
+                    &state.corecard_config,
+                    &state.corecard_token_cache,
+                    &request,
+                )
+                .await
+            }
+            _ if record.external_transaction_type.as_deref() == Some("reversal") => {
+                corecard::post_reversal(
+                    &state.db,
+                    &state.http_client,
+                    &state.corecard_config,
+                    &state.corecard_token_cache,
+                    &request,
+                )
+                .await
+            }
+            _ if record.record_kind == "payment" => {
+                corecard::post_payment(
+                    &state.db,
+                    &state.http_client,
+                    &state.corecard_config,
+                    &state.corecard_token_cache,
+                    &request,
+                )
+                .await
+            }
+            _ => {
+                corecard::post_purchase(
+                    &state.db,
+                    &state.http_client,
+                    &state.corecard_config,
+                    &state.corecard_token_cache,
+                    &request,
+                )
+                .await
+            }
+        }
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+
+        crate::logic::pos_rms_charge::update_record_host_result(
+            &state.db,
+            record.id,
+            &serde_json::to_value(&result).unwrap_or_else(|_| json!({})),
+        )
+        .await
+        .map_err(CustomerError::Database)?;
+        retried = true;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE corecredit_exception_queue
+        SET
+            status = CASE WHEN $2 THEN 'resolved' ELSE 'retry_pending' END,
+            retry_count = retry_count + 1,
+            last_retry_at = now(),
+            resolved_at = CASE WHEN $2 THEN now() ELSE resolved_at END
+        WHERE id = $1
+        "#,
+    )
+    .bind(exception_id)
+    .bind(retried)
+    .execute(&state.db)
+    .await?;
+
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_exception_retry",
+        json!({
+            "exception_id": exception_id,
+            "retried": retried,
+        }),
+    )
+    .await;
+
+    Ok(Json(json!({
+        "status": if retried { "retried" } else { "retry_pending" },
+        "exception_id": exception_id,
+    })))
+}
+
+async fn get_rms_charge_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<RmsChargeReconciliationQuery>,
+) -> Result<Json<corecard::CoreCardReconciliationResponse>, CustomerError> {
+    require_rms_charge_reconcile_staff(&state, &headers).await?;
+    let response = corecard::list_reconciliation(&state.db, query.limit.unwrap_or(10))
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(response))
+}
+
+async fn run_rms_charge_reconciliation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RunReconciliationBody>,
+) -> Result<Json<corecard::CoreCardReconciliationRunRow>, CustomerError> {
+    let staff = require_rms_charge_reconcile_staff(&state, &headers).await?;
+    let date_from = body
+        .date_from
+        .as_deref()
+        .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+    let date_to = body
+        .date_to
+        .as_deref()
+        .and_then(|value| NaiveDate::parse_from_str(value, "%Y-%m-%d").ok());
+    let run = corecard::run_reconciliation(
+        &state.db,
+        Some(staff.id),
+        body.run_scope.as_deref().unwrap_or("manual"),
+        date_from,
+        date_to,
+    )
+    .await
+    .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    let _ = crate::auth::pins::log_staff_access(
+        &state.db,
+        staff.id,
+        "rms_charge_reconciliation_run",
+        json!({
+            "run_id": run.id,
+            "run_scope": run.run_scope,
+        }),
+    )
+    .await;
+    Ok(Json(run))
+}
+
+async fn get_rms_charge_program_catalog(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(query): Query<RmsChargeProgramsQuery>,
+) -> Result<Json<Vec<corecard::CoreCardProgramOption>>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let rows = corecard::list_program_catalog(&state.db, query.customer_id)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(rows))
+}
+
+async fn get_rms_charge_sync_health(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<corecard::CoreCardSyncHealthResponse>, CustomerError> {
+    require_rms_charge_view_staff(&state, &headers).await?;
+    let health = corecard::collect_sync_health(&state.db)
+        .await
+        .map_err(|error| CustomerError::BadRequest(error.to_string()))?;
+    Ok(Json(health))
 }
 
 async fn list_rms_charge_records(
@@ -796,16 +1420,16 @@ async fn list_rms_charge_records(
     headers: HeaderMap,
     Query(q): Query<RmsChargeRecordsQuery>,
 ) -> Result<Json<Vec<RmsChargeRecordApiRow>>, CustomerError> {
-    middleware::require_staff_with_permission(&state, &headers, CUSTOMERS_RMS_CHARGE)
-        .await
-        .map_err(|(_, axum::Json(v))| {
-            CustomerError::Unauthorized(
-                v.get("error")
-                    .and_then(|x| x.as_str())
-                    .unwrap_or("not authorized")
-                    .to_string(),
-            )
-        })?;
+    require_staff_with_any_permission(
+        &state,
+        &headers,
+        &[
+            CUSTOMERS_RMS_CHARGE,
+            CUSTOMERS_RMS_CHARGE_VIEW,
+            CUSTOMERS_RMS_CHARGE_MANAGE_LINKS,
+        ],
+    )
+    .await?;
 
     let end_naive =
         q.to.as_deref()
@@ -838,6 +1462,21 @@ async fn list_rms_charge_records(
 
     let limit = q.limit.unwrap_or(100).clamp(1, 500);
     let offset = q.offset.unwrap_or(0).max(0);
+    let account_filter = q
+        .account_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let program_filter = q
+        .program_code
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
+    let posting_status_filter = q
+        .posting_status
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty());
 
     let q_trim = q.q.as_deref().map(str::trim).filter(|s| !s.is_empty());
 
@@ -887,6 +1526,17 @@ async fn list_rms_charge_records(
                     r.payment_transaction_id,
                     r.customer_display,
                     r.order_short_ref,
+                    r.tender_family,
+                    r.program_code,
+                    r.program_label,
+                    r.masked_account,
+                    r.linked_corecredit_customer_id,
+                    r.linked_corecredit_account_id,
+                    r.resolution_status,
+                    COALESCE(r.posting_status, 'legacy') AS posting_status,
+                    r.posting_error_code,
+                    r.host_reference,
+                    r.external_transaction_id,
                     NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
                     c.customer_code,
                     s.full_name AS operator_name
@@ -896,21 +1546,27 @@ async fn list_rms_charge_records(
                 WHERE r.created_at >= $1 AND r.created_at < $2
                   AND ($3::text IS NULL OR r.record_kind = $3)
                   AND ($4::uuid IS NULL OR r.customer_id = $4)
+                  AND ($5::text IS NULL OR r.linked_corecredit_account_id = $5)
+                  AND ($6::text IS NULL OR r.program_code = $6)
+                  AND ($7::text IS NULL OR COALESCE(r.posting_status, 'legacy') = $7)
                   AND (
-                    c.id = ANY($5)
-                    OR c.customer_code ILIKE $6 ESCAPE '\'
-                    OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $6 ESCAPE '\'
-                    OR r.order_short_ref ILIKE $6 ESCAPE '\'
-                    OR r.payment_method ILIKE $6 ESCAPE '\'
+                    c.id = ANY($8)
+                    OR c.customer_code ILIKE $9 ESCAPE '\'
+                    OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $9 ESCAPE '\'
+                    OR r.order_short_ref ILIKE $9 ESCAPE '\'
+                    OR r.payment_method ILIKE $9 ESCAPE '\'
                   )
                 ORDER BY r.created_at DESC
-                LIMIT $7 OFFSET $8
+                LIMIT $10 OFFSET $11
                 "#,
             )
             .bind(start_dt)
             .bind(end_exclusive)
             .bind(kind_filter)
             .bind(q.customer_id)
+            .bind(account_filter)
+            .bind(program_filter)
+            .bind(posting_status_filter)
             .bind(&mids[..])
             .bind(pat)
             .bind(limit)
@@ -933,6 +1589,17 @@ async fn list_rms_charge_records(
                     r.payment_transaction_id,
                     r.customer_display,
                     r.order_short_ref,
+                    r.tender_family,
+                    r.program_code,
+                    r.program_label,
+                    r.masked_account,
+                    r.linked_corecredit_customer_id,
+                    r.linked_corecredit_account_id,
+                    r.resolution_status,
+                    COALESCE(r.posting_status, 'legacy') AS posting_status,
+                    r.posting_error_code,
+                    r.host_reference,
+                    r.external_transaction_id,
                     NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
                     c.customer_code,
                     s.full_name AS operator_name
@@ -942,20 +1609,26 @@ async fn list_rms_charge_records(
                 WHERE r.created_at >= $1 AND r.created_at < $2
                   AND ($3::text IS NULL OR r.record_kind = $3)
                   AND ($4::uuid IS NULL OR r.customer_id = $4)
+                  AND ($5::text IS NULL OR r.linked_corecredit_account_id = $5)
+                  AND ($6::text IS NULL OR r.program_code = $6)
+                  AND ($7::text IS NULL OR COALESCE(r.posting_status, 'legacy') = $7)
                   AND (
-                    c.customer_code ILIKE $5 ESCAPE '\'
-                    OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $5 ESCAPE '\'
-                    OR r.order_short_ref ILIKE $5 ESCAPE '\'
-                    OR r.payment_method ILIKE $5 ESCAPE '\'
+                    c.customer_code ILIKE $8 ESCAPE '\'
+                    OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $8 ESCAPE '\'
+                    OR r.order_short_ref ILIKE $8 ESCAPE '\'
+                    OR r.payment_method ILIKE $8 ESCAPE '\'
                   )
                 ORDER BY r.created_at DESC
-                LIMIT $6 OFFSET $7
+                LIMIT $9 OFFSET $10
                 "#,
             )
             .bind(start_dt)
             .bind(end_exclusive)
             .bind(kind_filter)
             .bind(q.customer_id)
+            .bind(account_filter)
+            .bind(program_filter)
+            .bind(posting_status_filter)
             .bind(pat)
             .bind(limit)
             .bind(offset)
@@ -978,6 +1651,17 @@ async fn list_rms_charge_records(
                 r.payment_transaction_id,
                 r.customer_display,
                 r.order_short_ref,
+                r.tender_family,
+                r.program_code,
+                r.program_label,
+                r.masked_account,
+                r.linked_corecredit_customer_id,
+                r.linked_corecredit_account_id,
+                r.resolution_status,
+                COALESCE(r.posting_status, 'legacy') AS posting_status,
+                r.posting_error_code,
+                r.host_reference,
+                r.external_transaction_id,
                 NULLIF(TRIM(BOTH FROM CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, ''))), '') AS customer_name,
                 c.customer_code,
                 s.full_name AS operator_name
@@ -987,14 +1671,20 @@ async fn list_rms_charge_records(
             WHERE r.created_at >= $1 AND r.created_at < $2
               AND ($3::text IS NULL OR r.record_kind = $3)
               AND ($4::uuid IS NULL OR r.customer_id = $4)
+              AND ($5::text IS NULL OR r.linked_corecredit_account_id = $5)
+              AND ($6::text IS NULL OR r.program_code = $6)
+              AND ($7::text IS NULL OR COALESCE(r.posting_status, 'legacy') = $7)
             ORDER BY r.created_at DESC
-            LIMIT $5 OFFSET $6
+            LIMIT $8 OFFSET $9
             "#,
         )
         .bind(start_dt)
         .bind(end_exclusive)
         .bind(kind_filter)
         .bind(q.customer_id)
+        .bind(account_filter)
+        .bind(program_filter)
+        .bind(posting_status_filter)
         .bind(limit)
         .bind(offset)
         .fetch_all(&state.db)
@@ -1021,7 +1711,55 @@ pub fn router() -> Router<AppState> {
         .route("/browse", get(browse_customers))
         .route("/pipeline-stats", get(browse_customer_pipeline_stats))
         .route("/podium/messaging-inbox", get(list_podium_messaging_inbox))
+        .route(
+            "/rms-charge/link-account",
+            post(link_customer_rms_charge_account),
+        )
+        .route(
+            "/rms-charge/unlink-account",
+            post(unlink_customer_rms_charge_account),
+        )
+        .route(
+            "/rms-charge/customer/{customer_id}/accounts",
+            get(list_customer_rms_charge_accounts),
+        )
+        .route(
+            "/rms-charge/accounts/{account_id}/balances",
+            get(get_customer_rms_charge_account_balances),
+        )
+        .route(
+            "/rms-charge/accounts/{account_id}/transactions",
+            get(get_customer_rms_charge_account_transactions),
+        )
+        .route("/rms-charge/overview", get(get_rms_charge_overview))
+        .route("/rms-charge/programs", get(get_rms_charge_program_catalog))
+        .route("/rms-charge/exceptions", get(get_rms_charge_exceptions))
+        .route(
+            "/rms-charge/exceptions/{exception_id}/retry",
+            post(retry_rms_charge_exception),
+        )
+        .route(
+            "/rms-charge/exceptions/{exception_id}/resolve",
+            post(resolve_rms_charge_exception),
+        )
+        .route(
+            "/rms-charge/exceptions/{exception_id}/assign",
+            post(assign_rms_charge_exception),
+        )
+        .route(
+            "/rms-charge/reconciliation",
+            get(get_rms_charge_reconciliation),
+        )
+        .route(
+            "/rms-charge/reconciliation/run",
+            post(run_rms_charge_reconciliation),
+        )
+        .route("/rms-charge/sync-health", get(get_rms_charge_sync_health))
         .route("/rms-charge/records", get(list_rms_charge_records))
+        .route(
+            "/rms-charge/records/{record_id}",
+            get(get_rms_charge_record),
+        )
         .route("/groups", get(list_customer_groups))
         .route(
             "/group-members",

@@ -656,7 +656,7 @@ export default function InventoryControlBoard({
     try {
       await bumpVariantStock(row.variant_id, quantityDelta, txType, notes);
       setAdjustRow(null);
-      toast("Stock adjusted", "success");
+      toast("Inventory count updated.", "success");
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : "Stock update failed", "error");
     }
@@ -686,7 +686,7 @@ export default function InventoryControlBoard({
       playScanSuccess();
       setScanToast({
         type: 'success',
-        message: `${data.product_name} matched. Open Receiving Bay to post stock.`,
+        message: `${data.product_name} matched. Open Receiving to apply the stock update.`,
       });
       if (scanToastTimer.current) clearTimeout(scanToastTimer.current);
       scanToastTimer.current = setTimeout(() => setScanToast(null), 2000);
@@ -731,9 +731,9 @@ export default function InventoryControlBoard({
     );
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "Could not mark inventory tags printed", "error");
+      toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
     } else {
-      toast("Inventory tags queued for printing", "success");
+      toast("Inventory tags sent to print.", "success");
     }
     setSelected(new Set());
     await refreshBoard();
@@ -771,7 +771,7 @@ export default function InventoryControlBoard({
       );
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(err.error ?? "Could not mark inventory tags printed", "error");
+        toast(err.error ?? "We couldn't mark those tags as printed. Please try again.", "error");
         return;
       }
       toast(
@@ -805,10 +805,10 @@ export default function InventoryControlBoard({
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "Mass assign failed", "error");
+      toast(err.error ?? "We couldn't update those products. Please try again.", "error");
       return;
     }
-    toast("Mass assignment successful", "success");
+    toast("Products updated.", "success");
     setSelected(new Set());
     await refreshBoard();
   };
@@ -828,7 +828,7 @@ export default function InventoryControlBoard({
     });
     if (!res.ok) {
       const err = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(err.error ?? "Web publish update failed", "error");
+      toast(err.error ?? "We couldn't update the online store setting. Please try again.", "error");
       return;
     }
     toast(
@@ -855,10 +855,10 @@ export default function InventoryControlBoard({
       });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(err.error ?? "Archive failed", "error");
+        toast(err.error ?? "We couldn't archive those templates. Please try again.", "error");
         return;
       }
-      toast(`${selectedProductIds.length} templates archived`, "success");
+      toast(`${selectedProductIds.length} templates archived.`, "success");
       setSelected(new Set());
       await refreshBoard();
     } finally {

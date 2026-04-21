@@ -98,13 +98,17 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
      - $3.22 rounds to $3.20.
      - $3.23 rounds to $3.25.
    - **Important**: This rounding ONLY applies when the **CASH** tab is selected in the checkout drawer. If the customer switches to CARD or another method, the original unrounded total ($3.22) is required.
-   - **Suggested Amounts**: When you tap "Pay Full Balance" in the CASH tab, the system will automatically suggest the rounded amount (e.g., $3.20).
+   - **Suggested Amounts**: When you tap **Pay Balance** in the CASH tab, the system will automatically suggest the rounded amount (e.g., $3.20). Use **Split Balance** when you want the drawer to load roughly half of the current amount due for a deposit-style payment.
    - **Ledger Integrity**: The printed receipt will show the original total and a "Rounding Adjustment" to ensure the financial books balance to zero.
 6. **Transactions / wedding transactions (when shown):** The balance ledger may include **Deposit (ledger)**. Use the same keypad, then tap **Apply deposit** (below **Apply payment**) to record the deposit amount the customer pledges to pay today. This instantly reduces the "Balance to Pay" calculation down to just the requested deposit (+ any immediate takeaway goods). Once the balance is updated, use **Apply payment** via cash/card to fulfill the deposit target. **Split deposit (wedding party)** opens wedding lookup in **group pay** mode so one payer can split amounts across members (same as **Wedding** → party → **Enter Group Pay**). If your sale is **fulfillment lines only** (no take-home items) and you are **not** using a split wedding payout list, you may be able to tap **Complete Sale** with **only** a deposit set — follow store policy.
 7. **Store date and time** next to **Salesperson** is a live clock in the store’s receipt timezone; the **printed receipt time** is the time the server records when the sale completes.
 8. **Receipt:** after tender completes, a **receipt** screen opens on top of the cart — **print** (thermal path depends on Settings receipt / printer setup), **Email receipt**, and **Text receipt**. When **Podium** is configured in Integrations, email sends **inline HTML** from **Receipt Builder**, and text sends a **receipt image** (when your store has a saved receipt template and the carrier supports it) or a **plain summary**. You can view or edit **phone** and **email** on that screen and **save** them to the customer record when allowed. Close that screen when done; only then does the register treat the sale as fully finished for “next customer” flow. Offer **bag tag** / label prints if your store uses them.
 
-**RMS / RMS90 (house charge on a sale):** When a **normal** sale completes with an **RMS** or **RMS90** tender, **Sales Support** usually gets an inbox notification (**Submit R2S charge**) to record the **new charge** in **R2S**. That is different from a **payment-only** transaction (search **PAYMENT**) where the customer is **paying** an existing R2S balance — see above and **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
+**RMS Charge (house charge on a sale):** Use the single **RMS Charge** tender button, not separate RMS / RMS90 buttons. After selecting it, POS resolves the linked customer account, shows only **masked** account choices, and then opens a required plan-selection step for the eligible **program** (for example **Standard** or **RMS 90**). The system does **not** silently default the plan for the cashier. Riverside posts the financing transaction to CoreCard before checkout finishes, so the sale does **not** complete if the host post fails. The receipt prints **RMS Charge**, the saved program label, masked account, and host reference when available. For the quick cashier workflow, see **[POS RMS Charge](pos-rms-charge.md)**.
+
+**RMS Charge slim workspace in POS:** Permitted staff can open the RMS Charge workspace in POS to review the current customer’s account summary, available credit, recent RMS history, posting status, and host references. Standard floor staff do **not** see Back Office exception or reconciliation controls there. Payment collection visibility depends on **`pos.rms_charge.payment_collect`** or a richer RMS role.
+
+**RMS payment collection:** Search **PAYMENT** to add the internal **RMS CHARGE PAYMENT** line. The register still only accepts **cash** or **check** for this flow, but POS now resolves the linked RMS account before taking the tender and posts the payment to CoreCard before the collection succeeds.
 
 ## Void line vs void sale
 
@@ -140,6 +144,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 ## See also
 
 - [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)
+- [pos-rms-charge.md](pos-rms-charge.md)
 - [transactions-back-office.md](transactions-back-office.md)
 - [customers-back-office.md](customers-back-office.md)
 - [../TRANSACTION_RETURNS_EXCHANGES.md](../TRANSACTION_RETURNS_EXCHANGES.md)

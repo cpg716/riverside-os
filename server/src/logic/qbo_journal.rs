@@ -12,6 +12,18 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+fn is_rms_financing_tender(payment_method: &str, tender_family: Option<&str>) -> bool {
+    payment_method.eq_ignore_ascii_case("on_account_rms")
+        || payment_method.eq_ignore_ascii_case("on_account_rms90")
+        || tender_family
+            .map(|value| value.trim().eq_ignore_ascii_case("rms_charge"))
+            .unwrap_or(false)
+}
+
+fn rms_payment_collection_flag(value: Option<bool>) -> bool {
+    value.unwrap_or(false)
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct JournalLine {
     pub qbo_account_id: String,
@@ -161,6 +173,8 @@ pub async fn propose_daily_journal(
     struct TenderAgg {
         payment_method: String,
         sub_type: Option<String>,
+        tender_family: Option<String>,
+        rms_charge_collection: Option<bool>,
         total: Option<Decimal>,
         total_merchant_fee: Option<Decimal>,
     }
@@ -170,11 +184,16 @@ pub async fn propose_daily_journal(
         SELECT
             payment_method,
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), '') AS sub_type,
+            NULLIF(TRIM(COALESCE(metadata->>'tender_family', '')), '') AS tender_family,
+            BOOL_OR(COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE)) AS rms_charge_collection,
             SUM(amount)::numeric(14, 2) AS total,
             SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee
         FROM payment_transactions
         WHERE (created_at AT TIME ZONE 'UTC')::date = $1::date
-        GROUP BY payment_method, NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), '')
+        GROUP BY
+            payment_method,
+            NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
+            NULLIF(TRIM(COALESCE(metadata->>'tender_family', '')), '')
         "#,
     )
     .bind(activity_date)
@@ -431,6 +450,8 @@ pub async fn propose_daily_journal(
         let is_gift_card = sid.eq_ignore_ascii_case("gift_card");
         let is_paid_liability_gc = is_gift_card && sub_type.eq_ignore_ascii_case("paid_liability");
         let is_loyalty_gc = is_gift_card && sub_type.eq_ignore_ascii_case("loyalty_giveaway");
+        let is_rms_financing = is_rms_financing_tender(sid, t.tender_family.as_deref());
+        let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
         if is_gift_card && !is_paid_liability_gc && !is_loyalty_gc {
             warnings.push(
                 "Gift card payment missing/unknown `sub_type`; expected `paid_liability` or `loyalty_giveaway`. Falling back to tender mapping."
@@ -446,6 +467,14 @@ pub async fn propose_daily_journal(
         };
         let mapped = if let Some(m) = liability_gc.clone() {
             Some(m)
+        } else if is_rms_financing {
+            qbo_map_with_misc_fallback(
+                pool,
+                "MISC_PAYMENT",
+                "default",
+                Some("RMS_CHARGE_FINANCING_CLEARING"),
+            )
+            .await?
         } else {
             qbo_map_with_misc_fallback(pool, "tender", sid, None).await?
         };
@@ -480,6 +509,10 @@ pub async fn propose_daily_journal(
                 "Gift card (refund / reversal) — loyalty expense".to_string()
             } else if is_paid_liability_gc && liability_gc.is_some() {
                 "Gift card (refund / reversal) — liability".to_string()
+            } else if is_rms_financing {
+                "RMS Charge financing (refund / reversal)".to_string()
+            } else if is_rms_collection {
+                format!("Tenders (RMS payment collection outflow) — {sid}")
             } else {
                 format!("Tenders (refund/outflow) — {sid}")
             }
@@ -487,6 +520,10 @@ pub async fn propose_daily_journal(
             "Gift card redemption (loyalty expense)".to_string()
         } else if is_paid_liability_gc && liability_gc.is_some() {
             "Gift card redemption (liability)".to_string()
+        } else if is_rms_financing {
+            "RMS Charge financing".to_string()
+        } else if is_rms_collection {
+            format!("Tenders (RMS payment collection) — {sid}")
         } else {
             format!("Tenders — {sid}")
         };
@@ -499,6 +536,8 @@ pub async fn propose_daily_journal(
             detail: vec![serde_json::json!({
                 "payment_method": sid,
                 "sub_type": t.sub_type,
+                "tender_family": t.tender_family,
+                "rms_charge_collection": t.rms_charge_collection,
                 "amount": amt
             })],
         });
@@ -1239,6 +1278,45 @@ pub async fn propose_daily_journal(
         }
     }
 
+    let rms_payment_reversal_net: Decimal = sqlx::query_scalar(
+        r#"
+        SELECT COALESCE(SUM(ABS(amount)) FILTER (
+            WHERE amount < 0::numeric
+              AND COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE) = TRUE
+        ), 0)::numeric(14, 2)
+        FROM payment_transactions
+        WHERE (created_at AT TIME ZONE 'UTC')::date = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    if rms_payment_reversal_net > Decimal::ZERO {
+        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+            pool,
+            "MISC_PAYMENT",
+            "default",
+            Some("RMS_R2S_PAYMENT_CLEARING"),
+        )
+        .await?
+        {
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit: rms_payment_reversal_net,
+                credit: Decimal::ZERO,
+                memo: "R2S payment collection reversals".to_string(),
+                detail: vec![serde_json::json!({"kind": "rms_r2s_payment_reversal_clearing"})],
+            });
+        } else {
+            warnings.push(
+                "R2S RMS payment reversals detected but mapping missing; verify RMS_R2S_PAYMENT_CLEARING or MISC fallback."
+                    .to_string(),
+            );
+        }
+    }
+
     let debits: Decimal = lines.iter().map(|l| l.debit).sum();
     let credits: Decimal = lines.iter().map(|l| l.credit).sum();
     let diff = debits - credits;
@@ -1261,4 +1339,23 @@ pub async fn propose_daily_journal(
             balanced,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rms_financing_tender_detects_unified_rms_charge_metadata() {
+        assert!(is_rms_financing_tender("on_account_rms", None));
+        assert!(is_rms_financing_tender("cash", Some("rms_charge")));
+        assert!(!is_rms_financing_tender("cash", None));
+    }
+
+    #[test]
+    fn rms_payment_collection_flag_defaults_false() {
+        assert!(rms_payment_collection_flag(Some(true)));
+        assert!(!rms_payment_collection_flag(Some(false)));
+        assert!(!rms_payment_collection_flag(None));
+    }
 }

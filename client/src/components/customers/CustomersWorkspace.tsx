@@ -92,6 +92,7 @@ interface CustomersWorkspaceProps {
   messagingFocusCustomerId?: string | null;
   messagingFocusHubTab?: string;
   onMessagingFocusConsumed?: () => void;
+  surface?: "backoffice" | "pos";
 }
 
 interface CustomerBrowseRow {
@@ -150,6 +151,7 @@ export default function CustomersWorkspace({
   messagingFocusCustomerId,
   messagingFocusHubTab,
   onMessagingFocusConsumed,
+  surface = "backoffice",
 }: CustomersWorkspaceProps) {
   const { backofficeHeaders, hasPermission, permissionsLoaded } =
     useBackofficeAuth();
@@ -803,7 +805,16 @@ export default function CustomersWorkspace({
         </div>
       );
     }
-    if (!hasPermission("customers.rms_charge")) {
+    if (
+      !hasPermission("customers.rms_charge") &&
+      !hasPermission("customers.rms_charge.view") &&
+      !hasPermission("customers.rms_charge.manage_links") &&
+      !hasPermission("customers.rms_charge.reporting") &&
+      !hasPermission("customers.rms_charge.resolve_exceptions") &&
+      !hasPermission("customers.rms_charge.reconcile") &&
+      !hasPermission("pos.rms_charge.use") &&
+      !hasPermission("pos.rms_charge.lookup")
+    ) {
       return (
         <div className="ui-page p-6">
           <p className="text-sm text-app-text-muted">
@@ -814,6 +825,7 @@ export default function CustomersWorkspace({
     }
     return (
       <RmsChargeAdminSection
+        surface={surface}
         onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
       />
     );

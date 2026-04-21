@@ -160,7 +160,7 @@ export default function CustomerSelector({
         { headers: { ...apiAuth() } },
       );
       if (!res.ok) {
-        toast("Could not load more results.", "error");
+        toast("We couldn't load more customers. Please try again.", "error");
         return;
       }
       const data = (await res.json()) as Customer[] | Array<Customer & { wedding_party_name?: string | null; wedding_party_id?: string | null }>;
@@ -181,7 +181,7 @@ export default function CustomerSelector({
       setResults((prev) => [...prev, ...mapped]);
       setHasMore(mapped.length === CUSTOMER_SELECTOR_PAGE);
     } catch {
-      toast("Could not load more results.", "error");
+      toast("We couldn't load more customers. Please try again.", "error");
     } finally {
       setLoadingMore(false);
     }
@@ -219,7 +219,7 @@ export default function CustomerSelector({
       });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as ApiErrorBody;
-        throw new Error(body.error ?? "Failed to add customer");
+        throw new Error(body.error ?? "We couldn't add that customer. Please check the information and try again.");
       }
       const data = (await res.json()) as Customer;
       onSelect(data);
@@ -244,7 +244,12 @@ export default function CustomerSelector({
         marketing_sms_opt_in: false,
       });
     } catch (err: unknown) {
-      toast(err instanceof Error ? err.message : "Failed to add customer", "error");
+      toast(
+        err instanceof Error
+          ? err.message
+          : "We couldn't add that customer. Please check the information and try again.",
+        "error",
+      );
     } finally {
       setLoading(false);
     }
@@ -398,6 +403,7 @@ export default function CustomerSelector({
             size={16}
           />
           <input
+            data-testid="pos-customer-search"
             placeholder="Search by name, phone, or email..."
             className="ui-input w-full py-2.5 pl-9 pr-4 transition-all border-2 border-app-border focus:border-app-accent"
             value={query}

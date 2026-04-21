@@ -1189,7 +1189,7 @@ export default function Cart({
                     onClick={() => {
                       if (hasAccess) {
                         clearCart();
-                        toast("Active sale voided", "success");
+                        toast("Sale cleared.", "success");
                       } else {
                         setShowVoidAllConfirm(true);
                       }
@@ -1321,7 +1321,7 @@ export default function Cart({
              type="button" 
              disabled={lines.length === 0 || checkoutBusy} 
              onClick={() => {
-               if (lines.length === 0) return toast("Cart is empty", "error");
+               if (lines.length === 0) return toast("Add at least one item before checking out.", "error");
                 if (!ensureSaleCashier()) return;
                if (isRmsPaymentCart) {
                  if (!selectedCustomer) {
@@ -1995,7 +1995,7 @@ export default function Cart({
             toast("Invalid Manager PIN", "error");
             return false;
           } catch {
-            toast("Authorization failed", "error");
+            toast("We couldn't verify manager approval. Please try again.", "error");
             return false;
           }
         }}
@@ -2016,13 +2016,13 @@ export default function Cart({
                   { headers: apiAuth() },
                 );
                 if (!res.ok) {
-                  toast("Could not add item — try search or scan.", "error");
+                  toast("We couldn't add that item. Try searching again or scan the SKU.", "error");
                   return;
                 }
                 const r = (await res.json()) as Record<string, unknown>;
                 item = scanPayloadToResolvedItem(r) as SearchResult;
               } catch {
-                toast("Could not add item.", "error");
+                toast("We couldn't add that item. Please try again.", "error");
                 return;
               }
             }

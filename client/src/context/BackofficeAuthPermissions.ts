@@ -31,7 +31,6 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
   "customers:duplicate-review": "customers_duplicate_review",
   "home:register-reports": "register.reports",
   "home:inbox": "customers.hub_view",
-  "customers:rms-charge": "customers.rms_charge",
   "customers:ship": "shipments.view",
   "settings:help-center": "help.manage",
   "settings:bug-reports": "settings.admin",
@@ -47,6 +46,19 @@ export const SIDEBAR_SUB_SECTION_PERMISSIONS_ALL: Record<string, string[]> = {
 /** Subsection visible if any listed permission is held (OR). */
 export const SIDEBAR_SUB_SECTION_PERMISSIONS_ANY: Record<string, string[]> = {
   "settings:staff-access-defaults": ["settings.admin", "staff.manage_access"],
+  "customers:rms-charge": [
+    "customers.rms_charge",
+    "customers.rms_charge.view",
+    "customers.rms_charge.manage_links",
+    "customers.rms_charge.resolve_exceptions",
+    "customers.rms_charge.reconcile",
+    "customers.rms_charge.reverse",
+    "customers.rms_charge.reporting",
+    "pos.rms_charge.use",
+    "pos.rms_charge.lookup",
+    "pos.rms_charge.history_basic",
+    "pos.rms_charge.payment_collect",
+  ],
 };
 
 export function subSectionPermissionKey(

@@ -12,6 +12,22 @@ fi
 export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5433/riverside_os}"
 export E2E_API_BASE="${E2E_API_BASE:-http://127.0.0.1:43300}"
 export E2E_BASE_URL="${E2E_BASE_URL:-http://localhost:43173}"
+export E2E_CORECARD_BASE="${E2E_CORECARD_BASE:-http://127.0.0.1:43400}"
+export E2E_CORECARD_PORT="${E2E_CORECARD_PORT:-43400}"
+
+export RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="${RIVERSIDE_ENABLE_E2E_TEST_SUPPORT:-1}"
+export RIVERSIDE_CORECARD_BASE_URL="${RIVERSIDE_CORECARD_BASE_URL:-$E2E_CORECARD_BASE}"
+export RIVERSIDE_CORECARD_CLIENT_ID="${RIVERSIDE_CORECARD_CLIENT_ID:-e2e-client}"
+export RIVERSIDE_CORECARD_CLIENT_SECRET="${RIVERSIDE_CORECARD_CLIENT_SECRET:-e2e-secret}"
+export RIVERSIDE_CORECARD_REGION="${RIVERSIDE_CORECARD_REGION:-us}"
+export RIVERSIDE_CORECARD_ENVIRONMENT="${RIVERSIDE_CORECARD_ENVIRONMENT:-e2e}"
+export RIVERSIDE_CORECARD_TIMEOUT_SECS="${RIVERSIDE_CORECARD_TIMEOUT_SECS:-5}"
+export RIVERSIDE_CORECARD_REDACTION="${RIVERSIDE_CORECARD_REDACTION:-strict}"
+export RIVERSIDE_CORECARD_LOG_PAYLOADS="${RIVERSIDE_CORECARD_LOG_PAYLOADS:-false}"
+export RIVERSIDE_CORECARD_WEBHOOK_SECRET="${RIVERSIDE_CORECARD_WEBHOOK_SECRET:-e2e-corecard-webhook}"
+export RIVERSIDE_CORECARD_WEBHOOK_ALLOW_UNSIGNED="${RIVERSIDE_CORECARD_WEBHOOK_ALLOW_UNSIGNED:-false}"
+export RIVERSIDE_CORECARD_REPAIR_POLL_SECS="${RIVERSIDE_CORECARD_REPAIR_POLL_SECS:-3600}"
+export RIVERSIDE_CORECARD_SNAPSHOT_RETENTION_DAYS="${RIVERSIDE_CORECARD_SNAPSHOT_RETENTION_DAYS:-30}"
 
 api_bind="${E2E_API_BASE#http://}"
 api_bind="${api_bind#https://}"
@@ -28,7 +44,9 @@ docker compose up -d db
 "$ROOT/scripts/apply-migrations-docker.sh"
 docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_staff_register_test.sql"
 docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_non_admin_staff.sql"
+docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_rms_staff.sql"
 
-exec npx concurrently -k -s first -n api,ui -c blue,magenta \
+exec npx concurrently -k -s first -n api,ui,corecard -c blue,magenta,cyan \
   "npm run dev:server" \
-  "cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort"
+  "cd client && VITE_DEV_PROXY_TARGET=$E2E_API_BASE npm run dev -- --host $ui_host --port $ui_port --strictPort" \
+  "node scripts/fake-corecard-server.mjs"

@@ -263,6 +263,7 @@ pub async fn launch_server(
         .expect("reqwest client");
 
     let meilisearch = crate::logic::meilisearch_client::meilisearch_from_env();
+    let corecard_config = crate::logic::corecard::CoreCardConfig::from_env();
 
     let global_employee_markup: rust_decimal::Decimal = match sqlx::query_scalar(
         "SELECT employee_markup_percent FROM store_settings WHERE id = 1",
@@ -302,6 +303,10 @@ pub async fn launch_server(
         store_account_unauth_post_per_minute_ip,
         store_account_authed_per_minute,
         meilisearch,
+        corecard_config,
+        corecard_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(
+            crate::logic::corecard::CoreCardTokenCache::default(),
+        )),
         server_log_ring: server_log_ring.clone(),
     };
 
@@ -353,6 +358,77 @@ pub async fn launch_server(
             }
             if let Err(e) = perform_weather_backfill(&weather_state).await {
                 tracing::error!(error = %e, "Golden Rule Weather worker failed");
+            }
+        }
+    });
+
+    let corecard_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+            corecard_state.corecard_config.repair_poll_secs,
+        ));
+        loop {
+            ticker.tick().await;
+            match crate::logic::corecard::run_repair_poll(
+                &corecard_state.db,
+                &corecard_state.http_client,
+                &corecard_state.corecard_config,
+                &corecard_state.corecard_token_cache,
+            )
+            .await
+            {
+                Ok(summary) => {
+                    let _ = crate::logic::integration_alerts::record_integration_success(
+                        &corecard_state.db,
+                        "corecard_repair_poll",
+                    )
+                    .await;
+                    tracing::info!(
+                        active_exception_count = summary.active_exception_count,
+                        stale_account_count = summary.stale_account_count,
+                        pending_webhook_count = summary.pending_webhook_count,
+                        "CoreCard repair poll completed"
+                    );
+                }
+                Err(error) => {
+                    let _ = crate::logic::integration_alerts::record_integration_failure(
+                        &corecard_state.db,
+                        "corecard_repair_poll",
+                        &error.to_string(),
+                    )
+                    .await;
+                    tracing::error!(error = %error, "CoreCard repair poll failed");
+                }
+            }
+        }
+    });
+
+    let corecard_recon_state = state.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(24 * 60 * 60));
+        loop {
+            ticker.tick().await;
+            let today = chrono::Utc::now().date_naive();
+            let from = today.pred_opt().unwrap_or(today);
+            match crate::logic::corecard::run_reconciliation(
+                &corecard_recon_state.db,
+                None,
+                "daily",
+                Some(from),
+                Some(today),
+            )
+            .await
+            {
+                Ok(run) => {
+                    tracing::info!(
+                        run_id = %run.id,
+                        mismatch_summary = %run.summary_json,
+                        "Daily CoreCard reconciliation completed"
+                    );
+                }
+                Err(error) => {
+                    tracing::error!(error = %error, "Daily CoreCard reconciliation failed");
+                }
             }
         }
     });

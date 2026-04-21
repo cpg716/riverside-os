@@ -30,6 +30,7 @@ use crate::logic::gift_card_ops;
 use crate::logic::loyalty as loyalty_logic;
 use crate::logic::podium::{self, looks_like_email};
 use crate::logic::podium_reviews;
+use crate::logic::pos_rms_charge;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_studio_html;
 use crate::logic::receipt_zpl;
@@ -93,6 +94,9 @@ impl From<crate::logic::transaction_checkout::CheckoutError> for TransactionErro
             }
             crate::logic::transaction_checkout::CheckoutError::Database(d) => {
                 TransactionError::Database(d)
+            }
+            crate::logic::transaction_checkout::CheckoutError::CoreCardHostFailure(m) => {
+                TransactionError::BadGateway(m)
             }
         }
     }
@@ -563,6 +567,13 @@ struct OrderItemRow {
     salesperson_name: Option<String>,
     receipt_original_unit_price: Option<Decimal>,
     discount_event_label: Option<String>,
+}
+
+#[derive(Debug, FromRow)]
+struct PaymentSummaryRow {
+    payment_method: String,
+    check_number: Option<String>,
+    metadata: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2044,37 +2055,37 @@ pub(crate) async fn load_transaction_detail(
     .fetch_all(pool)
     .await?;
 
-    let payment_methods_summary: String = sqlx::query_scalar(
+    let payment_rows = sqlx::query_as::<_, PaymentSummaryRow>(
         r#"
-        SELECT COALESCE(
-            STRING_AGG(
-                DISTINCT CASE 
-                    WHEN pt.payment_method = 'card_terminal' THEN 'Stripe Card'
-                    WHEN pt.payment_method = 'card_manual' THEN 'Stripe Manual'
-                    WHEN pt.payment_method = 'card_saved' THEN 'Stripe Vault'
-                    WHEN pt.payment_method = 'card_credit' THEN 'Stripe Credit'
-                    WHEN pt.payment_method = 'gift_card' THEN 'Gift Card'
-                    WHEN pt.payment_method = 'store_credit' THEN 'Store Credit'
-                    WHEN pt.payment_method = 'on_account_rms' THEN 'RMS Charge'
-                    WHEN pt.payment_method = 'on_account_rms90' THEN 'RMS 90'
-                    WHEN pt.payment_method = 'cash' THEN 'Cash'
-                    WHEN pt.payment_method = 'check' AND pt.check_number IS NOT NULL AND btrim(pt.check_number) <> ''
-                    THEN 'Check (#' || pt.check_number || ')'
-                    WHEN pt.payment_method = 'check' THEN 'Check'
-                    ELSE pt.payment_method 
-                END, 
-                ', ' 
-            ), 
-            '—'
-        )
+        SELECT DISTINCT
+            pt.payment_method,
+            pt.check_number,
+            pt.metadata
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         WHERE pa.target_transaction_id = $1
         "#,
     )
     .bind(transaction_id)
-    .fetch_one(pool)
+    .fetch_all(pool)
     .await?;
+
+    let mut summary_parts: Vec<String> = Vec::new();
+    for row in payment_rows {
+        let part = pos_rms_charge::payment_method_summary(
+            &row.payment_method,
+            row.check_number.as_deref(),
+            row.metadata.as_ref(),
+        );
+        if !summary_parts.iter().any(|existing| existing == &part) {
+            summary_parts.push(part);
+        }
+    }
+    let payment_methods_summary = if summary_parts.is_empty() {
+        "—".to_string()
+    } else {
+        summary_parts.join(", ")
+    };
 
     let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
         (Some(id), Some(first_name), Some(last_name)) => Some(OrderCustomerSummary {
@@ -2726,6 +2737,8 @@ async fn checkout(
     let outcome = execute_checkout(
         &state.db,
         &state.http_client,
+        &state.corecard_config,
+        &state.corecard_token_cache,
         state.global_employee_markup,
         payload,
     )

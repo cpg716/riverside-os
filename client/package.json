@@ -21,6 +21,7 @@
     "test:e2e:high-risk": "playwright test e2e/high-risk-regressions.spec.ts --workers=1",
     "test:e2e:phase2": "playwright test e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1",
     "test:e2e:tender": "playwright test e2e/tender-matrix-contract.spec.ts --workers=1",
+    "test:e2e:rms": "playwright test e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1",
     "test:e2e:v020": "playwright test e2e/tax-exempt-and-stripe-branding.spec.ts --workers=1",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:update-snapshots": "playwright test --update-snapshots",

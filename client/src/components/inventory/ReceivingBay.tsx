@@ -397,7 +397,12 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       }
       onComplete();
     } catch (err) {
-      toast(err instanceof Error ? err.message : "Error posting inventory", "error");
+      toast(
+        err instanceof Error
+          ? err.message
+          : "We couldn't apply this receipt to inventory. Please try again.",
+        "error",
+      );
     } finally {
       setLoading(false);
       setShowPostConfirm(false);

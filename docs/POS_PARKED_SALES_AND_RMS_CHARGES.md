@@ -1,6 +1,17 @@
-# POS parked sales, RMS / RMS90 charges, and R2S payment collections
+# POS parked sales, unified RMS Charge financing, and R2S payment collections
 
-Server-backed **parked cart** snapshots (auditable), a durable **`pos_rms_charge_record`** ledger (**charges** from house-account tenders and **payments** from the internal **RMS CHARGE PAYMENT** line), **Sales Support** follow-up (notifications and/or **Staff → Tasks** ad-hoc instances), and QBO pass-through mapping. Schema: **migrations [`68_pos_parked_and_rms_charge_audit.sql`](../migrations/68_pos_parked_and_rms_charge_audit.sql)** (parked sales + ledger + **`rms_r2s_charge`** notifications) and **[`69_rms_charge_payment_line.sql`](../migrations/69_rms_charge_payment_line.sql)** (**`record_kind`**, internal product **`pos_line_kind`**, ad-hoc tasks, **`customers.rms_charge`**, **`RMS_R2S_PAYMENT_CLEARING`** ledger seed).
+This document is the engineering and product-behavior reference for parked sales and RMS Charge internals.
+
+For role-based operational use, start with:
+
+- Back Office RMS manuals:
+  [`/Users/cpg/riverside-os/docs/staff/rms-charge-overview.md`](./staff/rms-charge-overview.md)
+- POS RMS quick guide:
+  [`/Users/cpg/riverside-os/docs/staff/pos-rms-charge.md`](./staff/pos-rms-charge.md)
+- Full architecture:
+  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
+
+Server-backed **parked cart** snapshots (auditable), a durable **`pos_rms_charge_record`** ledger (**charges** from the unified **RMS Charge** financing tender and **payments** from the internal **RMS CHARGE PAYMENT** line), **Sales Support** follow-up (notifications and/or **Staff → Tasks** ad-hoc instances), and QBO pass-through mapping. Schema: **migrations [`68_pos_parked_and_rms_charge_audit.sql`](../migrations/68_pos_parked_and_rms_charge_audit.sql)**, **[`69_rms_charge_payment_line.sql`](../migrations/69_rms_charge_payment_line.sql)**, and **[`153_corecredit_corecard_phase1_foundation.sql`](../migrations/153_corecredit_corecard_phase1_foundation.sql)** for linked accounts, transaction financing metadata, and program/account fields.
 
 ## Parked sales
 
@@ -66,13 +77,13 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 
 | Flow | `record_kind` | Register behavior | Sales Support follow-up |
 |------|---------------|-------------------|-------------------------|
-| **Charge** | **`charge`** | Sale completed with tender **`on_account_rms`** or **`on_account_rms90`** | Inbox notification **`rms_r2s_charge`** — **Submit R2S charge** |
+| **Charge** | **`charge`** | Sale completed with tender **`on_account_rms`** and RMS program metadata (**Standard**, **RMS 90**, etc.). Historical **`on_account_rms90`** rows remain readable. | Inbox notification **`rms_r2s_charge`** — **Submit R2S charge** |
 | **Payment** | **`payment`** | Cart contains **only** the internal line **RMS CHARGE PAYMENT** (search **`PAYMENT`**); tenders **cash** and/or **check** only; **customer required** | Ad-hoc **task** per active **sales_support** — **Post payment to R2S** (checklist item with customer + amount + order ref) |
 
 ### Data model (`pos_rms_charge_record`)
 
 - One row per recorded event; **`record_kind`** ∈ **`charge`** | **`payment`** (migration **69**; existing rows backfilled **`charge`**).
-- **`charge`**: **`payment_method`** is **`on_account_rms`** or **`on_account_rms90`** (house charge tender on a normal sale).
+- **`charge`**: **`payment_method`** is the financing tender movement. New Phase 1 checkouts normalize under **`on_account_rms`** and store program/account detail in **`transactions.metadata`**, **`payment_transactions.metadata`**, and **`pos_rms_charge_record`** (`tender_family`, `program_code`, `program_label`, `masked_account`, linked CoreCredit ids, `resolution_status`).
 - **`payment`**: **`payment_method`** is the **collection** tender (**`cash`**, **`check`**). Linked **`order_id`** is the **payment-collection** order (single internal line **`ROS-RMS-CHARGE-PAYMENT`**, **`products.pos_line_kind = rms_charge_payment`**).
 - Common columns: **`register_session_id`**, optional **`customer_id`**, **`payment_transaction_id`** (unique when set), **`customer_display`**, **`order_short_ref`**, **`amount`**, **`operator_staff_id`**.
 
@@ -80,7 +91,8 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 
 - **`server/src/logic/order_checkout.rs`** — validates RMS payment carts (no mixed lines, no wedding disbursements, no discount events on the payment line, **cash/check** splits only, **skip stock** for the internal SKU, **`payment_transactions`** category **`rms_account_payment`** for that order shape). Inserts **`pos_rms_charge_record`** inside the checkout transaction for both charge and payment splits as applicable.
 - **`server/src/logic/checkout_validate.rs`** — zero tax, qty **1**, positive **`unit_price`** for **`rms_charge_payment`** lines.
-- **`server/src/logic/pos_rms_charge.rs`** — **`insert_rms_record`** (kind + method); **`notify_sales_support_after_checkout`** for **charge** notifications after commit.
+- **`server/src/logic/pos_rms_charge.rs`** — metadata normalization, **`insert_rms_record`**, receipt wording helpers, and **`notify_sales_support_after_checkout`** for **charge** notifications after commit.
+- **`server/src/logic/corecard/`** — server-only CoreCard broker, linked-account CRUD, account resolution, program list, summary fallback/live lookup, redaction helpers.
 - **`server/src/logic/tasks.rs`** — **`create_adhoc_rms_payment_followup_tasks`** after successful **payment** checkout (**`task_instance.assignment_id`** nullable — migration **69**).
 - **`server/src/services/inventory.rs`** — resolves **`pos_line_kind`** for tax/line behavior at checkout.
 
@@ -96,16 +108,22 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 
 ### POS client (payment collection)
 
-- **`client/src/components/pos/Cart.tsx`** — product search keyword **`PAYMENT`** (case-insensitive) injects the seeded line via **`GET /api/pos/rms-payment-line-meta`**; **Price** numpad sets amount (**`price_override_reason`**: **`rms_charge_payment`**); **no tax** on the line; **Customers → RMS charge** is documented for admins, not a separate POS screen.
+- **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — one financing button: **RMS Charge**. After selection, POS requires an active customer, calls **`POST /api/pos/rms-charge/resolve-account`**, displays masked account choices/summary, loads **`GET /api/pos/rms-charge/programs`**, and persists selected program/account metadata in checkout state.
+- **`client/src/components/pos/Cart.tsx`** — product search keyword **`PAYMENT`** (case-insensitive) still injects the seeded line via **`GET /api/pos/rms-payment-line-meta`**; **Price** numpad sets amount (**`price_override_reason`**: **`rms_charge_payment`**); **no tax** on the line.
 - Customer-facing receipts for this transaction shape suppress the internal **RMS CHARGE PAYMENT** merchandise line and print the payment summary / totals only.
 - **`client/src/components/pos/NexoCheckoutDrawer.tsx`** — prop **`rmsPaymentCollectionMode`**: only **Cash** and **Check** tender tabs; **`check`** uses payment method **`check`** (map in QBO **Settings → QBO Bridge → Mappings** matrix). Deposit / split-deposit controls are suppressed where inappropriate for RMS payment collection.
+- Phase 2 makes both RMS financed purchases and RMS payment collections live CoreCard host posts. Register success is blocked until the required host post succeeds.
+- Payment collection now resolves the linked account in the drawer before cash/check tenders are added, so host payment posting remains customer/account-driven rather than name-driven.
 
 ### Customers (Back Office) — RMS charge
 
 - **Sidebar:** **Customers** → **RMS charge** (subsection id **`rms-charge`**).
-- **Permission:** **`customers.rms_charge`** (migration **69**; seeded **admin** + **sales_support** — tune via **`docs/STAFF_PERMISSIONS.md`**).
+- **Permissions:** Back Office uses **`customers.rms_charge.view`** / **`customers.rms_charge.manage_links`** (legacy **`customers.rms_charge`** still works). POS financing uses **`pos.rms_charge.use`**, optional **`pos.rms_charge.lookup`**, optional **`pos.rms_charge.history_basic`**, and optional **`pos.rms_charge.payment_collect`** for payment collection tools.
 - **API:** **`GET /api/customers/rms-charge/records`** — query **`from`**, **`to`**, optional **`kind`** (`charge` \| `payment`), **`customer_id`**, search **`q`**, **`limit`** / **`offset`**.
+- **Linked account APIs:** **`POST /api/customers/rms-charge/link-account`**, **`POST /api/customers/rms-charge/unlink-account`**, **`GET /api/customers/rms-charge/customer/{customer_id}/accounts`**.
+- **Live detail APIs:** **`GET /api/customers/rms-charge/accounts/{account_id}/balances`**, **`GET /api/customers/rms-charge/accounts/{account_id}/transactions`**, **`GET /api/customers/rms-charge/records/{record_id}`**.
 - **UI:** **`client/src/components/customers/RmsChargeAdminSection.tsx`**.
+- Phase 3 completes the workspace with overview, accounts, transactions, programs, exceptions, reconciliation, sync health, and retry/resolve actions.
 
 ### POS / register metadata
 
@@ -114,7 +132,10 @@ R2S is an **external** program; ROS does **not** maintain in-store AR for these 
 ### QBO (accounting)
 
 - **Ledger mapping** key **`RMS_R2S_PAYMENT_CLEARING`** — credit-side pass-through for **payment** line totals (day journal excludes those lines from category revenue/COGS/tax and posts the clearing credit — **`server/src/logic/qbo_journal.rs`**). Configure the QBO account in **Settings → QBO Bridge** ledger/expense-style mapping UI (**`client/src/components/settings/QBOMapping.tsx`**).
+- **Ledger mapping** key **`RMS_CHARGE_FINANCING_CLEARING`** — explicit clearing mapping for live RMS Charge financed purchase tenders and their refund/reversal counterparts.
 - **Tender** row **`check`** in the granular mapping matrix (**`client/src/components/qbo/QboMappingMatrix.tsx`**, **`QBO_MATRIX_TENDERS`**) so **check** payments journal like other tenders.
+- RMS payment reversals debit the same **`RMS_R2S_PAYMENT_CLEARING`** account so refund-day journals stay balanced with the cash/check outflow.
+- Phase 3 reconciliation surfaces those clearing expectations inside the RMS Charge workspace so finance staff can triage Riverside/CoreCard/QBO mismatches without leaving the RMS toolset.
 
 ### Reporting (Insights / Metabase)
 

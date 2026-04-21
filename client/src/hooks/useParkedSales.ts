@@ -184,7 +184,7 @@ export function useParkedSales({
 
   const parkSale = useCallback(async (label: string = "Untitled Sale") => {
     if (lines.length === 0) {
-      toast("Cart is empty", "error");
+      toast("Add at least one item before parking this sale.", "error");
       return;
     }
     if (!selectedCustomer) {

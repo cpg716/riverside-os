@@ -41,7 +41,7 @@ Tax is calculated on the `total_price` BEFORE rounding. This ensures that the st
 When a cashier selects the **CASH** tab in the Payment Ledger drawer, the system automatically:
 1. Calculates the `roundingAdjustment` based on the remaining balance.
 2. Displays a **Rounding Adjustment** line (e.g., `Rounded: -0.02`) in the Balance Due footer.
-3. Updates the **Pay Full Balance** shortcut to load the rounded amount onto the keypad.
+3. Updates the **Pay Balance** shortcut to load the rounded amount onto the keypad.
 
 ### Split Payments
 If a customer pays $50 with a Credit Card and the remaining $10.02 with Cash:
