@@ -40,7 +40,7 @@ pub fn mask_account_identifier(value: &str) -> String {
     if last4.is_empty() {
         "Unavailable".to_string()
     } else {
-        format!("••••{}", last4)
+        format!("••••{last4}")
     }
 }
 

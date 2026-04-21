@@ -278,8 +278,7 @@ fn validate_create_product_payload(
         }
         if variant.stock_on_hand.unwrap_or(0) < 0 {
             return Err(ProductError::InvalidPayload(format!(
-                "variant {} stock_on_hand must be non-negative",
-                trimmed_sku
+                "variant {trimmed_sku} stock_on_hand must be non-negative"
             )));
         }
         if variant
@@ -287,8 +286,7 @@ fn validate_create_product_payload(
             .is_some_and(|price| price < Decimal::ZERO)
         {
             return Err(ProductError::InvalidPayload(format!(
-                "variant {} retail_price_override must be non-negative",
-                trimmed_sku
+                "variant {trimmed_sku} retail_price_override must be non-negative"
             )));
         }
         if variant
@@ -296,8 +294,7 @@ fn validate_create_product_payload(
             .is_some_and(|cost| cost < Decimal::ZERO)
         {
             return Err(ProductError::InvalidPayload(format!(
-                "variant {} cost_override must be non-negative",
-                trimmed_sku
+                "variant {trimmed_sku} cost_override must be non-negative"
             )));
         }
         validate_variant_shape(&variation_axes, variant)?;

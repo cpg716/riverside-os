@@ -346,26 +346,30 @@ async fn create_seed_customer(
     })
 }
 
+struct LinkedAccountSeed<'a> {
+    corecredit_customer_id: &'a str,
+    corecredit_account_id: &'a str,
+    status: &'a str,
+    is_primary: bool,
+    program_group: Option<&'a str>,
+}
+
 async fn add_linked_account(
     state: &AppState,
     staff_id: Uuid,
     customer_id: Uuid,
-    corecredit_customer_id: &str,
-    corecredit_account_id: &str,
-    status: &str,
-    is_primary: bool,
-    program_group: Option<&str>,
+    seed: LinkedAccountSeed<'_>,
 ) -> Result<(), TestSupportError> {
     corecard::link_customer_account(
         &state.db,
         &LinkCustomerCoreCreditAccountRequest {
             customer_id,
-            corecredit_customer_id: corecredit_customer_id.to_string(),
-            corecredit_account_id: corecredit_account_id.to_string(),
+            corecredit_customer_id: seed.corecredit_customer_id.to_string(),
+            corecredit_account_id: seed.corecredit_account_id.to_string(),
             corecredit_card_id: None,
-            status: Some(status.to_string()),
-            is_primary,
-            program_group: program_group.map(str::to_string),
+            status: Some(seed.status.to_string()),
+            is_primary: seed.is_primary,
+            program_group: seed.program_group.map(str::to_string),
             verification_source: Some("e2e_fixture".to_string()),
             notes: Some("E2E deterministic fixture".to_string()),
         },
@@ -392,11 +396,13 @@ async fn post_seed_fixture(
                 &state,
                 staff.id,
                 customer.id,
-                "CC-CUST-SINGLE",
-                "CC-E2E-STANDARD",
-                "active",
-                true,
-                Some("standard"),
+                LinkedAccountSeed {
+                    corecredit_customer_id: "CC-CUST-SINGLE",
+                    corecredit_account_id: "CC-E2E-STANDARD",
+                    status: "active",
+                    is_primary: true,
+                    program_group: Some("standard"),
+                },
             )
             .await?;
         }
@@ -405,22 +411,26 @@ async fn post_seed_fixture(
                 &state,
                 staff.id,
                 customer.id,
-                "CC-CUST-MULTI",
-                "CC-E2E-MULTI-A",
-                "active",
-                true,
-                Some("standard"),
+                LinkedAccountSeed {
+                    corecredit_customer_id: "CC-CUST-MULTI",
+                    corecredit_account_id: "CC-E2E-MULTI-A",
+                    status: "active",
+                    is_primary: true,
+                    program_group: Some("standard"),
+                },
             )
             .await?;
             add_linked_account(
                 &state,
                 staff.id,
                 customer.id,
-                "CC-CUST-MULTI",
-                "CC-E2E-MULTI-B",
-                "active",
-                false,
-                Some("promo90"),
+                LinkedAccountSeed {
+                    corecredit_customer_id: "CC-CUST-MULTI",
+                    corecredit_account_id: "CC-E2E-MULTI-B",
+                    status: "active",
+                    is_primary: false,
+                    program_group: Some("promo90"),
+                },
             )
             .await?;
         }
@@ -430,11 +440,13 @@ async fn post_seed_fixture(
                 &state,
                 staff.id,
                 customer.id,
-                "CC-CUST-STANDARD",
-                "CC-E2E-STANDARD-ONLY",
-                "active",
-                true,
-                Some("standard"),
+                LinkedAccountSeed {
+                    corecredit_customer_id: "CC-CUST-STANDARD",
+                    corecredit_account_id: "CC-E2E-STANDARD-ONLY",
+                    status: "active",
+                    is_primary: true,
+                    program_group: Some("standard"),
+                },
             )
             .await?;
         }
@@ -443,11 +455,13 @@ async fn post_seed_fixture(
                 &state,
                 staff.id,
                 customer.id,
-                "CC-CUST-RMS90",
-                "CC-E2E-RMS90",
-                "active",
-                true,
-                Some("promo90"),
+                LinkedAccountSeed {
+                    corecredit_customer_id: "CC-CUST-RMS90",
+                    corecredit_account_id: "CC-E2E-RMS90",
+                    status: "active",
+                    is_primary: true,
+                    program_group: Some("promo90"),
+                },
             )
             .await?;
         }
@@ -456,11 +470,13 @@ async fn post_seed_fixture(
                 &state,
                 staff.id,
                 customer.id,
-                "CC-CUST-RESTRICTED",
-                "CC-E2E-RESTRICTED",
-                "restricted",
-                true,
-                Some("standard"),
+                LinkedAccountSeed {
+                    corecredit_customer_id: "CC-CUST-RESTRICTED",
+                    corecredit_account_id: "CC-E2E-RESTRICTED",
+                    status: "restricted",
+                    is_primary: true,
+                    program_group: Some("standard"),
+                },
             )
             .await?;
         }

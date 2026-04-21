@@ -37,8 +37,15 @@ jobs:
       RIVERSIDE_HTTP_BIND: 127.0.0.1:3000
       E2E_BASE_URL: http://127.0.0.1:3000
       E2E_API_BASE: http://127.0.0.1:3000
+      E2E_CORECARD_BASE: http://127.0.0.1:43400
       E2E_BO_STAFF_NAME: Chris G
       ROS_QUARANTINE_UNSTABLE_POS_E2E: "1"
+      RIVERSIDE_CORECARD_BASE_URL: http://127.0.0.1:43400
+      RIVERSIDE_CORECARD_CLIENT_ID: e2e-corecard-client
+      RIVERSIDE_CORECARD_CLIENT_SECRET: e2e-corecard-secret
+      RIVERSIDE_CORECARD_REGION: us
+      RIVERSIDE_CORECARD_ENVIRONMENT: e2e
+      RIVERSIDE_CORECARD_WEBHOOK_SECRET: e2e-corecard-webhook
 
     steps:
       - uses: actions/checkout@v4
@@ -51,6 +58,9 @@ jobs:
 
       - name: Seed E2E non-Admin staff (margin-pivot 403)
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_non_admin_staff.sql
+
+      - name: Seed RMS E2E staff permissions
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_e2e_rms_staff.sql
 
       - name: Seed default admin staff for E2E
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_staff_register_test.sql
@@ -82,10 +92,32 @@ jobs:
       - name: Build client (SPA for Axum static fallback)
         run: cd client && npm run build
 
+      - name: Start fake CoreCard host
+        run: |
+          nohup env E2E_CORECARD_PORT=43400 \
+            node scripts/fake-corecard-server.mjs > /tmp/fake-corecard.log 2>&1 &
+          echo $! > /tmp/fake-corecard.pid
+          for i in $(seq 1 30); do
+            if curl -sf "http://127.0.0.1:43400/__admin/calls" >/dev/null; then
+              echo "Fake CoreCard host is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "--- fake corecard log ---"
+          cat /tmp/fake-corecard.log
+          exit 1
+
       - name: Start API server
         run: |
           cd server
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
+            RIVERSIDE_CORECARD_BASE_URL="$RIVERSIDE_CORECARD_BASE_URL" \
+            RIVERSIDE_CORECARD_CLIENT_ID="$RIVERSIDE_CORECARD_CLIENT_ID" \
+            RIVERSIDE_CORECARD_CLIENT_SECRET="$RIVERSIDE_CORECARD_CLIENT_SECRET" \
+            RIVERSIDE_CORECARD_REGION="$RIVERSIDE_CORECARD_REGION" \
+            RIVERSIDE_CORECARD_ENVIRONMENT="$RIVERSIDE_CORECARD_ENVIRONMENT" \
+            RIVERSIDE_CORECARD_WEBHOOK_SECRET="$RIVERSIDE_CORECARD_WEBHOOK_SECRET" \
             ./target/debug/riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
           for i in $(seq 1 90); do
@@ -134,4 +166,7 @@ jobs:
         run: |
           if [[ -f /tmp/ros-server.pid ]]; then
             kill "$(cat /tmp/ros-server.pid)" 2>/dev/null || true
+          fi
+          if [[ -f /tmp/fake-corecard.pid ]]; then
+            kill "$(cat /tmp/fake-corecard.pid)" 2>/dev/null || true
           fi

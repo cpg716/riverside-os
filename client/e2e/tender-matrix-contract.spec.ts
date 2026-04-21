@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { checkoutRmsPaymentCollection, seedRmsFixture } from "./helpers/rmsCharge";
 
 /**
  * Deterministic tender-matrix contract suite.
@@ -42,21 +43,6 @@ type SessionListRow = {
 type SessionOpenResponse = {
   session_id: string;
   pos_api_token?: string | null;
-};
-
-type VerifyCashierResponse = {
-  staff_id: string;
-};
-
-type RmsPaymentLineMeta = {
-  product_id: string;
-  variant_id: string;
-  sku: string;
-  name: string;
-};
-
-type CustomerProfileRow = {
-  id: string;
 };
 
 type CheckoutResponse = {
@@ -179,74 +165,6 @@ async function ensureSessionAuth(
     sessionId,
     sessionToken: tokenBody.pos_api_token ?? "",
   };
-}
-
-async function verifyAdminStaffId(
-  request: Parameters<typeof test>[0]["request"],
-): Promise<string> {
-  const res = await request.post(`${apiBase()}/api/staff/verify-cashier-code`, {
-    headers: { "Content-Type": "application/json" },
-    data: {
-      cashier_code: e2eAdminCode(),
-      pin: e2eAdminCode(),
-    },
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-  const body = (await res.json()) as VerifyCashierResponse;
-  expect(body.staff_id).toBeTruthy();
-  return body.staff_id;
-}
-
-async function fetchRmsPaymentMeta(
-  request: Parameters<typeof test>[0]["request"],
-): Promise<RmsPaymentLineMeta> {
-  const res = await request.get(`${apiBase()}/api/pos/rms-payment-line-meta`, {
-    headers: adminHeaders(),
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-  const body = (await res.json()) as RmsPaymentLineMeta | null;
-  expect(body?.product_id).toBeTruthy();
-  expect(body?.variant_id).toBeTruthy();
-  return body as RmsPaymentLineMeta;
-}
-
-async function createDeterministicCustomer(
-  request: Parameters<typeof test>[0]["request"],
-): Promise<CustomerProfileRow> {
-  const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
-  const res = await request.post(`${apiBase()}/api/customers`, {
-    headers: {
-      ...adminHeaders(),
-      "Content-Type": "application/json",
-    },
-    data: {
-      first_name: "E2E RMS",
-      last_name: `Customer ${suffix}`,
-      email: null,
-      phone: null,
-      company_name: null,
-      address_line1: null,
-      address_line2: null,
-      city: null,
-      state: null,
-      postal_code: null,
-      date_of_birth: null,
-      anniversary_date: null,
-      custom_field_1: null,
-      custom_field_2: null,
-      custom_field_3: null,
-      custom_field_4: null,
-      marketing_email_opt_in: false,
-      marketing_sms_opt_in: false,
-      transactional_sms_opt_in: false,
-      transactional_email_opt_in: false,
-    },
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-  return (await res.json()) as CustomerProfileRow;
 }
 
 test.describe("Tender matrix payment-intent contract", () => {
@@ -440,9 +358,7 @@ test.describe("Tender matrix payment-intent contract", () => {
     request,
   }) => {
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
-    const staffId = await verifyAdminStaffId(request);
-    const customer = await createDeterministicCustomer(request);
-    const rmsMeta = await fetchRmsPaymentMeta(request);
+    const fixture = await seedRmsFixture(request, "single_valid", "Tender Matrix");
     const today = new Date().toISOString().split("T")[0];
 
     const beforePivotRes = await request.get(
@@ -457,39 +373,13 @@ test.describe("Tender matrix payment-intent contract", () => {
       rows?: Array<{ customer_id?: string | null }>;
     };
     expect(
-      (beforePivot.rows ?? []).some((row) => row.customer_id === customer.id),
+      (beforePivot.rows ?? []).some((row) => row.customer_id === fixture.customer.id),
     ).toBeFalsy();
 
-    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
-      headers: {
-        "Content-Type": "application/json",
-        "x-riverside-pos-session-id": sessionId,
-        "x-riverside-pos-session-token": sessionToken,
-      },
-      data: {
-        session_id: sessionId,
-        operator_staff_id: staffId,
-        primary_salesperson_id: staffId,
-        customer_id: customer.id,
-        payment_method: "cash",
-        total_price: "50.00",
-        amount_paid: "50.00",
-        items: [
-          {
-            product_id: rmsMeta.product_id,
-            variant_id: rmsMeta.variant_id,
-            fulfillment: "takeaway",
-            quantity: 1,
-            unit_price: "50.00",
-            unit_cost: "0.00",
-            state_tax: "0.00",
-            local_tax: "0.00",
-            salesperson_id: staffId,
-          },
-        ],
-      },
-      failOnStatusCode: false,
-    });
+    const { response: checkoutRes } = await checkoutRmsPaymentCollection(
+      request,
+      fixture,
+    );
     expect(checkoutRes.status()).toBe(200);
     const checkout = (await checkoutRes.json()) as CheckoutResponse;
     expect(checkout.transaction_id).toBeTruthy();
@@ -527,7 +417,7 @@ test.describe("Tender matrix payment-intent contract", () => {
     expect(receipt).toContain("Cash");
 
     const rmsRecordsRes = await request.get(
-      `${apiBase()}/api/customers/rms-charge/records?kind=payment&customer_id=${encodeURIComponent(customer.id)}&from=${today}&to=${today}`,
+      `${apiBase()}/api/customers/rms-charge/records?kind=payment&customer_id=${encodeURIComponent(fixture.customer.id)}&from=${today}&to=${today}`,
       {
         headers: adminHeaders(),
         failOnStatusCode: false,
@@ -559,7 +449,7 @@ test.describe("Tender matrix payment-intent contract", () => {
       rows?: Array<{ customer_id?: string | null }>;
     };
     expect(
-      (afterPivot.rows ?? []).some((row) => row.customer_id === customer.id),
+      (afterPivot.rows ?? []).some((row) => row.customer_id === fixture.customer.id),
     ).toBeFalsy();
   });
 });

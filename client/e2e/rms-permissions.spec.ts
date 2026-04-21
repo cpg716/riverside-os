@@ -11,13 +11,13 @@ test.describe("RMS permissions split", () => {
     await resetOpenRegisterSessions(request);
     const { sessionId, sessionToken } = await ensureSessionAuth(request, "5678");
 
-    await page.goto("/", { waitUntil: "domcontentloaded" });
+    await signInToBackOffice(page, {
+      staffCode: "5678",
+      staffName: "E2E Non-Admin",
+      persistSession: true,
+    });
     await page.evaluate(
       ({ seededSessionId, seededSessionToken }) => {
-        sessionStorage.setItem(
-          "ros.backoffice.session.v1",
-          JSON.stringify({ staffCode: "5678", staffPin: "5678" }),
-        );
         sessionStorage.setItem(
           "ros.posRegisterAuth.v1",
           JSON.stringify({ sessionId: seededSessionId, token: seededSessionToken }),

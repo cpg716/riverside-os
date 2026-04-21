@@ -580,7 +580,7 @@ pub async fn programs_for_account(
 
         if let Ok(response) = response {
             if response.status().is_success() {
-                let body: Value = response.json().await.unwrap_or_else(|_| Value::Null);
+                let body: Value = response.json().await.unwrap_or(Value::Null);
                 log_corecard_payload(config, "inbound", "accounts.programs", &body);
                 if let Ok(parsed) = serde_json::from_value::<CoreCardLiveProgramsResponse>(body) {
                     if !parsed.programs.is_empty() {
@@ -691,7 +691,7 @@ pub async fn account_summary_for_customer(
 
         if let Ok(response) = response {
             if response.status().is_success() {
-                let body: Value = response.json().await.unwrap_or_else(|_| Value::Null);
+                let body: Value = response.json().await.unwrap_or(Value::Null);
                 log_corecard_payload(config, "inbound", "accounts.summary", &body);
                 if let Ok(parsed) = serde_json::from_value::<CoreCardLiveSummaryResponse>(body) {
                     if let Some(masked) = parsed.masked_account {
@@ -796,7 +796,7 @@ pub async fn account_transactions_for_customer(
 
         if let Ok(response) = response {
             if response.status().is_success() {
-                let body: Value = response.json().await.unwrap_or_else(|_| Value::Null);
+                let body: Value = response.json().await.unwrap_or(Value::Null);
                 log_corecard_payload(config, "inbound", "accounts.transactions", &body);
                 if let Some(rows) = body.get("rows").and_then(Value::as_array) {
                     let mapped = rows

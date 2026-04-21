@@ -27,7 +27,7 @@ pub async fn start_unified_server(
         return Ok("Server already running".to_string());
     }
 
-    let bind_addr = format!("0.0.0.0:{}", port);
+    let bind_addr = format!("0.0.0.0:{port}");
 
     // In Tauri mode, we don't serve the frontend dist because Tauri itself is the frontend.
     // However, for other registers (iPad/PWA) to work, the server MUST serve the static files.
@@ -48,7 +48,7 @@ pub async fn start_unified_server(
 
     tokio::spawn(async move {
         if let Err(e) = launch_server(config, server_log_ring).await {
-            log::error!("Unified Server failed: {}", e);
+            log::error!("Unified Server failed: {e}");
         }
     });
 
