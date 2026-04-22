@@ -739,10 +739,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "pos-sidebar",
-    title: "Pos Sidebar (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/PosSidebar.tsx — replace with staff-facing help.",
+    title: "POS Sidebar",
+    summary: "Use the POS rail to move between register-native workflows like Register, Customers, RMS Charge, Shipping, and Layaways without inheriting the broader Back Office subsection tree.",
     markdown: manual_82_raw,
-    tags: ["pos-sidebar","component","auto-scaffold"],
+    tags: ["pos-sidebar","pos","navigation","register"],
   },
   {
     id: "pos-suit-swap-wizard",

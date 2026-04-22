@@ -1161,6 +1161,7 @@ function AppShell({
       (activeTab === "register" ||
         activeTab === "pos-dashboard" ||
         activeTab === "tasks" ||
+        activeTab === "rms-charge" ||
         activeTab === "shipping" ||
         activeTab === "layaways")
     ) {

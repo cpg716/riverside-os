@@ -2,7 +2,7 @@
 
 **Audience:** POS staff and managers
 
-**Where in ROS:** POS → `Register`, plus the slim RMS Charge workspace for permitted staff
+**Where in ROS:** POS → `Register` for RMS Charge tendering, plus POS → `RMS Charge` for the slim RMS Charge workspace for permitted staff
 
 ## When to use RMS Charge
 

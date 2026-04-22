@@ -158,12 +158,17 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 | Dashboard | [pos-dashboard.md](pos-dashboard.md) |
 | Register | [pos-register-cart.md](pos-register-cart.md) |
 | Tasks | [pos-tasks.md](pos-tasks.md) |
+| Customers | [customers-back-office.md](customers-back-office.md) (POS uses only **All**, **Add**, and **Duplicate Review**) |
+| RMS Charge | [pos-rms-charge.md](pos-rms-charge.md) |
 | Weddings | [pos-weddings.md](pos-weddings.md) |
 | Alterations (shown only with **alterations.manage**) | [pos-alterations.md](pos-alterations.md) |
 | Inventory | [pos-inventory.md](pos-inventory.md) |
+| Orders | [pos-orders.md](pos-orders.md) |
 | Reports | [pos-reports.md](pos-reports.md) |
 | Gift Cards | [pos-gift-cards.md](pos-gift-cards.md) |
 | Loyalty | [pos-loyalty.md](pos-loyalty.md) |
+| Layaways | [pos-layaways.md](pos-layaways.md) |
+| Shipping | [pos-shipping.md](pos-shipping.md) |
 | Settings | [pos-settings.md](pos-settings.md) |
 
 ---

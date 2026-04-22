@@ -1,6 +1,10 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useTopBar } from "../../context/TopBarContextLogic";
-import PosSidebar, { type PosTabId } from "../pos/PosSidebar";
+import PosSidebar from "../pos/PosSidebar";
+import {
+  POS_SIDEBAR_SUB_SECTIONS,
+  type PosTabId,
+} from "../pos/posSidebarSections";
 import Cart from "../pos/Cart";
 import CloseRegisterModal from "../pos/CloseRegisterModal";
 import RegisterShiftHandoffModal from "../pos/RegisterShiftHandoffModal";
@@ -22,7 +26,7 @@ const AlterationsWorkspace = lazy(() => import("../alterations/AlterationsWorksp
 const WeddingManagerApp = lazy(() => import("../wedding-manager/WeddingManagerApp"));
 import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
-import { SIDEBAR_SUB_SECTIONS, type SidebarTabId } from "./sidebarSections";
+import type { SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { LogOut, ShieldCheck, ShieldAlert, ShoppingCart } from "lucide-react";
 
@@ -157,7 +161,7 @@ export default function PosShell({
       onTabChange(nextTab);
     }
 
-    const subSections = SIDEBAR_SUB_SECTIONS[nextTab] ?? [];
+    const subSections = POS_SIDEBAR_SUB_SECTIONS[activePosTab] ?? [];
     const defaultSubSection = subSections[0]?.id;
     if (defaultSubSection && activeSubSection !== defaultSubSection) {
       onSubSectionChange(defaultSubSection);
@@ -305,6 +309,34 @@ export default function PosShell({
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Customers...</div>}>
                 <CustomersWorkspace
                   activeSection={activeSubSection || "all"}
+                  surface="pos"
+                  onOpenWeddingParty={(id) => {
+                    setActivePosTab("weddings");
+                    onOpenWeddingParty?.(id);
+                  }}
+                  onStartSaleInPos={(customer) => {
+                    clearPendingPosOrder();
+                    setPendingPosCustomer(customer);
+                    setActivePosTab("register");
+                  }}
+                  onNavigateRegister={() => setActivePosTab("register")}
+                  onAddToWedding={() => setActivePosTab("weddings")}
+                  onBookAppointment={() => setActivePosTab("tasks")}
+                  onOpenTransactionInBackoffice={(orderId) => {
+                    setPendingPosTransactionId(orderId);
+                    clearPendingPosCustomer();
+                    setActivePosTab("register");
+                  }}
+                />
+              </Suspense>
+            </div>
+          )}
+
+          {activePosTab === "rms-charge" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing RMS Charge...</div>}>
+                <CustomersWorkspace
+                  activeSection="rms-charge"
                   surface="pos"
                   onOpenWeddingParty={(id) => {
                     setActivePosTab("weddings");

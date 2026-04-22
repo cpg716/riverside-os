@@ -20,23 +20,8 @@ import {
 import SidebarRailTooltip from "../ui/SidebarRailTooltip";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { subSectionVisible } from "../../context/BackofficeAuthPermissions";
-import { SIDEBAR_SUB_SECTIONS, SidebarTabId } from "../layout/sidebarSections";
-
-export type PosTabId =
-  | "pos-dashboard"
-  | "register"
-  | "tasks"
-  | "customers"
-  | "inventory"
-  | "orders"
-  | "weddings"
-  | "alterations"
-  | "reports"
-  | "gift-cards"
-  | "loyalty"
-  | "layaways"
-  | "shipping"
-  | "settings";
+import { SidebarTabId } from "../layout/sidebarSections";
+import { POS_SIDEBAR_SUB_SECTIONS, type PosTabId } from "./posSidebarSections";
 
 interface PosSidebarProps {
   activeTab: PosTabId;
@@ -69,6 +54,7 @@ export default function PosSidebar({
       { id: "register", label: "Register", icon: ShoppingCart },
       { id: "tasks", label: "Tasks", icon: ListChecks },
       { id: "customers", label: "Customers", icon: Users },
+      { id: "rms-charge", label: "RMS Charge", icon: Package },
     ];
 
     // Mirroring Back Office permission gate logic for POS rails
@@ -137,10 +123,7 @@ export default function PosSidebar({
           {tabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
-            let subItems = SIDEBAR_SUB_SECTIONS[tab.id as keyof typeof SIDEBAR_SUB_SECTIONS] || [];
-            if (tab.id === "settings") {
-              subItems = subItems.filter(s => s.id === "profile" || s.id === "printing");
-            }
+            const subItems = POS_SIDEBAR_SUB_SECTIONS[tab.id] ?? [];
 
 
             return (

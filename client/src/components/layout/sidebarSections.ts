@@ -4,6 +4,7 @@ export type SidebarTabId =
   | "home"
   | "register"
   | "customers"
+  | "rms-charge"
   | "alterations"
   | "orders"
   | "inventory"
@@ -45,6 +46,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "rms-charge", label: "RMS Charge" },
     { id: "duplicate-review", label: "Duplicate Review" },
   ],
+  "rms-charge": [],
   alterations: [
     { id: "queue", label: "Queue" },
   ],
