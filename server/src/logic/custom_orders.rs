@@ -93,8 +93,7 @@ pub fn canonical_custom_order_details(
     let custom_notes = clean_text(object.get("custom_notes").and_then(Value::as_str));
     let hsm_garment_type = clean_text(object.get("hsm_garment_type").and_then(Value::as_str));
     let hsm_model_code = clean_text(object.get("hsm_model_code").and_then(Value::as_str));
-    let hsm_trim_reference =
-        clean_text(object.get("hsm_trim_reference").and_then(Value::as_str));
+    let hsm_trim_reference = clean_text(object.get("hsm_trim_reference").and_then(Value::as_str));
     let hsm_coat_size = clean_text(object.get("hsm_coat_size").and_then(Value::as_str));
     let hsm_pant_size = clean_text(object.get("hsm_pant_size").and_then(Value::as_str));
     let hsm_vest_size = clean_text(object.get("hsm_vest_size").and_then(Value::as_str));
@@ -106,16 +105,14 @@ pub fn canonical_custom_order_details(
     let hsm_right_out = clean_text(object.get("hsm_right_out").and_then(Value::as_str));
     let hsm_vent_style = clean_text(object.get("hsm_vent_style").and_then(Value::as_str));
     let hsm_lapel_style = clean_text(object.get("hsm_lapel_style").and_then(Value::as_str));
-    let hsm_button_stance =
-        clean_text(object.get("hsm_button_stance").and_then(Value::as_str));
+    let hsm_button_stance = clean_text(object.get("hsm_button_stance").and_then(Value::as_str));
     let hsm_fabric_reservation_number = clean_text(
         object
             .get("hsm_fabric_reservation_number")
             .and_then(Value::as_str),
     );
     let shirt_fit_notes = clean_text(object.get("shirt_fit_notes").and_then(Value::as_str));
-    let shirt_collar_style =
-        clean_text(object.get("shirt_collar_style").and_then(Value::as_str));
+    let shirt_collar_style = clean_text(object.get("shirt_collar_style").and_then(Value::as_str));
     let shirt_cuff_style = clean_text(object.get("shirt_cuff_style").and_then(Value::as_str));
     let shirt_previous_order_number = clean_text(
         object
@@ -137,25 +134,16 @@ pub fn canonical_custom_order_details(
             .get("shirt_left_sleeve_length")
             .and_then(Value::as_str),
     );
-    let shirt_right_cuff_size = clean_text(
-        object
-            .get("shirt_right_cuff_size")
-            .and_then(Value::as_str),
-    );
-    let shirt_left_cuff_size = clean_text(
-        object
-            .get("shirt_left_cuff_size")
-            .and_then(Value::as_str),
-    );
-    let shirt_shoulder_line =
-        clean_text(object.get("shirt_shoulder_line").and_then(Value::as_str));
+    let shirt_right_cuff_size =
+        clean_text(object.get("shirt_right_cuff_size").and_then(Value::as_str));
+    let shirt_left_cuff_size =
+        clean_text(object.get("shirt_left_cuff_size").and_then(Value::as_str));
+    let shirt_shoulder_line = clean_text(object.get("shirt_shoulder_line").and_then(Value::as_str));
     let shirt_front_style = clean_text(object.get("shirt_front_style").and_then(Value::as_str));
     let shirt_back_style = clean_text(object.get("shirt_back_style").and_then(Value::as_str));
     let shirt_tail_style = clean_text(object.get("shirt_tail_style").and_then(Value::as_str));
-    let shirt_button_choice =
-        clean_text(object.get("shirt_button_choice").and_then(Value::as_str));
-    let shirt_pocket_style =
-        clean_text(object.get("shirt_pocket_style").and_then(Value::as_str));
+    let shirt_button_choice = clean_text(object.get("shirt_button_choice").and_then(Value::as_str));
+    let shirt_pocket_style = clean_text(object.get("shirt_pocket_style").and_then(Value::as_str));
 
     let mut payload = json!({
         "subtype_key": subtype.subtype_key,
@@ -269,10 +257,7 @@ pub fn canonical_custom_order_details(
                 );
             }
             if let Some(value) = shirt_left_sleeve_length {
-                map.insert(
-                    "shirt_left_sleeve_length".to_string(),
-                    Value::String(value),
-                );
+                map.insert("shirt_left_sleeve_length".to_string(), Value::String(value));
             }
             if let Some(value) = shirt_right_cuff_size {
                 map.insert("shirt_right_cuff_size".to_string(), Value::String(value));
@@ -315,7 +300,10 @@ mod tests {
     #[test]
     fn known_custom_skus_resolve_to_canonical_item_types() {
         assert_eq!(known_custom_item_type_for_sku("100"), Some("HSM Suit"));
-        assert_eq!(known_custom_item_type_for_sku("105"), Some("HSM Sport Coat"));
+        assert_eq!(
+            known_custom_item_type_for_sku("105"),
+            Some("HSM Sport Coat")
+        );
         assert_eq!(known_custom_item_type_for_sku("110"), Some("HSM Slacks"));
         assert_eq!(
             known_custom_item_type_for_sku("200"),

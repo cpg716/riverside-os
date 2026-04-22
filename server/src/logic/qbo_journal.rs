@@ -1028,8 +1028,10 @@ pub async fn propose_daily_journal(
             .category_id
             .map(|u| u.to_string())
             .unwrap_or_else(|| "_uncategorized".to_string());
-        let custom_mapping_key =
-            row.custom_item_type.as_deref().and_then(normalize_custom_item_type_key);
+        let custom_mapping_key = row
+            .custom_item_type
+            .as_deref()
+            .and_then(normalize_custom_item_type_key);
         let source_label = row
             .custom_item_type
             .as_deref()
@@ -1061,15 +1063,13 @@ pub async fn propose_daily_journal(
             let mapped = if let Some(custom_key) = custom_mapping_key {
                 qbo_map_with_misc_fallback(pool, "custom_revenue", custom_key, None)
                     .await?
-                    .or(
-                        qbo_map_with_misc_fallback(
-                            pool,
-                            "category_revenue",
-                            &cat_label,
-                            Some("REVENUE_CLOTHING"),
-                        )
-                        .await?,
+                    .or(qbo_map_with_misc_fallback(
+                        pool,
+                        "category_revenue",
+                        &cat_label,
+                        Some("REVENUE_CLOTHING"),
                     )
+                    .await?)
             } else {
                 qbo_map_with_misc_fallback(
                     pool,
@@ -1093,10 +1093,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: aname.clone(),
                     debit: Decimal::ZERO,
                     credit: immediate_revenue,
-                    memo: format!(
-                        "Revenue — {}",
-                        source_label
-                    ),
+                    memo: format!("Revenue — {}", source_label),
                     detail: vec![serde_json::json!({
                         "category_id": row.category_id,
                         "custom_item_type": row.custom_item_type.clone(),
@@ -1111,10 +1108,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: aname,
                     debit: Decimal::ZERO,
                     credit: release_credit,
-                    memo: format!(
-                        "Revenue from deposit release — {}",
-                        source_label
-                    ),
+                    memo: format!("Revenue from deposit release — {}", source_label),
                     detail: vec![serde_json::json!({
                         "category_id": row.category_id,
                         "custom_item_type": row.custom_item_type.clone(),
@@ -1128,15 +1122,13 @@ pub async fn propose_daily_journal(
             let inv = if let Some(custom_key) = custom_mapping_key {
                 qbo_map_with_misc_fallback(pool, "custom_inventory", custom_key, None)
                     .await?
-                    .or(
-                        qbo_map_with_misc_fallback(
-                            pool,
-                            "category_inventory",
-                            &cat_label,
-                            Some("INV_ASSET"),
-                        )
-                        .await?,
+                    .or(qbo_map_with_misc_fallback(
+                        pool,
+                        "category_inventory",
+                        &cat_label,
+                        Some("INV_ASSET"),
                     )
+                    .await?)
             } else {
                 qbo_map_with_misc_fallback(
                     pool,
@@ -1149,15 +1141,13 @@ pub async fn propose_daily_journal(
             let cogs_a = if let Some(custom_key) = custom_mapping_key {
                 qbo_map_with_misc_fallback(pool, "custom_cogs", custom_key, None)
                     .await?
-                    .or(
-                        qbo_map_with_misc_fallback(
-                            pool,
-                            "category_cogs",
-                            &cat_label,
-                            Some("COGS_DEFAULT"),
-                        )
-                        .await?,
+                    .or(qbo_map_with_misc_fallback(
+                        pool,
+                        "category_cogs",
+                        &cat_label,
+                        Some("COGS_DEFAULT"),
                     )
+                    .await?)
             } else {
                 qbo_map_with_misc_fallback(pool, "category_cogs", &cat_label, Some("COGS_DEFAULT"))
                     .await?
@@ -1169,10 +1159,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: cogs_nm.clone(),
                     debit: cogs,
                     credit: Decimal::ZERO,
-                    memo: format!(
-                        "COGS — {}",
-                        source_label
-                    ),
+                    memo: format!("COGS — {}", source_label),
                     detail: vec![],
                 });
                 lines.push(JournalLine {
@@ -1180,10 +1167,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: inv_nm,
                     debit: Decimal::ZERO,
                     credit: cogs,
-                    memo: format!(
-                        "Inventory relief — {}",
-                        source_label
-                    ),
+                    memo: format!("Inventory relief — {}", source_label),
                     detail: vec![],
                 });
             } else {

@@ -1889,14 +1889,13 @@ pub async fn execute_checkout(
             item.custom_item_type.as_deref(),
         )
         .await?;
-        let custom_subtype = sqlx::query_scalar::<_, String>(
-            "SELECT sku FROM product_variants WHERE id = $1"
-        )
-        .bind(item.variant_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .as_deref()
-        .and_then(known_custom_subtype_for_sku);
+        let custom_subtype =
+            sqlx::query_scalar::<_, String>("SELECT sku FROM product_variants WHERE id = $1")
+                .bind(item.variant_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .as_deref()
+                .and_then(known_custom_subtype_for_sku);
         if let Some(details) =
             canonical_custom_order_details(custom_subtype, item.custom_order_details.as_ref())
         {
