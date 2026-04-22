@@ -53,7 +53,7 @@ Each file in `docs/staff/` describes **one area** of the app: where to click, wh
 
 ## POS sidebar
 
-Rail order (code): **Dashboard**, **Register**, **Tasks**, **Weddings**, then **Alterations** only if you have **alterations.manage**, then **Inventory**, **Reports**, **Gift Cards**, **Loyalty**, **Settings**. Tap the workspace body below the top bar to collapse an expanded POS sidebar.
+Rail order starts with **Dashboard**, **Register**, **Tasks**, **Customers**, **RMS Charge**, and **Podium Inbox**, then continues into role-based sections like **Weddings**, **Alterations**, **Inventory**, **Reports**, **Gift Cards**, **Loyalty**, **Layaways**, **Shipping**, and **Settings** when your permissions allow them. Tap the workspace body below the top bar to collapse an expanded POS sidebar.
 
 ## Toasts, modals, and errors
 

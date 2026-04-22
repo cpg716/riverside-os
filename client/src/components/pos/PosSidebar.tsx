@@ -4,6 +4,7 @@ import {
   Gift,
   LayoutDashboard,
   ListChecks,
+  MessageSquare,
   Users,
   Settings,
   ShoppingCart,
@@ -59,6 +60,12 @@ export default function PosSidebar({
 
     // Mirroring Back Office permission gate logic for POS rails
     const items: { id: PosTabId; label: string; icon: typeof ShoppingCart; permission?: string; permissionsAny?: string[] }[] = [
+      {
+        id: "podium-inbox",
+        label: "Podium Inbox",
+        icon: MessageSquare,
+        permission: "customers.hub_view",
+      },
       { id: "weddings", label: "Weddings", icon: Heart, permission: "wedding_manager.open" },
       { id: "alterations", label: "Alterations", icon: Scissors, permission: "alterations.manage" },
       { id: "inventory", label: "Inventory", icon: Box }, // catalog.view is usually a baseline for catalog discovery

@@ -14,6 +14,7 @@ import RegisterTasksPanel from "../tasks/RegisterTasksPanel";
 import RegisterDashboard from "../pos/RegisterDashboard";
 import LayawayWorkspace from "../pos/LayawayWorkspace";
 const CustomersWorkspace = lazy(() => import("../customers/CustomersWorkspace"));
+import PodiumMessagingInboxSection from "../customers/PodiumMessagingInboxSection";
 const LoyaltyWorkspace = lazy(() => import("../loyalty/LoyaltyWorkspace"));
 const ShipmentsHubSection = lazy(() => import("../customers/ShipmentsHubSection"));
 const SettingsWorkspace = lazy(() => import("../settings/SettingsWorkspace"));
@@ -130,6 +131,11 @@ export default function PosShell({
   }, [activeTab]);
   const [managerMode, setManagerMode] = useState(false);
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
+  const [posMessagingFocusCustomerId, setPosMessagingFocusCustomerId] =
+    useState<string | null>(null);
+  const [posMessagingFocusHubTab, setPosMessagingFocusHubTab] = useState<
+    string | null
+  >(null);
   const { hasPermission, permissionsLoaded, setStaffCredentials } = useBackofficeAuth();
   const [shiftHandoffOpen, setShiftHandoffOpen] = useState(false);
   useEffect(() => {
@@ -309,6 +315,7 @@ export default function PosShell({
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Customers...</div>}>
                 <CustomersWorkspace
                   activeSection={activeSubSection || "all"}
+                  onNavigateSubSection={onSubSectionChange}
                   surface="pos"
                   onOpenWeddingParty={(id) => {
                     setActivePosTab("weddings");
@@ -326,6 +333,12 @@ export default function PosShell({
                     setPendingPosTransactionId(orderId);
                     clearPendingPosCustomer();
                     setActivePosTab("register");
+                  }}
+                  messagingFocusCustomerId={posMessagingFocusCustomerId}
+                  messagingFocusHubTab={posMessagingFocusHubTab ?? undefined}
+                  onMessagingFocusConsumed={() => {
+                    setPosMessagingFocusCustomerId(null);
+                    setPosMessagingFocusHubTab(null);
                   }}
                 />
               </Suspense>
@@ -357,6 +370,19 @@ export default function PosShell({
                   }}
                 />
               </Suspense>
+            </div>
+          )}
+
+          {activePosTab === "podium-inbox" && (
+            <div className="flex min-h-0 flex-1 flex-col overflow-auto">
+              <PodiumMessagingInboxSection
+                onOpenCustomerHub={(customer) => {
+                  onSubSectionChange("all");
+                  setPosMessagingFocusCustomerId(customer.id);
+                  setPosMessagingFocusHubTab("messages");
+                  setActivePosTab("customers");
+                }}
+              />
             </div>
           )}
 

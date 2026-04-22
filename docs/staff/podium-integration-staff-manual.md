@@ -2,7 +2,7 @@
 
 **Audience:** **All staff** who message customers, complete sales, or watch notifications; **admins** who turn Podium on and edit templates.
 
-**Where in ROS:** **Settings → Integrations → Podium**; **Operations → Podium Inbox**, Relationship Hub **Messages**; **POS** receipt summary; **Operations → Reviews**; **Notification Center** (new SMS/email).
+**Where in ROS:** **Settings → Integrations → Podium**; **Operations → Podium Inbox**; **POS → Podium Inbox**; Relationship Hub **Messages**; **POS** receipt summary; **Operations → Reviews**; **Notification Center** (new SMS/email).
 
 **Related permissions:** If a screen is missing, ask a manager to check **Staff → Team** (role or overrides). Detail: [STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md), [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md).
 
@@ -29,6 +29,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 |---------|---------------------|--------------|
 | **Settings → Integrations → Podium** | Readiness line, toggles, templates, widget box | Admins: turn channels on, edit templates, **Save**; **Connect Podium** when IT says to refresh the token. |
 | **Operations → Podium Inbox** | List of recent threads | Open a row → customer hub; **Refresh** if the list looks stale. |
+| **POS → Podium Inbox** | Same shared thread list inside the POS shell | Open a row → POS Customers with **Messages** focused. |
 | **Customer hub → Messages** | Thread + compose | Read history; send **SMS** or **email** (subject required for email); optional Podium conversation **URL** field for deep links. |
 | **POS → Receipt summary** | Email / text receipt buttons | Send receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
 | **Notification Center** | “New customer SMS” / email rows | Open item → deep link toward **Customers** / **Messages** when configured. |
@@ -73,6 +74,14 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 **Permission:** **`customers.hub_view`**.
 
+### Staff: use the SMS & email inbox list from POS
+
+1. **POS** → **Podium Inbox**.
+2. Review the shared thread list without leaving the register shell.
+3. Open a row to switch into **POS → Customers** with the customer **Messages** tab focused.
+
+**Permission:** **`customers.hub_view`**.
+
 ### Cashier: email or text a receipt after sale
 
 1. Complete checkout until **Receipt summary** appears.
@@ -98,7 +107,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 ## Helping a coworker or customer
 
 - **“Customer says they never got the text.”** Check **profile**: phone number, **operational** / **marketing** SMS flags per store policy; confirm the order actually hit **pickup ready** (or the right trigger). Escalate if templates or Podium toggles are wrong—do not spam resends without manager approval.
-- **“Notification won’t open the right person.”** Ask them to use **Customers → inbox** and search by name or code from the notification text; IT verifies **webhook** configuration if links are consistently wrong.
+- **“Notification won’t open the right person.”** Ask them to use **Podium Inbox** or search the customer by name/code, then open **Messages** manually; IT verifies **webhook** configuration if links are consistently wrong.
 - **Never** paste Podium **secrets**, **refresh tokens**, or **webhook signing keys** into chat or bug reports—only managers/IT handle those on the server.
 
 ---

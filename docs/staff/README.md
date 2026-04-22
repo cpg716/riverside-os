@@ -161,6 +161,7 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 | Tasks | [pos-tasks.md](pos-tasks.md) |
 | Customers | [customers-back-office.md](customers-back-office.md) (POS uses only **All**, **Add**, and **Duplicate Review**) |
 | RMS Charge | [pos-rms-charge.md](pos-rms-charge.md) |
+| Podium Inbox | [podium-integration-staff-manual.md](podium-integration-staff-manual.md) |
 | Weddings | [pos-weddings.md](pos-weddings.md) |
 | Alterations (shown only with **alterations.manage**) | [pos-alterations.md](pos-alterations.md) |
 | Inventory | [pos-inventory.md](pos-inventory.md) |

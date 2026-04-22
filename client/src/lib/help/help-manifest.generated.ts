@@ -271,7 +271,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "customers-podium-messaging-inbox-section",
     title: "Podium Inbox",
-    summary: "Review shared Podium SMS and email threads, then open the full conversation in the Customer Hub.",
+    summary: "Review shared Podium SMS and email threads from Operations or POS, then open the full conversation in the Customer Hub.",
     markdown: manual_15_raw,
     tags: ["customers","podium","messaging","inbox","communications"],
   },
@@ -740,7 +740,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-sidebar",
     title: "POS Sidebar",
-    summary: "Use the POS rail to move between register-native workflows like Register, Customers, RMS Charge, Shipping, and Layaways without inheriting the broader Back Office subsection tree.",
+    summary: "Use the POS rail to move between register-native workflows like Register, Customers, RMS Charge, Podium Inbox, Shipping, and Layaways without inheriting the broader Back Office subsection tree.",
     markdown: manual_82_raw,
     tags: ["pos-sidebar","pos","navigation","register"],
   },

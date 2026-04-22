@@ -20,7 +20,7 @@ Inside POS mode, the left rail **Register** tab is the **live selling screen** (
 2. Tap **Enter POS** / **Return to POS** on the launchpad.
 3. Complete **open till** / keypad flow per SOP. If several terminals can be open, you may **pick a lane** or see **Register #1** vs **#2** options — **#2** only works after **#1** is open (one drawer). **Admin** users: if **#1** is not open yet, the app asks whether **you** open **#1** or **another station** opens it first (**Check again**). With **#1** already open, **admin** defaults to **Register #2** (no opening float) for Back Office–style POS use; you can change the dropdown to **#1** if you are opening the drawer.
 4. Confirm the **profile** shows **till open** / **drawer active** (not **Till closed** / **No Active Session** as appropriate).
-5. You should see the POS rail: **Dashboard**, **Register** (cart), **Tasks**, **Weddings**, etc.
+5. You should see the POS rail starting with **Dashboard**, **Register** (cart), **Tasks**, **Customers**, **RMS Charge**, and **Podium Inbox**, then the rest of your role-based POS sections.
 
 ### Shell behavior
 

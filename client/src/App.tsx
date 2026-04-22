@@ -1061,6 +1061,8 @@ const POS_SHELL_TABS = new Set<SidebarTabId>([
   "register",
   "tasks",
   "customers",
+  "rms-charge",
+  "podium-inbox",
   "inventory",
   "orders",
   "weddings",
@@ -1165,6 +1167,7 @@ function AppShell({
         activeTab === "pos-dashboard" ||
         activeTab === "tasks" ||
         activeTab === "rms-charge" ||
+        activeTab === "podium-inbox" ||
         activeTab === "shipping" ||
         activeTab === "layaways")
     ) {

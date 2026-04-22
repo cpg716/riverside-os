@@ -1,6 +1,6 @@
 # Podium Integration Manual (Riverside OS)
 
-**Audience:** Store admins, cashiers, and anyone using **Customers**, **POS receipts**, or **Operations** workflows that touch Podium.
+**Audience:** Store admins, cashiers, and anyone using **Customers**, **POS Podium Inbox**, **POS receipts**, or **Operations** workflows that touch Podium.
 
 **Quick SOP (step-by-step for staff):** [podium-integration-staff-manual.md](podium-integration-staff-manual.md).
 
@@ -35,6 +35,7 @@ Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside 
 | **Settings → Integrations → Podium** (toggles, templates, widget, OAuth connect, readiness) | **`settings.admin`** |
 | **Settings → General → Review policy** (enable invites, default send/skip) | **`settings.admin`** |
 | **Operations → Podium Inbox** (thread list) | **`customers.hub_view`** |
+| **POS → Podium Inbox** (thread list inside POS shell) | **`customers.hub_view`** |
 | **Customer Relationship Hub → Messages** (read thread) | **`customers.hub_view`** |
 | **Hub → Messages** (send SMS or email reply, save conversation link) | **`customers.hub_edit`** |
 | **Operations → Reviews** (invite/suppress tracking table) | **`reviews.view`** |

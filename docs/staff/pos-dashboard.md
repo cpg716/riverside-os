@@ -2,7 +2,7 @@
 
 **Audience:** Floor staff while a register session is open.
 
-**Where in ROS:** POS mode → left rail **Dashboard** (first item). Full rail order (when **Alterations** is enabled for your role): **Dashboard**, **Register**, **Tasks**, **Weddings**, **Alterations**, **Inventory**, **Reports**, **Gift Cards**, **Loyalty**, **Settings**.
+**Where in ROS:** POS mode → left rail **Dashboard** (first item). The rail starts with **Dashboard**, **Register**, **Tasks**, **Customers**, **RMS Charge**, and **Podium Inbox**, then continues into role-based sections like **Weddings**, **Alterations**, **Inventory**, **Reports**, **Gift Cards**, **Loyalty**, **Layaways**, **Shipping**, and **Settings** when your permissions allow them.
 
 **Related permissions:** **Attributed sales** metrics may appear only for **salesperson** / **sales_support** roles. **Wedding pulse** needs **weddings.view**. **Session tenders / X-report** needs **register.reports**. **Tasks** needs **tasks.complete**. **Notifications** needs **notifications.view**.
 

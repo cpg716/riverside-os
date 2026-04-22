@@ -28,6 +28,12 @@ test("POS navigation uses the narrowed POS-native section contract", async ({ pa
   await expect(
     posNav.getByRole("button", { name: "RMS Charge", exact: true }),
   ).toBeVisible();
+  await expect(
+    posNav.getByRole("button", { name: "Podium Inbox", exact: true }),
+  ).toBeVisible();
+
+  await posNav.getByRole("button", { name: "Podium Inbox", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Podium Inbox", exact: true })).toBeVisible();
 
   await posNav.getByRole("button", { name: "Inventory", exact: true }).click();
   await expect(
