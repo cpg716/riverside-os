@@ -4,6 +4,7 @@ import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
+  seedRmsFixture,
   staffHeaders,
   verifyStaffId,
   type SeedFixtureResponse,
@@ -16,11 +17,6 @@ import {
   receivePurchaseOrder,
   submitPurchaseOrder,
 } from "./helpers/inventoryReceiving";
-
-function setupApiBase(): string {
-  const raw = process.env.E2E_SETUP_API_BASE?.trim() || "http://127.0.0.1:43300";
-  return raw.replace(/\/$/, "");
-}
 
 type CheckoutResponse = {
   transaction_id: string;
@@ -165,19 +161,7 @@ async function seedOrderFixture(
   fixture: string,
   customerLabel: string,
 ): Promise<SeedFixtureResponse> {
-  const res = await request.post(`${setupApiBase()}/api/test-support/rms/seed-fixture`, {
-    headers: {
-      ...staffHeaders(),
-      "Content-Type": "application/json",
-    },
-    data: {
-      fixture,
-      customer_label: customerLabel,
-    },
-    failOnStatusCode: false,
-  });
-  expect(res.status()).toBe(200);
-  return (await res.json()) as SeedFixtureResponse;
+  return seedRmsFixture(request, fixture, customerLabel);
 }
 
 async function checkoutOrder(
