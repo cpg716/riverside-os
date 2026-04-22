@@ -2,7 +2,7 @@
 id: loyalty-workspace
 title: "Loyalty Management Hub"
 order: 1043
-summary: "Manage the monthly reward cycle, customize fulfillment letters, and monitor loyalty program health."
+summary: "Review customers ready for rewards, check loyalty activity history, and print reward-card fulfillment materials."
 source: client/src/components/loyalty/LoyaltyWorkspace.tsx
 last_scanned: 2026-04-11
 tags: loyalty, rewards, fulfillment, analytics
@@ -10,24 +10,35 @@ tags: loyalty, rewards, fulfillment, analytics
 
 # Loyalty Management Hub
 
-The Loyalty Management Hub is a high-density control center for managing Riverside OS’s premium reward cycle. It is designed to track "Elite Pool" eligibility and facilitate professional physical fulfillment.
+The Loyalty Management Hub helps staff see who is ready for a reward, review recent loyalty activity, and handle reward-card fulfillment.
 
-## Executive Summary Strip
+## Top Summary
 
-At the top of the workspace, the **Executive Summary Strip** provides real-time program health metrics:
-- **Points Vault**: Total points liability currently held by all customers.
-- **Elite Pool**: The number of members who have crossed the reward threshold and are awaiting redemption.
-- **Rewards Issued**: Total historical count of reward issuances.
-- **Retention Activity**: Count of manual adjustments performed by staff in the last 30 days.
+At the top of the workspace, the summary cards show:
+- **Points On Accounts**: Total loyalty points currently sitting on customer accounts.
+- **Ready For Reward**: Customers who are at or above the reward threshold.
+- **Reward Cards Issued**: Total number of loyalty reward cards issued.
+- **Recent Adjustments**: Manual loyalty adjustments in the last 30 days.
 
-## Monthly Elite Pool (Registry)
+## Customers Ready For Reward
 
-This is the primary operational grid. It lists all customers who have reached the `loyalty_point_threshold` (e.g., 5,000 pts).
+This is the primary operational list. It shows customers who have reached the `loyalty_point_threshold`.
 
 ### Fulfillment Workflow
-1. **Sync Elite Pool**: Use the "Sync" button to ensure the registry is up to date with the latest accruals.
-2. **Redeem Reward**: Click the **Redeem** button to open the redemption dialog. This will deduct the points and either apply the reward to a sale or load it onto a gift card.
+1. **Refresh Eligible Customers**: Use the refresh button to pull the latest balances.
+2. **Redeem Reward**: Click the **Redeem** button to open the redemption dialog. This deducts the points and issues the full reward to a loyalty gift card.
 3. **Bulk Labels**: Use this action in the header to print standard mailing labels for every member currently in the pool.
+
+## Loyalty Activity
+
+In the **Adjust** section, select a customer to review recent loyalty activity. The activity list explains whether points were:
+- **earned**
+- **removed after a return**
+- **removed after a full refund**
+- **manually adjusted**
+- **deducted when a reward card was issued**
+
+For couple-linked customers, Riverside resolves loyalty to the linked primary account. Staff may open either partner, but the loyalty balance and activity still come from the shared primary loyalty record.
 
 ## Issuance History (Fulfillment Tracking)
 
@@ -47,7 +58,7 @@ You can edit the "Thank You" letter text directly in the **Program Settings** ta
 - `{{card_code}}`: The unique Gift Card code generated during redemption.
 
 #### Fulfillment Workflow
-1. **Redeem**: Points are deducted and a reward (Gift Card or Sale Credit) is issued.
+1. **Redeem**: Points are deducted and the full reward is issued to a loyalty gift card.
 2. **History**: Navigate to the History tab to find the issuance.
 3. **Print**: Click the **Print Letter** icon. Riverside OS merges the template with the member data for a ready-to-mail fulfillment packet.
 
@@ -58,4 +69,3 @@ You can edit the "Thank You" letter text directly in the **Program Settings** ta
 
 > [!IMPORTANT]
 > Printing letters requires a PDF-capable browser. Ensure pop-ups are allowed for `riverside-os` to enable the print preview window.
-

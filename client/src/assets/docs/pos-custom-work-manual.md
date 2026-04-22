@@ -1,27 +1,41 @@
-# Custom Work Orders & Rush Orders
+# Custom Orders & Rush Orders
 
-This manual covers the workflow for handling tailored services and time-sensitive wedding fulfillment in Riverside OS.
+This manual covers Custom garment orders in POS and how to flag them for rush handling.
 
-## 1. Custom Work Orders
-Custom Work Orders are used for services that don't correspond to a specific physical SKU (e.g., tailoring, specialized cleaning, or custom adjustments).
+## 1. Custom Orders
+Custom orders are used for made-to-measure garments that must stay separate from standard Special Orders.
 
-### How to Book:
-1.  **Open the Cart**: In the POS, add a "Custom Item" using the Quick Key or the Search injection.
-2.  **Prompt Entry**: A modal will appear asking for the **Service Type** (e.g., "Suit Taper"), **Price**, and **Need-By Date**.
-3.  **Revenue Recognition**: Custom work is recognized as revenue immediately upon payment, as it represents a service rather than a physical inventory release.
-4.  **Tracking**: Custom items appear in the order history and the staff task list for the designated tailor.
+### How to book
+1. Add one of the Custom garment SKUs to the cart:
+   - `100` HSM Custom Suit
+   - `105` HSM Custom Sport Coat
+   - `110` HSM Custom Slacks
+   - `200` Individualized Custom Shirt
+2. When the **Custom Order** window opens, confirm the garment type and enter:
+   - sale price
+   - need-by date if needed
+   - rush flag if needed
+   - the main vendor-form reference fields for that garment
+3. Add the line to the cart and complete the sale as a fulfillment order.
+4. Track the order in **Orders** under the **Custom** filter.
+
+Important:
+- Sale price is entered at booking.
+- Vendor cost is not entered at booking.
+- Actual vendor cost is entered when the garment is received.
+- ROS now stores the key vendor-form references from HSM and Individualized shirt orders so staff can review them later in the order detail.
+- HSM entries now include the main size anchors, sleeve and out references, and the lapel / vent / button selections from the booking form.
+- Individualized shirt entries now include the main try-on and collar references, sleeve and cuff sizes, shoulder line, and front / back / tail / button / pocket selections.
+- Keep the paper vendor form for any measurements or handwritten notes that are still not captured in ROS.
 
 ## 2. Rush Orders
-Rush Orders are wedding-linked fulfillments that require expedited shipping or prioritized floor handling.
+Rush flags help staff spot Custom or other fulfillment orders that need faster follow-up.
 
-### Identification & Priority:
-*   **Urgency Levels**: In the **Morning Compass**, any wedding party member with a "Rush" flag or a "Need-By Date" within 7 days is automatically tiered as **URGENT**.
-*   **Cart Flagging**: When adding wedding items to the cart, toggle the **RUSH** indicator. This will:
-    *   Inject a priority record into the `rush_orders` ledger.
-    *   Notify the procurement manager to prioritize ordering from the vendor.
-    *   Highlight the order in the **Orders Workspace** with a high-intensity red badge.
+### Identification and priority
+- When booking a Custom order, toggle **Rush** if the garment needs extra attention.
+- The order stays visible with its rush and due-date context so support staff know it needs faster follow-up.
 
-### Operational Procedure:
-1.  Check the **Morning Compass** daily for the "Suggested Next" queue.
-2.  Rush orders will always appear at the top of the "FYI" or "Soon" bands.
-3.  Ensure the customer's **Need-By Date** is clearly communicated and verified against the current vendor lead times.
+### Operational procedure
+1. Review rush orders daily in Orders and related operations views.
+2. Confirm the customer's **Need By Date** against current vendor lead times.
+3. Keep the customer updated if the date changes.

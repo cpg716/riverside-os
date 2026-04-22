@@ -1,45 +1,41 @@
 ---
 id: orders-workspace
-title: "Order Fulfillment Hub"
+title: "Orders Workspace"
 order: 1049
-summary: "Manage regular Orders, Wedding, and Custom orders. Monitor deposits, track pickups, and manage the fulfillment pipeline."
+summary: "Manage Special, Custom, Wedding, and Layaway orders. Review balances, order kind, and fulfillment status."
 source: client/src/components/orders/OrdersWorkspace.tsx
 last_scanned: 2026-04-11
 tags: orders, fulfillment, deposits, tracking
 ---
 
-# Order Fulfillment Hub
+# Orders Workspace
 
-The Order Fulfillment Hub is a high-density primary workstation designed for managing the lifecycle of non-takeaway orders (Regular orders, Wedding parties, and Custom work). 
+The Orders workspace is the main place to review non-takeaway orders.
 
-## Fulfillment Summary Strip
+## What staff can do here
 
-At the top of the hub, the **Fulfillment Summary Strip** provides real-time visibility into your pipeline:
-- **Total Booked**: The total value of all open orders currently in the system.
-- **Deposit Liability**: The amount of cash currently held as deposits for unfulfilled orders.
-- **Ready for Pickup**: Count and value of orders that have arrived and are awaiting customer notification/collection.
-- **Daily Pickups**: Fulfillment velocity for the current business day.
-
-## High-Density Order Grid
-
-The revamped grid maximizes available screen space to allow staff to manage hundreds of open orders simultaneously.
-- **Rapid Identification**: High-contrast typography emphasizes Buyer Names and Order IDs.
-- **Status Badging**: Dynamic badges indicate if an order is `Ready for pickup`, `Partially paid`, or `Awaiting items`.
-- **Financial Details**: Direct visibility into "Amount Paid" vs "Balance Due" for every row.
-- **Inline Actions**: Instant access to "Print Receipt," "Send SMS Update," and "Mark Arrived."
+- Review open or closed orders.
+- Filter by **Order**, **Custom**, **Wedding**, or **Layaway**.
+- Open an order to see items, balances, and available actions.
+- Open an order in POS when staff need to review it from the register or copy its unfulfilled lines into a new sale.
 
 ## Order Lifecycle
 
 1. **Booking**: Orders are typically booked at the Register and appear here immediately.
-2. **Tracking**: Monitor the status of Order items as they arrive from vendors.
-3. **Notification**: Use the inline messaging tools to notify customers via Podium when their order is ready.
-4. **Fulfillment**: The lifecycle completes when the items are physically scanned out and the final balance is collected.
+2. **Tracking**: Use the order kind filter to separate standard Special Orders from Custom and Wedding work.
+3. **Payment and Pickup**: Staff can review deposit activity, amount paid, and balance due. A POS handoff is for review or rebuilding lines in a new sale, not for silently changing the original order record.
+4. **Completion**: The lifecycle ends when the order is fulfilled or otherwise closed.
 
 ## Tips
 
-- **Filtering**: Use the "Quick-Status" buttons to isolate orders that are `Ready for pickup` to batch-process your daily call list.
-- **Color Coding**: Orders with past-due fulfillment dates or negative balances will be highlighted with high-visibility warning borders.
+- **Order** means a standard Special Order.
+- **Custom** means a made-to-measure garment order.
+- **Wedding** means the order is tied to a wedding member or party workflow.
+- For Custom orders, sale price is entered at booking and actual vendor cost is entered when the garment is received.
+- Order detail now shows the main Custom booking references, such as fabric, style, model, size anchors, sleeve or cuff measurements, and vendor reference notes, without replacing the full paper form.
+- Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
+- Wedding order detail should show the linked party, member role, and event date so staff know to keep balances and pickup work in the wedding workflow.
+- A paid wedding balance does not automatically mean the order is ready. Confirm the linked member is actually ready for pickup before release.
+- The lifecycle panel in order detail is the quickest way to tell whether the order is still waiting on measurements, still carrying a deposit balance, fully paid, or already picked up.
 
-> [!TIP]
-> Use the "Print Registry" button in the header to generate a physical paper manifest for end-of-day stockroom audits.
-
+Check the order type before making changes so the right team follows up on it.

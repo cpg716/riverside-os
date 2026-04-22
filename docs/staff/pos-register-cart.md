@@ -39,7 +39,12 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 2. **Single match:** the line may drop in automatically.
 3. **Multiple matches:** a **product / variation picker** opens — select the correct **size / color / style**; wrong selection causes return work later.
 4. **Search suggestions:** keyword matches may list **best‑selling styles first** (recent store sales by product), then alphabetically — so common names like “suit” still surface many **different** products, not only one matrix with many sizes.
-5. **Custom Work Orders (MTM Light):** One of the three primary fulfillment types. To book a custom garment (Suits, Sport Coats, Slacks, or Individualized Shirts), type **`CUSTOM`** in the search field as the SKU. A modal will open to select the **Item Type**, and collect the **Price**, **Need By Date**, and **Rush** status. **Custom items have variable price and cost per order**; cost is typically attributed when the finished garment is received from the vendor. These items are tracked as **Fulfillment Orders**.
+5. **Custom Orders:** One of the three primary fulfillment types. The known Custom garment SKUs automatically book as **Custom** orders:
+   - `100` HSM Custom Suit
+   - `105` HSM Custom Sport Coat
+   - `110` HSM Custom Slacks
+   - `200` Individualized Custom Shirt
+   When one of these SKUs is added, the **Custom Order** window opens so you can confirm the garment type, enter the **Sale Price**, add **Need By Date** or **Rush** details, and capture the main vendor-form references such as fabric, style, model, size anchors, sleeve or cuff measurements, and vendor order numbers. **Vendor cost is not entered at booking**. The actual cost is entered later, when the garment is received. These items stay tracked as **Fulfillment Orders**.
 6. **Wrong size after adding?** Tap the **product name** on the line (not only the SKU chip). If that style has multiple sizes/options, the **variation picker** opens again so you can **swap** the line without removing it; if there is only one SKU, a **review / price** panel may open instead.
 7. **Cart Item Toggles:** Each line in the cart now includes quick toggles for **Gift Wrap** (blue wrapping icon). Tapping this updates the fulfillment requirement immediately.
 8. **Recalling a Transaction:** If a customer has items to pick up or a previous transaction to resume, tap the **Transactions** button next to the customer search bar. This opens the **Transaction Loader**, where you can select specific items from their history to bring into the active cart for direct pickup or further payment.

@@ -1,35 +1,40 @@
 ---
 id: pos-register-gift-card-load-modal
-title: "Register Gift Card Load Modal (pos)"
+title: "Register Gift Card"
 order: 1071
-summary: "Auto-generated stub for client/src/components/pos/RegisterGiftCardLoadModal.tsx — replace with staff-facing help."
+summary: "POS guide for adding a purchased gift card load to the cart."
 source: client/src/components/pos/RegisterGiftCardLoadModal.tsx
-last_scanned: 2026-04-11
-tags: pos-register-gift-card-load-modal, component, auto-scaffold
+last_scanned: 2026-04-21
+tags: pos, gift-cards, register, staff-manual
 ---
 
-# Register Gift Card Load Modal (pos)
+# Register Gift Card
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/RegisterGiftCardLoadModal.tsx`._
-<!-- /help:component-source -->
+Use this register modal when a customer is buying or reloading a **purchased** gift card at the register.
 
-## What this is
+## How it works
 
-Briefly describe what staff use this screen for.
+- The line is added to the cart first.
+- The card is only credited after the full sale is paid.
+- If the sale is canceled or left unpaid, the card does not receive the balance.
+- After checkout, the sale-complete receipt summary shows the loaded card as a masked code so staff can confirm the right card was credited.
 
-## How to use it
+## Steps
 
-1. 
-2. 
+1. Enter the load amount.
+2. Scan or type the gift card code.
+3. Confirm the preview looks correct.
+4. Choose **Add to Cart**.
+5. Finish checkout.
 
-## Tips
+## Important rules
 
-- 
+- Use this modal only for **purchased** gift cards.
+- Do not use it for loyalty or donated cards.
+- A void card cannot be loaded here.
 
-## Screenshots
+## If something looks wrong
 
-Add PNGs under `../images/help/pos-register-gift-card-load-modal/` and embed them, for example:
-
-![Example](../images/help/pos-register-gift-card-load-modal/example.png)
-
+- If the code belongs to a loyalty or donated card, stop and send the issue to Back Office.
+- If the amount is wrong, remove the cart line before checkout.
+- If the sale is not fully paid, the card will not be credited.

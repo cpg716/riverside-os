@@ -34,6 +34,16 @@ POS **Weddings** keeps **party lookup**, **balances**, and **next steps** beside
 2. Read **pipeline** / **pickup** status from screen text only.
 3. If status unclear, **Alterations** or **Orders** may have detail — get lead.
 
+### Wedding orders in shared Orders screens
+
+Wedding orders also appear in the shared **Orders** views.
+
+- They should stay marked as **Wedding**, not a generic Order.
+- The order detail should show the linked **party**, **member role**, and **event date**.
+- Deposits, group pay, and pickup follow-up should stay tied to the linked wedding member record.
+- A fully paid wedding order is not automatically ready for pickup. Staff still need to confirm measurements, receiving, and member readiness before handing anything over.
+- In POS order review, treat a wedding-linked order as a member follow-up step, not a generic open order.
+
 ## Helping a coworker
 
 - **“Party not found.”** — Try **alternate spelling**; check **event year**; verify not **archived**.

@@ -49,6 +49,25 @@ Back Office RMS Charge is organized into:
 - `Exceptions`
 - `Reconciliation`
 
+Important:
+
+- `Overview`, `Accounts`, and account-level RMS detail can follow the selected customer
+- `Reconciliation` remains a global support review tab and is not filtered to only the selected customer
+- if one RMS support section is temporarily unavailable, the other sections can still remain usable
+
+## When to use Customers versus RMS Charge
+
+Use the main `Customers` workspace and the `Customer Relationship Hub` when staff need the broader account picture:
+
+- profile details
+- notes and customer history
+- measurements
+- weddings
+- shipments
+- non-RMS order review
+
+Use `RMS Charge` when the issue is specifically about financing accounts, RMS posting status, exceptions, or reconciliation.
+
 ## Key terms
 
 - `program`

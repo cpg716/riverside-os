@@ -10,7 +10,7 @@
 
 ## How to use these tabs
 
-Use **Gift Cards** for **liability** (inventory of cards, issuance, voids). Use **Loyalty** for **points economics** (who qualifies, manual adjustments, program rules). Cashiers **redeem** both from POS — coordinate with [pos-gift-cards.md](pos-gift-cards.md) and [pos-loyalty.md](pos-loyalty.md).
+Use **Gift Cards** for card lookup, issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, but Riverside now checks the real card type during checkout so purchased, loyalty, and donated cards follow the right accounting path.
 
 ---
 
@@ -18,16 +18,17 @@ Use **Gift Cards** for **liability** (inventory of cards, issuance, voids). Use 
 
 ### Card Inventory
 
-**Purpose:** Find cards, confirm **balance** and **status** (active vs void).
+**Purpose:** Find cards, confirm **balance** and **status** (active vs void), and review recent card activity.
 
 1. **Gift Cards** → **Card Inventory**.
 2. Search by **full code**, **last four**, or customer link if the UI exposes it.
-3. Open a row to read **issue date**, **initial value**, **remaining balance**, and **void** flag.
-4. **Void** only with written SOP — it changes **liability** and may need accounting notice.
+3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**.
+4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**.
+5. **Void** only with written SOP — it changes **liability** and may need accounting notice.
 
 ### Issue Purchased
 
-**Purpose:** Sell a new card after **payment** is collected (or as part of a documented comp workflow).
+**Purpose:** Create a purchased gift card record when store policy allows Back Office issue.
 
 1. **Gift Cards** → **Issue Purchased**.
 2. Enter **amount** / **SKU** / **quantity** per training.
@@ -36,7 +37,7 @@ Use **Gift Cards** for **liability** (inventory of cards, issuance, voids). Use 
 
 ### Issue Donated
 
-**Purpose:** Marketing or charity issuance — usually **manager-only**.
+**Purpose:** Marketing or charity issuance — usually manager-approved.
 
 1. **Gift Cards** → **Issue Donated**.
 2. Complete fields; add **reason** in notes if the form supports it.
@@ -52,7 +53,9 @@ Use **Gift Cards** for **liability** (inventory of cards, issuance, voids). Use 
 
 1. **Loyalty** → **Monthly Eligible** (requires **loyalty.program_settings**).
 2. Scan the list; export only on **secure** machines — **PII** applies.
-3. Run outreach per **program settings** (email/SMS rules and opt-ins).
+3. Use **Redeem** to deduct the points and issue the full reward to a loyalty gift card.
+4. Run outreach per **program settings** (email/SMS rules and opt-ins).
+5. After redeeming, open **History** to confirm the reward card code and print any letter or label the customer needs.
 
 ### Adjust Points
 
@@ -62,6 +65,8 @@ Use **Gift Cards** for **liability** (inventory of cards, issuance, voids). Use 
 2. Search **customer**; confirm **identity** before reading balance aloud.
 3. Enter **delta** (+/-) and **reason** / note.
 4. Save; ask the customer to **re-open** loyalty on POS or their next visit to confirm.
+5. Review **Loyalty Activity** to confirm whether the customer recently earned points, had a reward issued, or lost points after a return or refund.
+6. For couple-linked customers, loyalty follows the primary linked account. Adjustments, reward issuance, and history all resolve to that shared primary loyalty record even if staff opened the partner profile first.
 
 ### Program Settings
 
@@ -75,12 +80,12 @@ Use **Gift Cards** for **liability** (inventory of cards, issuance, voids). Use 
 
 ## POS coordination
 
-If POS says **card not found** but BO shows the card: check **spaces**, **activation** timing, **void** flag, and that the cashier typed the code correctly. If POS **points** look wrong after an adjust: customer may need a **fresh** cart or **re-sign-in** to refresh cached reads.
+If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**.
 
 ## Helping a coworker
 
-- **Gift card at register:** Look up in **Card Inventory** first; read **balance** and **void** status only.
-- **Loyalty dispute:** Open **Adjust Points** history if exposed; do not re-adjust without manager if amounts are large.
+- **Gift card at register:** Look up in **Card Inventory** first; compare **balance**, **status**, and the most recent activity before changing anything.
+- **Loyalty dispute:** Open **Loyalty Activity** first; do not re-adjust without manager approval if the amount is large.
 
 ## Common issues and fixes
 

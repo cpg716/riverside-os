@@ -10,7 +10,7 @@
 
 ## How to use this area
 
-**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** (drawer) holds **Relationship** (marketing pulse, **timeline**, **add note**, weddings list), **Measurements**, **Orders**, and **Profile** tabs. If you **cannot open** the hub, you likely lack **`customers.hub_view`**. If a **tab is missing**, your role may not include **`orders.view`** or **`customers.measurements`**. If you can open the hub but **cannot edit** marketing/VIP/profile fields, you may lack **`customers.hub_edit`**. **Timeline** read/write needs **`customers.timeline`**.
+**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is the customer review drawer for profile details, messages, measurements, orders, shipments, and weddings. If you **cannot open** the hub, you likely lack **`customers.hub_view`**. If a **tab is missing**, your role may not include **`orders.view`**, **`shipments.view`**, or **`customers.measurements`**. If you can open the hub but **cannot edit** marketing/VIP/profile fields, you may lack **`customers.hub_edit`**. **Timeline** read/write needs **`customers.timeline`**.
 
 ## All Customers
 
@@ -19,13 +19,21 @@
 3. Use **Load more** at the bottom for large result sets.
 4. Click a row → **hub** opens.
 
-### Relationship hub tabs (typical)
+### Relationship hub tabs
 
-- **Relationship** — marketing opt-ins (needs **`customers.hub_edit`** to toggle), **interaction timeline** and **add note** (**`customers.timeline`**; timeline also lists **shipping** updates from the shipment log when that customer has shipments — with **`shipments.view`**, click a shipping line to open that shipment on the **Shipments** tab), past weddings shortcuts. **Joint Couple Accounts:** Use the **Relationship** tab to link a partner (existing or new) for combined spend/loyalty views.
+- **Profile** — the main customer review tab. Use it for customer notes, contact details, VIP flag, joint account linkage, and overall account context. This is also where staff can see store credit, deposit waiting, loyalty points, and active wedding linkage.
+- **Messages** — Podium message review and follow-up when available.
+- **Transactions** — customer sale history.
+- **Orders** — order-linked history and handoff into the Back Office Orders workflow.
+- **Shipments** — customer shipment history and shipment drill-in (**`shipments.view`**).
 - **Measurements** — sizing vault (**`customers.measurements`**); **PII** — verify identity before reading aloud.
-- **Profile** — customer code (read-only), optional duplicate-review queue (**`customers_duplicate_review`**), VIP flag and profile details (**`customers.hub_edit`** to save), contact/address display.
-- **Payments** — **Card Vault** (needs **`customers.hub_edit`** or general vault access). Manage vaulted payment methods for phone orders and future transactions. ROS stores only the **last 4 digits** and brand for security; raw card data is never stored on our servers. See **[`stripe-payments-manual.md`](stripe-payments-manual.md)**.
-- **Orders** — paged order history (**`orders.view`**); **Open** jumps to Back Office **Orders** when wired.
+- **Weddings** — wedding party linkage and wedding shortcuts.
+
+### Relationship hub versus RMS Charge
+
+- Use the **Relationship hub** to understand the customer record.
+- Use **RMS Charge** to manage RMS-linked accounts, RMS transaction posting, RMS exceptions, and RMS reconciliation.
+- Do not treat the Relationship hub as the place to resolve RMS financing issues. It provides customer context, not the full RMS support workflow.
 
 **Add Customer** after save: **VIP** on create and **initial note** only apply if you have **`customers.hub_edit`** and **`customers.timeline`** respectively; otherwise the app shows a **toast** and still creates the customer.
 
@@ -46,14 +54,19 @@
    - **payment** rows still come from register **PAYMENT** → **RMS CHARGE PAYMENT** checkouts (**cash/check**)
    - Phase 3 adds operational **Overview**, **Accounts**, **Transactions**, **Programs**, **Exceptions**, and **Reconciliation** sections with sync health and retry tools
 5. Exception queue and reconciliation actions require RMS operational permissions such as **`customers.rms_charge.resolve_exceptions`**, **`customers.rms_charge.reconcile`**, and **`customers.rms_charge.reporting`**.
-6. Live RMS refund/reversal actions are manager/admin-sensitive and should only be used by approved staff with the required permissions.
-7. Start with the role-based RMS manuals:
+6. In the Back Office workspace:
+   - `Exceptions` is the staff ownership queue for assign / retry / resolve work
+   - `Reconciliation` is a global RMS support review tab and is not filtered to only the customer currently selected
+7. Resolution notes should explain what cleared the issue instead of using a generic close-out.
+8. In `Accounts`, use `Remove Link` only to correct the Riverside customer relationship to an RMS account. The confirmation step explains that CoreCard itself is not changed and the correction is logged.
+9. Live RMS refund/reversal actions are manager/admin-sensitive and should only be used by approved staff with the required permissions.
+10. Start with the role-based RMS manuals:
    - **[RMS Charge overview](rms-charge-overview.md)**
    - **[RMS Charge accounts](rms-charge-accounts.md)**
    - **[RMS Charge transactions](rms-charge-transactions.md)**
    - **[RMS Charge exceptions](rms-charge-exceptions.md)**
    - **[RMS Charge reconciliation](rms-charge-reconciliation.md)**
-8. Use **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** when you need deeper engineering detail about APIs, persistence, or accounting support behavior.
+11. Use **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** when you need deeper engineering detail about APIs, persistence, or accounting support behavior.
 
 ## Groups and imports
 

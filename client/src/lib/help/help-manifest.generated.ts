@@ -202,7 +202,7 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "pos-custom-work",
-    title: "Custom Work Orders & Rush Orders",
+    title: "Custom Orders & Rush Orders",
     markdown: manual_5_raw,
     tags: ["pos-custom-work"],
   },
@@ -249,17 +249,17 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "customers-customer-relationship-hub-drawer",
-    title: "Customer Relationship Hub Drawer (customers)",
-    summary: "Auto-generated stub for client/src/components/customers/CustomerRelationshipHubDrawer.tsx — replace with staff-facing help.",
+    title: "Customer Relationship Hub",
+    summary: "Review customer history, profile details, messages, measurements, orders, shipments, and weddings without mixing in RMS support actions.",
     markdown: manual_12_raw,
-    tags: ["customers-customer-relationship-hub-drawer","component","auto-scaffold"],
+    tags: ["customers","relationship-hub","support","profile"],
   },
   {
     id: "customers-workspace",
-    title: "Customer CRM Hub",
-    summary: "Manage your client relationships, track lifetime sales, monitor wedding party membership, and handle duplicate accounts.",
+    title: "Customers Workspace",
+    summary: "Review customer accounts, open the relationship hub, and use the right workspace for customer history versus RMS support.",
     markdown: manual_13_raw,
-    tags: ["crm","customers","sales","duplicate-review"],
+    tags: ["customers","support","relationships","duplicate-review"],
   },
   {
     id: "customers-duplicate-review-queue-section",
@@ -277,10 +277,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "customers-rms-charge-admin-section",
-    title: "Rms Charge Admin Section (customers)",
-    summary: "Auto-generated stub for client/src/components/customers/RmsChargeAdminSection.tsx — replace with staff-facing help.",
+    title: "RMS Charge Workspace",
+    summary: "Review linked RMS Charge accounts, recent activity, open issues, and reconciliation support for the selected customer.",
     markdown: manual_16_raw,
-    tags: ["customers-rms-charge-admin-section","component","auto-scaffold"],
+    tags: ["customers","rms-charge","corecard","support","reconciliation"],
   },
   {
     id: "customers-shipments-hub-section",
@@ -298,10 +298,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "gift-cards-workspace",
-    title: "Gift Cards Workspace (gift-cards)",
-    summary: "Auto-generated stub for client/src/components/gift-cards/GiftCardsWorkspace.tsx — replace with staff-facing help.",
+    title: "Gift Cards Workspace",
+    summary: "Back Office gift card guide for looking up cards, issuing purchased or donated cards, and voiding cards safely.",
     markdown: manual_19_raw,
-    tags: ["gift-cards-workspace","component","auto-scaffold"],
+    tags: ["gift-cards","back-office","staff-manual"],
   },
   {
     id: "help-center-drawer",
@@ -558,14 +558,14 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "loyalty-workspace",
     title: "Loyalty Management Hub",
-    summary: "Manage the monthly reward cycle, customize fulfillment letters, and monitor loyalty program health.",
+    summary: "Review customers ready for rewards, check loyalty activity history, and print reward-card fulfillment materials.",
     markdown: manual_56_raw,
     tags: ["loyalty","rewards","fulfillment","analytics"],
   },
   {
     id: "loyalty-redeem-dialog",
     title: "Reward Redemption Dialog",
-    summary: "Finalize loyalty reward redemptions, apply to sales, or load onto new gift cards.",
+    summary: "Finalize loyalty reward redemptions by issuing the full reward to a loyalty gift card.",
     markdown: manual_57_raw,
     tags: ["loyalty","redemption","gift-cards","checkout"],
   },
@@ -606,8 +606,8 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "orders-workspace",
-    title: "Order Fulfillment Hub",
-    summary: "Manage regular Orders, Wedding, and Custom orders. Monitor deposits, track pickups, and manage the fulfillment pipeline.",
+    title: "Orders Workspace",
+    summary: "Manage Special, Custom, Wedding, and Layaway orders. Review balances, order kind, and fulfillment status.",
     markdown: manual_63_raw,
     tags: ["orders","fulfillment","deposits","tracking"],
   },
@@ -802,10 +802,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "pos-order-load-modal",
-    title: "Order Load Modal (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/OrderLoadModal.tsx — replace with staff-facing help.",
+    title: "Customer Orders",
+    summary: "Review a customer's open orders in POS, check balance and lifecycle status, and copy unfulfilled lines into a new register sale when needed.",
     markdown: manual_91_raw,
-    tags: ["pos-order-load-modal","component","auto-scaffold"],
+    tags: ["pos","orders","pickup","fulfillment"],
   },
   {
     id: "pos-register-dashboard",
@@ -823,10 +823,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "pos-register-gift-card-load-modal",
-    title: "Register Gift Card Load Modal (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/RegisterGiftCardLoadModal.tsx — replace with staff-facing help.",
+    title: "Register Gift Card",
+    summary: "POS guide for adding a purchased gift card load to the cart.",
     markdown: manual_94_raw,
-    tags: ["pos-register-gift-card-load-modal","component","auto-scaffold"],
+    tags: ["pos","gift-cards","register","staff-manual"],
   },
   {
     id: "pos-register-lookup-hub",

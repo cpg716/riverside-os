@@ -4,6 +4,14 @@
 
 **Where in ROS:** Back Office → **Customers** → **RMS charge** → `Reconciliation`
 
+## Scope
+
+The `Reconciliation` tab is a global RMS support view.
+
+- it reviews all RMS activity in scope for the run
+- it does **not** filter mismatch rows down to only the customer currently selected in the workspace
+- use the selected customer for account review and transaction follow-up, not as a reconciliation filter
+
 ## What reconciliation means
 
 Reconciliation is Riverside's review of whether RMS activity looks consistent across:

@@ -20,6 +20,14 @@ Common exception types include:
 
 ## How to work the queue
 
+### Assign
+
+Use `Assign to Me` when you are taking ownership of an RMS issue.
+
+- claim the issue before retrying or resolving it
+- use assignment so other staff can see that the issue already has an owner
+- if an issue is already assigned, do not assume it is yours unless the workspace shows `Assigned to you`
+
 ### Retry
 
 Use `Retry` when:
@@ -35,6 +43,13 @@ Use `Assign` when a specific support or finance user should own the exception.
 ### Resolve
 
 Use `Resolve` when the issue is actually cleared and the notes explain why.
+
+Resolution notes should say what cleared the issue, for example:
+
+- host confirmed the original post
+- duplicate failure was reviewed and closed
+- wrong customer link was corrected before follow-up
+- finance confirmed no further action was needed
 
 ## When NOT to retry
 

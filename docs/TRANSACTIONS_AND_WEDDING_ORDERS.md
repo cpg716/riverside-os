@@ -11,7 +11,7 @@ Riverside OS employs a decoupled **transaction-centric architecture** that separ
 
 To ensure clarity for staff, the Riverside OS interface uses standard industry terminology:
 - **Orders (Sidebar)**: High-level entry into logistical management.
-- **Order Management Hub**: The central fulfillment workspace where special, custom, and wedding orders are tracked through their logistical lifecycle. Uses a non-paginated, high-density wide-table registry for rapid operational management.
+- **Orders Workspace**: The central fulfillment workspace where special, custom, and wedding orders are tracked through their logistical lifecycle.
 - **Sales History**: The historical archive of all financial commitments, accessible as a secondary audit view within the POS or CRM contexts.
 - **Daily Sales**: Financial reporting focused on register sessions and tender counts.
 
@@ -25,9 +25,11 @@ In legacy systems, an "Order" represented both the financial receipt and the phy
 ### The Three Fulfillment Types
 
 1. **Special Order**: Standard catalog items that are out of stock and must be procured from a vendor. They use fixed catalog pricing and standard costs.
-2. **Custom (MTM)**: Made-To-Measure garments (Suits, Shirts, Slacks) where **price and cost vary with every order**. These are triggered by searching `CUSTOM` in the POS, allowing for manual entry of both retail price and vendor cost at the time of booking.
+2. **Custom (MTM)**: Made-to-measure garments that remain a true first-class Custom order type. The sale price is entered at booking. The actual vendor cost is entered later, when the garment is received. Known Custom SKUs currently include `100` (HSM Custom Suit), `105` (HSM Custom Sport Coat), `110` (HSM Custom Slacks), and `200` (Individualized Custom Shirt). ROS also stores a small structured set of vendor-form references for these orders so staff can review the booked fabric, style, model, size anchors, sleeve or cuff measurements, and vendor reference notes without re-reading every handwritten form.
 3. **Wedding Order**: Items tied to a specific wedding party. These are often standard catalog items but are logically grouped to ensure the whole party is outfitted before the event date. Linking a wedding member in the POS automatically switches out-of-stock items to this fulfillment type.
 4. **Checkout Security**: Finalizing checkout requires a valid **Access PIN**. Manager-only actions (overrides, large discounts) require a **Manager Access** credential verification.
+
+Special and Custom stay separate operational contracts. Custom is not just another label for a Special Order.
 
 ## Operational Workflow
 
@@ -57,6 +59,7 @@ Wedding transactions follow the exact same architecture but enforce group-level 
 - They are tied to a `wedding_party`.
 - The financial `Transactions` can be paid for via "Group Pay" disbursements.
 - The logistical `Fulfillment Orders` still track the physical movement of the suits and rentals independently of who paid the balance.
+- Shared Orders views should continue to show the linked party and member context so staff do not mistake a Wedding order for a generic open order.
 
 ### Wedding Member Nomenclature
 
@@ -85,4 +88,3 @@ Failure to maintain distinct naming leads to **Foreign Key violations** in the `
 ### Case-Insensitive Tax Categories
 
 Always treat `tax_category` strings (e.g., `Clothing`, `Footwear`) as case-insensitive in both the Rust and TypeScript logic. The POS and server must normalize these categories to lowercase before evaluating $110 tax exemption thresholds to prevent parity mismatches.
-

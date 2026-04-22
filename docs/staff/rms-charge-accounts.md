@@ -26,6 +26,16 @@ Important rules:
 - account resolution happens on the server
 - POS never relies on name-only matching at checkout
 - UI-facing account values remain masked
+- removing a link changes Riverside's customer relationship only; it does not change the CoreCard account itself
+- link and unlink corrections are recorded in the staff audit trail
+
+## Safe correction workflow
+
+1. Confirm the correct Riverside customer first.
+2. Confirm the masked RMS account before changing anything.
+3. Use `Remove Link` only when the customer-to-account relationship in Riverside is wrong.
+4. Read the confirmation message before removing the link.
+5. Re-link the account only after you are sure the corrected customer relationship is right.
 
 ## Status meanings
 

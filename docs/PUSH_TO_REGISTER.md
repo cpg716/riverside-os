@@ -1,90 +1,65 @@
 # Push to Register — Riverside OS
 
-The Push to Register feature allows staff to seamlessly transition an order from the Orders workspace to the POS register for completion of payment and fulfillment. This streamlines the workflow for orders that are ready for pickup or shipment.
+The Orders workspace can open an order in POS so staff can review its lifecycle and, when needed, copy its unfulfilled lines into a new register sale.
 
 ## Overview
 
-When an order has items ready for fulfillment (not yet fulfilled), staff can "push" the order directly to the register from the Orders workspace. This:
-- Navigates to the POS register
-- Loads the order details (items, customer, saved card info) into the cart
-- Prefills saved card selection if available
-- Allows deposit allocation during checkout
-- Provides clear UI feedback about the loaded order
+When staff open an order in POS, Riverside:
+- navigates to the register
+- keeps the original order visible in Orders for balance and pickup follow-up
+- lets staff review the order lines and lifecycle state
+- allows staff to copy unfulfilled lines into a new register sale if they need to rebuild the sale in POS
 
 ## Staff Steps
 
 ### From Orders Workspace
 
-1. **Locate an order** with unfulfilled items in the Orders workspace
-2. **Click the "Push to Register"** button (appears only for orders with 1+ unfulfilled items)
+1. **Locate an order** in the Orders workspace.
+2. **Click the "Open in POS"** button.
 3. **System automatically**:
-   - Navigates to `/pos?order_id=<ORDER_ID>`
-   - Loads order items into the cart
-   - Sets the customer from the order
-   - Detects if a saved card is available
-   - Shows order loaded badge with clear option
+   - navigates to the POS register
+   - keeps the original order available for review
+   - lets staff copy unfulfilled lines into a new register sale if needed
 
 ### At the Register
 
-1. **Review loaded order**:
-   - Order items appear in the cart
-   - Customer is pre-selected
-   - Saved card is pre-selected in payment modal (if available)
-   - Order loaded badge shows in header
+1. **Review the order first**:
+   - confirm the balance due
+   - confirm whether the order is still waiting on measurements, still carrying a deposit, fully paid, or already picked up
+   - confirm Wedding party/member context when applicable
 
-2. **Complete checkout normally**:
-   - Apply any deposits (per transaction, not per line)
-   - Choose payment method (saved card pre-selected if available)
-   - Complete payment as usual
+2. **If needed, copy unfulfilled lines into the register**:
+   - this starts a **new** register sale
+   - it does **not** collect payment on the original order record
 
-3. **Clear loaded order** (optional):
-   - Click the "X" on the order loaded badge to clear the cart and reset
-   - Or proceed with checkout which clears on completion
+3. **Keep the original order record authoritative**:
+   - original deposits and balances stay on the original order
+   - pickup follow-up stays on the original order
+   - Wedding follow-up stays tied to the linked member
 
 ## Technical Implementation
 
-### URL Parameter Approach
-- Uses `/pos?order_id=<ORDER_ID>` for pushing orders
-- URL parameter is cleared after successful load to prevent reprocessing
-
 ### Data Flow
-1. **OrdersWorkspace**: Detects orders with unfulfilled items, adds Push to Register button
-2. **Cart.tsx**: 
-   - Detects `order_id` URL parameter
-   - Fetches order details from `/api/orders/{order_id}`
-   - Fetches order line items from `/api/orders/order-items/{order_id}`
-   - Merges order lines into existing cart (preserves current items)
-   - Sets customer from order data
-   - Prepares saved card prefilling for OrderReviewModal
-3. **OrderReviewModal**: 
-   - Displays saved card selection when `stripe_payment_method_id` is present
-   - Allows cashier to confirm shipping address and save card for balance
-4. **NexoCheckoutDrawer**:
-   - Receives pre-selected saved card ID via `preSelectedSavedCardId` prop
-   - Auto-selects the saved card in the "Saved Card" tab when available
+1. **OrdersWorkspace** opens the order in POS.
+2. **Order loader / POS review** reads the real transaction detail and line items from the live transactions API.
+3. **Copy to Register** only copies unfulfilled lines into a new cart when staff explicitly choose that action.
 
 ### UI Feedback
-- **Order Loaded Badge**: Shows in cart header with order ID and clear option
-- **Toast Notification**: Confirms successful order load with item count
-- **Saved Card Prefilling**: Automatic selection in payment modal
-- **Clear Option**: Button to reset cart and remove loaded order state
+- **Lifecycle note**: Shows whether the order is still carrying a deposit, fully paid, waiting on measurements, or already complete
+- **Copy warning**: Reminds staff that copying lines starts a new sale and does not post payment to the original order
 
 ## Business Rules
 
-1. **Only applicable** to orders with 1+ unfulfilled items
-2. **Preserves existing cart** items when loading order (adds to current cart)
-3. **Deposit allocation** happens per transaction, not per line item
-4. **Saved card** is not auto-charged - cashier must manually select to use during payment
-5. **Balance calculation** correctly reflects: order total - applied deposits - amount paid = amount due
-6. **URL cleanup** prevents accidental reloading on page refresh
-7. **Error handling** shows toast notification if order loading fails
+1. The original order remains the source of truth for its deposit balance and pickup lifecycle.
+2. Copying lines into POS is optional and explicit.
+3. Copying lines creates a new register sale; it is not a silent payment allocation against the original order.
+4. Staff should confirm receiving/pickup readiness before collecting final payment.
 
 ## Related Components
 
 - `client/src/components/orders/OrdersWorkspace.tsx` - Push to Register button
-- `client/src/components/pos/Cart.tsx` - Order loading logic, URL handling, UI feedback
-- `client/src/components/pos/OrderReviewModal.tsx` - Saved card prefilling
-- `client/src/components/pos/NexoCheckoutDrawer.tsx` - Saved card auto-selection
+- `client/src/components/pos/Cart.tsx` - POS copy-to-register behavior
+- `client/src/components/pos/OrderLoadModal.tsx` - Order review and lifecycle display
 
 ## Permissions
 - Uses standard POS authentication via `mergedPosStaffHeaders`

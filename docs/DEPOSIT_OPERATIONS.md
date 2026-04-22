@@ -94,6 +94,9 @@ For weddings, a single payer (often the groom or sponsor) can cover deposits for
 5. Return to the payment ledger — the total now includes all member balances.
 6. Apply tenders to cover the combined amount and complete the sale.
 
+In shared **Orders** views, Wedding orders should still show their linked party and member context so staff know the balance belongs to the wedding workflow and not a generic customer order.
+Even when a Wedding order shows a deposit on ledger or a zero balance, pickup release should still stay with the linked member workflow until receiving and readiness are confirmed.
+
 ### Backend Handling
 
 - The checkout payload includes `wedding_disbursements[]`, each with a `wedding_member_id` and `amount`.

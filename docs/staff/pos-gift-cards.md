@@ -2,7 +2,7 @@
 
 **Audience:** Cashiers selling or redeeming gift cards.
 
-**Where in ROS:** POS mode → left rail **Gift Cards**; **Register** also has **GIFT CARD** (next to Clear Sale) for amount + scan onto purchased cards (any staff with an open register session or Back Office sign-in).
+**Where in ROS:** POS mode → left rail **Gift Cards** for lookup; **Register** also has **GIFT CARD** for adding a purchased gift card load to the cart.
 
 **Related permissions:** **gift_cards.manage** for issue/void/list in Back Office; **GIFT CARD** on the register uses the same POS/staff auth as the rest of the register. **Redemption** at tender often works with **POS session** + staff auth per server rules.
 
@@ -10,7 +10,7 @@
 
 ## How to use this screen
 
-Use POS **Gift Cards** for **balance lookup**, **activation / issue** flows your store trains, and **redemption** toward a sale. Treat every card as **cash equivalent** — wrong code = wrong customer money.
+Use POS **Gift Cards** for balance lookup and use the **Register** gift card button when a customer is buying or reloading a purchased gift card. Treat every card as cash equivalent.
 
 ## Common tasks
 
@@ -18,26 +18,35 @@ Use POS **Gift Cards** for **balance lookup**, **activation / issue** flows your
 
 1. POS → **Register** → **GIFT CARD** (open register session / signed-in staff).
 2. Enter the **load amount** on the keypad, then **scan** (or type) the card code.
-3. Confirm — balance updates in **gift_cards** / **gift card events** (same as Back Office issue for new codes). **Depleted** cards can be loaded again with the same code.
+3. Add the line to the cart.
+4. Finish checkout.
 
-### Sell a new gift card (if not sold as a catalog SKU)
+The card is only credited after the full sale is paid. If checkout does not complete, the card is not loaded.
+After the sale, the receipt summary shows the loaded card as a masked code so staff can confirm the right card was credited.
 
-1. POS → **Gift Cards** → **Issue** / **Activate** (per UI).
-2. Enter **amount**; confirm **fee** or **bonus** rules with SOP.
-3. Take **payment** in **Register** if the flow sends you to the cart.
-4. Hand customer the **printed** code or email; they should verify **last 4** match screen.
+### Sell a new gift card in Back Office
+
+Use Back Office for direct issue flows such as donated cards or manager-approved manual issuance.
 
 ### Redeem toward checkout
 
 1. On **tender** screen, choose **gift card**.
-2. **Scan** or type code; confirm **name mask** or balance if shown.
-3. Apply **partial** amount if allowed; complete remainder with card/cash.
-4. Print receipt showing **remaining balance** if applicable.
+2. Choose the card type that matches the real card:
+   - **Paid**
+   - **Loyalty**
+   - **Donated**
+3. Scan or type the code.
+4. Apply the amount and complete the rest of the sale if needed.
+
+If the selected type does not match the real card, Riverside blocks the payment and tells you which type to use.
+After the sale, the receipt summary shows the gift card type and masked card code in the tender summary.
 
 ### Balance inquiry (no sale)
 
 1. **Lookup** only — do not add to cart.
-2. **Do not** read full code aloud in a crowded line; show screen to customer.
+2. Review the **running balance** and **recent activity** list.
+3. Use the activity list to confirm whether the card was issued, loaded, used at checkout, refunded, or voided.
+4. **Do not** read full code aloud in a crowded line; show screen to customer.
 
 ### Card shows void or zero
 
@@ -55,6 +64,7 @@ Use POS **Gift Cards** for **balance lookup**, **activation / issue** flows your
 |--------|-------------------|---------------|
 | Not found | Retype; trim spaces | BO lookup |
 | Insufficient balance | Split tender | Customer uses second payment |
+| “This card must be used as …” | Pick the matching gift card type | Ask a manager if the card looks wrong |
 | Already voided | Stop sale | Manager |
 | System double-charged | **Orders** → find duplicate tender | Refund process |
 

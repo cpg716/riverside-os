@@ -1,46 +1,78 @@
 ---
 id: customers-workspace
-title: "Customer CRM Hub"
+title: "Customers Workspace"
 order: 1005
-summary: "Manage your client relationships, track lifetime sales, monitor wedding party membership, and handle duplicate accounts."
+summary: "Review customer accounts, open the relationship hub, and use the right workspace for customer history versus RMS support."
 source: client/src/components/customers/CustomersWorkspace.tsx
-last_scanned: 2026-04-11
-tags: crm, customers, sales, duplicate-review
+last_scanned: 2026-04-21
+tags: customers, support, relationships, duplicate-review
 ---
 
-# Customer CRM Hub
+# Customers Workspace
 
-The Customer CRM Hub is a high-density primary workstation for managing client relationships. It prioritizes financial transparency and operational speed, allowing for rapid lookup and management of large customer bases.
+<!-- help:component-source -->
+_Linked component: `client/src/components/customers/CustomersWorkspace.tsx`._
+<!-- /help:component-source -->
 
-## High-Density Grid
+## What this is
 
-The main display uses a high-density table grid designed for maximum information visibility:
-- **Member Focus**: Primary names and [Customer Codes](file:///docs/CUSTOMERS_LIGHTSPEED_REFERENCE.md) are prominently displayed.
-- **Financial Pulse**: Real-time tracking of **Lifetime Sales** and current **Open Balance** (RMS Charge) is visible for every row.
-- **Wedding Identity**: Displays linked Wedding Party names directly in the grid for quick retail context.
-- **VIP & Activity**: Visual badges indicate loyalty standing and recent engagement.
+Use this workspace to:
 
-## CRM Operations
+- search for a customer by name, phone, email, or customer code
+- review customer-level status such as weddings, open balance, and recent activity
+- open the `Customer Relationship Hub` drawer for profile, message, measurement, shipment, and order review
+- move into a more specialized workflow like `RMS Charge` or `Duplicate Review` when needed
 
-### Searching & Filtering
-- **Universal Search**: Use the top bar to search by name, phone, email, or customer code.
-- **Quick-Filters**: Narrow down by "With Open Balance," "Wedding Party Members," or "Recent Sign-ups."
+## What the main list tells you
 
-### Customer Management Hub
-Click any row to open the **Customer Relationship Hub**. This slide-out panel provides a 360-degree view:
-- **Timeline**: Chronological history of all orders, returns, and point adjustments.
-- **Measurements**: Access specialized measurement vaults for custom work.
-- **Messaging**: Local Inbox for Podium SMS/Email threads.
-- **Shipments**: Track packages and generate new labels via Shippo.
+Each customer row is a quick support summary. Staff can usually see:
 
-### Duplicate Review
-Located in the sidebar, the **Duplicate Review** queue highlights potential account collisions based on name/phone/email matches. Staff can merge accounts here to maintain a clean CRM.
+- customer name and code
+- contact information
+- lifetime sales
+- open balance
+- whether the customer is tied to an active wedding party
+
+This list helps you decide which customer to open. It is not the full support record by itself.
+
+## What belongs here versus RMS Charge
+
+Use the main Customers workspace and relationship hub when you need to review:
+
+- customer profile details
+- notes and timeline history
+- measurements
+- order history
+- shipment history
+- wedding linkage
+
+Use `RMS Charge` when you need to:
+
+- verify a linked RMS account
+- review RMS-specific posting history
+- work RMS exceptions
+- review RMS reconciliation
+
+The relationship hub supports customer review. The RMS workspace supports financing account operations.
+
+## How to use it
+
+1. Search for the correct customer first.
+2. Open the customer row to review the relationship hub.
+3. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
+4. Return to the main workspace if you need a different customer.
+5. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
+
+## Related sections
+
+- `Duplicate Review`
+  Use when two customer records may need merge review.
+- `RMS Charge`
+  Use when the issue is about a linked RMS financing account, RMS payment history, or RMS support operations.
 
 ## Tips
 
-- **Load More**: The grid uses performance-optimized pagination. Click "Load More" at the bottom to continue browsing large lists.
-- **Balance Alerts**: Customers with significant open balances will be highlighted in the grid to facilitate collections during checkout.
-
-> [!IMPORTANT]
-> Merging customers in the Duplicate Review queue is irreversible. Ensure you are merging the *correct* historical record into the primary account.
+- Start with the active Riverside customer profile, not a name-only match.
+- Use phone, customer code, and wedding context to confirm the right record before taking action.
+- If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.
 
