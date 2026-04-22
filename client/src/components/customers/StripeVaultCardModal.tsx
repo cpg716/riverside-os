@@ -6,9 +6,10 @@ import {
   useElements,
 } from "@stripe/react-stripe-js";
 import { loadStripe, Stripe } from "@stripe/stripe-js";
-import { X, ShieldCheck, Loader2, Lock } from "lucide-react";
+import { X, Loader2, Lock } from "lucide-react";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 interface StripeVaultCardModalProps {
   customerId: string;
@@ -187,8 +188,13 @@ export default function StripeVaultCardModal(props: StripeVaultCardModalProps) {
         </button>
 
         <div className="mb-8 flex flex-col items-center text-center">
-          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-400">
-            <ShieldCheck size={32} />
+          <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-white shadow-sm ring-1 ring-white/10">
+            <IntegrationBrandLogo
+              brand="stripe"
+              kind="icon"
+              className="inline-flex"
+              imageClassName="h-10 w-10 object-contain"
+            />
           </div>
           <h2 className="text-xl font-black uppercase tracking-tighter text-white">
             Secure Card Vault
@@ -209,9 +215,15 @@ export default function StripeVaultCardModal(props: StripeVaultCardModalProps) {
         )}
 
         <div className="mt-8 flex items-center justify-center gap-2 border-t border-white/5 pt-6 opacity-30">
-          <Lock size={12} className="text-white" />
+          <IntegrationBrandLogo
+            brand="stripe"
+            kind="icon"
+            theme="dark"
+            className="inline-flex"
+            imageClassName="h-4 w-4 object-contain"
+          />
           <p className="text-[9px] font-black uppercase tracking-widest text-white">
-            PCI-DSS Level 1 Encrypted
+            Stripe-secured vaulting
           </p>
         </div>
       </div>

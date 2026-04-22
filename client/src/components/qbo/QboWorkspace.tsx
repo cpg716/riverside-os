@@ -21,6 +21,7 @@ import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 const baseUrl = getBaseUrl();
 
@@ -492,11 +493,19 @@ export default function QboWorkspace({
   return (
     <div className="ui-page overflow-auto">
       <div className="flex items-center justify-between px-1 pb-2">
-        <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">QBO Bridge</p>
+        <div className="flex items-center gap-4">
+          <IntegrationBrandLogo
+            brand="qbo"
+            kind="wordmark"
+            className="inline-flex rounded-2xl border border-emerald-500/20 bg-white px-3 py-2 shadow-sm"
+            imageClassName="h-10 w-auto object-contain"
+          />
+          <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">Accounting Bridge</p>
           <h2 className="text-2xl font-black tracking-tight text-app-text">
             {tab === "connection" ? "Connection" : tab === "mappings" ? "Account Mappings" : "Staging & History"}
           </h2>
+          </div>
         </div>
         <div className="flex flex-wrap gap-2">
           {tabBtn("connection", "1 · Connection", Link2)}

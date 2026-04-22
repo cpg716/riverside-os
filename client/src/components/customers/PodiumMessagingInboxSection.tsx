@@ -4,6 +4,7 @@ import { MessageSquare } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import type { Customer } from "../pos/CustomerSelector";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 const baseUrl = getBaseUrl();
 
@@ -58,7 +59,16 @@ export default function PodiumMessagingInboxSection({
     <div className="ui-page flex flex-1 flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-black uppercase tracking-tight text-app-text">Podium Inbox</h1>
+          <div className="mb-3 flex items-center gap-3">
+            <IntegrationBrandLogo
+              brand="podium"
+              className="inline-flex rounded-2xl border border-app-border bg-white px-3 py-2 shadow-sm"
+              imageClassName="h-8 w-auto object-contain"
+            />
+            <h1 className="text-lg font-black uppercase tracking-tight text-app-text">
+              Inbox
+            </h1>
+          </div>
           <p className="text-xs text-app-text-muted">
             Recent Podium SMS and email threads (inbound webhooks and replies). Open a row to view the full
             thread in the customer hub.

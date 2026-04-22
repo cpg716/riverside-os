@@ -20,10 +20,7 @@ import {
   Cloud,
   Info,
   ClipboardList,
-  MessageSquare,
   BarChart3,
-  CreditCard,
-  ArrowUpRight,
   Search,
   Monitor,
   Star,
@@ -52,6 +49,7 @@ import PodiumSettingsPanel from "./PodiumSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
 import StripeSettingsPanel from "./StripeSettingsPanel";
+import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
 import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
@@ -903,9 +901,10 @@ export default function SettingsWorkspace({
                     {
                       id: "podium",
                       label: "Podium Comms",
-                      icon: MessageSquare,
                       desc: "Lifecycle SMS & HTML Email",
-                      color: "bg-indigo-500",
+                      color: "bg-white",
+                      brand: "podium" as IntegrationBrand,
+                      brandKind: "icon" as const,
                     },
                     {
                       id: "nuorder",
@@ -917,16 +916,18 @@ export default function SettingsWorkspace({
                     {
                       id: "quickbooks",
                       label: "QuickBooks Online",
-                      icon: ArrowUpRight,
                       desc: "Launch QBO Data Bridge",
-                      color: "bg-emerald-700",
+                      color: "bg-white",
+                      brand: "qbo" as IntegrationBrand,
+                      brandKind: "icon" as const,
                     },
                     {
                       id: "stripe",
                       label: "Stripe Terminal",
-                      icon: CreditCard,
                       desc: "Card Processing Hub",
-                      color: "bg-indigo-600 focus:ring-indigo-500",
+                      color: "bg-white",
+                      brand: "stripe" as IntegrationBrand,
+                      brandKind: "icon" as const,
                     },
                   ].map((item) => (
                     <div
@@ -934,9 +935,18 @@ export default function SettingsWorkspace({
                       className="ui-card p-8 flex flex-col items-center text-center group transition-all"
                     >
                       <div
-                        className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform`}
+                        className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform ring-1 ring-black/5`}
                       >
-                        <item.icon size={28} />
+                        {"brand" in item && item.brand ? (
+                          <IntegrationBrandLogo
+                            brand={item.brand}
+                            kind={item.brandKind}
+                            className="inline-flex"
+                            imageClassName="max-h-10 max-w-10 rounded-md object-contain"
+                          />
+                        ) : (
+                          <item.icon size={28} />
+                        )}
                       </div>
                       <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-2">
                         {item.label}

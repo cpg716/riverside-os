@@ -8,6 +8,7 @@ import {
   ShieldCheck
 } from "lucide-react";
 import { centsToFixed2 } from "../../lib/money";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 export type ReaderStatus = "connecting" | "idle" | "insert_card" | "processing" | "success" | "error";
 
@@ -166,7 +167,17 @@ export default function StripeReaderSimulation({
         </div>
 
         <div className="w-full text-center">
-           <p className="text-[9px] font-bold uppercase tracking-widest text-white/35">Powered by Stripe</p>
+           <div className="flex items-center justify-center gap-2">
+             <IntegrationBrandLogo
+               brand="stripe"
+               kind="icon"
+               theme="dark"
+               className="inline-flex"
+               imageClassName="h-4 w-4 object-contain opacity-75"
+             />
+             <span className="text-[9px] font-bold uppercase tracking-widest text-white/35">Powered by</span>
+             <span className="text-[9px] font-bold uppercase tracking-widest text-white/35">Stripe</span>
+           </div>
         </div>
       </div>
 
