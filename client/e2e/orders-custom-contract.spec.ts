@@ -111,6 +111,88 @@ type TransactionListResponse = {
   }>;
 };
 
+const CUSTOM_CATALOG_CATEGORY_ID = "90000000-0000-0000-0000-000000000001";
+
+type KnownCustomCatalogSeed = {
+  name: string;
+  retailPrice: string;
+  costPrice: string;
+};
+
+const KNOWN_CUSTOM_CATALOG: Record<string, KnownCustomCatalogSeed> = {
+  "100": {
+    name: "HSM Custom Suit",
+    retailPrice: "899.00",
+    costPrice: "0.00",
+  },
+  "105": {
+    name: "HSM Custom Sport Coat",
+    retailPrice: "699.00",
+    costPrice: "0.00",
+  },
+  "110": {
+    name: "HSM Custom Slacks",
+    retailPrice: "299.00",
+    costPrice: "0.00",
+  },
+  "200": {
+    name: "Individualized Custom Shirt",
+    retailPrice: "249.00",
+    costPrice: "0.00",
+  },
+};
+
+async function createKnownCustomCatalogSku(
+  request: Parameters<typeof test>[0]["request"],
+  sku: string,
+): Promise<void> {
+  const seed = KNOWN_CUSTOM_CATALOG[sku];
+  expect(seed, `missing known custom catalog seed for sku ${sku}`).toBeTruthy();
+
+  const createRes = await request.post(`${apiBase()}/api/products`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      category_id: CUSTOM_CATALOG_CATEGORY_ID,
+      name: seed.name,
+      brand: "Riverside E2E",
+      description: `Deterministic custom-order catalog SKU ${sku} for Playwright`,
+      base_retail_price: seed.retailPrice,
+      base_cost: seed.costPrice,
+      variation_axes: [],
+      images: [],
+      track_low_stock: false,
+      publish_variants_to_web: false,
+      variants: [
+        {
+          sku,
+          variation_values: {},
+          variation_label: "Standard",
+          stock_on_hand: 0,
+          retail_price_override: null,
+          cost_override: null,
+          track_low_stock: false,
+        },
+      ],
+    },
+    failOnStatusCode: false,
+  });
+
+  if (createRes.ok()) {
+    return;
+  }
+
+  const bodyText = await createRes.text();
+  expect(
+    createRes.status() === 409 ||
+      bodyText.toLowerCase().includes("duplicate") ||
+      bodyText.toLowerCase().includes("already exists"),
+    `create known custom catalog sku ${sku} failed (${createRes.status()}): ${bodyText.slice(0, 1000)}`,
+  ).toBeTruthy();
+}
+
 async function fetchCatalogPricing(
   request: Parameters<typeof test>[0]["request"],
   sku: string,
@@ -152,8 +234,30 @@ async function fetchCatalogPricing(
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { rows?: ControlBoardRow[] };
   const row = (body.rows ?? []).find((candidate) => candidate.sku === sku) ?? body.rows?.[0];
-  expect(row).toBeTruthy();
-  return row as ControlBoardRow;
+  if (row) {
+    return row;
+  }
+
+  if (!KNOWN_CUSTOM_CATALOG[sku]) {
+    expect(row).toBeTruthy();
+    return row as ControlBoardRow;
+  }
+
+  await createKnownCustomCatalogSku(request, sku);
+
+  const seededRes = await request.get(
+    `${apiBase()}/api/products/control-board?search=${encodeURIComponent(sku)}&limit=5`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  expect(seededRes.status()).toBe(200);
+  const seededBody = (await seededRes.json()) as { rows?: ControlBoardRow[] };
+  const seededRow =
+    (seededBody.rows ?? []).find((candidate) => candidate.sku === sku) ?? seededBody.rows?.[0];
+  expect(seededRow).toBeTruthy();
+  return seededRow as ControlBoardRow;
 }
 
 async function seedOrderFixture(

@@ -201,7 +201,7 @@ pub async fn query_paged_transactions(
             {SQL_PARTY_TRACKING_LABEL_WP} AS party_name,
             COALESCE(BOOL_OR(oi.fulfillment != 'takeaway'), false) AS is_fulfillment_order,
             ps.full_name AS primary_salesperson_name,
-            o.counterpoint_customer_code,
+            NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
             COUNT(oi.id)::bigint AS item_count,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'special_order'), false) AS has_special_order,
             COALESCE(BOOL_OR(oi.fulfillment::text = 'wedding_order'), false) AS has_wedding_order,
@@ -319,7 +319,7 @@ pub async fn query_paged_transactions(
         }
     }
 
-    qb.push(" GROUP BY o.id, c.id, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, ps.full_name, o.status, o.counterpoint_customer_code ");
+    qb.push(" GROUP BY o.id, c.id, c.customer_code, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, ps.full_name, o.status ");
 
     if let Some(kf) = &q.kind_filter {
         if let Some(clause) = kind_filter_having_clause(kf) {

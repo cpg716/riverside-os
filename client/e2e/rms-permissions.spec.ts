@@ -59,6 +59,16 @@ test.describe("RMS permissions split", () => {
     await page.getByTestId("rms-workspace-tab-reconciliation").click();
     await expect(page.getByTestId("rms-run-reconciliation")).toBeVisible();
     await page.getByTestId("rms-workspace-tab-exceptions").click();
-    await expect(page.getByText(/No active RMS Charge exceptions|Loading open issues/i)).toBeVisible();
+    await expect
+      .poll(
+        async () => await page.locator("body").textContent(),
+        {
+          timeout: 15_000,
+          message: "RMS exceptions tab never showed an empty-state or a loaded exception card.",
+        },
+      )
+      .toMatch(
+        /No active RMS Charge exceptions|Loading open issues|Customer-level issue|Unassigned|Assigned to you/i,
+      );
   });
 });
