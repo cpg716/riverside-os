@@ -61,6 +61,9 @@ export default defineConfig({
       includeAssets: ["icon-192.png", "icon-512.png"],
       workbox: {
         globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        // The main app bundle is slightly above Workbox's default 2 MiB precache ceiling.
+        // Keep precache behavior intact and raise the limit modestly instead of excluding the bundle.
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: "/index.html",
         navigateFallbackDenylist: [/^\/api\//, /^\/metabase(\/|$)/],
       },
