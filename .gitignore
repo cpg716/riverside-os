@@ -65,5 +65,17 @@ venv/
 # --- Runtime artifacts / backups ---
 server/backups/*.dump
 counterpoint-bridge/bridge-execution.log
+
+# --- Local scratch / one-off exports ---
+/codex_prompt_template.md
+/export2026-04-22.csv
+/Podium_Black_Icon.jpg
+/Podium_Logo_Black.png
+/Podium_Logo_White.jpg
+/Podium_White_Icon.png
+/QBO_icon.png
+/QB_logo.png
+/Stripe_Icon.png
+/stripe_logo.png
 # CocoIndex Code (ccc)
 /.cocoindex_code/
