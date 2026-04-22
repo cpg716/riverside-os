@@ -38,7 +38,7 @@ Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default:
 **Server env note:** the API still reads **`server/.env`** during local/E2E boot. Keep **`DATABASE_URL=postgresql://postgres:password@localhost:5433/riverside_os`** there for the repo Docker Postgres. If you expect Metabase inside the local browser stack to auto-log in instead of showing the Metabase login page, populate the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth envs in **`server/.env`** as well.
 **Root dependency note:** `npm run dev:e2e` and the repo-level E2E shortcuts require the root package dependencies in this worktree. Do not rely on a `node_modules` symlink from another checkout for release validation.
 
-**CI note:** GitHub Actions runs Playwright against Axum serving the built SPA on **`http://127.0.0.1:3000`**, not Vite on `:5173`. CI also seeds the default admin/non-admin staff fixtures, opens a default register session for the tender contract suite, and retains Playwright traces on failure for faster triage.
+**CI note:** GitHub Actions runs Playwright against Axum serving the built SPA on **`http://localhost:3000`** (browser base) with the API on **`http://127.0.0.1:3000`**, not Vite on `:5173`. CI also seeds the default admin/non-admin staff fixtures, opens a default register session for the tender contract suite, enables **`RIVERSIDE_ENABLE_E2E_TEST_SUPPORT=1`** so the RMS/test-support contract suites can mount their seed endpoints, and retains Playwright traces plus server/fake-host logs on failure for faster triage.
 
 **Client script aliases:**
 - `npm run test:e2e:list` → list all tests

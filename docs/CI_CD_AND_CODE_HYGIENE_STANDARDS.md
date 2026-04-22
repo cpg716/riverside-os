@@ -13,6 +13,21 @@ The goal of the CI repository is to maintain **0 ESLint errors** and **0 archite
 | Server Lint | Clippy | `cargo clippy --all-targets -- -D warnings` |
 | Server Format | rustfmt | `cargo fmt --check` |
 
+## Generated help artifacts
+
+The client build regenerates the Help manifest and server help-corpus files. CI now verifies those generated files are current before client lint/typecheck:
+
+- `client/src/lib/help/help-manifest.generated.ts`
+- `server/src/logic/help_corpus_manuals.generated.rs`
+
+When a workflow change or component/manual update affects Help generation, run:
+
+```bash
+npm run generate:help
+```
+
+before lint/build so local validation matches GitHub Actions.
+
 ## React Hook Stability (`exhaustive-deps`)
 
 To prevent infinite re-rendering loops and stale closures, all hooks must strictly adhere to the `react-hooks/exhaustive-deps` rule.
