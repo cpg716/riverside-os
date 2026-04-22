@@ -57,9 +57,6 @@ jobs:
       - name: Check Formatting
         run: cargo fmt --check
 
-      - name: Ensure bundled frontend resource path exists
-        run: mkdir -p ../dist
-
       - name: Run Clippy
         run: cargo clippy -- -D warnings
 
@@ -88,6 +85,9 @@ jobs:
 
       - name: Check Formatting
         run: cargo fmt --check
+
+      - name: Ensure bundled frontend resource path exists
+        run: mkdir -p ../dist
 
       - name: Run Clippy
         run: cargo clippy -- -D warnings

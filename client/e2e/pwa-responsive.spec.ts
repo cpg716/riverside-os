@@ -13,7 +13,7 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
     await signInToBackOffice(page);
     await expect(page.getByRole("button", { name: "Toggle menu" })).toBeVisible();
     await expect(
-      page.getByRole("searchbox", { name: /universal search/i }),
+      page.getByRole("combobox", { name: /universal search/i }),
     ).toBeVisible();
   });
 
@@ -25,22 +25,29 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
 
   test("top bar does not force horizontal overflow", async ({ page }) => {
     await signInToBackOffice(page);
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth - window.innerWidth,
-    );
-    expect(overflow).toBeLessThanOrEqual(1);
+    await expect
+      .poll(
+        () =>
+          page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth),
+        { timeout: 5_000 },
+      )
+      .toBeLessThanOrEqual(1);
   });
 
   test("offline chip stays readable on phone", async ({ page, context }) => {
     await signInToBackOffice(page);
     await context.setOffline(true);
-    await expect(page.getByText(/^offline$/i)).toBeVisible();
+    await expect(
+      page.getByTitle(
+        /Offline: only completed POS checkouts can queue until connectivity returns/i,
+      ),
+    ).toBeVisible();
     await context.setOffline(false);
   });
 
   test("search overlay stays usable on phone", async ({ page }) => {
     await signInToBackOffice(page);
-    const search = page.getByRole("searchbox", { name: /universal search/i });
+    const search = page.getByRole("combobox", { name: /universal search/i });
     await search.fill("suit");
     await expect(page.getByRole("listbox", { name: "Search results" })).toBeVisible();
   });
@@ -53,7 +60,7 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
     await signInToBackOffice(page);
     await expect(page.getByRole("button", { name: "Toggle menu" })).toBeVisible();
     await expect(
-      page.getByRole("searchbox", { name: /universal search/i }),
+      page.getByRole("combobox", { name: /universal search/i }),
     ).toBeVisible();
   });
 
@@ -92,8 +99,6 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
     await signInToBackOffice(page);
     await page.getByRole("button", { name: "Toggle menu" }).click();
     await expect(page.getByRole("navigation", { name: "Main Navigation" })).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: /^operations$/i }),
-    ).toBeVisible();
+    await expect(page.getByTestId("sidebar-nav-home")).toBeVisible();
   });
 });

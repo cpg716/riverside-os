@@ -149,9 +149,6 @@ async function waitForBackofficeShellReady(page: Page, message: string): Promise
           .getByRole("navigation", { name: "POS Navigation" })
           .isVisible()
           .catch(() => false)) ||
-        (await ensureMainNavigationVisible(page)
-          .then(() => true)
-          .catch(() => false)) ||
         (await mainNav.isVisible().catch(() => false)),
       { timeout: 20_000, message },
     )
