@@ -114,10 +114,16 @@ export default function PosShell({
   const [activePosTab, setActivePosTab] = useState<PosTabId>(activeTab as PosTabId || "pos-dashboard");
 
   useEffect(() => {
-    if (activeTab && activeTab !== activePosTab) {
-      setActivePosTab(activeTab as PosTabId);
+    // Keep this parent -> local hydration one-way.
+    // Including activePosTab in this effect's dependencies makes local POS tab clicks
+    // fight with the parent shell tab, which remounts dashboard/register/tasks and
+    // floods their mount-time fetches.
+    if (activeTab) {
+      setActivePosTab((current) =>
+        current === (activeTab as PosTabId) ? current : (activeTab as PosTabId),
+      );
     }
-  }, [activeTab, activePosTab]);
+  }, [activeTab]);
   const [managerMode, setManagerMode] = useState(false);
   const [pendingInventorySku, setPendingInventorySku] = useState<string | null>(null);
   const { hasPermission, permissionsLoaded, setStaffCredentials } = useBackofficeAuth();
