@@ -58,11 +58,13 @@ async fn staff_for_order(pool: &PgPool, transaction_id: Uuid) -> Result<Vec<Uuid
             .fetch_all(pool)
             .await?;
     let mut out = Vec::new();
-    let primary: Option<Uuid> =
-        sqlx::query_scalar(r#"SELECT primary_salesperson_id FROM transactions WHERE id = $1"#)
-            .bind(transaction_id)
-            .fetch_optional(pool)
-            .await?;
+    let primary = sqlx::query_scalar::<_, Option<Uuid>>(
+        r#"SELECT primary_salesperson_id FROM transactions WHERE id = $1"#,
+    )
+    .bind(transaction_id)
+    .fetch_optional(pool)
+    .await?
+    .flatten();
 
     for (id, role) in rows {
         let eff = crate::auth::permissions::effective_permissions_for_staff(pool, id, role).await?;
