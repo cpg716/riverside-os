@@ -2,7 +2,7 @@ use riverside_server::launcher::{launch_server_with_ready_signal, LaunchReady, L
 use riverside_server::observability::ServerLogRing;
 use serde::Serialize;
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use tauri::{AppHandle, Manager, State};
 use tokio::sync::oneshot;
@@ -150,7 +150,7 @@ fn resolve_host_frontend_dist_from_candidates(
     )
 }
 
-fn host_message(bind_addr: &str, frontend_dist: &PathBuf) -> String {
+fn host_message(bind_addr: &str, frontend_dist: &Path) -> String {
     format!(
         "Unified host is running on {bind_addr} and serving satellite clients from {}.",
         frontend_dist.display()
