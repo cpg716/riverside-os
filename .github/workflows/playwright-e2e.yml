@@ -35,11 +35,13 @@ jobs:
       CI: true
       DATABASE_URL: postgresql://postgres:password@localhost:5432/riverside_os
       RIVERSIDE_HTTP_BIND: 127.0.0.1:3000
-      E2E_BASE_URL: http://127.0.0.1:3000
+      E2E_BASE_URL: http://localhost:3000
       E2E_API_BASE: http://127.0.0.1:3000
+      E2E_AUTO_BOOT: "0"
       E2E_CORECARD_BASE: http://127.0.0.1:43400
       E2E_BO_STAFF_NAME: Chris G
       ROS_QUARANTINE_UNSTABLE_POS_E2E: "1"
+      RIVERSIDE_ENABLE_E2E_TEST_SUPPORT: "1"
       RIVERSIDE_CORECARD_BASE_URL: http://127.0.0.1:43400
       RIVERSIDE_CORECARD_CLIENT_ID: e2e-corecard-client
       RIVERSIDE_CORECARD_CLIENT_SECRET: e2e-corecard-secret
@@ -112,6 +114,7 @@ jobs:
         run: |
           cd server
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
+            RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT" \
             RIVERSIDE_CORECARD_BASE_URL="$RIVERSIDE_CORECARD_BASE_URL" \
             RIVERSIDE_CORECARD_CLIENT_ID="$RIVERSIDE_CORECARD_CLIENT_ID" \
             RIVERSIDE_CORECARD_CLIENT_SECRET="$RIVERSIDE_CORECARD_CLIENT_SECRET" \
@@ -130,6 +133,28 @@ jobs:
           echo "--- server log ---"
           cat /tmp/ros-server.log
           exit 1
+
+      - name: Verify E2E test-support routes are mounted
+        run: |
+          status="$(curl -sS -o /tmp/e2e-test-support-body.txt -w "%{http_code}" \
+            -X POST "http://127.0.0.1:3000/api/test-support/rms/seed-fixture" \
+            -H "x-riverside-staff-code: 1234" \
+            -H "x-riverside-staff-pin: 1234" \
+            -H "Content-Type: application/json" \
+            -d '{}')"
+          case "$status" in
+            200|400|401|403|422)
+              echo "Test-support route is mounted (status $status)."
+              ;;
+            *)
+              echo "Unexpected test-support readiness status: $status"
+              echo "--- response body ---"
+              cat /tmp/e2e-test-support-body.txt || true
+              echo "--- server log ---"
+              cat /tmp/ros-server.log || true
+              exit 1
+              ;;
+          esac
 
       - name: Open default register session for contract suites
         run: |
@@ -159,7 +184,17 @@ jobs:
           path: |
             client/test-results/
             client/playwright-report/
+            /tmp/ros-server.log
+            /tmp/fake-corecard.log
           if-no-files-found: ignore
+
+      - name: Print server and fake-host logs on failure
+        if: failure()
+        run: |
+          echo "--- /tmp/ros-server.log ---"
+          cat /tmp/ros-server.log || true
+          echo "--- /tmp/fake-corecard.log ---"
+          cat /tmp/fake-corecard.log || true
 
       - name: Stop server
         if: always()

@@ -24,6 +24,12 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Regenerate help artifacts
+        run: npm run generate:help
+
+      - name: Verify generated help artifacts are current
+        run: git diff --exit-code -- src/lib/help/help-manifest.generated.ts ../server/src/logic/help_corpus_manuals.generated.rs
+
       - name: Run ESLint
         run: npm run lint
 
