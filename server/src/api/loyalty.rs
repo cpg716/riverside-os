@@ -3,8 +3,8 @@
 //! - Settings (view/update threshold + reward amount)
 //! - Monthly eligible customer list
 //! - Admin point adjustment (requires badge + PIN)
-//! - Redeem reward: deduct threshold pts, apply up to reward $ toward sale,
-//!   optionally load remainder onto a loyalty gift card. Optional Podium SMS/email
+//! - Redeem reward: deduct threshold pts and issue the reward to a loyalty gift card.
+//!   Optional Podium SMS/email
 //!   when staff requests at redemption time (`notify_customer_sms` / `notify_customer_email`).
 
 use axum::{
@@ -17,7 +17,7 @@ use axum::{
 use chrono::{Duration, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{json, Value};
 use sqlx::FromRow;
 use std::sync::Arc;
 use thiserror::Error;
@@ -254,6 +254,7 @@ pub struct AdjustPointsRequest {
 pub struct AdjustPointsResponse {
     pub new_balance: i32,
     pub delta_points: i32,
+    pub effective_customer_id: Uuid,
 }
 
 async fn adjust_points(
@@ -291,6 +292,10 @@ async fn adjust_points(
 
     let mut tx = state.db.begin().await?;
 
+    let effective_customer_id =
+        crate::logic::customer_couple::resolve_effective_customer_id_tx(&mut tx, body.customer_id)
+            .await?;
+
     let new_balance: i32 = sqlx::query_scalar(
         r#"
         UPDATE customers
@@ -300,7 +305,7 @@ async fn adjust_points(
         "#,
     )
     .bind(body.delta_points)
-    .bind(body.customer_id)
+    .bind(effective_customer_id)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -311,12 +316,17 @@ async fn adjust_points(
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
-    .bind(body.customer_id)
+    .bind(effective_customer_id)
     .bind(body.delta_points)
     .bind(new_balance)
     .bind(body.reason.trim())
     .bind(admin.id)
-    .bind(json!({ "adjustment_kind": "manual_adjust", "admin_id": admin.id }))
+    .bind(json!({
+        "adjustment_kind": "manual_adjust",
+        "admin_id": admin.id,
+        "selected_customer_id": body.customer_id,
+        "effective_customer_id": effective_customer_id,
+    }))
     .execute(&mut *tx)
     .await?;
 
@@ -328,6 +338,7 @@ async fn adjust_points(
         "loyalty_points_adjust",
         json!({
             "customer_id": body.customer_id,
+            "effective_customer_id": effective_customer_id,
             "delta_points": body.delta_points,
             "new_balance": new_balance,
             "reason": body.reason,
@@ -338,6 +349,7 @@ async fn adjust_points(
     Ok(Json(AdjustPointsResponse {
         new_balance,
         delta_points: body.delta_points,
+        effective_customer_id,
     }))
 }
 
@@ -346,9 +358,9 @@ async fn adjust_points(
 #[derive(Debug, Deserialize)]
 pub struct RedeemRewardRequest {
     pub customer_id: Uuid,
-    /// Amount to apply directly to the current sale ($0 – $50).
+    /// Compatibility field. Must be `0.00`; loyalty redemptions issue to a loyalty gift card only.
     pub apply_to_sale: Decimal,
-    /// If `apply_to_sale` < reward_amount, scan a card code to load the remainder.
+    /// Required: the loyalty gift card code that will receive the reward.
     #[serde(default)]
     pub remainder_card_code: Option<String>,
     #[serde(default)]
@@ -367,10 +379,63 @@ pub struct RedeemRewardRequest {
 pub struct RedeemRewardResponse {
     pub points_deducted: i32,
     pub new_balance: i32,
+    pub effective_customer_id: Uuid,
+    /// Always `0.00` in the issuance-only redemption contract.
     pub applied_to_sale: Decimal,
     pub remainder_loaded: Decimal,
     /// Card ID if a remainder was loaded onto a new/existing card.
     pub remainder_card_id: Option<Uuid>,
+}
+
+fn masked_loyalty_card_label(code: &str) -> String {
+    let trimmed = code.trim();
+    let suffix: String = trimmed
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if suffix.is_empty() {
+        "a loyalty gift card".to_string()
+    } else {
+        format!("loyalty card ••••{suffix}")
+    }
+}
+
+fn resolve_redemption_contract(
+    apply_to_sale: Decimal,
+    reward_amount: Decimal,
+    remainder_card_code: Option<&str>,
+) -> Result<(Decimal, String), LoyaltyError> {
+    if apply_to_sale < Decimal::ZERO {
+        return Err(LoyaltyError::InvalidPayload(
+            "apply_to_sale cannot be negative".to_string(),
+        ));
+    }
+    if apply_to_sale > reward_amount {
+        return Err(LoyaltyError::InvalidPayload(format!(
+            "apply_to_sale cannot exceed reward amount (${reward_amount})"
+        )));
+    }
+    if apply_to_sale > Decimal::ZERO {
+        return Err(LoyaltyError::InvalidPayload(
+            "Loyalty rewards are issued to a loyalty gift card only. Use $0.00 here and finish the sale separately."
+                .to_string(),
+        ));
+    }
+
+    let code = remainder_card_code
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            LoyaltyError::InvalidPayload(
+                "Scan or enter a loyalty gift card code before redeeming this reward.".to_string(),
+            )
+        })?;
+
+    Ok((reward_amount, code.to_ascii_uppercase()))
 }
 
 async fn redeem_reward(
@@ -387,25 +452,17 @@ async fn redeem_reward(
     .fetch_one(&state.db)
     .await?;
 
-    if body.apply_to_sale < Decimal::ZERO {
-        return Err(LoyaltyError::InvalidPayload(
-            "apply_to_sale cannot be negative".to_string(),
-        ));
-    }
-    if body.apply_to_sale > reward_amount {
-        return Err(LoyaltyError::InvalidPayload(format!(
-            "apply_to_sale cannot exceed reward amount (${reward_amount})"
-        )));
-    }
-
-    let remainder = reward_amount - body.apply_to_sale;
-    if remainder > Decimal::ZERO && body.remainder_card_code.is_none() {
-        return Err(LoyaltyError::InvalidPayload(
-            "remainder_card_code is required when apply_to_sale < reward_amount".to_string(),
-        ));
-    }
+    let (remainder, reward_card_code) = resolve_redemption_contract(
+        body.apply_to_sale,
+        reward_amount,
+        body.remainder_card_code.as_deref(),
+    )?;
 
     let mut tx = state.db.begin().await?;
+
+    let effective_customer_id =
+        crate::logic::customer_couple::resolve_effective_customer_id_tx(&mut tx, body.customer_id)
+            .await?;
 
     // Verify and deduct points atomically.
     let new_balance: i32 = sqlx::query_scalar(
@@ -417,7 +474,7 @@ async fn redeem_reward(
         "#,
     )
     .bind(threshold)
-    .bind(body.customer_id)
+    .bind(effective_customer_id)
     .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| {
@@ -433,7 +490,7 @@ async fn redeem_reward(
         VALUES ($1, $2, $3, $4, $5, $6)
         "#,
     )
-    .bind(body.customer_id)
+    .bind(effective_customer_id)
     .bind(-threshold)
     .bind(new_balance)
     .bind("reward_redemption")
@@ -442,6 +499,9 @@ async fn redeem_reward(
         "reward_amount": reward_amount,
         "applied_to_sale": body.apply_to_sale,
         "remainder": remainder,
+        "remainder_card_code": reward_card_code,
+        "selected_customer_id": body.customer_id,
+        "effective_customer_id": effective_customer_id,
         "notify_customer_sms": body.notify_customer_sms,
         "notify_customer_email": body.notify_customer_email,
     }))
@@ -451,28 +511,23 @@ async fn redeem_reward(
     // Load remainder onto a loyalty gift card if needed.
     let mut remainder_card_id: Option<Uuid> = None;
     if remainder > Decimal::ZERO {
-        let code = body
-            .remainder_card_code
-            .as_deref()
-            .map(str::trim)
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                LoyaltyError::InvalidPayload(
-                    "remainder_card_code is required when redemption leaves a remainder balance"
-                        .to_string(),
-                )
-            })?;
         let expires_at = Utc::now() + Duration::days(365);
 
         // Try to load on existing active card first, otherwise issue new one.
-        let existing: Option<(Uuid, Decimal)> = sqlx::query_as(
-            "SELECT id, current_balance FROM gift_cards WHERE code = $1 AND card_status = 'active'::gift_card_status FOR UPDATE",
+        let existing: Option<(Uuid, Decimal, String)> = sqlx::query_as(
+            "SELECT id, current_balance, card_kind::text FROM gift_cards WHERE code = $1 AND card_status = 'active'::gift_card_status FOR UPDATE",
         )
-        .bind(code)
+        .bind(&reward_card_code)
         .fetch_optional(&mut *tx)
         .await?;
 
-        let card_id = if let Some((eid, old_bal)) = existing {
+        let card_id = if let Some((eid, old_bal, card_kind)) = existing {
+            if !card_kind.eq_ignore_ascii_case("loyalty_reward") {
+                return Err(LoyaltyError::InvalidPayload(
+                    "This code belongs to a different gift card type. Use a loyalty reward card code instead."
+                        .to_string(),
+                ));
+            }
             let new_bal = old_bal + remainder;
             sqlx::query("UPDATE gift_cards SET current_balance = $1, expires_at = GREATEST(expires_at, $2) WHERE id = $3")
                 .bind(new_bal)
@@ -496,17 +551,18 @@ async fn redeem_reward(
                 r#"
                 INSERT INTO gift_cards
                     (code, card_kind, card_status, current_balance, original_value,
-                     is_liability, expires_at, customer_id, issued_session_id, issued_transaction_id)
-                VALUES ($1, 'loyalty_reward', 'active', $2, $2, FALSE, $3, $4, $5, $6)
+                     is_liability, expires_at, customer_id, issued_session_id, issued_order_id, notes)
+                VALUES ($1, 'loyalty_reward', 'active', $2, $2, FALSE, $3, $4, $5, $6, $7)
                 RETURNING id
                 "#,
             )
-            .bind(code)
+            .bind(&reward_card_code)
             .bind(remainder)
             .bind(expires_at)
-            .bind(body.customer_id)
+            .bind(effective_customer_id)
             .bind(body.session_id)
             .bind(body.transaction_id)
+            .bind(Option::<&str>::None)
             .fetch_one(&mut *tx)
             .await?;
             sqlx::query(
@@ -531,26 +587,11 @@ async fn redeem_reward(
             VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
-        .bind(body.customer_id)
+        .bind(effective_customer_id)
         .bind(threshold)
         .bind(reward_amount)
         .bind(body.apply_to_sale)
         .bind(card_id)
-        .bind(body.transaction_id)
-        .execute(&mut *tx)
-        .await?;
-    } else {
-        sqlx::query(
-            r#"
-            INSERT INTO loyalty_reward_issuances
-                (customer_id, points_deducted, reward_amount, applied_to_sale, transaction_id)
-            VALUES ($1, $2, $3, $4, $5)
-            "#,
-        )
-        .bind(body.customer_id)
-        .bind(threshold)
-        .bind(reward_amount)
-        .bind(body.apply_to_sale)
         .bind(body.transaction_id)
         .execute(&mut *tx)
         .await?;
@@ -562,7 +603,7 @@ async fn redeem_reward(
         let pool = state.db.clone();
         let http = state.http_client.clone();
         let cache = Arc::clone(&state.podium_token_cache);
-        let cid = body.customer_id;
+        let cid = effective_customer_id;
         let ns = body.notify_customer_sms;
         let ne = body.notify_customer_email;
         let ra = reward_amount;
@@ -584,9 +625,74 @@ async fn redeem_reward(
     Ok(Json(RedeemRewardResponse {
         points_deducted: threshold,
         new_balance,
+        effective_customer_id,
         applied_to_sale: body.apply_to_sale,
         remainder_loaded: remainder,
         remainder_card_id,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LoyaltyCustomerSummaryQuery {
+    pub customer_id: Uuid,
+}
+
+#[derive(Debug, Serialize)]
+pub struct LoyaltyCustomerSummaryResponse {
+    pub selected_customer_id: Uuid,
+    pub selected_customer_name: String,
+    pub effective_customer_id: Uuid,
+    pub effective_customer_name: String,
+    pub loyalty_points: i32,
+    pub shared_with_linked_customer: bool,
+}
+
+async fn loyalty_customer_summary(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<LoyaltyCustomerSummaryQuery>,
+) -> Result<Json<LoyaltyCustomerSummaryResponse>, LoyaltyError> {
+    require_staff_or_pos_session(&state, &headers).await?;
+
+    let selected: (Uuid, String, Option<Uuid>) = sqlx::query_as(
+        r#"
+        SELECT
+            id,
+            NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), '') AS display_name,
+            couple_primary_id
+        FROM customers
+        WHERE id = $1
+        "#,
+    )
+    .bind(q.customer_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let effective_customer_id =
+        crate::logic::customer_couple::resolve_effective_customer_id(&state.db, q.customer_id)
+            .await?;
+
+    let effective: (Uuid, String, i32) = sqlx::query_as(
+        r#"
+        SELECT
+            id,
+            NULLIF(TRIM(CONCAT(COALESCE(first_name, ''), ' ', COALESCE(last_name, ''))), '') AS display_name,
+            loyalty_points
+        FROM customers
+        WHERE id = $1
+        "#,
+    )
+    .bind(effective_customer_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(LoyaltyCustomerSummaryResponse {
+        selected_customer_id: selected.0,
+        selected_customer_name: selected.1,
+        effective_customer_id: effective.0,
+        effective_customer_name: effective.1,
+        loyalty_points: effective.2,
+        shared_with_linked_customer: effective_customer_id != q.customer_id,
     }))
 }
 
@@ -598,13 +704,100 @@ pub struct LedgerQuery {
 }
 
 #[derive(Debug, Serialize, FromRow)]
+pub struct RawLedgerRow {
+    pub id: Uuid,
+    pub delta_points: i32,
+    pub balance_after: i32,
+    pub reason: String,
+    pub transaction_id: Option<Uuid>,
+    pub transaction_display_id: Option<String>,
+    pub created_by_staff_name: Option<String>,
+    pub metadata: Value,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct LedgerRow {
     pub id: Uuid,
     pub delta_points: i32,
     pub balance_after: i32,
     pub reason: String,
     pub transaction_id: Option<Uuid>,
+    pub transaction_display_id: Option<String>,
     pub created_at: chrono::DateTime<Utc>,
+    pub activity_label: String,
+    pub activity_detail: String,
+}
+
+fn loyalty_activity_summary(row: &RawLedgerRow) -> (String, String) {
+    let metadata = &row.metadata;
+    let transaction_ref = row
+        .transaction_display_id
+        .as_deref()
+        .map(|display| format!(" on {display}"))
+        .unwrap_or_default();
+
+    if metadata
+        .get("adjustment_kind")
+        .and_then(Value::as_str)
+        .is_some_and(|kind| kind == "manual_adjust")
+    {
+        let adjusted_by = row
+            .created_by_staff_name
+            .as_deref()
+            .map(|name| format!("Adjusted by {name}. "))
+            .unwrap_or_default();
+        return (
+            "Manual adjustment".to_string(),
+            format!("{adjusted_by}Reason: {}.", row.reason.trim()),
+        );
+    }
+
+    match row.reason.as_str() {
+        "order_earn" => {
+            let detail = metadata
+                .get("product_subtotal")
+                .and_then(Value::as_str)
+                .map(|value| format!("Eligible purchase subtotal ${value}{transaction_ref}."))
+                .unwrap_or_else(|| {
+                    format!("Points earned from a completed purchase{transaction_ref}.")
+                });
+            ("Points earned".to_string(), detail)
+        }
+        "reward_redemption" => {
+            let reward_amount = metadata
+                .get("reward_amount")
+                .and_then(Value::as_str)
+                .unwrap_or("0.00");
+            let card_label = metadata
+                .get("remainder_card_code")
+                .and_then(Value::as_str)
+                .map(masked_loyalty_card_label)
+                .unwrap_or_else(|| "a loyalty gift card".to_string());
+            (
+                "Reward issued".to_string(),
+                format!("Issued ${reward_amount} to {card_label}{transaction_ref}."),
+            )
+        }
+        "order_refund_clawback" => (
+            "Points removed after full refund".to_string(),
+            format!("A full refund reversed the original loyalty earn{transaction_ref}."),
+        ),
+        "order_return_clawback" => {
+            let detail = metadata
+                .get("returned_subtotal")
+                .and_then(Value::as_str)
+                .map(|value| {
+                    format!("Returned subtotal ${value} reduced the original loyalty earn{transaction_ref}.")
+                })
+                .unwrap_or_else(|| format!("A return reduced the original loyalty earn{transaction_ref}."));
+            ("Points removed after return".to_string(), detail)
+        }
+        _ => (
+            row.reason.replace('_', " "),
+            format!("Balance changed to {} points.", row.balance_after),
+        ),
+    }
 }
 
 async fn customer_ledger(
@@ -613,19 +806,50 @@ async fn customer_ledger(
     Query(q): Query<LedgerQuery>,
 ) -> Result<Json<Vec<LedgerRow>>, LoyaltyError> {
     require_staff_or_pos_session(&state, &headers).await?;
+    let effective_customer_id =
+        crate::logic::customer_couple::resolve_effective_customer_id(&state.db, q.customer_id)
+            .await?;
 
-    let rows = sqlx::query_as::<_, LedgerRow>(
+    let rows = sqlx::query_as::<_, RawLedgerRow>(
         r#"
-        SELECT id, delta_points, balance_after, reason, transaction_id, created_at
-        FROM loyalty_point_ledger
-        WHERE customer_id = $1
-        ORDER BY created_at DESC
+        SELECT
+            lpl.id,
+            lpl.delta_points,
+            lpl.balance_after,
+            lpl.reason,
+            lpl.transaction_id,
+            t.display_id AS transaction_display_id,
+            NULLIF(TRIM(s.full_name), '') AS created_by_staff_name,
+            lpl.metadata,
+            lpl.created_at
+        FROM loyalty_point_ledger lpl
+        LEFT JOIN transactions t ON t.id = lpl.transaction_id
+        LEFT JOIN staff s ON s.id = lpl.created_by_staff_id
+        WHERE lpl.customer_id = $1
+        ORDER BY lpl.created_at DESC
         LIMIT 200
         "#,
     )
-    .bind(q.customer_id)
+    .bind(effective_customer_id)
     .fetch_all(&state.db)
     .await?;
+    let rows = rows
+        .into_iter()
+        .map(|row| {
+            let (activity_label, activity_detail) = loyalty_activity_summary(&row);
+            LedgerRow {
+                id: row.id,
+                delta_points: row.delta_points,
+                balance_after: row.balance_after,
+                reason: row.reason,
+                transaction_id: row.transaction_id,
+                transaction_display_id: row.transaction_display_id,
+                created_at: row.created_at,
+                activity_label,
+                activity_detail,
+            }
+        })
+        .collect();
     Ok(Json(rows))
 }
 
@@ -678,6 +902,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/settings", get(get_settings).patch(patch_settings))
         .route("/program-summary", get(get_program_summary))
+        .route("/customer-summary", get(loyalty_customer_summary))
         .route("/pipeline-stats", get(get_loyalty_pipeline_stats))
         .route("/monthly-eligible", get(monthly_eligible))
         .route("/recent-issuances", get(get_recent_issuances))
@@ -724,4 +949,107 @@ async fn get_loyalty_pipeline_stats(
         lifetime_rewards_issued: stats.total_issuances.unwrap_or(0),
         active_30d_adjustments: stats.recent_adjustments.unwrap_or(0),
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redemption_contract_requires_zero_immediate_use() {
+        let error = resolve_redemption_contract(
+            Decimal::new(1000, 2),
+            Decimal::new(5000, 2),
+            Some("LOYAL-1234"),
+        )
+        .expect_err("non-zero immediate use should be blocked");
+
+        assert!(error
+            .to_string()
+            .contains("issued to a loyalty gift card only"));
+    }
+
+    #[test]
+    fn redemption_contract_requires_card_code() {
+        let error = resolve_redemption_contract(Decimal::ZERO, Decimal::new(5000, 2), None)
+            .expect_err("card code should be required");
+
+        assert!(error
+            .to_string()
+            .contains("Scan or enter a loyalty gift card code"));
+    }
+
+    #[test]
+    fn redemption_contract_normalizes_card_code_and_full_reward_remainder() {
+        let (remainder, code) =
+            resolve_redemption_contract(Decimal::ZERO, Decimal::new(5000, 2), Some(" loy-1234 "))
+                .expect("issuance-only redemption should succeed");
+
+        assert_eq!(remainder, Decimal::new(5000, 2));
+        assert_eq!(code, "LOY-1234");
+    }
+
+    #[test]
+    fn loyalty_activity_summary_formats_reward_issuance() {
+        let row = RawLedgerRow {
+            id: Uuid::nil(),
+            delta_points: -500,
+            balance_after: 0,
+            reason: "reward_redemption".to_string(),
+            transaction_id: Some(Uuid::nil()),
+            transaction_display_id: Some("TXN-1001".to_string()),
+            created_by_staff_name: None,
+            metadata: json!({
+                "reward_amount": "50.00",
+                "remainder_card_code": "LOY-1234",
+            }),
+            created_at: Utc::now(),
+        };
+
+        let (label, detail) = loyalty_activity_summary(&row);
+        assert_eq!(label, "Reward issued");
+        assert!(detail.contains("$50.00"));
+        assert!(detail.contains("••••1234"));
+        assert!(detail.contains("TXN-1001"));
+    }
+
+    #[test]
+    fn loyalty_activity_summary_formats_manual_adjustment() {
+        let row = RawLedgerRow {
+            id: Uuid::nil(),
+            delta_points: 25,
+            balance_after: 225,
+            reason: "CSR goodwill".to_string(),
+            transaction_id: None,
+            transaction_display_id: None,
+            created_by_staff_name: Some("Chris Garcia".to_string()),
+            metadata: json!({ "adjustment_kind": "manual_adjust" }),
+            created_at: Utc::now(),
+        };
+
+        let (label, detail) = loyalty_activity_summary(&row);
+        assert_eq!(label, "Manual adjustment");
+        assert!(detail.contains("Adjusted by Chris Garcia"));
+        assert!(detail.contains("CSR goodwill"));
+    }
+
+    #[test]
+    fn loyalty_activity_summary_formats_return_clawback() {
+        let row = RawLedgerRow {
+            id: Uuid::nil(),
+            delta_points: -75,
+            balance_after: 425,
+            reason: "order_return_clawback".to_string(),
+            transaction_id: Some(Uuid::nil()),
+            transaction_display_id: Some("TXN-2002".to_string()),
+            created_by_staff_name: None,
+            metadata: json!({ "returned_subtotal": "15.00" }),
+            created_at: Utc::now(),
+        };
+
+        let (label, detail) = loyalty_activity_summary(&row);
+        assert_eq!(label, "Points removed after return");
+        assert!(detail.contains("$15.00"));
+        assert!(detail.contains("TXN-2002"));
+    }
 }

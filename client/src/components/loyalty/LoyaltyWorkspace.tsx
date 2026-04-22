@@ -55,6 +55,17 @@ interface RewardFulfillmentRow {
   id?: string;
 }
 
+interface LoyaltyLedgerEntry {
+  id: string;
+  reason: string;
+  delta_points: number;
+  balance_after: number;
+  created_at: string;
+  transaction_display_id?: string | null;
+  activity_label: string;
+  activity_detail: string;
+}
+
 function printMailingLabels(customers: (LoyaltyEligibleCustomer | RewardFulfillmentRow)[]): void {
   const w = window.open("", "_blank", "width=600,height=800");
   if (!w) return;
@@ -214,14 +225,14 @@ function SettingsPanel({
             </div>
 
             {err && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-[10px] font-black uppercase text-red-600 animate-shake">{err}</div>}
-            {saved && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase text-emerald-600">Policy Synchronized</div>}
+            {saved && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase text-emerald-600">Program settings saved</div>}
 
             <button 
               onClick={save} 
               disabled={saving}
               className="ui-btn-primary w-full shadow-lg shadow-amber-500/20 hover:scale-[1.02] active:scale-95 transition-all py-3 rounded-2xl"
             >
-              {saving ? "Updating..." : "Persist Changes"}
+              {saving ? "Saving..." : "Save Changes"}
             </button>
           </div>
         </div>
@@ -235,8 +246,8 @@ function SettingsPanel({
               <Mail className="h-5 w-5" />
             </div>
             <div>
-               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Elite Letter Designer</h3>
-               <p className="text-[10px] font-bold text-app-text-muted tracking-tight opacity-60">Personalized fulfillment correspondence</p>
+               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Reward Letter Template</h3>
+               <p className="text-[10px] font-bold text-app-text-muted tracking-tight opacity-60">Customer message for reward-card follow-up</p>
             </div>
           </div>
           
@@ -257,11 +268,11 @@ function SettingsPanel({
            <textarea
              value={template}
              onChange={e => setTemplate(e.target.value)}
-             placeholder="Draft your loyalty correspondence here..."
+             placeholder="Write the reward-card message here..."
              className="w-full h-full p-8 bg-transparent text-sm font-mono leading-relaxed text-app-text resize-none focus:outline-none placeholder:opacity-20 tabular-nums"
            />
            <div className="absolute bottom-6 right-6 flex items-center gap-2">
-              <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-40">Markdown Supported</span>
+              <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-40">Markdown supported</span>
               <FileText size={12} className="text-app-text-muted opacity-20" />
            </div>
         </div>
@@ -278,7 +289,7 @@ function AdjustPanel() {
   const [reason, setReason] = useState("");
   const [badge, setBadge] = useState("");
   const [pin, setPin] = useState("");
-  const [ledger, setLedger] = useState<{ id: string; reason: string; delta_points: number; balance_after: number; created_at: string }[]>([]);
+  const [ledger, setLedger] = useState<LoyaltyLedgerEntry[]>([]);
   const [result, setResult] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -289,17 +300,17 @@ function AdjustPanel() {
       const res = await fetch(`${BASE}/api/loyalty/ledger?customer_id=${customerId}`, {
         headers: backofficeHeaders(),
       });
-      if (res.ok) setLedger(await res.json());
+      if (res.ok) setLedger((await res.json()) as LoyaltyLedgerEntry[]);
     })();
   }, [customerId, backofficeHeaders]);
 
   const submit = async () => {
     setErr(null); setResult(null);
-    if (!customerId.trim()) { setErr("Customer selection required."); return; }
+    if (!customerId.trim()) { setErr("Select a customer first."); return; }
     const d = parseInt(delta);
-    if (!Number.isFinite(d) || d === 0) { setErr("Enter non-zero adjustment."); return; }
-    if (!reason.trim()) { setErr("Internal reason required."); return; }
-    if (!badge.trim()) { setErr("Authority badge required."); return; }
+    if (!Number.isFinite(d) || d === 0) { setErr("Enter a points adjustment other than zero."); return; }
+    if (!reason.trim()) { setErr("Enter a reason for the adjustment."); return; }
+    if (!badge.trim()) { setErr("Enter the manager staff code."); return; }
     setBusy(true);
     try {
       const res = await fetch(`${BASE}/api/loyalty/adjust-points`, {
@@ -315,16 +326,20 @@ function AdjustPanel() {
       });
       if (!res.ok) {
         const b = (await res.json()) as { error?: string };
-        throw new Error(b.error ?? "Authorization or DB failure");
+        throw new Error(b.error ?? "We couldn't save this points adjustment.");
       }
-      const data = (await res.json()) as { new_balance: number };
-      setResult(`Success. New Balance: ${data.new_balance.toLocaleString()} pts`);
+      const data = (await res.json()) as { new_balance: number; effective_customer_id?: string };
+      const sharedNotice =
+        data.effective_customer_id && data.effective_customer_id !== customerId
+          ? " Applied to the linked couple loyalty account."
+          : "";
+      setResult(`Points updated. New balance: ${data.new_balance.toLocaleString()} pts.${sharedNotice}`);
       setDelta(""); setReason("");
       // Refresh ledger
       const lres = await fetch(`${BASE}/api/loyalty/ledger?customer_id=${customerId}`, {
         headers: backofficeHeaders(),
       });
-      if (lres.ok) setLedger(await lres.json());
+      if (lres.ok) setLedger((await lres.json()) as LoyaltyLedgerEntry[]);
     } catch (e) {
       setErr(e instanceof Error ? e.message : "Error");
     } finally {
@@ -344,7 +359,7 @@ function AdjustPanel() {
             <div className="p-2 rounded-xl bg-sky-500/10 text-sky-600 ring-1 ring-sky-500/20">
               <RefreshCw className="h-5 w-5" />
             </div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Balance Override</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Points Adjustment</h3>
           </div>
 
           <form 
@@ -406,7 +421,7 @@ function AdjustPanel() {
               disabled={busy} 
               className="ui-btn-primary w-full shadow-lg shadow-sky-500/20 hover:scale-[1.02] active:scale-95 transition-all py-3 rounded-2xl"
             >
-              {busy ? "Authorizing..." : "Commit Override"}
+              {busy ? "Authorizing..." : "Save Adjustment"}
             </button>
           </form>
         </div>
@@ -418,20 +433,21 @@ function AdjustPanel() {
             <div className="p-2 rounded-xl bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20">
                <LayoutDashboard size={18} />
             </div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Member Ledger History</h3>
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Loyalty Activity</h3>
          </div>
 
          {!customerId ? (
            <div className="flex-1 flex flex-col items-center justify-center grayscale opacity-20">
               <RefreshCw size={40} className="mb-4" />
-              <p className="text-[10px] font-black uppercase tracking-widest">Select a member to view audit depth</p>
+              <p className="text-[10px] font-black uppercase tracking-widest">Select a customer to view loyalty activity</p>
            </div>
          ) : (
            <div className="space-y-3">
-              {ledger.map((p: { id: string; reason: string; delta_points: number; balance_after: number; created_at: string }) => (
+              {ledger.map((p) => (
                 <div key={p.id} className="flex items-center justify-between p-3 rounded-xl bg-app-surface-2/40 border border-app-border/30 hover:bg-app-surface transition-colors">
                    <div className="flex flex-col">
-                      <span className="text-[11px] font-black uppercase tracking-tight text-app-text">{p.reason.replace(/_/g, ' ')}</span>
+                      <span className="text-[11px] font-black uppercase tracking-tight text-app-text">{p.activity_label}</span>
+                      <span className="text-[10px] text-app-text-muted">{p.activity_detail}</span>
                       <span className="text-[9px] font-bold text-app-text-muted opacity-60">
                          {new Date(p.created_at).toLocaleDateString()} at {new Date(p.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
@@ -440,12 +456,12 @@ function AdjustPanel() {
                       <span className={`text-xs font-black tabular-nums ${p.delta_points > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                          {p.delta_points > 0 ? '+' : ''}{p.delta_points.toLocaleString()}
                       </span>
-                      <span className="text-[9px] font-bold text-app-text-muted opacity-40">Bal: {p.balance_after.toLocaleString()}</span>
+                      <span className="text-[9px] font-bold text-app-text-muted opacity-40">Balance: {p.balance_after.toLocaleString()}</span>
                    </div>
                 </div>
               ))}
               {ledger.length === 0 && (
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 text-center py-10">No ledger entries found</p>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40 text-center py-10">No recent loyalty activity</p>
               )}
            </div>
          )}
@@ -487,7 +503,7 @@ function EligibleList({
       <div className="border-b border-app-border/50 px-6 py-5 bg-app-surface-2/10">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-black tracking-tight text-app-text">Registry of Elite Members</h2>
+            <h2 className="text-base font-black tracking-tight text-app-text">Customers Ready for Reward</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
               {customers.length} members currently at or above threshold
             </p>
@@ -499,7 +515,7 @@ function EligibleList({
               className="ui-btn-secondary flex items-center gap-2 px-4 py-2 border-app-border/50 shadow-sm"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
-              Sync Elite Pool
+              Refresh Eligible Customers
             </button>
             {customers.length > 0 && (
               <button
@@ -518,7 +534,7 @@ function EligibleList({
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-10 w-10 border-b-2 border-app-accent rounded-full animate-spin" />
-             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Synchronizing Elite Pool...</p>
+             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Loading eligible customers...</p>
           </div>
         ) : customers.length === 0 ? (
           <div className="flex flex-col items-center gap-6 py-32 grayscale opacity-40">
@@ -529,9 +545,9 @@ function EligibleList({
           <div className="flex flex-col gap-3">
             {/* High-density Horizontal List for Elite Members */}
             <div className="hidden lg:grid grid-cols-[1fr_2fr_2fr_auto] gap-4 px-8 py-3 mb-2 opacity-40">
-               <span className="text-[9px] font-black uppercase tracking-[0.2em]">Member Identity</span>
-               <span className="text-[9px] font-black uppercase tracking-[0.2em] px-10">Value Profile</span>
-               <span className="text-[9px] font-black uppercase tracking-[0.2em]">Communication & Geo</span>
+               <span className="text-[9px] font-black uppercase tracking-[0.2em]">Customer</span>
+               <span className="text-[9px] font-black uppercase tracking-[0.2em] px-10">Points Status</span>
+               <span className="text-[9px] font-black uppercase tracking-[0.2em]">Contact & Location</span>
                <span className="text-[9px] font-black uppercase tracking-[0.2em] w-[200px] text-right">Operations</span>
             </div>
 
@@ -560,18 +576,18 @@ function EligibleList({
                       <div className="flex items-center gap-6">
                          <div className="flex flex-col">
                             <span className="text-2xl font-black text-amber-600 tabular-nums tracking-tighter leading-none">{pointsValue}</span>
-                            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-app-text-muted mt-1 opacity-60">Accumulated</span>
+                            <span className="text-[9px] font-black uppercase tracking-[0.15em] text-app-text-muted mt-1 opacity-60">Current balance</span>
                          </div>
                          <div className="h-8 w-px bg-app-border/30 mx-2 hidden lg:block" />
                          <div className="flex flex-col">
                             <div className="flex items-center gap-1.5">
                                <span className={`text-[10px] font-black uppercase tracking-widest ${isMultiReward ? 'text-purple-600' : 'text-emerald-600'}`}>
-                                  {isMultiReward ? "Elite x2" : "Elite Status"}
+                                  {isMultiReward ? "Two rewards ready" : "Reward ready"}
                                </span>
                                {isMultiReward && <Award size={14} className="text-purple-500 animate-pulse" />}
                             </div>
                             <span className="text-[9px] font-black uppercase tracking-[0.15em] text-app-text-muted mt-1 opacity-60">
-                               Tier Mapping
+                               Reward status
                             </span>
                          </div>
                       </div>
@@ -586,7 +602,7 @@ function EligibleList({
                           </div>
                           <div className="flex items-center gap-2 text-[10px] font-bold text-app-text-muted">
                              <TrendingUp size={14} className="text-emerald-500/50" />
-                             <span>{[c.city, c.state].filter(Boolean).join(", ") || "Geo pending"}</span>
+                             <span>{[c.city, c.state].filter(Boolean).join(", ") || "Location not listed"}</span>
                           </div>
                        </div>
                     </div>
@@ -666,9 +682,9 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
       <div className="border-b border-app-border/50 px-6 py-5 bg-app-surface-2/10 backdrop-blur-md">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-base font-black tracking-tight text-app-text">Fulfillment Archive</h2>
+            <h2 className="text-base font-black tracking-tight text-app-text">Reward Card History</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
-              Historical record of elite reward issuances and status
+              Recent loyalty reward cards issued to customers
             </p>
           </div>
           <button
@@ -677,7 +693,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
             className="group flex items-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-app-surface-2 transition-all"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-purple-500" : "text-app-text-muted group-hover:text-purple-500"}`} />
-            Sync Ledger
+            Refresh History
           </button>
         </div>
       </div>
@@ -685,12 +701,12 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-12 w-12 border-b-2 border-purple-500 rounded-full animate-spin" />
-             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted italic">Auditing historical issuances...</p>
+             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted italic">Loading reward history...</p>
           </div>
         ) : issuances.length === 0 ? (
           <div className="flex flex-col items-center gap-6 py-32 grayscale opacity-40">
             <LayoutDashboard size={48} className="text-app-text-muted" />
-            <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">No fulfillment activity recorded.</p>
+            <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">No reward cards have been issued yet.</p>
           </div>
         ) : (
           <div className="flex flex-col gap-3">
@@ -733,7 +749,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                             {row.card_code}
                           </code>
                        </div>
-                       <span className="text-[8px] font-black uppercase tracking-widest text-app-text-muted ml-6 opacity-40">Gift Card Loaded</span>
+                       <span className="text-[8px] font-black uppercase tracking-widest text-app-text-muted ml-6 opacity-40">Reward Card Issued</span>
                     </div>
                   ) : (
                     <div className="flex flex-col gap-1">
@@ -810,7 +826,7 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
        <div className="flex flex-1 items-center justify-center bg-app-bg text-app-text-muted">
           <div className="flex flex-col items-center gap-3">
              <RefreshCw className="animate-spin text-app-accent" size={24} />
-             <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Synchronizing Loyalty Pipeline...</span>
+             <span className="text-[10px] font-black uppercase tracking-widest opacity-40">Loading loyalty workspace...</span>
           </div>
        </div>
      );
@@ -821,10 +837,10 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
       {/* Executive Summary Strip */}
       <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
         {[
-          { label: "Points Vault", val: stats?.total_points_liability.toLocaleString() ?? "—", icon: Coins, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20", trend: "+2.4%" },
-          { label: "Elite Pool", val: stats?.eligible_customers_count.toLocaleString() ?? "—", icon: UserCheck, color: "text-sky-500", bg: "bg-sky-500/10", border: "border-sky-500/20", trend: "+8 members" },
-          { label: "Rewards Issued", val: stats?.lifetime_rewards_issued.toLocaleString() ?? "—", icon: Award, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", trend: "14 active" },
-          { label: "Retention Activity", val: stats?.active_30d_adjustments.toLocaleString() ?? "—", icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20", trend: "Normal" },
+          { label: "Points On Accounts", val: stats?.total_points_liability.toLocaleString() ?? "—", icon: Coins, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20", trend: "Current total" },
+          { label: "Ready For Reward", val: stats?.eligible_customers_count.toLocaleString() ?? "—", icon: UserCheck, color: "text-sky-500", bg: "bg-sky-500/10", border: "border-sky-500/20", trend: "At threshold" },
+          { label: "Reward Cards Issued", val: stats?.lifetime_rewards_issued.toLocaleString() ?? "—", icon: Award, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", trend: "All time" },
+          { label: "Recent Adjustments", val: stats?.active_30d_adjustments.toLocaleString() ?? "—", icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20", trend: "Last 30 days" },
         ].map((s, idx) => (
           <div key={idx} className={`flex min-w-[240px] flex-1 items-center gap-5 rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-500`}>
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">

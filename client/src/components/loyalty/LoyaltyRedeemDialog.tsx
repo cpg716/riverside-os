@@ -1,7 +1,7 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useRef, useState } from "react";
-import { Gift, X, Plus, Award, User, ShoppingCart, CreditCard, Sparkles, TrendingDown, AlertTriangle } from "lucide-react";
-import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
+import { Gift, X, Plus, Award, User, CreditCard, Sparkles, TrendingDown, AlertTriangle } from "lucide-react";
+import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -37,8 +37,6 @@ export function LoyaltyRedeemDialog({
 }: LoyaltyRedeemDialogProps) {
   const { toast } = useToast();
   const rewardCents = parseMoneyToCents(rewardAmountRaw);
-  const rewardDollars = parseMoney(rewardAmountRaw);
-  const [applyAmount, setApplyAmount] = useState("0.00");
   const [cardCode, setCardCode] = useState("");
   const [notifySms, setNotifySms] = useState(false);
   const [notifyEmail, setNotifyEmail] = useState(false);
@@ -54,7 +52,6 @@ export function LoyaltyRedeemDialog({
 
   useEffect(() => {
     if (!isOpen || !customer) return;
-    setApplyAmount(centsToFixed2(0));
     setCardCode("");
     setNotifySms(false);
     setNotifyEmail(false);
@@ -63,16 +60,11 @@ export function LoyaltyRedeemDialog({
 
   if (!isOpen || !customer) return null;
 
-  const appliedCents = Math.min(
-    Math.max(0, parseMoneyToCents(applyAmount)),
-    rewardCents,
-  );
-  const remainderCents = rewardCents - appliedCents;
-  const needsCard = remainderCents > 0;
+  const remainderCents = rewardCents;
 
   const submit = async () => {
     setError(null);
-    if (needsCard && !cardCode.trim()) {
+    if (!cardCode.trim()) {
       setError(
         `Enter or scan a gift card code to load $${centsToFixed2(remainderCents)}.`,
       );
@@ -88,8 +80,8 @@ export function LoyaltyRedeemDialog({
         },
         body: JSON.stringify({
           customer_id: customer.id,
-          apply_to_sale: centsToFixed2(appliedCents),
-          ...(needsCard ? { remainder_card_code: cardCode.trim() } : {}),
+          apply_to_sale: centsToFixed2(0),
+          remainder_card_code: cardCode.trim(),
           notify_customer_sms: notifySms,
           notify_customer_email: notifyEmail,
           ...(registerSessionId ? { session_id: registerSessionId } : {}),
@@ -97,16 +89,16 @@ export function LoyaltyRedeemDialog({
       });
       const data = (await res.json()) as { error?: string; new_balance?: number };
       if (!res.ok) {
-        throw new Error(data.error ?? "Redemption failed");
+        throw new Error(data.error ?? "We couldn't issue the reward card.");
       }
       toast(
-        `Reward redeemed for ${loyaltyEligibleDisplayName(customer)}. New balance: ${data.new_balance?.toLocaleString() ?? "—"} pts.`,
+        `Reward card issued for ${loyaltyEligibleDisplayName(customer)}. New balance: ${data.new_balance?.toLocaleString() ?? "—"} pts.`,
         "success",
       );
       onSuccess();
       onClose();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Redemption failed");
+      setError(e instanceof Error ? e.message : "We couldn't issue the reward card.");
     } finally {
       setBusy(false);
     }
@@ -121,7 +113,7 @@ export function LoyaltyRedeemDialog({
         aria-labelledby={titleId}
         className="relative w-full max-w-lg overflow-hidden rounded-[48px] border border-white/10 bg-app-surface shadow-[0_32px_128px_rgba(0,0,0,0.8)] animate-in zoom-in-95 duration-500 ring-1 ring-white/5"
       >
-        {/* Animated Elite Background */}
+        {/* Accent background */}
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(var(--app-accent-rgb),0.2),transparent_70%)] opacity-50" />
         <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.03] to-purple-500/[0.03] pointer-events-none" />
         
@@ -146,7 +138,7 @@ export function LoyaltyRedeemDialog({
             </div>
             <div className="min-w-0">
               <p id={titleId} className="text-2xl font-black uppercase tracking-tight text-app-text">
-                Redeem Elite Reward
+                Issue Reward Card
               </p>
               <div className="flex items-center gap-2 mt-1">
                 <User size={12} className="text-app-text-muted opacity-40" />
@@ -163,7 +155,7 @@ export function LoyaltyRedeemDialog({
             
             <div className="flex items-end justify-between relative z-10">
               <div className="space-y-1">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600/70">Member Balance</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-amber-600/70">Current Points</p>
                 <div className="flex items-baseline gap-2">
                     <p className="text-5xl font-black tabular-nums text-app-text tracking-tighter">
                       {customer.loyalty_points.toLocaleString()}
@@ -172,7 +164,7 @@ export function LoyaltyRedeemDialog({
                 </div>
               </div>
               <div className="text-right space-y-1">
-                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-600/70">Unlocked Value</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em] text-emerald-600/70">Reward Amount</p>
                 <div className="flex items-baseline justify-end gap-1">
                     <p className="text-5xl font-black tabular-nums text-emerald-500 tracking-tighter">
                       ${centsToFixed2(rewardCents)}
@@ -187,43 +179,18 @@ export function LoyaltyRedeemDialog({
                    <TrendingDown size={16} strokeWidth={3} />
                </div>
                <p className="text-[11px] font-black uppercase tracking-[0.05em] text-amber-800 leading-tight">
-                This transaction will deduct <span className="underline decoration-amber-500/30 underline-offset-4">{pointThreshold.toLocaleString()} pts</span> from their digital vault.
+                This will remove <span className="underline decoration-amber-500/30 underline-offset-4">{pointThreshold.toLocaleString()} pts</span> from the customer's loyalty balance.
                </p>
             </div>
           </div>
 
           <div className="space-y-8">
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <label className="block space-y-2 group/input">
-                  <div className="flex items-center gap-2 px-1">
-                    <ShoppingCart size={12} className="text-app-text-muted opacity-40 group-focus-within/input:text-emerald-500 group-focus-within/input:opacity-100 transition-all" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted group-focus-within/input:text-app-text transition-all">
-                        Apply to sale
-                    </span>
-                  </div>
-                  <div className="relative">
-                      <input
-                        type="number"
-                        min="0"
-                        max={rewardDollars}
-                        step="0.01"
-                        value={applyAmount}
-                        onChange={(e) => setApplyAmount(e.target.value)}
-                        className="ui-input w-full bg-app-surface-2/60 text-center text-3xl font-black tabular-nums tracking-tighter border-2 border-transparent focus:border-emerald-500 ring-offset-app-surface transition-all h-20 rounded-[24px]"
-                      />
-                      <div className="absolute left-6 top-1/2 -translate-y-1/2 text-app-text-muted opacity-20 text-xl font-black">$</div>
-                  </div>
-                  <p className="px-1 text-[9px] font-bold text-app-text-muted opacity-60 italic text-center">
-                    Enter $0.00 to fully convert to a Gift Card.
-                  </p>
-                </label>
-
-                {needsCard ? (
+            <div className="grid grid-cols-1 gap-6">
                   <label className="block animate-in fade-in slide-in-from-right-4 duration-500 space-y-2 group/card">
                     <div className="flex items-center gap-2 px-1">
                         <CreditCard size={12} className="text-app-text-muted opacity-40 group-focus-within/card:text-amber-500 group-focus-within/card:opacity-100 transition-all" />
                         <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted group-focus-within/card:text-app-text transition-all">
-                            Load remainder (${centsToFixed2(remainderCents)})
+                            Load reward (${centsToFixed2(remainderCents)})
                         </span>
                     </div>
                     <div className="relative">
@@ -238,17 +205,17 @@ export function LoyaltyRedeemDialog({
                       <Plus className="absolute left-6 top-1/2 -translate-y-1/2 h-6 w-6 text-app-text-muted opacity-40" />
                     </div>
                   </label>
-                ) : (
-                    <div className="flex flex-col items-center justify-center p-6 rounded-[24px] bg-emerald-500/[0.03] border border-dashed border-emerald-500/20 animate-in fade-in duration-700">
-                        <Gift className="text-emerald-500 mb-2 opacity-40" size={32} />
-                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600/70 text-center">Reward Fully Leveraged<br/>on active sale</p>
-                    </div>
-                )}
+                  <div className="flex items-center gap-3 rounded-[24px] border border-dashed border-amber-500/20 bg-amber-500/[0.03] px-5 py-4">
+                    <Gift className="h-6 w-6 shrink-0 text-amber-500 opacity-70" />
+                    <p className="text-[10px] font-black uppercase tracking-[0.12em] text-amber-700 leading-tight">
+                      This redemption issues the full reward to a loyalty gift card. Complete any live sale separately in the register.
+                    </p>
+                  </div>
             </div>
 
             <div className="grid grid-cols-2 gap-4 rounded-[28px] bg-app-surface-2 p-5 border border-app-border/40 shadow-inner">
               <p className="col-span-2 mb-1 px-1 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
-                Fulfillment Notifications
+                Customer Notice
               </p>
               <label className="flex items-center gap-3 rounded-[18px] bg-app-surface px-4 py-3 border border-app-border cursor-pointer transition-all hover:border-emerald-500/40 hover:bg-emerald-500/[0.02] group shadow-sm active:scale-[0.98]">
                 <input
@@ -257,7 +224,7 @@ export function LoyaltyRedeemDialog({
                   checked={notifySms}
                   onChange={(e) => setNotifySms(e.target.checked)}
                 />
-                <span className="text-[11px] font-black uppercase tracking-widest text-app-text group-hover:text-emerald-600 transition-colors">SMS Bundle</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-app-text group-hover:text-emerald-600 transition-colors">Send Text</span>
               </label>
               <label className="flex items-center gap-3 rounded-[18px] bg-app-surface px-4 py-3 border border-app-border cursor-pointer transition-all hover:border-sky-500/40 hover:bg-sky-500/[0.02] group shadow-sm active:scale-[0.98]">
                 <input
@@ -266,7 +233,7 @@ export function LoyaltyRedeemDialog({
                   checked={notifyEmail}
                   onChange={(e) => setNotifyEmail(e.target.checked)}
                 />
-                <span className="text-[11px] font-black uppercase tracking-widest text-app-text group-hover:text-sky-600 transition-colors">Digital Receipt</span>
+                <span className="text-[11px] font-black uppercase tracking-widest text-app-text group-hover:text-sky-600 transition-colors">Send Email</span>
               </label>
             </div>
 
@@ -292,10 +259,10 @@ export function LoyaltyRedeemDialog({
                 disabled={busy}
                 className="flex-[2] rounded-[24px] h-16 border-b-8 border-emerald-800 bg-emerald-600 text-[11px] font-black uppercase tracking-[0.25em] text-white shadow-[0_12px_48px_rgba(16,185,129,0.3)] transition-all hover:scale-[1.02] hover:brightness-110 active:scale-[0.98] active:translate-y-1 active:border-b-2 disabled:opacity-50 disabled:grayscale"
               >
-                {busy ? "Processing Reward..." : (
+                {busy ? "Issuing Reward..." : (
                   <div className="flex items-center justify-center gap-3">
                     <Sparkles size={20} className="text-emerald-300" />
-                    {appliedCents > 0 ? "Commit Fulfillment" : "Issue Gift Card"}
+                    {"Issue Reward Card"}
                   </div>
                 )}
               </button>
