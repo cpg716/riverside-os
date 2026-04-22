@@ -176,10 +176,10 @@ Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_r
 | 149 | **ROS Dev Center v1** (ops telemetry, alerts, action audit, bug-incident links) |
 | 150 | **Reporting order_lines margin restore** (`line_gross_margin_pre_tax`) + drift-safe probes |
 
-### Data Provenance & Integrity (2018 Hardening)
+### Data Provenance & Integrity
 Riverside OS maintains a strict **Source of Truth** policy for Counterpoint integrations:
 - **Calculation over Static Fields**: Customer **Lifetime Sales** are never pulled as a static value. They are calculated dynamically by aggregating all imported `transactions` with `booked_at >= '2018-01-01'`.
-- **2018 Historical Floor**: The bridge is configured to pull all transactional history (tickets, payments, inventory movement) from **January 1st, 2018**, providing a complete audit trail for financial reporting.
+- **Current bridge default**: The shipped Counterpoint bridge now defaults **`CP_IMPORT_SINCE`** to **`2018-01-01`**. This is the accepted migration floor for historical Counterpoint data in ROS and should remain visible in bridge preflight unless operators are intentionally running a narrower rehearsal.
 - **Greedy Open Docs**: The bridge captures ALL open documents (`PS_DOC`) regardless of date to ensure the non-takeaway backlog (Layaways/Quotes) is preserved.
 
 | Path | Role | Audience |
@@ -193,7 +193,7 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
-| `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint bridge, mapping, heartbeats | Ops / devs |
+| `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint one-time migration bridge, mapping, heartbeats, retirement path | Ops / devs |
 | `docs/STAFF_SCHEDULE_XLSX_IMPORTER.md` | Staff Schedule Maker weekly grid + `.xlsx` import format and troubleshooting | Ops / devs |
 | `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
 | `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |

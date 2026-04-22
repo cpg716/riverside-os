@@ -5,10 +5,12 @@
 //! Ticket and open-doc transactions are only inserted after **every** line resolves to a variant
 //! (no partial transactions with mismatched totals).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
+use std::fs::File;
+use std::path::PathBuf;
 
 use chrono::{DateTime, NaiveDate, Utc};
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, RoundingStrategy};
 use serde::{Deserialize, Serialize};
 use sqlx::{Acquire, PgPool, Postgres, Transaction};
 use thiserror::Error;
@@ -612,6 +614,36 @@ pub async fn execute_counterpoint_receiving_batch(
                 .fetch_optional(&mut *tx)
                 .await?;
 
+        let already_exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1
+                FROM counterpoint_receiving_history
+                WHERE vend_no = $1
+                  AND item_no = $2
+                  AND recv_dat = $3
+                  AND unit_cost = $4
+                  AND qty_recv = $5
+                  AND po_no IS NOT DISTINCT FROM $6
+                  AND recv_no IS NOT DISTINCT FROM $7
+            )
+            "#,
+        )
+        .bind(&row.vend_no)
+        .bind(&row.item_no)
+        .bind(recv_dat)
+        .bind(row.unit_cost)
+        .bind(row.qty_recv)
+        .bind(&row.po_no)
+        .bind(&row.recv_no)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if already_exists {
+            skipped += 1;
+            continue;
+        }
+
         sqlx::query(
             r#"
             INSERT INTO counterpoint_receiving_history (
@@ -914,6 +946,1523 @@ pub async fn get_sync_status(
         counterpoint_staging_enabled,
         staging_pending_count,
     })
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Pre-go-live Counterpoint baseline reset
+// ────────────────────────────────────────────────────────────────────────────
+
+const COUNTERPOINT_BASELINE_RESET_CONFIRMATION: &str = "RESET COUNTERPOINT BASELINE";
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointResetCountRow {
+    pub key: String,
+    pub label: String,
+    pub count: i64,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointResetPreview {
+    pub confirmation_phrase: String,
+    pub pre_go_live_only_warning: String,
+    pub preserve_always: Vec<String>,
+    pub reset_scope: Vec<CounterpointResetCountRow>,
+    pub careful_ordering: Vec<String>,
+    pub excluded_for_now: Vec<String>,
+    pub bridge_local_state_note: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointResetResult {
+    pub confirmation_phrase: String,
+    pub reset_scope: Vec<CounterpointResetCountRow>,
+    pub preserve_always: Vec<String>,
+    pub bridge_local_state_note: String,
+}
+
+async fn reset_preview_count(pool: &PgPool, query: &str) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar(query).fetch_one(pool).await
+}
+
+fn counterpoint_reset_preserve_always() -> Vec<String> {
+    vec![
+        "Bootstrap/back-office staff accounts and PIN access, including the seeded Chris G admin account.".into(),
+        "store_settings and other singleton runtime/config rows required for app startup.".into(),
+        "Staff role permissions, per-staff permissions, pricing limits, and other auth/bootstrap tables.".into(),
+        "Counterpoint mapping configuration tables (category, payment method, gift reason) so reruns keep the reviewed mapping setup.".into(),
+        "Schema/migration ledgers, help/config content, and non-business integration/runtime settings.".into(),
+    ]
+}
+
+fn counterpoint_reset_excluded_for_now() -> Vec<String> {
+    vec![
+        "Categories and category audit history stay in place because they are shared setup, not proven migration-only rows.".into(),
+        "Wedding planning records, shipping records, tasks, notifications, and other non-Counterpoint operational modules are excluded unless they block a reset directly.".into(),
+        "Bridge-side local cursor files such as .counterpoint-bridge-state.json are not touched by the server reset.".into(),
+    ]
+}
+
+async fn build_counterpoint_reset_scope(
+    pool: &PgPool,
+) -> Result<Vec<CounterpointResetCountRow>, sqlx::Error> {
+    Ok(vec![
+        CounterpointResetCountRow {
+            key: "customers".into(),
+            label: "Counterpoint customers".into(),
+            count: reset_preview_count(
+                pool,
+                "SELECT COUNT(*)::bigint FROM customers WHERE customer_created_source = 'counterpoint'",
+            )
+            .await?,
+            note: "Deletes Counterpoint-created customers plus dependent notes, loyalty/store-credit accounts, and linked CRM-only child rows.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "transactions".into(),
+            label: "Counterpoint transactions".into(),
+            count: reset_preview_count(
+                pool,
+                "SELECT COUNT(*)::bigint FROM transactions WHERE is_counterpoint_import",
+            )
+            .await?,
+            note: "Deletes imported ticket/open-doc transactions, their lines, linked payment allocations, and any extra pre-go-live transactions still attached to Counterpoint customers.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "products".into(),
+            label: "Counterpoint catalog products".into(),
+            count: reset_preview_count(
+                pool,
+                "SELECT COUNT(*)::bigint FROM products WHERE data_source = 'counterpoint'",
+            )
+            .await?,
+            note: "Deletes Counterpoint products/variants and clears pre-go-live operational leftovers that still point at those variants.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "vendors".into(),
+            label: "Vendors".into(),
+            count: reset_preview_count(pool, "SELECT COUNT(*)::bigint FROM vendors").await?,
+            note: "This pre-go-live reset clears the vendor dataset because vendor rows are treated as migration data before go-live.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "gift_cards".into(),
+            label: "Gift cards".into(),
+            count: reset_preview_count(pool, "SELECT COUNT(*)::bigint FROM gift_cards").await?,
+            note: "Gift cards have no separate native provenance marker today, so the reset clears the full pre-go-live gift-card dataset.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "loyalty_ledger".into(),
+            label: "Loyalty ledger rows".into(),
+            count: reset_preview_count(pool, "SELECT COUNT(*)::bigint FROM loyalty_point_ledger").await?,
+            note: "Counterpoint-linked and pre-go-live loyalty rows are cleared as part of restoring a fresh migration baseline.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "store_credit_accounts".into(),
+            label: "Store credit accounts".into(),
+            count: reset_preview_count(pool, "SELECT COUNT(*)::bigint FROM store_credit_accounts").await?,
+            note: "Customer-linked store credit accounts and ledger history are cleared with the migration customer dataset.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "counterpoint_state".into(),
+            label: "Counterpoint sync state rows".into(),
+            count: reset_preview_count(
+                pool,
+                r#"
+                SELECT
+                    (SELECT COUNT(*)::bigint FROM counterpoint_sync_runs)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_sync_issue)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_sync_request)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_staging_batch)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_receiving_history)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_staff_map)
+                "#,
+            )
+            .await?,
+            note: "Clears Counterpoint staging, run history, issues, requests, receiving history, and staff maps so ROS shows a fresh migration state.".into(),
+        },
+        CounterpointResetCountRow {
+            key: "counterpoint_staff".into(),
+            label: "Counterpoint-only staff rows".into(),
+            count: reset_preview_count(
+                pool,
+                "SELECT COUNT(*)::bigint FROM staff WHERE data_source = 'counterpoint' AND pin_hash IS NULL",
+            )
+            .await?,
+            note: "Removes imported historical/stub staff without local PIN access. Preserved bootstrap staff keep access, but their Counterpoint link fields are cleared.".into(),
+        },
+    ])
+}
+
+pub async fn get_counterpoint_reset_preview(
+    pool: &PgPool,
+) -> Result<CounterpointResetPreview, sqlx::Error> {
+    Ok(CounterpointResetPreview {
+        confirmation_phrase: COUNTERPOINT_BASELINE_RESET_CONFIRMATION.into(),
+        pre_go_live_only_warning: "Pre-go-live only. This reset is intended to clear migration/test business data before the store accepts ROS as the live system of record.".into(),
+        preserve_always: counterpoint_reset_preserve_always(),
+        reset_scope: build_counterpoint_reset_scope(pool).await?,
+        careful_ordering: vec![
+            "Imported transactions/payments are cleared before customers and gift cards so foreign-key references do not block the reset.".into(),
+            "Product-linked operational leftovers are cleared before Counterpoint products/variants so the catalog can be removed safely.".into(),
+            "Counterpoint-only staff rows are removed last, after customer/product/transaction references are gone.".into(),
+        ],
+        excluded_for_now: counterpoint_reset_excluded_for_now(),
+        bridge_local_state_note: "If the bridge is using local cursor state (.counterpoint-bridge-state.json), delete or reset that file on the Counterpoint PC before the next full fresh import. This server reset does not touch bridge-local cursor files.".into(),
+    })
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Counterpoint CSV inventory verification (read-only)
+// ────────────────────────────────────────────────────────────────────────────
+
+const COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS: usize = 2000;
+const COUNTERPOINT_INVENTORY_VERIFY_MAX_EXTRA_ROWS: usize = 1000;
+
+#[derive(Debug, Deserialize)]
+struct CounterpointInventoryCsvRow {
+    sku: String,
+    name: String,
+    product_category: String,
+    variant_option_one_value: String,
+    variant_option_two_value: String,
+    variant_option_three_value: String,
+    tags: String,
+    supply_price: String,
+    retail_price: String,
+    supplier_name: String,
+    supplier_code: String,
+    inventory_main_outlet: String,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CounterpointInventoryVerificationValues {
+    pub sku: String,
+    pub name: Option<String>,
+    pub category: Option<String>,
+    pub variant_label: Option<String>,
+    pub supply_price: Option<String>,
+    pub retail_price: Option<String>,
+    pub inventory_quantity: Option<String>,
+    pub supplier_name: Option<String>,
+    pub supplier_code: Option<String>,
+    pub item_key: Option<String>,
+    pub catalog_handle: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CounterpointInventoryVerificationRow {
+    pub sku: String,
+    pub match_basis: Option<String>,
+    pub status: String,
+    pub mismatch_types: Vec<String>,
+    pub csv: CounterpointInventoryVerificationValues,
+    pub ros: Option<CounterpointInventoryVerificationValues>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointInventoryVerificationSummary {
+    pub csv_path: String,
+    pub total_csv_skus: i64,
+    pub exact_match_count: i64,
+    pub mismatched_count: i64,
+    pub comparison_artifact_count: i64,
+    pub csv_source_issue_count: i64,
+    pub missing_in_ros_count: i64,
+    pub extra_in_ros_count: i64,
+    pub matched_count: i64,
+    pub name_mismatch_count: i64,
+    pub category_mismatch_count: i64,
+    pub variant_mismatch_count: i64,
+    pub ros_variant_label_missing_count: i64,
+    pub price_mismatch_count: i64,
+    pub cost_mismatch_count: i64,
+    pub inventory_mismatch_count: i64,
+    pub supplier_field_suspect_count: i64,
+    pub supplier_code_non_vendor_key_count: i64,
+    pub variant_group_split_count: i64,
+    pub parent_sku_variant_count: i64,
+    pub duplicate_variant_label_count: i64,
+    pub missing_vendor_count: i64,
+    pub vendor_mismatch_count: i64,
+    pub missing_vendor_item_link_count: i64,
+    pub extra_parent_scope_artifact_count: i64,
+    pub extra_key_present_scope_gap_count: i64,
+    pub extra_unexplained_count: i64,
+    pub detailed_row_limit: usize,
+    pub detailed_rows_truncated: i64,
+    pub extra_rows_truncated: i64,
+    pub expected_out_of_scope_exclusion_count: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CounterpointInventoryVerificationReport {
+    pub summary: CounterpointInventoryVerificationSummary,
+    pub mismatch_rows: Vec<CounterpointInventoryVerificationRow>,
+    pub extra_rows: Vec<CounterpointInventoryVerificationRow>,
+    pub critical_issues: Vec<String>,
+}
+
+#[derive(Debug)]
+struct CounterpointInventoryCsvNormalizedRow {
+    sku: String,
+    name: String,
+    product_category: String,
+    variant_label: String,
+    item_key: String,
+    supply_price: Option<Decimal>,
+    retail_price: Option<Decimal>,
+    inventory_quantity: Option<Decimal>,
+    supplier_name: String,
+    supplier_code: String,
+    supplier_field_suspect: bool,
+    supplier_code_non_vendor_key: bool,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct CounterpointRosInventoryRow {
+    variant_id: Uuid,
+    product_id: Uuid,
+    sku: String,
+    counterpoint_item_key: Option<String>,
+    variation_label: Option<String>,
+    stock_on_hand: i32,
+    retail_price: Decimal,
+    supply_price: Decimal,
+    product_name: String,
+    catalog_handle: Option<String>,
+    category_name: Option<String>,
+    primary_vendor_name: Option<String>,
+    primary_vendor_code: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct CounterpointRosVendorLink {
+    vendor_name: Option<String>,
+    vendor_code: Option<String>,
+}
+
+#[derive(Debug, Default)]
+struct CounterpointCsvGroupSummary {
+    matched_product_ids: BTreeSet<Uuid>,
+    variant_labels: HashMap<String, usize>,
+    parent_sku_variant_seen: bool,
+}
+
+fn counterpoint_inventory_csv_path() -> Option<PathBuf> {
+    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(PathBuf::from)?;
+    let preferred = repo_root.join("export2026-04-22.csv");
+    if preferred.exists() {
+        return Some(preferred);
+    }
+    let fallback = repo_root.join("venv").join("export2026-04-22.csv");
+    if fallback.exists() {
+        return Some(fallback);
+    }
+    None
+}
+
+fn normalize_verify_text(raw: &str) -> String {
+    raw.split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_uppercase()
+}
+
+fn trim_to_opt(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn parse_decimal_opt(raw: &str) -> Option<Decimal> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    trimmed.parse::<Decimal>().ok()
+}
+
+fn format_decimal_opt(raw: Option<Decimal>) -> Option<String> {
+    raw.map(|d| d.normalize().to_string())
+}
+
+fn csv_variant_label(row: &CounterpointInventoryCsvRow) -> String {
+    [
+        row.variant_option_one_value.as_str(),
+        row.variant_option_two_value.as_str(),
+        row.variant_option_three_value.as_str(),
+    ]
+    .into_iter()
+    .map(str::trim)
+    .filter(|value| !value.is_empty())
+    .collect::<Vec<_>>()
+    .join(" / ")
+}
+
+fn csv_supplier_fields_suspect(row: &CounterpointInventoryCsvRow) -> bool {
+    let supplier_name = normalize_verify_text(&row.supplier_name);
+    let supplier_code = normalize_verify_text(&row.supplier_code);
+    if !supplier_name.is_empty() || supplier_code.is_empty() {
+        return false;
+    }
+    let variant_values = [
+        row.variant_option_one_value.as_str(),
+        row.variant_option_two_value.as_str(),
+        row.variant_option_three_value.as_str(),
+    ]
+    .into_iter()
+    .map(normalize_verify_text)
+    .filter(|value| !value.is_empty())
+    .collect::<HashSet<_>>();
+    variant_values.contains(&supplier_code)
+}
+
+fn csv_supplier_code_not_vendor_key(row: &CounterpointInventoryCsvRow) -> bool {
+    let supplier_code = normalize_verify_text(&row.supplier_code);
+    if supplier_code.is_empty() {
+        return false;
+    }
+    let variant_values = [
+        row.variant_option_one_value.as_str(),
+        row.variant_option_two_value.as_str(),
+        row.variant_option_three_value.as_str(),
+    ]
+    .into_iter()
+    .map(normalize_verify_text)
+    .filter(|value| !value.is_empty())
+    .collect::<HashSet<_>>();
+    variant_values.contains(&supplier_code)
+}
+
+fn normalize_csv_inventory_row(
+    row: CounterpointInventoryCsvRow,
+) -> CounterpointInventoryCsvNormalizedRow {
+    CounterpointInventoryCsvNormalizedRow {
+        sku: row.sku.trim().to_string(),
+        name: row.name.trim().to_string(),
+        product_category: row.product_category.trim().to_string(),
+        variant_label: csv_variant_label(&row),
+        item_key: row.tags.trim().to_string(),
+        supply_price: parse_decimal_opt(&row.supply_price),
+        retail_price: parse_decimal_opt(&row.retail_price),
+        inventory_quantity: parse_decimal_opt(&row.inventory_main_outlet),
+        supplier_name: row.supplier_name.trim().to_string(),
+        supplier_code: row.supplier_code.trim().to_string(),
+        supplier_field_suspect: csv_supplier_fields_suspect(&row),
+        supplier_code_non_vendor_key: csv_supplier_code_not_vendor_key(&row),
+    }
+}
+
+fn ros_currency_matches(csv_value: Option<Decimal>, ros_value: Decimal) -> bool {
+    csv_value
+        .map(|value| {
+            value.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
+                == ros_value.round_dp_with_strategy(2, RoundingStrategy::MidpointAwayFromZero)
+        })
+        .unwrap_or(true)
+}
+
+fn is_parent_row_fallback_artifact(
+    csv_row: &CounterpointInventoryCsvNormalizedRow,
+    ros_row: &CounterpointRosInventoryRow,
+    match_basis: &str,
+) -> bool {
+    if match_basis != "counterpoint_item_key_singleton" && match_basis != "catalog_handle_singleton"
+    {
+        return false;
+    }
+    let normalized_sku = normalize_verify_text(&csv_row.sku);
+    let normalized_key = normalize_verify_text(&csv_row.item_key);
+    if !normalized_sku.starts_with("B-") || !normalized_key.starts_with("I-") {
+        return false;
+    }
+    let ros_sku = normalize_verify_text(&ros_row.sku);
+    let ros_key = ros_row
+        .counterpoint_item_key
+        .as_deref()
+        .map(normalize_verify_text)
+        .unwrap_or_default();
+    let ros_handle = ros_row
+        .catalog_handle
+        .as_deref()
+        .map(normalize_verify_text)
+        .unwrap_or_default();
+    ros_sku == normalized_key || ros_key == normalized_key || ros_handle == normalized_key
+}
+
+fn verify_values_from_csv(
+    row: &CounterpointInventoryCsvNormalizedRow,
+) -> CounterpointInventoryVerificationValues {
+    CounterpointInventoryVerificationValues {
+        sku: row.sku.clone(),
+        name: trim_to_opt(&row.name),
+        category: trim_to_opt(&row.product_category),
+        variant_label: trim_to_opt(&row.variant_label),
+        supply_price: format_decimal_opt(row.supply_price),
+        retail_price: format_decimal_opt(row.retail_price),
+        inventory_quantity: format_decimal_opt(row.inventory_quantity),
+        supplier_name: trim_to_opt(&row.supplier_name),
+        supplier_code: trim_to_opt(&row.supplier_code),
+        item_key: trim_to_opt(&row.item_key),
+        catalog_handle: None,
+    }
+}
+
+fn verify_values_from_ros(
+    row: &CounterpointRosInventoryRow,
+    vendor_links: &[CounterpointRosVendorLink],
+) -> CounterpointInventoryVerificationValues {
+    let vendor_name = row.primary_vendor_name.clone().or_else(|| {
+        vendor_links
+            .iter()
+            .find_map(|link| link.vendor_name.clone())
+    });
+    let vendor_code = row.primary_vendor_code.clone().or_else(|| {
+        vendor_links
+            .iter()
+            .find_map(|link| link.vendor_code.clone())
+    });
+
+    CounterpointInventoryVerificationValues {
+        sku: row.sku.clone(),
+        name: trim_to_opt(&row.product_name),
+        category: row.category_name.clone(),
+        variant_label: row.variation_label.clone(),
+        supply_price: Some(row.supply_price.normalize().to_string()),
+        retail_price: Some(row.retail_price.normalize().to_string()),
+        inventory_quantity: Some(Decimal::from(row.stock_on_hand).normalize().to_string()),
+        supplier_name: vendor_name,
+        supplier_code: vendor_code,
+        item_key: row.counterpoint_item_key.clone(),
+        catalog_handle: row.catalog_handle.clone(),
+    }
+}
+
+fn push_detail_row_limited(
+    rows: &mut Vec<CounterpointInventoryVerificationRow>,
+    row: CounterpointInventoryVerificationRow,
+    limit: usize,
+    truncated: &mut i64,
+) {
+    if rows.len() < limit {
+        rows.push(row);
+    } else {
+        *truncated += 1;
+    }
+}
+
+pub async fn build_counterpoint_inventory_verification_report(
+    pool: &PgPool,
+) -> Result<CounterpointInventoryVerificationReport, CounterpointSyncError> {
+    let csv_path = counterpoint_inventory_csv_path().ok_or_else(|| {
+        CounterpointSyncError::InvalidPayload(
+            "Counterpoint inventory CSV export2026-04-22.csv not found in repo root".into(),
+        )
+    })?;
+
+    let ros_rows: Vec<CounterpointRosInventoryRow> = sqlx::query_as(
+        r#"
+        SELECT
+            pv.id AS variant_id,
+            pv.product_id,
+            pv.sku,
+            pv.counterpoint_item_key,
+            pv.variation_label,
+            pv.stock_on_hand,
+            COALESCE(pv.retail_price_override, p.base_retail_price) AS retail_price,
+            COALESCE(pv.cost_override, p.base_cost) AS supply_price,
+            p.name AS product_name,
+            p.catalog_handle,
+            c.name AS category_name,
+            v.name AS primary_vendor_name,
+            v.vendor_code AS primary_vendor_code
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN categories c ON c.id = p.category_id
+        LEFT JOIN vendors v ON v.id = p.primary_vendor_id
+        WHERE p.data_source = 'counterpoint' OR pv.counterpoint_item_key IS NOT NULL
+        ORDER BY pv.sku
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let vendor_link_rows: Vec<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+        r#"
+        SELECT
+            vsi.variant_id,
+            v.name,
+            v.vendor_code
+        FROM vendor_supplier_item vsi
+        INNER JOIN vendors v ON v.id = vsi.vendor_id
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+
+    let mut vendor_links_by_variant: HashMap<Uuid, Vec<CounterpointRosVendorLink>> = HashMap::new();
+    for (variant_id, vendor_name, vendor_code) in vendor_link_rows {
+        vendor_links_by_variant
+            .entry(variant_id)
+            .or_default()
+            .push(CounterpointRosVendorLink {
+                vendor_name,
+                vendor_code,
+            });
+    }
+
+    let mut ros_by_sku: HashMap<String, usize> = HashMap::new();
+    let mut ros_sku_counts: HashMap<String, usize> = HashMap::new();
+    let mut ros_by_counterpoint_key: HashMap<String, Vec<usize>> = HashMap::new();
+    let mut ros_by_catalog_handle: HashMap<String, Vec<usize>> = HashMap::new();
+    for (idx, row) in ros_rows.iter().enumerate() {
+        let normalized_sku = normalize_verify_text(&row.sku);
+        *ros_sku_counts.entry(normalized_sku.clone()).or_insert(0) += 1;
+        ros_by_sku.insert(normalized_sku, idx);
+        if let Some(key) = row.counterpoint_item_key.as_deref() {
+            let normalized = normalize_verify_text(key);
+            if !normalized.is_empty() {
+                ros_by_counterpoint_key
+                    .entry(normalized)
+                    .or_default()
+                    .push(idx);
+            }
+        }
+        if let Some(handle) = row.catalog_handle.as_deref() {
+            let normalized = normalize_verify_text(handle);
+            if !normalized.is_empty() {
+                ros_by_catalog_handle
+                    .entry(normalized)
+                    .or_default()
+                    .push(idx);
+            }
+        }
+    }
+
+    let file = File::open(&csv_path).map_err(|e| {
+        CounterpointSyncError::InvalidPayload(format!(
+            "Could not open Counterpoint inventory CSV {}: {e}",
+            csv_path.display()
+        ))
+    })?;
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(file);
+    let mut csv_skus = HashSet::new();
+    let mut csv_key_counts: HashMap<String, i64> = HashMap::new();
+    for record in reader.deserialize::<CounterpointInventoryCsvRow>() {
+        let raw = record.map_err(|e| {
+            CounterpointSyncError::InvalidPayload(format!(
+                "Could not parse Counterpoint inventory CSV {}: {e}",
+                csv_path.display()
+            ))
+        })?;
+        let csv_row = normalize_csv_inventory_row(raw);
+        if csv_row.sku.trim().is_empty() {
+            continue;
+        }
+        csv_skus.insert(normalize_verify_text(&csv_row.sku));
+        let normalized_key = normalize_verify_text(&csv_row.item_key);
+        if !normalized_key.is_empty() {
+            *csv_key_counts.entry(normalized_key).or_insert(0) += 1;
+        }
+    }
+
+    let file = File::open(&csv_path).map_err(|e| {
+        CounterpointSyncError::InvalidPayload(format!(
+            "Could not reopen Counterpoint inventory CSV {}: {e}",
+            csv_path.display()
+        ))
+    })?;
+    let mut reader = csv::ReaderBuilder::new().flexible(true).from_reader(file);
+
+    let mut total_csv_skus = 0_i64;
+    let mut exact_match_count = 0_i64;
+    let mut mismatched_count = 0_i64;
+    let mut comparison_artifact_count = 0_i64;
+    let mut csv_source_issue_count = 0_i64;
+    let mut missing_in_ros_count = 0_i64;
+    let mut name_mismatch_count = 0_i64;
+    let mut category_mismatch_count = 0_i64;
+    let mut variant_mismatch_count = 0_i64;
+    let mut ros_variant_label_missing_count = 0_i64;
+    let mut price_mismatch_count = 0_i64;
+    let mut cost_mismatch_count = 0_i64;
+    let mut inventory_mismatch_count = 0_i64;
+    let mut supplier_field_suspect_count = 0_i64;
+    let mut supplier_code_non_vendor_key_count = 0_i64;
+    let mut missing_vendor_count = 0_i64;
+    let mut vendor_mismatch_count = 0_i64;
+    let mut missing_vendor_item_link_count = 0_i64;
+
+    let mut detailed_rows_truncated = 0_i64;
+    let mut extra_rows_truncated = 0_i64;
+    let mut expected_out_of_scope_exclusion_count = 0_i64;
+    let mut mismatch_rows = Vec::new();
+    let mut matched_ros_variant_ids = HashSet::new();
+    let mut csv_groups: HashMap<String, CounterpointCsvGroupSummary> = HashMap::new();
+
+    for record in reader.deserialize::<CounterpointInventoryCsvRow>() {
+        let raw = record.map_err(|e| {
+            CounterpointSyncError::InvalidPayload(format!(
+                "Could not parse Counterpoint inventory CSV {}: {e}",
+                csv_path.display()
+            ))
+        })?;
+        let csv_row = normalize_csv_inventory_row(raw);
+        if csv_row.sku.trim().is_empty() {
+            continue;
+        }
+        total_csv_skus += 1;
+        if csv_row.supplier_field_suspect {
+            supplier_field_suspect_count += 1;
+        }
+        if csv_row.supplier_code_non_vendor_key {
+            supplier_code_non_vendor_key_count += 1;
+        }
+
+        let normalized_sku = normalize_verify_text(&csv_row.sku);
+        let normalized_key = normalize_verify_text(&csv_row.item_key);
+        let key_row_count = csv_key_counts.get(&normalized_key).copied().unwrap_or(0);
+        let matched = if ros_sku_counts.get(&normalized_sku).copied().unwrap_or(0) == 1 {
+            ros_by_sku
+                .get(&normalized_sku)
+                .map(|idx| (*idx, "sku".to_string()))
+        } else {
+            None
+        }
+        .or_else(|| {
+            if normalized_key.is_empty() || key_row_count != 1 {
+                return None;
+            }
+            let by_key = ros_by_counterpoint_key.get(&normalized_key);
+            if let Some(rows) = by_key {
+                if rows.len() == 1 {
+                    return Some((rows[0], "counterpoint_item_key_singleton".to_string()));
+                }
+            }
+            let by_handle = ros_by_catalog_handle.get(&normalized_key);
+            if let Some(rows) = by_handle {
+                if rows.len() == 1 {
+                    return Some((rows[0], "catalog_handle_singleton".to_string()));
+                }
+            }
+            None
+        });
+
+        let csv_values = verify_values_from_csv(&csv_row);
+
+        let Some((matched_idx, match_basis)) = matched else {
+            let ros_candidate = if !normalized_key.is_empty() && key_row_count > 1 {
+                ros_by_counterpoint_key
+                    .get(&normalized_key)
+                    .and_then(|rows| rows.first())
+                    .or_else(|| {
+                        ros_by_catalog_handle
+                            .get(&normalized_key)
+                            .and_then(|rows| rows.first())
+                    })
+                    .map(|idx| &ros_rows[*idx])
+            } else {
+                None
+            };
+            if let Some(ros_row) = ros_candidate {
+                comparison_artifact_count += 1;
+                push_detail_row_limited(
+                    &mut mismatch_rows,
+                    CounterpointInventoryVerificationRow {
+                        sku: csv_row.sku.clone(),
+                        match_basis: Some("variant_group_scope".into()),
+                        status: "comparison_artifact".into(),
+                        mismatch_types: vec!["multi_row_item_key_group".into()],
+                        csv: csv_values,
+                        ros: Some(verify_values_from_ros(
+                            ros_row,
+                            &vendor_links_by_variant
+                                .get(&ros_row.variant_id)
+                                .cloned()
+                                .unwrap_or_default(),
+                        )),
+                    },
+                    COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS,
+                    &mut detailed_rows_truncated,
+                );
+                continue;
+            }
+            let is_expected_scope_exclusion = normalized_sku.starts_with("B-")
+                && normalized_key.starts_with("I-")
+                && !ros_by_counterpoint_key.contains_key(&normalized_key)
+                && !ros_by_catalog_handle.contains_key(&normalized_key);
+            if is_expected_scope_exclusion {
+                expected_out_of_scope_exclusion_count += 1;
+            }
+            missing_in_ros_count += 1;
+            push_detail_row_limited(
+                &mut mismatch_rows,
+                CounterpointInventoryVerificationRow {
+                    sku: csv_row.sku.clone(),
+                    match_basis: None,
+                    status: if is_expected_scope_exclusion {
+                        "expected_out_of_scope_exclusion".into()
+                    } else {
+                        "missing_in_ros".into()
+                    },
+                    mismatch_types: vec![if is_expected_scope_exclusion {
+                        "expected_out_of_scope_exclusion".into()
+                    } else {
+                        "missing_in_ros".into()
+                    }],
+                    csv: csv_values,
+                    ros: None,
+                },
+                COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS,
+                &mut detailed_rows_truncated,
+            );
+            continue;
+        };
+
+        let ros_row = &ros_rows[matched_idx];
+        if is_parent_row_fallback_artifact(&csv_row, ros_row, &match_basis) {
+            comparison_artifact_count += 1;
+            push_detail_row_limited(
+                &mut mismatch_rows,
+                CounterpointInventoryVerificationRow {
+                    sku: csv_row.sku.clone(),
+                    match_basis: Some(match_basis),
+                    status: "comparison_artifact".into(),
+                    mismatch_types: vec!["parent_row_fallback".into()],
+                    csv: csv_values,
+                    ros: Some(verify_values_from_ros(
+                        ros_row,
+                        &vendor_links_by_variant
+                            .get(&ros_row.variant_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    )),
+                },
+                COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS,
+                &mut detailed_rows_truncated,
+            );
+            continue;
+        }
+        matched_ros_variant_ids.insert(ros_row.variant_id);
+        let vendor_links = vendor_links_by_variant
+            .get(&ros_row.variant_id)
+            .cloned()
+            .unwrap_or_default();
+
+        let group_key = if normalized_key.is_empty() {
+            normalize_verify_text(&csv_row.name)
+        } else {
+            normalized_key.clone()
+        };
+        let group_entry = csv_groups.entry(group_key).or_default();
+        group_entry.matched_product_ids.insert(ros_row.product_id);
+        let normalized_variant_label = normalize_verify_text(&csv_row.variant_label);
+        if !normalized_variant_label.is_empty() {
+            *group_entry
+                .variant_labels
+                .entry(normalized_variant_label)
+                .or_insert(0) += 1;
+        }
+        let ros_catalog_handle = ros_row
+            .catalog_handle
+            .as_deref()
+            .map(normalize_verify_text)
+            .unwrap_or_default();
+        if !ros_catalog_handle.is_empty()
+            && normalize_verify_text(&ros_row.sku) == ros_catalog_handle
+            && !normalized_key.is_empty()
+            && ros_catalog_handle != normalized_key
+        {
+            group_entry.parent_sku_variant_seen = true;
+        }
+
+        let mut mismatch_types = Vec::new();
+        if normalize_verify_text(&csv_row.name) != normalize_verify_text(&ros_row.product_name) {
+            mismatch_types.push("name_mismatch".into());
+            name_mismatch_count += 1;
+        }
+        let ros_category = ros_row.category_name.as_deref().unwrap_or("");
+        if normalize_verify_text(&csv_row.product_category) != normalize_verify_text(ros_category) {
+            mismatch_types.push("category_mismatch".into());
+            category_mismatch_count += 1;
+        }
+        let ros_variant_label = ros_row.variation_label.as_deref().unwrap_or("");
+        let normalized_csv_variant_label = normalize_verify_text(&csv_row.variant_label);
+        let normalized_ros_variant_label = normalize_verify_text(ros_variant_label);
+        if !normalized_csv_variant_label.is_empty() && normalized_ros_variant_label.is_empty() {
+            mismatch_types.push("ros_variant_label_missing".into());
+            ros_variant_label_missing_count += 1;
+        } else if !normalized_csv_variant_label.is_empty()
+            && !normalized_ros_variant_label.is_empty()
+            && normalized_csv_variant_label != normalized_ros_variant_label
+        {
+            mismatch_types.push("variant_mismatch".into());
+            variant_mismatch_count += 1;
+        }
+        if !ros_currency_matches(csv_row.retail_price, ros_row.retail_price) {
+            mismatch_types.push("price_mismatch".into());
+            price_mismatch_count += 1;
+        }
+        if !ros_currency_matches(csv_row.supply_price, ros_row.supply_price) {
+            mismatch_types.push("cost_mismatch".into());
+            cost_mismatch_count += 1;
+        }
+        if csv_row
+            .inventory_quantity
+            .map(|quantity| {
+                quantity.normalize() != Decimal::from(ros_row.stock_on_hand).normalize()
+            })
+            .unwrap_or(false)
+        {
+            mismatch_types.push("inventory_mismatch".into());
+            inventory_mismatch_count += 1;
+        }
+        let source_issue_only = csv_row.supplier_field_suspect;
+        if !csv_row.supplier_field_suspect {
+            let csv_supplier_name = normalize_verify_text(&csv_row.supplier_name);
+            if !csv_supplier_name.is_empty() {
+                let primary_vendor_match = csv_supplier_name
+                    == normalize_verify_text(ros_row.primary_vendor_name.as_deref().unwrap_or(""));
+                let linked_vendor_match = vendor_links.iter().any(|link| {
+                    csv_supplier_name
+                        == normalize_verify_text(link.vendor_name.as_deref().unwrap_or(""))
+                });
+
+                if !primary_vendor_match && !linked_vendor_match {
+                    if ros_row.primary_vendor_name.is_none()
+                        && ros_row.primary_vendor_code.is_none()
+                        && vendor_links.is_empty()
+                    {
+                        mismatch_types.push("missing_vendor".into());
+                        missing_vendor_count += 1;
+                    } else {
+                        mismatch_types.push("vendor_mismatch".into());
+                        vendor_mismatch_count += 1;
+                    }
+                }
+            }
+            if vendor_links.is_empty() && !csv_supplier_name.is_empty() {
+                mismatch_types.push("missing_vendor_item_link".into());
+                missing_vendor_item_link_count += 1;
+            }
+        }
+
+        if mismatch_types.is_empty() {
+            if source_issue_only {
+                csv_source_issue_count += 1;
+                push_detail_row_limited(
+                    &mut mismatch_rows,
+                    CounterpointInventoryVerificationRow {
+                        sku: csv_row.sku.clone(),
+                        match_basis: Some(match_basis),
+                        status: "csv_source_issue".into(),
+                        mismatch_types: vec!["supplier_field_suspect".into()],
+                        csv: csv_values,
+                        ros: Some(verify_values_from_ros(ros_row, &vendor_links)),
+                    },
+                    COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS,
+                    &mut detailed_rows_truncated,
+                );
+            } else {
+                exact_match_count += 1;
+            }
+        } else {
+            mismatched_count += 1;
+            push_detail_row_limited(
+                &mut mismatch_rows,
+                CounterpointInventoryVerificationRow {
+                    sku: csv_row.sku.clone(),
+                    match_basis: Some(match_basis),
+                    status: "mismatch".into(),
+                    mismatch_types,
+                    csv: csv_values,
+                    ros: Some(verify_values_from_ros(ros_row, &vendor_links)),
+                },
+                COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS,
+                &mut detailed_rows_truncated,
+            );
+        }
+    }
+
+    let mut variant_group_split_count = 0_i64;
+    let mut parent_sku_variant_count = 0_i64;
+    let mut duplicate_variant_label_count = 0_i64;
+    let mut extra_parent_scope_artifact_count = 0_i64;
+    let mut extra_key_present_scope_gap_count = 0_i64;
+    let mut extra_unexplained_count = 0_i64;
+    let mut critical_issues = Vec::new();
+
+    for (group_key, summary) in &csv_groups {
+        if summary.matched_product_ids.len() > 1 {
+            variant_group_split_count += 1;
+            critical_issues.push(format!(
+                "Variant group {group_key} lands under {} ROS products instead of one.",
+                summary.matched_product_ids.len()
+            ));
+        }
+        let duplicate_labels = summary
+            .variant_labels
+            .iter()
+            .filter(|(_, count)| **count > 1)
+            .count() as i64;
+        if duplicate_labels > 0 {
+            duplicate_variant_label_count += duplicate_labels;
+        }
+        if summary.parent_sku_variant_seen {
+            parent_sku_variant_count += 1;
+            critical_issues.push(format!(
+                "Variant group {group_key} includes a ROS variant whose SKU matches the product handle, which can indicate a parent SKU treated as a sellable variant."
+            ));
+        }
+    }
+
+    let mut extra_rows = Vec::new();
+    for ros_row in &ros_rows {
+        if matched_ros_variant_ids.contains(&ros_row.variant_id) {
+            continue;
+        }
+        let normalized_sku = normalize_verify_text(&ros_row.sku);
+        let normalized_key = ros_row
+            .counterpoint_item_key
+            .as_deref()
+            .map(normalize_verify_text)
+            .filter(|value| !value.is_empty());
+        let normalized_handle = ros_row
+            .catalog_handle
+            .as_deref()
+            .map(normalize_verify_text)
+            .filter(|value| !value.is_empty());
+        let extra_status = if let Some(key) = normalized_key.as_deref() {
+            let key_count = csv_key_counts.get(key).copied().unwrap_or(0);
+            if normalized_sku == key || normalized_handle.as_deref() == Some(key) {
+                extra_parent_scope_artifact_count += 1;
+                "extra_parent_scope_artifact"
+            } else if key_count > 0 {
+                extra_key_present_scope_gap_count += 1;
+                "extra_key_present_scope_gap"
+            } else {
+                extra_unexplained_count += 1;
+                "extra_unexplained"
+            }
+        } else if csv_skus.contains(&normalized_sku) {
+            extra_key_present_scope_gap_count += 1;
+            "extra_key_present_scope_gap"
+        } else {
+            extra_unexplained_count += 1;
+            "extra_unexplained"
+        };
+        push_detail_row_limited(
+            &mut extra_rows,
+            CounterpointInventoryVerificationRow {
+                sku: ros_row.sku.clone(),
+                match_basis: None,
+                status: extra_status.into(),
+                mismatch_types: vec![extra_status.into()],
+                csv: CounterpointInventoryVerificationValues {
+                    sku: ros_row.sku.clone(),
+                    name: None,
+                    category: None,
+                    variant_label: None,
+                    supply_price: None,
+                    retail_price: None,
+                    inventory_quantity: None,
+                    supplier_name: None,
+                    supplier_code: None,
+                    item_key: None,
+                    catalog_handle: None,
+                },
+                ros: Some(verify_values_from_ros(
+                    ros_row,
+                    &vendor_links_by_variant
+                        .get(&ros_row.variant_id)
+                        .cloned()
+                        .unwrap_or_default(),
+                )),
+            },
+            COUNTERPOINT_INVENTORY_VERIFY_MAX_EXTRA_ROWS,
+            &mut extra_rows_truncated,
+        );
+    }
+
+    if missing_in_ros_count > 0 {
+        if expected_out_of_scope_exclusion_count > 0 {
+            critical_issues.push(format!(
+                "{expected_out_of_scope_exclusion_count} CSV SKU(s) are expected out-of-scope exclusions under the active catalog/inventory import rules."
+            ));
+        }
+        let unexplained_missing = missing_in_ros_count - expected_out_of_scope_exclusion_count;
+        if unexplained_missing > 0 {
+            critical_issues.push(format!(
+                "{unexplained_missing} CSV SKU(s) are missing in ROS without an obvious active-scope exclusion explanation."
+            ));
+        }
+    }
+    let extra_in_ros_count = (ros_rows.len() - matched_ros_variant_ids.len()) as i64;
+    if extra_unexplained_count > 0 {
+        critical_issues.push(format!(
+            "{extra_unexplained_count} Counterpoint-linked ROS variant(s) are unexplained extras with no matching CSV SKU or parent product key."
+        ));
+    }
+    if supplier_field_suspect_count > 0 {
+        critical_issues.push(format!(
+            "{supplier_field_suspect_count} CSV row(s) have supplier fields that appear misaligned or blank."
+        ));
+    }
+    if missing_vendor_item_link_count > 0 {
+        critical_issues.push(format!(
+            "{missing_vendor_item_link_count} matched SKU row(s) have no ROS vendor item linkage."
+        ));
+    }
+
+    Ok(CounterpointInventoryVerificationReport {
+        summary: CounterpointInventoryVerificationSummary {
+            csv_path: csv_path.display().to_string(),
+            total_csv_skus,
+            exact_match_count,
+            mismatched_count,
+            comparison_artifact_count,
+            csv_source_issue_count,
+            missing_in_ros_count,
+            extra_in_ros_count,
+            matched_count: exact_match_count + mismatched_count + csv_source_issue_count,
+            name_mismatch_count,
+            category_mismatch_count,
+            variant_mismatch_count,
+            ros_variant_label_missing_count,
+            price_mismatch_count,
+            cost_mismatch_count,
+            inventory_mismatch_count,
+            supplier_field_suspect_count,
+            supplier_code_non_vendor_key_count,
+            variant_group_split_count,
+            parent_sku_variant_count,
+            duplicate_variant_label_count,
+            missing_vendor_count,
+            vendor_mismatch_count,
+            missing_vendor_item_link_count,
+            extra_parent_scope_artifact_count,
+            extra_key_present_scope_gap_count,
+            extra_unexplained_count,
+            detailed_row_limit: COUNTERPOINT_INVENTORY_VERIFY_MAX_DETAIL_ROWS,
+            detailed_rows_truncated,
+            extra_rows_truncated,
+            expected_out_of_scope_exclusion_count,
+        },
+        mismatch_rows,
+        extra_rows,
+        critical_issues,
+    })
+}
+
+#[derive(Debug, Default)]
+struct CounterpointBaselineResetTargets {
+    counterpoint_customer_ids: Vec<Uuid>,
+    counterpoint_product_ids: Vec<Uuid>,
+    counterpoint_variant_ids: Vec<Uuid>,
+    vendor_ids: Vec<Uuid>,
+    gift_card_ids: Vec<Uuid>,
+    loyalty_reward_issuance_ids: Vec<Uuid>,
+    loyalty_point_ledger_ids: Vec<Uuid>,
+    store_credit_account_ids: Vec<Uuid>,
+    counterpoint_only_staff_ids: Vec<Uuid>,
+    counterpoint_transaction_ids: Vec<Uuid>,
+    counterpoint_sync_run_ids: Vec<i64>,
+    counterpoint_sync_issue_ids: Vec<i64>,
+    counterpoint_sync_request_ids: Vec<i64>,
+    counterpoint_staging_batch_ids: Vec<i64>,
+    counterpoint_receiving_history_ids: Vec<Uuid>,
+    counterpoint_staff_map_staff_ids: Vec<Uuid>,
+}
+
+async fn collect_counterpoint_baseline_reset_targets(
+    tx: &mut Transaction<'_, Postgres>,
+) -> Result<CounterpointBaselineResetTargets, CounterpointSyncError> {
+    let counterpoint_customer_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM customers WHERE customer_created_source = 'counterpoint'",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let counterpoint_product_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM products WHERE data_source = 'counterpoint'")
+            .fetch_all(&mut **tx)
+            .await?;
+
+    let counterpoint_variant_ids: Vec<Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT pv.id
+        FROM product_variants pv
+        INNER JOIN products p ON p.id = pv.product_id
+        WHERE p.data_source = 'counterpoint'
+        "#,
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let vendor_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM vendors")
+        .fetch_all(&mut **tx)
+        .await?;
+
+    let gift_card_ids: Vec<Uuid> = sqlx::query_scalar("SELECT id FROM gift_cards")
+        .fetch_all(&mut **tx)
+        .await?;
+
+    let loyalty_reward_issuance_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM loyalty_reward_issuances")
+            .fetch_all(&mut **tx)
+            .await?;
+
+    let loyalty_point_ledger_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM loyalty_point_ledger")
+            .fetch_all(&mut **tx)
+            .await?;
+
+    let store_credit_account_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM store_credit_accounts")
+            .fetch_all(&mut **tx)
+            .await?;
+
+    let counterpoint_only_staff_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM staff WHERE data_source = 'counterpoint' AND pin_hash IS NULL",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+
+    let counterpoint_transaction_ids: Vec<Uuid> = if counterpoint_customer_ids.is_empty() {
+        sqlx::query_scalar("SELECT id FROM transactions WHERE is_counterpoint_import")
+            .fetch_all(&mut **tx)
+            .await?
+    } else {
+        sqlx::query_scalar(
+            "SELECT id FROM transactions WHERE is_counterpoint_import OR customer_id = ANY($1)",
+        )
+        .bind(&counterpoint_customer_ids)
+        .fetch_all(&mut **tx)
+        .await?
+    };
+
+    Ok(CounterpointBaselineResetTargets {
+        counterpoint_customer_ids,
+        counterpoint_product_ids,
+        counterpoint_variant_ids,
+        vendor_ids,
+        gift_card_ids,
+        loyalty_reward_issuance_ids,
+        loyalty_point_ledger_ids,
+        store_credit_account_ids,
+        counterpoint_only_staff_ids,
+        counterpoint_transaction_ids,
+        counterpoint_sync_run_ids: sqlx::query_scalar("SELECT id FROM counterpoint_sync_runs")
+            .fetch_all(&mut **tx)
+            .await?,
+        counterpoint_sync_issue_ids: sqlx::query_scalar("SELECT id FROM counterpoint_sync_issue")
+            .fetch_all(&mut **tx)
+            .await?,
+        counterpoint_sync_request_ids: sqlx::query_scalar(
+            "SELECT id FROM counterpoint_sync_request",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+        counterpoint_staging_batch_ids: sqlx::query_scalar(
+            "SELECT id FROM counterpoint_staging_batch",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+        counterpoint_receiving_history_ids: sqlx::query_scalar(
+            "SELECT id FROM counterpoint_receiving_history",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+        counterpoint_staff_map_staff_ids: sqlx::query_scalar(
+            "SELECT ros_staff_id FROM counterpoint_staff_map",
+        )
+        .fetch_all(&mut **tx)
+        .await?,
+    })
+}
+
+pub async fn execute_counterpoint_baseline_reset(
+    pool: &PgPool,
+) -> Result<CounterpointResetResult, CounterpointSyncError> {
+    let preview_scope = build_counterpoint_reset_scope(pool).await?;
+    let mut tx = pool.begin().await?;
+    let targets = collect_counterpoint_baseline_reset_targets(&mut tx).await?;
+    perform_counterpoint_baseline_reset_targets(&mut tx, &targets).await?;
+    tx.commit().await?;
+
+    Ok(CounterpointResetResult {
+        confirmation_phrase: COUNTERPOINT_BASELINE_RESET_CONFIRMATION.into(),
+        reset_scope: preview_scope,
+        preserve_always: counterpoint_reset_preserve_always(),
+        bridge_local_state_note: "Bridge-local cursor files are not changed automatically. If you want a true full replay from the Counterpoint PC, reset or remove .counterpoint-bridge-state.json before the next import.".into(),
+    })
+}
+
+async fn perform_counterpoint_baseline_reset_targets(
+    tx: &mut Transaction<'_, Postgres>,
+    targets: &CounterpointBaselineResetTargets,
+) -> Result<(), CounterpointSyncError> {
+    if !targets.counterpoint_transaction_ids.is_empty() {
+        sqlx::query(
+            r#"
+            DELETE FROM payment_transactions pt
+            WHERE EXISTS (
+                SELECT 1
+                FROM payment_allocations pa
+                WHERE pa.transaction_id = pt.id
+                  AND pa.target_transaction_id = ANY($1)
+            )
+            "#,
+        )
+        .bind(&targets.counterpoint_transaction_ids)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("DELETE FROM transactions WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_transaction_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.counterpoint_customer_ids.is_empty() {
+        sqlx::query(
+            "UPDATE staff SET employee_customer_id = NULL WHERE employee_customer_id = ANY($1)",
+        )
+        .bind(&targets.counterpoint_customer_ids)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query(
+            "UPDATE customers SET couple_primary_id = NULL WHERE couple_primary_id = ANY($1)",
+        )
+        .bind(&targets.counterpoint_customer_ids)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("DELETE FROM payment_transactions WHERE payer_id = ANY($1)")
+            .bind(&targets.counterpoint_customer_ids)
+            .execute(&mut **tx)
+            .await?;
+
+        sqlx::query("DELETE FROM customers WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_customer_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.gift_card_ids.is_empty() {
+        sqlx::query(
+            "UPDATE loyalty_reward_issuances SET remainder_card_id = NULL WHERE remainder_card_id = ANY($1)",
+        )
+        .bind(&targets.gift_card_ids)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("DELETE FROM gift_cards WHERE id = ANY($1)")
+            .bind(&targets.gift_card_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.loyalty_reward_issuance_ids.is_empty() {
+        sqlx::query("DELETE FROM loyalty_reward_issuances WHERE id = ANY($1)")
+            .bind(&targets.loyalty_reward_issuance_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.loyalty_point_ledger_ids.is_empty() {
+        sqlx::query("DELETE FROM loyalty_point_ledger WHERE id = ANY($1)")
+            .bind(&targets.loyalty_point_ledger_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.store_credit_account_ids.is_empty() {
+        sqlx::query("DELETE FROM store_credit_accounts WHERE id = ANY($1)")
+            .bind(&targets.store_credit_account_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.counterpoint_variant_ids.is_empty() {
+        sqlx::query("DELETE FROM discount_event_usage WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM inventory_count_scan_stream WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM inventory_transactions WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM physical_inventory_audit WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM physical_inventory_counts WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM physical_inventory_snapshots WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM purchase_order_lines WHERE variant_id = ANY($1)")
+            .bind(&targets.counterpoint_variant_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query(
+            "UPDATE wedding_members SET suit_variant_id = NULL WHERE suit_variant_id = ANY($1)",
+        )
+        .bind(&targets.counterpoint_variant_ids)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query(
+            "UPDATE wedding_parties SET suit_variant_id = NULL WHERE suit_variant_id = ANY($1)",
+        )
+        .bind(&targets.counterpoint_variant_ids)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if !targets.counterpoint_product_ids.is_empty() || !targets.counterpoint_variant_ids.is_empty()
+    {
+        sqlx::query(
+            r#"
+            DELETE FROM suit_component_swap_events
+            WHERE old_variant_id = ANY($1)
+               OR new_variant_id = ANY($1)
+               OR old_product_id = ANY($2)
+               OR new_product_id = ANY($2)
+            "#,
+        )
+        .bind(&targets.counterpoint_variant_ids)
+        .bind(&targets.counterpoint_product_ids)
+        .execute(&mut **tx)
+        .await?;
+    }
+
+    if !targets.counterpoint_receiving_history_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_receiving_history WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_receiving_history_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.counterpoint_product_ids.is_empty() {
+        sqlx::query("DELETE FROM products WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_product_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.vendor_ids.is_empty() {
+        sqlx::query(
+            "DELETE FROM purchase_order_lines WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE vendor_id = ANY($1))",
+        )
+        .bind(&targets.vendor_ids)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query("DELETE FROM receiving_events WHERE purchase_order_id IN (SELECT id FROM purchase_orders WHERE vendor_id = ANY($1))")
+            .bind(&targets.vendor_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM purchase_orders WHERE vendor_id = ANY($1)")
+            .bind(&targets.vendor_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query("DELETE FROM vendor_supplier_item WHERE vendor_id = ANY($1)")
+            .bind(&targets.vendor_ids)
+            .execute(&mut **tx)
+            .await?;
+        sqlx::query(
+            "UPDATE products SET primary_vendor_id = NULL WHERE primary_vendor_id = ANY($1)",
+        )
+        .bind(&targets.vendor_ids)
+        .execute(&mut **tx)
+        .await?;
+        sqlx::query("DELETE FROM vendors WHERE id = ANY($1)")
+            .bind(&targets.vendor_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    if !targets.counterpoint_staging_batch_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_staging_batch WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_staging_batch_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.counterpoint_sync_request_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_sync_request WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_sync_request_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.counterpoint_sync_issue_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_sync_issue WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_sync_issue_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.counterpoint_sync_run_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_sync_runs WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_sync_run_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    if !targets.counterpoint_staff_map_staff_ids.is_empty() {
+        sqlx::query("DELETE FROM counterpoint_staff_map WHERE ros_staff_id = ANY($1)")
+            .bind(&targets.counterpoint_staff_map_staff_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+    sqlx::query(
+        r#"
+        UPDATE counterpoint_bridge_heartbeat
+        SET last_seen_at = NOW(),
+            bridge_phase = 'idle',
+            current_entity = NULL,
+            bridge_version = NULL,
+            bridge_hostname = NULL,
+            updated_at = NOW()
+        WHERE id = 1
+        "#,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    if !targets.counterpoint_only_staff_ids.is_empty() {
+        sqlx::query("DELETE FROM staff WHERE id = ANY($1)")
+            .bind(&targets.counterpoint_only_staff_ids)
+            .execute(&mut **tx)
+            .await?;
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE staff
+        SET counterpoint_user_id = NULL,
+            counterpoint_sls_rep = NULL,
+            data_source = CASE
+                WHEN pin_hash IS NOT NULL AND data_source = 'counterpoint' THEN NULL
+                ELSE data_source
+            END
+        WHERE counterpoint_user_id IS NOT NULL
+           OR counterpoint_sls_rep IS NOT NULL
+            OR (pin_hash IS NOT NULL AND data_source = 'counterpoint')
+        "#,
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -1609,6 +3158,39 @@ async fn resolve_gift_card_kind(
     "purchased".to_string()
 }
 
+async fn gift_card_event_exists(
+    tx: &mut Transaction<'_, Postgres>,
+    gift_card_id: Uuid,
+    event_kind: &str,
+    amount: Decimal,
+    balance_after: Decimal,
+    transaction_id: Option<Uuid>,
+    notes: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1
+            FROM gift_card_events
+            WHERE gift_card_id = $1
+              AND event_kind = $2
+              AND amount = $3
+              AND balance_after = $4
+              AND transaction_id IS NOT DISTINCT FROM $5
+              AND notes IS NOT DISTINCT FROM $6
+        )
+        "#,
+    )
+    .bind(gift_card_id)
+    .bind(event_kind)
+    .bind(amount)
+    .bind(balance_after)
+    .bind(transaction_id)
+    .bind(notes)
+    .fetch_one(&mut **tx)
+    .await
+}
+
 pub async fn execute_counterpoint_gift_card_batch(
     pool: &PgPool,
     payload: CounterpointGiftCardsPayload,
@@ -1717,7 +3299,24 @@ pub async fn execute_counterpoint_gift_card_batch(
                         .ok()
                         .map(|d| d.with_timezone(&Utc))
                 })
+                .or(issued_at)
                 .unwrap_or_else(Utc::now);
+
+            let notes = evt.notes.as_deref();
+            let already_exists = gift_card_event_exists(
+                &mut tx,
+                gc_id,
+                &evt.event_kind,
+                evt.amount,
+                evt.balance_after,
+                None,
+                notes,
+            )
+            .await?;
+
+            if already_exists {
+                continue;
+            }
 
             sqlx::query(
                 r#"
@@ -1729,7 +3328,7 @@ pub async fn execute_counterpoint_gift_card_batch(
             .bind(&evt.event_kind)
             .bind(evt.amount)
             .bind(evt.balance_after)
-            .bind(&evt.notes)
+            .bind(notes)
             .bind(ts)
             .execute(&mut *tx)
             .await?;
@@ -1848,6 +3447,32 @@ async fn resolve_payment_method(tx: &mut Transaction<'_, Postgres>, pmt_typ: &st
     .await
     .unwrap_or(None);
     mapped.unwrap_or_else(|| "cash".to_string())
+}
+
+fn sum_counterpoint_ticket_tenders(
+    payments: &[TicketPaymentRow],
+    gift_applications: &[TicketGiftApplicationRow],
+) -> Option<Decimal> {
+    if payments.is_empty() && gift_applications.is_empty() {
+        return None;
+    }
+
+    let payment_total: Decimal = payments.iter().map(|p| p.amount).sum();
+    let gift_total: Decimal = gift_applications
+        .iter()
+        .filter(|ga| cp_gift_hist_row_is_redemption(ga.action.as_deref()))
+        .map(|ga| ga.amount)
+        .sum();
+
+    Some(payment_total + gift_total)
+}
+
+fn sum_counterpoint_open_doc_tenders(payments: &[TicketPaymentRow]) -> Option<Decimal> {
+    if payments.is_empty() {
+        return None;
+    }
+
+    Some(payments.iter().map(|p| p.amount).sum())
 }
 
 fn cp_gift_hist_row_is_redemption(action: Option<&str>) -> bool {
@@ -2287,7 +3912,10 @@ pub async fn execute_counterpoint_ticket_batch(
             })
             .unwrap_or_else(Utc::now);
 
-        let balance = tkt.total_price - tkt.amount_paid;
+        let normalized_amount_paid =
+            sum_counterpoint_ticket_tenders(&tkt.payments, &tkt.gift_applications)
+                .unwrap_or(tkt.amount_paid);
+        let balance = tkt.total_price - normalized_amount_paid;
         let status = if balance <= Decimal::ZERO {
             "fulfilled"
         } else {
@@ -2323,7 +3951,7 @@ pub async fn execute_counterpoint_ticket_batch(
         .bind(status)
         .bind(booked_at)
         .bind(tkt.total_price)
-        .bind(tkt.amount_paid)
+        .bind(normalized_amount_paid)
         .bind(balance)
         .bind(processed_by)
         .bind(salesperson)
@@ -2410,6 +4038,22 @@ pub async fn execute_counterpoint_ticket_batch(
                 continue;
             }
             bal -= redeem;
+            let redemption_note = format!("Counterpoint ticket {ticket_ref}");
+            let already_exists = gift_card_event_exists(
+                &mut tx,
+                gc_id,
+                "redeemed",
+                -redeem,
+                bal,
+                Some(transaction_id),
+                Some(redemption_note.as_str()),
+            )
+            .await?;
+
+            if already_exists {
+                summary.skipped += 1;
+                continue;
+            }
             sqlx::query("UPDATE gift_cards SET current_balance = $1 WHERE id = $2")
                 .bind(bal)
                 .bind(gc_id)
@@ -2427,7 +4071,7 @@ pub async fn execute_counterpoint_ticket_batch(
             .bind(-redeem)
             .bind(bal)
             .bind(transaction_id)
-            .bind(format!("Counterpoint ticket {ticket_ref}"))
+            .bind(redemption_note)
             .bind(booked_at)
             .execute(&mut *tx)
             .await?;
@@ -2775,11 +4419,13 @@ pub async fn execute_counterpoint_open_doc_batch(
             })
             .unwrap_or_else(Utc::now);
 
-        let balance = doc.total_price - doc.amount_paid;
+        let normalized_amount_paid =
+            sum_counterpoint_open_doc_tenders(&doc.payments).unwrap_or(doc.amount_paid);
+        let balance = doc.total_price - normalized_amount_paid;
         let status = order_status_for_cp_open_doc(
             doc.cp_status.as_deref(),
             doc.total_price,
-            doc.amount_paid,
+            normalized_amount_paid,
         );
 
         let processed_by = doc
@@ -2840,7 +4486,7 @@ pub async fn execute_counterpoint_open_doc_batch(
         .bind(status)
         .bind(booked_at)
         .bind(doc.total_price)
-        .bind(doc.amount_paid)
+        .bind(normalized_amount_paid)
         .bind(balance)
         .bind(processed_by)
         .bind(salesperson)
@@ -4044,4 +5690,793 @@ async fn ensure_historical_fallback_variant(
     .await?;
 
     Ok((variant_id, product_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::pins::hash_pin;
+    use chrono::{Duration, NaiveDate, Utc};
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use uuid::Uuid;
+
+    async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        PgPool::connect(&database_url)
+            .await
+            .expect("connect test database")
+    }
+
+    #[tokio::test]
+    async fn counterpoint_reset_preview_returns_expected_structure() {
+        let pool = connect_test_db().await;
+        let preview = get_counterpoint_reset_preview(&pool)
+            .await
+            .expect("load reset preview");
+
+        assert_eq!(preview.confirmation_phrase, "RESET COUNTERPOINT BASELINE");
+        assert!(preview
+            .pre_go_live_only_warning
+            .contains("Pre-go-live only"));
+        assert!(preview
+            .preserve_always
+            .iter()
+            .any(|line| line.contains("seeded Chris G admin account")));
+
+        let scope_keys = preview
+            .reset_scope
+            .iter()
+            .map(|row| row.key.as_str())
+            .collect::<Vec<_>>();
+        assert!(scope_keys.contains(&"customers"));
+        assert!(scope_keys.contains(&"transactions"));
+        assert!(scope_keys.contains(&"counterpoint_state"));
+        assert!(preview
+            .excluded_for_now
+            .iter()
+            .any(|line| line.contains(".counterpoint-bridge-state.json")));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_inventory_verification_report_builds_for_checked_in_csv() {
+        let pool = connect_test_db().await;
+        let report = build_counterpoint_inventory_verification_report(&pool)
+            .await
+            .expect("build inventory verification report");
+
+        println!(
+            "inventory verification summary: total_csv_skus={} matched={} exact={} mismatched={} comparison_artifact={} csv_source_issue={} missing={} expected_out_of_scope_exclusion={} extra={} name_mismatch={} category_mismatch={} variant_mismatch={} ros_variant_label_missing={} price_mismatch={} cost_mismatch={} inventory_mismatch={} supplier_field_suspect={} supplier_code_non_vendor_key={} variant_group_splits={} parent_sku_variant={} duplicate_variant_labels={} missing_vendor={} vendor_mismatch={} missing_vendor_item_link={} extra_parent_scope_artifact={} extra_key_present_scope_gap={} extra_unexplained={}",
+            report.summary.total_csv_skus,
+            report.summary.matched_count,
+            report.summary.exact_match_count,
+            report.summary.mismatched_count,
+            report.summary.comparison_artifact_count,
+            report.summary.csv_source_issue_count,
+            report.summary.missing_in_ros_count,
+            report.summary.expected_out_of_scope_exclusion_count,
+            report.summary.extra_in_ros_count,
+            report.summary.name_mismatch_count,
+            report.summary.category_mismatch_count,
+            report.summary.variant_mismatch_count,
+            report.summary.ros_variant_label_missing_count,
+            report.summary.price_mismatch_count,
+            report.summary.cost_mismatch_count,
+            report.summary.inventory_mismatch_count,
+            report.summary.supplier_field_suspect_count,
+            report.summary.supplier_code_non_vendor_key_count,
+            report.summary.variant_group_split_count,
+            report.summary.parent_sku_variant_count,
+            report.summary.duplicate_variant_label_count,
+            report.summary.missing_vendor_count,
+            report.summary.vendor_mismatch_count,
+            report.summary.missing_vendor_item_link_count,
+            report.summary.extra_parent_scope_artifact_count,
+            report.summary.extra_key_present_scope_gap_count,
+            report.summary.extra_unexplained_count,
+        );
+        for issue in report.critical_issues.iter().take(10) {
+            println!("inventory verification critical issue: {issue}");
+        }
+
+        assert!(report.summary.csv_path.contains("export2026-04-22.csv"));
+        assert_eq!(
+            report.summary.exact_match_count
+                + report.summary.mismatched_count
+                + report.summary.csv_source_issue_count
+                + report.summary.comparison_artifact_count
+                + report.summary.missing_in_ros_count,
+            report.summary.total_csv_skus
+        );
+        assert_eq!(
+            report.summary.exact_match_count
+                + report.summary.mismatched_count
+                + report.summary.csv_source_issue_count,
+            report.summary.matched_count
+        );
+        assert!(report.summary.extra_in_ros_count >= report.extra_rows.len() as i64);
+    }
+
+    #[test]
+    fn ticket_amount_paid_prefers_explicit_tenders_when_present() {
+        let payments = vec![
+            TicketPaymentRow {
+                pmt_typ: "CASH".into(),
+                amount: Decimal::new(4000, 2),
+                gift_cert_no: None,
+            },
+            TicketPaymentRow {
+                pmt_typ: "CHECK".into(),
+                amount: Decimal::new(1500, 2),
+                gift_cert_no: None,
+            },
+        ];
+        let gift_applications = vec![
+            TicketGiftApplicationRow {
+                gift_cert_no: "GC-1".into(),
+                amount: Decimal::new(500, 2),
+                action: Some("redeem".into()),
+            },
+            TicketGiftApplicationRow {
+                gift_cert_no: "GC-2".into(),
+                amount: Decimal::new(250, 2),
+                action: Some("load".into()),
+            },
+        ];
+
+        let paid = sum_counterpoint_ticket_tenders(&payments, &gift_applications)
+            .expect("explicit tenders should produce a paid total");
+
+        assert_eq!(paid, Decimal::new(6000, 2));
+    }
+
+    #[test]
+    fn open_doc_amount_paid_prefers_explicit_payments_when_present() {
+        let payments = vec![
+            TicketPaymentRow {
+                pmt_typ: "CASH".into(),
+                amount: Decimal::new(2000, 2),
+                gift_cert_no: None,
+            },
+            TicketPaymentRow {
+                pmt_typ: "STORE CREDIT".into(),
+                amount: Decimal::new(750, 2),
+                gift_cert_no: None,
+            },
+        ];
+
+        let paid = sum_counterpoint_open_doc_tenders(&payments)
+            .expect("explicit payments should produce a paid total");
+
+        assert_eq!(paid, Decimal::new(2750, 2));
+    }
+
+    #[test]
+    fn ros_currency_matches_storage_precision() {
+        assert!(ros_currency_matches(
+            Some(Decimal::new(118450, 4)),
+            Decimal::new(1185, 2)
+        ));
+        assert!(!ros_currency_matches(
+            Some(Decimal::new(300000, 4)),
+            Decimal::new(2600, 2)
+        ));
+    }
+
+    #[test]
+    fn parent_row_fallback_is_comparison_artifact() {
+        let csv_row = CounterpointInventoryCsvNormalizedRow {
+            sku: "B-1493175".into(),
+            name: "Cardi Solid Twill Neck Tie".into(),
+            product_category: "TIES".into(),
+            variant_label: "Champagne".into(),
+            item_key: "I-103111".into(),
+            supply_price: Some(Decimal::new(77500, 4)),
+            retail_price: Some(Decimal::new(650000, 4)),
+            inventory_quantity: Some(Decimal::new(-80000, 4)),
+            supplier_name: "Cardi International".into(),
+            supplier_code: String::new(),
+            supplier_field_suspect: false,
+            supplier_code_non_vendor_key: false,
+        };
+        let ros_row = CounterpointRosInventoryRow {
+            variant_id: Uuid::new_v4(),
+            product_id: Uuid::new_v4(),
+            sku: "I-103111".into(),
+            counterpoint_item_key: Some("I-103111".into()),
+            variation_label: None,
+            stock_on_hand: 0,
+            retail_price: Decimal::new(6500, 2),
+            supply_price: Decimal::new(775, 2),
+            product_name: "Cardi Solid Twill Neck Tie".into(),
+            catalog_handle: Some("I-103111".into()),
+            category_name: Some("TIES".into()),
+            primary_vendor_name: Some("Cardi International [CARDI]".into()),
+            primary_vendor_code: Some("CARDI".into()),
+        };
+
+        assert!(is_parent_row_fallback_artifact(
+            &csv_row,
+            &ros_row,
+            "counterpoint_item_key_singleton",
+        ));
+        assert!(!is_parent_row_fallback_artifact(&csv_row, &ros_row, "sku"));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_baseline_reset_preserves_bootstrap_and_clears_migration_state() {
+        let pool = connect_test_db().await;
+        let result = async {
+            let mut tx = pool.begin().await.expect("begin reset test transaction");
+            let category_id = Uuid::new_v4();
+            sqlx::query("INSERT INTO categories (id, name) VALUES ($1, $2)")
+                .bind(category_id)
+                .bind(format!("Counterpoint Reset Category {}", Uuid::new_v4().simple()))
+                .execute(&mut *tx)
+                .await
+                .expect("insert category");
+
+            sqlx::query(
+                "INSERT INTO counterpoint_category_map (cp_category, ros_category_id) VALUES ($1, $2)",
+            )
+            .bind(format!("CP-CAT-{}", Uuid::new_v4().simple()))
+            .bind(category_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert category map");
+            sqlx::query(
+                "INSERT INTO counterpoint_payment_method_map (cp_pmt_typ, ros_method) VALUES ($1, 'cash')",
+            )
+            .bind(format!("CP-PMT-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert payment map");
+            sqlx::query(
+                "INSERT INTO counterpoint_gift_reason_map (cp_reason_cod, ros_card_kind) VALUES ($1, 'purchased')",
+            )
+            .bind(format!("CP-GIFT-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert gift reason map");
+
+            let preserved_staff_id = Uuid::new_v4();
+            let preserved_code = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
+            let preserved_pin = hash_pin(&preserved_code).expect("hash preserved staff pin");
+            sqlx::query(
+                r#"
+                INSERT INTO staff (
+                    id, full_name, cashier_code, pin_hash, role, is_active, avatar_key,
+                    data_source, counterpoint_user_id, counterpoint_sls_rep
+                )
+                VALUES ($1, $2, $3, $4, 'admin', TRUE, 'ros_default', 'counterpoint', $5, $6)
+                "#,
+            )
+            .bind(preserved_staff_id)
+            .bind(format!(
+                "Counterpoint Reset Keeper {}",
+                Uuid::new_v4().simple()
+            ))
+            .bind(&preserved_code)
+            .bind(preserved_pin)
+            .bind(format!("USR-{}", Uuid::new_v4().simple()))
+            .bind(format!("REP-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert preserved staff");
+
+            let imported_staff_id = Uuid::new_v4();
+            let imported_code = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
+            sqlx::query(
+                r#"
+                INSERT INTO staff (
+                    id, full_name, cashier_code, role, is_active, avatar_key,
+                    data_source, counterpoint_user_id
+                )
+                VALUES ($1, $2, $3, 'sales_support', TRUE, 'ros_default', 'counterpoint', $4)
+                "#,
+            )
+            .bind(imported_staff_id)
+            .bind(format!(
+                "Counterpoint Reset Imported Staff {}",
+                Uuid::new_v4().simple()
+            ))
+            .bind(imported_code)
+            .bind(format!("USR-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert imported staff");
+
+            let imported_customer_id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO customers (
+                    id, customer_code, first_name, last_name, email, customer_created_source
+                )
+                VALUES ($1, $2, $3, $4, $5, 'counterpoint')
+                "#,
+            )
+            .bind(imported_customer_id)
+            .bind(format!("CP-CUST-{}", Uuid::new_v4().simple()))
+            .bind("Counterpoint")
+            .bind("Customer")
+            .bind(format!(
+                "counterpoint-reset-{}@example.com",
+                Uuid::new_v4().simple()
+            ))
+            .execute(&mut *tx)
+            .await
+            .expect("insert imported customer");
+
+            let imported_product_id = Uuid::new_v4();
+            let imported_variant_id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO products (
+                    id, name, base_retail_price, base_cost, is_active, data_source
+                )
+                VALUES ($1, $2, $3, $4, TRUE, 'counterpoint')
+                "#,
+            )
+            .bind(imported_product_id)
+            .bind("Counterpoint Reset Product")
+            .bind(Decimal::new(12999, 2))
+            .bind(Decimal::new(4599, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert imported product");
+            sqlx::query(
+                r#"
+                INSERT INTO product_variants (
+                    id, product_id, sku, variation_values, stock_on_hand, counterpoint_item_key
+                )
+                VALUES ($1, $2, $3, '{}'::jsonb, 5, $4)
+                "#,
+            )
+            .bind(imported_variant_id)
+            .bind(imported_product_id)
+            .bind(format!("CP-RESET-{}", Uuid::new_v4().simple()))
+            .bind(format!("CP-ITEM-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert imported variant");
+
+            let vendor_id = Uuid::new_v4();
+            sqlx::query("INSERT INTO vendors (id, name, is_active) VALUES ($1, $2, TRUE)")
+                .bind(vendor_id)
+                .bind(format!("Counterpoint Reset Vendor {}", Uuid::new_v4().simple()))
+                .execute(&mut *tx)
+                .await
+                .expect("insert vendor");
+
+            let imported_transaction_id = Uuid::new_v4();
+            let manual_transaction_id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO transactions (
+                    id, customer_id, status, total_price, balance_due, is_counterpoint_import
+                )
+                VALUES ($1, $2, 'open', $3, $4, TRUE)
+                "#,
+            )
+            .bind(imported_transaction_id)
+            .bind(imported_customer_id)
+            .bind(Decimal::new(25000, 2))
+            .bind(Decimal::new(0, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert imported transaction");
+            sqlx::query(
+                r#"
+                INSERT INTO transactions (
+                    id, customer_id, status, total_price, balance_due, is_counterpoint_import
+                )
+                VALUES ($1, $2, 'open', $3, $4, FALSE)
+                "#,
+            )
+            .bind(manual_transaction_id)
+            .bind(imported_customer_id)
+            .bind(Decimal::new(5000, 2))
+            .bind(Decimal::new(5000, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert customer-linked manual transaction");
+
+            let payment_transaction_id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO payment_transactions (
+                    id, payer_id, payment_method, amount
+                )
+                VALUES ($1, $2, 'cash', $3)
+                "#,
+            )
+            .bind(payment_transaction_id)
+            .bind(imported_customer_id)
+            .bind(Decimal::new(25000, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert payment transaction");
+            sqlx::query(
+                r#"
+                INSERT INTO payment_allocations (
+                    id, transaction_id, target_transaction_id, amount_allocated
+                )
+                VALUES ($1, $2, $3, $4)
+                "#,
+            )
+            .bind(Uuid::new_v4())
+            .bind(payment_transaction_id)
+            .bind(imported_transaction_id)
+            .bind(Decimal::new(25000, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert payment allocation");
+
+            let gift_card_id = Uuid::new_v4();
+            sqlx::query(
+                r#"
+                INSERT INTO gift_cards (
+                    id, code, current_balance, is_liability, expires_at, card_kind, card_status,
+                    original_value, customer_id
+                )
+                VALUES ($1, $2, $3, TRUE, $4, 'purchased', 'active', $5, $6)
+                "#,
+            )
+            .bind(gift_card_id)
+            .bind(format!("CPRESET{}", Uuid::new_v4().simple()))
+            .bind(Decimal::new(5000, 2))
+            .bind(Utc::now() + Duration::days(30))
+            .bind(Decimal::new(5000, 2))
+            .bind(imported_customer_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert gift card");
+            sqlx::query(
+                r#"
+                INSERT INTO gift_card_events (
+                    gift_card_id, event_kind, amount, balance_after, staff_id
+                )
+                VALUES ($1, 'issued', $2, $3, $4)
+                "#,
+            )
+            .bind(gift_card_id)
+            .bind(Decimal::new(5000, 2))
+            .bind(Decimal::new(5000, 2))
+            .bind(preserved_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert gift card event");
+
+            sqlx::query(
+                r#"
+                INSERT INTO loyalty_point_ledger (
+                    customer_id, delta_points, balance_after, reason, created_by_staff_id
+                )
+                VALUES ($1, 10, 10, 'manual_adjust', $2)
+                "#,
+            )
+            .bind(imported_customer_id)
+            .bind(preserved_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert loyalty ledger");
+            sqlx::query(
+                r#"
+                INSERT INTO loyalty_reward_issuances (
+                    customer_id, points_deducted, reward_amount, applied_to_sale, remainder_card_id,
+                    issued_by_staff_id
+                )
+                VALUES ($1, 5000, 50.00, 0, $2, $3)
+                "#,
+            )
+            .bind(imported_customer_id)
+            .bind(gift_card_id)
+            .bind(preserved_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert loyalty issuance");
+            sqlx::query(
+                "INSERT INTO store_credit_accounts (customer_id, balance) VALUES ($1, $2)",
+            )
+            .bind(imported_customer_id)
+            .bind(Decimal::new(1500, 2))
+            .execute(&mut *tx)
+            .await
+            .expect("insert store credit account");
+
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_sync_runs (
+                    entity, cursor_value, last_ok_at, records_processed
+                )
+                VALUES ($1, $2, NOW(), 7)
+                "#,
+            )
+            .bind(format!("reset-test-entity-{}", Uuid::new_v4().simple()))
+            .bind("cursor-1")
+            .execute(&mut *tx)
+            .await
+            .expect("insert sync run");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_sync_issue (entity, external_key, severity, message)
+                VALUES ('customers', $1, 'warning', 'test issue')
+                "#,
+            )
+            .bind(format!("ext-{}", Uuid::new_v4().simple()))
+            .execute(&mut *tx)
+            .await
+            .expect("insert sync issue");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_sync_request (requested_by, entity)
+                VALUES ($1, 'customers')
+                "#,
+            )
+            .bind(preserved_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert sync request");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_staging_batch (
+                    entity, payload, row_count, status, applied_by_staff_id
+                )
+                VALUES ('customers', '{}'::jsonb, 1, 'pending', $1)
+                "#,
+            )
+            .bind(preserved_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert staging batch");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_receiving_history (
+                    vend_no, item_no, recv_dat, unit_cost, qty_recv, recv_no
+                )
+                VALUES ('V1', 'ITEM1', $1, $2, $3, 'RCV1')
+                "#,
+            )
+            .bind(
+                NaiveDate::from_ymd_opt(2026, 1, 15)
+                    .expect("valid date")
+                    .and_hms_opt(10, 0, 0)
+                    .expect("valid time")
+                    .and_utc(),
+            )
+            .bind(Decimal::new(2500, 2))
+            .bind(Decimal::new(2, 0))
+            .execute(&mut *tx)
+            .await
+            .expect("insert receiving history");
+            sqlx::query(
+                r#"
+                INSERT INTO counterpoint_staff_map (cp_code, cp_source, ros_staff_id)
+                VALUES ($1, 'user', $2)
+                "#,
+            )
+            .bind(format!("USRMAP-{}", Uuid::new_v4().simple()))
+            .bind(imported_staff_id)
+            .execute(&mut *tx)
+            .await
+            .expect("insert staff map");
+            sqlx::query(
+                r#"
+                UPDATE counterpoint_bridge_heartbeat
+                SET bridge_phase = 'running',
+                    current_entity = 'customers',
+                    bridge_version = 'test-version',
+                    bridge_hostname = 'test-host'
+                WHERE id = 1
+                "#,
+            )
+            .execute(&mut *tx)
+            .await
+            .expect("update heartbeat");
+
+            let targets = CounterpointBaselineResetTargets {
+                counterpoint_customer_ids: vec![imported_customer_id],
+                counterpoint_product_ids: vec![imported_product_id],
+                counterpoint_variant_ids: vec![imported_variant_id],
+                vendor_ids: vec![vendor_id],
+                gift_card_ids: vec![gift_card_id],
+                loyalty_reward_issuance_ids: sqlx::query_scalar(
+                    "SELECT id FROM loyalty_reward_issuances WHERE customer_id = $1",
+                )
+                .bind(imported_customer_id)
+                .fetch_all(&mut *tx)
+                .await
+                .expect("load loyalty issuance ids"),
+                loyalty_point_ledger_ids: sqlx::query_scalar(
+                    "SELECT id FROM loyalty_point_ledger WHERE customer_id = $1",
+                )
+                .bind(imported_customer_id)
+                .fetch_all(&mut *tx)
+                .await
+                .expect("load loyalty ledger ids"),
+                store_credit_account_ids: sqlx::query_scalar(
+                    "SELECT id FROM store_credit_accounts WHERE customer_id = $1",
+                )
+                .bind(imported_customer_id)
+                .fetch_all(&mut *tx)
+                .await
+                .expect("load store credit ids"),
+                counterpoint_only_staff_ids: vec![imported_staff_id],
+                counterpoint_transaction_ids: vec![imported_transaction_id, manual_transaction_id],
+                counterpoint_sync_run_ids: sqlx::query_scalar("SELECT id FROM counterpoint_sync_runs")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load sync run ids"),
+                counterpoint_sync_issue_ids: sqlx::query_scalar("SELECT id FROM counterpoint_sync_issue")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load sync issue ids"),
+                counterpoint_sync_request_ids: sqlx::query_scalar("SELECT id FROM counterpoint_sync_request")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load sync request ids"),
+                counterpoint_staging_batch_ids: sqlx::query_scalar("SELECT id FROM counterpoint_staging_batch")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load staging batch ids"),
+                counterpoint_receiving_history_ids: sqlx::query_scalar("SELECT id FROM counterpoint_receiving_history")
+                    .fetch_all(&mut *tx)
+                    .await
+                    .expect("load receiving history ids"),
+                counterpoint_staff_map_staff_ids: vec![imported_staff_id],
+            };
+
+            perform_counterpoint_baseline_reset_targets(&mut tx, &targets)
+                .await
+                .expect("execute baseline reset");
+
+            let store_settings_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*)::bigint FROM store_settings")
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("count store_settings");
+            assert_eq!(store_settings_count, 1);
+
+            let preserved_staff: (Option<String>, Option<String>, Option<String>) = sqlx::query_as(
+                "SELECT pin_hash, counterpoint_user_id, counterpoint_sls_rep FROM staff WHERE id = $1",
+            )
+            .bind(preserved_staff_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("load preserved staff");
+            assert!(preserved_staff.0.is_some());
+            assert!(preserved_staff.1.is_none());
+            assert!(preserved_staff.2.is_none());
+
+            let preserved_maps_count: i64 = sqlx::query_scalar(
+                r#"
+                SELECT
+                    (SELECT COUNT(*)::bigint FROM counterpoint_category_map)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_payment_method_map)
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_gift_reason_map)
+                "#,
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .expect("count preserved maps");
+            assert!(preserved_maps_count >= 3);
+
+            let imported_customer_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
+                    .bind(imported_customer_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("check imported customer");
+            assert!(!imported_customer_exists);
+
+            let imported_transactions_remaining: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM transactions WHERE id = ANY($1)",
+            )
+            .bind(vec![imported_transaction_id, manual_transaction_id])
+            .fetch_one(&mut *tx)
+            .await
+            .expect("count transactions after reset");
+            assert_eq!(imported_transactions_remaining, 0);
+
+            let payment_transaction_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM payment_transactions WHERE id = $1)",
+            )
+            .bind(payment_transaction_id)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("check payment transaction");
+            assert!(!payment_transaction_exists);
+
+            let imported_product_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)")
+                    .bind(imported_product_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("check imported product");
+            assert!(!imported_product_exists);
+
+            let vendor_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM vendors WHERE id = $1)")
+                    .bind(vendor_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("check vendor");
+            assert!(!vendor_exists);
+
+            let gift_card_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM gift_cards WHERE id = $1)")
+                    .bind(gift_card_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("check gift card");
+            assert!(!gift_card_exists);
+
+            let loyalty_rows: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM loyalty_point_ledger WHERE customer_id = $1",
+            )
+                    .bind(imported_customer_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("count loyalty rows");
+            assert_eq!(loyalty_rows, 0);
+
+            let store_credit_rows: i64 = sqlx::query_scalar(
+                "SELECT COUNT(*)::bigint FROM store_credit_accounts WHERE customer_id = $1",
+            )
+                    .bind(imported_customer_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("count store credit rows");
+            assert_eq!(store_credit_rows, 0);
+
+            let counterpoint_state_rows: i64 = sqlx::query_scalar(
+                r#"
+                SELECT
+                    (SELECT COUNT(*)::bigint FROM counterpoint_sync_runs WHERE id = ANY($1))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_sync_issue WHERE id = ANY($2))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_sync_request WHERE id = ANY($3))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_staging_batch WHERE id = ANY($4))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_receiving_history WHERE id = ANY($5))
+                  + (SELECT COUNT(*)::bigint FROM counterpoint_staff_map WHERE ros_staff_id = ANY($6))
+                "#,
+            )
+            .bind(&targets.counterpoint_sync_run_ids)
+            .bind(&targets.counterpoint_sync_issue_ids)
+            .bind(&targets.counterpoint_sync_request_ids)
+            .bind(&targets.counterpoint_staging_batch_ids)
+            .bind(&targets.counterpoint_receiving_history_ids)
+            .bind(&targets.counterpoint_staff_map_staff_ids)
+            .fetch_one(&mut *tx)
+            .await
+            .expect("count counterpoint state rows");
+            assert_eq!(counterpoint_state_rows, 0);
+
+            let imported_staff_exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE id = $1)")
+                    .bind(imported_staff_id)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .expect("check imported staff");
+            assert!(!imported_staff_exists);
+
+            let heartbeat: (String, Option<String>, Option<String>) = sqlx::query_as(
+                "SELECT bridge_phase, bridge_version, bridge_hostname FROM counterpoint_bridge_heartbeat WHERE id = 1",
+            )
+            .fetch_one(&mut *tx)
+            .await
+            .expect("load heartbeat");
+            assert_eq!(heartbeat.0, "idle");
+            assert!(heartbeat.1.is_none());
+            assert!(heartbeat.2.is_none());
+
+            tx.rollback().await.expect("rollback reset test transaction");
+            Ok::<(), sqlx::Error>(())
+        }
+        .await;
+
+        result.expect("counterpoint baseline reset assertions");
+    }
 }

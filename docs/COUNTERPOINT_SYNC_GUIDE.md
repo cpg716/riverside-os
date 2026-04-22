@@ -206,11 +206,11 @@ Imported staff have **no PIN** (`pin_hash = NULL`) and cannot log in to the Back
 | `BAL` | `custom_field_2` | A/R balance (stored as string for reference) |
 | `SLS_REP` | `preferred_salesperson_id` | Resolved via `counterpoint_staff_map` (sync staff first) |
 
-**Provenance & Lifetime Value:** New customers created by this sync get `customer_created_source = 'counterpoint'`. **Important:** As of the 2018 Historical Hardening update, Riverside OS does NOT use a static `lifetime_sales` column from Counterpoint. Instead, it aggregates all imported `tickets` (from 2018+) to provide mathematically accurate lifetime reporting and financial parity.
+**Provenance & Lifetime Value:** New customers created by this sync get `customer_created_source = 'counterpoint'`. Riverside OS does **not** use a static `lifetime_sales` column from Counterpoint. It derives spend from imported ticket history that actually lands in ROS.
 
-**Default `.env` scope (2018 Hardening):** `CP_IMPORT_SINCE` is now set to **2018-01-01** by default to capture all transactional history required for lifetime audits.
-**Open Documents:** Unlike historical tickets, the `CP_OPEN_DOCS_QUERY` typically removes date filters to ensure the full active backlog (Layaways, Quotes, Special Orders) is captured regardless of creation date.
-`CP_CUSTOMERS_QUERY` selects **`AR_CUST`** for **closed tickets** or **in-range notes** on or after **`CP_IMPORT_SINCE`**, **or** (when **`SYNC_STORE_CREDIT_OPENING=1`**) **`OR EXISTS(CP_CUSTOMER_STORE_CREDIT_EXISTS)`** — shipped example uses **`MERCH_CR_BAL` > 0**; change both that SQL fragment and **`CP_STORE_CREDIT_QUERY`** if your column name differs. **Loyalty-only** activity does **not** add customers. Open layaways without tickets may still need a manual **`PS_DOC`** `EXISTS` if required.
+**Current bridge default:** the shipped bridge code and `.env.example` now default **`CP_IMPORT_SINCE`** to **`2018-01-01`**. This is the accepted historical floor for the Counterpoint migration and should remain visible in bridge preflight unless you are intentionally running a narrower rehearsal.
+**Open Documents:** Unlike historical tickets, the shipped `CP_OPEN_DOCS_QUERY`, `CP_OPEN_DOC_LINES_QUERY`, and `CP_OPEN_DOC_PMT_QUERY` remove date filters so the full active backlog (Layaways, Quotes, Special Orders) is captured regardless of creation date.
+`CP_CUSTOMERS_QUERY` in the shipped bridge now selects the full **`AR_CUST`** base, not just ticket-active customers, so ROS preserves customer identity, loyalty balances, and ownership for open documents from the same migration pass. If you intentionally narrow the customer query for rehearsal work, treat that as a scope change and verify the impact on loyalty, store credit, and open-doc customer linking before sign-off.
 
 ### 4b-2. Customer Notes
 
@@ -332,6 +332,7 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | `PS_TKT_HIST.TKT_NO` | `orders.counterpoint_ticket_ref` |
 | `PS_TKT_HIST.BUS_DAT` | `orders.booked_at` |
 | `PS_TKT_HIST.TOT` | `orders.total_price` |
+| `PS_TKT_HIST_PMT.AMT` + redeeming `PS_TKT_HIST_GFT.AMT` | `orders.amount_paid` / `orders.balance_due` when present |
 | `PS_TKT_HIST.CUST_NO` | `orders.customer_id` (resolved via `customer_code`) |
 | `PS_TKT_HIST.USR_ID` | `orders.processed_by_staff_id` (resolved via `counterpoint_staff_map`) |
 | `PS_TKT_HIST.SLS_REP` | `orders.primary_salesperson_id` + `order_items.salesperson_id` (resolved via `counterpoint_staff_map`) |
@@ -343,6 +344,10 @@ If `ISSUE_DAT` is also absent, `NOW()` is used as the issue baseline.
 | — | `orders.counterpoint_customer_code` | Original CP customer code preserved for audit fallback |
 
 **Idempotency:** If an order with the same `counterpoint_ticket_ref` already exists, the entire ticket is **skipped** (no duplicates).
+
+**Totals / paid semantics:** The shipped bridge still sources the gross historical ticket total from the header query (`PS_TKT_HIST.TOT` in the default v8.2 template). ROS now prefers the summed tender history from `PS_TKT_HIST_PMT` plus redeeming `PS_TKT_HIST_GFT` rows for `amount_paid` and `balance_due` whenever those rows are present. If those tender rows are absent, ROS falls back to the header `amount_paid` value from `CP_TICKETS_QUERY`.
+
+**Tax limitation:** The shipped Counterpoint ticket queries do not currently source line-level or header-level tax columns, so imported historical `transaction_lines.state_tax` and `local_tax` land as `0`. Treat imported ticket history as operational/customer-service history, not as financially authoritative tax history, unless you extend the bridge with proven Counterpoint tax columns from your live schema.
 
 **Provenance:** All imported orders have `is_counterpoint_import = true`. This flag ensures:
 - Loyalty point accrual is **skipped** (no double-counting with Counterpoint's loyalty system)
@@ -591,7 +596,7 @@ Unmapped reason codes default to `purchased`.
 
 ## 9. Date-range filtering (recommended)
 
-You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2021-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in ticket, note, loyalty, gift-history, **customer**, and **inventory** templates. Adjust **`CP_IMPORT_SINCE`** once rather than editing every date literal.
+You do **not** have to import the full Counterpoint history. The `.env.example` uses **`CP_IMPORT_SINCE`** (default **2018-01-01**) expanded as **`__CP_IMPORT_SINCE__`** in ticket, note, loyalty, gift-history, **customer**, and **inventory** templates. Adjust **`CP_IMPORT_SINCE`** once rather than editing every date literal.
 
 ### What to filter vs. keep full
 
@@ -688,6 +693,8 @@ Each entity sync uses a configurable SQL query in the bridge `.env` file. Counte
 |------|---------|----------|
 | **Manual (Default)** | Dashboard trigger / Sync Request | One-off targeted entity or full pass. |
 | **Continuous** | Dashboard Toggle | Syncs every 15 minutes (configurable via `POLL_INTERVAL_MS`). |
-| **Run Once** | `RUN_ONCE=1` / `import` | Executes a full sync pass and exits immediately. |
+| **Run Once** | `RUN_ONCE=1` / `import` | Executes a single pass for that bridge launch, then exits. Use repeated launches for validation if needed; do not leave it as a live ongoing bridge after cutover. |
 
 To switch a running bridge to Continuous sync, visit `http://localhost:3002` and flip the toggle in the "Operation Mode" card.
+
+If you use the ROS **Fresh baseline reset** workflow before go-live, remember that it clears ROS-side import data and Counterpoint state only. Delete or reset the bridge-local `.counterpoint-bridge-state.json` file as well if you want the next run to replay from the beginning instead of resuming from saved cursors.

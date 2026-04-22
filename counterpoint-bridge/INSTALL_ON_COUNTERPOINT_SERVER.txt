@@ -73,7 +73,7 @@ Optional (enable entities in .env)
   - SYNC_LOYALTY_HIST=0 by default → set 1 only if discover shows PS_LOY_PTS_HIST (NCR CP name: LOY = loyalty)
   - SYNC_VENDOR_ITEMS=1 → PO_VEND_ITEM vendor SKU map (template may use NULL vend_cost if your column name differs)
   - SYNC_TICKETS=1     → Historical tickets from PS_TKT_HIST → orders
-  - CP_IMPORT_SINCE    → Date floor for ticket/note/loyalty templates (default 2021-01-01; use __CP_IMPORT_SINCE__ in SQL in .env)
+  - CP_IMPORT_SINCE    → Date floor for ticket/note/loyalty templates (default 2018-01-01; use __CP_IMPORT_SINCE__ in SQL in .env)
   - SYNC_STORE_CREDIT_OPENING=1 + CP_STORE_CREDIT_QUERY → ledger opening balances (after customers)
   - SYNC_OPEN_DOCS=1 + CP_OPEN_DOCS_* → open PS_DOC orders (after catalog/inventory + tickets; needs ROS migration 91)
 

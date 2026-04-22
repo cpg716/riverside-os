@@ -1,7 +1,9 @@
 # Audit Report: Counterpoint & Catalog Ingestion
 **Date:** 2026-04-08
-**Status:** High-Resilience / Production-Ready
+**Status:** Historical snapshot only — superseded by one-time migration runbooks and retirement guidance
 **Auditor:** Antigravity
+
+> Retirement note: this document predates the explicit one-time migration / retire-the-bridge posture. Do not use it as the primary operational runbook after cutover.
 
 ## 1. Executive Summary
 The Riverside OS Catalog Importer is a "Mass Ingestion" engine designed for large-scale retail environments. It enables seamless migration from legacy systems (Counterpoint, Lightspeed) to the ROS catalog while maintaining absolute data integrity through idempotent grouping and atomic transactions.
@@ -31,7 +33,7 @@ The Riverside OS Catalog Importer is a "Mass Ingestion" engine designed for larg
 2. **Staff Transparency**: The notification engine correctly alerts staff when rows are skipped, providing immediate feedback on data quality issues.
 3. **Observation**: The system defaults all new categories to `is_clothing_footwear = true` for NYS tax compliance. **Note**: If non-clothing items are imported, staff should verify tax classes manually after ingestion.
 4. **v8.2 SQL Customization**: (April 9 Update) Final field mapping confirmed that some v8.2 environments use custom table names (**`SY_GFC`**, **`AR_LOY_PT_ADJ_HIST`**) instead of the documented standard. Additionally, the **`SY_STC`** table was located, enabling the activation of the Store Credit opening balance migration. The bridge has been tuned to support these overrides.
-5. **Advanced Historical Finishing**: (April 9 Update) The migration scope was expanded to include **Historical Receiving** (cost basis history 2021+), **Ticket Notes** (customer service history), and **Reason Codes** (return/void analytics). The bridge and server now support deep ingestion of these historical entities for 100% data parity.
+5. **Advanced Historical Finishing**: (April 9 Update) The migration scope was expanded to include **Historical Receiving** (cost basis history now aligned to the accepted 2018-01-01 migration floor), **Ticket Notes** (customer service history), and **Reason Codes** (return/void analytics). The bridge and server now support deep ingestion of these historical entities for migration parity, subject to the current one-time migration runbooks and known fidelity limits.
 
 ## 5. Conclusion
 The Counterpoint Import engine is **highly robust and operationally efficient**. It is optimized for the erratic data quality often found in legacy retail exports, providing a safe and fast pathway to a clean system catalog.

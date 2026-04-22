@@ -12,21 +12,24 @@ use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
 use crate::logic::counterpoint_staging;
 use crate::logic::counterpoint_sync::{
-    self, execute_counterpoint_catalog_batch, execute_counterpoint_category_masters_batch,
-    execute_counterpoint_customer_batch, execute_counterpoint_customer_notes_batch,
-    execute_counterpoint_gift_card_batch, execute_counterpoint_inventory_batch,
-    execute_counterpoint_loyalty_hist_batch, execute_counterpoint_open_doc_batch,
-    execute_counterpoint_sls_rep_stub_batch, execute_counterpoint_staff_batch,
-    execute_counterpoint_store_credit_opening_batch, execute_counterpoint_ticket_batch,
-    execute_counterpoint_vendor_batch, execute_counterpoint_vendor_item_batch,
-    CounterpointCatalogPayload, CounterpointCategoryMastersPayload,
-    CounterpointCustomerNotesPayload, CounterpointCustomersPayload, CounterpointGiftCardsPayload,
-    CounterpointInventoryPayload, CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload,
-    CounterpointSlsRepStubPayload, CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload,
-    CounterpointSyncError, CounterpointTicketsPayload, CounterpointVendorItemsPayload,
-    CounterpointVendorsPayload, HeartbeatPayload,
+    self, build_counterpoint_inventory_verification_report, execute_counterpoint_catalog_batch,
+    execute_counterpoint_category_masters_batch, execute_counterpoint_customer_batch,
+    execute_counterpoint_customer_notes_batch, execute_counterpoint_gift_card_batch,
+    execute_counterpoint_inventory_batch, execute_counterpoint_loyalty_hist_batch,
+    execute_counterpoint_open_doc_batch, execute_counterpoint_sls_rep_stub_batch,
+    execute_counterpoint_staff_batch, execute_counterpoint_store_credit_opening_batch,
+    execute_counterpoint_ticket_batch, execute_counterpoint_vendor_batch,
+    execute_counterpoint_vendor_item_batch, CounterpointCatalogPayload,
+    CounterpointCategoryMastersPayload, CounterpointCustomerNotesPayload,
+    CounterpointCustomersPayload, CounterpointGiftCardsPayload, CounterpointInventoryPayload,
+    CounterpointLoyaltyHistPayload, CounterpointOpenDocsPayload, CounterpointSlsRepStubPayload,
+    CounterpointStaffPayload, CounterpointStoreCreditOpeningPayload, CounterpointSyncError,
+    CounterpointTicketsPayload, CounterpointVendorItemsPayload, CounterpointVendorsPayload,
+    HeartbeatPayload,
 };
 use crate::middleware;
+
+const VALID_GIFT_CARD_KINDS: [&str; 3] = ["purchased", "loyalty_reward", "donated_giveaway"];
 
 fn validate_sync_token(
     state: &AppState,
@@ -1074,6 +1077,17 @@ async fn settings_maps_gift_patch(
             Json(json!({ "error": "ros_card_kind required" })),
         ));
     }
+    if !VALID_GIFT_CARD_KINDS.contains(&k) {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "ros_card_kind must be one of: {}",
+                    VALID_GIFT_CARD_KINDS.join(", ")
+                )
+            })),
+        ));
+    }
     let ok = counterpoint_staging::patch_gift_reason_map(&state.db, id, k)
         .await
         .map_err(|e| {
@@ -1107,6 +1121,84 @@ async fn settings_maps_staff_list(
             )
         })?;
     Ok(Json(json!(rows)))
+}
+
+async fn settings_reset_preview(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let preview = counterpoint_sync::get_counterpoint_reset_preview(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+    Ok(Json(json!(preview)))
+}
+
+async fn settings_inventory_verification(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let report = build_counterpoint_inventory_verification_report(&state.db)
+        .await
+        .map_err(cp_err)?;
+    Ok(Json(json!(report)))
+}
+
+#[derive(Deserialize)]
+struct CounterpointResetBody {
+    confirmation_phrase: String,
+}
+
+async fn settings_reset_execute(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CounterpointResetBody>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    let staff = middleware::require_staff_with_permission(&state, &headers, SETTINGS_ADMIN)
+        .await
+        .map_err(map_perm)?;
+    let provided = body.confirmation_phrase.trim();
+    let preview = counterpoint_sync::get_counterpoint_reset_preview(&state.db)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+    if provided != preview.confirmation_phrase {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(json!({
+                "error": format!(
+                    "confirmation_phrase must exactly match: {}",
+                    preview.confirmation_phrase
+                )
+            })),
+        ));
+    }
+
+    let result = counterpoint_sync::execute_counterpoint_baseline_reset(&state.db)
+        .await
+        .map_err(cp_err)?;
+
+    tracing::warn!(
+        staff_id = %staff.id,
+        action = "counterpoint_baseline_reset",
+        "pre-go-live Counterpoint baseline reset executed"
+    );
+
+    Ok(Json(json!(result)))
 }
 
 fn map_perm(e: (StatusCode, Json<serde_json::Value>)) -> (StatusCode, Json<serde_json::Value>) {
@@ -1158,6 +1250,12 @@ pub fn router() -> Router<AppState> {
 pub fn settings_router() -> Router<AppState> {
     Router::new()
         .route("/status", get(settings_status))
+        .route(
+            "/inventory-verification",
+            get(settings_inventory_verification),
+        )
+        .route("/reset-preview", get(settings_reset_preview))
+        .route("/reset-baseline", post(settings_reset_execute))
         .route("/request-run", post(settings_request_run))
         .route("/issues/{issue_id}/resolve", patch(settings_resolve_issue))
         .route("/staging/enabled", patch(settings_staging_enabled_patch))
@@ -1178,4 +1276,155 @@ pub fn settings_router() -> Router<AppState> {
         .route("/maps/gift-reason", get(settings_maps_gift_list))
         .route("/maps/gift-reason/{id}", patch(settings_maps_gift_patch))
         .route("/maps/staff", get(settings_maps_staff_list))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::store_account_rate::StoreAccountRateState;
+    use crate::api::PaymentIntentMinuteWindow;
+    use crate::auth::pins::hash_pin;
+    use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
+    use crate::logic::podium::PodiumTokenCache;
+    use crate::logic::wedding_push::WeddingEventBus;
+    use crate::observability::ServerLogRing;
+    use axum::extract::State;
+    use axum::http::HeaderValue;
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tokio::sync::Mutex;
+    use uuid::Uuid;
+
+    async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        PgPool::connect(&database_url)
+            .await
+            .expect("connect test database")
+    }
+
+    async fn next_staff_code(pool: &PgPool) -> String {
+        for _ in 0..128 {
+            let candidate = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1)")
+                    .bind(&candidate)
+                    .fetch_one(pool)
+                    .await
+                    .expect("check cashier_code uniqueness");
+            if !exists {
+                return candidate;
+            }
+        }
+        panic!("could not allocate unique 4-digit cashier code for test staff");
+    }
+
+    async fn insert_staff_with_role(pool: &PgPool, role: &str, name_prefix: &str) -> String {
+        let code = next_staff_code(pool).await;
+        let pin_hash = hash_pin(&code).expect("hash test staff pin");
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, pin_hash, role, is_active, avatar_key
+            )
+            VALUES ($1, $2, $3, $4, $5::staff_role, TRUE, 'ros_default')
+            "#,
+        )
+        .bind(Uuid::new_v4())
+        .bind(format!("{name_prefix} {}", Uuid::new_v4().simple()))
+        .bind(&code)
+        .bind(pin_hash)
+        .bind(role)
+        .execute(pool)
+        .await
+        .expect("insert test staff");
+        code
+    }
+
+    fn build_test_state(pool: PgPool) -> AppState {
+        AppState {
+            db: pool,
+            global_employee_markup: Decimal::new(15, 0),
+            stripe_client: stripe::Client::new("sk_test_counterpoint_reset"),
+            http_client: reqwest::Client::new(),
+            podium_token_cache: Arc::new(Mutex::new(PodiumTokenCache::default())),
+            database_url: "postgres://test".to_string(),
+            counterpoint_sync_token: None,
+            wedding_events: WeddingEventBus::new(),
+            payment_intent_minute: Arc::new(Mutex::new(PaymentIntentMinuteWindow {
+                window_start: Instant::now(),
+                count: 0,
+            })),
+            payment_intent_max_per_minute: 0,
+            store_customer_jwt_secret: Arc::<[u8]>::from(b"counterpoint-reset-test".as_slice()),
+            store_account_rate: Arc::new(Mutex::new(StoreAccountRateState::default())),
+            store_account_unauth_post_per_minute_ip: 0,
+            store_account_authed_per_minute: 0,
+            meilisearch: None,
+            corecard_config: CoreCardConfig::from_env(),
+            corecard_token_cache: Arc::new(Mutex::new(CoreCardTokenCache::default())),
+            server_log_ring: ServerLogRing::new(32, 512),
+        }
+    }
+
+    fn auth_headers(code: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-riverside-staff-code",
+            HeaderValue::from_str(code).expect("staff code header"),
+        );
+        headers.insert(
+            "x-riverside-staff-pin",
+            HeaderValue::from_str(code).expect("staff pin header"),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn settings_reset_execute_rejects_non_admin_callers() {
+        let pool = connect_test_db().await;
+        let salesperson_code =
+            insert_staff_with_role(&pool, "salesperson", "Counterpoint Reset Salesperson").await;
+        let state = build_test_state(pool);
+
+        let err = settings_reset_execute(
+            State(state),
+            auth_headers(&salesperson_code),
+            Json(CounterpointResetBody {
+                confirmation_phrase: "RESET COUNTERPOINT BASELINE".to_string(),
+            }),
+        )
+        .await
+        .expect_err("salesperson should not reach baseline reset");
+
+        assert_eq!(err.0, StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn settings_reset_execute_rejects_incorrect_confirmation_phrase() {
+        let pool = connect_test_db().await;
+        let admin_code = insert_staff_with_role(&pool, "admin", "Counterpoint Reset Admin").await;
+        let state = build_test_state(pool);
+
+        let err = settings_reset_execute(
+            State(state),
+            auth_headers(&admin_code),
+            Json(CounterpointResetBody {
+                confirmation_phrase: "RESET THE WRONG THING".to_string(),
+            }),
+        )
+        .await
+        .expect_err("wrong confirmation phrase should be rejected");
+
+        assert_eq!(err.0, StatusCode::BAD_REQUEST);
+        let body = err.1 .0;
+        assert_eq!(
+            body.get("error").and_then(|value| value.as_str()),
+            Some("confirmation_phrase must exactly match: RESET COUNTERPOINT BASELINE")
+        );
+    }
 }

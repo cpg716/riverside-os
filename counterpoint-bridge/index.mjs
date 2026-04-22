@@ -46,6 +46,97 @@ const BRIDGE_STATE = {
     recentEvents: [], // [{ type: 'error'|'complete'|'start', entity: string, message: string, time: ISO, durationMs: number }]
 };
 
+function boolEnv(name, fallback = false) {
+    const raw = process.env[name];
+    if (raw == null) return fallback;
+    const val = String(raw).trim().toLowerCase();
+    return val === "1" || val === "true" || val === "yes" || val === "on";
+}
+
+function getMigrationSnapshot() {
+    const enabledEntities = [
+        ["staff", SYNC_STAFF],
+        ["sales_rep_stubs", SYNC_SLS_REP_STUBS],
+        ["vendors", SYNC_VENDORS],
+        ["customers", SYNC_CUSTOMERS],
+        ["store_credit_opening", SYNC_STORE_CREDIT_OPENING],
+        ["customer_notes", SYNC_CUSTOMER_NOTES],
+        ["category_masters", SYNC_CATEGORY_MASTERS],
+        ["catalog", SYNC_CATALOG],
+        ["inventory", SYNC_INVENTORY],
+        ["vendor_items", SYNC_VENDOR_ITEMS],
+        ["gift_cards", SYNC_GIFT_CARDS],
+        ["tickets", SYNC_TICKETS],
+        ["open_docs", SYNC_OPEN_DOCS],
+        ["loyalty_hist", SYNC_LOYALTY_HIST],
+        ["receiving_history", SYNC_RECEIVING_HISTORY],
+        ["ticket_notes", SYNC_TICKET_NOTES],
+    ]
+        .filter(([, enabled]) => enabled)
+        .map(([entity]) => entity);
+
+    const nonIdempotentEntities = enabledEntities.filter((entity) =>
+        entity === "gift_cards" || entity === "receiving_history",
+    );
+
+    const rerunWarnings = [];
+    if (CP_IMPORT_SINCE !== REQUIRED_CP_IMPORT_SINCE) {
+        rerunWarnings.push(
+            `Historical floor mismatch: this migration expects CP_IMPORT_SINCE=${REQUIRED_CP_IMPORT_SINCE}, but the bridge is running with ${CP_IMPORT_SINCE}.`,
+        );
+    }
+    if (!boolEnv("RUN_ONCE")) {
+        rerunWarnings.push(
+            "RUN_ONCE is off. This bridge can repeat the import unless an operator stops it.",
+        );
+    }
+    if (BRIDGE_STATE.lastRun || Object.keys(BRIDGE_STATE.syncSummary).length > 0) {
+        rerunWarnings.push(
+            "A prior bridge run is already recorded in this session. Re-running can duplicate non-idempotent history.",
+        );
+    }
+    if (nonIdempotentEntities.length > 0) {
+        rerunWarnings.push(
+            `Enabled extra-review rerun entities: ${nonIdempotentEntities.join(", ")}. These rows now have duplicate-skip guardrails, but operators should still review them carefully on repeat migration passes.`,
+        );
+    }
+    if (rosStagingEnabled) {
+        rerunWarnings.push(
+            "ROS inbound staging is enabled. Import is not complete until pending batches are reviewed and applied.",
+        );
+    }
+
+    return {
+        migration_intent: "one_time_import",
+        source_input: "NCR Counterpoint",
+        destination_system_of_record: "Riverside OS after successful import",
+        cp_import_since: CP_IMPORT_SINCE,
+        run_once: boolEnv("RUN_ONCE"),
+        bridge_continuous_mode: BRIDGE_STATE.isContinuous,
+        staging_enabled: rosStagingEnabled,
+        sync_relaxed_dependencies: SYNC_RELAXED_DEPENDENCIES,
+        import_scope: {
+            cp_import_scope: (process.env.CP_IMPORT_SCOPE ?? "").trim() || null,
+            enabled_entities: enabledEntities,
+            query_placeholders_use_cp_import_since: [
+                "tickets",
+                "customer_notes",
+                "loyalty_hist",
+                "gift_cards",
+                "ticket_notes",
+            ].filter((entity) => enabledEntities.includes(entity)),
+        },
+        non_idempotent_entities: nonIdempotentEntities,
+        rerun_warnings: rerunWarnings,
+        retirement_checklist: [
+            "Verify ROS sync history, unresolved issues, and any staging queue before declaring migration complete.",
+            "Capture the bridge run summary and ROS verification evidence for the cutover record.",
+            "Stop the bridge and remove any startup shortcut or scheduled rerun on the Counterpoint host.",
+            "Retire bridge credentials or remove the bridge folder after cutover so Counterpoint cannot be imported again by accident.",
+        ],
+    };
+}
+
 function pushEvent(type, entity, message, meta = {}) {
     const ev = { type, entity, message, time: new Date().toISOString(), ...meta };
     BRIDGE_STATE.recentEvents.unshift(ev);
@@ -75,7 +166,8 @@ const startLocalServer = () => {
             res.end(JSON.stringify({
                 ...BRIDGE_STATE,
                 logs: LOG_BACKLOG,
-                runOnce: process.env.RUN_ONCE === "1"
+                runOnce: process.env.RUN_ONCE === "1",
+                migrationPreflight: getMigrationSnapshot(),
             }));
         } else if (req.url === '/api/settings') {
             let body = '';
@@ -264,7 +356,10 @@ function loadDotEnv() {
 loadDotEnv();
 
 const STATE_FILE = process.env.CURSOR_STATE_FILE ?? path.join(__dirname, ".counterpoint-bridge-state.json");
-const CP_IMPORT_SINCE = (process.env.CP_IMPORT_SINCE ?? "2021-01-01").trim();
+const REQUIRED_CP_IMPORT_SINCE = "2018-01-01";
+const CP_IMPORT_SINCE = (
+  process.env.CP_IMPORT_SINCE ?? REQUIRED_CP_IMPORT_SINCE
+).trim();
 
 // Helper to get the starting date for queries (either .env default or last success)
 function getSyncAnchorDate(entityKey) {

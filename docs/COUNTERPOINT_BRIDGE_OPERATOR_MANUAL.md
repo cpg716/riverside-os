@@ -2,6 +2,8 @@
 
 Full runbook for **NCR Counterpoint (SQL Server) → Riverside OS (PostgreSQL)** using the Windows **Node bridge**, optional **staging queue**, and **Settings → Integrations → Counterpoint** hub. Data flow is **one way**: Counterpoint → ROS.
 
+For migration planning, treat this as a **one-time import tool**. After a successful cutover, ROS becomes the system of record and the bridge should be retired.
+
 **Also read**
 
 - [`COUNTERPOINT_SYNC_GUIDE.md`](COUNTERPOINT_SYNC_GUIDE.md) — SQL shapes, entity details, provenance, health API
@@ -76,7 +78,7 @@ Bridge version is logged in the Windows console (`[ingest]`, heartbeats) and can
 |------|---------|----------|
 | **Manual / IDLE** (Default) | Dashboard / Sync Request | Bridge sits idle. Only executes syncs when a staff member clicks "Run" in ROS or the Dashboard. |
 | **Continuous** | Dashboard Toggle | Syncs all enabled entities every 15 minutes (configurable via `POLL_INTERVAL_MS`). |
-| **Run Once** | `RUN_ONCE=1` / `import` | Executes a full sync pass and exits immediately. Used for automation scripts. |
+| **Run Once** | `RUN_ONCE=1` / `import` | Executes a single pass for that bridge launch, then stops. This is the recommended mode for validation and final cutover runs. |
 
 ### The "Sync-on-Demand" Posture
 By default, the bridge starts in **IDLE** mode. This prevents background noise and overlapping syncs during targeted data cleanup. To start a sync while in IDLE:
@@ -92,7 +94,7 @@ To prevent network and console spam when you are away from the store (and the br
 | **Direct** (staging **off** in ROS) | Each batch is POSTed to live ingest routes (`/api/sync/counterpoint/customers`, `/catalog`, …) and applied immediately. | **Full Counterpoint load**, catch-up, production routine. |
 | **Staging** (staging **on** in ROS) | Each batch is POSTed to `/api/sync/counterpoint/staging` and stored in `counterpoint_staging_batch`. Nothing hits live tables until a staff member clicks **Apply** on each batch in **Inbound queue**. | Spot checks, legal review, or debugging payloads before apply. |
 
-**Recommendation:** For a **first-time or large import**, keep **Inbound staging OFF** in Settings. If staging is ON, ROS will look idle for customers/catalog until every batch is manually applied — easy to mistake for “import broken.”
+**Recommendation:** For a **first-time or large import**, keep **Inbound staging OFF** in Settings unless you explicitly want a review queue. If staging is ON, ROS will look idle for customers/catalog until every batch is manually applied — easy to mistake for “import broken.”
 
 The bridge reads the flag from **`GET /api/sync/counterpoint/health`** (machine token). On **0.7.1+**, if ROS rejects staging (e.g. toggle turned off after health was cached), the bridge logs a warning and **retries that batch on the direct route** once.
 
@@ -110,12 +112,67 @@ Requires **`settings.admin`**.
 
 | Tab | Purpose |
 |-----|---------|
-| **Status** | Bridge online/offline, phase, host, version, last seen; **Inbound staging** on/off; **Request sync run**; entity run history; open issues. |
+| **Status** | Bridge online/offline, phase, host, version, last seen; **Inbound staging** on/off; one-time migration preflight scope; rerun-risk warnings; CSV inventory verification; post-import verification proof; entity run history; open issues. |
 | **Inbound queue** | Pending/applied/failed batches; JSON payload preview; **Apply** / **Discard** (with confirmations). |
 | **Categories / Payments / Gift reasons** | Edit Counterpoint → ROS mapping rows (no raw SQL). |
 | **Staff links** | Browse `counterpoint_staff_map` resolution; primary corrections still flow from **staff** bridge entity in most setups. |
 
 Toggle **staging** only when you understand the queue workflow.
+
+### Migration preflight facts now visible in the Status tab
+
+When the bridge is reachable at `http://localhost:3002`, the Status tab now shows a read-only runtime snapshot from the live bridge process:
+
+- active **`CP_IMPORT_SINCE`**
+- whether the bridge is **single-pass-per-launch** or repeat-capable
+- whether import lands **directly** or through **staging**
+- exact enabled **`SYNC_*`** entities
+- explicit rerun warnings for known non-idempotent entities
+
+Use that snapshot as the authoritative preflight scope for the migration run.
+
+### Post-import proof now visible in the Status tab
+
+After the bridge run finishes, use the same screen to review:
+
+- last bridge run time, duration, and record count
+- sign-off reconciliation rows comparing latest bridge counts to latest ROS landed counts by entity
+- sign-off blockers and obvious count/proof gaps
+- ROS server entity history
+- unresolved sync issues
+- staging pending count when staging is enabled
+
+This is the current built-in verification surface for the one-time Counterpoint migration.
+
+**Important limit:** ROS landed counts come from `counterpoint_sync_runs.records_processed`. They are useful as sign-off proof, but they are not a full accounting reconciliation and may include skipped/existing rows.
+
+### CSV inventory verification now visible in the Status tab
+
+The Status tab also includes a read-only **CSV inventory verification** card for direct source-to-target checking against the checked-in Counterpoint inventory export.
+
+- matches by **SKU** first, then by Counterpoint item key from CSV `tags`
+- compares SKU existence, product name, category, variant label, retail price, cost, quantity, and supplier fields
+- surfaces missing ROS rows, extra ROS rows, variant-group splits, supplier-field anomalies, vendor mismatches, and missing vendor item links
+
+Use this when operators need direct inventory proof from Counterpoint CSV ground truth instead of only bridge-versus-ROS run counts.
+
+### Fresh baseline reset now visible in the Status tab
+
+Before go-live, operators can also use the **Fresh baseline reset** card in the Status tab when they need to clear imported Counterpoint business data and ROS-side Counterpoint migration state before another controlled migration pass.
+
+- This is **pre-go-live only**.
+- It preserves bootstrap/runtime setup such as staff access, `store_settings`, and Counterpoint mapping tables.
+- It is not a generic wipe and intentionally leaves shared setup and unrelated operational modules out of scope unless they directly block the reset.
+- After the reset, clear the bridge-local `.counterpoint-bridge-state.json` file too if you want the bridge to replay from the beginning on the next run.
+
+### Post-cutover retirement steps
+
+Immediately after migration sign-off:
+
+1. Stop the running bridge on the Counterpoint PC.
+2. Remove any startup shortcut or scheduled launch path.
+3. Remove old bridge folders/zips or rotate `COUNTERPOINT_SYNC_TOKEN` so stale copies cannot post again.
+4. Leave ROS status/history surfaces in place for audit proof until a later cleanup/removal pass.
 
 ---
 
@@ -133,6 +190,8 @@ The bridge runs a **fixed** pipeline order (not reorderable via `.env` flags):
 
 Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RELAXED_DEPENDENCIES=1` (expert incremental use only).
 
+**Rerun caution:** `gift_cards` and `receiving_history` now have narrow duplicate-skip guardrails for repeat migration passes, but they still deserve extra review and should not be rerun casually after the final accepted cutover.
+
 ---
 
 ## 7. Zero-config and wide imports (bridge 0.7+)
@@ -141,7 +200,7 @@ Conflicting `SYNC_*` combinations exit with `[sync-plan]` errors unless `SYNC_RE
 
 | Env | Meaning |
 |-----|---------|
-| `CP_IMPORT_SINCE` | Date floor for historical parity; set to **2018-01-01** for full lifetime sales fidelity. |
+| `CP_IMPORT_SINCE` | Current shipped default is **2018-01-01**. This is the accepted migration floor and should stay visible in bridge preflight unless you are intentionally running a narrower rehearsal. |
 | `CP_IMPORT_SCOPE=maximal` | For **empty** env lines only, substitutes built-in wide SQL for customers, inventory, catalog, vendor_items, category_masters. Non-empty `CP_*_QUERY` still wins. **0.7.2+:** maximal **parent** catalog + inventory SQL is **schema-flex** (probes `INFORMATION_SCHEMA` so missing `LONG_DESCR`, missing `IM_PRC`, or `BARCOD` vs `BARCODE` does not hard-fail the query). |
 | `CP_INVENTORY_LOC_ID` / `CP_CATALOG_INV_LOC_ID` | Stock location for `IM_INV` joins (default **`MAIN`**). If you get no rows or errors, run `SELECT DISTINCT LOC_ID FROM IM_INV` in SSMS and set these to your real code. |
 | `CP_AUTO_SCHEMA=1` (default) | After SQL connect, probes `INFORMATION_SCHEMA`: IM_INV cost column, IM_ITEM vendor column, PO_VEND naming, optional PO_VEND_ITEM link. Logs one `[auto-schema]` line. Set `CP_AUTO_SCHEMA=0` to skip. |

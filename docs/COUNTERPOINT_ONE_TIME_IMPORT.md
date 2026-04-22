@@ -2,6 +2,8 @@
 
 Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS PostgreSQL. Pair with [`docs/COUNTERPOINT_SYNC_GUIDE.md`](COUNTERPOINT_SYNC_GUIDE.md) for token, bridge install, and field mapping.
 
+This path is intended for a **single controlled import and validation cycle**. After cutover, **Riverside OS becomes the system of record** and the Counterpoint bridge should be retired.
+
 ## Bridge import order and guards
 
 The Windows bridge runs entities in a **single fixed pipeline** (`counterpoint-bridge/index.mjs`). Startup **validates** flag combinations (for example, `SYNC_TICKETS` requires `SYNC_CUSTOMERS` and `SYNC_CATALOG`, and `SYNC_INVENTORY` requires `SYNC_CATALOG`). For incremental expert runs against an already-seeded ROS database, set **`SYNC_RELAXED_DEPENDENCIES=1`** in `.env` to skip those exits.
@@ -17,11 +19,23 @@ When **`PS_SLS_REP`** is not visible and `CP_SALES_REPS_QUERY` is empty, the bri
 
 1. **Apply migrations** through `91_counterpoint_open_docs.sql` (includes `orders.counterpoint_doc_ref` and a partial unique index).
 2. Set **`COUNTERPOINT_SYNC_TOKEN`** on the server and the same value in the bridge `.env` as `COUNTERPOINT_SYNC_TOKEN`.
-3. Prefer **`RUN_ONCE=1`** on the bridge for a full bulk pass; set **`RUN_ONCE=0`** only if you want repeated polling.
+3. Prefer **`RUN_ONCE=1`** on the bridge for a single pass per launch. Re-launching for validation/cutover rehearsal is fine; leaving the bridge in repeated polling mode is usually not.
+
+## Preflight: exact facts operators should verify before running
+
+Review **Settings → Counterpoint → Status** while the bridge is running on the same machine. The panel now exposes a read-only runtime snapshot from the live bridge process:
+
+- **`CP_IMPORT_SINCE`** currently in effect
+- whether the bridge is in **single-pass-per-launch** or **repeat-capable** mode
+- whether ROS will land batches **directly** or into the **staging queue**
+- the exact enabled **`SYNC_*`** entities in the fixed import order
+- explicit rerun warnings when known non-idempotent entities are enabled
+
+Treat those values as the real import scope for the migration record.
 
 ## Historical date cutover
 
-- Set **`CP_IMPORT_SINCE=2021-01-01`** in the bridge `.env` (default if unset).
+- Set **`CP_IMPORT_SINCE=2018-01-01`** in the bridge `.env` (default if unset).
 - In `CP_*_QUERY` strings, use the literal **`__CP_IMPORT_SINCE__`** where a date filter belongs (tickets, notes, loyalty, gift history). The bridge expands it at startup to the value of `CP_IMPORT_SINCE`.
 
 ## Entity order (required)
@@ -30,13 +44,14 @@ Hard dependencies in ROS:
 
 1. **Staff** (`SYNC_STAFF`) — `SY_USR` (and `PS_SLS_REP` / `PO_BUYER` when queries are set). When **`CP_SALES_REPS_QUERY` is empty**, the bridge runs **`sales-rep-stubs`** next so distinct `SLS_REP` from customers/tickets maps to ROS staff.
 2. **Vendors** (`SYNC_VENDORS`) — **before** catalog (`VEND_NO` → `products.primary_vendor_id`).
-3. **Customers** (`SYNC_CUSTOMERS`) — `CUST_NO` → `customer_code`. Default import is **closed tickets** or **in-range notes** plus anyone matching **`CP_CUSTOMER_STORE_CREDIT_EXISTS`** when store-credit sync is on (template uses **`MERCH_CR_BAL`** — verify in SSMS). **Loyalty-only** shoppers are **not** added. **`PS_LOY_PTS_HIST`** posts to **`loyalty_point_ledger`** only for customers who qualified here. Full **`AR_CUST`** line is commented in `.env`; add **`OR EXISTS(PS_DOC …)`** for open-document-only edge cases if needed.
+3. **Customers** (`SYNC_CUSTOMERS`) — `CUST_NO` → `customer_code`. The shipped bridge now imports the full **`AR_CUST`** customer base so loyalty balances, store-credit ownership, ticket history, and open-doc ownership all resolve against the same ROS customer set. If you intentionally narrow `CP_CUSTOMERS_QUERY` for rehearsal work, re-verify loyalty, store credit, and open-doc customer linking before sign-off.
 4. **Store credit opening** — **on by default** in `.env.example` (`SYNC_STORE_CREDIT_OPENING=1`, **`CP_STORE_CREDIT_QUERY`** after customers). Posts to `POST /api/sync/counterpoint/store-credit-opening`. Ledger reason **`counterpoint_opening_balance`**; re-runs skip rows already imported (**idempotent**). Set **`SYNC_STORE_CREDIT_OPENING=0`** if you are not using Counterpoint merchandise credit on **`AR_CUST`**.
 5. **Customer notes** (optional) — usual position after customers.
 6. **Catalog** then **inventory** then **vendor_items** — matrix keys on variants must exist before ticket/open-doc lines resolve. Default **`CP_INVENTORY_QUERY`** only sends **MAIN** rows whose **`ITEM_NO`** sold on a ticket on or after **`CP_IMPORT_SINCE`** (same window as ticket history) **or** have **non-zero `QTY_ON_HND`**, so dead catalog SKUs are not pushed to ROS. Replace with the full `IM_INV` `SELECT` in `.env` if you need every row.
 7. **Gift cards** — default off (`SYNC_GIFT_CARDS=0`) for bulk simplicity.
 8. **Closed ticket history** (`SYNC_TICKETS`) — idempotent on `counterpoint_ticket_ref`.
 9. **Open PS_DOC documents** (optional) — `SYNC_OPEN_DOCS=1` and `CP_OPEN_DOCS_*` queries **after** tickets. Posts to `POST /api/sync/counterpoint/open-docs`. Idempotent on `counterpoint_doc_ref`.
+   Historical ticket/open-doc totals are useful for operational history, but tax remains non-authoritative unless you explicitly extend the bridge with proven Counterpoint tax columns.
 10. **Loyalty** — **off by default** in the bridge. If your CP DB has no loyalty history table, or you prefer to set points only in ROS (**`customers.loyalty_points`** / **`loyalty_point_ledger`** via the app or a separate import), keep **`SYNC_LOYALTY_HIST=0`**.
 
 **Gift cards** — same idea: keep **`SYNC_GIFT_CARDS=0`** and maintain **`gift_cards`** in ROS yourself when Counterpoint is not the source of truth.
@@ -68,15 +83,121 @@ Customer ingest may still map Counterpoint A/R reference text to `customers.cust
 ## Open documents (`PS_DOC`)
 
 - Bridge env: **`CP_OPEN_DOCS_QUERY`** (headers), **`CP_OPEN_DOC_LINES_QUERY`**, **`CP_OPEN_DOC_PMT_QUERY`**.
+- Shipped bridge templates leave these `PS_DOC_*` queries **unbounded by `CP_IMPORT_SINCE`** so active layaways / quotes / special orders are not silently truncated by the historical floor.
 - Headers must expose a stable **`doc_ref`** (alias). Map `booked_at`, `total_price`, `amount_paid`, `cust_no`, optional `usr_id` / `sls_rep`, optional **`cp_status`** (void/cancel markers → `cancelled` in ROS).
-- Lines reuse the same shape as ticket lines (`sku`, `counterpoint_item_key`, `quantity`, `unit_price`, etc.). ROS sets **`fulfillment_type = special_order`** for all imported lines.
+- ROS now prefers the summed `PS_DOC_PMT` tender rows for `amount_paid` / `balance_due` when those rows are present. The header `amount_paid` value is a fallback only.
+- Lines reuse the same shape as ticket lines (`sku`, `counterpoint_item_key`, `quantity`, `unit_price`, etc.). ROS sets **`fulfillment_type = layaway`** when `DOC_TYP = 'L'`; all other imported open-doc lines land as **`special_order`**.
 - Re-imports: existing `counterpoint_doc_ref` rows are skipped.
+- Tax remains a known limitation: shipped ticket/open-doc templates do not source tax columns, so imported historical line-tax fields remain zero. Use this history for operational/customer lookup, not authoritative tax reconstruction.
 
 ## Operational notes
 
 - **Stop or pause the ROS API** during a full database wipe or extremely large imports if you need to avoid concurrent writes.
 - After changing SQL on the Counterpoint side, re-run **`discover`** and adjust `.env` columns (SQL Server validates every named column).
 - Bridge version is reported in heartbeat (`counterpoint-bridge/index.mjs`).
+
+## Post-import verification: exact proof to review
+
+After the bridge finishes, review **Settings → Counterpoint → Status** and confirm:
+
+1. **Last bridge run** shows the expected completion time, duration, and record count.
+2. **Sign-off reconciliation** shows the latest bridge-reported rows beside the latest ROS landed/apply count for each entity in scope.
+3. **CSV inventory verification** has been run when catalog / variant / quantity / supplier fidelity needs direct proof against the Counterpoint export.
+4. **Sign-off blockers** is empty, or every listed blocker has been intentionally resolved.
+5. **Server sync history** shows landed entity rows and no unexpected last-error values.
+6. **Open sync issues** is empty, or every remaining issue has been deliberately triaged.
+7. If staging was enabled, the **Inbound queue** is empty after all intended batches are applied.
+
+This is the current proof surface for the one-time migration. There is still no full reconciliation/reporting subsystem, so sign-off should include human review of these import artifacts plus any business-side spot checks.
+
+### Limits of the CSV inventory verification table
+
+- It compares the checked-in Counterpoint CSV export to Counterpoint-linked ROS products and variants.
+- Matching is **SKU-first**, with fallback to the Counterpoint item key carried in the CSV `tags` field.
+- Counterpoint parent item keys such as `I-XXXXX` are treated as product-group scope markers, not as direct row-level variant IDs for multi-row CSV groups.
+- It is read-only and does not correct data.
+- It proves inventory import fidelity for catalog, variants, prices, costs, quantities, and vendor linkage, but it does not validate ticket/open-doc financial history.
+
+### Limits of the sign-off reconciliation table
+
+- **Bridge rows** are the latest rows reported by the live bridge process for that entity.
+- **ROS landed** is the latest `counterpoint_sync_runs.records_processed` value for that entity.
+- ROS landed counts can include skipped/existing rows and apply-time processing, so they are useful as migration proof but are **not** a full accounting reconciliation.
+- If staging was enabled, ROS timestamps may lag behind the original bridge send time because rows land when staff click **Apply**.
+
+## Rerun safety
+
+Do **not** assume every Counterpoint entity is safe to rerun. Current repeatability posture:
+
+- **Safely repeatable today**
+  - `staff`
+  - `sales_rep_stubs`
+  - `vendors`
+  - `customers`
+  - `store_credit_opening`
+  - `customer_notes`
+  - `catalog`
+  - `inventory`
+  - `vendor_items`
+  - `tickets`
+  - `open_docs`
+  - `loyalty_hist`
+- **Partially repeatable with caveats**
+  - `category_masters`
+    The mapping/category outcome is stable, but manual map decisions still matter for final correctness.
+  - `gift_cards`
+    Card masters already upsert. Event inserts now skip duplicate event shapes for repeat migration passes, but operators should still review card history carefully before the final accepted run.
+  - `receiving_history`
+    Raw receiving rows now skip duplicate natural-key matches on rerun, but this remains analytics/history support rather than a reconciled procurement engine.
+- **Use explicit operator caution / unclear enough to avoid casual reruns**
+  - any entity driven by changed SQL scope or a changed `CP_IMPORT_SINCE`
+- Staging mode can make an import appear incomplete until pending batches are manually applied.
+
+The smallest safe posture is:
+
+1. Run with **`RUN_ONCE=1`**.
+2. Verify the import.
+3. Fix mapping/issues first if a rerun is needed.
+4. Re-run only the minimum necessary scope, with explicit awareness of non-idempotent entities.
+
+## Trial runs vs final accepted run
+
+- **Trial / validation runs**
+  - keep `RUN_ONCE=1`
+  - rerun only the entities you are actively validating
+  - review sign-off reconciliation and open issues after every pass
+  - if `gift_cards` or `receiving_history` are enabled, verify the historical rows directly instead of assuming perfect replay semantics
+- **Fresh-baseline reruns**
+  - if ROS needs to go back to a clean pre-go-live migration baseline, use **Settings → Counterpoint → Status → Fresh baseline reset**
+  - this preserves bootstrap/runtime setup and Counterpoint mapping tables, but clears imported business data plus Counterpoint migration state
+  - after the reset, clear the bridge-local `.counterpoint-bridge-state.json` file as well if you need the bridge to replay from the beginning instead of continuing from saved cursors
+- **Final accepted cutover run**
+  - use the final approved scope and mappings
+  - confirm staging is applied/empty if used
+  - confirm no unresolved issues block sign-off
+  - capture proof, then retire the bridge immediately after acceptance
+
+## After successful cutover: retire the bridge
+
+Immediately after the migration is accepted:
+
+1. Capture the bridge summary and ROS status evidence used for sign-off.
+2. Stop the bridge on the Counterpoint host.
+3. Remove any startup shortcut, scheduled task, or operator habit that could launch it again.
+4. Remove the bridge folder and/or rotate the `COUNTERPOINT_SYNC_TOKEN` so the old path cannot post again accidentally.
+5. Treat ROS as the only active system of record going forward.
+
+### What can be disabled now vs later
+
+- **Disable now, immediately after sign-off**
+  - the running bridge process
+  - any startup shortcut or scheduled launch on the Counterpoint machine
+  - old bridge copies or package zips, if operationally safe
+  - the current sync token, if you want a hard stop against accidental reuse
+- **Leave in place for a later removal pass**
+  - ROS server endpoints and database support tables
+  - Settings UI/history surfaces that preserve migration proof
+  - repo code and packaging scripts, until you choose to remove them in a dedicated cleanup pass
 
 ## Phase 2 (optional, separate change set)
 

@@ -929,9 +929,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Sync Settings Panel (settings)",
-    summary: "Auto-generated stub for client/src/components/settings/CounterpointSyncSettingsPanel.tsx — replace with staff-facing help.",
+    summary: "Monitor the Counterpoint bridge, review staged batches, and maintain Counterpoint-to-ROS mapping tables.",
     markdown: manual_109_raw,
-    tags: ["settings-counterpoint-sync-settings-panel","component","auto-scaffold"],
+    tags: ["settings-counterpoint-sync-settings-panel","component","counterpoint","bridge","sync"],
   },
   {
     id: "settings-help-center-settings-panel",

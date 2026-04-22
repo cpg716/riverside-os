@@ -54,7 +54,12 @@ BRIDGE_VER="$(grep -E '^const BRIDGE_VERSION' "$STAGE/counterpoint-bridge/index.
   echo "  - README.md"
   echo ""
   echo "First run: set SQL_CONNECTION_STRING, ROS_BASE_URL, COUNTERPOINT_SYNC_TOKEN in .env"
-  echo "Optional: CP_IMPORT_SINCE=2021-01-01 and __CP_IMPORT_SINCE__ in ticket/note queries."
+  echo "Optional: CP_IMPORT_SINCE=2018-01-01 and __CP_IMPORT_SINCE__ in ticket/note queries."
+  echo ""
+  echo "After migration sign-off:"
+  echo "  - stop the bridge on the Counterpoint PC"
+  echo "  - remove any startup or scheduled launch entry"
+  echo "  - delete this package/folder or rotate COUNTERPOINT_SYNC_TOKEN"
   echo "Full runbook: docs/COUNTERPOINT_ONE_TIME_IMPORT.md (in main Riverside OS repo)"
 } > "$STAGE/counterpoint-bridge/PACKAGE_README.txt"
 
@@ -65,3 +70,4 @@ BRIDGE_VER="$(grep -E '^const BRIDGE_VERSION' "$STAGE/counterpoint-bridge/index.
 
 echo "Wrote $OUT ($(du -h "$OUT" | cut -f1))"
 echo "Copy that zip to the Counterpoint PC, unzip, install Node LTS, then double-click START_BRIDGE.cmd"
+echo "After successful migration sign-off, stop the bridge and retire the package or rotate COUNTERPOINT_SYNC_TOKEN."
