@@ -271,7 +271,7 @@ export default function BackofficeSignInGate({
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          Server Settings
+          API Host Settings
         </button>
       </div>
 
@@ -279,8 +279,8 @@ export default function BackofficeSignInGate({
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
           <div className="w-full max-w-sm rounded-3xl bg-app-surface border border-app-border shadow-2xl p-8 space-y-6">
             <div className="text-center space-y-2">
-              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Server Configuration</h3>
-              <p className="text-[10px] font-medium text-app-text-muted">Point this register to your Main Server PC's IP address.</p>
+              <h3 className="text-sm font-black uppercase tracking-widest text-app-text">API Host Configuration</h3>
+              <p className="text-[10px] font-medium text-app-text-muted">Point this device to the Riverside URL for the host machine it should use: the local-network host URL when this device is in the shop, or the store's Tailscale remote-access URL when this device is off-site.</p>
             </div>
             <div className="space-y-2">
               <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">API Base URL</label>
@@ -288,7 +288,7 @@ export default function BackofficeSignInGate({
                 type="text"
                 value={tempUrl}
                 onChange={(e) => setTempUrl(e.target.value)}
-                placeholder="http://192.168.1.XX:3000"
+                placeholder="http://ros-host.local:3000 or https://ros-host.tailnet.ts.net"
                 className="w-full bg-app-bg border border-app-border rounded-xl px-4 py-3 text-xs font-mono text-app-text outline-none focus:border-app-accent"
               />
             </div>

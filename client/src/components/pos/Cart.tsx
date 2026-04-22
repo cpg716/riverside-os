@@ -20,6 +20,7 @@ import {
   Zap,
   Package,
   History,
+  ScanSearch,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -56,6 +57,7 @@ import CustomItemPromptModal from "./CustomItemPromptModal";
 import OrderLoadModal from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
+import PromptModal from "../ui/PromptModal";
 
 export type { CheckoutPayload } from "./types";
 
@@ -219,6 +221,8 @@ export default function Cart({
   const [customPromptOpen, setCustomPromptOpen] = useState(false);
   const [pendingCustomItem, setPendingCustomItem] = useState<ResolvedSkuItem | null>(null);
   const [giftCardLoadOpen, setGiftCardLoadOpen] = useState(false);
+  const [parkSalePromptOpen, setParkSalePromptOpen] = useState(false);
+  const [parkSaleDraftLabel, setParkSaleDraftLabel] = useState("");
 
   const {
     lines,
@@ -776,6 +780,52 @@ export default function Cart({
     return () => window.cancelAnimationFrame(id);
   }, [saleHydrated, checkoutOperator]);
 
+  const focusProductSearch = useCallback(() => {
+    if (!saleHydrated || !checkoutOperator || scannerOverlayOpen) return;
+    window.requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+  }, [saleHydrated, checkoutOperator, scannerOverlayOpen]);
+
+  useEffect(() => {
+    if (!saleHydrated || !checkoutOperator) return;
+    const refocusSearch = () => {
+      if (document.visibilityState !== "visible") return;
+      focusProductSearch();
+    };
+    window.addEventListener("focus", refocusSearch);
+    document.addEventListener("visibilitychange", refocusSearch);
+    return () => {
+      window.removeEventListener("focus", refocusSearch);
+      document.removeEventListener("visibilitychange", refocusSearch);
+    };
+  }, [saleHydrated, checkoutOperator, focusProductSearch]);
+
+  useEffect(() => {
+    if (!saleHydrated || !checkoutOperator || scannerOverlayOpen) return;
+
+    const handleSearchShortcut = (event: KeyboardEvent) => {
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tagName = target.tagName.toLowerCase();
+        if (
+          tagName === "input" ||
+          tagName === "textarea" ||
+          tagName === "select" ||
+          target.isContentEditable
+        ) {
+          return;
+        }
+      }
+      if (event.key !== "/") return;
+      event.preventDefault();
+      focusProductSearch();
+    };
+
+    window.addEventListener("keydown", handleSearchShortcut);
+    return () => window.removeEventListener("keydown", handleSearchShortcut);
+  }, [saleHydrated, checkoutOperator, scannerOverlayOpen, focusProductSearch]);
+
   const orderLaterFulfillment: FulfillmentKind = activeWeddingMember
     ? "wedding_order"
     : "special_order";
@@ -936,8 +986,17 @@ export default function Cart({
                 e.preventDefault();
                 void runSearch(search);
               }}
-              className="ui-input h-11 w-full border-2 border-app-border pl-10 text-base font-black shadow-inner focus:border-app-accent"
+              className="ui-input h-11 w-full border-2 border-app-border pl-10 pr-28 text-base font-black shadow-inner focus:border-app-accent"
             />
+            <button
+              type="button"
+              onClick={focusProductSearch}
+              title="Focus product search (/)"
+              className="ui-touch-target absolute right-1.5 top-1/2 z-10 flex min-h-10 -translate-y-1/2 items-center gap-1 rounded-lg border border-app-border bg-app-surface-2 px-3 text-[9px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface hover:text-app-text"
+            >
+              <ScanSearch size={12} aria-hidden />
+              Focus /
+            </button>
             <PosSearchResultList
               search={search}
               groupedSearchResults={groupedSearchResults}
@@ -953,7 +1012,7 @@ export default function Cart({
                   setWeddingDrawerPreferGroupPay(false);
                   setWeddingDrawerOpen(true);
                 }}
-                className={`flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 px-3 transition-all active:scale-95 ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent"}`}
+                className={`ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 px-3 transition-all active:scale-95 ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent"}`}
               >
                 <Users size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
@@ -965,7 +1024,7 @@ export default function Cart({
                   type="button"
                   data-testid="pos-exchange-wizard-trigger"
                   onClick={() => setExchangeWizardOpen(true)}
-                  className="flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 border-transparent bg-transparent px-3 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 border-transparent bg-transparent px-3 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
                 >
                   <ArrowLeftRight size={16} />
                   <span className="text-[10px] font-black uppercase tracking-widest">
@@ -980,7 +1039,7 @@ export default function Cart({
                       fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
                     })));
                   }}
-                  className={`flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-amber-500 bg-amber-50 text-amber-600" : "border-transparent bg-transparent text-app-text-muted hover:border-amber-500/40 hover:bg-app-surface hover:text-amber-700"}`}
+                  className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-amber-500 bg-amber-50 text-amber-600" : "border-transparent bg-transparent text-app-text-muted hover:border-amber-500/40 hover:bg-app-surface hover:text-amber-700"}`}
                 >
                   <Clock size={16} />
                   <span className="text-[10px] font-black uppercase tracking-widest">
@@ -994,7 +1053,7 @@ export default function Cart({
                 data-testid="pos-action-gift-card"
                 onClick={() => setGiftCardLoadOpen(true)}
                 title="Enter load amount, then scan or type the card code"
-                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white"
               >
                 <CreditCard size={16} className="shrink-0" aria-hidden />
                 Gift Card
@@ -1004,10 +1063,10 @@ export default function Cart({
                 disabled={lines.length === 0}
                 onClick={() => {
                    const label = selectedCustomer ? `Sale for ${selectedCustomer.first_name} ${selectedCustomer.last_name}` : "Untitled Sale";
-                   const res = window.prompt("Enter a label for this parked sale:", label);
-                   if (res !== null) void parkSale(res);
+                   setParkSaleDraftLabel(label);
+                   setParkSalePromptOpen(true);
                 }}
-                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-accent/40 bg-app-accent/5 px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-accent/40 bg-app-accent/5 px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white disabled:opacity-20"
               >
                 <Clock size={16} />
                 Park Sale
@@ -1016,7 +1075,7 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
                 onClick={() => setShowClearConfirm(true)}
-                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-red-500 bg-red-50 px-3 text-[10px] font-black uppercase tracking-widest text-red-600 transition-all hover:bg-red-500 hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-red-500 bg-red-50 px-3 text-[10px] font-black uppercase tracking-widest text-red-600 transition-all hover:bg-red-500 hover:text-white disabled:opacity-20"
               >
                 <RotateCcw size={16} />
                 Clear Sale
@@ -1026,7 +1085,7 @@ export default function Cart({
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
                 title="Set Rush, Fulfillment, or Shipping details"
-                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white disabled:opacity-20"
               >
                 <Zap size={16} className="shrink-0" aria-hidden />
                 Options
@@ -1810,6 +1869,24 @@ export default function Cart({
         message="Are you sure you want to completely clear this transaction? All items and customer data will be removed."
         confirmLabel="Yes, Clear Sale"
         variant="danger"
+      />
+
+      <PromptModal
+        isOpen={parkSalePromptOpen}
+        onClose={() => setParkSalePromptOpen(false)}
+        onSubmit={async (value) => {
+          const label = value.trim();
+          if (!label) {
+            toast("Enter a label before parking this sale.", "error");
+            return false;
+          }
+          return parkSale(label);
+        }}
+        title="Park Sale"
+        message="Name this parked sale so another cashier can find it quickly."
+        placeholder="Sale label"
+        defaultValue={parkSaleDraftLabel}
+        confirmLabel="Park Sale"
       />
 
       <ManagerApprovalModal

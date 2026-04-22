@@ -189,21 +189,21 @@ export function useParkedSales({
   const parkSale = useCallback(async (label: string = "Untitled Sale") => {
     if (lines.length === 0) {
       toast("Add at least one item before parking this sale.", "error");
-      return;
+      return false;
     }
     if (!selectedCustomer) {
       toast("Link a customer to this sale before parking.", "error");
-      return;
+      return false;
     }
     const tok = await ensurePosTokenForSession();
     if (!tok) {
       toast("Register session token missing. Join register first.", "error");
-      return;
+      return false;
     }
     const actor = await resolveActorStaffId();
     if (!actor) {
       toast("Sign in to park sales.", "error");
-      return;
+      return false;
     }
 
     const payload: ParkedCartPayload = {
@@ -225,8 +225,10 @@ export function useParkedSales({
       toast("Sale parked on server.", "success");
       clearCart();
       await refreshParkedSales();
+      return true;
     } catch (e) {
       toast(e instanceof Error ? e.message : "Park failed", "error");
+      return false;
     }
   }, [
     lines, sessionId, baseUrl, apiAuth, selectedCustomer, activeWeddingMember, 

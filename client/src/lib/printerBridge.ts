@@ -136,6 +136,30 @@ export async function printEscPosReceipt(payload: string, ip: string, port = 910
   }
 }
 
+export async function checkReceiptPrinterConnection(
+  address: HardwareAddress = resolvePrinterAddress("receipt"),
+) {
+  const ip = address.ip.trim();
+  const port = address.port;
+  if (!ip) {
+    throw new Error("Receipt printer IP is not configured for this station.");
+  }
+  if (!Number.isFinite(port) || port <= 0) {
+    throw new Error("Receipt printer port is invalid for this station.");
+  }
+  if (!isTauri()) {
+    throw new Error(
+      "Printer readiness checks are available only in the Riverside desktop app.",
+    );
+  }
+  try {
+    await invoke("check_printer_connection", { ip, port });
+  } catch (err) {
+    console.error("Hardware Bridge Error: printer readiness check failed:", err);
+    throw new Error(String(err), { cause: err });
+  }
+}
+
 /** Legacy print method for Chrome/Safari Fallback */
 function fallbackBrowserPrint(payload: string) {
   const w = window.open("", "_blank");

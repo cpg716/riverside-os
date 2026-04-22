@@ -1,4 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
+import { isTauri } from "@tauri-apps/api/core";
 import React, {
   useCallback,
   useEffect,
@@ -6,7 +7,19 @@ import React, {
   useRef,
   useState,
 } from "react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Printer,
+  RefreshCw,
+  Search,
+  Wifi,
+} from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
+import {
+  checkReceiptPrinterConnection,
+  resolvePrinterAddress,
+} from "../../lib/printerBridge";
 import {
   getPosRegisterAuth,
   mergedPosStaffHeaders,
@@ -67,6 +80,37 @@ type OpenSessionSummaryJson = {
 
 /** Admin POS path when Register #1 is not open yet. */
 type AdminPrimaryPath = null | "opening_lane1" | "waiting_lane1_elsewhere";
+type ReadinessStatus = "checking" | "ready" | "warning" | "error";
+
+interface ReadinessCheck {
+  status: ReadinessStatus;
+  detail: string;
+}
+
+function readinessTone(status: ReadinessStatus): string {
+  if (status === "ready") {
+    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+  }
+  if (status === "warning") {
+    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-200";
+  }
+  if (status === "error") {
+    return "border-app-danger/25 bg-app-danger/10 text-app-danger";
+  }
+  return "border-app-border/60 bg-app-surface-2/70 text-app-text-muted";
+}
+
+function ReadinessIcon({ status }: { status: ReadinessStatus }) {
+  if (status === "ready") {
+    return <CheckCircle2 size={16} className="shrink-0" aria-hidden />;
+  }
+  if (status === "warning" || status === "error") {
+    return <AlertTriangle size={16} className="shrink-0" aria-hidden />;
+  }
+  return (
+    <RefreshCw size={16} className="shrink-0 animate-spin" aria-hidden />
+  );
+}
 
 function payloadFromSessionJson(
   data: CurrentSessionJson,
@@ -141,6 +185,20 @@ export default function RegisterOverlay({
     null,
   );
   const [adminRecheckBusy, setAdminRecheckBusy] = useState(false);
+  const [apiReadiness, setApiReadiness] = useState<ReadinessCheck>({
+    status: "checking",
+    detail: "Checking the Riverside API for this station…",
+  });
+  const [printerReadiness, setPrinterReadiness] = useState<ReadinessCheck>({
+    status: "checking",
+    detail: "Checking the receipt printer for this station…",
+  });
+  const [focusReadiness, setFocusReadiness] = useState<ReadinessCheck>({
+    status: "ready",
+    detail:
+      "Product search auto-focuses when Register opens. Use Focus in the cart if a scan lands elsewhere.",
+  });
+  const [readinessBusy, setReadinessBusy] = useState(false);
 
   const onOpenedRef = useRef(onSessionOpened);
   onOpenedRef.current = onSessionOpened;
@@ -456,6 +514,102 @@ export default function RegisterOverlay({
   useShellBackdropLayer(overlayVisible);
   const { dialogRef, titleId } = useDialogAccessibility(overlayVisible, {});
 
+  const runReadinessChecks = useCallback(async () => {
+    setReadinessBusy(true);
+    setApiReadiness({
+      status: "checking",
+      detail: "Checking the Riverside API for this station…",
+    });
+    setPrinterReadiness({
+      status: "checking",
+      detail: "Checking the receipt printer for this station…",
+    });
+    setFocusReadiness({
+      status: "ready",
+      detail:
+        "Product search auto-focuses when Register opens. Use Focus in the cart if a scan lands elsewhere.",
+    });
+
+    try {
+      try {
+        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`, {
+          cache: "no-store",
+        });
+        if (!res.ok) {
+          setApiReadiness({
+            status: "error",
+            detail: `Cannot reach the Riverside API (${res.status}). Check the server URL and network before opening the register.`,
+          });
+        } else {
+          const data = (await res.json().catch(() => [])) as unknown[];
+          setApiReadiness({
+            status: "ready",
+            detail: `Riverside API is reachable${
+              Array.isArray(data) ? ` (${data.length} staff records loaded).` : "."
+            }`,
+          });
+        }
+      } catch {
+        setApiReadiness({
+          status: "error",
+          detail:
+            "Cannot reach the Riverside API. Check the server URL and network before opening the register.",
+        });
+      }
+
+      const receiptPrinter = resolvePrinterAddress("receipt");
+      const printerRequired = registerLaneRef.current <= 1;
+      if (!isTauri()) {
+        setPrinterReadiness({
+          status: "warning",
+          detail:
+            "Printer diagnostics run only in the Riverside desktop app. Use the Windows register app for live receipt readiness.",
+        });
+      } else if (!receiptPrinter.ip.trim()) {
+        setPrinterReadiness({
+          status: printerRequired ? "error" : "warning",
+          detail:
+            "Receipt printer IP is not configured for this station. Set it in Printers & Scanners before customer checkout.",
+        });
+      } else if (
+        !Number.isFinite(receiptPrinter.port) ||
+        receiptPrinter.port <= 0
+      ) {
+        setPrinterReadiness({
+          status: printerRequired ? "error" : "warning",
+          detail:
+            "Receipt printer port is invalid for this station. Correct the station printer settings before customer checkout.",
+        });
+      } else {
+        try {
+          await checkReceiptPrinterConnection(receiptPrinter);
+          setPrinterReadiness({
+            status: "ready",
+            detail: `Receipt printer responded at ${receiptPrinter.ip}:${receiptPrinter.port}.`,
+          });
+        } catch (err) {
+          const detail =
+            err instanceof Error ? err.message : "Printer connection failed.";
+          setPrinterReadiness({
+            status: printerRequired ? "error" : "warning",
+            detail: `${detail} Check printer power, IP, and cable/network path before customer checkout.`,
+          });
+        }
+      }
+    } finally {
+      setReadinessBusy(false);
+    }
+  }, [baseUrl]);
+
+  useEffect(() => {
+    if (booting) return;
+    void runReadinessChecks();
+  }, [booting, registerLane, runReadinessChecks]);
+
+  const hasBlockingReadinessIssue =
+    apiReadiness.status === "error" ||
+    (registerLane <= 1 && printerReadiness.status === "error");
+
   if (BYPASS && booting) {
     return (
       <div className="ui-overlay-backdrop">
@@ -738,6 +892,83 @@ export default function RegisterOverlay({
             </div>
           ) : null}
 
+          <div className="rounded-[24px] border border-app-border/40 bg-app-surface/60 p-5 shadow-inner">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+                  Station Readiness
+                </p>
+                <h3 className="mt-1 text-lg font-black tracking-tight text-app-text">
+                  {readinessBusy
+                    ? "Checking this register station…"
+                    : hasBlockingReadinessIssue
+                      ? "Not ready for customer checkout"
+                      : "Ready for register work"}
+                </h3>
+                <p className="mt-2 text-xs leading-relaxed text-app-text-muted">
+                  Confirm API, receipt printer, and scanner/search focus before opening the terminal for customer work.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void runReadinessChecks()}
+                disabled={readinessBusy}
+                className="ui-btn-secondary h-11 shrink-0 rounded-xl px-4 text-[10px] font-black uppercase tracking-widest"
+              >
+                {readinessBusy ? "Checking…" : "Run Readiness Check"}
+              </button>
+            </div>
+
+            <div className="mt-4 grid gap-3 lg:grid-cols-3">
+              <div className={`rounded-2xl border p-4 ${readinessTone(apiReadiness.status)}`}>
+                <div className="flex items-center gap-2">
+                  <Wifi size={16} aria-hidden />
+                  <p className="text-[10px] font-black uppercase tracking-widest">
+                    API Reachability
+                  </p>
+                </div>
+                <div className="mt-3 flex items-start gap-2">
+                  <ReadinessIcon status={apiReadiness.status} />
+                  <p className="text-xs font-semibold leading-relaxed">
+                    {apiReadiness.detail}
+                  </p>
+                </div>
+              </div>
+
+              <div
+                className={`rounded-2xl border p-4 ${readinessTone(printerReadiness.status)}`}
+              >
+                <div className="flex items-center gap-2">
+                  <Printer size={16} aria-hidden />
+                  <p className="text-[10px] font-black uppercase tracking-widest">
+                    Receipt Printer
+                  </p>
+                </div>
+                <div className="mt-3 flex items-start gap-2">
+                  <ReadinessIcon status={printerReadiness.status} />
+                  <p className="text-xs font-semibold leading-relaxed">
+                    {printerReadiness.detail}
+                  </p>
+                </div>
+              </div>
+
+              <div className={`rounded-2xl border p-4 ${readinessTone(focusReadiness.status)}`}>
+                <div className="flex items-center gap-2">
+                  <Search size={16} aria-hidden />
+                  <p className="text-[10px] font-black uppercase tracking-widest">
+                    Scanner / Search Focus
+                  </p>
+                </div>
+                <div className="mt-3 flex items-start gap-2">
+                  <ReadinessIcon status={focusReadiness.status} />
+                  <p className="text-xs font-semibold leading-relaxed">
+                    {focusReadiness.detail}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-10">
             {/* Left Column: Staff Auth */}
             <div className="space-y-6">
@@ -873,6 +1104,7 @@ export default function RegisterOverlay({
                   type="submit"
                   disabled={
                     busy ||
+                    hasBlockingReadinessIssue ||
                     credential.length !== 4 ||
                     (registerLane > 1 && !primarySessionId)
                   }

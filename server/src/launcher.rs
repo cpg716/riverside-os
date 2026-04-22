@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use tokio::net::TcpListener;
+use tokio::sync::oneshot;
 use tokio_cron_scheduler::{Job, JobScheduler};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
@@ -31,6 +32,12 @@ pub struct LauncherConfig {
     pub cors_origins: Vec<String>,
     pub strict_production: bool,
     pub max_body_bytes: Option<usize>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LaunchReady {
+    pub bind_addr: String,
+    pub frontend_dist: PathBuf,
 }
 
 fn stripe_value_looks_placeholder(value: &str) -> bool {
@@ -207,10 +214,13 @@ fn resolve_frontend_dist(
     Ok(resolved)
 }
 
-pub async fn launch_server(
+async fn launch_server_inner(
     config: LauncherConfig,
     server_log_ring: ServerLogRing,
+    ready_tx: Option<oneshot::Sender<Result<LaunchReady, String>>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let mut ready_tx = ready_tx;
+    let result: Result<(), Box<dyn std::error::Error>> = async {
     let stripe_secret_key =
         resolve_stripe_secret_key(config.stripe_secret_key.clone(), config.strict_production)?;
     let _stripe_public_key =
@@ -483,7 +493,7 @@ pub async fn launch_server(
     // Static Files
     let dist_path = resolve_frontend_dist(config.frontend_dist.clone(), config.strict_production)?;
     let index_path = dist_path.join("index.html");
-    let serve_dir = ServeDir::new(dist_path)
+    let serve_dir = ServeDir::new(dist_path.clone())
         .append_index_html_on_directories(true)
         .not_found_service(ServeFile::new(index_path));
 
@@ -499,6 +509,13 @@ pub async fn launch_server(
     let listener = TcpListener::bind(&config.bind_addr).await?;
     tracing::info!(addr = %config.bind_addr, "Riverside OS Unified Engine listening");
 
+    if let Some(tx) = ready_tx.take() {
+        let _ = tx.send(Ok(LaunchReady {
+            bind_addr: config.bind_addr.clone(),
+            frontend_dist: dist_path.clone(),
+        }));
+    }
+
     serve(
         listener,
         app.into_make_service_with_connect_info::<SocketAddr>(),
@@ -506,6 +523,32 @@ pub async fn launch_server(
     .await?;
 
     Ok(())
+    }
+    .await;
+
+    if let Err(ref error) = result {
+        if let Some(tx) = ready_tx.take() {
+            let _ = tx.send(Err(error.to_string()));
+        }
+    }
+
+    result
+}
+
+pub async fn launch_server(
+    config: LauncherConfig,
+    server_log_ring: ServerLogRing,
+) -> Result<(), Box<dyn std::error::Error>> {
+    launch_server_inner(config, server_log_ring, None).await
+}
+
+pub async fn launch_server_with_ready_signal(
+    config: LauncherConfig,
+    server_log_ring: ServerLogRing,
+    ready_tx: oneshot::Sender<Result<LaunchReady, String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let result = launch_server_inner(config, server_log_ring, Some(ready_tx)).await;
+    result
 }
 
 #[cfg(test)]

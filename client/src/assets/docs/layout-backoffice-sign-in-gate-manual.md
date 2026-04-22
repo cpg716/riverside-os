@@ -1,35 +1,37 @@
 ---
 id: layout-backoffice-sign-in-gate
-title: "Backoffice Sign In Gate (layout)"
+title: "Backoffice Sign-In Gate"
 order: 1028
-summary: "Auto-generated stub for client/src/components/layout/BackofficeSignInGate.tsx — replace with staff-facing help."
+summary: "Sign in with your staff identity and Access PIN before entering Riverside."
 source: client/src/components/layout/BackofficeSignInGate.tsx
-last_scanned: 2026-04-11
-tags: layout-backoffice-sign-in-gate, component, auto-scaffold
+last_scanned: 2026-04-22
+tags: layout-backoffice-sign-in-gate, signin, access-pin, host-settings
 ---
 
-# Backoffice Sign In Gate (layout)
+# Backoffice Sign-In Gate
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/layout/BackofficeSignInGate.tsx`._
-<!-- /help:component-source -->
+The sign-in gate protects Riverside before any shell or navigation appears.
 
-# Backoffice Sign In Gate
+## How to sign in
 
-The Sign In Gate protects the Back Office from unauthorized access. 
+1. Select your name.
+2. Enter your 4-digit **Access PIN**.
+3. Tap **Continue**.
 
-## How to use it
+## API Host Settings
 
-1. **Select Your Name**: Use the scrollable touch-grid to find and tap your name and avatar. Your selection will be highlighted with an emerald border.
-2. **Enter PIN**: Use the numeric keypad below to enter your 4-digit code.
-3. **Continue**: Tap the **Continue** button or hit the **Enter** key on the keypad to log in.
+Use **API Host Settings** only when this device needs to point at a different Riverside host URL, such as:
 
-## Security Features
-- **Unified Credential**: Your "Staff Code" and "Login PIN" are the same 4-digit number.
-- **Roster Memory**: The system remembers the last staff member who logged in on this computer and pre-selects them for convenience.
+- the dedicated host machine on your local network
+- the store's Tailscale remote-access URL when this device is off-site
 
-## Troubleshooting
-- If you don't see your name in the list, refresh the browser page.
-- If your PIN is rejected, ensure you haven't recently changed your Staff Code in the Team workspace.
-- For total lockout, see the [Lockout Recovery Manual](file:///Users/cpg/riverside-os/client/src/assets/docs/lockout-manual.md).
+Example values:
 
+- `http://ros-host.local:3000`
+- `https://ros-host.tailnet.ts.net`
+
+## Notes
+
+- The last selected staff member is remembered on that device.
+- If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
+- For lockout recovery, use the in-app **Lockout Recovery Manual** from Help.

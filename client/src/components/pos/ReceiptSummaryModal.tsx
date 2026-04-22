@@ -1,16 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import {
+  AlertTriangle,
   CheckCircle2,
   Gift,
   Mail,
   MessageSquare,
   Printer,
+  RefreshCw,
   X,
   ArrowRight,
   Save,
 } from "lucide-react";
 import { isTauri } from "@tauri-apps/api/core";
-import { printRawEscPosBase64, printZplReceipt } from "../../lib/printerBridge";
+import {
+  checkReceiptPrinterConnection,
+  printRawEscPosBase64,
+  printZplReceipt,
+  resolvePrinterAddress,
+} from "../../lib/printerBridge";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -78,6 +85,23 @@ export default function ReceiptSummaryModal({
   const [sendingEmail, setSendingEmail] = useState(false);
   const [sendingSms, setSendingSms] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [printingFailure, setPrintingFailure] = useState<string | null>(null);
+  const [printingFailureTitle, setPrintingFailureTitle] = useState<string | null>(
+    null,
+  );
+  const [lastPrintAttemptLabel, setLastPrintAttemptLabel] = useState<string | null>(
+    null,
+  );
+  const [lastPrintRequest, setLastPrintRequest] = useState<
+    { gift?: boolean; transactionLineIds?: string[] } | undefined
+  >(undefined);
+  const [printingSuccessMessage, setPrintingSuccessMessage] = useState<
+    string | null
+  >(null);
+  const [checkingPrinter, setCheckingPrinter] = useState(false);
+  const [printerCheckMessage, setPrinterCheckMessage] = useState<string | null>(
+    null,
+  );
   const [transactionDetail, setTransactionDetail] = useState<OrderDetail | null>(null);
   const [phoneDraft, setPhoneDraft] = useState("");
   const [emailDraft, setEmailDraft] = useState("");
@@ -224,6 +248,7 @@ export default function ReceiptSummaryModal({
   const handlePrint = useCallback(
     async (opts?: { gift?: boolean; transactionLineIds?: string[] }) => {
       if (!transactionId) return;
+      const attemptLabel = opts?.gift ? "gift receipt" : "receipt";
       if (opts?.gift) {
         const ids = opts.transactionLineIds;
         if (ids !== undefined && ids.length === 0) {
@@ -233,6 +258,12 @@ export default function ReceiptSummaryModal({
       }
       setPrinting(true);
       setError(null);
+      setPrintingFailure(null);
+      setPrintingFailureTitle(null);
+      setPrintingSuccessMessage(null);
+      setPrinterCheckMessage(null);
+      setLastPrintAttemptLabel(attemptLabel);
+      setLastPrintRequest(opts);
       try {
         const q = buildReceiptQuery(
           opts?.gift || opts?.transactionLineIds?.length
@@ -269,6 +300,9 @@ export default function ReceiptSummaryModal({
           const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
           const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100", 10);
           await printRawEscPosBase64(j.escpos_base64, printerIp, printerPort);
+          setPrintingSuccessMessage(
+            `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
+          );
           return;
         }
 
@@ -294,6 +328,9 @@ export default function ReceiptSummaryModal({
               /* ignore */
             }
           });
+          setPrintingSuccessMessage(
+            `${opts?.gift ? "Gift receipt" : "Receipt"} opened in the print window.`,
+          );
           return;
         }
 
@@ -312,15 +349,45 @@ export default function ReceiptSummaryModal({
         }
 
         await printZplReceipt(zpl, printerIp, printerPort);
+        setPrintingSuccessMessage(
+          `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
+        );
       } catch (e: unknown) {
         console.error("Printing failed", e);
-        setError(e instanceof Error ? e.message : "Thermal Dispatch Error");
+        const message = e instanceof Error ? e.message : "Thermal Dispatch Error";
+        setError(message);
+        setPrintingFailureTitle(
+          opts?.gift ? "Gift receipt did not print" : "Receipt did not print",
+        );
+        setPrintingFailure(
+          `${message} The sale is already complete. Retry printing, check the station printer, or send the receipt by SMS or email.`,
+        );
       } finally {
         setPrinting(false);
       }
     },
     [transactionId, baseUrl, buildReceiptQuery, getAuthHeaders, transactionDetail, toast],
   );
+
+  const runPrinterCheck = useCallback(async () => {
+    setCheckingPrinter(true);
+    setPrinterCheckMessage(null);
+    try {
+      const printer = resolvePrinterAddress("receipt");
+      await checkReceiptPrinterConnection(printer);
+      setPrinterCheckMessage(
+        `Receipt printer responded at ${printer.ip}:${printer.port}. You can retry printing now.`,
+      );
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Printer connection failed.";
+      setPrinterCheckMessage(
+        `${message} Verify printer power, cable/network path, and station printer settings before retrying.`,
+      );
+    } finally {
+      setCheckingPrinter(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (transactionDetail && localStorage.getItem("ros.hardware.printer.receipt.autoPrint") === "true") {
@@ -602,6 +669,71 @@ export default function ReceiptSummaryModal({
             </div>
           </div>
 
+          {printingFailure ? (
+            <div className="shrink-0 rounded-2xl border border-app-danger/30 bg-app-danger/10 px-4 py-3 sm:px-5 sm:py-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-app-danger/15 text-app-danger">
+                  <AlertTriangle className="h-5 w-5" strokeWidth={2} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+                    Sale succeeded
+                  </p>
+                  <h3 className="mt-1 text-sm font-black uppercase tracking-tight text-app-text sm:text-base">
+                    {printingFailureTitle ?? "Receipt did not print"}
+                  </h3>
+                  <p className="mt-2 text-xs font-semibold leading-relaxed text-app-text">
+                    {printingFailure}
+                  </p>
+                  <p className="mt-2 text-[10px] font-bold uppercase tracking-wide text-app-text-muted">
+                    Recovery: retry {lastPrintAttemptLabel ?? "receipt"} print, run printer check, or send by SMS/email.
+                  </p>
+                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <button
+                  type="button"
+                  disabled={printing}
+                  onClick={() => void handlePrint(lastPrintRequest)}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-danger/30 bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/10 disabled:opacity-50"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  {printing ? "Retrying…" : `Retry ${lastPrintAttemptLabel ?? "print"}`}
+                </button>
+                <button
+                  type="button"
+                  disabled={checkingPrinter}
+                  onClick={() => void runPrinterCheck()}
+                  className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50"
+                >
+                  <Printer className="h-4 w-4" />
+                  {checkingPrinter ? "Checking printer…" : "Check station printer"}
+                </button>
+              </div>
+              {printerCheckMessage ? (
+                <p className="mt-3 text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                  {printerCheckMessage}
+                </p>
+              ) : null}
+            </div>
+          ) : printingSuccessMessage ? (
+            <div className="shrink-0 rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 sm:px-5 sm:py-4">
+              <div className="flex items-start gap-3">
+                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-200">
+                  <CheckCircle2 className="h-5 w-5" strokeWidth={2} />
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-200">
+                    Receipt delivery
+                  </p>
+                  <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text">
+                    {printingSuccessMessage}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
           <div className="shrink-0 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:px-5 sm:py-4 lg:px-6 lg:py-5">
             <div className="flex flex-wrap items-end justify-between gap-3 lg:gap-6">
               <div>
@@ -858,7 +990,7 @@ export default function ReceiptSummaryModal({
             </div>
           </button>
 
-          {error ? (
+          {error && !printingFailure ? (
             <p className="shrink-0 text-center text-[10px] font-black uppercase tracking-widest text-[var(--app-danger)]">
               {error}
             </p>

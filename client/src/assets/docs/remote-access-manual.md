@@ -1,38 +1,34 @@
 ---
 id: remote-access
-title: "Remote Access (Secure VPN)"
-summary: "Access Riverside OS securely from anywhere using Tailscale's encrypted network."
+title: "Remote Access"
+summary: "Use Tailscale for off-site access to the dedicated host machine; this is separate from local-network host access and separate from the main register."
 order: 50
-tags: settings, remote, tailscale, security
+tags: settings, remote, tailscale, host-mode
 ---
 
-# Remote Access (Secure VPN)
+# Remote Access
 
-Riverside OS includes a built-in Secure Remote Access system managed via **Tailscale**. This allows you to log in to your shop's system from home or on the road without exposing your data to the public internet.
+Riverside uses **Tailscale** for private remote access when a device is **not** on the same local network as the host machine.
 
-## 1. Safety First
-All remote connections are end-to-end encrypted. Riverside OS monitors active remote sessions to ensure you are aware of when the system is being accessed off-site.
+That is a different concept from:
 
-![Remote Access Dashboard](../images/help/remote-access/panel-main.png)
-*Figure 1: The Remote Access dashboard showing connection status and active node information.*
+- the **host machine** serving local-network satellite devices
+- the **main register** running the Windows Tauri cashier workflow
 
-## 2. Setting Up Remote Access
-To enable remote access for the first time:
-1. Navigate to **Settings** -> **Remote Access**.
-2. Click the **Start Setup Wizard** button.
-3. Follow the on-screen instructions to authorize the machine on your Tailscale network.
+The host can expose a private Riverside remote path after both of these are true:
 
-![Setup Wizard](../images/help/remote-access/panel-wizard.png)
-*Figure 2: The Setup Wizard guides you through the secure authorization process.*
+1. the machine is connected to Tailscale
+2. **Shop Host** is running successfully
 
-## 3. Monitoring Remote Sessions
-If a user is connected remotely, a warning indicator will appear at the top of the screen for on-site staff. 
-If you need to terminate all remote connections immediately for security reasons, use the **Emergency Disconnect** button in the Remote Access panel.
+## How it works now
 
-> [!IMPORTANT]
-> Disconnecting the host from Tailscale will terminate all active PWA and Bridge connections instantly.
+- Riverside shows the host runtime state directly in **Settings → Remote Access**
+- if host startup fails, the panel shows the failure
+- when host startup succeeds, the panel shows the local satellite URL plus detected LAN identity for same-network devices
+- off-site devices still need Tailscale to use the separate remote-access path
 
-## 4. Troubleshooting
-- **Status: Offline**: Ensure the host machine has an active internet connection.
-- **Login Expired**: You may need to re-run the Setup Wizard once every 6 months to refresh the security keys.
-- **Slow Connections**: Remote performance depends on your shop's upload speed. 
+## Important
+
+- This flow is for **private off-site access**, not public-web deployment
+- disconnecting Tailscale will remove private remote access
+- starting host mode does not ask for Stripe keys in the UI; those belong in the host environment

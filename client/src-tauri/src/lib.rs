@@ -25,6 +25,7 @@ pub fn run() {
             hardware::print_zpl_receipt,
             hardware::print_escpos_receipt,
             hardware::print_escpos_binary_b64,
+            hardware::check_printer_connection,
             llama_server::rosie_llama_start,
             llama_server::rosie_llama_stop,
             llama_server::rosie_llama_status,
@@ -34,6 +35,7 @@ pub fn run() {
             app_updates::install_app_update,
             unified_server::start_unified_server,
             unified_server::get_unified_server_status,
+            unified_server::get_unified_host_network_identity,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
