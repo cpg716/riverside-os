@@ -19,7 +19,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Catalog handle** | The primary identifier used to match Counterpoint items (`ITEM#`). |
 | **Checkout / Complete Sale** | Finalizing tenders so the order is paid (or partially paid per policy). |
 | **Control board** | Paged product list API used for large catalogs (Back Office **Inventory List** and POS **Inventory** browse). |
-| **Custom Item / MTM** | A garment booked with measurements and specific tailoring (Suits, Shirts). Search for SKU `CUSTOM` to trigger the picker. |
+| **Custom Item / MTM** | A made-to-measure garment order that stays in the **Custom** bucket. Known Custom SKUs include `100`, `105`, `110`, and `200`. Sale price is entered at booking; actual vendor cost is entered when the garment is received. |
 | **Customer code** | Unique store-assigned ID for every customer profile; used for imports and matching. |
 | **Deposit (Open)** | A payment held on a customer account (unlinked to a specific order) that can be applied to future purchases. |
 | **Deposit (Order)** | A partial payment made at checkout for tailored or special-order items. |

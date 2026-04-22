@@ -15,7 +15,7 @@
 ### The Three Fulfillment Types (Backlog)
 
 1.  **Special Order**: Standard floor items that were out of stock. Fixed catalog pricing.
-2.  **Custom (MTM)**: Suits, shirts, or slacks where **price and cost vary with every order**. Ensure vendor costs are attached before final fulfillment.
+2.  **Custom (MTM)**: Suits, shirts, or slacks booked as a true **Custom** order. Sale price is entered at booking. Actual vendor cost is entered later, when the garment is received, and should be in place before final fulfillment.
 3.  **Wedding Order**: Items linked to a specific wedding party for group event tracking.
 
 ---
