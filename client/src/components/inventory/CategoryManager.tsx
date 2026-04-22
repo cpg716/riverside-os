@@ -84,7 +84,7 @@ function CategoryVariationAxisEditor({
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        toast(body.error ?? "Failed to save matrix keys", "error");
+        toast(body.error ?? "We couldn't save the category defaults. Please try again.", "error");
         return;
       }
       onSaved();
@@ -123,7 +123,7 @@ function CategoryVariationAxisEditor({
         onClick={() => void save()}
         className="ui-btn-primary h-10 px-6 rounded-xl text-[10px] font-black uppercase tracking-widest disabled:opacity-50"
       >
-        {saving ? "Syncing…" : "Update Axes"}
+        {saving ? "Saving…" : "Save Defaults"}
       </button>
     </div>
   );
@@ -442,7 +442,7 @@ export default function CategoryManager() {
           {loading ? (
              <div className="flex flex-col items-center py-20 opacity-20">
                 <FolderTree size={64} className="animate-pulse" />
-                <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">Mapping Registry...</p>
+                <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">Loading categories...</p>
              </div>
           ) : tree.length === 0 ? (
             <div className="flex flex-col items-center py-20 opacity-20">
@@ -461,14 +461,14 @@ export default function CategoryManager() {
           <div className="flex items-center justify-between border-b border-app-border/40 px-8 py-6 bg-app-surface/40 backdrop-blur-xl">
             <div className="flex items-center gap-3 text-app-text-muted">
               <History size={18} className="text-app-accent" />
-              <h4 className="text-[11px] font-black uppercase tracking-[0.2em]">Registry Mutation Log</h4>
+              <h4 className="text-[11px] font-black uppercase tracking-[0.2em]">Recent Changes</h4>
             </div>
           </div>
           <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-6 no-scrollbar">
             {groupedAudit.length === 0 ? (
               <div className="flex flex-col items-center py-20 opacity-20">
                 <Clock3 size={32} />
-                <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-center">No mutations logged</p>
+                <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-center">No recent changes</p>
               </div>
             ) : (
               groupedAudit.map(([category, entries]) => (
@@ -501,7 +501,7 @@ export default function CategoryManager() {
             )}
           </div>
           <div className="bg-app-surface p-6 border-t border-app-border/40 text-center">
-             <p className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted opacity-40">Showing last 150 mutations</p>
+             <p className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted opacity-40">Showing the last 150 changes</p>
           </div>
         </aside>
       </div>

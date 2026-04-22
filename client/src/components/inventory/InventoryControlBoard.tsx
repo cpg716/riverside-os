@@ -349,20 +349,20 @@ export default function InventoryControlBoard({
     if (!maintenanceTarget) return;
     const qty = parseInt(maintenanceQty, 10);
     if (!qty || qty <= 0) {
-      toast("Invalid quantity", "error");
+      toast("Enter a valid quantity.", "error");
       return;
     }
     const note = maintenanceNote.trim();
     if (!note) {
-      toast("Note is required for maintenance tracking", "error");
+      toast("Add a note so the team knows why inventory changed.", "error");
       return;
     }
     try {
       await bumpVariantStock(maintenanceTarget.variantId, -qty, maintenanceTarget.type, note);
-      toast("Inventory maintenance recorded", "success");
+      toast("Inventory updated.", "success");
       closeMaintenance();
     } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : "Maintenance failed", "error");
+      toast(e instanceof Error ? e.message : "We couldn't update inventory. Please try again.", "error");
     }
   };
 

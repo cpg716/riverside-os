@@ -51,7 +51,7 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string }
   },
   receiving: {
     title: "Receiving Bay",
-    subtitle: "Route submitted POs and direct invoices into the final receipt posting flow.",
+    subtitle: "Receive submitted purchase orders and direct invoices into inventory.",
   },
   vendors: {
     title: "Vendor Manager",
@@ -79,7 +79,7 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string }
   },
   damaged: {
     title: "Damaged / Loss",
-    subtitle: "Attribute shrinkage and damage to staff maintenance ledger.",
+    subtitle: "Record damaged or missing stock with clear staff notes.",
   },
   rtv: {
     title: "Return to Vendor",

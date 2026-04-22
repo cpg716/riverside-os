@@ -43,7 +43,7 @@ export default function RegisterCashAdjustModal({
       return;
     }
     if (!reason.trim()) {
-      toast("Reason is required for audit trail.", "error");
+      toast("Enter a reason so the team knows why cash changed.", "error");
       return;
     }
     setBusy(true);
@@ -67,12 +67,12 @@ export default function RegisterCashAdjustModal({
       );
       if (!res.ok) {
         const b = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(b.error ?? "Could not record adjustment");
+        throw new Error(b.error ?? "We couldn't save this cash adjustment.");
       }
       onRecorded();
       onClose();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Failed to record adjustment", "error");
+      toast(e instanceof Error ? e.message : "We couldn't save this cash adjustment.", "error");
     } finally {
       setBusy(false);
     }
@@ -90,7 +90,7 @@ export default function RegisterCashAdjustModal({
       >
         <div className="ui-modal-header mb-0 flex items-center justify-between">
           <h2 id={titleId} className="text-lg font-black uppercase tracking-tight text-app-text">
-            Drawer cash adjustment
+            Cash Drawer Adjustment
           </h2>
           <button
             type="button"
@@ -103,9 +103,9 @@ export default function RegisterCashAdjustModal({
         </div>
         <div className="ui-modal-body">
         <p className="mb-4 text-xs text-app-text-muted">
-          Non-sale cash: <strong>Paid-in</strong> adds float (e.g. quarters
-          roll). <strong>Paid-out</strong> removes cash (supplies, postage).
-          Expected drawer updates immediately for Z-report.
+          Use this when cash moves in or out of the drawer outside a sale.
+          <strong> Paid-in</strong> adds cash. <strong>Paid-out</strong> removes cash.
+          The drawer total updates right away.
         </p>
 
         <div className="mb-3 flex gap-2">

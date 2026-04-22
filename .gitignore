@@ -58,6 +58,7 @@ docs/.auth
 # --- Tools / Output ---
 client/test-results/
 client/playwright-report/
+repomix-output.xml
 venv/
 .fastembed_cache/
 

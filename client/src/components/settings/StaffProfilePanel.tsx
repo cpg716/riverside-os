@@ -64,7 +64,7 @@ export default function StaffProfilePanel() {
       const res = await fetch(`${baseUrl}/api/staff/self`, {
         headers: backofficeHeaders(),
       });
-      if (!res.ok) throw new Error("Failed to load profile");
+      if (!res.ok) throw new Error("We couldn't load your profile.");
       const data = await res.json() as StaffProfile;
       setProfile(data);
       setFullName(data.full_name);
@@ -72,7 +72,7 @@ export default function StaffProfilePanel() {
       setPhone(data.phone || "");
       setAvatarKey(data.avatar_key);
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Error loading profile", "error");
+      toast(e instanceof Error ? e.message : "We couldn't load your profile.", "error");
     } finally {
       setLoading(false);
     }
@@ -101,13 +101,13 @@ export default function StaffProfilePanel() {
 
       if (!res.ok) {
         const err = await res.json() as { error?: string };
-        throw new Error(err.error || "Failed to update profile");
+        throw new Error(err.error || "We couldn't save your profile.");
       }
 
-      toast("Profile updated successfully", "success");
+      toast("Profile updated.", "success");
       await loadProfile();
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Error saving profile", "error");
+      toast(e instanceof Error ? e.message : "We couldn't save your profile.", "error");
     } finally {
       setSaving(false);
     }
@@ -167,7 +167,7 @@ export default function StaffProfilePanel() {
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-7xl mx-auto pb-20">
       <header className="mb-10">
         <h2 className="text-4xl font-black italic tracking-tighter uppercase text-app-text">
-          Staff Identity
+          Staff Profile
         </h2>
         <p className="text-sm text-app-text-muted mt-2 font-medium">
           Manage your workstation presence, credentials, and performance.
@@ -231,7 +231,7 @@ export default function StaffProfilePanel() {
                       <ShieldCheck size={16} />
                    </div>
                    <div className="text-left">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Identity Code</p>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60">Staff Code</p>
                       <p className="text-xs font-black text-app-text">#{profile.cashier_code}</p>
                    </div>
                 </div>
@@ -366,7 +366,7 @@ export default function StaffProfilePanel() {
                 ) : (
                   <>
                     <Save size={20} className="group-hover:rotate-12 transition-transform" />
-                    Commmit Identity Updates
+                    Save Profile Changes
                   </>
                 )}
               </button>
@@ -398,7 +398,7 @@ export default function StaffProfilePanel() {
               <div className="p-10 border-b border-app-border flex justify-between items-center">
                  <div>
                     <h3 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Avatar Catalog</h3>
-                    <p className="text-sm text-app-text-muted mt-2 font-medium">Select a portrait for your digital identity.</p>
+                    <p className="text-sm text-app-text-muted mt-2 font-medium">Choose the profile photo you want to use at this workstation.</p>
                  </div>
                  <button onClick={() => setAvatarPickerOpen(false)} className="h-14 w-14 rounded-2xl bg-app-surface-2 hover:bg-app-surface-3 transition-colors flex items-center justify-center text-app-text-muted">
                     <X size={24} />
