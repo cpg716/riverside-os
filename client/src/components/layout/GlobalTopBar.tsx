@@ -739,8 +739,8 @@ export default function GlobalTopBar({
   };
 
   return (
-    <header className="sticky top-0 z-50 flex h-[84px] shrink-0 items-center gap-6 border-b border-app-border bg-app-surface/90 backdrop-blur-md px-4 sm:px-8">
-      <div className="flex h-full items-center gap-4 min-w-[240px]">
+    <header className="sticky top-0 z-50 flex min-h-[84px] shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-app-border bg-app-surface/90 px-3 py-3 backdrop-blur-md sm:px-4 lg:h-[84px] lg:flex-nowrap lg:gap-6 lg:px-8 lg:py-0">
+      <div className="flex min-w-0 flex-1 items-center gap-3 lg:h-full lg:min-w-[240px] lg:flex-none lg:gap-4">
         {onToggleSidebar && (
           <button
             type="button"
@@ -748,14 +748,14 @@ export default function GlobalTopBar({
               e.stopPropagation();
               onToggleSidebar();
             }}
-            className="ui-touch-target flex shrink-0 items-center justify-center rounded-xl bg-app-surface-2 text-app-text-muted hover:bg-app-surface hover:text-app-text md:hidden"
+            className="ui-touch-target flex shrink-0 items-center justify-center rounded-xl bg-app-surface-2 text-app-text-muted hover:bg-app-surface hover:text-app-text lg:hidden"
             aria-label="Toggle menu"
           >
             <Menu size={20} />
           </button>
         )}
         <nav
-          className="hidden min-w-0 shrink-0 items-center gap-1 text-sm font-semibold text-app-text-muted md:flex"
+          className="hidden min-w-0 shrink-0 items-center gap-1 text-sm font-semibold text-app-text-muted lg:flex"
           aria-label="Breadcrumb"
         >
           {segments.map((seg, i) => (
@@ -788,7 +788,7 @@ export default function GlobalTopBar({
         </nav>
       </div>
 
-      <div ref={wrapRef} className="relative flex flex-1 items-center justify-center min-w-0">
+      <div ref={wrapRef} className="order-3 relative flex w-full min-w-0 items-center justify-center lg:order-none lg:flex-1">
         <div className="relative w-full max-w-xl transition-all duration-300 focus-within:max-w-2xl">
           <Search className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-app-text-muted" aria-hidden />
           <input
@@ -801,12 +801,13 @@ export default function GlobalTopBar({
             }}
             onFocus={() => setOpen(true)}
             onKeyDown={onSearchKeyDown}
-            placeholder="Universal Search… (Cmd+K)"
+            placeholder="Search customers, orders, inventory…"
             className="ui-input w-full rounded-2xl bg-app-surface-2 py-3 pl-12 pr-4 font-medium border-transparent focus:bg-app-surface focus:border-app-accent/50 focus:ring-0"
             aria-autocomplete="list"
             aria-expanded={open && query.trim().length >= 2}
             aria-controls="global-search-results"
             role="combobox"
+            aria-label="Universal search"
           />
           {open && query.trim().length >= 2 ? (
             <div
@@ -814,7 +815,7 @@ export default function GlobalTopBar({
               id="global-search-results"
               role="listbox"
               aria-label="Search results"
-              className="absolute left-0 right-0 top-full z-50 mt-2 max-h-80 overflow-auto rounded-2xl border border-app-border bg-app-surface py-2 shadow-2xl animate-in fade-in zoom-in-95 duration-200"
+              className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[min(65vh,28rem)] overflow-auto rounded-2xl border border-app-border bg-app-surface py-2 shadow-2xl animate-in fade-in zoom-in-95 duration-200 sm:max-h-80"
             >
               {onSearchOpenCustomerDrawer && customers.length > 0 ? (
                 <p className="border-b border-app-border px-4 py-1.5 text-[9px] font-bold uppercase tracking-wider text-app-text-muted">
@@ -1115,14 +1116,14 @@ export default function GlobalTopBar({
         </div>
       </div>
 
-      <div className="flex shrink-0 items-center justify-end gap-3 min-w-[400px]">
+      <div className="ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2 sm:gap-3 lg:min-w-[400px]">
         {/* Dynamic Slot Region */}
-        <div className="flex items-center gap-4 px-4 border-r border-app-border mr-2 empty:hidden">
+        <div className="hidden items-center gap-4 border-r border-app-border px-4 empty:hidden xl:flex">
           {slotContent}
         </div>
 
         {/* Global Action Cluster */}
-        <div className="flex items-center gap-1.5 border-r border-app-border pr-4 mr-2">
+        <div className="flex items-center gap-1 border-r border-app-border pr-2 sm:gap-1.5 sm:pr-4 md:mr-2">
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}
           
@@ -1142,14 +1143,14 @@ export default function GlobalTopBar({
         <div className="flex items-center gap-3 pl-2">
             {isTailscaleRemote && (
               <div 
-                className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-indigo-500 text-[10px] font-black uppercase tracking-widest animate-in fade-in slide-in-from-right-2"
+                className="hidden items-center gap-1.5 rounded-full border border-indigo-500/20 bg-indigo-500/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-indigo-500 animate-in fade-in slide-in-from-right-2 lg:flex"
                 title="Connected via Tailscale Remote Access"
               >
                 <ShieldCheck size={12} className="shrink-0" />
                 Remote Node
               </div>
             )}
-            <div className="text-right hidden sm:block">
+            <div className="text-right hidden md:block">
             <p className="text-xs font-bold text-app-text leading-tight">
               {staffDisplayName || (isRegisterOpen ? (cashierName || "Cashier") : "User")}
             </p>
@@ -1226,12 +1227,36 @@ export default function GlobalTopBar({
         </div>
 
         {/* Status Indicators */}
-        <div className="flex items-center gap-2">
+        <div className="order-4 flex w-full items-center gap-2 overflow-x-auto pb-0.5 lg:order-none lg:w-auto lg:justify-end lg:overflow-visible lg:pb-0">
           {!isOnline && (
-            <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" title="Offline Mode" />
+            <div
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-rose-500/30 bg-rose-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-rose-700 dark:text-rose-200"
+              title="Offline: only completed POS checkouts can queue until connectivity returns. Inventory, settings, and most back-office changes still need the server."
+            >
+              <div className="h-2 w-2 rounded-full bg-rose-500 animate-pulse" />
+              <span className="sm:hidden">Offline</span>
+              <span className="hidden lg:inline">
+                Offline: POS checkout can queue
+              </span>
+              <span className="hidden sm:inline lg:hidden">Offline</span>
+            </div>
           )}
           {queueCount > 0 && (
-            <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" title={`${queueCount} Pending Syncs`} />
+            <div
+              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200"
+              title={`${queueCount} completed POS checkout${queueCount === 1 ? "" : "s"} waiting to sync when connectivity returns.`}
+            >
+              <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <span className="sm:hidden">
+                {queueCount} sync{queueCount === 1 ? "" : "s"}
+              </span>
+              <span className="hidden lg:inline">
+                {queueCount} pending sync{queueCount === 1 ? "" : "s"}
+              </span>
+              <span className="hidden sm:inline lg:hidden">
+                {queueCount} pending
+              </span>
+            </div>
           )}
         </div>
       </div>

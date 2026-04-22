@@ -15,16 +15,19 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 ## What still works
 
 - **Checkout queue** and similar offline-tolerant flows (see operational playbook) may let you **capture** sales when the API is temporarily unreachable, then **sync** when the connection returns.
+- When Riverside shows **Pending syncs**, those are completed POS sales still waiting to post once the device is back online.
 - **Do not** promise **inventory** or **pickup** dates you cannot verify live unless SOP says otherwise.
 
 ## What does not
 
 - Live **inventory** checks, **wedding** ledger updates, and **QBO** actions need the server.
 - **Back Office** heavy workflows (imports, backups, schedule edits) expect a stable connection.
+- Seeing the PWA shell open offline does **not** mean the whole app is safe to use offline.
 
 ## Practical tips
 
 - Watch for **toast** errors after actions; if something “saved” locally, confirm it appears on **another device** or **Back Office** after reconnect.
+- On iPhone-class screens, Riverside may shorten the top-bar status to **Offline** or **1 sync** so the message stays readable without horizontal scrolling.
 - Write **paper backup** of high-value transactions if your SOP requires when offline mode misbehaves.
 
 ## Helping a customer during an outage

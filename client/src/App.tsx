@@ -16,18 +16,23 @@ import {
 import GlobalTopBar from "./components/layout/GlobalTopBar";
 import { TopBarProvider } from "./context/TopBarContext";
 import type { BreadcrumbSegment } from "./components/layout/GlobalTopBar";
-import PosShell from "./components/layout/PosShell";
-import WeddingShell from "./components/layout/WeddingShell";
-import InsightsShell from "./components/layout/InsightsShell";
-import GlobalSearchDrawerHost, {
-  type GlobalSearchDrawerState,
-} from "./components/layout/GlobalSearchDrawers";
+const PosShell = lazy(() => import("./components/layout/PosShell"));
+const WeddingShell = lazy(() => import("./components/layout/WeddingShell"));
+const InsightsShell = lazy(() => import("./components/layout/InsightsShell"));
+const GlobalSearchDrawerHost = lazy(
+  () => import("./components/layout/GlobalSearchDrawers"),
+);
+import type { GlobalSearchDrawerState } from "./components/layout/GlobalSearchDrawers";
 const CommissionManagerWorkspace = lazy(
   () => import("./components/staff/CommissionManagerWorkspace"),
 );
 import CloseRegisterModal from "./components/pos/CloseRegisterModal";
-import CustomersWorkspace from "./components/customers/CustomersWorkspace";
-import OperationalHome from "./components/operations/OperationalHome";
+const CustomersWorkspace = lazy(
+  () => import("./components/customers/CustomersWorkspace"),
+);
+const OperationalHome = lazy(
+  () => import("./components/operations/OperationalHome"),
+);
 // CommandPalette removed
 import { type Customer } from "./components/pos/types";
 
@@ -1653,20 +1658,24 @@ function AppMainColumn({
         }
       }}
     >
-      <GlobalSearchDrawerHost
-        state={globalSearchDrawer}
-        onClose={() => setGlobalSearchDrawer(null)}
-        onOpenWeddingParty={(id: string) => {
-          navigateWedding(id);
-        }}
-        onUseCustomerInRegister={(c) => setPendingPosCustomer(c)}
-        onNavigateRegister={navigateRegister}
-        onAddCustomerToWedding={() => {
-          navigateWedding();
-        }}
-        onBookCustomerAppointment={() => setActiveTab("appointments")}
-        onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
-      />
+      {globalSearchDrawer ? (
+        <Suspense fallback={null}>
+          <GlobalSearchDrawerHost
+            state={globalSearchDrawer}
+            onClose={() => setGlobalSearchDrawer(null)}
+            onOpenWeddingParty={(id: string) => {
+              navigateWedding(id);
+            }}
+            onUseCustomerInRegister={(c) => setPendingPosCustomer(c)}
+            onNavigateRegister={navigateRegister}
+            onAddCustomerToWedding={() => {
+              navigateWedding();
+            }}
+            onBookCustomerAppointment={() => setActiveTab("appointments")}
+            onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+          />
+        </Suspense>
+      ) : null}
       <div className={`relative flex flex-1 flex-col ${activeTab === "alterations" ? "p-4" : "p-0"}`}>
         <div
           className={`relative flex flex-1 flex-col transition-all duration-300 ease-standard ${activeTab === "alterations" ? "min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]" : "bg-app-surface"} ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : ""}`}

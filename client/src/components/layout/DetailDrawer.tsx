@@ -80,8 +80,8 @@ export default function DetailDrawer({
         className={`relative flex h-full w-full ${panelMaxClassName} animate-[drawerSlide_0.22s_ease-out] flex-col border-l border-app-border bg-app-surface shadow-[0_24px_60px_-34px_rgba(20,20,20,0.45)]`}
       >
         {title && (
-          <header className={`shrink-0 border-b border-app-border bg-app-surface-2 ${subtitle ? 'px-6 py-4' : 'px-6 py-3'}`}>
-            <div className={`flex items-start justify-between gap-4 ${subtitle ? 'mb-2' : ''}`}>
+          <header className={`shrink-0 border-b border-app-border bg-app-surface-2 ${subtitle ? 'px-4 py-4 sm:px-6' : 'px-4 py-3 sm:px-6'}`}>
+            <div className={`flex items-start justify-between gap-3 sm:gap-4 ${subtitle ? 'mb-2' : ''}`}>
               <div className="min-w-0">
                 <h2
                   id={titleId}
@@ -114,12 +114,12 @@ export default function DetailDrawer({
         )}
 
         <div
-          className={`min-h-0 flex-1 ${contentContained ? "overflow-hidden" : "overflow-y-auto"} ${noPadding ? "" : "p-8"} ${footer ? "" : "pb-24"}`}
+          className={`min-h-0 flex-1 ${contentContained ? "overflow-hidden" : "overflow-y-auto"} ${noPadding ? "" : "p-4 sm:p-8"} ${footer ? "" : "pb-20 sm:pb-24"}`}
         >
           {children}
         </div>
         {footer ? (
-          <div className="shrink-0 border-t border-app-border bg-app-surface p-4">
+          <div className="shrink-0 border-t border-app-border bg-app-surface p-3 sm:p-4">
             {footer}
           </div>
         ) : null}
