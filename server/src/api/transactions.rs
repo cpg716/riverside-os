@@ -148,6 +148,18 @@ pub struct OrderCustomerSummary {
 }
 
 #[derive(Debug, Serialize)]
+pub struct OrderWeddingSummary {
+    pub wedding_party_id: Uuid,
+    pub wedding_member_id: Uuid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub party_name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_date: Option<chrono::NaiveDate>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub member_role: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct TransactionDetailItem {
     pub transaction_line_id: Uuid,
     pub product_id: Uuid,
@@ -166,6 +178,10 @@ pub struct TransactionDetailItem {
     /// Takeaway lines fulfilled at checkout; special transactions fulfill at pickup.
     pub is_fulfilled: bool,
     pub is_internal: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_item_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_order_details: Option<serde_json::Value>,
     pub salesperson_id: Option<Uuid>,
     pub salesperson_name: Option<String>,
     /// From `transaction_lines.size_specs` when checkout stored a price override (receipt / audit).
@@ -174,6 +190,9 @@ pub struct TransactionDetailItem {
     /// Discount event receipt label from `size_specs`, when applicable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub discount_event_label: Option<String>,
+    /// Masked or scanned code for POS purchased-card load lines when checkout stored it in `size_specs`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gift_card_load_code: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -212,6 +231,8 @@ pub struct TransactionDetailResponse {
     pub primary_salesperson_id: Option<Uuid>,
     pub primary_salesperson_name: Option<String>,
     pub wedding_member_id: Option<Uuid>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wedding_summary: Option<OrderWeddingSummary>,
     pub customer: Option<OrderCustomerSummary>,
     pub financial_summary: TransactionFinancialSummary,
     pub items: Vec<TransactionDetailItem>,
@@ -375,6 +396,7 @@ mod tests {
             primary_salesperson_id: None,
             primary_salesperson_name: None,
             wedding_member_id: None,
+            wedding_summary: None,
             customer: None,
             financial_summary: TransactionFinancialSummary {
                 total_allocated_payments: Decimal::new(1000, 2),
@@ -410,10 +432,13 @@ mod tests {
             fulfillment: DbFulfillmentType::Takeaway,
             is_fulfilled: true,
             is_internal: false,
+            custom_item_type: None,
+            custom_order_details: None,
             salesperson_id: None,
             salesperson_name: Some("Taylor Manager".to_string()),
             receipt_original_unit_price: None,
             discount_event_label: None,
+            gift_card_load_code: None,
         }
     }
 
@@ -534,6 +559,10 @@ struct OrderHeaderRow {
     customer_phone: Option<String>,
     customer_email: Option<String>,
     wedding_member_id: Option<Uuid>,
+    wedding_party_id: Option<Uuid>,
+    wedding_party_name: Option<String>,
+    wedding_event_date: Option<chrono::NaiveDate>,
+    wedding_member_role: Option<String>,
     operator_staff_id: Option<Uuid>,
     operator_name: Option<String>,
     primary_salesperson_id: Option<Uuid>,
@@ -563,10 +592,13 @@ struct OrderItemRow {
     fulfillment: DbFulfillmentType,
     is_fulfilled: bool,
     is_internal: bool,
+    custom_item_type: Option<String>,
+    custom_order_details: Option<serde_json::Value>,
     salesperson_id: Option<Uuid>,
     salesperson_name: Option<String>,
     receipt_original_unit_price: Option<Decimal>,
     discount_event_label: Option<String>,
+    gift_card_load_code: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -729,7 +761,10 @@ pub fn router() -> Router<AppState> {
             "/{transaction_id}/exchange-link",
             post(post_transaction_exchange_link),
         )
-        .route("/{transaction_id}/items", post(add_transaction_line))
+        .route(
+            "/{transaction_id}/items",
+            get(get_transaction_items).post(add_transaction_line),
+        )
         .route(
             "/{transaction_id}/items/{transaction_line_id}",
             patch(update_transaction_line).delete(delete_transaction_line),
@@ -882,6 +917,23 @@ async fn get_transaction_detail(
     .await?;
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
     Ok(Json(detail))
+}
+
+async fn get_transaction_items(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    Query(q): Query<TransactionReadQuery>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<TransactionDetailItem>>, TransactionError> {
+    authorize_transaction_read_bo_or_register(
+        &state,
+        &headers,
+        transaction_id,
+        q.register_session_id,
+    )
+    .await?;
+    let detail = load_transaction_detail(&state.db, transaction_id).await?;
+    Ok(Json(detail.items))
 }
 
 #[derive(Debug, Deserialize)]
@@ -1456,6 +1508,12 @@ async fn process_refund(
         }
     }
 
+    let mut refund_metadata = json!({
+        "kind": "order_refund",
+        "transaction_id": transaction_id,
+        "stripe_refund_id": stripe_refund_id,
+    });
+
     if method_l.contains("gift") {
         let code = body
             .gift_card_code
@@ -1467,7 +1525,7 @@ async fn process_refund(
                     "gift_card_code is required when refunding to a gift card".to_string(),
                 )
             })?;
-        gift_card_ops::credit_gift_card_in_tx(
+        let refund_plan = gift_card_ops::credit_gift_card_in_tx(
             &mut tx,
             code,
             body.amount,
@@ -1479,13 +1537,18 @@ async fn process_refund(
             gift_card_ops::GiftCardOpError::Db(d) => TransactionError::Database(d),
             gift_card_ops::GiftCardOpError::BadRequest(m) => TransactionError::InvalidPayload(m),
         })?;
+        if let Some(object) = refund_metadata.as_object_mut() {
+            object.insert(
+                "gift_card_code".to_string(),
+                json!(refund_plan.normalized_code),
+            );
+            object.insert(
+                "gift_card_card_kind".to_string(),
+                json!(refund_plan.card_kind),
+            );
+            object.insert("balance_after".to_string(), json!(refund_plan.new_balance));
+        }
     }
-
-    let metadata = json!({
-        "kind": "order_refund",
-        "transaction_id": transaction_id,
-        "stripe_refund_id": stripe_refund_id,
-    });
 
     let payment_tx_id: Uuid = sqlx::query_scalar(
         r#"
@@ -1499,7 +1562,7 @@ async fn process_refund(
     .bind(DbTransactionCategory::RetailSale)
     .bind(body.payment_method.trim())
     .bind(-body.amount)
-    .bind(metadata)
+    .bind(refund_metadata)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1983,6 +2046,10 @@ pub(crate) async fn load_transaction_detail(
             c.phone AS customer_phone,
             c.email AS customer_email,
             o.wedding_member_id,
+            wm.wedding_party_id,
+            NULLIF(TRIM(COALESCE(wp.party_name, wp.groom_name, '')), '') AS wedding_party_name,
+            wp.event_date AS wedding_event_date,
+            NULLIF(TRIM(wm.role), '') AS wedding_member_role,
             o.operator_id AS operator_staff_id,
             op.full_name AS operator_name,
             o.primary_salesperson_id,
@@ -1995,6 +2062,8 @@ pub(crate) async fn load_transaction_detail(
             o.register_session_id
         FROM transactions o
         LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
+        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         LEFT JOIN staff op ON op.id = o.operator_id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
         CROSS JOIN store_settings ros_store
@@ -2033,6 +2102,12 @@ pub(crate) async fn load_transaction_detail(
             oi.fulfillment,
             oi.is_fulfilled,
             COALESCE(oi.is_internal, false) AS is_internal,
+            NULLIF(TRIM(oi.custom_item_type), '') AS custom_item_type,
+            CASE
+                WHEN oi.size_specs ? 'custom_order_details'
+                THEN oi.size_specs->'custom_order_details'
+                ELSE NULL
+            END AS custom_order_details,
             oi.salesperson_id,
             sp.full_name AS salesperson_name,
             CASE
@@ -2042,7 +2117,8 @@ pub(crate) async fn load_transaction_detail(
                 THEN (TRIM(oi.size_specs->>'original_unit_price'))::numeric(14,2)
                 ELSE NULL
             END AS receipt_original_unit_price,
-            NULLIF(TRIM(oi.size_specs->>'discount_event_label'), '') AS discount_event_label
+            NULLIF(TRIM(oi.size_specs->>'discount_event_label'), '') AS discount_event_label,
+            NULLIF(TRIM(oi.size_specs->>'gift_card_load_code'), '') AS gift_card_load_code
         FROM transaction_lines oi
         INNER JOIN products p ON p.id = oi.product_id
         INNER JOIN product_variants pv ON pv.id = oi.variant_id
@@ -2098,6 +2174,17 @@ pub(crate) async fn load_transaction_detail(
         _ => None,
     };
 
+    let wedding_summary = match (h.wedding_party_id, h.wedding_member_id) {
+        (Some(wedding_party_id), Some(wedding_member_id)) => Some(OrderWeddingSummary {
+            wedding_party_id,
+            wedding_member_id,
+            party_name: h.wedding_party_name,
+            event_date: h.wedding_event_date,
+            member_role: h.wedding_member_role,
+        }),
+        _ => None,
+    };
+
     let items = items
         .into_iter()
         .map(|r| TransactionDetailItem {
@@ -2116,10 +2203,13 @@ pub(crate) async fn load_transaction_detail(
             fulfillment: r.fulfillment,
             is_fulfilled: r.is_fulfilled,
             is_internal: r.is_internal,
+            custom_item_type: r.custom_item_type,
+            custom_order_details: r.custom_order_details,
             salesperson_id: r.salesperson_id,
             salesperson_name: r.salesperson_name,
             receipt_original_unit_price: r.receipt_original_unit_price,
             discount_event_label: r.discount_event_label,
+            gift_card_load_code: r.gift_card_load_code,
         })
         .collect();
 
@@ -2184,6 +2274,7 @@ pub(crate) async fn load_transaction_detail(
         primary_salesperson_id: h.primary_salesperson_id,
         primary_salesperson_name: h.primary_salesperson_name,
         wedding_member_id: h.wedding_member_id,
+        wedding_summary,
         is_tax_exempt: h.is_tax_exempt,
         tax_exempt_reason: h.tax_exempt_reason,
         register_session_id: h.register_session_id,

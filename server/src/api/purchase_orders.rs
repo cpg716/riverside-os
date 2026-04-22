@@ -1056,6 +1056,43 @@ async fn receive_po(
         .execute(&mut *tx)
         .await?;
 
+        // Custom garments book without a known vendor cost. When receipt establishes the
+        // invoice unit, backfill that cost onto the oldest open custom order lines for this
+        // variant before pickup/fulfillment recognition reads line-level COGS.
+        sqlx::query(
+            r#"
+            WITH open_custom AS (
+                SELECT
+                    oi.id,
+                    COALESCE(
+                        SUM(oi.quantity) OVER (
+                            ORDER BY o.booked_at, oi.id
+                            ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+                        ),
+                        0
+                    ) AS qty_before
+                FROM transaction_lines oi
+                INNER JOIN transactions o ON o.id = oi.transaction_id
+                WHERE oi.variant_id = $1
+                  AND oi.fulfillment = 'custom'
+                  AND oi.is_fulfilled = FALSE
+                  AND oi.unit_cost = 0
+                  AND o.status NOT IN ('cancelled')
+                ORDER BY o.booked_at, oi.id
+            )
+            UPDATE transaction_lines oi
+            SET unit_cost = $2
+            FROM open_custom oc
+            WHERE oi.id = oc.id
+              AND oc.qty_before < $3
+            "#,
+        )
+        .bind(row.variant_id)
+        .bind(invoice_unit)
+        .bind(row.quantity_received_now)
+        .execute(&mut *tx)
+        .await?;
+
         // For every unit received, allocate to open special/custom order items for this
         // variant (oldest order first). Those units go into reserved_stock because they are
         // already promised to a customer — they are NOT available for walk-in sales.

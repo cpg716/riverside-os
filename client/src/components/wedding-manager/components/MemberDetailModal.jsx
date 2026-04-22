@@ -615,6 +615,10 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                         }`}>
                                             Balance Due: {formatMoney(financialRow.balance_due)}
                                         </div>
+                                        <div className="rounded border border-app-border bg-app-surface-2 p-3 text-[11px] font-semibold text-app-text-muted">
+                                            Keep deposit collection, remaining balance follow-up, and pickup release tied to this member record.
+                                            A zero balance does not mean the order is ready until measurements, receiving, and pickup status are also complete.
+                                        </div>
                                         {!member?.isNew && localMember.customerId ? (
                                             <button
                                                 type="button"

@@ -1,3 +1,5 @@
+import type { CustomOrderDetails } from "../../lib/customOrders";
+
 export type { Customer } from "./CustomerSelector";
 export type { WeddingMember } from "./WeddingLookupDrawer";
 
@@ -21,6 +23,7 @@ export interface ResolvedSkuItem {
   primary_vendor_id?: string | null;
   /** Custom Work Order fields */
   custom_item_type?: string;
+  custom_order_details?: CustomOrderDetails | null;
   is_rush?: boolean;
   need_by_date?: string | null;
   needs_gift_wrap?: boolean;

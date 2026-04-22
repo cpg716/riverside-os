@@ -7,6 +7,7 @@ import type {
 
 export interface QboMappingMatrixProps {
   categories: { id: string; name: string }[];
+  customTypes: readonly { id: string; label: string }[];
   tenders: readonly { id: string; label: string }[];
   accounts: QboMatrixAccount[];
   initialMappings: Record<string, AccountMapping>;
@@ -50,6 +51,7 @@ function AccountSelect({
 
 export default function QboMappingMatrix({
   categories,
+  customTypes,
   tenders,
   accounts,
   initialMappings,
@@ -138,6 +140,75 @@ export default function QboMappingMatrix({
                         updateMapping(`cogs_${cat.id}`, id, name)
                       }
                       placeholder="e.g. 5000 COGS"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm">
+        <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 px-5 py-4">
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+              Custom garment mappings
+            </h3>
+            <p className="mt-1 text-[10px] font-bold uppercase text-app-text-muted">
+              Optional overrides for Custom order revenue, inventory, and COGS by garment type
+            </p>
+          </div>
+          <ShieldCheck size={18} className="text-app-text-muted" aria-hidden />
+        </div>
+
+        <div className="w-full min-w-0 overflow-x-auto">
+          <table className="w-full min-w-[560px] text-left text-sm md:min-w-[640px] xl:min-w-[720px]">
+            <thead className="border-b border-app-border bg-app-surface-2/50 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <tr>
+                <th className="px-5 py-3">Custom type</th>
+                <th className="px-5 py-3">Revenue (income)</th>
+                <th className="px-5 py-3">Inventory (asset)</th>
+                <th className="px-5 py-3">COGS (expense)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-app-border">
+              {customTypes.map((customType) => (
+                <tr
+                  key={customType.id}
+                  className="transition-colors hover:bg-app-surface-2/30"
+                >
+                  <td className="px-5 py-4 font-bold text-app-text">
+                    {customType.label}
+                  </td>
+                  <td className="px-5 py-4">
+                    <AccountSelect
+                      valueId={mappings[`custom_rev_${customType.id}`]?.qbo_account_id ?? ""}
+                      accounts={accounts}
+                      onPick={(id, name) =>
+                        updateMapping(`custom_rev_${customType.id}`, id, name)
+                      }
+                      placeholder="Optional custom revenue account"
+                    />
+                  </td>
+                  <td className="px-5 py-4">
+                    <AccountSelect
+                      valueId={mappings[`custom_inv_${customType.id}`]?.qbo_account_id ?? ""}
+                      accounts={accounts}
+                      onPick={(id, name) =>
+                        updateMapping(`custom_inv_${customType.id}`, id, name)
+                      }
+                      placeholder="Optional custom inventory account"
+                    />
+                  </td>
+                  <td className="px-5 py-4">
+                    <AccountSelect
+                      valueId={mappings[`custom_cogs_${customType.id}`]?.qbo_account_id ?? ""}
+                      accounts={accounts}
+                      onPick={(id, name) =>
+                        updateMapping(`custom_cogs_${customType.id}`, id, name)
+                      }
+                      placeholder="Optional custom COGS account"
                     />
                   </td>
                 </tr>
@@ -271,4 +342,3 @@ export default function QboMappingMatrix({
     </div>
   );
 }
-

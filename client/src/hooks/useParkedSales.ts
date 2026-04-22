@@ -157,10 +157,14 @@ export function useParkedSales({
 
     const payload = row.payload_json;
     const rawLines = (payload.lines || []) as CartLineItem[];
-    setLines(rawLines.map(l => withEnsuredCartRowId({
-      ...l,
-      fulfillment: ((l.fulfillment as string) === "custom" ? "special_order" : l.fulfillment) as FulfillmentKind
-    })));
+    setLines(
+      rawLines.map((l) =>
+        withEnsuredCartRowId({
+          ...l,
+          fulfillment: l.fulfillment as FulfillmentKind,
+        }),
+      ),
+    );
 
     const rawCust = payload.selectedCustomer as Customer | null | undefined;
     setSelectedCustomer(rawCust ? { ...rawCust, customer_code: rawCust.customer_code ?? "" } : null);

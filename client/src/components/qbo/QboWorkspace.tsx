@@ -12,6 +12,7 @@ import {
   type AccountMapping,
   buildMatrixInitialFromGranular,
   matrixKeyToGranular,
+  QBO_MATRIX_CUSTOM_TYPES,
   QBO_MATRIX_TENDERS,
 } from "./QboMappingLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -677,6 +678,7 @@ export default function QboWorkspace({
 
           <QboMappingMatrix
             categories={categories}
+            customTypes={QBO_MATRIX_CUSTOM_TYPES}
             tenders={QBO_MATRIX_TENDERS}
             accounts={accounts}
             initialMappings={initialMatrixMappings}

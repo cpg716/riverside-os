@@ -7,6 +7,7 @@ pub mod commission_payout;
 pub mod corecard;
 pub mod counterpoint_staging;
 pub mod counterpoint_sync;
+pub mod custom_orders;
 pub mod customer_couple;
 pub mod customer_duplicate_candidates;
 pub mod customer_hub;

@@ -2,6 +2,11 @@ import { useState } from "react";
 import { X, Flame, Calendar, Package, MapPin, Truck, CreditCard, Check, ArrowRight } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { type PosShipToForm } from "./types";
+import {
+  customOrderDetailEntries,
+  customVendorLabel,
+  type CustomOrderDetails,
+} from "../../lib/customOrders";
 
 export interface OrderOptions {
   isRush: boolean;
@@ -24,6 +29,8 @@ interface CartLineItem {
   standard_retail_price: string;
   quantity: number;
   fulfillment: string;
+  custom_item_type?: string | null;
+  custom_order_details?: CustomOrderDetails | null;
 }
 
 interface Customer {
@@ -148,6 +155,25 @@ export default function OrderReviewModal({
                     )}
                     <span>×{item.quantity}</span>
                   </div>
+                  {item.custom_item_type && (
+                    <div className="mt-2 space-y-0.5 rounded-xl border border-app-border/70 bg-app-surface px-2 py-2 text-[10px] font-semibold text-app-text-muted">
+                      <p className="font-black uppercase tracking-widest text-app-text">
+                        {item.custom_item_type}
+                      </p>
+                      {item.custom_order_details?.vendor_form_family && (
+                        <p className="font-black uppercase tracking-widest text-app-text">
+                          {customVendorLabel(item.custom_order_details.vendor_form_family)}
+                        </p>
+                      )}
+                      {customOrderDetailEntries(item.custom_order_details)
+                        .slice(0, 6)
+                        .map((entry) => (
+                          <p key={entry.label}>
+                            {entry.label}: {entry.value}
+                          </p>
+                        ))}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-app-text">

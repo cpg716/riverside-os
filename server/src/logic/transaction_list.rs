@@ -118,6 +118,43 @@ pub struct PagedTransactionsResponse {
     pub total_count: i64,
 }
 
+fn kind_filter_having_clause(kind_filter: &str) -> Option<&'static str> {
+    match kind_filter {
+        "regular_order" => Some(
+            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) = false AND BOOL_OR(oi.fulfillment::text = 'wedding_order') = false ",
+        ),
+        "special_order" => Some(
+            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text = 'special_order') = true AND BOOL_OR(oi.fulfillment::text = 'custom') = false ",
+        ),
+        "custom" => Some(
+            " HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text = 'custom') = true ",
+        ),
+        "wedding_order" => Some(" HAVING o.wedding_member_id IS NOT NULL "),
+        "layaway" => Some(" HAVING BOOL_OR(oi.fulfillment::text = 'layaway') = true "),
+        _ => None,
+    }
+}
+
+fn order_kind_from_flags(
+    has_layaway: bool,
+    wedding_member_id: Option<Uuid>,
+    has_wedding_order: bool,
+    has_custom: bool,
+    has_special_order: bool,
+) -> String {
+    if has_layaway {
+        "layaway".to_string()
+    } else if wedding_member_id.is_some() || has_wedding_order {
+        "wedding_order".to_string()
+    } else if has_custom {
+        "custom".to_string()
+    } else if has_special_order {
+        "special_order".to_string()
+    } else {
+        "regular_order".to_string()
+    }
+}
+
 pub async fn query_paged_transactions(
     pool: &sqlx::PgPool,
     q: &TransactionListQuery,
@@ -285,14 +322,8 @@ pub async fn query_paged_transactions(
     qb.push(" GROUP BY o.id, c.id, wm.wedding_party_id, wp.party_name, wp.groom_name, wp.event_date, ps.full_name, o.status, o.counterpoint_customer_code ");
 
     if let Some(kf) = &q.kind_filter {
-        if kf == "regular_order" {
-            qb.push(" HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) = false AND BOOL_OR(oi.fulfillment::text = 'wedding_order') = false ");
-        } else if kf == "special_order" {
-            qb.push(" HAVING o.wedding_member_id IS NULL AND BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom')) = true ");
-        } else if kf == "wedding_order" {
-            qb.push(" HAVING o.wedding_member_id IS NOT NULL ");
-        } else if kf == "layaway" {
-            qb.push(" HAVING BOOL_OR(oi.fulfillment::text = 'layaway') = true ");
+        if let Some(clause) = kind_filter_having_clause(kf) {
+            qb.push(clause);
         }
     } else {
         qb.push(" HAVING (o.wedding_member_id IS NOT NULL OR BOOL_OR(oi.fulfillment::text IN ('special_order', 'custom', 'wedding_order')) = true) ");
@@ -324,17 +355,13 @@ pub async fn query_paged_transactions(
                     .as_ref()
                     .map(|cc| format!("CP: {cc}")),
             };
-            let order_kind = if r.has_layaway {
-                "layaway".to_string()
-            } else if r.wedding_member_id.is_some() || r.has_wedding_order {
-                "wedding_order".to_string()
-            } else if r.has_custom {
-                "custom".to_string()
-            } else if r.has_special_order {
-                "special_order".to_string()
-            } else {
-                "regular_order".to_string()
-            };
+            let order_kind = order_kind_from_flags(
+                r.has_layaway,
+                r.wedding_member_id,
+                r.has_wedding_order,
+                r.has_custom,
+                r.has_special_order,
+            );
             TransactionListResponse {
                 transaction_id: r.transaction_id,
                 display_id: r.display_id.unwrap_or_else(|| r.transaction_id.to_string()),
@@ -362,6 +389,50 @@ pub async fn query_paged_transactions(
         .collect();
 
     Ok(PagedTransactionsResponse { items, total_count })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{kind_filter_having_clause, order_kind_from_flags};
+    use uuid::Uuid;
+
+    #[test]
+    fn custom_kind_wins_when_custom_lines_exist() {
+        assert_eq!(
+            order_kind_from_flags(false, None, false, true, false),
+            "custom"
+        );
+    }
+
+    #[test]
+    fn wedding_kind_wins_when_wedding_member_is_present() {
+        assert_eq!(
+            order_kind_from_flags(false, Some(Uuid::new_v4()), false, true, true),
+            "wedding_order"
+        );
+    }
+
+    #[test]
+    fn custom_filter_clause_is_distinct_from_special_orders() {
+        let clause = kind_filter_having_clause("custom").expect("custom clause should exist");
+        assert!(clause.contains("fulfillment::text = 'custom'"));
+        assert!(!clause.contains("special_order') = true"));
+    }
+
+    #[test]
+    fn special_filter_clause_excludes_custom_orders() {
+        let clause =
+            kind_filter_having_clause("special_order").expect("special order clause should exist");
+        assert!(clause.contains("fulfillment::text = 'special_order'"));
+        assert!(clause.contains("fulfillment::text = 'custom') = false"));
+    }
+
+    #[test]
+    fn wedding_filter_clause_requires_linked_member_context() {
+        let clause =
+            kind_filter_having_clause("wedding_order").expect("wedding clause should exist");
+        assert!(clause.contains("o.wedding_member_id IS NOT NULL"));
+    }
 }
 
 pub async fn query_pipeline_stats(

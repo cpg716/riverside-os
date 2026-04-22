@@ -77,10 +77,21 @@ interface OrderDetail {
   total_price: string;
   amount_paid: string;
   balance_due: string;
+  financial_summary?: {
+    total_allocated_payments: string;
+    total_applied_deposit_amount: string;
+  };
   exchange_group_id: string | null;
   items: OrderItem[];
   booked_at: string;
   wedding_member_id: string | null;
+  wedding_summary?: {
+    wedding_party_id: string;
+    wedding_member_id: string;
+    party_name?: string | null;
+    event_date?: string | null;
+    member_role?: string | null;
+  } | null;
   is_forfeited: boolean;
   forfeited_at: string | null;
   forfeiture_reason: string | null;
@@ -123,7 +134,14 @@ const OrderKindIcon = ({ kind, className }: { kind: string; className?: string }
 };
 
 type Section = "open" | "all";
-type FulfillmentKind = "takeaway" | "shipment" | "wedding_order" | "special_order" | "regular_order" | "layaway";
+type FulfillmentKind =
+  | "takeaway"
+  | "shipment"
+  | "wedding_order"
+  | "special_order"
+  | "custom"
+  | "regular_order"
+  | "layaway";
 
 interface OrderRowActions {
   onOpenInRegister?: (orderId: string) => void;
@@ -158,6 +176,65 @@ function orderKindLabel(kind: string) {
     default:
       return "Order";
   }
+}
+
+function describeOrderLifecycle(detail: OrderDetail) {
+  const paidCents = parseMoneyToCents(detail.amount_paid);
+  const dueCents = parseMoneyToCents(detail.balance_due);
+  const depositCents = parseMoneyToCents(
+    detail.financial_summary?.total_applied_deposit_amount ?? "0",
+  );
+  const isWedding = Boolean(detail.wedding_summary);
+  const weddingLead = isWedding
+    ? "Keep follow-up tied to the linked wedding member before changing pickup status."
+    : null;
+
+  if (detail.status === "fulfilled") {
+    return {
+      label: "Picked up",
+      note: isWedding
+        ? "This wedding order is complete. Use the member history if you need to review payment or pickup details."
+        : "This order is complete. Use the history below if you need to review payment or pickup details.",
+    };
+  }
+  if (detail.status === "pending_measurement") {
+    return {
+      label: "Waiting on details",
+      note: isWedding
+        ? "Do not release this wedding order for pickup until measurements, booking details, and member follow-up are complete."
+        : "Do not release this order for pickup until measurements and booking details are complete.",
+    };
+  }
+  if (dueCents <= 0) {
+    return {
+      label: "Balance paid",
+      note: isWedding
+        ? "Payment is complete, but pickup release still stays with the wedding member workflow. Confirm receiving and member readiness before handing anything over."
+        : "Payment is complete, but receiving and pickup release still stay with the order team.",
+    };
+  }
+  if (depositCents > 0) {
+    return {
+      label: "Deposit received",
+      note: isWedding
+        ? `A wedding deposit is on the member record. ${formatUsdFromCents(dueCents)} is still due, and pickup should stay in the wedding workflow until the member is ready.`
+        : `A deposit is on the order. ${formatUsdFromCents(dueCents)} is still due before pickup can be completed.`,
+    };
+  }
+  if (paidCents > 0) {
+    return {
+      label: "Partial payment",
+      note: isWedding
+        ? `${formatUsdFromCents(dueCents)} is still due. Keep payment and pickup follow-up tied to the linked wedding member.`
+        : `${formatUsdFromCents(dueCents)} is still due before pickup can be completed.`,
+    };
+  }
+  return {
+    label: "Balance still due",
+    note: isWedding
+      ? `No payment is recorded yet. ${weddingLead}`
+      : "No payment is recorded yet. Confirm receiving and readiness before collecting money.",
+  };
 }
 
 function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
@@ -264,6 +341,11 @@ function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
                     {actions.canModify && !detail.wedding_member_id && detail.status !== "cancelled" && (
                       <button onClick={actions.onAttachToWedding} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text bg-app-surface border border-app-border">Attach Wedding</button>
                     )}
+                    {detail.wedding_summary && (
+                      <div className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-600 bg-rose-500/10 border border-rose-500/20">
+                        Wedding Linked
+                      </div>
+                    )}
                     {actions.canAttemptCancel && detail.status !== "cancelled" && (
                       <button onClick={actions.onCancel} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-500 bg-app-surface border border-app-border">Cancel Order</button>
                     )}
@@ -272,6 +354,73 @@ function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
                     {actions.canModify && detail.status !== "cancelled" && (
                       <button onClick={actions.onReturnAll} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text bg-app-surface border border-app-border">Return All</button>
                     )}
+                  </div>
+                </div>
+
+                {detail.wedding_summary && (
+                  <div className="rounded-2xl border border-rose-500/20 bg-rose-500/8 p-5">
+                    <div className="flex items-center gap-2">
+                      <Heart size={16} className="text-rose-500" />
+                      <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-rose-600">
+                        Wedding Order
+                      </h4>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Party
+                        </p>
+                        <p className="mt-1 text-[11px] font-bold text-app-text">
+                          {detail.wedding_summary.party_name ?? "Linked wedding party"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Member Role
+                        </p>
+                        <p className="mt-1 text-[11px] font-bold text-app-text">
+                          {detail.wedding_summary.member_role ?? "Wedding member"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Event Date
+                        </p>
+                        <p className="mt-1 text-[11px] font-bold text-app-text">
+                          {detail.wedding_summary.event_date
+                            ? new Date(detail.wedding_summary.event_date).toLocaleDateString()
+                            : "Not set"}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-4 text-[10px] font-semibold text-app-text-muted">
+                      Wedding deposits, group-pay disbursements, and pickup follow-up should stay tied
+                      to the linked wedding member record.
+                    </p>
+                  </div>
+                )}
+
+                <div className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
+                  <div className="flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic">
+                        Order Lifecycle
+                      </p>
+                      <p className="mt-2 text-[15px] font-black text-app-text">
+                        {describeOrderLifecycle(detail).label}
+                      </p>
+                      <p className="mt-2 max-w-3xl text-[11px] font-semibold text-app-text-muted">
+                        {describeOrderLifecycle(detail).note}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Deposit on Ledger
+                      </p>
+                      <p className="mt-1 text-[13px] font-black text-emerald-600">
+                        {money(detail.financial_summary?.total_applied_deposit_amount ?? "0")}
+                      </p>
+                    </div>
                   </div>
                 </div>
 
@@ -521,7 +670,7 @@ export default function OrdersWorkspace({
         { headers: backofficeHeaders() },
       );
       if (!scanRes.ok) {
-        toast("Could not resolve replacement SKU (check catalog / staff headers).", "error");
+        toast("We couldn't find that replacement item. Check the SKU and try again.", "error");
         return;
       }
       const scanned = (await scanRes.json()) as ScanItem;
@@ -541,7 +690,7 @@ export default function OrdersWorkspace({
         toast(b.error ?? "Swap failed", "error");
         return;
       }
-      toast("Line updated and inventory recorded where applicable.", "success");
+      toast("Item updated. Inventory was adjusted where needed.", "success");
       setSuitSwapTarget(null);
       setSuitSwapSku("");
       setSuitSwapNote("");
@@ -575,7 +724,7 @@ export default function OrdersWorkspace({
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Add item failed", "error");
+      toast(b.error ?? "We couldn't add this item. Please try again.", "error");
       return;
     }
     setSku("");
@@ -599,7 +748,7 @@ export default function OrdersWorkspace({
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Cancel failed", "error");
+      toast(b.error ?? "We couldn't cancel this order. Please try again.", "error");
       return;
     }
     setCancelConfirmOpen(false);
@@ -617,7 +766,7 @@ export default function OrdersWorkspace({
     });
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
-      toast(b.error ?? "Delete failed", "error");
+      toast(b.error ?? "We couldn't remove this item. Please try again.", "error");
       return;
     }
     await loadDetail(detail.transaction_id);
@@ -654,7 +803,7 @@ export default function OrdersWorkspace({
       toast(b.error ?? "Return failed", "error");
       return;
     }
-    toast("Return recorded", "success");
+    toast("Return saved.", "success");
     setReturnQtyDraft({});
     await loadDetail(detail.transaction_id);
     await loadTransactions();
@@ -705,7 +854,7 @@ export default function OrdersWorkspace({
         toast(b.error ?? "Refund failed", "error");
         return;
       }
-      toast("Refund processed", "success");
+      toast("Refund completed.", "success");
       setRefundModalOpen(false);
       await loadRefundsDue();
       if (detail?.transaction_id === refundTargetOrderId) await loadDetail(refundTargetOrderId);
@@ -730,7 +879,7 @@ export default function OrdersWorkspace({
 
       <div className="flex shrink-0 items-center justify-between p-6 sm:p-10 pb-4">
         <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-black uppercase tracking-widest text-app-text">Order Management Hub</h1>
+          <h1 className="text-xl font-black uppercase tracking-widest text-app-text">Orders</h1>
           <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] italic opacity-60">
             {section === "open" ? "Current Open Orders & Counterpoint Open Docs" : "Closed Order History"}
           </p>
@@ -755,7 +904,7 @@ export default function OrdersWorkspace({
           <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 shadow-soft-xs">
             <Activity size={14} className={section === "open" ? "animate-pulse" : ""} />
             <p className="text-[10px] font-black uppercase tracking-widest italic">
-              {section === "open" ? "Open Order View" : "Closed Order View"}
+              {section === "open" ? "Open orders" : "Order history"}
             </p>
           </div>
         </div>
@@ -765,7 +914,7 @@ export default function OrdersWorkspace({
         {/* Unified Order Dashboard */}
         <DashboardGridCard 
           title={section === "open" ? "Open Orders" : "Closed Orders"}
-          subtitle={`${totalCount} records detected`}
+          subtitle={`${totalCount} orders`}
           icon={Package}
           className="flex-1"
           contentClassName="p-0 flex flex-col"
@@ -887,7 +1036,7 @@ export default function OrdersWorkspace({
             {transactionRows.length === 0 && (
               <div className="flex flex-col items-center justify-center p-20 opacity-30 italic">
                 <Search size={48} className="mb-4" />
-                <p className="text-sm font-black uppercase tracking-widest italic">No matching records found</p>
+                <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
               </div>
             )}
           </div>

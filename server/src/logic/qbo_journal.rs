@@ -12,6 +12,8 @@ use sqlx::PgPool;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::logic::custom_orders::normalize_custom_item_type_key;
+
 fn is_rms_financing_tender(payment_method: &str, tender_family: Option<&str>) -> bool {
     payment_method.eq_ignore_ascii_case("on_account_rms")
         || payment_method.eq_ignore_ascii_case("on_account_rms90")
@@ -22,6 +24,17 @@ fn is_rms_financing_tender(payment_method: &str, tender_family: Option<&str>) ->
 
 fn rms_payment_collection_flag(value: Option<bool>) -> bool {
     value.unwrap_or(false)
+}
+
+fn gift_card_uses_loyalty_expense(sub_type: Option<&str>) -> bool {
+    matches!(
+        sub_type.map(str::trim),
+        Some("loyalty_giveaway") | Some("donated_giveaway")
+    )
+}
+
+fn gift_card_uses_liability_relief(sub_type: Option<&str>) -> bool {
+    matches!(sub_type.map(str::trim), Some("paid_liability"))
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -133,7 +146,7 @@ pub async fn propose_daily_journal(
 ) -> Result<JournalProposal, sqlx::Error> {
     let mut warnings: Vec<String> = vec![
         "MVP journal: uses fulfilled transactions on this UTC date only. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync.".to_string(),
-        "Gift card: paid-card redemptions debit `liability_gift_card` / default; loyalty/giveaway redemptions debit `expense_loyalty` / default when checkout `sub_type` metadata is present. Unmapped cases fall back to tender mapping.".to_string(),
+        "Gift card: purchased-card redemptions debit `liability_gift_card` / default; loyalty and donated cards debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
         "Revenue/COGS/tax for fulfilled transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate fulfillment-day nets.".to_string(),
     ];
 
@@ -141,6 +154,7 @@ pub async fn propose_daily_journal(
     struct CatAgg {
         category_id: Option<Uuid>,
         category_name: Option<String>,
+        custom_item_type: Option<String>,
         net_sales: Option<Decimal>,
         cogs_ext: Option<Decimal>,
         tax_state: Option<Decimal>,
@@ -152,6 +166,11 @@ pub async fn propose_daily_journal(
         SELECT
             p.category_id,
             c.name AS category_name,
+            CASE
+                WHEN oi.fulfillment::text = 'custom'
+                THEN NULLIF(TRIM(COALESCE(oi.custom_item_type, '')), '')
+                ELSE NULL
+            END AS custom_item_type,
             SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS net_sales,
             SUM((oi.unit_cost * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS cogs_ext,
             SUM((oi.state_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS tax_state,
@@ -162,7 +181,14 @@ pub async fn propose_daily_journal(
           AND (oi.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
-        GROUP BY p.category_id, c.name
+        GROUP BY
+            p.category_id,
+            c.name,
+            CASE
+                WHEN oi.fulfillment::text = 'custom'
+                THEN NULLIF(TRIM(COALESCE(oi.custom_item_type, '')), '')
+                ELSE NULL
+            END
         "#
     ))
     .bind(activity_date)
@@ -446,15 +472,15 @@ pub async fn propose_daily_journal(
             continue;
         }
         let sid = t.payment_method.trim();
-        let sub_type = t.sub_type.as_deref().unwrap_or("").trim();
         let is_gift_card = sid.eq_ignore_ascii_case("gift_card");
-        let is_paid_liability_gc = is_gift_card && sub_type.eq_ignore_ascii_case("paid_liability");
-        let is_loyalty_gc = is_gift_card && sub_type.eq_ignore_ascii_case("loyalty_giveaway");
+        let is_paid_liability_gc =
+            is_gift_card && gift_card_uses_liability_relief(t.sub_type.as_deref());
+        let is_loyalty_gc = is_gift_card && gift_card_uses_loyalty_expense(t.sub_type.as_deref());
         let is_rms_financing = is_rms_financing_tender(sid, t.tender_family.as_deref());
         let is_rms_collection = rms_payment_collection_flag(t.rms_charge_collection);
         if is_gift_card && !is_paid_liability_gc && !is_loyalty_gc {
             warnings.push(
-                "Gift card payment missing/unknown `sub_type`; expected `paid_liability` or `loyalty_giveaway`. Falling back to tender mapping."
+                "Gift card payment missing/unknown card classification; expected purchased, loyalty, or donated card metadata. Falling back to tender mapping."
                     .to_string(),
             );
         }
@@ -1002,6 +1028,13 @@ pub async fn propose_daily_journal(
             .category_id
             .map(|u| u.to_string())
             .unwrap_or_else(|| "_uncategorized".to_string());
+        let custom_mapping_key =
+            row.custom_item_type.as_deref().and_then(normalize_custom_item_type_key);
+        let source_label = row
+            .custom_item_type
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| row.category_name.as_deref().unwrap_or("Uncategorized"));
 
         let release_credit = deposit_release_by_category
             .get(&cat_label)
@@ -1025,13 +1058,27 @@ pub async fn propose_daily_journal(
         }
 
         if net > Decimal::ZERO {
-            let mapped = qbo_map_with_misc_fallback(
-                pool,
-                "category_revenue",
-                &cat_label,
-                Some("REVENUE_CLOTHING"),
-            )
-            .await?;
+            let mapped = if let Some(custom_key) = custom_mapping_key {
+                qbo_map_with_misc_fallback(pool, "custom_revenue", custom_key, None)
+                    .await?
+                    .or(
+                        qbo_map_with_misc_fallback(
+                            pool,
+                            "category_revenue",
+                            &cat_label,
+                            Some("REVENUE_CLOTHING"),
+                        )
+                        .await?,
+                    )
+            } else {
+                qbo_map_with_misc_fallback(
+                    pool,
+                    "category_revenue",
+                    &cat_label,
+                    Some("REVENUE_CLOTHING"),
+                )
+                .await?
+            };
             let (aid, aname) = if let Some(m) = mapped {
                 m
             } else {
@@ -1048,10 +1095,11 @@ pub async fn propose_daily_journal(
                     credit: immediate_revenue,
                     memo: format!(
                         "Revenue — {}",
-                        row.category_name.as_deref().unwrap_or("Uncategorized")
+                        source_label
                     ),
                     detail: vec![serde_json::json!({
                         "category_id": row.category_id,
+                        "custom_item_type": row.custom_item_type.clone(),
                         "net_sales": net,
                         "deposit_release_component": release_credit
                     })],
@@ -1065,10 +1113,11 @@ pub async fn propose_daily_journal(
                     credit: release_credit,
                     memo: format!(
                         "Revenue from deposit release — {}",
-                        row.category_name.as_deref().unwrap_or("Uncategorized")
+                        source_label
                     ),
                     detail: vec![serde_json::json!({
                         "category_id": row.category_id,
+                        "custom_item_type": row.custom_item_type.clone(),
                         "release_amount": release_credit
                     })],
                 });
@@ -1076,16 +1125,43 @@ pub async fn propose_daily_journal(
         }
 
         if cogs > Decimal::ZERO {
-            let inv = qbo_map_with_misc_fallback(
-                pool,
-                "category_inventory",
-                &cat_label,
-                Some("INV_ASSET"),
-            )
-            .await?;
-            let cogs_a =
+            let inv = if let Some(custom_key) = custom_mapping_key {
+                qbo_map_with_misc_fallback(pool, "custom_inventory", custom_key, None)
+                    .await?
+                    .or(
+                        qbo_map_with_misc_fallback(
+                            pool,
+                            "category_inventory",
+                            &cat_label,
+                            Some("INV_ASSET"),
+                        )
+                        .await?,
+                    )
+            } else {
+                qbo_map_with_misc_fallback(
+                    pool,
+                    "category_inventory",
+                    &cat_label,
+                    Some("INV_ASSET"),
+                )
+                .await?
+            };
+            let cogs_a = if let Some(custom_key) = custom_mapping_key {
+                qbo_map_with_misc_fallback(pool, "custom_cogs", custom_key, None)
+                    .await?
+                    .or(
+                        qbo_map_with_misc_fallback(
+                            pool,
+                            "category_cogs",
+                            &cat_label,
+                            Some("COGS_DEFAULT"),
+                        )
+                        .await?,
+                    )
+            } else {
                 qbo_map_with_misc_fallback(pool, "category_cogs", &cat_label, Some("COGS_DEFAULT"))
-                    .await?;
+                    .await?
+            };
 
             if let (Some((cogs_id, cogs_nm)), Some((inv_id, inv_nm))) = (cogs_a, inv) {
                 lines.push(JournalLine {
@@ -1095,7 +1171,7 @@ pub async fn propose_daily_journal(
                     credit: Decimal::ZERO,
                     memo: format!(
                         "COGS — {}",
-                        row.category_name.as_deref().unwrap_or("Uncategorized")
+                        source_label
                     ),
                     detail: vec![],
                 });
@@ -1106,7 +1182,7 @@ pub async fn propose_daily_journal(
                     credit: cogs,
                     memo: format!(
                         "Inventory relief — {}",
-                        row.category_name.as_deref().unwrap_or("Uncategorized")
+                        source_label
                     ),
                     detail: vec![],
                 });
@@ -1357,5 +1433,15 @@ mod tests {
         assert!(rms_payment_collection_flag(Some(true)));
         assert!(!rms_payment_collection_flag(Some(false)));
         assert!(!rms_payment_collection_flag(None));
+    }
+
+    #[test]
+    fn gift_card_sub_types_map_to_expected_accounting_path() {
+        assert!(gift_card_uses_liability_relief(Some("paid_liability")));
+        assert!(!gift_card_uses_liability_relief(Some("loyalty_giveaway")));
+        assert!(gift_card_uses_loyalty_expense(Some("loyalty_giveaway")));
+        assert!(gift_card_uses_loyalty_expense(Some("donated_giveaway")));
+        assert!(!gift_card_uses_loyalty_expense(Some("paid_liability")));
+        assert!(!gift_card_uses_loyalty_expense(None));
     }
 }

@@ -15,6 +15,7 @@ import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
 import { centsToFixed2, parseMoneyToCents } from "../lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../lib/tax";
 import { playPosScanSuccess } from "../lib/posAudio";
+import { isCustomOrderSku } from "../lib/customOrders";
 
 function newCartRowId(): string {
   if (typeof crypto !== "undefined" && crypto.randomUUID) return crypto.randomUUID();
@@ -121,7 +122,7 @@ export function useCartActions({
       return;
     }
 
-    if (item.sku.toUpperCase().startsWith("CUSTOM") && !item.custom_item_type) {
+    if (isCustomOrderSku(item.sku) && !item.custom_item_type) {
       setPendingCustomItem(item);
       setCustomPromptOpen(true);
       return;

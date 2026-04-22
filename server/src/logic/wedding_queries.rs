@@ -703,7 +703,10 @@ pub async fn fetch_member_optional(
             wm.ordered_po,
             wm.stock_info,
             wm.suit_variant_id,
-            wm.is_free_suit_promo
+            wm.is_free_suit_promo,
+            wm.customer_verified,
+            wm.import_customer_name,
+            wm.import_customer_phone
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.id = $1

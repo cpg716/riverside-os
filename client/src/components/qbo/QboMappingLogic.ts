@@ -17,6 +17,13 @@ export const QBO_MATRIX_TENDERS = [
   { id: "gift_card", label: "Gift card (redemption)" },
 ] as const;
 
+export const QBO_MATRIX_CUSTOM_TYPES = [
+  { id: "hsm_suit", label: "HSM Suit" },
+  { id: "hsm_sport_coat", label: "HSM Sport Coat" },
+  { id: "hsm_slacks", label: "HSM Slacks" },
+  { id: "individualized_shirt", label: "Individualized Shirt" },
+] as const;
+
 /** Matrix UI key → `qbo_mappings` row (server). */
 export function matrixKeyToGranular(
   key: string,
@@ -45,6 +52,12 @@ export function matrixKeyToGranular(
   if (m) return { source_type: "category_inventory", source_id: m[1] };
   m = /^cogs_(.+)$/.exec(key);
   if (m) return { source_type: "category_cogs", source_id: m[1] };
+  m = /^custom_rev_(.+)$/.exec(key);
+  if (m) return { source_type: "custom_revenue", source_id: m[1] };
+  m = /^custom_inv_(.+)$/.exec(key);
+  if (m) return { source_type: "custom_inventory", source_id: m[1] };
+  m = /^custom_cogs_(.+)$/.exec(key);
+  if (m) return { source_type: "custom_cogs", source_id: m[1] };
   m = /^tender_(.+)$/.exec(key);
   if (m) return { source_type: "tender", source_id: m[1] };
   return null;
@@ -61,6 +74,12 @@ export function granularToMatrixKey(
       return `inv_${source_id}`;
     case "category_cogs":
       return `cogs_${source_id}`;
+    case "custom_revenue":
+      return `custom_rev_${source_id}`;
+    case "custom_inventory":
+      return `custom_inv_${source_id}`;
+    case "custom_cogs":
+      return `custom_cogs_${source_id}`;
     case "tender":
       return `tender_${source_id}`;
     case "liability_gift_card":

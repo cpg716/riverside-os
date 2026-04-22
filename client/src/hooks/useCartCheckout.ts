@@ -170,6 +170,7 @@ export function useCartCheckout({
             local_tax: centsToFixed2(ledgerSignals.isTaxExempt ? 0 : parseMoneyToCents(l.local_tax)),
             salesperson_id: l.salesperson_id?.trim() || null,
             custom_item_type: l.custom_item_type,
+            custom_order_details: l.custom_order_details ?? undefined,
             is_rush: l.is_rush,
             need_by_date: l.need_by_date,
             needs_gift_wrap: l.needs_gift_wrap,

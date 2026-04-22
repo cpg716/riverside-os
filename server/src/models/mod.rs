@@ -20,7 +20,8 @@ pub enum DbTaxCategory {
 }
 
 /// PostgreSQL `fulfillment_type`: `takeaway`, `special_order`, `custom`, `wedding_order` — snake_case.
-/// `custom` is legacy-only (no new writes). `wedding_order` is for wedding-member orders.
+/// `custom` remains a first-class stored fulfillment type for made-to-measure / custom garments.
+/// `wedding_order` is for wedding-member orders.
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]
 #[serde(rename_all = "snake_case")]
 #[sqlx(type_name = "fulfillment_type", rename_all = "snake_case")]

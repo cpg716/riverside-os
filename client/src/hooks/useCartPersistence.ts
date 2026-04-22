@@ -84,7 +84,6 @@ export function useCartPersistence({
               rawLines.map((l) => {
                 let f = l.fulfillment as FulfillmentKind | "custom" | "" | undefined;
                 if (f == null || f === "") f = "takeaway";
-                if (f === "custom") f = "special_order";
                 if (f === "wedding_order" && !wm) f = "special_order";
                 return { ...l, fulfillment: f as FulfillmentKind };
               }),

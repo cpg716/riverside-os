@@ -7,16 +7,22 @@ import {
   User,
   ExternalLink,
   ChevronRight,
+  Heart,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import {
+  customOrderDetailEntries,
+  customVendorLabel,
+  type CustomOrderDetails,
+} from "../../lib/customOrders";
+import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
 
 function fmtMoney(v: string | number): string {
   const cents = parseMoneyToCents(v);
   return formatUsdFromCents(cents);
 }
-import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
 
 const baseUrl = getBaseUrl();
 
@@ -35,20 +41,34 @@ interface OrderItem {
   variation_label: string | null;
   quantity: number;
   unit_price: string;
-  line_total: string;
+  line_total?: string;
+  custom_item_type?: string | null;
+  custom_order_details?: CustomOrderDetails | null;
 }
 
 interface OrderDetail {
-  order_id: string;
+  transaction_id: string;
   booked_at: string;
   status: string;
-  sale_channel: string;
   total_price: string;
   amount_paid: string;
   balance_due: string;
-  customer_id: string | null;
-  customer_name: string | null;
-  customer_code: string | null;
+  financial_summary?: {
+    total_allocated_payments: string;
+    total_applied_deposit_amount: string;
+  };
+  wedding_summary?: {
+    wedding_party_id: string;
+    wedding_member_id: string;
+    party_name?: string | null;
+    event_date?: string | null;
+    member_role?: string | null;
+  } | null;
+  customer: {
+    id: string;
+    first_name: string;
+    last_name: string;
+  } | null;
   items: OrderItem[];
 }
 
@@ -57,6 +77,44 @@ interface OrderAudit {
   event_kind: string;
   summary: string;
   created_at: string;
+}
+
+function describeLifecycle(detail: OrderDetail) {
+  const paidCents = parseMoneyToCents(detail.amount_paid);
+  const dueCents = parseMoneyToCents(detail.balance_due);
+  const depositCents = parseMoneyToCents(
+    detail.financial_summary?.total_applied_deposit_amount ?? "0",
+  );
+  const isWedding = Boolean(detail.wedding_summary);
+
+  if (detail.status === "fulfilled") {
+    return isWedding
+      ? "Picked up. This wedding order is complete."
+      : "Picked up. This order is complete.";
+  }
+  if (detail.status === "pending_measurement") {
+    return isWedding
+      ? "Waiting on measurements or booking details. Keep wedding-member follow-up in place before pickup can continue."
+      : "Waiting on measurements or booking details before pickup can continue.";
+  }
+  if (dueCents <= 0) {
+    return isWedding
+      ? "Balance paid. Receiving and pickup release still stay with the linked wedding member workflow."
+      : "Balance paid. Receiving and pickup release still stay with the order team.";
+  }
+  if (depositCents > 0) {
+    return isWedding
+      ? `Deposit recorded on the linked wedding member. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`
+      : `Deposit recorded. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`;
+  }
+  if (paidCents > 0) {
+    return isWedding
+      ? `Partial payment recorded for this wedding member. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`
+      : `Partial payment recorded. ${fmtMoney(detail.balance_due)} is still due before pickup is complete.`;
+  }
+  return isWedding
+    ? "No payment is recorded yet. Confirm wedding-member readiness before collecting money or promising pickup."
+    : "No payment is recorded yet. Confirm receiving and readiness before collecting money.";
 }
 
 export default function TransactionDetailDrawer({
@@ -163,8 +221,50 @@ export default function TransactionDetailDrawer({
                   </div>
                 </div>
 
+                {detail.wedding_summary && (
+                  <div className="rounded-2xl border border-rose-500/20 bg-rose-500/8 p-4">
+                    <div className="flex items-center gap-2">
+                      <Heart size={16} className="text-rose-500" />
+                      <h3 className="text-[11px] font-black uppercase tracking-widest text-rose-600">
+                        Wedding Link
+                      </h3>
+                    </div>
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Party
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-app-text">
+                          {detail.wedding_summary.party_name ?? "Linked wedding party"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Member Role
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-app-text">
+                          {detail.wedding_summary.member_role ?? "Wedding member"}
+                        </p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Event Date
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-app-text">
+                          {detail.wedding_summary.event_date
+                            ? new Date(detail.wedding_summary.event_date).toLocaleDateString()
+                            : "Not set"}
+                        </p>
+                      </div>
+                    </div>
+                    <p className="mt-3 text-[10px] font-semibold text-app-text-muted">
+                      Wedding payments and pickup follow-up should stay tied to this member and party.
+                    </p>
+                  </div>
+                )}
+
                 {/* Customer Section */}
-                {detail.customer_name && (
+                {detail.customer && (
                   <div className="rounded-2xl border border-app-border bg-app-surface-2/60 p-4">
                     <div className="flex items-center justify-between">
                       <div className="flex items-center gap-2">
@@ -173,9 +273,9 @@ export default function TransactionDetailDrawer({
                           Customer Profile
                         </h3>
                       </div>
-                      {onOpenCustomerHub && detail.customer_id && (
+                      {onOpenCustomerHub && detail.customer.id && (
                         <button
-                          onClick={() => detail.customer_id && onOpenCustomerHub(detail.customer_id)}
+                          onClick={() => detail.customer?.id && onOpenCustomerHub(detail.customer.id)}
                           className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
                         >
                           View Hub <ExternalLink size={12} />
@@ -183,12 +283,9 @@ export default function TransactionDetailDrawer({
                       )}
                     </div>
                     <div className="mt-3">
-                      <p className="text-sm font-black text-app-text">{detail.customer_name}</p>
-                      {detail.customer_code && (
-                        <p className="mt-0.5 text-[10px] font-bold text-app-text-muted opacity-80">
-                          Account: {detail.customer_code}
-                        </p>
-                      )}
+                      <p className="text-sm font-black text-app-text">
+                        {detail.customer.first_name} {detail.customer.last_name}
+                      </p>
                     </div>
                   </div>
                 )}
@@ -221,12 +318,38 @@ export default function TransactionDetailDrawer({
                                   {it.variation_label}
                                 </p>
                               )}
+                              {it.custom_item_type && (
+                                <div className="mt-2 rounded-xl border border-app-border/70 bg-app-surface-2/70 p-2">
+                                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                    Custom Details
+                                  </p>
+                                  <p className="mt-1 text-[11px] font-black text-app-text">
+                                    {it.custom_item_type}
+                                  </p>
+                                  {it.custom_order_details?.vendor_form_family && (
+                                    <p className="mt-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                                      {customVendorLabel(it.custom_order_details.vendor_form_family)}
+                                    </p>
+                                  )}
+                                  <div className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1 text-[10px] font-semibold text-app-text-muted sm:grid-cols-2">
+                                    {customOrderDetailEntries(it.custom_order_details).map(
+                                      (entry) => (
+                                        <p key={entry.label}>
+                                          {entry.label}: {entry.value}
+                                        </p>
+                                      ),
+                                    )}
+                                  </div>
+                                </div>
+                              )}
                             </td>
                             <td className="px-4 py-3 text-right font-bold tabular-nums">
                               {it.quantity}
                             </td>
                             <td className="px-4 py-3 text-right font-bold tabular-nums">
-                              {fmtMoney(it.line_total)}
+                              {fmtMoney(
+                                it.line_total ?? String(Number.parseFloat(it.unit_price) * it.quantity),
+                              )}
                             </td>
                           </tr>
                         ))}
@@ -250,6 +373,12 @@ export default function TransactionDetailDrawer({
                       <span>Amount Paid</span>
                       <span className="tabular-nums font-mono">{fmtMoney(detail.amount_paid)}</span>
                     </div>
+                    <div className="flex justify-between text-xs font-bold text-app-text-muted">
+                      <span>Deposit on Ledger</span>
+                      <span className="tabular-nums font-mono">
+                        {fmtMoney(detail.financial_summary?.total_applied_deposit_amount ?? "0")}
+                      </span>
+                    </div>
                     {parseFloat(detail.balance_due) > 0 && (
                       <div className="flex justify-between text-xs font-black text-app-accent">
                         <span>Balance Due</span>
@@ -257,6 +386,9 @@ export default function TransactionDetailDrawer({
                       </div>
                     )}
                   </div>
+                  <p className="mt-4 text-[11px] font-semibold text-app-text-muted">
+                    {describeLifecycle(detail)}
+                  </p>
                 </div>
 
                 {/* Audit Trail */}
@@ -303,7 +435,7 @@ export default function TransactionDetailDrawer({
               {onOpenTransactionInBackoffice && (
                 <button
                   type="button"
-                  onClick={() => detail && onOpenTransactionInBackoffice(detail.order_id)}
+                  onClick={() => detail && onOpenTransactionInBackoffice(detail.transaction_id)}
                   className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-accent/80 bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:opacity-90 active:translate-y-0.5"
                 >
                   <ExternalLink size={16} />

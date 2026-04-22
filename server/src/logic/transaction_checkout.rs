@@ -12,6 +12,9 @@ use uuid::Uuid;
 use crate::auth::pins::log_staff_access;
 use crate::logic::checkout_validate;
 use crate::logic::corecard;
+use crate::logic::custom_orders::{
+    canonical_custom_order_details, known_custom_item_type_for_sku, known_custom_subtype_for_sku,
+};
 use crate::logic::customer_open_deposit;
 use crate::logic::gift_card_ops;
 use crate::logic::pos_rms_charge;
@@ -65,6 +68,8 @@ pub struct CheckoutItem {
     pub gift_card_load_code: Option<String>,
     #[serde(default)]
     pub custom_item_type: Option<String>,
+    #[serde(default)]
+    pub custom_order_details: Option<Value>,
     #[serde(default)]
     pub is_rush: bool,
     #[serde(default)]
@@ -181,6 +186,37 @@ fn metadata_optional_text(metadata: &Value, key: &str) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+async fn canonical_custom_item_type_for_variant(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    fulfillment: DbFulfillmentType,
+    variant_id: Uuid,
+    provided: Option<&str>,
+) -> Result<Option<String>, sqlx::Error> {
+    if fulfillment != DbFulfillmentType::Custom {
+        return Ok(provided
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string));
+    }
+
+    let variant_sku: Option<String> =
+        sqlx::query_scalar("SELECT sku FROM product_variants WHERE id = $1")
+            .bind(variant_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+    if let Some(sku) = variant_sku.as_deref() {
+        if let Some(item_type) = known_custom_item_type_for_sku(sku) {
+            return Ok(Some(item_type.to_string()));
+        }
+    }
+
+    Ok(provided
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string))
 }
 
 fn corecard_error_to_checkout(error: corecard::CoreCardError) -> CheckoutError {
@@ -454,6 +490,7 @@ async fn expand_bundle_checkout_items(
                 discount_event_id: None,
                 gift_card_load_code: None,
                 custom_item_type: item.custom_item_type.clone(),
+                custom_order_details: item.custom_order_details.clone(),
                 is_rush: item.is_rush,
                 need_by_date: item.need_by_date,
                 needs_gift_wrap: item.needs_gift_wrap,
@@ -539,13 +576,49 @@ fn resolve_payment_splits(
                     .map(str::trim)
                     .filter(|s| !s.is_empty())
                     .map(str::to_string);
+                if m.eq_ignore_ascii_case("gift_card") && gift_card_code.is_none() {
+                    return Err(CheckoutError::InvalidPayload(
+                        "Gift card payment requires the card code.".to_string(),
+                    ));
+                }
+                if !m.eq_ignore_ascii_case("gift_card") && gift_card_code.is_some() {
+                    return Err(CheckoutError::InvalidPayload(
+                        "gift_card_code is only allowed for gift card payments".to_string(),
+                    ));
+                }
 
                 let incoming_meta = line.metadata.clone().unwrap_or_else(|| json!({}));
-                let normalized_meta = if pos_rms_charge::is_rms_method(m) {
+                let mut normalized_meta = if pos_rms_charge::is_rms_method(m) {
                     pos_rms_charge::normalized_rms_metadata(m, &incoming_meta)
                 } else {
                     incoming_meta
                 };
+                if applied_deposit_amount > Decimal::ZERO {
+                    let mut object = normalized_meta.as_object().cloned().unwrap_or_default();
+                    object.insert(
+                        "applied_deposit_amount".to_string(),
+                        Value::String(applied_deposit_amount.to_string()),
+                    );
+                    normalized_meta = Value::Object(object);
+                }
+                if m.eq_ignore_ascii_case("gift_card") {
+                    let mut object = normalized_meta.as_object().cloned().unwrap_or_default();
+                    if let Some(sub_type) = line
+                        .sub_type
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                    {
+                        object.insert("sub_type".to_string(), Value::String(sub_type.to_string()));
+                    }
+                    if let Some(code) = gift_card_code.as_deref() {
+                        object.insert(
+                            "gift_card_code".to_string(),
+                            Value::String(code.to_ascii_uppercase()),
+                        );
+                    }
+                    normalized_meta = Value::Object(object);
+                }
                 let stripe_intent_id = normalized_meta
                     .get("stripe_intent_id")
                     .and_then(|v| v.as_str())
@@ -1275,7 +1348,8 @@ pub async fn execute_checkout(
                 .as_ref()
                 .map(|s| !s.trim().is_empty())
                 .unwrap_or(false)
-                || i.discount_event_id.is_some();
+                || i.discount_event_id.is_some()
+                || i.fulfillment == DbFulfillmentType::Custom;
             checkout_validate::CheckoutLineSnapshot {
                 product_id: i.product_id,
                 variant_id: i.variant_id,
@@ -1808,6 +1882,31 @@ pub async fn execute_checkout(
         };
         let line_is_internal = pos_kind.as_deref() == Some("rms_charge_payment");
 
+        let custom_item_type = canonical_custom_item_type_for_variant(
+            &mut tx,
+            fulfillment,
+            item.variant_id,
+            item.custom_item_type.as_deref(),
+        )
+        .await?;
+        let custom_subtype = sqlx::query_scalar::<_, String>(
+            "SELECT sku FROM product_variants WHERE id = $1"
+        )
+        .bind(item.variant_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .as_deref()
+        .and_then(known_custom_subtype_for_sku);
+        if let Some(details) =
+            canonical_custom_order_details(custom_subtype, item.custom_order_details.as_ref())
+        {
+            let mut base = override_meta.unwrap_or_else(|| json!({}));
+            if let Value::Object(ref mut map) = base {
+                map.insert("custom_order_details".to_string(), details);
+            }
+            override_meta = Some(base);
+        }
+
         let transaction_line_id: Uuid = sqlx::query_scalar(
                 r#"
                 INSERT INTO transaction_lines (
@@ -1838,7 +1937,7 @@ pub async fn execute_checkout(
             .bind(fulfilled_at)
             .bind(line_salesperson_id)
             .bind(commission)
-            .bind(item.custom_item_type.clone())
+            .bind(custom_item_type)
             .bind(item.is_rush)
             .bind(item.need_by_date)
             .bind(item.needs_gift_wrap)
@@ -2037,7 +2136,7 @@ pub async fn execute_checkout(
 
         let mut main_tx_ids = Vec::new();
 
-        for split in &payment_splits {
+        for split in &mut payment_splits {
             if split.amount <= Decimal::ZERO {
                 continue;
             }
@@ -2097,61 +2196,65 @@ pub async fn execute_checkout(
             // 2. Handle Gift Card redemption if applicable
             if let Some(card_code) = &split.gift_card_code {
                 if method.to_ascii_lowercase().contains("gift_card") {
-                    let card: Option<(Uuid, Decimal, String)> = sqlx::query_as(
-                        r#"
-                        SELECT id, current_balance, card_status::text
-                        FROM gift_cards
-                        WHERE code = $1
-                          AND card_status = 'active'::gift_card_status
-                          AND (expires_at IS NULL OR expires_at > now())
-                        FOR UPDATE
-                        "#,
+                    let requested_sub_type = split
+                        .metadata
+                        .get("sub_type")
+                        .and_then(Value::as_str)
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty());
+                    let redemption = gift_card_ops::prepare_redemption_in_tx(
+                        &mut tx,
+                        card_code,
+                        requested_sub_type,
+                        split.amount,
                     )
-                    .bind(card_code)
-                    .fetch_optional(&mut *tx)
+                    .await
+                    .map_err(|error| match error {
+                        gift_card_ops::GiftCardOpError::BadRequest(message) => {
+                            CheckoutError::InvalidPayload(message)
+                        }
+                        gift_card_ops::GiftCardOpError::Db(db) => CheckoutError::Database(db),
+                    })?;
+
+                    let mut metadata_object =
+                        split.metadata.as_object().cloned().unwrap_or_default();
+                    metadata_object.insert(
+                        "sub_type".to_string(),
+                        Value::String(redemption.canonical_sub_type.clone()),
+                    );
+                    metadata_object.insert(
+                        "gift_card_card_kind".to_string(),
+                        Value::String(redemption.card_kind.clone()),
+                    );
+                    metadata_object.insert(
+                        "gift_card_code".to_string(),
+                        Value::String(card_code.to_ascii_uppercase()),
+                    );
+                    split.metadata = Value::Object(metadata_object);
+
+                    sqlx::query(
+                        "UPDATE gift_cards SET current_balance = $1, card_status = $2::gift_card_status WHERE id = $3"
+                    )
+                    .bind(redemption.new_balance)
+                    .bind(redemption.new_status)
+                    .bind(redemption.card_id)
+                    .execute(&mut *tx)
                     .await?;
 
-                    if let Some((cid, bal, _status)) = card {
-                        if bal < split.amount {
-                            return Err(CheckoutError::InvalidPayload(format!(
-                                "Gift card {card_code} has insufficient balance (${bal})"
-                            )));
-                        }
-                        let new_balance = bal - split.amount;
-                        let new_status_str = if new_balance == Decimal::ZERO {
-                            "depleted"
-                        } else {
-                            "active"
-                        };
-
-                        sqlx::query(
-                            "UPDATE gift_cards SET current_balance = $1, card_status = $2::gift_card_status WHERE id = $3"
-                        )
-                        .bind(new_balance)
-                        .bind(new_status_str)
-                        .bind(cid)
-                        .execute(&mut *tx)
-                        .await?;
-
-                        sqlx::query(
-                            r#"
-                            INSERT INTO gift_card_events
-                                (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
-                            VALUES ($1, 'redeemed', $2, $3, $4, $5)
-                            "#,
-                        )
-                        .bind(cid)
-                        .bind(-split.amount)
-                        .bind(new_balance)
-                        .bind(transaction_id)
-                        .bind(payload.session_id)
-                        .execute(&mut *tx)
-                        .await?;
-                    } else {
-                        return Err(CheckoutError::InvalidPayload(format!(
-                            "Gift card {card_code} is not found, expired, or inactive"
-                        )));
-                    }
+                    sqlx::query(
+                        r#"
+                        INSERT INTO gift_card_events
+                            (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
+                        VALUES ($1, 'redeemed', $2, $3, $4, $5)
+                        "#,
+                    )
+                    .bind(redemption.card_id)
+                    .bind(-split.amount)
+                    .bind(redemption.new_balance)
+                    .bind(transaction_id)
+                    .bind(payload.session_id)
+                    .execute(&mut *tx)
+                    .await?;
                 }
             }
 

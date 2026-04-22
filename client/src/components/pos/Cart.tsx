@@ -51,8 +51,9 @@ import PosShippingModal, {
 } from "./PosShippingModal";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
+import { customOrderItemTypeForSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
-import OrderLoadModal, { type OrderItem } from "./OrderLoadModal";
+import OrderLoadModal from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 
@@ -1751,6 +1752,7 @@ export default function Cart({
                       cart_row_id: l.cart_row_id,
                       salesperson_id: l.salesperson_id,
                       custom_item_type: l.custom_item_type,
+                      custom_order_details: l.custom_order_details,
                       is_rush: l.is_rush,
                       need_by_date: l.need_by_date,
                       needs_gift_wrap: l.needs_gift_wrap,
@@ -2033,26 +2035,35 @@ export default function Cart({
 
       <CustomItemPromptModal
         isOpen={customPromptOpen}
+        sku={pendingCustomItem?.sku ?? null}
         onClose={() => {
           setCustomPromptOpen(false);
           setPendingCustomItem(null);
         }}
         onConfirm={(data) => {
           if (!pendingCustomItem) return;
+          const resolvedItemType =
+            customOrderItemTypeForSku(pendingCustomItem.sku) ?? data.itemType;
           const cents = parseMoneyToCents(data.price);
           const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(data.taxCategory, cents);
           const updated: CartLineItem = {
             ...pendingCustomItem,
-            name: `${data.itemType} (CUSTOM)`,
+            name:
+              customOrderItemTypeForSku(pendingCustomItem.sku) != null
+                ? pendingCustomItem.name
+                : `${resolvedItemType} (Custom)`,
             standard_retail_price: data.price,
-            unit_cost: data.cost,
+            unit_cost: "0.00",
             fulfillment: "custom",
             tax_category: data.taxCategory,
             state_tax: stateTax,
             local_tax: localTax,
-            custom_item_type: data.itemType,
+            custom_item_type: resolvedItemType,
+            custom_order_details: data.customOrderDetails ?? null,
             quantity: 1,
             cart_row_id: newCartRowId(),
+            price_override_reason: "custom_order_booking",
+            original_unit_price: String(pendingCustomItem.standard_retail_price),
             is_rush: data.isRush,
             need_by_date: data.needByDate,
             needs_gift_wrap: data.needsGiftWrap,
@@ -2099,15 +2110,9 @@ export default function Cart({
             customerName={`${selectedCustomer.first_name} ${selectedCustomer.last_name}`}
             baseUrl={baseUrl}
             apiAuth={apiAuth}
-            onSelectOrder={(order, mode) => {
+            onCopyOrder={(order, items) => {
               void (async () => {
                 try {
-                  const res = await fetch(`${baseUrl}/api/transactions/${order.id}/items`, {
-                    headers: apiAuth(),
-                  });
-                  if (!res.ok) throw new Error("Could not fetch order items");
-                  const items = (await res.json()) as OrderItem[];
-                  
                   // Clear cart and setup for recall
                   clearCart();
                   setOrderLoadOpen(false);
@@ -2132,42 +2137,19 @@ export default function Cart({
                       return l;
                     }));
                   });
-
-                  if (mode === "ship") {
-                    setOrderReviewOpen(true); // Open review to set address
-                  }
-                  
-                  toast(`Order ${order.id.slice(-6)} recalled for ${mode}`, "success");
+                  toast(
+                    `Unfulfilled lines from ${order.display_id} were copied into the register. This starts a new sale and does not collect payment on the original order.`,
+                    "info",
+                  );
                 } catch (e) {
-                  toast(e instanceof Error ? e.message : "Recall failed", "error");
+                  toast(
+                    e instanceof Error
+                      ? e.message
+                      : "We couldn't copy that order into the register. Please try again.",
+                    "error",
+                  );
                 }
               })();
-            }}
-            onSelectItems={(_unusedOrderId, items) => {
-              // Load items into cart
-              setOrderLoadOpen(false);
-              items.forEach(item => {
-                addItem({
-                  product_id: item.product_id,
-                  variant_id: item.variant_id,
-                  sku: item.sku,
-                  name: item.product_name,
-                  variation_label: item.variation_label || "",
-                  standard_retail_price: parseMoneyToCents(item.unit_price),
-                  unit_cost: 0,
-                  state_tax: 0,
-                  local_tax: 0,
-                  // ResolvedSkuItem doesn't strictly need these but we keep defaults
-                }, undefined, item.fulfillment as FulfillmentKind);
-                // Explicitly apply metadata
-                setLines(prev => prev.map(l => {
-                  if (l.sku === item.sku && l.variant_id === item.variant_id && !l.is_rush && !l.need_by_date) {
-                    return { ...l, is_rush: item.is_rush, need_by_date: item.need_by_date };
-                  }
-                  return l;
-                }));
-              });
-              toast(`Loaded ${items.length} items from order`, "success");
             }}
           />
 

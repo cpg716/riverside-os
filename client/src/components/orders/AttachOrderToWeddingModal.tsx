@@ -96,7 +96,7 @@ export default function AttachOrderToWeddingModal({
         },
         { headers }
       );
-      toast("Order attached to wedding party successfully", "success");
+      toast("Wedding link saved.", "success");
       onSuccess();
       onClose();
     } catch (err) {
@@ -121,7 +121,7 @@ export default function AttachOrderToWeddingModal({
                 Attach to Wedding
               </h3>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                Order #{orderId.slice(0, 8)} • {customerName}
+                {customerName} · link this order to the correct wedding party and member role.
               </p>
             </div>
           </div>
@@ -144,13 +144,13 @@ export default function AttachOrderToWeddingModal({
               onClick={() => setMode("create")}
               className={`flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all ${mode === "create" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}
             >
-              Start New Party
+              New Wedding Party
             </button>
           </div>
 
           <div className="space-y-4">
             <div className="space-y-2">
-              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Member Role</label>
+              <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Wedding Role</label>
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
@@ -253,7 +253,7 @@ export default function AttachOrderToWeddingModal({
               disabled={busy}
               className="px-10 py-3 rounded-full bg-app-accent text-white text-[11px] font-black uppercase tracking-widest shadow-xl shadow-app-accent/20 hover:scale-[1.02] active:scale-95 disabled:opacity-50 transition-all"
             >
-              {busy ? "Attaching..." : "Confirm Link"}
+              {busy ? "Saving..." : "Save Wedding Link"}
             </button>
           </div>
         </form>
