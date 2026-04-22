@@ -1,41 +1,25 @@
 # Audit Report: PWA & Desktop App Subsystems
-**Date:** 2026-04-08
-**Status:** Multi-Platform / Production Ready
-**Auditor:** Antigravity
 
-## 1. Executive Summary
-Riverside OS utilizes a dual-deployment strategy: a high-performance **PWA** (Progressive Web App) for mobile and remote access, and a **Tauri-based Desktop App** (Register) for the primary cash-wrap terminals. This architecture provides the best of both worlds: broad accessibility on iPads/phones and native hardware access on Windows/macOS.
+**Date:** 2026-04-22  
+**Status:** Updated after host-mode hardening
 
-## 2. PWA Infrastructure (Mobile/Tablets)
+## Summary
 
-### 2.1 Manifest & Branding
-- **Config**: `client/public/manifest.json`.
-- **Display**: Set to `standalone` to provide a chromeless, native-app experience on iOS and Android.
-- **Styling**: `theme_color` is synced with the "Emerald Retail" brand (`#059669`). Supports `maskable` icons for better OS integration.
+The original audit correctly identified the Tauri host-mode path as the highest-risk deployment/runtime gap. That gap is now narrowed in the product:
 
-### 2.2 Service Worker Strategy
-- **Engine**: Automated via `vite-plugin-pwa` (Workbox).
-- **Update Logic**: Uses `registerType: "prompt"`. Staff are notified of updates via a non-intrusive `PwaUpdatePrompt` component, allowing them to choose when to reload (avoiding interruptions during a sale).
-- **Reliability**: JS, CSS, and HTML are cached for offline resilience; the `/api` and `/metabase` routes are explicitly denylisted from the service worker to ensure live data integrity.
+- the Tauri host wrapper resolves and reports an explicit frontend bundle path for satellite clients
+- host startup no longer reports success before readiness
+- host startup failures are surfaced directly in the Remote Access panel
+- operator-facing host flow no longer relies on placeholder Stripe input in the UI
 
-## 3. Desktop App Infrastructure (Tauri 2)
+## Important correction to the earlier audit
 
-### 3.1 Bundle Configuration
-- **Product Name**: "Riverside POS".
-- **Binary Inclusion**: Correctly bundles dependencies like `llama-server` for the **ROSIE** (Local AI) engine using Tauri's `externalBin` capability.
-- **Architecture**: Leverages the Tauri 2 "Plugin" model for Shell and Logging.
+The earlier note claiming the Tauri updater was “missing or commented out” was stale. The updater is present in the desktop shell and supported by the Windows updater workflow. The larger real gap was the **host-mode startup contract**, not updater wiring.
 
-### 3.2 Deployment Workflow
-- **Checklist**: Detailed in `PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`, covering code signing, version displays, and responsive QA.
-- **Environment**: Supports environment-specific `VITE_API_BASE` overrides for LAN vs. Tailscale/Cloud deployments.
+## Remaining posture
 
-## 4. Security Analysis
-- **CSP**: The `tauri.conf.json` currently has `csp: null`. **Recommendation**: Hardening the CSP for production to restrict source origins.
-- **Network**: The server bind defaults to `0.0.0.0:3000`, allowing LAN communication for mobile iPads without complex DNS.
+This does **not** mean every deployment/runtime concern is complete. The broader PWA/Tauri surface still needs additional work over time, but the clearest blocker to the intended **Windows host + PWA satellite** model is now addressed more honestly:
 
-## 5. Findings & Recommendations
-1. **Updater**: The Tauri updater is currently commented out or missing from the config. **Recommendation**: Enable the built-in Tauri 2 updater for seamless desktop deployments.
-2. **PWA Strength**: The use of `virtual:pwa-register` handles the browser-side update flow perfectly.
-
-## 6. Conclusion
-The App infrastructure is professionally engineered for a split retail environment. The PWA provides excellent mobile flexibility, while Tauri provides the low-latency native hooks required for retail reliability.
+- satellite serving is explicit
+- failure reporting is explicit
+- host-mode docs and help now match the runtime path more closely

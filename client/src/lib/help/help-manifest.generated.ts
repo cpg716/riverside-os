@@ -189,10 +189,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "remote-access",
-    title: "Remote Access (Secure VPN)",
-    summary: "Access Riverside OS securely from anywhere using Tailscale's encrypted network.",
+    title: "Remote Access",
+    summary: "Use Tailscale for off-site access to the dedicated host machine; this is separate from local-network host access and separate from the main register.",
     markdown: manual_3_raw,
-    tags: ["settings","remote","tailscale","security"],
+    tags: ["settings","remote","tailscale","host-mode"],
   },
   {
     id: "lockout",
@@ -452,10 +452,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "layout-backoffice-sign-in-gate",
-    title: "Backoffice Sign In Gate (layout)",
-    summary: "Auto-generated stub for client/src/components/layout/BackofficeSignInGate.tsx — replace with staff-facing help.",
+    title: "Backoffice Sign-In Gate",
+    summary: "Sign in with your staff identity and Access PIN before entering Riverside.",
     markdown: manual_41_raw,
-    tags: ["layout-backoffice-sign-in-gate","component","auto-scaffold"],
+    tags: ["layout-backoffice-sign-in-gate","signin","access-pin","host-settings"],
   },
   {
     id: "inventory-variations-workspace",
@@ -495,16 +495,16 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "layout-pos-shell",
     title: "Pos Shell (layout)",
-    summary: "Auto-generated stub for client/src/components/layout/PosShell.tsx — replace with staff-facing help.",
+    summary: "Use the Windows register shell to move between Dashboard, Register, and the mirrored POS workspaces while a till session is open.",
     markdown: manual_47_raw,
-    tags: ["layout-pos-shell","component","auto-scaffold"],
+    tags: ["layout-pos-shell","pos","register","windows"],
   },
   {
     id: "layout-pwa-update-prompt",
-    title: "Pwa Update Prompt (layout)",
-    summary: "Auto-generated stub for client/src/components/layout/PwaUpdatePrompt.tsx — replace with staff-facing help.",
+    title: "PWA Update Prompt",
+    summary: "This prompt appears when a newer Riverside web shell is ready and waiting to be loaded.",
     markdown: manual_48_raw,
-    tags: ["layout-pwa-update-prompt","component","auto-scaffold"],
+    tags: ["layout-pwa-update-prompt","pwa","updates"],
   },
   {
     id: "layout-register-pick-modal",
@@ -789,9 +789,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-receipt-summary-modal",
     title: "Receipt Summary Modal (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/ReceiptSummaryModal.tsx — replace with staff-facing help.",
+    summary: "Use this screen after a completed sale to print, retry, or send the receipt.",
     markdown: manual_89_raw,
-    tags: ["pos-receipt-summary-modal","component","auto-scaffold"],
+    tags: ["pos-receipt-summary-modal","pos","receipt","printing"],
   },
   {
     id: "pos-register-cash-adjust-modal",
@@ -810,9 +810,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-register-dashboard",
     title: "Register Dashboard (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/RegisterDashboard.tsx — replace with staff-facing help.",
+    summary: "Use the register dashboard as the Windows station home screen after the till is open.",
     markdown: manual_92_raw,
-    tags: ["pos-register-dashboard","component","auto-scaffold"],
+    tags: ["pos-register-dashboard","pos","register","windows"],
   },
   {
     id: "pos-order-review-modal",
@@ -838,9 +838,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-register-overlay",
     title: "Register Overlay (pos)",
-    summary: "Auto-generated stub for client/src/components/pos/RegisterOverlay.tsx — replace with staff-facing help.",
+    summary: "Use this screen to open or attach the Windows register terminal to the correct lane before selling.",
     markdown: manual_96_raw,
-    tags: ["pos-register-overlay","component","auto-scaffold"],
+    tags: ["pos-register-overlay","pos","register","windows"],
   },
   {
     id: "pos-register-reports",
@@ -1012,10 +1012,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "settings-remote-access-panel",
-    title: "Remote Access Panel (settings)",
-    summary: "Auto-generated stub for client/src/components/settings/RemoteAccessPanel.tsx — replace with staff-facing help.",
+    title: "Remote Access Panel",
+    summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
     markdown: manual_121_raw,
-    tags: ["settings-remote-access-panel","component","auto-scaffold"],
+    tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "settings-workspace",

@@ -2,10 +2,11 @@
 
 This document is the **canonical production deployment** reference for a typical shop layout:
 
-- **One Windows PC** runs **PostgreSQL** and the **Riverside OS server** (Rust Axum API + static web UI from `client/dist`).
-- **Register 1 (main)** and **Back office** use the **Windows desktop app** (Tauri 2).
-- **Register 2 (iPad)** and **smartphones** use the **Progressive Web App** (browser / Add to Home Screen).
-- **Other office PCs** use a browser or optional Tauri; same server URL.
+- **One Windows PC** is the **HOST machine**. It runs **PostgreSQL** and the **Riverside OS server** (Rust Axum API + static web UI from `client/dist`) and may also run the hardened Tauri **Shop Host** surface.
+- **A different Windows PC** is the **MAIN REGISTER**. It uses the **Windows desktop app** (Tauri 2) as the primary cashier station.
+- **Local-network iPads and phones** use the **Progressive Web App** against the host machine while they are on the same shop network.
+- **Remote access** is separate: off-site PWA devices use **Tailscale** to reach the same host machine over a private remote path.
+- **Other office PCs** use a browser or optional Tauri against the same API origin.
 
 Deeper checklists and remote access detail live in linked docs at the end.
 
@@ -54,12 +55,11 @@ flowchart TB
 
 | Role | Recommended client | Notes |
 |------|-------------------|--------|
-| **Server + database** | N/A (services on one PC) | Run PostgreSQL and `riverside-server` here. This PC should stay on and be on UPS if possible. |
-| **Register 1 (main)** | **Tauri (Windows)** | Required for **physical receipt print** from the post-sale flow (see section 6). |
-| **Back office** | **Tauri (Windows)** | Matches Register 1 for updates and behavior; use for inventory shelf labels and printing hub settings. |
-| **Register 2 (iPad)** | **PWA (Safari)** | Add to Home Screen. Shared device: **log out or close the register** when unattended ([`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md)). |
-| **Other office PCs** | Browser or Tauri | Same URL and auth; optional Tauri if you want a dedicated shell. |
-| **Phones (inventory, remote)** | **PWA** | Use **Tailscale** (or equivalent private mesh) and **HTTPS**; do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
+| **Host machine** | Windows PC running services | Run PostgreSQL and `riverside-server` here. If you use Shop Host, this is the one Tauri machine that should serve local-network satellite clients. This PC should stay on and be on UPS if possible. |
+| **Main Register** | **Tauri (Windows)** | Separate from the host machine. This is the primary cashier station and the preferred surface for **physical receipt print** from the post-sale flow (see section 6). |
+| **Back office workstation** | Browser or optional Tauri | Same API origin and auth model; optional Tauri if you want a dedicated shell. |
+| **Local iPad / phone satellites** | **PWA** | Use Add to Home Screen and point to the host machine while on the same local network. Shared device: **log out or close the register** when unattended ([`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md)). |
+| **Off-site phones / laptops** | **PWA over Tailscale** | Use **Tailscale** (or equivalent private mesh) and **HTTPS** when the device is not on the same local network as the host. Do not expose plain HTTP to the public internet for staff apps ([`REMOTE_ACCESS_GUIDE.md`](../REMOTE_ACCESS_GUIDE.md)). |
 
 ### Till shift: Register #1 and satellite lanes
 
@@ -109,11 +109,51 @@ Installer signing and CI notes: [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PW
 
 - [ ] Open deployed app URL in Safari/Chrome and confirm TLS is valid.
 - [ ] Add to Home Screen and launch from icon (not only browser tab).
+- [ ] On Windows laptops or supported mobile browsers, validate Riverside's in-app **Install app** prompt if the surface is meant to stay browser-based instead of Tauri.
 - [ ] Verify staff sign-in and shell navigation render correctly.
+- [ ] Verify the top bar does not force horizontal scrolling on iPhone-class widths and that status chips remain readable on both phone and iPad.
 - [ ] Verify camera/scanner workflow used by that station profile (if applicable).
 - [ ] Verify session behavior on shared device (log out / close register when unattended).
+- [ ] Verify offline banner copy is understandable: only completed POS checkouts queue; inventory and most back-office actions still need connectivity.
 - [ ] Validate stale-cache recovery procedure (hard refresh / clear site data / reinstall icon).
 - [ ] Record device name, OS version, browser engine, and test result in deployment log.
+
+#### 3.3.1a Local iPad smoke (same-network PWA)
+
+- [ ] Confirm the iPad is on the same local network as the dedicated **HOST machine**.
+- [ ] Open the **local satellite URL** shown by the host panel, not the Tailscale remote path.
+- [ ] Add to Home Screen and launch from the iPad icon.
+- [ ] Verify tablet shell flow stays comfortable: menu button visible, search bar visible, and status pills readable.
+- [ ] Verify one real operator path relevant to that lane profile (for example customer search, order lookup, or assisted register handoff).
+- [ ] If the lane uses barcode scanning, verify the paired scanner/HID flow on the iPad specifically.
+- [ ] If a receipt is needed, confirm staff understand that physical thermal receipt printing still requires a Windows Tauri station today.
+
+#### 3.3.1b Local phone smoke (same-network PWA)
+
+- [ ] Confirm the phone is on the same local network as the dedicated **HOST machine**.
+- [ ] Open the **local satellite URL** shown by the host panel, not the Tailscale remote path.
+- [ ] Add to Home Screen where appropriate and relaunch from the installed icon.
+- [ ] Verify phone shell flow is usable: menu button visible, universal search visible, no horizontal overflow, and offline/pending-sync pills readable.
+- [ ] Verify one phone-relevant task such as quick customer lookup, order lookup, or shipment status access.
+- [ ] Validate stale-cache recovery on phone: close/reopen icon, then clear site data or reinstall only if still stale.
+
+#### 3.3.1c Remote PWA smoke (off-site over Tailscale)
+
+- [ ] Confirm the remote device is **not** on the store LAN and is using **Tailscale** intentionally.
+- [ ] Confirm both the host machine and the remote device are connected to the same Tailscale network.
+- [ ] Open the store's **remote Tailscale path**, not the local host URL.
+- [ ] Verify sign-in works and staff roster/API data are coming from the correct store.
+- [ ] Verify one read-heavy remote task such as customer search, order lookup, or shipment lookup.
+- [ ] Verify operators understand remote access is separate from in-store local access and should not be handed out as a generic local onboarding URL.
+
+#### 3.3.2 Dedicated host smoke check (required when using Shop Host)
+
+- [ ] On the dedicated host machine, open **Settings → Remote Access** and start **Shop Host**.
+- [ ] Confirm the panel shows **running**, the bind address, and the resolved frontend bundle path.
+- [ ] Confirm the panel shows at least one **local satellite URL** based on the host machine's LAN address or host name.
+- [ ] On a second iPad or phone that is on the same local network, open that local satellite URL and confirm the Riverside sign-in gate loads.
+- [ ] If off-site remote access is enabled, confirm the separate **Tailscale remote path** too.
+- [ ] Record which device was used for the same-network smoke and which device was used for the off-site remote smoke.
 
 ---
 
@@ -255,6 +295,19 @@ So **iPad PWA cannot print a thermal receipt from that button today**, even thou
 - **Large catalogs:** customer browse and inventory lists use paging; spot-check latency on Wi-Fi and Tailscale before busy weekends ([`docs/SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md)).
 
 ### 7.1 Troubleshooting (short)
+
+### 7.1.1 Shop Host is running but satellites still cannot connect
+
+1. Confirm the satellite device is on the same local network as the dedicated host machine.
+2. Use the **local satellite URL** shown in the host panel first; do not substitute the Tailscale address for in-store devices.
+3. If more than one local path is shown, try the detected **LAN IPv4** first.
+4. If the host panel cannot detect a LAN address, verify the host machine's local network connection before store open.
+
+### 7.1.2 Remote PWA works but local in-store PWA does not
+
+1. Confirm the in-store device is using the **local satellite URL**, not the Tailscale remote path.
+2. Confirm the device is actually on the same local network as the dedicated host machine.
+3. Re-run the host smoke check from **3.3.2** using a second local device before opening the store.
 
 **PWA will not load**
 

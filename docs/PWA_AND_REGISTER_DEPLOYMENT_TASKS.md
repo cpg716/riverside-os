@@ -1,6 +1,6 @@
 # PWA + desktop Register — deployment checklist
 
-**Intent:** PWA is the primary surface for phones, tablets, laptops, and remote access; the **main register** runs the **Tauri desktop** build on the cash-wrap PC. This file tracks **repo implementation** plus **one-time store sign-off** before production.
+**Intent:** The deployment model is role-based: one Windows Tauri machine is the **HOST machine**, a different Windows Tauri machine is the **MAIN REGISTER**, local-network PWA access is for devices on the same network as the host, and **remote access** is a separate Tailscale path for off-site devices. This file tracks **repo implementation** plus **one-time store sign-off** before production.
 
 Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build commands), `BACKUP_RESTORE_GUIDE.md`, `docs/TRANSACTION_RETURNS_EXCHANGES.md` (`/api/transactions/*` routes with `orders.*` RBAC), `docs/SEARCH_AND_PAGINATION.md` (POS customer + inventory directory paging), **`docs/REGISTER_DASHBOARD.md`** (POS **Dashboard** tab, metrics, notifications, **`weddings.view`** on morning board APIs), **`docs/TILL_GROUP_AND_REGISTER_OPEN.md`** (lanes **66–67**, one drawer + satellite registers, combined Z-close), **`docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`** (migrations **68–69**: server **Park**, Z-close purge, **`pos_rms_charge_record`** **charge** vs **payment**, Sales Support **notifications** + **tasks**, **Customers → RMS charge**, QBO **`RMS_R2S_PAYMENT_CLEARING`**, optional **`VITE_POS_OFFLINE_CARD_SIM`**).
 
@@ -38,6 +38,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 - [x] **HTTPS in production:** Follow `REMOTE_ACCESS_GUIDE.md` (Tailscale Serve, reverse proxy, or equivalent). Do not expose plain HTTP to the public internet for staff-facing PWA.
 - [x] **CORS:** `server/src/main.rs` / `launcher.rs` — when **`RIVERSIDE_CORS_ORIGINS`** is unset, `allow_origin(Any)` (dev/Tauri). Production browser hosts should set **`RIVERSIDE_STRICT_PRODUCTION=true`** so startup refuses missing CORS allowlists, missing storefront JWT secret, and invalid `FRONTEND_DIST`.
 - [x] **Server bind:** Defaults to `0.0.0.0:3000`. Override with **`RIVERSIDE_HTTP_BIND`** (e.g. `127.0.0.1:3000` behind a local reverse proxy).
+- [x] **Dedicated host smoke check:** the host panel now shows the host machine's local satellite URL plus detected LAN identity, so stores can verify a second same-network device loads the sign-in gate before opening.
 
 ---
 
@@ -64,7 +65,7 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 ## F. Offline and degraded operation
 
 - [x] **POS offline queue:** Documented in `client/src/lib/offlineQueue.ts`. **Queued:** checkout payload when offline. **Not queued:** session open/close, BO writes. **Flush:** on `online`, queue syncs to `/api/transactions/checkout`.
-- [x] **User-visible copy:** Header **Offline Mode** / **Pending Syncs**; checkout offline toast; failed checkout / session bootstrap toasts reference Settings (General) for API URL. Production-only toast on initial session fetch failure (avoids dev noise).
+- [x] **User-visible copy:** Header now shows explicit **Offline: POS checkout can queue** and **Pending syncs** pills; checkout offline toast; failed checkout / session bootstrap toasts reference Settings (General) for API URL. Production-only toast on initial session fetch failure (avoids dev noise).
 - [x] **Wedding / BO offline:** Mutations require API; no silent persistence beyond the POS checkout queue above.
 - [x] **Customer & inventory lookup (online):** POS **client search**, **customer picker**, and **fuzzy product search** call `/api/customers/*` and `/api/products/control-board` (or `/api/inventory/scan`). None of this is queued offline—only **checkout** is. On Tailscale / cellular, expect extra latency on first keystrokes; very large directories use **Load more** / paging (**`docs/SEARCH_AND_PAGINATION.md`**).
 
@@ -75,6 +76,14 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 - [x] **Playwright / CI:** `E2E_BASE_URL=http://localhost:5173 npm run test:e2e` (see `client/playwright.config.ts`). For stable ordering under load use `npx playwright test --workers=1` from `client/`. PWA viewports: `e2e/pwa-responsive.spec.ts`. Visual baselines + UI consistency QA notes: **`docs/ROS_UI_CONSISTENCY_PLAN.md`** Phase 5. Tauri: manual smoke (open app, session, one sale, one print) — E2E does not drive the native shell.
 - [x] **Load / soak (light):** Before a big weekend, run ~1 h register session + 2–3 PWA tabs (insights, orders) against staging; watch server CPU/DB connections. If the store has a **large customer or SKU count**, spot-check **PWA over the same network path staff will use** (Wi‑Fi vs Tailscale): customer attach, register line-item search, and **Inventory** list search should return matches without timing out.
 - [x] **Backup/restore drill:** Execute once per `BACKUP_RESTORE_GUIDE.md` on a non-production copy before go-live.
+
+### G.1 Deployment smoke matrix (required sign-off)
+
+- [ ] **Dedicated HOST machine:** Shop Host starts, shows running state, shows frontend bundle, shows at least one local satellite URL, and passes a second-device same-network smoke.
+- [ ] **MAIN REGISTER machine:** Windows Tauri register checklist passes on the dedicated cashier station.
+- [ ] **Local iPad PWA:** same-network URL works from the host, Add to Home Screen works, tablet shell/search/status flow is readable.
+- [ ] **Local phone PWA:** same-network URL works from the host, phone shell/search/status flow is readable, and no horizontal overflow appears.
+- [ ] **Remote PWA over Tailscale:** off-site device reaches the store through the Tailscale remote path and is not using the local host URL by mistake.
 
 ---
 
@@ -87,6 +96,13 @@ Related: `REMOTE_ACCESS_GUIDE.md` (Tailscale / TLS), `DEVELOPER.md` (build comma
 3. HTTPS clock skew and certificate validity.
 4. Hard refresh; clear site data or reinstall the home screen icon.
 5. Collect **Settings → General → About this build** (version, git, API base).
+
+### PWA install / update contract
+
+1. On **Windows laptops** and supported mobile browsers, use Riverside's **Install app** prompt when it appears.
+2. On **iPad / iPhone**, use **Share → Add to Home Screen** and launch Riverside from the icon instead of a browser tab.
+3. When the **PWA update prompt** appears, use **Reload now** after the active task or sale is at a safe stopping point.
+4. If the shell still looks stale after reload, close and reopen the installed icon first, then fall back to clear site data or reinstall only if needed.
 
 ### Register app will not print
 

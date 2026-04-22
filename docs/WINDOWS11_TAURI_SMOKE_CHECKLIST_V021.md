@@ -2,7 +2,7 @@
 
 **Purpose:** Fast, repeatable release validation for the Windows 11 Register desktop app with explicit coverage of v0.2.1 auth/identity hardening.
 
-**Applies to:** Tauri desktop register workflow (not PWA browser flow).
+**Applies to:** Tauri desktop register workflow on the **MAIN REGISTER** machine only (not the dedicated host machine, and not PWA browser flow).
 
 **Target runtime:** Windows 11 register station with the latest installer artifact from GitHub Actions (`tauri-register-build.yml`).
 
@@ -15,6 +15,15 @@
   - Artifact: `tauri-windows-bundle`
 - Install/upgrade on a test register PC (or clean VM) using the latest artifact.
 - Ensure API is reachable from the register PC and staff test users are available.
+- Confirm this station is being validated as the **MAIN REGISTER**, not as the dedicated **HOST machine**.
+
+---
+
+## 1.5) Register-role boundary check (required)
+
+- Verify this Windows station is **not** the machine staff are using for **Shop Host** in Settings → Remote Access.
+- Verify any API host override on this station points to the dedicated **HOST machine** (or the store's production API origin), not to itself unless that is the actual deployment design.
+- Verify operators understand this checklist covers the cashier/register runtime only. Host smoke is a separate validation path.
 
 ---
 
@@ -55,10 +64,15 @@
 
 ## 3) Core register sanity checks (required)
 
+- Launch app and verify the window opens maximized on Windows 11 (not in a cramped 800x600-style shell).
+- Open the Register Access screen and verify **Station Readiness** clearly reports API reachability and receipt-printer status before the terminal opens.
 - Open register and attach/start session normally.
 - Add at least one line item and confirm search/cart behavior is healthy.
+- Return to the register after changing tabs or alt-tabbing away and verify **Focus /**, or the **/** keyboard shortcut, restores product-search readiness for scanner use.
 - Open checkout and complete one standard sale.
 - Confirm receipt flow completes without runtime errors.
+- Simulate or force one receipt-printer failure and verify the UI clearly says the sale succeeded while printing failed, with visible **Retry** and **Check station printer** recovery actions.
+- Use **Park Sale** and verify the station shows the in-app Riverside label prompt instead of a browser dialog.
 - Verify no browser-native dialogs (`alert/confirm/prompt`) appear.
 
 ---
@@ -104,4 +118,3 @@ Results
 Notes
 - <issues / screenshots / follow-ups>
 ```
-

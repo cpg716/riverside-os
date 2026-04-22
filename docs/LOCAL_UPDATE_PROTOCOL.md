@@ -138,9 +138,35 @@ Before announcing “all clear”:
 3. Optional: `SELECT version FROM ros_schema_migrations ORDER BY version;` — last row should match the latest `NN_*.sql` you shipped (compare with release notes / repo **`migrations/`**). For deeper drift checks in dev/Docker, see [`scripts/migration-status-docker.sh`](../scripts/migration-status-docker.sh) and [`scripts/ros_migration_build_probes.sql`](../scripts/ros_migration_build_probes.sql) (adapt queries to your prod DB as needed).
 4. If you ship **new or changed** `docs/staff/**` or **`CORPUS.manifest.json`**, run a **staff help reindex** once the API is up (**`settings.admin`**) — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
 
+### 5.8 Post-update smoke matrix (required before all-clear)
+
+Validate each deployment surface against its real role:
+
+1. **HOST machine**
+   - Start **Shop Host**.
+   - Confirm running state, bind address, frontend bundle, and local satellite URL.
+   - Confirm a second same-network device reaches the sign-in gate from that local satellite URL.
+2. **MAIN REGISTER machine**
+   - Launch the Windows Tauri app.
+   - Confirm sign-in, register readiness, one sale path, and printer recovery path per the Windows checklist.
+3. **Local iPad / phone PWA**
+   - Confirm the device is on the same local network as the host.
+   - Confirm it uses the local host URL, not the Tailscale path.
+   - Confirm sign-in and the expected shell/search/status flow for that device class.
+4. **Remote PWA over Tailscale**
+   - Confirm the device is off-site or off the store LAN.
+   - Confirm it reaches Riverside through the Tailscale remote path.
+   - Confirm one low-risk remote workflow such as customer search or order lookup.
+
 ---
 
 ## 6. Workstations (Tauri / desktop)
+
+For role clarity during rollout:
+
+- the **HOST machine** and the **MAIN REGISTER** are different Windows Tauri machines
+- only the dedicated host machine should be used for **Shop Host**
+- updating a register station does not automatically make it the host
 
 Use the desktop updater release pipeline (`.github/workflows/tauri-register-updater-release.yml`) for recurring Windows updates:
 
@@ -159,8 +185,9 @@ If you need a manual fallback, install/replace with the latest MSI/NSIS build.
 
 ## 7. PWA / tablets / phones
 
-1. Open the app; if the service worker prompts for an update, use **Reload now** when staff can afford a quick refresh.
-2. If the UI is wrong or stale: hard refresh, clear site data, or remove and **Add to Home Screen** again — see troubleshooting in [`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section H and [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 7.1.
+1. Open the app; if Riverside shows the **PWA update prompt**, use **Reload now** when staff can afford a quick refresh.
+2. If the device is still using a browser tab instead of an installed PWA, follow the install guidance first: **Install app** where supported, or **Add to Home Screen** on iPad / iPhone.
+3. If the UI is wrong or stale: close and reopen the installed icon, then hard refresh, clear site data, or remove and **Add to Home Screen** again if needed — see troubleshooting in [`PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md) section H and [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 7.1.
 
 ---
 

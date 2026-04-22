@@ -1,72 +1,50 @@
 # Deployment Guide — Riverside OS v0.2.1
 
-This guide covers how to deploy Riverside OS in a professional retail environment using the new **Unified Hybrid Model**.
+This guide is now a narrow overview of the **Tauri host-mode** path introduced in v0.2.1. For the full production deployment model, use **[`docs/STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md)** as the canonical reference.
 
-## 1. Environment Requirements
+## What host mode now guarantees
 
-### Server PC (The Host)
-- **OS**: Windows 10/11 (Recommended), macOS, or Linux.
-- **CPU**: Intel i5 / Apple M1 or better.
-- **RAM**: 8GB+ (16GB recommended if running Rosie AI).
-- **Network**: Static Internal IP or Tailscale.
+When you start **Shop Host** from the Windows Tauri app:
 
-### Infrastructure
-- **Database**: PostgreSQL 15+.
-- **AI (Optional)**: If using Rosie AI, ensure `llama-server` binary is in the `binaries/` folder.
+1. The desktop app resolves a real frontend bundle directory for satellite clients.
+2. The embedded Axum server will not report success until that bundle path is valid and the host is actually listening.
+3. The **Remote Access** panel shows the resolved bundle path, bind address, local satellite URL, and any startup failure.
 
----
+This makes the dedicated Windows host + local satellite PWA path explicit and testable instead of optimistic.
 
-## 2. Installation Steps
+## What host mode does not guarantee
 
-### Step A: PostgreSQL
-Install PostgreSQL and create a database:
-```sql
-CREATE DATABASE riverside_os;
-```
+- It is **not** a public-internet deployment shortcut.
+- It does **not** replace the broader browser-production hardening documented in the store deployment guide.
+- It does **not** ask staff to type Stripe keys into the UI. Host mode uses the environment already provisioned on the host machine.
 
-### Step B: Build the Unified Bundle (On Dev Mac)
-1. Build the production frontend: `cd client && npm run build`
-2. Build the Tauri application: `npm run tauri:build`
-3. This creates a single `.msi` (Windows) or `.dmg` (Mac).
+## Host-mode setup
 
-### Step C: Deploy to High-Availability PC
-1. Copy the installer to your Main PC.
-2. Run the installer.
-3. Launch Riverside OS.
+1. Install the Riverside desktop app on the Windows machine that should act as the host.
+2. Ensure that machine has:
+   - PostgreSQL reachability
+   - the expected Stripe/environment configuration
+   - the built frontend bundle available for the packaged app
+3. Open **Settings → Remote Access**.
+4. Enter the PostgreSQL URL and the listen port.
+5. Start **Shop Host**.
 
----
+If startup succeeds, the panel shows:
 
-## 3. Configuration
+- the bind address
+- the resolved frontend bundle path
+- the local satellite URL for same-network devices
+- the detected host LAN identity used for smoke checks
+- a QR code for secondary devices
 
-This guide is a lightweight overview only. For current production-safe environment posture, use **[`docs/STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md)** as the canonical reference.
+If startup fails, the panel now shows the failure directly instead of claiming the host is active.
 
-### Hosting the Shop
-On your Main PC:
-1. Go to **Settings -> Network Bridge**.
-2. Start the **Unified Engine**.
-3. Verify that the status indicator turns **Green (Active)**.
+## Satellite clients
 
-Production browser deployments still need explicit environment hardening on the host:
-- Set **`RIVERSIDE_CORS_ORIGINS`** to the exact browser origins in use.
-- Set **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`** for any storefront account routes.
-- Set **`FRONTEND_DIST`** explicitly for standalone/service-style hosts.
-- Prefer **`RIVERSIDE_STRICT_PRODUCTION=true`** so startup rejects unsafe defaults.
+Use the local satellite URL shown in **Settings → Remote Access** for iPads and other browser-based satellites that are on the same local network as the host machine. The panel now shows the host machine's LAN IPv4 / host name so admins can smoke-test a second device before store open. Off-site remote access is separate and still requires Tailscale. Neither path is a public-web onboarding URL.
 
-### Register Setup
-On all other devices:
-1. Open the app or browser.
-2. Direct them to the IP/DNS of the Main PC.
-3. Sign in with the **Register PIN**.
+## Related docs
 
----
-
-## 4. Updates & Scaling
-
-### Routine Updates
-When a new version is released:
-1. Close ROS on the Main PC.
-2. Install the new version.
-3. The database migrations will be handled automatically on the next launch.
-
-### Remote Monitoring
-It is recommended to use **Tailscale** for remote management. If the Shop PC is running Tailscale, you can monitor the "Engine Status" and "Status Dashboard" from anywhere in the world using your iPhone.
+- **Canonical deployment:** [`docs/STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md)
+- **PWA vs Tauri behavior:** [`docs/PWA_AND_REGISTER_DEPLOYMENT_TASKS.md`](PWA_AND_REGISTER_DEPLOYMENT_TASKS.md)
+- **Local update protocol:** [`docs/LOCAL_UPDATE_PROTOCOL.md`](LOCAL_UPDATE_PROTOCOL.md)

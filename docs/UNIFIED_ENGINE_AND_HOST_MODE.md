@@ -1,66 +1,104 @@
 # Unified Engine & Shop Host Mode (v0.2.1+)
 
-Riverside OS v0.2.1 introduces the **Unified Hybrid Architecture**, which merges the standalone Backend Server (Rust Axum) into the Tauri Desktop App. This allows a single application to serve as both the client register and the primary shop "Host" (Server).
+Riverside OS v0.2.1 supports a hardened **Shop Host** path inside the Windows Tauri app, but that does **not** mean host mode, main-register mode, local-network access, and remote access are interchangeable.
 
-## Why Unified?
+Use this deployment model as the source of truth:
 
-Prior to v0.2.1, updating the shop required two separate steps:
-1. Updating the Register App (Tauri).
-2. Manually updating the Server Engine (running `git pull` or replacing a binary).
+- **One Windows Tauri machine is the HOST machine**
+- **A different Windows Tauri machine is the MAIN REGISTER**
+- **Local PWA access** is for devices on the same local network as the host
+- **REMOTE ACCESS** is separate and uses **Tailscale** for off-site devices
 
-With the **Unified Engine**, the Server PC simply runs the Tauri app. When the app updates itself via the built-in ROS updater, it updates the **Engine** simultaneously, ensuring the database schema and API logic are always in lockstep with the UI.
+## What host mode means now
 
----
+When you start **Shop Host** on the dedicated host machine:
 
-## Architecture Overview
+- the app resolves a real frontend bundle path for satellite clients
+- the UI does not report the host as running until readiness is confirmed
+- startup failures are shown directly in **Settings → Remote Access**
+- the panel now shows the detected **LAN IPv4 / host name** used for same-network satellite smoke checks
 
-In a multi-register shop, the application operates in one of two modes:
+Host mode serves the Riverside bundle to **local-network satellite clients**. It is not a public-web shortcut, and it is not the same thing as the main register workflow.
 
-### 1. Host Mode (The Server PC)
-One machine in the shop (usually a powerful Windows PC in the back office) acts as the **Host**.
-- **Engine**: The app spawns a background thread running the Axum web server on port `3000`.
-- **Workers**: All background tasks (QBO sync, Automated Messaging, Daily Backups, Weather Snapshots) run on this machine.
-- **Database**: This machine is physically connected to the PostgreSQL database.
+## Role separation
 
-### 2. Register Mode (The Satellites)
-All other registers (iPads, Windows registers, Laptops) run the **same app** but connect to the Host.
-- **Engine**: The local engine is **OFF**.
-- **Connectivity**: These apps connect to the Host's IP address (e.g., `192.168.1.50` or the Tailscale MagicDNS).
+### 1. Host machine
 
----
+This is the one Windows machine in the shop that should act as the host.
 
-## Configuration & Setup
+- runs PostgreSQL reachability and the Riverside backend path
+- can run **Shop Host** to serve local-network PWA satellites
+- can also be linked to **Tailscale** so off-site devices have a private remote path
 
-### Enabling Host Mode
-1. Open Riverside OS on your **Main Server PC**.
-2. Navigate to **Settings** -> **Network Bridge**.
-3. Toggle **"Enable Shop Host Mode"** to ON.
-4. Enter your configuration:
-   - **PostgreSQL URL**: `postgres://user:password@localhost/riverside_os`
-   - **Listen Port**: `3000` (Default)
-5. Click **"Start Unified Engine"**.
+### 2. Main Register machine
 
-### Connecting Registers
-1. Open Riverside OS on any device.
-2. If prompted, enter the IP or MagicDNS of the Host PC.
-3. The app will verify the connection and instantly sync all catalog and transaction data.
+This is a different Windows Tauri machine.
 
----
+- primary cashier/register station
+- should be treated as the main selling surface
+- is not the same concept as the host machine, even though it runs the same desktop app shell
 
-## Operations & Maintenance
+### 3. Local PWA access
 
-### Updates
-When a developer pushes an update:
-1. The **Host PC** will notify of an update. Click **Reload Now**.
-2. The Host PC updates, restarts, and brings the **new Engine** online automatically.
-3. The **Registers** will then prompt for their own updates. Once updated, they reconnect to the new Engine seamlessly.
+This is for iPads, phones, and other browser devices that are on the **same local network** as the host machine.
 
-### Migrations
-Database migrations are handled automatically by the Unified Engine on startup. You do not need to run SQL manually.
+- use the host URL shown by **Settings → Remote Access**
+- this is the local satellite path
+- it does not require the device to be off-site
 
-### Failover (The "Spare Tire" Strategy)
-If your Main Server PC fails:
-1. Go to any other Windows register that has the ROS app installed.
-2. In the Network Bridge settings, toggle **Host Mode** to ON.
-3. Point it to your database (assuming it's on a shared drive or has a recent backup).
-4. This register is now the new Shop Host. All iPads will instantly reconnect once you give them the new IP.
+### 4. Remote access
+
+This is for devices that are **not** on the same local network as the host machine.
+
+- uses **Tailscale**
+- remains a separate concept from local host access
+- should be described as a private remote path, not as generic “host mode”
+
+## Setup summary
+
+### Host machine
+
+1. Install the Riverside desktop app on the one Windows machine that should act as the host.
+2. Open **Settings → Remote Access**.
+3. Enter the PostgreSQL URL and listen port.
+4. Start **Shop Host**.
+5. If off-site remote access is required, connect this host machine to **Tailscale** too.
+6. From a second iPad or phone on the same local network, open the **local satellite URL** shown by the panel and confirm the Riverside sign-in gate loads.
+
+### Local satellite devices
+
+1. Put the iPad/phone on the same local network as the host.
+2. Open the host URL shown by the host panel, or scan the host QR code.
+3. Use the PWA from that local host-served path.
+4. If the panel shows more than one local-network path, prefer the detected **LAN IPv4** first for smoke checks.
+
+### Off-site remote devices
+
+1. Install and sign in to **Tailscale** on the remote device.
+2. Use the store’s Tailscale remote-access path to reach the same host machine.
+3. Treat this as remote access, not as generic local host access.
+
+## Host smoke check
+
+Before store open on the dedicated host machine:
+
+1. Confirm **Shop Host** shows **running**.
+2. Confirm the panel shows:
+   - bind address
+   - frontend bundle path
+   - at least one **local satellite URL**
+   - detected **LAN IPv4** or host name
+3. On a second device on the same local network, open the local satellite URL and confirm the Riverside sign-in screen loads.
+4. If off-site access is needed, verify the separate **Tailscale remote path** too.
+
+## Updates
+
+- The **host machine** can use the desktop updater flow from **Settings → General → About this build**.
+- Installed PWAs and browser satellites may show the Riverside **PWA update prompt** when a new shell is waiting.
+- After an update, confirm the host panel still shows a running host and a valid local satellite URL.
+
+## What this doc does not imply
+
+- It does **not** mean every Windows Tauri station should run host mode.
+- It does **not** mean the main register should double as the host by default.
+- It does **not** mean local-network PWA access and off-site Tailscale remote access are the same path.
