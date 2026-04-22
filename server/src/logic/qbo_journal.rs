@@ -1093,7 +1093,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: aname.clone(),
                     debit: Decimal::ZERO,
                     credit: immediate_revenue,
-                    memo: format!("Revenue — {}", source_label),
+                    memo: format!("Revenue — {source_label}"),
                     detail: vec![serde_json::json!({
                         "category_id": row.category_id,
                         "custom_item_type": row.custom_item_type.clone(),
@@ -1108,7 +1108,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: aname,
                     debit: Decimal::ZERO,
                     credit: release_credit,
-                    memo: format!("Revenue from deposit release — {}", source_label),
+                    memo: format!("Revenue from deposit release — {source_label}"),
                     detail: vec![serde_json::json!({
                         "category_id": row.category_id,
                         "custom_item_type": row.custom_item_type.clone(),
@@ -1159,7 +1159,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: cogs_nm.clone(),
                     debit: cogs,
                     credit: Decimal::ZERO,
-                    memo: format!("COGS — {}", source_label),
+                    memo: format!("COGS — {source_label}"),
                     detail: vec![],
                 });
                 lines.push(JournalLine {
@@ -1167,7 +1167,7 @@ pub async fn propose_daily_journal(
                     qbo_account_name: inv_nm,
                     debit: Decimal::ZERO,
                     credit: cogs,
-                    memo: format!("Inventory relief — {}", source_label),
+                    memo: format!("Inventory relief — {source_label}"),
                     detail: vec![],
                 });
             } else {
