@@ -2,7 +2,7 @@
 
 **Audience:** **All staff** who message customers, complete sales, or watch notifications; **admins** who turn Podium on and edit templates.
 
-**Where in ROS:** **Settings → Integrations → Podium**; **Operations → Inbox**, Relationship Hub **Messages**; **POS** receipt summary; **Operations → Reviews**; **Notification Center** (new SMS/email).
+**Where in ROS:** **Settings → Integrations → Podium**; **Operations → Podium Inbox**, Relationship Hub **Messages**; **POS** receipt summary; **Operations → Reviews**; **Notification Center** (new SMS/email).
 
 **Related permissions:** If a screen is missing, ask a manager to check **Staff → Team** (role or overrides). Detail: [STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md), [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md).
 
@@ -28,7 +28,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 | Surface | What you should see | Main actions |
 |---------|---------------------|--------------|
 | **Settings → Integrations → Podium** | Readiness line, toggles, templates, widget box | Admins: turn channels on, edit templates, **Save**; **Connect Podium** when IT says to refresh the token. |
-| **Operations → Inbox** | List of recent threads | Open a row → customer hub; **Refresh** if the list looks stale. |
+| **Operations → Podium Inbox** | List of recent threads | Open a row → customer hub; **Refresh** if the list looks stale. |
 | **Customer hub → Messages** | Thread + compose | Read history; send **SMS** or **email** (subject required for email); optional Podium conversation **URL** field for deep links. |
 | **POS → Receipt summary** | Email / text receipt buttons | Send receipt if the customer wants it; optional **review invite** checkbox per store defaults. |
 | **Notification Center** | “New customer SMS” / email rows | Open item → deep link toward **Customers** / **Messages** when configured. |
@@ -67,7 +67,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 ### Staff: use the SMS & email inbox list
 
-1. **Operations** → **Inbox**.
+1. **Operations** → **Podium Inbox**.
 2. Find the customer; click to open their profile / hub.
 3. Use **Refresh** after you know a new message arrived if the row does not update.
 

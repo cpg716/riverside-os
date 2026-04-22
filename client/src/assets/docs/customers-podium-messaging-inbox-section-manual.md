@@ -1,14 +1,14 @@
 ---
 id: customers-podium-messaging-inbox-section
-title: "Podium Messaging Inbox Section (customers)"
+title: "Podium Inbox"
 order: 1007
-summary: "Auto-generated stub for client/src/components/customers/PodiumMessagingInboxSection.tsx — replace with staff-facing help."
+summary: "Review shared Podium SMS and email threads, then open the full conversation in the Customer Hub."
 source: client/src/components/customers/PodiumMessagingInboxSection.tsx
-last_scanned: 2026-04-11
-tags: customers-podium-messaging-inbox-section, component, auto-scaffold
+last_scanned: 2026-04-22
+tags: customers, podium, messaging, inbox, communications
 ---
 
-# Podium Messaging Inbox Section (customers)
+# Podium Inbox
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/customers/PodiumMessagingInboxSection.tsx`._
@@ -16,20 +16,17 @@ _Linked component: `client/src/components/customers/PodiumMessagingInboxSection.
 
 ## What this is
 
-Briefly describe what staff use this screen for.
+Podium Inbox is the shared list of recent Podium SMS and email conversations.
+
+In Operations, this surface is for communications follow-up only. It is not a general task inbox.
 
 ## How to use it
 
-1. 
-2. 
+1. Open **Operations** → **Podium Inbox**.
+2. Review the most recent customer conversation rows.
+3. Open a row to jump into the full thread inside the Customer Hub.
 
 ## Tips
 
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/customers-podium-messaging-inbox-section/` and embed them, for example:
-
-![Example](../images/help/customers-podium-messaging-inbox-section/example.png)
-
+- Use this list to triage communication work quickly.
+- If you need the full customer record, open the row instead of trying to work from the list alone.

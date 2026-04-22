@@ -34,7 +34,7 @@ Riverside does **not** recreate Podium’s full multi-user Inbox. Use Riverside 
 |------|---------------------|
 | **Settings → Integrations → Podium** (toggles, templates, widget, OAuth connect, readiness) | **`settings.admin`** |
 | **Settings → General → Review policy** (enable invites, default send/skip) | **`settings.admin`** |
-| **Operations → Inbox** (thread list) | **`customers.hub_view`** |
+| **Operations → Podium Inbox** (thread list) | **`customers.hub_view`** |
 | **Customer Relationship Hub → Messages** (read thread) | **`customers.hub_view`** |
 | **Hub → Messages** (send SMS or email reply, save conversation link) | **`customers.hub_edit`** |
 | **Operations → Reviews** (invite/suppress tracking table) | **`reviews.view`** |
@@ -116,9 +116,9 @@ Automated operational texts respect the customer record: Riverside sends SMS whe
 
 Staff **manual** replies from the hub still go through Podium when configured; follow your store’s policy and consent practices for manual outreach.
 
-### 4.2 Operations → Inbox
+### 4.2 Operations → Podium Inbox
 
-**Where:** Back Office → **Operations** (home) → **Inbox**.
+**Where:** Back Office → **Operations** (home) → **Podium Inbox**.
 
 Shows recent **Podium conversations** with snippets. **Open** a row to jump into that customer’s hub and continue in **Messages**.
 

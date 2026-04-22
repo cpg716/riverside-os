@@ -1,14 +1,14 @@
 ---
 id: operations-operational-home
-title: "Operational Home (operations)"
+title: "Operations Home"
 order: 1047
-summary: "Auto-generated stub for client/src/components/operations/OperationalHome.tsx — replace with staff-facing help."
+summary: "Use Operations for the store dashboard, daily sales, pickup queue, Podium inbox, and review tracking."
 source: client/src/components/operations/OperationalHome.tsx
-last_scanned: 2026-04-11
-tags: operations-operational-home, component, auto-scaffold
+last_scanned: 2026-04-22
+tags: operations, dashboard, daily-sales, pickup-queue, podium-inbox, reviews
 ---
 
-# Operational Home (operations)
+# Operations Home
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/operations/OperationalHome.tsx`._
@@ -16,20 +16,28 @@ _Linked component: `client/src/components/operations/OperationalHome.tsx`._
 
 ## What this is
 
-Briefly describe what staff use this screen for.
+Operations is the Back Office triage area for live store work. It is not the same thing as the Orders workspace.
+
+Use it for:
+
+- **Dashboard**: store-wide action board, activity, weather, and team context
+- **Daily Sales**: register totals and daily reporting
+- **Pickup Queue**: priority order follow-up for ready, rush, due-soon, and blocked orders
+- **Podium Inbox**: shared SMS and email thread list
+- **Reviews**: review invite tracking
 
 ## How to use it
 
-1. 
-2. 
+1. Open **Operations** from the Back Office sidebar.
+2. Pick the subsection that matches the job:
+   - **Dashboard** for triage
+   - **Daily Sales** for register/day reporting
+   - **Pickup Queue** for order pickup follow-up
+   - **Podium Inbox** for customer communications
+   - **Reviews** for post-sale reputation follow-up
 
 ## Tips
 
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/operations-operational-home/` and embed them, for example:
-
-![Example](../images/help/operations-operational-home/example.png)
-
+- **Orders** is still the full transaction and order workspace. Use **Pickup Queue** to decide what needs attention first, then open the order record to finish the work.
+- **Podium Inbox** is a communications surface, not a general task inbox.
+- If a subsection is missing, check permissions before assuming the feature is broken.

@@ -2,7 +2,7 @@
 
 **Audience:** Owners, managers, and staff who need **trusted daily numbers** without building Metabase questions.
 
-**Where in ROS:** Back Office → sidebar **Reports** (chart icon, labeled **BO**). This is **not** the POS rail **Reports** tab (lane register tools). Those are covered in **[pos-reports.md](pos-reports.md)** and **[operations-home.md](operations-home.md)** (Register reports under Operations).
+**Where in ROS:** Back Office → sidebar **Reports** (chart icon, labeled **BO**). This is **not** the POS rail **Reports** tab (lane register tools). Those are covered in **[pos-reports.md](pos-reports.md)** and **[operations-home.md](operations-home.md)** (Daily Sales under Operations).
 
 **Primary permission:** **insights.view** for most tiles. Your role may also need **customers.rms_charge** or **register.reports** for specific tiles (see below). **Margin pivot** appears only for users whose **Back Office role is Admin**.
 
@@ -36,7 +36,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
 
 **Shortcuts on the page**
 
-- **POS register day and lane reports** — sends you toward **Operations → Register reports** (or POS Reports) for lane-focused tools.
+- **POS register day and lane reports** — sends you toward **Operations → Daily Sales** (or POS Reports) for lane-focused tools.
 - **Commission finalize and payouts** — sends you to **Staff**; **finalizing** payouts always happens there, not inside a report tile.
 
 ---

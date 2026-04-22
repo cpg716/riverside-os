@@ -41,7 +41,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Permissions (plain language) | [permissions-and-access.md](permissions-and-access.md) |
 | RBAC keys & technical detail (also in corpus) | [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md) |
 | Offline summary | [working-offline.md](working-offline.md) |
-| Operations Hub (Dashboard, Inbox, Reviews, Register reports) | [operations-home.md](operations-home.md) |
+| Operations Hub (Dashboard, Daily Sales, Pickup Queue, Podium Inbox, Reviews) | [operations-home.md](operations-home.md) |
 | POS tab → Register (launchpad) | [register-tab-back-office.md](register-tab-back-office.md) |
 | Till group, multi-lane Z (reference) | [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md) |
 | Parked cart + RMS / RMS90 ledger (reference) | [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md) |
@@ -92,9 +92,10 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Tab | Subsection | Covered in |
 |-----|------------|------------|
 | Operations | Dashboard | [operations-home.md](operations-home.md) |
-| Operations | Inbox | [operations-home.md](operations-home.md) |
+| Operations | Daily Sales | [operations-home.md](operations-home.md) |
+| Operations | Pickup Queue | [operations-home.md](operations-home.md) |
+| Operations | Podium Inbox | [operations-home.md](operations-home.md) |
 | Operations | Reviews | [operations-home.md](operations-home.md) |
-| Operations | Register reports | [operations-home.md](operations-home.md) |
 | POS | Register | [register-tab-back-office.md](register-tab-back-office.md) |
 | Customers | All Customers | [customers-back-office.md](customers-back-office.md) |
 | Customers | Add Customer | [customers-back-office.md](customers-back-office.md) |

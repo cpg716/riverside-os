@@ -30,12 +30,10 @@ export interface SubItem {
 export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   home: [
     { id: "dashboard", label: "Dashboard" },
-    { id: "fulfillment", label: "Fulfillment" },
-    { id: "inbox", label: "Inbox" },
-    { id: "reviews", label: "Reviews" },
     { id: "daily-sales", label: "Daily Sales" },
-    { id: "payouts", label: "Payouts" },
-    { id: "morning_digest", label: "Morning Digest" },
+    { id: "fulfillment", label: "Pickup Queue" },
+    { id: "inbox", label: "Podium Inbox" },
+    { id: "reviews", label: "Reviews" },
   ],
   register: [],
   customers: [

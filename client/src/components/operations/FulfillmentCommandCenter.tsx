@@ -112,17 +112,22 @@ export default function FulfillmentCommandCenter({
       {/* List Area */}
       <div className="flex-1 p-6">
         <div className="mb-4 flex items-center justify-between">
-          <h3 className="text-sm font-black uppercase tracking-[0.1em] text-app-text-muted">
-            {filter === "all" ? "Priority Queue" : `${filter.replace('_', ' ')} list`}
-          </h3>
+          <div>
+            <h2 className="text-lg font-black uppercase tracking-[0.08em] text-app-text">
+              Pickup Queue
+            </h2>
+            <p className="text-xs text-app-text-muted">
+              Prioritized order follow-up for pickup readiness, rush work, and blocked items.
+            </p>
+          </div>
           <div className="flex items-center gap-4">
              {filteredItems.length > 0 && (
                 <button
                   type="button"
                   onClick={() => {
                      openProfessionalTablePrint({
-                        title: `Fulfillment Priority Queue - ${filter.toUpperCase()}`,
-                        subtitle: `Inventory Fulfillment Operational Cockpit`,
+                        title: `Pickup Queue - ${filter.toUpperCase()}`,
+                        subtitle: `Order pickup and follow-up priority view`,
                         columns: ["order_short_id", "customer_name", "urgency", "next_deadline", "item_count"],
                         rows: filteredItems.map(i => ({
                            ...i,

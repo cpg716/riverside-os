@@ -528,14 +528,16 @@ function App() {
         const sec = linkStr(link, "subsection") || "dashboard";
         const allowedD = new Set([
           "dashboard",
+          "daily-sales",
           "fulfillment",
           "inbox",
           "reviews",
-          "daily-sales",
-          "payouts",
-          "morning_digest",
         ]);
-        setActiveSubSection(allowedD.has(sec) ? sec : "dashboard");
+        const normalizedSec =
+          sec === "payouts" || sec === "morning_digest" ? "dashboard" : sec;
+        setActiveSubSection(
+          allowedD.has(normalizedSec) ? normalizedSec : "dashboard",
+        );
         return;
       }
 
@@ -550,14 +552,15 @@ function App() {
         const sub = linkStr(link, "subsection") || "dashboard";
         const allowedHome = new Set([
           "dashboard",
+          "daily-sales",
           "fulfillment",
           "inbox",
           "reviews",
-          "daily-sales",
-          "payouts",
-          "morning_digest",
         ]);
-        const normalizedSub = sub === "activity" ? "dashboard" : sub;
+        const normalizedSub =
+          sub === "activity" || sub === "payouts" || sub === "morning_digest"
+            ? "dashboard"
+            : sub;
         setActiveSubSection(
           allowedHome.has(normalizedSub) ? normalizedSub : "dashboard",
         );

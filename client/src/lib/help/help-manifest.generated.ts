@@ -270,10 +270,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "customers-podium-messaging-inbox-section",
-    title: "Podium Messaging Inbox Section (customers)",
-    summary: "Auto-generated stub for client/src/components/customers/PodiumMessagingInboxSection.tsx — replace with staff-facing help.",
+    title: "Podium Inbox",
+    summary: "Review shared Podium SMS and email threads, then open the full conversation in the Customer Hub.",
     markdown: manual_15_raw,
-    tags: ["customers-podium-messaging-inbox-section","component","auto-scaffold"],
+    tags: ["customers","podium","messaging","inbox","communications"],
   },
   {
     id: "customers-rms-charge-admin-section",
@@ -592,10 +592,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "operations-operational-home",
-    title: "Operational Home (operations)",
-    summary: "Auto-generated stub for client/src/components/operations/OperationalHome.tsx — replace with staff-facing help.",
+    title: "Operations Home",
+    summary: "Use Operations for the store dashboard, daily sales, pickup queue, Podium inbox, and review tracking.",
     markdown: manual_61_raw,
-    tags: ["operations-operational-home","component","auto-scaffold"],
+    tags: ["operations","dashboard","daily-sales","pickup-queue","podium-inbox","reviews"],
   },
   {
     id: "operations-reviews-operations-section",
@@ -634,10 +634,10 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "operations-fulfillment-command-center",
-    title: "Fulfillment Command Center (operations)",
-    summary: "Auto-generated stub for client/src/components/operations/FulfillmentCommandCenter.tsx — replace with staff-facing help.",
+    title: "Pickup Queue",
+    summary: "Prioritize ready, rush, due-soon, and blocked orders from the Operations pickup queue.",
     markdown: manual_67_raw,
-    tags: ["operations-fulfillment-command-center","component","auto-scaffold"],
+    tags: ["operations","pickup-queue","orders","ready-for-pickup","rush"],
   },
   {
     id: "orders-attach-order-to-wedding-modal",

@@ -2,9 +2,9 @@
 
 **Audience:** Managers and staff with access to the Operations area.
 
-**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Inbox**, **Reviews**, **Register reports** (order may match your build).
+**Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Reviews**.
 
-**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Inbox. **reviews.view** for Reviews. **register.reports** for Register reports. Weather often needs no special permission.
+**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **orders.view** for Pickup Queue. Weather often needs no special permission.
 
 ---
 
@@ -26,20 +26,28 @@
 
 **If a block is missing:** assume **permission** or **not configured** before assuming a bug.
 
-## Inbox
+## Daily Sales
 
-1. **Operations** → **Inbox** (Podium / CRM messaging).
-2. Requires **customers.hub_view**. Use for operational message threads; see store SOP for response expectations.
+1. **Operations** → **Daily Sales**.
+2. Requires **register.reports**. Use this for store-wide register totals, lane activity, and transaction drill-down.
+3. This is a reporting surface, not the same thing as the live POS register.
+
+## Pickup Queue
+
+1. **Operations** → **Pickup Queue**.
+2. Requires **orders.view**. Use this to prioritize customer-ready orders, rush orders, due-soon work, and blocked follow-up.
+3. This is a triage queue for pickup/order follow-up, not the full Orders workspace. Open the row to continue work in the actual order record.
+
+## Podium Inbox
+
+1. **Operations** → **Podium Inbox**.
+2. Requires **customers.hub_view**. This is the shared Podium SMS/email thread list, not a generic task inbox.
+3. Open a row to jump into the full customer conversation in the Customer Hub.
 
 ## Reviews
 
 1. **Operations** → **Reviews**.
 2. Requires **reviews.view**. Post-sale review invites and tracking per your deployment.
-
-## Register reports
-
-1. **Operations** → **Register reports**.
-2. Requires **register.reports** (or an open till for lane-scoped views in POS). Store-wide daily register activity and summaries.
 
 ## Notifications (bell)
 

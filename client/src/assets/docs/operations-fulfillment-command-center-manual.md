@@ -1,14 +1,14 @@
 ---
 id: operations-fulfillment-command-center
-title: "Fulfillment Command Center (operations)"
+title: "Pickup Queue"
 order: 1053
-summary: "Auto-generated stub for client/src/components/operations/FulfillmentCommandCenter.tsx — replace with staff-facing help."
+summary: "Prioritize ready, rush, due-soon, and blocked orders from the Operations pickup queue."
 source: client/src/components/operations/FulfillmentCommandCenter.tsx
-last_scanned: 2026-04-13
-tags: operations-fulfillment-command-center, component, auto-scaffold
+last_scanned: 2026-04-22
+tags: operations, pickup-queue, orders, ready-for-pickup, rush
 ---
 
-# Fulfillment Command Center (operations)
+# Pickup Queue
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/operations/FulfillmentCommandCenter.tsx`._
@@ -16,20 +16,26 @@ _Linked component: `client/src/components/operations/FulfillmentCommandCenter.ts
 
 ## What this is
 
-Briefly describe what staff use this screen for.
+Pickup Queue is the Operations priority view for order follow-up.
+
+It highlights:
+
+- **Ready for Pickup**
+- **Rush Orders**
+- **Due Soon**
+- **Stagnant / Blocked**
+
+This is narrower than the full **Orders** workspace. Use it to decide what needs attention first.
 
 ## How to use it
 
-1. 
-2. 
+1. Open **Operations** → **Pickup Queue**.
+2. Tap a metric card to filter the list.
+3. Open an order row to continue work in the order record.
+4. Use **Print Queue** if the floor needs a paper priority list.
 
 ## Tips
 
-- 
-
-## Screenshots
-
-Add PNGs under `../images/help/operations-fulfillment-command-center/` and embed them, for example:
-
-![Example](../images/help/operations-fulfillment-command-center/example.png)
-
+- **Ready for Pickup** is about customer release and follow-up.
+- **Rush** and **Due Soon** help staff prioritize same-day and near-term work.
+- **Blocked** is the cleanup list for orders that have stalled and need staff action.

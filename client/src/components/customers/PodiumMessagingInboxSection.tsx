@@ -58,7 +58,7 @@ export default function PodiumMessagingInboxSection({
     <div className="ui-page flex flex-1 flex-col gap-4 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h1 className="text-lg font-black uppercase tracking-tight text-app-text">Inbox</h1>
+          <h1 className="text-lg font-black uppercase tracking-tight text-app-text">Podium Inbox</h1>
           <p className="text-xs text-app-text-muted">
             Recent Podium SMS and email threads (inbound webhooks and replies). Open a row to view the full
             thread in the customer hub.

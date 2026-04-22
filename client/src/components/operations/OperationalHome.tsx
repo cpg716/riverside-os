@@ -418,12 +418,12 @@ export default function OperationalHome({
       <div className="flex flex-1 flex-col bg-transparent">
         <div className="flex flex-1 flex-col bg-app-surface">
           {!permissionsLoaded ? (
-            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Communication Portal...</div>
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Podium Inbox...</div>
           ) : !hasPermission("customers.hub_view") ? (
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
               <ShieldCheck size={64} className="text-rose-500 opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                Access restricted. Directive <span className="text-app-text">customers.hub_view</span> is required for inbox orchestration.
+                Access restricted. Directive <span className="text-app-text">customers.hub_view</span> is required for Podium inbox access.
               </p>
             </div>
           ) : (
@@ -441,12 +441,12 @@ export default function OperationalHome({
       <div className="flex flex-1 flex-col bg-transparent">
         <div className="flex flex-1 flex-col bg-app-surface">
           {!permissionsLoaded ? (
-            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Initializing Fulfillment Command Center...</div>
+            <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Pickup Queue...</div>
           ) : !hasPermission("orders.view") ? (
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
               <ShieldCheck size={64} className="text-rose-500 opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
-                Access restricted. Directive <span className="text-app-text">orders.view</span> is required to monitor the fulfillment stream.
+                Access restricted. Directive <span className="text-app-text">orders.view</span> is required to monitor the pickup queue.
               </p>
             </div>
           ) : (

@@ -1,6 +1,6 @@
-# Staff Manual: Fulfillment Command Center
+# Staff Manual: Pickup Queue
 
-The Fulfillment Command Center is your primary dashboard for managing daily order throughput. It helps you prioritize which orders need attention first to ensure customer satisfaction and on-time pickup.
+The Pickup Queue is your primary Operations view for managing daily order follow-up. It helps you prioritize which orders need attention first so staff can move ready items to pickup, escalate rush work, and clear blocked orders.
 
 ## Order Types You Will See
 
@@ -34,7 +34,7 @@ Custom orders stay separate from Special Orders.
 
 ## Accessing the Queue
 1. Navigate to the **Operations** tab in the sidebar.
-2. Select **Fulfillment** from the sub-menu.
+2. Select **Pickup Queue** from the sub-menu.
 
 ## Understanding the Dashboard
 
@@ -44,7 +44,7 @@ Custom orders stay separate from Special Orders.
 *   **Due Soon**: Orders with a "Need By" date within the next 4 days.
 *   **Blocked**: Orders that have been sitting with no progress for over 14 days. Check these for stock issues or missing information.
 
-### The Fulfillment List
+### The Pickup Queue
 The list shows individual orders ranked by their urgency level.
 *   **Urgency Badges**: 
     *   🔴 **RUSH**: Immediate action required.
@@ -56,7 +56,7 @@ The list shows individual orders ranked by their urgency level.
 
 ## Best Practices for High Throughput
 1.  **Start with the "Ready" list**: Getting these items out the door is the fastest way to recognize revenue and clear physical space.
-2.  **Monitor the "Rush" status**: If a new Rush order appears, shift focus to fulfillment or processing for that item.
+2.  **Monitor the "Rush" status**: If a new Rush order appears, shift focus to order follow-up or processing for that item.
 3.  **Clean the "Blocked" queue daily**: Don't let orders sit for weeks without progress. If an item is delayed, add a note and update the customer.
 4.  **For Custom orders, confirm cost was entered on receipt before pickup**: Sale price is set at booking, but vendor cost should be in place before the order is fulfilled.
 5.  **Do not treat "Open in POS" as payment on the original order**: the POS order loader is for review and, when needed, copying unfulfilled lines into a new register sale. Keep the original order balance and pickup follow-up on the original order record.
