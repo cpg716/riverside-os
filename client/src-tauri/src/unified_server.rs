@@ -236,8 +236,7 @@ pub async fn start_unified_server(
         status.listen_port = Some(port);
         status.frontend_dist = Some(frontend_dist_display.clone());
         status.message = Some(format!(
-            "Starting unified host on {bind_addr}. Satellite clients will load {}.",
-            frontend_dist_display
+            "Starting unified host on {bind_addr}. Satellite clients will load {frontend_dist_display}.",
         ));
         status.last_error = None;
     })?;
