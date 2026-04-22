@@ -42,6 +42,40 @@ fn clean_text(value: Option<&Value>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn gift_card_sub_type_label(metadata: Option<&Value>) -> Option<&'static str> {
+    let raw = clean_text(
+        metadata
+            .and_then(|value| value.get("sub_type"))
+            .or_else(|| metadata.and_then(|value| value.get("gift_card_card_kind"))),
+    )?;
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "paid_liability" | "purchased" => Some("Paid"),
+        "loyalty_giveaway" | "loyalty_reward" => Some("Loyalty"),
+        "donated_giveaway" => Some("Donated"),
+        _ => None,
+    }
+}
+
+fn masked_gift_card_code(metadata: Option<&Value>) -> Option<String> {
+    let raw = clean_text(metadata.and_then(|value| value.get("gift_card_code")))?;
+    let trimmed = raw.trim();
+    let last4: String = trimmed
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
+    if last4.is_empty() {
+        None
+    } else if trimmed.chars().count() <= 4 {
+        Some(last4)
+    } else {
+        Some(format!("••••{last4}"))
+    }
+}
+
 pub fn extract_selection_from_metadata(metadata: &Value) -> Option<RmsChargeSelectionMetadata> {
     let family = clean_text(metadata.get("tender_family")).or_else(|| {
         if metadata.get("program_code").is_some()
@@ -210,7 +244,14 @@ pub fn payment_method_summary(
         return "Stripe Credit".to_string();
     }
     if trimmed_method.eq_ignore_ascii_case("gift_card") {
-        return "Gift Card".to_string();
+        let mut parts = vec!["Gift Card".to_string()];
+        if let Some(kind) = gift_card_sub_type_label(metadata) {
+            parts.push(kind.to_string());
+        }
+        if let Some(code) = masked_gift_card_code(metadata) {
+            parts.push(format!("Card: {code}"));
+        }
+        return parts.join(" | ");
     }
     if trimmed_method.eq_ignore_ascii_case("store_credit") {
         return "Store Credit".to_string();
@@ -606,5 +647,18 @@ mod tests {
             })),
         );
         assert_eq!(summary, "Cash | RMS Ref: REF-22");
+    }
+
+    #[test]
+    fn payment_summary_includes_gift_card_type_and_masked_code() {
+        let summary = payment_method_summary(
+            "gift_card",
+            None,
+            Some(&json!({
+                "sub_type": "paid_liability",
+                "gift_card_code": "E2E-GC-0001"
+            })),
+        );
+        assert_eq!(summary, "Gift Card | Paid | Card: ••••0001");
     }
 }

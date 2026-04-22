@@ -39,7 +39,16 @@ type OrderLineRow = {
   quantity: number;
   is_fulfilled?: boolean;
   is_internal?: boolean;
+  gift_card_load_code?: string | null;
 };
+
+function maskGiftCardCode(code: string | null | undefined): string | null {
+  const trimmed = (code ?? "").trim();
+  if (!trimmed) return null;
+  const last4 = trimmed.slice(-4);
+  if (!last4) return null;
+  return trimmed.length <= 4 ? last4 : `••••${last4}`;
+}
 
 type OrderDetail = {
   transaction_id?: string;
@@ -524,6 +533,13 @@ export default function ReceiptSummaryModal({
 
   const cust = transactionDetail?.customer;
   const itemRows = transactionDetail?.items ?? [];
+  const loadedGiftCards = Array.from(
+    new Set(
+      itemRows
+        .map((it) => maskGiftCardCode(it.gift_card_load_code))
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
   const giftPickEmpty = itemRows.length > 0 && getGiftLineIds().length === 0;
   const reviewInviteEligible =
     !!transactionDetail?.customer &&
@@ -605,6 +621,16 @@ export default function ReceiptSummaryModal({
                 </p>
               </div>
             </div>
+            {loadedGiftCards.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
+                <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
+                  Gift card loaded
+                </p>
+                <p className="mt-1 text-xs font-bold text-app-text">
+                  {loadedGiftCards.join(", ")}
+                </p>
+              </div>
+            ) : null}
           </div>
 
           <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
@@ -679,6 +705,11 @@ export default function ReceiptSummaryModal({
                         <span className="block text-[9px] font-normal text-app-text-muted">
                           {it.sku}
                         </span>
+                        {it.gift_card_load_code ? (
+                          <span className="mt-1 block text-[9px] font-semibold text-violet-700 dark:text-violet-300">
+                            Gift card {maskGiftCardCode(it.gift_card_load_code)}
+                          </span>
+                        ) : null}
                       </span>
                     </label>
                   </li>

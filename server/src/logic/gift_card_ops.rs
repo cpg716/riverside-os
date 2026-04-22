@@ -6,12 +6,126 @@ use serde_json::json;
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
+pub const GIFT_CARD_SUB_TYPE_PAID_LIABILITY: &str = "paid_liability";
+pub const GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY: &str = "loyalty_giveaway";
+pub const GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY: &str = "donated_giveaway";
+
 #[derive(Debug, thiserror::Error)]
 pub enum GiftCardOpError {
     #[error("database: {0}")]
     Db(#[from] sqlx::Error),
     #[error("{0}")]
     BadRequest(String),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GiftCardRedemptionPlan {
+    pub card_id: Uuid,
+    pub card_kind: String,
+    pub canonical_sub_type: String,
+    pub current_balance: Decimal,
+    pub new_balance: Decimal,
+    pub new_status: &'static str,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GiftCardCreditPlan {
+    pub card_id: Uuid,
+    pub card_kind: String,
+    pub normalized_code: String,
+    pub new_balance: Decimal,
+}
+
+pub fn canonical_gift_card_sub_type_for_kind(
+    card_kind: &str,
+) -> Result<&'static str, GiftCardOpError> {
+    let normalized = card_kind.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "purchased" => Ok(GIFT_CARD_SUB_TYPE_PAID_LIABILITY),
+        "loyalty_reward" => Ok(GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY),
+        "donated_giveaway" => Ok(GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY),
+        _ => Err(GiftCardOpError::BadRequest(
+            "This gift card type is not supported at checkout. Please ask a manager for help."
+                .to_string(),
+        )),
+    }
+}
+
+fn gift_card_sub_type_label(sub_type: &str) -> &'static str {
+    match sub_type.trim() {
+        GIFT_CARD_SUB_TYPE_PAID_LIABILITY => "Paid",
+        GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY => "Loyalty",
+        GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY => "Donated",
+        _ => "Gift Card",
+    }
+}
+
+pub async fn prepare_redemption_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    code: &str,
+    requested_sub_type: Option<&str>,
+    amount: Decimal,
+) -> Result<GiftCardRedemptionPlan, GiftCardOpError> {
+    if amount <= Decimal::ZERO {
+        return Err(GiftCardOpError::BadRequest(
+            "Gift card payment amount must be greater than zero.".to_string(),
+        ));
+    }
+
+    let card: Option<(Uuid, Decimal, String)> = sqlx::query_as(
+        r#"
+        SELECT id, current_balance, card_kind::text
+        FROM gift_cards
+        WHERE code = $1
+          AND card_status = 'active'::gift_card_status
+          AND (expires_at IS NULL OR expires_at > now())
+        FOR UPDATE
+        "#,
+    )
+    .bind(code)
+    .fetch_optional(&mut **tx)
+    .await?;
+
+    let Some((card_id, current_balance, card_kind)) = card else {
+        return Err(GiftCardOpError::BadRequest(
+            "This gift card could not be used. Check the code and try again.".to_string(),
+        ));
+    };
+
+    let canonical_sub_type = canonical_gift_card_sub_type_for_kind(&card_kind)?.to_string();
+    if let Some(requested) = requested_sub_type
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        if !requested.eq_ignore_ascii_case(&canonical_sub_type) {
+            return Err(GiftCardOpError::BadRequest(format!(
+                "This card must be used as {}. Choose the matching gift card type and try again.",
+                gift_card_sub_type_label(&canonical_sub_type)
+            )));
+        }
+    }
+
+    if current_balance < amount {
+        return Err(GiftCardOpError::BadRequest(format!(
+            "This gift card only has ${current_balance} available."
+        )));
+    }
+
+    let new_balance = current_balance - amount;
+    let new_status = if new_balance == Decimal::ZERO {
+        "depleted"
+    } else {
+        "active"
+    };
+
+    Ok(GiftCardRedemptionPlan {
+        card_id,
+        card_kind,
+        canonical_sub_type,
+        current_balance,
+        new_balance,
+        new_status,
+    })
 }
 
 /// Credit an active gift card (idempotent-friendly: caller runs inside order refund tx).
@@ -21,25 +135,27 @@ pub async fn credit_gift_card_in_tx(
     amount: Decimal,
     transaction_id: Uuid,
     session_id: Uuid,
-) -> Result<(), GiftCardOpError> {
+) -> Result<GiftCardCreditPlan, GiftCardOpError> {
     if amount <= Decimal::ZERO {
         return Err(GiftCardOpError::BadRequest(
             "credit amount must be positive".into(),
         ));
     }
-    let row: Option<(Uuid, Decimal)> = sqlx::query_as(
+    let trimmed_code = code.trim().to_string();
+    let normalized_code = trimmed_code.to_ascii_uppercase();
+    let row: Option<(Uuid, Decimal, String)> = sqlx::query_as(
         r#"
-        SELECT id, current_balance
+        SELECT id, current_balance, card_kind::text
         FROM gift_cards
         WHERE code = $1 AND card_status = 'active'::gift_card_status
         FOR UPDATE
         "#,
     )
-    .bind(code)
+    .bind(&trimmed_code)
     .fetch_optional(&mut **tx)
     .await?;
 
-    let Some((card_id, old_balance)) = row else {
+    let Some((card_id, old_balance, card_kind)) = row else {
         return Err(GiftCardOpError::BadRequest(
             "gift card not found or inactive".into(),
         ));
@@ -56,7 +172,7 @@ pub async fn credit_gift_card_in_tx(
         r#"
         INSERT INTO gift_card_events
             (gift_card_id, event_kind, amount, balance_after, transaction_id, session_id)
-        VALUES ($1, 'loaded', $2, $3, $4, $5)
+        VALUES ($1, 'refunded', $2, $3, $4, $5)
         "#,
     )
     .bind(card_id)
@@ -67,7 +183,12 @@ pub async fn credit_gift_card_in_tx(
     .execute(&mut **tx)
     .await?;
 
-    Ok(())
+    Ok(GiftCardCreditPlan {
+        card_id,
+        card_kind,
+        normalized_code,
+        new_balance,
+    })
 }
 
 /// Apply purchased-card load inside a transaction. `transaction_id_for_events` is `Some` when tied to checkout.
@@ -320,4 +441,225 @@ pub async fn notify_sales_support_direct_pos_load(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use chrono::Utc;
+    use rust_decimal::Decimal;
+    use sqlx::Connection;
+
+    #[test]
+    fn canonical_sub_type_follows_card_kind() {
+        assert_eq!(
+            canonical_gift_card_sub_type_for_kind("purchased").unwrap(),
+            GIFT_CARD_SUB_TYPE_PAID_LIABILITY
+        );
+        assert_eq!(
+            canonical_gift_card_sub_type_for_kind("loyalty_reward").unwrap(),
+            GIFT_CARD_SUB_TYPE_LOYALTY_GIVEAWAY
+        );
+        assert_eq!(
+            canonical_gift_card_sub_type_for_kind("donated_giveaway").unwrap(),
+            GIFT_CARD_SUB_TYPE_DONATED_GIVEAWAY
+        );
+    }
+
+    #[tokio::test]
+    async fn redemption_blocks_sub_type_mismatch() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let card_id = Uuid::new_v4();
+        let code = format!("GC-MISMATCH-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'donated_giveaway', 'active', $3, $3, FALSE, $4)
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(5000, 2))
+        .bind(Utc::now() + Duration::days(30))
+        .execute(&mut *tx)
+        .await
+        .expect("insert card");
+
+        let error = prepare_redemption_in_tx(
+            &mut tx,
+            &code,
+            Some(GIFT_CARD_SUB_TYPE_PAID_LIABILITY),
+            Decimal::new(1000, 2),
+        )
+        .await
+        .expect_err("mismatched subtype should fail");
+
+        match error {
+            GiftCardOpError::BadRequest(message) => {
+                assert!(message.contains("must be used as Donated"));
+            }
+            other => panic!("expected bad request, got {other:?}"),
+        }
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn redemption_reports_insufficient_balance() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let card_id = Uuid::new_v4();
+        let code = format!("GC-LOWBAL-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'active', $3, $3, TRUE, $4)
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(500, 2))
+        .bind(Utc::now() + Duration::days(30))
+        .execute(&mut *tx)
+        .await
+        .expect("insert card");
+
+        let error = prepare_redemption_in_tx(
+            &mut tx,
+            &code,
+            Some(GIFT_CARD_SUB_TYPE_PAID_LIABILITY),
+            Decimal::new(1000, 2),
+        )
+        .await
+        .expect_err("insufficient balance should fail");
+
+        match error {
+            GiftCardOpError::BadRequest(message) => {
+                assert!(message.contains("only has $5.00 available"));
+            }
+            other => panic!("expected bad request, got {other:?}"),
+        }
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn redemption_accepts_matching_purchased_card_sub_type() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let card_id = Uuid::new_v4();
+        let code = format!("GC-PAID-{}", Uuid::new_v4().simple());
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'active', $3, $3, TRUE, $4)
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(2500, 2))
+        .bind(Utc::now() + Duration::days(30))
+        .execute(&mut *tx)
+        .await
+        .expect("insert card");
+
+        let plan = prepare_redemption_in_tx(
+            &mut tx,
+            &code,
+            Some(GIFT_CARD_SUB_TYPE_PAID_LIABILITY),
+            Decimal::new(1000, 2),
+        )
+        .await
+        .expect("matching subtype should succeed");
+
+        assert_eq!(plan.card_kind, "purchased");
+        assert_eq!(plan.canonical_sub_type, GIFT_CARD_SUB_TYPE_PAID_LIABILITY);
+        assert_eq!(plan.new_balance, Decimal::new(1500, 2));
+        assert_eq!(plan.new_status, "active");
+
+        tx.rollback().await.expect("rollback transaction");
+    }
+
+    #[tokio::test]
+    async fn refund_credit_records_refunded_event_and_returns_visibility_details() {
+        let Some(database_url) = std::env::var("DATABASE_URL").ok() else {
+            return;
+        };
+        let mut conn = sqlx::PgConnection::connect(&database_url)
+            .await
+            .expect("connect test database");
+        let mut tx = conn.begin().await.expect("begin transaction");
+
+        let card_id = Uuid::new_v4();
+        let code = format!("GC-REFUND-{}", Uuid::new_v4().simple());
+        let transaction_id: Uuid = sqlx::query_scalar("SELECT id FROM transactions LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing transaction");
+        let session_id: Uuid = sqlx::query_scalar("SELECT id FROM register_sessions LIMIT 1")
+            .fetch_one(&mut *tx)
+            .await
+            .expect("existing register session");
+        sqlx::query(
+            r#"
+            INSERT INTO gift_cards
+                (id, code, card_kind, card_status, current_balance, original_value, is_liability, expires_at)
+            VALUES ($1, $2, 'purchased', 'active', $3, $3, TRUE, $4)
+            "#,
+        )
+        .bind(card_id)
+        .bind(&code)
+        .bind(Decimal::new(1200, 2))
+        .bind(Utc::now() + Duration::days(30))
+        .execute(&mut *tx)
+        .await
+        .expect("insert card");
+
+        let plan = credit_gift_card_in_tx(
+            &mut tx,
+            &code,
+            Decimal::new(500, 2),
+            transaction_id,
+            session_id,
+        )
+        .await
+        .expect("refund credit should succeed");
+
+        assert_eq!(plan.card_kind, "purchased");
+        assert_eq!(plan.normalized_code, code.to_ascii_uppercase());
+        assert_eq!(plan.new_balance, Decimal::new(1700, 2));
+
+        let event_kind: Option<String> = sqlx::query_scalar(
+            "SELECT event_kind FROM gift_card_events WHERE gift_card_id = $1 ORDER BY created_at DESC LIMIT 1",
+        )
+        .bind(card_id)
+        .fetch_optional(&mut *tx)
+        .await
+        .expect("load latest event");
+        assert_eq!(event_kind.as_deref(), Some("refunded"));
+
+        tx.rollback().await.expect("rollback transaction");
+    }
 }

@@ -31,10 +31,28 @@ interface GiftCardSummary {
   donated_cards_count: number;
 }
 
+interface GiftCardEventRow {
+  id: string;
+  event_kind: string;
+  amount: string;
+  balance_after: string;
+  transaction_id: string | null;
+  notes: string | null;
+  created_at: string;
+}
+
 const KIND_LABELS: Record<string, string> = {
   purchased: "Purchased",
   loyalty_reward: "Loyalty reward",
   donated_giveaway: "Donated / giveaway",
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  issued: "Issued",
+  loaded: "Loaded",
+  redeemed: "Used at checkout",
+  refunded: "Refunded to card",
+  voided: "Voided",
 };
 
 function fmt(v: string | null | undefined): string {
@@ -45,6 +63,14 @@ function fmt(v: string | null | undefined): string {
 function fmtDate(s: string | null): string {
   if (!s) return "—";
   return new Date(s).toLocaleDateString();
+}
+
+function fmtDateTime(s: string): string {
+  return new Date(s).toLocaleString();
+}
+
+function giftCardEventLabel(eventKind: string): string {
+  return EVENT_LABELS[eventKind] ?? eventKind.replaceAll("_", " ");
 }
 
 interface IssueFormProps {
@@ -150,6 +176,9 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   const [openOnly, setOpenOnly] = useState(true);
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const [showVoidConfirm, setShowVoidConfirm] = useState<string | null>(null);
+  const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
+  const [selectedEvents, setSelectedEvents] = useState<GiftCardEventRow[]>([]);
+  const [eventsLoading, setEventsLoading] = useState(false);
   const { toast } = useToast();
 
   const stats = useMemo(() => ({
@@ -200,6 +229,43 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
     void loadSummary();
   }, [loadSummary]);
 
+  useEffect(() => {
+    if (!cards.length) {
+      setSelectedCardId(null);
+      return;
+    }
+    if (selectedCardId && cards.some((card) => card.id === selectedCardId)) {
+      return;
+    }
+    setSelectedCardId(cards[0]?.id ?? null);
+  }, [cards, selectedCardId]);
+
+  useEffect(() => {
+    if (!selectedCardId) {
+      setSelectedEvents([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      setEventsLoading(true);
+      try {
+        const res = await fetch(`${BASE}/api/gift-cards/${selectedCardId}/events`, {
+          headers: backofficeHeaders(),
+        });
+        if (!res.ok) throw new Error("Could not load card activity");
+        const rows = (await res.json()) as GiftCardEventRow[];
+        if (!cancelled) setSelectedEvents(rows);
+      } catch {
+        if (!cancelled) setSelectedEvents([]);
+      } finally {
+        if (!cancelled) setEventsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedCardId, backofficeHeaders]);
+
   const initiateVoid = (id: string) => {
     setShowVoidConfirm(id);
   };
@@ -224,6 +290,8 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
       setVoidingId(null);
     }
   };
+
+  const selectedCard = cards.find((card) => card.id === selectedCardId) ?? null;
 
 
   if (activeSection === "issue-purchased") {
@@ -321,7 +389,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
               </div>
               <button onClick={load} className="group flex items-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-app-surface-2 transition-all">
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-emerald-500" : "text-app-text-muted group-hover:text-emerald-500"}`} />
-                Sync Ledger
+                Refresh Cards
               </button>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
@@ -359,6 +427,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             <p className="text-xs text-app-text-muted">Use "Issue Purchased" or "Issue Donated" in the sidebar.</p>
           </div>
         ) : (
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.9fr)]">
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-app-border text-left">
@@ -374,7 +443,13 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             </thead>
             <tbody className="divide-y divide-app-border/30">
               {cards.map(c => (
-                <tr key={c.id} className="group hover:bg-app-accent/5 transition-colors">
+                <tr
+                  key={c.id}
+                  className={`group cursor-pointer transition-colors ${
+                    selectedCardId === c.id ? "bg-app-accent/10" : "hover:bg-app-accent/5"
+                  }`}
+                  onClick={() => setSelectedCardId(c.id)}
+                >
                   <td className="py-4 pr-4 font-mono text-xs font-black text-app-accent tracking-tighter">{c.code}</td>
                   <td className="py-4 pr-4">
                     <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[9px] font-black uppercase tracking-widest border ${
@@ -416,6 +491,110 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
               ))}
             </tbody>
           </table>
+          <aside className="rounded-[24px] border border-app-border bg-app-surface-2/70 p-4 shadow-sm">
+            {selectedCard ? (
+              <div className="space-y-4">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Selected card
+                  </p>
+                  <p className="mt-1 font-mono text-lg font-black tracking-tight text-app-accent">
+                    {selectedCard.code}
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                    {KIND_LABELS[selectedCard.card_kind] ?? selectedCard.card_kind}
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 text-xs">
+                  <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmt(selectedCard.current_balance)}</p>
+                  </div>
+                  <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Original</p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmt(selectedCard.original_value)}</p>
+                  </div>
+                </div>
+
+                <div className="grid gap-2 text-xs text-app-text">
+                  <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+                    <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Status</span>
+                    <span className="font-bold">{selectedCard.card_status}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+                    <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Expires</span>
+                    <span className="font-bold">{fmtDate(selectedCard.expires_at)}</span>
+                  </div>
+                  <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+                    <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Tracked to</span>
+                    <span className="font-bold text-right">{selectedCard.customer_name ?? "—"}</span>
+                  </div>
+                </div>
+
+                {selectedCard.notes ? (
+                  <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Notes</p>
+                    <p className="mt-1 text-xs font-semibold text-app-text">{selectedCard.notes}</p>
+                  </div>
+                ) : null}
+
+                <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+                  <div className="mb-2 flex items-center justify-between gap-2">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Recent activity
+                    </p>
+                    {eventsLoading ? (
+                      <span className="text-[10px] font-semibold text-app-text-muted">Loading…</span>
+                    ) : null}
+                  </div>
+                  {selectedEvents.length === 0 ? (
+                    <p className="text-xs text-app-text-muted">
+                      No activity has been recorded for this card yet.
+                    </p>
+                  ) : (
+                    <ul className="max-h-[24rem] space-y-2 overflow-y-auto pr-1">
+                      {selectedEvents.map((event) => (
+                        <li
+                          key={event.id}
+                          className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-xs font-black text-app-text">
+                                {giftCardEventLabel(event.event_kind)}
+                              </p>
+                              <p className="mt-1 text-[10px] text-app-text-muted">
+                                {fmtDateTime(event.created_at)}
+                                {event.transaction_id ? ` · sale ${event.transaction_id.slice(0, 8)}…` : ""}
+                              </p>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <p className="text-xs font-black tabular-nums text-app-text">
+                                {parseMoneyToCents(event.amount) < 0 ? "-" : "+"}
+                                {fmt(event.amount)}
+                              </p>
+                              <p className="text-[10px] font-semibold text-app-text-muted">
+                                Balance {fmt(event.balance_after)}
+                              </p>
+                            </div>
+                          </div>
+                          {event.notes ? (
+                            <p className="mt-2 text-[10px] text-app-text-muted">{event.notes}</p>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface px-4 py-12 text-center text-sm text-app-text-muted">
+                Select a gift card to view balance details and recent activity.
+              </div>
+            )}
+          </aside>
+          </div>
         )}
       </div>
         </div>
