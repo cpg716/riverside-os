@@ -1467,6 +1467,18 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "profile" && (
             <div className="space-y-6">
+              <section className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-sky-900">
+                  Customer review and support follow-up
+                </h3>
+                <p className="mt-1 text-xs text-sky-900/80">
+                  Use this hub to review the customer profile, notes, orders,
+                  measurements, weddings, and message history. Use the RMS
+                  Charge workspace when you need to verify linked financing
+                  accounts, review RMS posting history, or work RMS issues and
+                  reconciliation.
+                </p>
+              </section>
               <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Joint account and customer notes
