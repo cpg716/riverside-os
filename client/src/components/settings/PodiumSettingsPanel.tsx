@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { MessageSquare, RefreshCw, CheckCircle2, Info } from "lucide-react";
+import { RefreshCw, CheckCircle2, Info } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { 
   getPodiumOAuthRedirectUri, 
   PODIUM_OAUTH_STATE_STORAGE_KEY, 
@@ -151,7 +152,15 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="mb-10">
-        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Podium Integration</h2>
+        <div className="mb-4 flex items-center">
+          <IntegrationBrandLogo
+            brand="podium"
+            kind="wordmark"
+            className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+            imageClassName="h-10 w-auto object-contain"
+          />
+        </div>
+        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Messaging & Web Chat</h2>
         <p className="text-sm text-app-text-muted mt-2 font-medium">Coordinate operational SMS, HTML email templates, and web chat widgets.</p>
       </header>
 
@@ -192,11 +201,16 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
 
         <div className="flex flex-wrap items-center justify-between gap-4 mb-10 pb-10 border-b border-app-border/40">
            <div className="flex items-center gap-4">
-              <div className="h-16 w-16 bg-violet-600 rounded-3xl flex items-center justify-center text-white shadow-xl shadow-violet-600/20">
-                 <MessageSquare size={32} />
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-xl shadow-violet-600/20 ring-1 ring-black/5">
+                 <IntegrationBrandLogo
+                   brand="podium"
+                   kind="icon"
+                   className="inline-flex"
+                   imageClassName="h-10 w-10 rounded-md object-contain"
+                 />
               </div>
               <div>
-                 <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">Podium Communications</h3>
+                 <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">Communication Controls</h3>
                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Lifecycle SMS & HTML Correspondence</p>
               </div>
            </div>

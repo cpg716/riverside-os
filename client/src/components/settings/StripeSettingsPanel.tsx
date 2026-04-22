@@ -7,13 +7,13 @@ import {
   TrendingUp,
   Percent,
   DollarSign,
-  History,
   RefreshCw,
   ExternalLink,
   Search,
   Calendar,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 interface MerchantTransaction {
   id: string;
@@ -78,8 +78,16 @@ const StripeSettingsPanel: React.FC = () => {
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
         <div>
+          <div className="mb-4 flex items-center">
+            <IntegrationBrandLogo
+              brand="stripe"
+              kind="wordmark"
+              className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+              imageClassName="h-10 w-auto object-contain"
+            />
+          </div>
           <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-            Merchant & Stripe Hub
+            Merchant Processing Hub
           </h2>
           <p className="text-sm text-app-text-muted mt-2 font-medium italic">
             High-precision financial terminal for automated processing &
@@ -161,7 +169,12 @@ const StripeSettingsPanel: React.FC = () => {
       <section className="ui-card overflow-hidden">
         <div className="p-6 border-b border-app-border flex items-center justify-between bg-app-surface/30">
           <div className="flex items-center gap-3">
-            <History className="w-5 h-5 text-indigo-500" />
+            <IntegrationBrandLogo
+              brand="stripe"
+              kind="icon"
+              className="inline-flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-black/5"
+              imageClassName="h-6 w-6 object-contain"
+            />
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
               Integrated Transaction History
             </h3>

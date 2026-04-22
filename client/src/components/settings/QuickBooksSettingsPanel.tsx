@@ -1,5 +1,6 @@
 import React from "react";
 import { CheckCircle2, Info, ArrowUpRight } from "lucide-react";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 interface QuickBooksSettingsPanelProps {
   onOpenQbo: () => void;
@@ -9,15 +10,28 @@ const QuickBooksSettingsPanel: React.FC<QuickBooksSettingsPanelProps> = ({ onOpe
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="mb-10">
-        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">QuickBooks Online</h2>
+        <div className="mb-4 flex items-center">
+          <IntegrationBrandLogo
+            brand="qbo"
+            kind="wordmark"
+            className="inline-flex rounded-2xl border border-emerald-500/20 bg-white px-4 py-2 shadow-sm"
+            imageClassName="h-10 w-auto object-contain"
+          />
+        </div>
+        <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Accounting Bridge</h2>
         <p className="text-sm text-app-text-muted mt-2 font-medium">Synchronize financial data, daily sales, and item mappings between Riverside and your QBO ledger.</p>
       </header>
 
       <section className="ui-card p-10 max-w-4xl border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-transparent shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-6 mb-10 pb-10 border-b border-app-border/40">
            <div className="flex items-center gap-6">
-              <div className="w-20 h-20 bg-[#2ca01c] text-white rounded-[2.5rem] flex items-center justify-center shadow-2xl shadow-[#2ca01c]/20 ring-4 ring-emerald-500/10">
-                 <span className="font-black text-4xl italic tracking-tighter">qb</span>
+              <div className="flex h-20 w-20 items-center justify-center rounded-[2.5rem] bg-white shadow-2xl shadow-[#2ca01c]/20 ring-4 ring-emerald-500/10">
+                 <IntegrationBrandLogo
+                   brand="qbo"
+                   kind="icon"
+                   className="inline-flex"
+                   imageClassName="h-14 w-14 object-contain"
+                 />
               </div>
               <div>
                  <h3 className="text-xl font-black italic uppercase tracking-tight text-app-text">Intuit Data Bridge</h3>
