@@ -21,15 +21,20 @@ test.describe("RMS reconciliation", () => {
       fixture,
       programCode: "standard",
     });
+    expect(checkout.response.status(), "Financed RMS checkout failed during reconciliation setup.").toBe(200);
     const artifacts = await getTransactionArtifacts(request, checkout.body!.transaction_id);
     await prepareRmsRecord(request, "reconciliation_mismatch", artifacts.rms_records[0]!.id);
 
     await signInToBackOffice(page);
     await openCustomersRmsWorkspace(page);
+    await page.getByPlaceholder(/search customer for rms charge/i).fill(fixture.customer.customer_code);
+    await page.locator("ul button").first().click();
     await page.getByTestId("rms-workspace-tab-reconciliation").click();
     await expect(
       page.getByRole("heading", { name: /latest reconciliation mismatches/i }),
     ).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/all rms activity/i);
+    await expect(page.getByTestId("rms-reconciliation-scope")).toContainText(/does not filter mismatch results/i);
     await page.getByTestId("rms-run-reconciliation").click();
 
     const api = process.env.E2E_API_BASE || "http://127.0.0.1:43300";

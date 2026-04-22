@@ -5,6 +5,8 @@ import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { useToast } from "../ui/ToastProviderLogic";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
+import ConfirmationModal from "../ui/ConfirmationModal";
+import PromptModal from "../ui/PromptModal";
 import { Link2, RefreshCw, ShieldCheck, Unlink, X as CloseIcon } from "lucide-react";
 
 const baseUrl = getBaseUrl();
@@ -221,7 +223,7 @@ export default function RmsChargeAdminSection({
   onOpenTransactionInBackoffice,
   surface = "backoffice",
 }: RmsChargeAdminSectionProps) {
-  const { backofficeHeaders, hasPermission } = useBackofficeAuth();
+  const { backofficeHeaders, hasPermission, staffId, staffDisplayName } = useBackofficeAuth();
   const { toast } = useToast();
   const apiAuth = useCallback(
     () => mergedPosStaffHeaders(backofficeHeaders),
@@ -265,9 +267,17 @@ export default function RmsChargeAdminSection({
   const [overview, setOverview] = useState<RmsOverviewResponse | null>(null);
   const [exceptions, setExceptions] = useState<RmsExceptionRow[]>([]);
   const [reconciliation, setReconciliation] = useState<RmsReconciliationResponse | null>(null);
-  const [loadingOps, setLoadingOps] = useState(false);
+  const [resolvingException, setResolvingException] = useState<RmsExceptionRow | null>(null);
+  const [confirmUnlinkAccount, setConfirmUnlinkAccount] = useState<RmsLinkedAccount | null>(null);
+  const [loadingOverview, setLoadingOverview] = useState(false);
+  const [loadingExceptions, setLoadingExceptions] = useState(false);
+  const [loadingReconciliation, setLoadingReconciliation] = useState(false);
+  const [overviewError, setOverviewError] = useState("");
+  const [exceptionsError, setExceptionsError] = useState("");
+  const [reconciliationError, setReconciliationError] = useState("");
   const [loadingRecords, setLoadingRecords] = useState(false);
   const [loadingAccounts, setLoadingAccounts] = useState(false);
+  const [assigningExceptionId, setAssigningExceptionId] = useState("");
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [from, setFrom] = useState(() => {
@@ -291,6 +301,12 @@ export default function RmsChargeAdminSection({
     () => accounts.find((account) => account.corecredit_account_id === activeAccountId) ?? null,
     [accounts, activeAccountId],
   );
+  const reconciliationScopeMessage = useMemo(() => {
+    if (selectedCustomerId) {
+      return "Reconciliation reviews all RMS activity. The selected customer helps with account review, but it does not filter mismatch results on this tab.";
+    }
+    return "Reconciliation reviews all RMS activity across linked RMS accounts. Use this tab for support and finance review, not customer-by-customer browsing.";
+  }, [selectedCustomerId]);
 
   const loadAccounts = useCallback(async () => {
     if (!selectedCustomerId || !(canLegacyView || canManageLinks || canPosUse || canPosLookup)) {
@@ -450,45 +466,98 @@ export default function RmsChargeAdminSection({
       setOverview(null);
       setExceptions([]);
       setReconciliation(null);
+      setOverviewError("");
+      setExceptionsError("");
+      setReconciliationError("");
       return;
     }
-    setLoadingOps(true);
-    try {
-      const customerParam = selectedCustomerId ? `customer_id=${encodeURIComponent(selectedCustomerId)}` : "";
-      const [overviewRes, exceptionsRes, reconciliationRes] = await Promise.all([
-        fetch(`${baseUrl}/api/customers/rms-charge/overview${customerParam ? `?${customerParam}` : ""}`, {
-          headers: apiAuth(),
-        }),
-        fetch(
+    const customerParam = selectedCustomerId ? `customer_id=${encodeURIComponent(selectedCustomerId)}` : "";
+    let failureCount = 0;
+
+    const loadOverviewSection = async () => {
+      setLoadingOverview(true);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/customers/rms-charge/overview${customerParam ? `?${customerParam}` : ""}`,
+          { headers: apiAuth() },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "We couldn't refresh the RMS overview right now.");
+        }
+        const overviewBody = (await res.json()) as RmsOverviewResponse;
+        setOverview(overviewBody);
+        setOverviewError("");
+      } catch (error) {
+        failureCount += 1;
+        setOverviewError(
+          error instanceof Error ? error.message : "We couldn't refresh the RMS overview right now.",
+        );
+      } finally {
+        setLoadingOverview(false);
+      }
+    };
+
+    const loadExceptionsSection = async () => {
+      setLoadingExceptions(true);
+      try {
+        const res = await fetch(
           `${baseUrl}/api/customers/rms-charge/exceptions?${new URLSearchParams({
             ...(selectedCustomerId ? { customer_id: selectedCustomerId } : {}),
             limit: "50",
           }).toString()}`,
           { headers: apiAuth() },
-        ),
-        fetch(`${baseUrl}/api/customers/rms-charge/reconciliation?limit=10`, {
-          headers: apiAuth(),
-        }),
-      ]);
-      if (!overviewRes.ok || !exceptionsRes.ok || !reconciliationRes.ok) {
-        throw new Error("We couldn't load RMS Charge activity right now.");
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "We couldn't refresh RMS issues right now.");
+        }
+        const exceptionsBody = (await res.json()) as RmsExceptionRow[];
+        setExceptions(Array.isArray(exceptionsBody) ? exceptionsBody : []);
+        setExceptionsError("");
+      } catch (error) {
+        failureCount += 1;
+        setExceptionsError(
+          error instanceof Error ? error.message : "We couldn't refresh RMS issues right now.",
+        );
+      } finally {
+        setLoadingExceptions(false);
       }
-      const overviewBody = (await overviewRes.json()) as RmsOverviewResponse;
-      const exceptionsBody = (await exceptionsRes.json()) as RmsExceptionRow[];
-      const reconciliationBody = (await reconciliationRes.json()) as RmsReconciliationResponse;
-      setOverview(overviewBody);
-      setExceptions(Array.isArray(exceptionsBody) ? exceptionsBody : []);
-      setReconciliation(reconciliationBody);
-    } catch (error) {
-      toast(
-        error instanceof Error ? error.message : "We couldn't load RMS Charge activity right now.",
-        "error",
-      );
-      setOverview(null);
-      setExceptions([]);
-      setReconciliation(null);
-    } finally {
-      setLoadingOps(false);
+    };
+
+    const loadReconciliationSection = async () => {
+      setLoadingReconciliation(true);
+      try {
+        const res = await fetch(`${baseUrl}/api/customers/rms-charge/reconciliation?limit=10`, {
+          headers: apiAuth(),
+        });
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "We couldn't refresh reconciliation review right now.");
+        }
+        const reconciliationBody = (await res.json()) as RmsReconciliationResponse;
+        setReconciliation(reconciliationBody);
+        setReconciliationError("");
+      } catch (error) {
+        failureCount += 1;
+        setReconciliationError(
+          error instanceof Error ? error.message : "We couldn't refresh reconciliation review right now.",
+        );
+      } finally {
+        setLoadingReconciliation(false);
+      }
+    };
+
+    await Promise.all([
+      loadOverviewSection(),
+      loadExceptionsSection(),
+      loadReconciliationSection(),
+    ]);
+
+    if (failureCount >= 3) {
+      toast("We couldn't load RMS Charge activity right now.", "error");
+    } else if (failureCount > 0) {
+      toast("Some RMS support sections could not be refreshed. Other sections are still available.", "error");
     }
   }, [
     apiAuth,
@@ -517,27 +586,72 @@ export default function RmsChargeAdminSection({
     }
   }, [apiAuth, loadAccounts, loadOperationalData, toast]);
 
-  const resolveException = useCallback(async (exceptionId: string) => {
+  const assignExceptionToCurrentStaff = useCallback(async (exception: RmsExceptionRow) => {
+    if (!staffId) {
+      toast("Sign back in before claiming RMS issues.", "error");
+      return;
+    }
+    setAssigningExceptionId(exception.id);
     try {
-      const res = await fetch(`${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(exceptionId)}/resolve`, {
+      const res = await fetch(
+        `${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(exception.id)}/assign`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...apiAuth(),
+          },
+          body: JSON.stringify({
+            assigned_to_staff_id: staffId,
+            notes: `Claimed by ${staffDisplayName || "current staff member"} in RMS Charge workspace`,
+          }),
+        },
+      );
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) throw new Error(body.error ?? "We couldn't claim this RMS issue.");
+      toast("RMS issue assigned to you.", "success");
+      await loadOperationalData();
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "We couldn't claim this RMS issue.", "error");
+    } finally {
+      setAssigningExceptionId("");
+    }
+  }, [apiAuth, loadOperationalData, staffDisplayName, staffId, toast]);
+
+  const resolveException = useCallback(async (exceptionId: string) => {
+    setResolvingException(exceptions.find((row) => row.id === exceptionId) ?? null);
+  }, [exceptions]);
+
+  const submitResolutionNote = useCallback(async (note: string) => {
+    const trimmed = note.trim();
+    if (!resolvingException) return false;
+    if (!trimmed) {
+      toast("Add a short resolution note so the next staff member knows what cleared the issue.", "error");
+      return false;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/customers/rms-charge/exceptions/${encodeURIComponent(resolvingException.id)}/resolve`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...apiAuth(),
         },
-        body: JSON.stringify({ resolution_notes: "Resolved in RMS Charge workspace" }),
+        body: JSON.stringify({ resolution_notes: trimmed }),
       });
       const body = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(body.error ?? "We couldn't mark this issue as resolved.");
       toast("Issue marked as resolved.", "success");
       await loadOperationalData();
+      setResolvingException(null);
+      return true;
     } catch (error) {
       toast(
         error instanceof Error ? error.message : "We couldn't mark this issue as resolved.",
         "error",
       );
+      return false;
     }
-  }, [apiAuth, loadOperationalData, toast]);
+  }, [apiAuth, loadOperationalData, resolvingException, toast]);
 
   const runReconciliation = useCallback(async () => {
     try {
@@ -620,6 +734,7 @@ export default function RmsChargeAdminSection({
       }
       toast("RMS Charge account removed.", "success");
       await loadAccounts();
+      setConfirmUnlinkAccount(null);
     } catch (error) {
       toast(error instanceof Error ? error.message : "We couldn't remove this account link. Please try again.", "error");
     }
@@ -691,6 +806,7 @@ export default function RmsChargeAdminSection({
             </div>
             <button
               type="button"
+              data-testid="rms-linked-accounts-refresh"
               onClick={() => void loadAccounts()}
               className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
             >
@@ -705,7 +821,10 @@ export default function RmsChargeAdminSection({
                   <div className="truncate text-sm font-black text-app-text">
                     {selectedCustomerLabel || "Selected customer"}
                   </div>
-                  <div className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent">
+                  <div
+                    data-testid="rms-selected-customer-id"
+                    className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent"
+                  >
                     {selectedCustomerId}
                   </div>
                 </div>
@@ -789,10 +908,14 @@ export default function RmsChargeAdminSection({
                     {surface === "backoffice" && canManageLinks ? (
                       <button
                         type="button"
-                        onClick={() => void unlinkAccount(account)}
+                        data-testid={`rms-account-unlink-${account.id}`}
+                        onClick={() => setConfirmUnlinkAccount(account)}
                         className="rounded-lg border border-rose-300/40 bg-rose-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-700"
                       >
-                        <Unlink size={14} />
+                        <span className="inline-flex items-center gap-2">
+                          <Unlink size={14} />
+                          Remove Link
+                        </span>
                       </button>
                     ) : null}
                   </div>
@@ -843,8 +966,12 @@ export default function RmsChargeAdminSection({
 
           {surface === "backoffice" && activeWorkspaceTab === "accounts" && canManageLinks ? (
             <div className="mt-4 space-y-3">
+              <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
+                Link only after you confirm the customer and RMS account belong together. Removing a link only changes Riverside's customer relationship to that account, and the action is recorded in the staff audit trail.
+              </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
+                  data-testid="rms-link-corecredit-customer-id"
                   value={linkForm.corecredit_customer_id}
                   onChange={(event) =>
                     setLinkForm((prev) => ({
@@ -856,6 +983,7 @@ export default function RmsChargeAdminSection({
                   className="ui-input py-2 text-sm"
                 />
                 <input
+                  data-testid="rms-link-corecredit-account-id"
                   value={linkForm.corecredit_account_id}
                   onChange={(event) =>
                     setLinkForm((prev) => ({
@@ -869,6 +997,7 @@ export default function RmsChargeAdminSection({
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
                 <input
+                  data-testid="rms-link-program-group"
                   value={linkForm.program_group}
                   onChange={(event) =>
                     setLinkForm((prev) => ({
@@ -880,6 +1009,7 @@ export default function RmsChargeAdminSection({
                   className="ui-input py-2 text-sm"
                 />
                 <select
+                  data-testid="rms-link-status"
                   value={linkForm.status}
                   onChange={(event) =>
                     setLinkForm((prev) => ({ ...prev, status: event.target.value }))
@@ -893,6 +1023,7 @@ export default function RmsChargeAdminSection({
                 </select>
               </div>
               <input
+                data-testid="rms-link-notes"
                 value={linkForm.notes}
                 onChange={(event) =>
                   setLinkForm((prev) => ({ ...prev, notes: event.target.value }))
@@ -902,6 +1033,7 @@ export default function RmsChargeAdminSection({
               />
               <label className="flex items-center gap-2 text-sm font-semibold text-app-text">
                 <input
+                  data-testid="rms-link-primary"
                   type="checkbox"
                   checked={linkForm.is_primary}
                   onChange={(event) =>
@@ -915,6 +1047,7 @@ export default function RmsChargeAdminSection({
               </label>
               <button
                 type="button"
+                data-testid="rms-link-submit"
                 onClick={() => void submitLink()}
                 className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2"
               >
@@ -924,6 +1057,16 @@ export default function RmsChargeAdminSection({
             </div>
           ) : surface === "backoffice" && activeWorkspaceTab === "overview" ? (
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {overviewError ? (
+                <div
+                  data-testid="rms-overview-load-warning"
+                  className="sm:col-span-2 rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
+                >
+                  {overview
+                    ? `${overviewError} Showing the last loaded overview while other RMS sections keep updating.`
+                    : overviewError}
+                </div>
+              ) : null}
               {[
                 ["Charges", `${overview?.totals?.charge_count ?? 0} · ${fmtMoney(overview?.totals?.charge_amount)}`],
                 ["Payments", `${overview?.totals?.payment_count ?? 0} · ${fmtMoney(overview?.totals?.payment_amount)}`],
@@ -944,7 +1087,9 @@ export default function RmsChargeAdminSection({
                   Program Mix
                 </div>
                 <div className="mt-3 grid gap-2">
-                  {(overview?.program_mix?.length ?? 0) === 0 ? (
+                  {loadingOverview && !overview ? (
+                    <div className="text-sm text-app-text-muted">Loading overview…</div>
+                  ) : (overview?.program_mix?.length ?? 0) === 0 ? (
                     <div className="text-sm text-app-text-muted">No program activity in the current workspace scope.</div>
                   ) : (
                     overview?.program_mix?.map((row) => (
@@ -984,7 +1129,17 @@ export default function RmsChargeAdminSection({
             </div>
           ) : surface === "backoffice" && activeWorkspaceTab === "exceptions" ? (
             <div className="mt-4 space-y-3">
-              {loadingOps ? (
+              {exceptionsError ? (
+                <div
+                  data-testid="rms-exceptions-load-warning"
+                  className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
+                >
+                  {exceptions.length
+                    ? `${exceptionsError} Showing the last loaded issue queue.`
+                    : exceptionsError}
+                </div>
+              ) : null}
+              {loadingExceptions && !exceptions.length ? (
                 <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">Loading open issues…</div>
               ) : exceptions.length === 0 ? (
                 <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">No active RMS Charge exceptions.</div>
@@ -996,11 +1151,44 @@ export default function RmsChargeAdminSection({
                         <div className="text-sm font-black uppercase tracking-wide text-app-text">{exception.exception_type.replaceAll("_", " ")}</div>
                         <div className="text-[11px] text-app-text-muted">{fmtDate(exception.opened_at)} · {exception.status} · {exception.severity}</div>
                       </div>
-                      <div className="text-xs font-mono text-app-text-muted">{exception.account_id || "record scoped"}</div>
+                      <div className="text-xs font-mono text-app-text-muted">{exception.account_id || "Customer-level issue"}</div>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {exception.assigned_to_staff_id ? (
+                        <span
+                          data-testid={`rms-exception-assignee-${exception.id}`}
+                          className="rounded-full bg-app-surface px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted"
+                        >
+                          {exception.assigned_to_staff_id === staffId ? "Assigned to you" : "Assigned"}
+                        </span>
+                      ) : (
+                        <span
+                          data-testid={`rms-exception-assignee-${exception.id}`}
+                          className="rounded-full bg-amber-500/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-amber-700"
+                        >
+                          Unassigned
+                        </span>
+                      )}
                     </div>
                     {exception.notes ? <div className="mt-2 text-sm text-app-text-muted">{exception.notes}</div> : null}
+                    {exception.resolution_notes ? (
+                      <div className="mt-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-sm text-app-text-muted">
+                        Resolution note: {exception.resolution_notes}
+                      </div>
+                    ) : null}
                     {canResolveExceptions ? (
                       <div className="mt-3 flex flex-wrap gap-2">
+                        {!exception.assigned_to_staff_id || exception.assigned_to_staff_id !== staffId ? (
+                          <button
+                            type="button"
+                            data-testid={`rms-exception-assign-self-${exception.id}`}
+                            disabled={assigningExceptionId === exception.id}
+                            onClick={() => void assignExceptionToCurrentStaff(exception)}
+                            className="ui-btn-secondary px-3 py-2 text-[10px] disabled:opacity-60"
+                          >
+                            {assigningExceptionId === exception.id ? "Claiming…" : "Assign to Me"}
+                          </button>
+                        ) : null}
                         <button type="button" data-testid={`rms-exception-retry-${exception.id}`} onClick={() => void retryException(exception.id)} className="ui-btn-secondary px-3 py-2 text-[10px]">
                           Retry
                         </button>
@@ -1017,8 +1205,8 @@ export default function RmsChargeAdminSection({
             <div className="mt-4 space-y-3">
               <div className="flex items-center justify-between gap-3 rounded-xl border border-app-border bg-app-bg p-4">
                 <div>
-                  <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Riverside vs CoreCard vs QBO support</div>
-                  <div className="mt-1 text-sm text-app-text-muted">This compares Riverside transactions, RMS results, and clearing totals so finance can review differences.</div>
+                  <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">All RMS activity</div>
+                  <div data-testid="rms-reconciliation-scope" className="mt-1 text-sm text-app-text-muted">{reconciliationScopeMessage}</div>
                 </div>
                 {canReconcile ? (
                   <button type="button" data-testid="rms-run-reconciliation" onClick={() => void runReconciliation()} className="ui-btn-primary px-4 py-2">
@@ -1026,7 +1214,19 @@ export default function RmsChargeAdminSection({
                   </button>
                 ) : null}
               </div>
-              {(reconciliation?.runs?.length ?? 0) === 0 ? (
+              {reconciliationError ? (
+                <div
+                  data-testid="rms-reconciliation-load-warning"
+                  className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm text-amber-800"
+                >
+                  {reconciliation?.runs?.length || reconciliation?.items?.length
+                    ? `${reconciliationError} Showing the last loaded reconciliation review.`
+                    : `${reconciliationError} Overview and exceptions are still available while this review is offline.`}
+                </div>
+              ) : null}
+              {loadingReconciliation && !reconciliation ? (
+                <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">Loading reconciliation review…</div>
+              ) : (reconciliation?.runs?.length ?? 0) === 0 ? (
                 <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">No reconciliation runs yet.</div>
               ) : (
                 reconciliation?.runs?.slice(0, 4).map((run) => (
@@ -1049,7 +1249,7 @@ export default function RmsChargeAdminSection({
               {[
                 ["Balances", activeAccount ? fmtMoney(accountSummary?.available_credit) : "Select account"],
                 ["Transactions", `${accountTransactions.length} visible`],
-                ["Posting status", activeAccount ? (recordDetail?.posting_status || accountSummary?.account_status || activeAccount.status) : "Awaiting selection"],
+                ["Transaction status", activeAccount ? (recordDetail?.posting_status || accountSummary?.account_status || activeAccount.status) : "Awaiting selection"],
                 ["Programs", `${programs.length} available`],
                 ["Payment collection", canPosPaymentCollect ? "Allowed" : "Manager or sales support only"],
                 ["Reprint / refs", canPosHistory ? "Visible" : "Restricted"],
@@ -1222,7 +1422,7 @@ export default function RmsChargeAdminSection({
                           ? "Program Eligibility & Mix"
                           : activeWorkspaceTab === "exceptions"
                             ? "Manual Review Queue"
-                            : "Latest Reconciliation Mismatches"}
+                            : "Latest Reconciliation Mismatches Across All RMS Activity"}
                   </h3>
                 </div>
                 <button
@@ -1315,13 +1515,24 @@ export default function RmsChargeAdminSection({
                   (activeWorkspaceTab === "exceptions" && !exceptions.length) ||
                   (activeWorkspaceTab === "reconciliation" && !(reconciliation?.items?.length))) ? (
                   <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
-                    No data in this RMS Charge operational section yet.
+                    {activeWorkspaceTab === "overview" && loadingOverview
+                      ? "Loading overview…"
+                      : activeWorkspaceTab === "exceptions" && loadingExceptions
+                        ? "Loading RMS issues…"
+                        : activeWorkspaceTab === "reconciliation" && loadingReconciliation
+                          ? "Loading reconciliation review…"
+                          : "No data in this RMS Charge operational section yet."}
                   </div>
                 ) : null}
               </div>
             </div>
             <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
-              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Sync & QBO Support</div>
+              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">System-wide RMS support</div>
+              {overviewError ? (
+                <div className="mt-3 rounded-xl border border-amber-300/40 bg-amber-500/10 p-3 text-sm text-amber-800">
+                  RMS support totals could not be refreshed. Other RMS sections may still be current.
+                </div>
+              ) : null}
               <div className="mt-4 grid gap-3">
                 {[
                   ["Automatic refresh", fmtDate(overview?.sync_health?.last_repair_poll_at)],
@@ -1402,7 +1613,7 @@ export default function RmsChargeAdminSection({
                 {records.length === 0 && !loadingRecords ? (
                   <tr>
                     <td colSpan={9} className="px-4 py-10 text-center text-sm text-app-text-muted">
-                      No RMS Charge records in this range.
+                      No RMS Charge activity in this date range.
                     </td>
                   </tr>
                 ) : null}
@@ -1588,6 +1799,38 @@ export default function RmsChargeAdminSection({
           </div>
         </div>)
       )}
+      <PromptModal
+        isOpen={Boolean(resolvingException)}
+        onClose={() => setResolvingException(null)}
+        onSubmit={(value) => submitResolutionNote(value)}
+        title="Resolve RMS Issue"
+        message={
+          resolvingException
+            ? `Add a short support note for ${resolvingException.exception_type.replaceAll("_", " ")}.\n\nExplain what cleared the issue so the next staff member can follow the audit trail.`
+            : ""
+        }
+        placeholder="Example: CoreCard confirmed the original post and no retry was needed."
+        defaultValue={resolvingException?.resolution_notes ?? ""}
+        confirmLabel="Save Resolution"
+      />
+      <ConfirmationModal
+        isOpen={Boolean(confirmUnlinkAccount)}
+        onClose={() => setConfirmUnlinkAccount(null)}
+        onConfirm={() => {
+          if (confirmUnlinkAccount) {
+            void unlinkAccount(confirmUnlinkAccount);
+          }
+        }}
+        title="Remove RMS Account Link"
+        message={
+          confirmUnlinkAccount
+            ? `Remove ${confirmUnlinkAccount.masked_account} from ${selectedCustomerLabel || "this customer"} in Riverside?\n\nThis only removes the customer-to-account link in Riverside. It does not change the CoreCard account itself, and the correction is recorded in the audit trail.`
+            : ""
+        }
+        confirmLabel="Remove Link"
+        cancelLabel="Keep Link"
+        variant="danger"
+      />
     </div>
   );
 }
