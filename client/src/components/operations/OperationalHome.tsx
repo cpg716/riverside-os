@@ -80,6 +80,23 @@ interface ActivityFeedEntry {
   member_name: string | null;
 }
 
+interface RegisterDaySummary {
+  sales_count: number;
+  net_sales: string;
+  pickup_count: number;
+  online_order_count: number;
+  appointment_count: number;
+  new_wedding_parties_count: number;
+}
+
+type FulfillmentUrgency = "rush" | "due_soon" | "standard" | "blocked" | "ready";
+
+interface FulfillmentItem {
+  order_id: string;
+  urgency: FulfillmentUrgency;
+  balance_due: number;
+}
+
 interface OperationalHomeProps {
   onOpenWeddingParty: (partyId: string) => void;
   onOpenTransactionInBackoffice: (orderId: string) => void;
@@ -96,6 +113,87 @@ interface OperationalHomeProps {
 function floorRoleLabel(role: string): string {
   if (role === "salesperson") return "Salesperson";
   return role.replace(/_/g, " ");
+}
+
+function money(value: string | number | null | undefined): string {
+  const amount =
+    typeof value === "number"
+      ? value
+      : value == null
+        ? 0
+        : Number.parseFloat(String(value));
+  return `$${Number.isFinite(amount) ? amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }) : "0.00"}`;
+}
+
+function notificationBundleKind(row: NotificationRow): string {
+  const bundleKind = row.deep_link?.bundle_kind;
+  return typeof bundleKind === "string" ? bundleKind.toLowerCase() : "";
+}
+
+function notificationMatches(row: NotificationRow, patterns: string[]): boolean {
+  const kind = row.kind.toLowerCase();
+  const bundleKind = notificationBundleKind(row);
+  return patterns.some((pattern) => kind.includes(pattern) || bundleKind.includes(pattern));
+}
+
+function urgencyLabel(urgency: FulfillmentUrgency): string {
+  switch (urgency) {
+    case "ready":
+      return "Ready for pickup";
+    case "rush":
+      return "Rush orders";
+    case "due_soon":
+      return "Due soon";
+    case "blocked":
+      return "Blocked follow-up";
+    default:
+      return "Pending orders";
+  }
+}
+
+function formatWholeNumber(value: number): string {
+  return value.toLocaleString();
+}
+
+function percentDeltaLabel(current: number, previous: number): string | null {
+  if (!Number.isFinite(current) || !Number.isFinite(previous) || previous <= 0) {
+    return null;
+  }
+  const delta = ((current - previous) / previous) * 100;
+  const rounded = Math.round(delta);
+  if (rounded === 0) return "Flat versus the prior week";
+  return `${rounded > 0 ? "+" : ""}${rounded}% versus the prior week`;
+}
+
+function SummaryPill({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string | number;
+  tone?: "default" | "good" | "warn" | "danger";
+}) {
+  const toneClass =
+    tone === "good"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : tone === "warn"
+        ? "border-amber-200 bg-amber-50 text-amber-800"
+        : tone === "danger"
+          ? "border-rose-200 bg-rose-50 text-rose-800"
+          : "border-app-border bg-app-surface-2 text-app-text";
+
+  return (
+    <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
+      <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
+        {label}
+      </p>
+      <p className="mt-1 text-lg font-black">{value}</p>
+    </div>
+  );
 }
 
 
@@ -277,6 +375,8 @@ export default function OperationalHome({
       void refreshNotifUnread();
   }, [activeSection, refreshNotifUnread]);
   const [salesHistory, setSalesHistory] = useState<{ value: number }[]>([]);
+  const [todaySummary, setTodaySummary] = useState<RegisterDaySummary | null>(null);
+  const [fulfillmentQueue, setFulfillmentQueue] = useState<FulfillmentItem[]>([]);
   const loadSalesHistory = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("insights.view")) return;
     try {
@@ -301,6 +401,52 @@ export default function OperationalHome({
   useEffect(() => {
     void loadSalesHistory();
   }, [loadSalesHistory, refreshSignal]);
+
+  const loadTodaySummary = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("register.reports")) {
+      setTodaySummary(null);
+      return;
+    }
+    try {
+      const params = new URLSearchParams({
+        preset: "today",
+        basis: "booked",
+      });
+      const res = await fetch(`${baseUrl}/api/insights/register-day-activity?${params}`, {
+        headers: taskAuth(),
+      });
+      if (res.ok) {
+        setTodaySummary((await res.json()) as RegisterDaySummary);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [permissionsLoaded, hasPermission, taskAuth]);
+
+  useEffect(() => {
+    void loadTodaySummary();
+  }, [loadTodaySummary, refreshSignal]);
+
+  const loadFulfillmentQueue = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("orders.view")) {
+      setFulfillmentQueue([]);
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/transactions/fulfillment-queue`, {
+        headers: taskAuth(),
+      });
+      if (res.ok) {
+        setFulfillmentQueue((await res.json()) as FulfillmentItem[]);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [permissionsLoaded, hasPermission, taskAuth]);
+
+  useEffect(() => {
+    void loadFulfillmentQueue();
+  }, [loadFulfillmentQueue, refreshSignal]);
 
   const [notifPreview, setNotifPreview] = useState<NotificationRow[]>([]);
   const loadNotifPreview = useCallback(async () => {
@@ -385,6 +531,253 @@ export default function OperationalHome({
       }),
     [compass, taskMeOpen, notifPreview],
   );
+
+  const activeNotifications = useMemo(
+    () =>
+      notifPreview.filter(
+        (row) =>
+          row.archived_at == null &&
+          row.completed_at == null,
+      ),
+    [notifPreview],
+  );
+
+  const lowStockNotifications = useMemo(
+    () =>
+      activeNotifications.filter((row) =>
+        notificationMatches(row, ["low_stock", "stock", "negative_available_stock"]),
+      ),
+    [activeNotifications],
+  );
+
+  const issueNotifications = useMemo(
+    () =>
+      activeNotifications.filter((row) =>
+        notificationMatches(row, ["negative_available_stock", "failed", "error", "discrepancy", "backup", "sync"]),
+      ),
+    [activeNotifications],
+  );
+
+  const fulfillmentStats = useMemo(() => {
+    const stats = {
+      total: fulfillmentQueue.length,
+      ready: 0,
+      rush: 0,
+      dueSoon: 0,
+      blocked: 0,
+      unpaid: 0,
+    };
+    for (const item of fulfillmentQueue) {
+      if (item.urgency === "ready") stats.ready += 1;
+      if (item.urgency === "rush") stats.rush += 1;
+      if (item.urgency === "due_soon") stats.dueSoon += 1;
+      if (item.urgency === "blocked") stats.blocked += 1;
+      if (item.balance_due > 0) stats.unpaid += 1;
+    }
+    return stats;
+  }, [fulfillmentQueue]);
+
+  const topIssues = useMemo(() => {
+    const items: {
+      id: string;
+      label: string;
+      detail: string;
+      tone: "danger" | "warn" | "default";
+    }[] = [];
+
+    if (fulfillmentStats.blocked > 0) {
+      items.push({
+        id: "blocked-orders",
+        label: "Blocked pickup work",
+        detail: `${fulfillmentStats.blocked} ${urgencyLabel("blocked").toLowerCase()} in the pickup queue.`,
+        tone: "danger",
+      });
+    }
+    if (fulfillmentStats.rush > 0) {
+      items.push({
+        id: "rush-orders",
+        label: "Rush follow-up",
+        detail: `${fulfillmentStats.rush} rush order${fulfillmentStats.rush === 1 ? "" : "s"} need quick attention.`,
+        tone: "warn",
+      });
+    }
+    if (lowStockNotifications.length > 0) {
+      items.push({
+        id: "low-stock",
+        label: "Low stock alerts",
+        detail: `${lowStockNotifications.length} inventory alert${lowStockNotifications.length === 1 ? "" : "s"} are already in the inbox.`,
+        tone: notificationMatches(lowStockNotifications[0], ["negative_available_stock"]) ? "danger" : "warn",
+      });
+    }
+    if (taskMeOpen.length > 0) {
+      items.push({
+        id: "tasks",
+        label: "Open tasks",
+        detail: `${taskMeOpen.length} assigned task${taskMeOpen.length === 1 ? "" : "s"} still open.`,
+        tone: "default",
+      });
+    }
+    if (activeNotifications.length > 0) {
+      items.push({
+        id: "notifications",
+        label: "Unread notifications",
+        detail: `${activeNotifications.length} inbox item${activeNotifications.length === 1 ? "" : "s"} waiting for review.`,
+        tone: "default",
+      });
+    }
+
+    return items.slice(0, 5);
+  }, [
+    activeNotifications.length,
+    fulfillmentStats.blocked,
+    fulfillmentStats.rush,
+    lowStockNotifications,
+    taskMeOpen.length,
+  ]);
+
+  const weeklySalesTakeaway = useMemo(() => {
+    if (salesHistory.length < 14) return null;
+    const thisWeek = salesHistory
+      .slice(0, 7)
+      .reduce((sum, day) => sum + day.value, 0);
+    const lastWeek = salesHistory
+      .slice(7, 14)
+      .reduce((sum, day) => sum + day.value, 0);
+    const deltaLabel = percentDeltaLabel(thisWeek, lastWeek);
+    return {
+      thisWeek,
+      lastWeek,
+      deltaLabel,
+    };
+  }, [salesHistory]);
+
+  const todayDecisionTakeaways = useMemo(() => {
+    const items: {
+      id: string;
+      label: string;
+      detail: string;
+      tone: "good" | "warn" | "danger" | "default";
+    }[] = [];
+
+    if (todaySummary) {
+      if (todaySummary.sales_count > 0) {
+        items.push({
+          id: "sales-movement",
+          label: "Sales movement",
+          detail: `${formatWholeNumber(todaySummary.sales_count)} sale${todaySummary.sales_count === 1 ? "" : "s"} booked today for ${money(todaySummary.net_sales)} net.`,
+          tone: "good",
+        });
+      } else {
+        items.push({
+          id: "sales-movement",
+          label: "Sales movement",
+          detail: "No booked sales have posted yet today, so floor activity may still be building.",
+          tone: "warn",
+        });
+      }
+
+      if (todaySummary.pickup_count > 0 || todaySummary.online_order_count > 0) {
+        items.push({
+          id: "channel-mix",
+          label: "Channel mix",
+          detail: `${formatWholeNumber(todaySummary.pickup_count)} pickup${todaySummary.pickup_count === 1 ? "" : "s"} and ${formatWholeNumber(todaySummary.online_order_count)} online order${todaySummary.online_order_count === 1 ? "" : "s"} moved through today.`,
+          tone: "default",
+        });
+      }
+
+      if (todaySummary.appointment_count > 0 || todaySummary.new_wedding_parties_count > 0) {
+        items.push({
+          id: "appointments",
+          label: "Client demand",
+          detail: `${formatWholeNumber(todaySummary.appointment_count)} appointment${todaySummary.appointment_count === 1 ? "" : "s"} and ${formatWholeNumber(todaySummary.new_wedding_parties_count)} new wedding ${todaySummary.new_wedding_parties_count === 1 ? "party" : "parties"} added today.`,
+          tone: "default",
+        });
+      }
+    }
+
+    if (weeklySalesTakeaway?.deltaLabel) {
+      items.push({
+        id: "weekly-sales",
+        label: "Weekly sales pace",
+        detail: `${money(weeklySalesTakeaway.thisWeek)} this week. ${weeklySalesTakeaway.deltaLabel}.`,
+        tone: weeklySalesTakeaway.thisWeek >= weeklySalesTakeaway.lastWeek ? "good" : "warn",
+      });
+    }
+
+    return items.slice(0, 4);
+  }, [todaySummary, weeklySalesTakeaway]);
+
+  const decisionTakeaways = useMemo(() => {
+    const items: {
+      id: string;
+      label: string;
+      detail: string;
+      tone: "good" | "warn" | "danger" | "default";
+    }[] = [];
+
+    if (fulfillmentStats.blocked > 0) {
+      items.push({
+        id: "pickup-queue",
+        label: "Pickup queue risk",
+        detail: `${fulfillmentStats.blocked} blocked pickup ${fulfillmentStats.blocked === 1 ? "order is" : "orders are"} holding the queue back right now.`,
+        tone: "danger",
+      });
+    } else if (fulfillmentStats.ready > 0) {
+      items.push({
+        id: "pickup-queue",
+        label: "Pickup queue",
+        detail: `${fulfillmentStats.ready} order${fulfillmentStats.ready === 1 ? "" : "s"} are ready for pickup and can move without waiting on product.`,
+        tone: "good",
+      });
+    } else {
+      items.push({
+        id: "pickup-queue",
+        label: "Pickup queue",
+        detail: "No ready pickup pressure is building right now.",
+        tone: "default",
+      });
+    }
+
+    if (lowStockNotifications.length > 0) {
+      items.push({
+        id: "inventory-alerts",
+        label: "Inventory pressure",
+        detail: `${lowStockNotifications.length} stock alert${lowStockNotifications.length === 1 ? "" : "s"} already need review before they turn into fulfillment problems.`,
+        tone: notificationMatches(lowStockNotifications[0], ["negative_available_stock"]) ? "danger" : "warn",
+      });
+    } else {
+      items.push({
+        id: "inventory-alerts",
+        label: "Inventory pressure",
+        detail: "No live low-stock or negative-available inventory alerts are active right now.",
+        tone: "good",
+      });
+    }
+
+    if (taskMeOpen.length > 0 || activeNotifications.length > 0) {
+      items.push({
+        id: "staff-load",
+        label: "Staff follow-up load",
+        detail: `${taskMeOpen.length} open task${taskMeOpen.length === 1 ? "" : "s"} and ${activeNotifications.length} inbox item${activeNotifications.length === 1 ? "" : "s"} are still waiting on review.`,
+        tone: activeNotifications.length > 8 ? "warn" : "default",
+      });
+    } else {
+      items.push({
+        id: "staff-load",
+        label: "Staff follow-up load",
+        detail: "Tasks and inbox follow-up are both clear, so the floor can stay focused on active selling work.",
+        tone: "good",
+      });
+    }
+
+    return items.slice(0, 3);
+  }, [
+    activeNotifications.length,
+    fulfillmentStats.blocked,
+    fulfillmentStats.ready,
+    lowStockNotifications,
+    taskMeOpen.length,
+  ]);
 
 
   if (activeSection === "daily-sales") {
@@ -499,30 +892,178 @@ export default function OperationalHome({
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
          <DashboardStatsCard
-           title="Sales (30d)"
-           value={salesHistory.length > 0 ? `$${salesHistory.reduce((acc, curr) => acc + curr.value, 0).toLocaleString()}` : "$0"}
+           title="Today's Sales"
+           value={todaySummary ? money(todaySummary.net_sales) : "$0.00"}
            icon={TrendingUp}
            sparklineData={salesHistory}
+           trend={{
+             value: todaySummary?.sales_count ?? 0,
+             isUp: true,
+             label: "sales today",
+           }}
            color="blue"
          />
          <DashboardStatsCard
-           title="Needs Measure"
-           value={compass?.stats.needs_measure ?? 0}
-           icon={Ruler}
-           color="orange"
-         />
-         <DashboardStatsCard
-           title="Needs Order"
-           value={compass?.stats.needs_order ?? 0}
+           title="Pending Orders"
+           value={fulfillmentStats.total}
            icon={ShoppingBag}
+           trend={{
+             value: fulfillmentStats.ready,
+             isUp: true,
+             label: "ready for pickup",
+           }}
            color="purple"
          />
          <DashboardStatsCard
-           title="Overdue"
-           value={compass?.stats.overdue_pickups ?? 0}
+           title="Low Stock Alerts"
+           value={lowStockNotifications.length}
+           icon={Ruler}
+           trend={{
+             value: issueNotifications.length,
+             isUp: false,
+             label: "issue alerts",
+           }}
+           color="orange"
+         />
+         <DashboardStatsCard
+           title="Needs Attention"
+           value={Math.max(topIssues.length, activeNotifications.length)}
            icon={AlertCircle}
+           trend={{
+             value: activeNotifications.length,
+             isUp: false,
+             label: "open inbox items",
+           }}
            color="rose"
          />
+      </div>
+
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+        <DashboardGridCard
+          title="What Changed Today"
+          subtitle="Today’s store movement, translated into plain-language takeaways"
+          icon={TrendingUp}
+          className="xl:col-span-5"
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <SummaryPill
+              label="Net sales"
+              value={todaySummary ? money(todaySummary.net_sales) : "$0.00"}
+              tone="good"
+            />
+            <SummaryPill
+              label="Sales count"
+              value={todaySummary?.sales_count ?? 0}
+            />
+            <SummaryPill
+              label="Pickups"
+              value={todaySummary?.pickup_count ?? 0}
+            />
+            <SummaryPill
+              label="Online orders"
+              value={todaySummary?.online_order_count ?? 0}
+            />
+            <SummaryPill
+              label="Appointments"
+              value={todaySummary?.appointment_count ?? 0}
+            />
+            <SummaryPill
+              label="New weddings"
+              value={todaySummary?.new_wedding_parties_count ?? 0}
+            />
+          </div>
+          <div className="mt-4 space-y-3">
+            {todayDecisionTakeaways.length === 0 ? (
+              <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm font-semibold text-app-text-muted">
+                Today&apos;s reporting feeds have not posted enough activity yet to summarize movement.
+              </div>
+            ) : (
+              todayDecisionTakeaways.map((item) => (
+                <div
+                  key={item.id}
+                  className={`rounded-2xl border px-4 py-3 ${
+                    item.tone === "good"
+                      ? "border-emerald-200 bg-emerald-50"
+                      : item.tone === "warn"
+                        ? "border-amber-200 bg-amber-50"
+                        : item.tone === "danger"
+                          ? "border-rose-200 bg-rose-50"
+                          : "border-app-border bg-app-surface-2"
+                  }`}
+                >
+                  <p className="text-xs font-black text-app-text">{item.label}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
+                    {item.detail}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </DashboardGridCard>
+
+        <DashboardGridCard
+          title="What Needs Attention"
+          subtitle="The shortest list of problems that need a decision first"
+          icon={Target}
+          className="xl:col-span-4"
+        >
+          {topIssues.length === 0 ? (
+            <div className="py-12 text-center text-sm font-semibold text-app-text-muted">
+              No priority issues are active right now.
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {topIssues.map((issue) => (
+                <div
+                  key={issue.id}
+                  className={`rounded-2xl border px-4 py-3 ${
+                    issue.tone === "danger"
+                      ? "border-rose-200 bg-rose-50"
+                      : issue.tone === "warn"
+                        ? "border-amber-200 bg-amber-50"
+                        : "border-app-border bg-app-surface-2"
+                  }`}
+                >
+                  <p className="text-xs font-black text-app-text">
+                    {issue.label}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
+                    {issue.detail}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </DashboardGridCard>
+
+        <DashboardGridCard
+          title="Top Issues"
+          subtitle="What the current queue, inventory, and inbox numbers mean"
+          icon={Zap}
+          className="xl:col-span-3"
+        >
+          <div className="space-y-3">
+            {decisionTakeaways.map((item) => (
+              <div
+                key={item.id}
+                className={`rounded-2xl border px-4 py-3 ${
+                  item.tone === "good"
+                    ? "border-emerald-200 bg-emerald-50"
+                    : item.tone === "warn"
+                      ? "border-amber-200 bg-amber-50"
+                      : item.tone === "danger"
+                        ? "border-rose-200 bg-rose-50"
+                        : "border-app-border bg-app-surface-2"
+                }`}
+              >
+                <p className="text-xs font-black text-app-text">{item.label}</p>
+                <p className="mt-1 text-[11px] leading-relaxed text-app-text-muted">
+                  {item.detail}
+                </p>
+              </div>
+            ))}
+          </div>
+        </DashboardGridCard>
       </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">

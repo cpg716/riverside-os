@@ -61,6 +61,18 @@ test.describe("Back Office sign-in gate", () => {
             .isVisible()
             .catch(() => false)) ||
           (await page
+            .getByRole("heading", { name: /what changed today/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page
+            .getByRole("heading", { name: /what needs attention/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page
+            .getByRole("heading", { name: /top issues/i })
+            .isVisible()
+            .catch(() => false)) ||
+          (await page
             .getByRole("heading", { name: /action board/i })
             .isVisible()
             .catch(() => false)) ||

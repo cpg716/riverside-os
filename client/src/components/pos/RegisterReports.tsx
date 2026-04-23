@@ -110,6 +110,21 @@ interface RegisterSessionRow {
   total_sales: string;
 }
 
+interface OpenRegisterSessionRow {
+  session_id: string;
+  register_lane: number;
+  register_ordinal: number;
+  cashier_name: string;
+  opened_at: string;
+  till_close_group_id: string;
+  lifecycle_status: string;
+}
+
+interface RegisterCoordinationGroup {
+  tillCloseGroupId: string;
+  sessions: OpenRegisterSessionRow[];
+}
+
 interface GroupedDayActivity {
   date: string;
   label: string;
@@ -145,6 +160,36 @@ function paymentIcon(method: string) {
   return <CreditCard size={12} />;
 }
 
+function registerLifecycleLabel(status: string) {
+  switch (status) {
+    case "reconciling":
+      return "Pending close";
+    case "closed":
+      return "Closed";
+    case "open":
+    default:
+      return "Open drawer";
+  }
+}
+
+function registerLifecycleTone(status: string) {
+  switch (status) {
+    case "reconciling":
+      return "border-amber-300 bg-amber-100/90 text-amber-900";
+    case "closed":
+      return "border-emerald-300 bg-emerald-100/90 text-emerald-900";
+    case "open":
+    default:
+      return "border-sky-200 bg-sky-50 text-sky-900";
+  }
+}
+
+function primaryRegisterSession(
+  sessions: OpenRegisterSessionRow[],
+): OpenRegisterSessionRow | null {
+  return sessions.find((session) => session.register_lane === 1) ?? sessions[0] ?? null;
+}
+
 export default function RegisterReports({
   sessionId,
   onOpenWeddingParty,
@@ -164,6 +209,8 @@ export default function RegisterReports({
   const [summary, setSummary] = useState<RegisterDaySummary | null>(null);
   const [summaryBooked, setSummaryBooked] = useState<RegisterDaySummary | null>(null);
   const [zLogs, setZLogs] = useState<RegisterSessionRow[]>([]);
+  const [openSessions, setOpenSessions] = useState<OpenRegisterSessionRow[]>([]);
+  const [openSessionsError, setOpenSessionsError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [zLoading, setZLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -263,9 +310,34 @@ export default function RegisterReports({
     }
   }, [apiAuth, buildZLogParams]);
 
+  const fetchOpenSessions = useCallback(async () => {
+    try {
+      const res = await fetch(`${baseUrl}/api/sessions/list-open`, {
+        headers: apiAuth(),
+      });
+      if (res.status === 401 || res.status === 403) {
+        setOpenSessions([]);
+        setOpenSessionsError("Register coordination visibility requires attach access.");
+        return;
+      }
+      if (!res.ok) throw new Error("Failed to fetch open register sessions");
+      const data = (await res.json()) as OpenRegisterSessionRow[];
+      setOpenSessions(Array.isArray(data) ? data : []);
+      setOpenSessionsError(null);
+    } catch (error) {
+      setOpenSessions([]);
+      setOpenSessionsError(
+        error instanceof Error ? error.message : "Could not load active register sessions.",
+      );
+    }
+  }, [apiAuth]);
+
   useEffect(() => {
-    if (view === "z-reports") void fetchZLogs();
-  }, [view, zPreset, customFromZ, customToZ, fetchZLogs]);
+    if (view === "z-reports") {
+      void fetchZLogs();
+      void fetchOpenSessions();
+    }
+  }, [view, zPreset, customFromZ, customToZ, fetchZLogs, fetchOpenSessions]);
 
   const rangeLabel = useMemo(() => {
     if (!summary) return "";
@@ -298,6 +370,34 @@ export default function RegisterReports({
       count: acts.length,
     }));
   }, [summary, summaryBooked, reportBasis]);
+
+  const coordinationGroups = useMemo((): RegisterCoordinationGroup[] => {
+    const grouped = new Map<string, OpenRegisterSessionRow[]>();
+    openSessions.forEach((session) => {
+      const existing = grouped.get(session.till_close_group_id) ?? [];
+      existing.push(session);
+      grouped.set(session.till_close_group_id, existing);
+    });
+    return Array.from(grouped.entries())
+      .map(([tillCloseGroupId, sessions]) => ({
+        tillCloseGroupId,
+        sessions: sessions.sort((left, right) => left.register_lane - right.register_lane),
+      }))
+      .sort((left, right) => left.sessions[0]!.register_lane - right.sessions[0]!.register_lane);
+  }, [openSessions]);
+
+  const coordinationSummary = useMemo(() => {
+    const openDrawerCount = coordinationGroups.length;
+    const reconcilingGroups = coordinationGroups.filter((group) =>
+      group.sessions.some((session) => session.lifecycle_status === "reconciling"),
+    );
+    return {
+      activeSessions: openSessions.length,
+      openDrawers: openDrawerCount,
+      pendingCloses: reconcilingGroups.length,
+      reconcilingGroups,
+    };
+  }, [openSessions, coordinationGroups]);
 
   const handlePrint = () => {
     if (!summary || !summaryBooked) return;
@@ -808,8 +908,141 @@ export default function RegisterReports({
                   </div>
                 )}
               </div>
+              <div className="border-b border-app-border bg-app-surface-2/40 px-4 py-4 sm:px-6">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                      Register coordination
+                    </p>
+                    <p className="mt-1 text-sm font-semibold text-app-text">
+                      See which drawers are still open, which till group is already closing, and where staff should avoid duplicate close work.
+                    </p>
+                  </div>
+                  <div className="grid min-w-[240px] gap-2 sm:grid-cols-3">
+                    {[
+                      ["Active sessions", String(coordinationSummary.activeSessions)],
+                      ["Open drawers", String(coordinationSummary.openDrawers)],
+                      ["Pending closes", String(coordinationSummary.pendingCloses)],
+                    ].map(([label, value]) => (
+                      <div
+                        key={label}
+                        className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-center"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {label}
+                        </p>
+                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                          {value}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {coordinationSummary.pendingCloses > 0 ? (
+                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-100/90 px-4 py-3 text-sm text-amber-900">
+                    <p className="text-[10px] font-black uppercase tracking-widest">
+                      Pending close in progress
+                    </p>
+                    <p className="mt-1 font-semibold leading-relaxed">
+                      One or more till groups are already reconciling. Finish the active close from Register #1 before another staff member starts a second Z-close attempt.
+                    </p>
+                  </div>
+                ) : null}
+                <div className="mt-3 rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm text-app-text-muted">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                    Shared drawer rule
+                  </p>
+                  <p className="mt-1 leading-relaxed">
+                    Each till group has one physical drawer. Satellite lanes stay visible here, but final Z-close still runs once from Register #1 for the whole group.
+                  </p>
+                </div>
+                {openSessionsError ? (
+                  <p className="mt-3 text-xs font-semibold text-app-text-muted">
+                    {openSessionsError}
+                  </p>
+                ) : coordinationGroups.length === 0 ? (
+                  <p className="mt-3 text-xs font-semibold text-app-text-muted">
+                    No open drawers are visible right now.
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                    {coordinationGroups.map((group) => {
+                      const isReconciling = group.sessions.some(
+                        (session) => session.lifecycle_status === "reconciling",
+                      );
+                      const primarySession = primaryRegisterSession(group.sessions);
+                      return (
+                        <div
+                          key={group.tillCloseGroupId}
+                          className="rounded-2xl border border-app-border bg-app-surface px-4 py-4"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Drawer group
+                              </p>
+                              <p className="mt-1 text-sm font-black text-app-text">
+                                {primarySession
+                                  ? `Register #${primarySession.register_lane} close anchor`
+                                  : "Shared till group"}
+                              </p>
+                              <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                                Shift ID {group.tillCloseGroupId.slice(0, 8)}…
+                              </p>
+                            </div>
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                                isReconciling
+                                  ? "border-amber-300 bg-amber-100/90 text-amber-900"
+                                  : "border-sky-200 bg-sky-50 text-sky-900"
+                              }`}
+                            >
+                              {isReconciling ? "Closing now" : "Open"}
+                            </span>
+                          </div>
+                          <div className="mt-3 space-y-2">
+                            {group.sessions.map((session) => (
+                              <div
+                                key={session.session_id}
+                                className="flex items-center justify-between gap-3 rounded-xl border border-app-border/70 bg-app-surface-2/60 px-3 py-3"
+                              >
+                                <div>
+                                  <p className="text-sm font-black text-app-text">
+                                    Register #{session.register_lane}
+                                  </p>
+                                  <p className="text-[11px] font-semibold text-app-text-muted">
+                                    {session.cashier_name} · opened{" "}
+                                    {new Date(session.opened_at).toLocaleString(undefined, {
+                                      dateStyle: "medium",
+                                      timeStyle: "short",
+                                    })}
+                                  </p>
+                                </div>
+                                <span
+                                  className={`rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${registerLifecycleTone(
+                                    session.lifecycle_status,
+                                  )}`}
+                                >
+                                  {registerLifecycleLabel(session.lifecycle_status)}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="mt-3 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                            {isReconciling
+                              ? "This group is already in reconciliation. Avoid starting another close from a linked register."
+                              : "Close this shared drawer from Register #1 when every linked lane in the till group is ready."}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
               {zLogs.length === 0 ? (
-                <div className="flex flex-1 items-center justify-center py-20 text-app-text-muted">No sessions found.</div>
+                <div className="flex flex-1 items-center justify-center py-20 text-app-text-muted">
+                  No register sessions recorded in this range.
+                </div>
               ) : (
                 <ul className="flex flex-col divide-y divide-app-border overflow-y-auto">
                   {zLogs.map((session) => (
@@ -819,15 +1052,35 @@ export default function RegisterReports({
                           Register #{session.register_lane} · Session #{session.register_ordinal}
                         </p>
                         <p className="font-black text-app-text">{session.cashier_name}</p>
-                        <p className="text-sm text-app-text-muted">{new Date(session.opened_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}</p>
+                        <p className="text-sm text-app-text-muted">
+                          Opened {new Date(session.opened_at).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })}
+                        </p>
                       </div>
                       <div className="text-right">
                         <p className="text-xs text-app-text-muted">Closed</p>
-                        <p className="font-bold text-app-text">{session.closed_at ? new Date(session.closed_at).toLocaleString(undefined, { timeStyle: "short" }) : "—"}</p>
+                        <p className="font-bold text-app-text">
+                          {session.closed_at
+                            ? new Date(session.closed_at).toLocaleString(undefined, {
+                                dateStyle: "medium",
+                                timeStyle: "short",
+                              })
+                            : "Still open"}
+                        </p>
                       </div>
                       <div className="text-right">
+                        <p className="mb-1">
+                          <span className="rounded-full border border-app-border bg-app-surface px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Z-close anchor
+                          </span>
+                        </p>
                         <p className="text-xl font-black tabular-nums text-app-accent">${centsToFixed2(parseMoneyToCents(session.total_sales))}</p>
                         <p className="text-xs text-app-text-muted">Exp. cash ${centsToFixed2(parseMoneyToCents(session.expected_cash ?? "0"))}</p>
+                        {session.discrepancy &&
+                        Math.abs(parseMoneyToCents(session.discrepancy)) > 0 ? (
+                          <p className="text-xs font-black text-amber-600">
+                            Discrepancy ${centsToFixed2(parseMoneyToCents(session.discrepancy))}
+                          </p>
+                        ) : null}
                       </div>
                     </li>
                   ))}

@@ -31,6 +31,25 @@ function requireOrSkip(condition: boolean, message: string): void {
   test.skip(true, message);
 }
 
+function parseMoneyToCents(value: string | number): number {
+  const normalized = typeof value === "number" ? value.toFixed(2) : String(value).trim();
+  const negative = normalized.startsWith("-");
+  const unsigned = negative ? normalized.slice(1) : normalized;
+  const [wholeRaw, fracRaw = ""] = unsigned.split(".");
+  const whole = Number.parseInt(wholeRaw || "0", 10);
+  const frac = Number.parseInt((fracRaw + "00").slice(0, 2), 10);
+  const cents = whole * 100 + frac;
+  return negative ? -cents : cents;
+}
+
+function centsToFixed2(cents: number): string {
+  const sign = cents < 0 ? "-" : "";
+  const abs = Math.abs(cents);
+  const whole = Math.floor(abs / 100);
+  const frac = String(abs % 100).padStart(2, "0");
+  return `${sign}${whole}.${frac}`;
+}
+
 type OpenSessionResponse = {
   session_id: string;
   pos_api_token?: string | null;
@@ -40,6 +59,7 @@ type OpenSessionRow = {
   session_id: string;
   register_lane: number;
   till_close_group_id: string;
+  lifecycle_status: string;
 };
 
 type VerifyCashierResponse = {
@@ -156,6 +176,24 @@ async function fetchReconciliation(
   });
   expect(res.status()).toBe(200);
   return (await res.json()) as ReconciliationResponse;
+}
+
+async function beginReconcile(
+  request: Parameters<typeof test>[0]["request"],
+  sessionId: string,
+): Promise<void> {
+  const res = await request.post(`${apiBase()}/api/sessions/${sessionId}/begin-reconcile`, {
+    headers: {
+      ...adminHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      active: true,
+      cashier_code: e2eAdminCode(),
+    },
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
 }
 
 async function closeRegisterGroup(
@@ -282,6 +320,61 @@ async function createDeterministicProduct(
 test.describe("Register close / reconciliation", () => {
   test.describe.configure({ mode: "serial" });
 
+  test("cash discrepancies over five dollars require closing notes", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const opened = await openFreshPrimarySession(request);
+    const recon = await fetchReconciliation(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
+    const expectedCents = parseMoneyToCents(recon.expected_cash);
+    const shortBySix = centsToFixed2(expectedCents - 600);
+
+    const withoutNotes = await request.post(
+      `${apiBase()}/api/sessions/${opened.session_id}/close`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+        },
+        data: {
+          actual_cash: shortBySix,
+          closing_notes: null,
+          closing_comments: null,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(withoutNotes.status()).toBe(400);
+    const withoutNotesBody = (await withoutNotes.json()) as { error?: string };
+    expect(withoutNotesBody.error).toContain(
+      "closing notes are required when cash is over or short by more than $5",
+    );
+
+    const withNotes = await request.post(
+      `${apiBase()}/api/sessions/${opened.session_id}/close`,
+      {
+        headers: {
+          "Content-Type": "application/json",
+          "x-riverside-pos-session-id": opened.session_id,
+          "x-riverside-pos-session-token": opened.pos_api_token ?? "",
+        },
+        data: {
+          actual_cash: shortBySix,
+          closing_notes: "Customer cash recount found drawer short during reconciliation.",
+          closing_comments: null,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(withNotes.status()).toBe(200);
+  });
+
   test("historical Z session list stays unified to Register #1 for a till-close group", async ({
     request,
   }) => {
@@ -369,5 +462,35 @@ test.describe("Register close / reconciliation", () => {
     expect(primaryHistory?.total_sales).toBe(detail.total_price);
     expect(history.some((row) => row.id === satellite?.session_id)).toBeFalsy();
     expect(history.some((row) => row.id === tertiary?.session_id)).toBeFalsy();
+  });
+
+  test("open session coordination exposes pending close state for the full till group", async ({
+    request,
+  }) => {
+    await closeAnyExistingOpenGroup(request);
+
+    const opened = await openFreshPrimarySession(request);
+    const openRows = await listOpenSessions(request);
+    const primaryRow = openRows.find((row) => row.session_id === opened.session_id);
+    const openGroup = openRows.filter(
+      (row) => row.till_close_group_id === primaryRow?.till_close_group_id,
+    );
+    expect(openGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3]);
+    expect(openGroup.every((row) => row.lifecycle_status === "open")).toBeTruthy();
+
+    await beginReconcile(request, opened.session_id);
+
+    const reconcilingRows = await listOpenSessions(request);
+    const reconcilingGroup = reconcilingRows.filter(
+      (row) => row.till_close_group_id === openGroup[0]?.till_close_group_id,
+    );
+    expect(reconcilingGroup.map((row) => row.register_lane).sort()).toEqual([1, 2, 3]);
+    expect(reconcilingGroup.every((row) => row.lifecycle_status === "reconciling")).toBeTruthy();
+
+    await closeRegisterGroup(
+      request,
+      opened.session_id,
+      opened.pos_api_token ?? "",
+    );
   });
 });

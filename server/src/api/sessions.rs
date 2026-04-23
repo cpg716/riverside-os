@@ -137,6 +137,7 @@ pub struct OpenSessionSummary {
     pub cashier_name: String,
     pub opened_at: DateTime<Utc>,
     pub till_close_group_id: Uuid,
+    pub lifecycle_status: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -491,6 +492,7 @@ fn open_summary_from_current_row(r: &CurrentSessionRow) -> OpenSessionSummary {
         cashier_name: r.cashier_name.clone(),
         opened_at: r.opened_at,
         till_close_group_id: r.till_close_group_id,
+        lifecycle_status: r.lifecycle_status.clone(),
     }
 }
 

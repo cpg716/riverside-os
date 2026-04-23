@@ -97,6 +97,33 @@ const DENOMS: { key: DenomKey; label: string; value: number }[] = [
   { key: "c1", label: "$1", value: 1 },
 ];
 
+const REGISTER_CLOSE_STEPS = [
+  {
+    id: "count",
+    label: "Blind count",
+    hint: "Count the drawer before you see system totals.",
+  },
+  {
+    id: "report",
+    label: "Review & finalize",
+    hint: "Compare the count, add notes if needed, then close the shift.",
+  },
+] as const;
+
+function mapCloseSessionError(message: string): string {
+  const normalized = message.trim().toLowerCase();
+  if (normalized === "register session is already closed") {
+    return "This till group was already closed from another register. Refresh Register Reports before starting another Z-close.";
+  }
+  if (
+    normalized ===
+    "close the till shift from register #1 only; this closes all linked registers in the shift"
+  ) {
+    return "Close the shared drawer from Register #1 only. That single Z-close finishes every linked lane in the till group.";
+  }
+  return message;
+}
+
 export default function CloseRegisterModal({
   sessionId,
   cashierName = null,
@@ -256,12 +283,73 @@ export default function CloseRegisterModal({
           closing_comments: closingComments.trim() || null
         }),
       });
-      if (!res.ok) throw new Error(((await res.json().catch(() => ({}))) as { error?: string }).error ?? "Failed to close session");
+      if (!res.ok) {
+        const errorMessage =
+          ((await res.json().catch(() => ({}))) as { error?: string }).error ??
+          "Failed to close session";
+        throw new Error(mapCloseSessionError(errorMessage));
+      }
       onCloseComplete();
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : "Failed to close session", "error");
       setLoading(false);
     }
+  };
+
+  const renderWorkflowSummary = (currentStep: "count" | "report") => {
+    const currentIndex = REGISTER_CLOSE_STEPS.findIndex(
+      (stepItem) => stepItem.id === currentStep,
+    );
+    const nextStep =
+      currentIndex < REGISTER_CLOSE_STEPS.length - 1
+        ? REGISTER_CLOSE_STEPS[currentIndex + 1]
+        : null;
+
+    return (
+      <div className="space-y-3 rounded-2xl border border-app-border bg-app-surface-2 p-4">
+        <div className="grid gap-2 sm:grid-cols-2">
+          {REGISTER_CLOSE_STEPS.map((stepItem, index) => {
+            const isCurrent = stepItem.id === currentStep;
+            const isComplete = index < currentIndex;
+            return (
+              <div
+                key={stepItem.id}
+                className={`rounded-xl border px-3 py-3 ${
+                  isCurrent
+                    ? "border-app-accent bg-app-accent/10 text-app-text"
+                    : isComplete
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                      : "border-app-border bg-app-surface text-app-text-muted"
+                }`}
+              >
+                <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
+                  Step {index + 1}
+                </p>
+                <p className="mt-1 text-xs font-black uppercase tracking-wide text-current">
+                  {stepItem.label}
+                </p>
+                <p className="mt-1 text-[11px] leading-relaxed opacity-80">
+                  {stepItem.hint}
+                </p>
+              </div>
+            );
+          })}
+        </div>
+        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs text-app-text-muted">
+          <p className="text-[10px] font-black uppercase tracking-widest">
+            Current stage
+          </p>
+          <p className="mt-1 font-bold text-app-text">
+            {REGISTER_CLOSE_STEPS[currentIndex]?.label}
+          </p>
+          <p className="mt-1 leading-relaxed">
+            {nextStep
+              ? `Next: ${nextStep.label}. ${nextStep.hint}`
+              : "Next: finalize the shared drawer from Register #1. This single Z-close finishes every open lane in the till group once the reconciliation summary and notes are complete."}
+          </p>
+        </div>
+      </div>
+    );
   };
 
   if (registerLane != null && registerLane !== 1) {
@@ -333,6 +421,7 @@ export default function CloseRegisterModal({
                 {registerOrdinal != null ? ` · Session #${registerOrdinal}` : ""}
               </p>
             ) : null}
+            {renderWorkflowSummary("count")}
             <p className="text-xs text-app-text-muted">
               Blind count: use the denomination helper (recommended) or enter a total. System expected cash is hidden until next step.
             </p>
@@ -489,6 +578,7 @@ export default function CloseRegisterModal({
         </div>
 
         <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
+          {renderWorkflowSummary("report")}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
             <div className="rounded-xl border border-app-accent/20 bg-app-accent/5 p-4 text-xs text-app-text-muted">
               <p className="font-black uppercase tracking-widest text-[10px] text-app-text mb-1">
@@ -515,7 +605,15 @@ export default function CloseRegisterModal({
                   <span>Discrepancy ({discrepancyCents < 0 ? "Short" : "Over"}):</span>
                   <span className="font-mono">${centsToFixed2(Math.abs(discrepancyCents))}</span>
                 </div>
-                {needsNote && <p className="text-[9px] font-bold mt-2 text-app-danger/70 leading-tight">MANDATORY NOTE REQUIRED (Over $5.00 diff)</p>}
+                {needsNote ? (
+                  <p className="text-[10px] font-bold mt-2 text-app-danger/80 leading-relaxed">
+                    Closing notes are required because cash is over or short by more than $5.00. Explain the likely cause before you finalize the shift.
+                  </p>
+                ) : (
+                  <p className="text-[10px] font-semibold mt-2 text-app-danger/75 leading-relaxed">
+                    Review the over or short amount before finalizing so the next team understands what changed in the drawer.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -626,14 +724,21 @@ export default function CloseRegisterModal({
           <button type="button" onClick={() => setStep("count")} className="ui-btn-secondary px-8 py-3">
             Recount
           </button>
-          <button
-            type="button"
-            onClick={() => setShowFinalConfirm(true)}
-            disabled={loading || (needsNote && !notes.trim())}
-            className="ui-btn-primary flex-1 py-3 text-sm font-black shadow-lg"
-          >
-            {loading ? "Closing..." : "Finalize & Close Shift"}
-          </button>
+          <div className="flex-1">
+            <button
+              type="button"
+              onClick={() => setShowFinalConfirm(true)}
+              disabled={loading || (needsNote && !notes.trim())}
+              className="ui-btn-primary w-full py-3 text-sm font-black shadow-lg"
+            >
+              {loading ? "Closing..." : "Finalize & Close Shift"}
+            </button>
+            {needsNote && !notes.trim() ? (
+              <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-danger">
+                Add closing notes to explain this cash discrepancy before the shift can be closed.
+              </p>
+            ) : null}
+          </div>
         </div>
       </div>
       <ConfirmationModal
