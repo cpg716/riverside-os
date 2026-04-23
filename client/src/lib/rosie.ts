@@ -935,9 +935,10 @@ export async function rosieChatCompletions(
       typeof (json as { error?: string }).error === "string"
         ? (json as { error?: string }).error
         : `ROSIE request failed with HTTP ${response.status}`;
+    const normalizedRawMessage = rawMessage ?? "";
     const message =
       response.status === 502 &&
-      /upstream request failed|upstream is unavailable/i.test(rawMessage)
+      /upstream request failed|upstream is unavailable/i.test(normalizedRawMessage)
         ? "ROSIE is unavailable right now. The Host LLM service could not be reached."
         : rawMessage;
     throw new Error(message);

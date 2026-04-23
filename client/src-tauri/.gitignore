@@ -6,3 +6,5 @@
 # llama.cpp server sidecar (build per binaries/README.md; keep README tracked)
 /binaries/llama-server*
 !/binaries/README.md
+!/binaries/llama-server-aarch64-apple-darwin
+!/binaries/llama-server-x86_64-unknown-linux-gnu

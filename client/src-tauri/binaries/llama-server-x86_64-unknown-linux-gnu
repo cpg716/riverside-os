@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if command -v llama-server >/dev/null 2>&1; then
+  exec llama-server "$@"
+fi
+
+echo "ROSIE llama-server is not installed on this Linux host." >&2
+echo "Install llama.cpp or set up the approved Host runtime before launching ROSIE direct mode." >&2
+exit 1
