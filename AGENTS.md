@@ -29,6 +29,16 @@ The main shell component is a critical part of the application that manages UI s
 
 Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
 
+### v0.3.0 Operational Perfection
+
+RiversideOS v0.3.0 is a refinement release focused on operator clarity, trust, and efficiency rather than new modules.
+
+- Prefer visibility over hidden state.
+- Prefer guided workflows over memory-based workflows.
+- Prefer human-readable labels, timelines, and rule explanations over internal jargon.
+- Prefer lightweight operational summaries and data-quality signals over dense reporting or speculative scoring.
+- When in doubt, preserve existing server truth and improve the operator-facing surface around it rather than introducing new backend behavior.
+
 Priorities, in order:
 
 1. Preserve financial correctness
@@ -50,6 +60,7 @@ Before making substantial changes, read these in order:
 2. **`README.md`** — Overview, quick start, documentation catalog
 3. **`DEVELOPER.md`** — Architecture, folder map, runbooks, API overview, migration references
 4. **`CHANGELOG.md`** — Recent shipped behavior and current direction
+5. **`docs/releases/`** — Current release notes, PR summary, and GitHub release copy when working near a release cut
 
 Then read the domain doc most relevant to the task.
 

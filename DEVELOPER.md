@@ -97,7 +97,7 @@ flowchart LR
 - **Theme**: semantic colors come from CSS variables on `:root` (`--app-accent`, etc.); `tailwind.config.js` extends `theme.colors.app`.
 - **API**: `server/` — `riverside-server` library + `main` binary. Routers nested under `/api/...`.
 - **Unified Engine**: Integrated into the Tauri shell (`client/src-tauri/src/unified_server.rs`). Allows a single desktop application to act as both the client and the shop's backend server. Uses the same code and migrations as the standalone server.
-- **Data**: SQL migrations in **`migrations/`** (apply in numeric order through the latest `NN_*.sql`; ledger in `00_ros_migration_ledger.sql`). **Current repo ceiling:** **`150_*.sql`** (see [Migrations reference](#migrations-reference-selected-files-see-migrations-for-full-set); drift checks: **`scripts/ros_migration_build_probes.sql`**, **`./scripts/migration-status-docker.sh`**). **Local dev database** is the **`db` service** in [`docker-compose.yml`](docker-compose.yml); use [`scripts/apply-migrations-docker.sh`](scripts/apply-migrations-docker.sh) or `docker compose exec` as in [Running locally](#running-locally).
+- **Data**: SQL migrations in **`migrations/`** (apply in numeric order through the latest `NN_*.sql`; ledger in `00_ros_migration_ledger.sql`). **Current repo ceiling:** **`158_*.sql`** (see [Migrations reference](#migrations-reference-selected-files-see-migrations-for-full-set); drift checks: **`scripts/ros_migration_build_probes.sql`**, **`./scripts/migration-status-docker.sh`**). `migration-status-docker.sh` now reports both schema-probe status and repo-vs-ledger reconciliation. **Local dev database** is the **`db` service** in [`docker-compose.yml`](docker-compose.yml); use [`scripts/apply-migrations-docker.sh`](scripts/apply-migrations-docker.sh) or `docker compose exec` as in [Running locally](#running-locally).
 - **Logging / traces**: `tracing` + `tracing-subscriber`; level controlled via **`RUST_LOG`**. Optional **OpenTelemetry OTLP** export and **`tower-http`** **`TraceLayer`** for HTTP request spans — **[`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`](docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**.
 - **Stripe Power Integration**: PCI-compliant **Card Vaulting** (Customer Hub) and **Unlinked Credits** (POS Terminal). ROS uses Stripe Elements and `SetupIntents` so raw card data never touches the server. Metadata (`last4`, `brand`, `expiry`) is stored locally for staff reference and off-session phone orders. See **[`docs/STRIPE_POWER_INTEGRATION.md`](docs/STRIPE_POWER_INTEGRATION.md)**.
 - **Timezone**: `chrono-tz`; store timezone IANA string stored in `store_settings.receipt_config.timezone` (default `America/New_York`).
@@ -227,13 +227,8 @@ docker compose up -d
 - Always create a new migration for changes
 - Preserve migration order across branches
 - Verify migration sequence before making changes
-
-## Migration numbering safety
-
-- Never rename or renumber existing migrations
-- Always create a new migration for changes
-- Preserve migration order across branches
-- Verify migration sequence before making changes
+- Keep repo files and `ros_schema_migrations` aligned; if the ledger and repo diverge, fix the mismatch instead of silently backfilling around it
+- Be aware that this repo currently contains duplicate numeric prefixes (`156_*`, `157_*`), so status/reconciliation checks should compare full filenames, not just numeric ceilings
 
 ````
 
