@@ -48,6 +48,12 @@ export default function RosieSettingsPanel() {
     () => mergeRosieSettings(localSettings, storeDefaults),
     [localSettings, storeDefaults],
   );
+  const activeTtsEngine = localRuntimeStatus?.tts.active_engine ?? "unavailable";
+  const kokoroVoiceControlsAvailable = activeTtsEngine === "kokoro";
+  const ttsFallbackActive =
+    localRuntimeStatus != null &&
+    activeTtsEngine !== "kokoro" &&
+    activeTtsEngine !== "unavailable";
 
   useEffect(() => {
     saveLocalRosieSettings(localSettings);
@@ -495,9 +501,28 @@ export default function RosieSettingsPanel() {
                 Selects the Kokoro speaker preset for spoken ROSIE replies.
               </p>
             </div>
+            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-4 text-xs font-medium text-app-text-muted">
+              <p>
+                TTS engine status:{" "}
+                <strong className="text-app-text">
+                  {kokoroVoiceControlsAvailable
+                    ? "Using Kokoro speaker IDs"
+                    : ttsFallbackActive
+                      ? "Using fallback speech engine"
+                      : "TTS unavailable"}
+                </strong>
+              </p>
+              <p className="mt-2">
+                {kokoroVoiceControlsAvailable
+                  ? "This workstation is on the approved Kokoro path, so speaker selection and preview use real Kokoro voices."
+                  : ttsFallbackActive
+                    ? "This workstation is not currently using Kokoro. Spoken replies may still work, but speaker selection is disabled because fallback speech does not map cleanly to Kokoro speaker IDs."
+                    : "Speech output is currently unavailable on this workstation."}
+              </p>
+            </div>
             <select
               value={localSettings.selected_voice}
-              disabled={!localSettings.voice_enabled}
+              disabled={!localSettings.voice_enabled || !kokoroVoiceControlsAvailable}
               onChange={(e) =>
                 updateLocalSettings({
                   selected_voice: e.target.value,
@@ -522,6 +547,7 @@ export default function RosieSettingsPanel() {
                 onClick={testSelectedVoice}
                 disabled={
                   !localSettings.voice_enabled ||
+                  !kokoroVoiceControlsAvailable ||
                   localRuntimeStatus?.tts.model_present === false
                 }
                 className="ui-btn-secondary px-4 py-2 text-[11px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"

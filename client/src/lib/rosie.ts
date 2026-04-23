@@ -434,6 +434,14 @@ type BrowserSpeechRecognition = {
 
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
+type BrowserSpeechSynthesisVoice = {
+  voiceURI: string;
+  name: string;
+  lang: string;
+  localService: boolean;
+  default: boolean;
+};
+
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
@@ -443,6 +451,32 @@ declare global {
 
 let activeSpeechUtterance: SpeechSynthesisUtterance | null = null;
 let activeTauriSpeechPoller: number | null = null;
+
+function getBrowserSpeechSynthesisVoices(): BrowserSpeechSynthesisVoice[] {
+  if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
+    return [];
+  }
+  return window.speechSynthesis.getVoices() as BrowserSpeechSynthesisVoice[];
+}
+
+function pickBrowserSpeechSynthesisVoice(
+  requestedVoice: RosieSettings["selected_voice"] | undefined,
+): BrowserSpeechSynthesisVoice | null {
+  const voices = getBrowserSpeechSynthesisVoices();
+  if (voices.length === 0) return null;
+
+  const preferredEnglishVoices = voices.filter((voice) =>
+    voice.lang.toLowerCase().startsWith("en"),
+  );
+  const candidateVoices =
+    preferredEnglishVoices.length > 0 ? preferredEnglishVoices : voices;
+  const normalizedVoice = normalizeRosieVoice(requestedVoice);
+  const voiceIndex = Number.parseInt(normalizedVoice, 10);
+  if (!Number.isFinite(voiceIndex) || candidateVoices.length === 0) {
+    return candidateVoices[0] ?? null;
+  }
+  return candidateVoices[voiceIndex % candidateVoices.length] ?? candidateVoices[0] ?? null;
+}
 
 function getSpeechRecognitionConstructor():
   | BrowserSpeechRecognitionConstructor
@@ -813,6 +847,11 @@ export function speakRosieText(
   stopRosieSpeechPlayback();
 
   const utterance = new window.SpeechSynthesisUtterance(text);
+  const selectedBrowserVoice = pickBrowserSpeechSynthesisVoice(options?.voice);
+  if (selectedBrowserVoice) {
+    utterance.voice = selectedBrowserVoice as SpeechSynthesisVoice;
+    utterance.lang = selectedBrowserVoice.lang;
+  }
   utterance.rate =
     typeof options?.rate === "number" && options.rate >= 0.8 && options.rate <= 1.2
       ? options.rate
