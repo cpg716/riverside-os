@@ -107,6 +107,7 @@ function money(v: string | number) {
 }
 
 type Section = "open" | "all";
+type OrderViewPreset = "open" | "all";
 type FulfillmentKind =
   | "takeaway"
   | "shipment"
@@ -259,7 +260,8 @@ export default function OrdersWorkspace({
   onDeepLinkTxnConsumed?: () => void;
   refreshSignal?: number;
 }) {
-  const section: Section = activeSection === "all" ? "all" : "open";
+  const defaultViewPreset: OrderViewPreset =
+    activeSection === "all" ? "all" : "open";
   const baseUrl = getBaseUrl();
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -313,6 +315,15 @@ export default function OrdersWorkspace({
   const [datePreset, setDatePreset] = useState("all");
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
+  const [viewPreset, setViewPreset] = useState<OrderViewPreset>(
+    defaultViewPreset,
+  );
+
+  const section: Section = viewPreset === "all" ? "all" : "open";
+
+  useEffect(() => {
+    setViewPreset(defaultViewPreset);
+  }, [defaultViewPreset]);
 
   useEffect(() => {
     const t = setTimeout(() => setDebouncedSearch(search), 300);
@@ -726,6 +737,7 @@ export default function OrdersWorkspace({
           <button
             onClick={() => {
               setSearch("");
+              setViewPreset(defaultViewPreset);
               setKindFilter("all");
               setPaymentFilter("all");
               setSalespersonFilter("all");
@@ -789,6 +801,38 @@ export default function OrdersWorkspace({
                   </p>
                 </div>
               ))}
+            </div>
+          </div>
+
+          <div className="px-8 pt-5">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                View
+              </span>
+              {(
+                [
+                  { id: "open", label: "Open Orders" },
+                  { id: "all", label: "Order History" },
+                ] satisfies Array<{ id: OrderViewPreset; label: string }>
+              ).map((preset) => {
+                const active = viewPreset === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => setViewPreset(preset.id)}
+                    className={cn(
+                      "rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all",
+                      active
+                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
+                        : "border-app-border bg-app-surface text-app-text-muted hover:bg-app-bg hover:text-app-text",
+                    )}
+                    aria-pressed={active}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 
