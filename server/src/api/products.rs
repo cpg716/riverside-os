@@ -971,7 +971,7 @@ async fn list_products(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ProductRow>>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
     let rows = sqlx::query_as::<_, ProductRow>(
         r#"
         SELECT id, name, brand, base_retail_price, base_cost
@@ -2095,7 +2095,7 @@ async fn fetch_product_hub(
     headers: &HeaderMap,
     product_id: Uuid,
 ) -> Result<ProductHubResponse, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
     let product = sqlx::query_as::<_, ProductHubProductRow>(
         r#"
         SELECT
@@ -2233,7 +2233,7 @@ async fn fetch_product_hub(
         })
         .collect();
 
-    let staff = middleware::require_authenticated_staff_headers(&state, &headers)
+    let staff = middleware::require_authenticated_staff_headers(state, headers)
         .await
         .map_err(map_perm_err_products)?;
     let eff = effective_permissions_for_staff(&state.db, staff.id, staff.role)
@@ -2393,7 +2393,7 @@ async fn get_product_timeline(
     Path(product_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<ProductTimelineResponse>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)",
     )
@@ -2768,7 +2768,7 @@ async fn list_variants(
     Path(product_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<VariantRow>>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
     let rows = sqlx::query_as::<_, VariantRow>(
         r#"
         SELECT
@@ -2791,7 +2791,7 @@ async fn get_maintenance_ledger(
     Query(query): Query<MaintenanceLedgerQuery>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<MaintenanceLedgerRow>>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
+    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
 
     let tx_type_filter = query.tx_type.unwrap_or_else(|| "damaged".to_string());
     let limit = query.limit.unwrap_or(100).min(1000);

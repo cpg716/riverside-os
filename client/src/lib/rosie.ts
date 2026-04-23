@@ -10,7 +10,7 @@ export type RosieSettings = {
   show_citations: boolean;
   voice_enabled: boolean;
   speak_responses: boolean;
-  selected_voice: "adam" | "michael" | "emma" | "isabella";
+  selected_voice: string;
   speech_rate: number;
   microphone_enabled: boolean;
   microphone_mode: "push_to_talk" | "toggle";
@@ -258,6 +258,57 @@ export type RosieSpeechPlayback = {
 };
 
 const ROSIE_SETTINGS_STORAGE_KEY = "ros.rosie.settings.v1";
+const ROSIE_KOKORO_VOICE_COUNT = 53;
+const ROSIE_KOKORO_VOICE_ALIASES: Record<string, number> = {
+  adam: 5,
+  michael: 6,
+  emma: 7,
+  isabella: 8,
+};
+
+export const ROSIE_VOICE_TEST_SENTENCE =
+  "Hello, I am ROSIE. This is the selected Kokoro voice preview for Riverside OS.";
+
+export const ROSIE_KOKORO_VOICE_OPTIONS = Array.from(
+  { length: ROSIE_KOKORO_VOICE_COUNT },
+  (_, index) => {
+    const aliasEntry = Object.entries(ROSIE_KOKORO_VOICE_ALIASES).find(
+      ([, value]) => value === index,
+    );
+    const label = aliasEntry
+      ? `Speaker ${index} (${aliasEntry[0][0].toUpperCase()}${aliasEntry[0].slice(1)})`
+      : `Speaker ${index}`;
+    return {
+      value: String(index),
+      label,
+    };
+  },
+);
+
+function normalizeRosieVoice(rawVoice: unknown): string {
+  if (typeof rawVoice !== "string") {
+    return String(ROSIE_KOKORO_VOICE_ALIASES.adam);
+  }
+  const normalized = rawVoice.trim().toLowerCase();
+  if (normalized in ROSIE_KOKORO_VOICE_ALIASES) {
+    return String(
+      ROSIE_KOKORO_VOICE_ALIASES[
+        normalized as keyof typeof ROSIE_KOKORO_VOICE_ALIASES
+      ],
+    );
+  }
+  if (/^\d+$/.test(normalized)) {
+    const numericVoice = Number(normalized);
+    if (
+      Number.isInteger(numericVoice) &&
+      numericVoice >= 0 &&
+      numericVoice < ROSIE_KOKORO_VOICE_COUNT
+    ) {
+      return String(numericVoice);
+    }
+  }
+  return String(ROSIE_KOKORO_VOICE_ALIASES.adam);
+}
 
 export const DEFAULT_ROSIE_SETTINGS: RosieSettings = {
   enabled: true,
@@ -266,7 +317,7 @@ export const DEFAULT_ROSIE_SETTINGS: RosieSettings = {
   show_citations: true,
   voice_enabled: true,
   speak_responses: false,
-  selected_voice: "adam",
+  selected_voice: String(ROSIE_KOKORO_VOICE_ALIASES.adam),
   speech_rate: 1,
   microphone_enabled: true,
   microphone_mode: "push_to_talk",
@@ -287,12 +338,6 @@ function normalizeRosieSettings(raw: unknown): RosieSettings {
     Number.isFinite(rawSpeechRate) && rawSpeechRate >= 0.8 && rawSpeechRate <= 1.2
       ? Math.round(rawSpeechRate * 10) / 10
       : 1;
-  const selectedVoice =
-    source.selected_voice === "michael" ||
-    source.selected_voice === "emma" ||
-    source.selected_voice === "isabella"
-      ? source.selected_voice
-      : "adam";
   const microphoneMode =
     source.microphone_mode === "toggle" ? "toggle" : "push_to_talk";
   return {
@@ -303,7 +348,7 @@ function normalizeRosieSettings(raw: unknown): RosieSettings {
     show_citations: source.show_citations !== false,
     voice_enabled: source.voice_enabled ?? legacy.voice_output_enabled ?? true,
     speak_responses: source.speak_responses ?? legacy.speak_replies ?? false,
-    selected_voice: selectedVoice,
+    selected_voice: normalizeRosieVoice(source.selected_voice),
     speech_rate: speechRate,
     microphone_enabled: source.microphone_enabled ?? legacy.voice_input_enabled ?? true,
     microphone_mode: microphoneMode,

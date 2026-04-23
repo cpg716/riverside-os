@@ -189,9 +189,10 @@ impl Default for ReceiptConfig {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum RosieVerbosity {
+    #[default]
     Concise,
     Detailed,
 }
@@ -225,12 +226,6 @@ pub struct RosieConfig {
     pub microphone_enabled: bool,
     #[serde(default = "default_rosie_microphone_mode")]
     pub microphone_mode: RosieMicrophoneMode,
-}
-
-impl Default for RosieVerbosity {
-    fn default() -> Self {
-        Self::Concise
-    }
 }
 
 impl Default for RosieConfig {

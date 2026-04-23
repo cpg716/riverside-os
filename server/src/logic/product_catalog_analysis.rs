@@ -521,7 +521,7 @@ fn unresolved_segments(title: &str, recognized: Vec<&str>) -> Vec<String> {
     }
 
     scrubbed
-        .split(|c: char| matches!(c, '-' | '/' | '|' | ',' | '(' | ')' | '[' | ']'))
+        .split(['-', '/', '|', ',', '(', ')', '[', ']'])
         .map(normalize_space)
         .filter(|segment| segment.len() >= 3)
         .filter(|segment| {

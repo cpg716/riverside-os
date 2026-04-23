@@ -5,6 +5,8 @@ import {
   DEFAULT_ROSIE_SETTINGS,
   getRosieIntelligenceStatus,
   getRosieLocalRuntimeStatus,
+  ROSIE_KOKORO_VOICE_OPTIONS,
+  ROSIE_VOICE_TEST_SENTENCE,
   type RosieSettings,
   type RosieIntelligenceStatus,
   type RosieLocalRuntimeStatus,
@@ -12,6 +14,8 @@ import {
   refreshRosieIntelligence,
   loadLocalRosieSettings,
   saveLocalRosieSettings,
+  speakRosieText,
+  stopRosieSpeechPlayback,
 } from "../../lib/rosie";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -38,6 +42,7 @@ export default function RosieSettingsPanel() {
     useState<RosieLocalRuntimeStatus | null>(null);
   const [localRuntimeBusy, setLocalRuntimeBusy] = useState(false);
   const [localRuntimeLoaded, setLocalRuntimeLoaded] = useState(false);
+  const [voicePreviewSpeaking, setVoicePreviewSpeaking] = useState(false);
 
   const effectiveSettings = useMemo(
     () => mergeRosieSettings(localSettings, storeDefaults),
@@ -128,8 +133,43 @@ export default function RosieSettingsPanel() {
     void loadLocalRuntime();
   }, [loadLocalRuntime]);
 
+  useEffect(() => {
+    return () => {
+      stopRosieSpeechPlayback();
+    };
+  }, []);
+
   const updateLocalSettings = (patch: Partial<RosieSettings>) => {
     setLocalSettings((prev) => mergeRosieSettings({ ...prev, ...patch }, null));
+  };
+
+  const testSelectedVoice = () => {
+    stopRosieSpeechPlayback();
+    setVoicePreviewSpeaking(false);
+    try {
+      speakRosieText(ROSIE_VOICE_TEST_SENTENCE, {
+        rate: localSettings.speech_rate,
+        voice: localSettings.selected_voice,
+        on_start: () => setVoicePreviewSpeaking(true),
+        on_end: () => setVoicePreviewSpeaking(false),
+        on_error: (message) => {
+          setVoicePreviewSpeaking(false);
+          toast(message, "error");
+        },
+      });
+    } catch (error) {
+      toast(
+        error instanceof Error
+          ? error.message
+          : "ROSIE could not preview the selected voice.",
+        "error",
+      );
+    }
+  };
+
+  const stopVoicePreview = () => {
+    stopRosieSpeechPlayback();
+    setVoicePreviewSpeaking(false);
   };
 
   const saveStoreDefaults = async () => {
@@ -460,21 +500,46 @@ export default function RosieSettingsPanel() {
               disabled={!localSettings.voice_enabled}
               onChange={(e) =>
                 updateLocalSettings({
-                  selected_voice:
-                    e.target.value === "michael" ||
-                    e.target.value === "emma" ||
-                    e.target.value === "isabella"
-                      ? e.target.value
-                      : "adam",
+                  selected_voice: e.target.value,
                 })
               }
               className="ui-input mt-4 w-full disabled:cursor-not-allowed disabled:opacity-50"
             >
-              <option value="adam">Adam</option>
-              <option value="michael">Michael</option>
-              <option value="emma">Emma</option>
-              <option value="isabella">Isabella</option>
+              {ROSIE_KOKORO_VOICE_OPTIONS.map((voice) => (
+                <option key={voice.value} value={voice.value}>
+                  {voice.label}
+                </option>
+              ))}
             </select>
+            <p className="mt-3 text-xs font-medium text-app-text-muted">
+              This Kokoro bundle exposes 53 speakers. Sherpa-ONNX reports the
+              speaker count, but not a full friendly-name catalog for this
+              bundle, so ROSIE shows numeric speaker IDs.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={testSelectedVoice}
+                disabled={
+                  !localSettings.voice_enabled ||
+                  localRuntimeStatus?.tts.model_present === false
+                }
+                className="ui-btn-secondary px-4 py-2 text-[11px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Test Selected Voice
+              </button>
+              <button
+                type="button"
+                onClick={stopVoicePreview}
+                disabled={!voicePreviewSpeaking}
+                className="ui-btn-secondary px-4 py-2 text-[11px] font-black uppercase tracking-widest disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Stop Preview
+              </button>
+            </div>
+            <p className="mt-3 text-xs font-medium text-app-text-muted">
+              Test sentence: {ROSIE_VOICE_TEST_SENTENCE}
+            </p>
           </label>
 
           <label className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
@@ -625,8 +690,10 @@ export default function RosieSettingsPanel() {
                 </span>
                 <span>
                   Voice:{" "}
-                  <strong className="text-app-text capitalize">
-                    {storeDefaults.voice_enabled ? `${storeDefaults.selected_voice}` : "Off"}
+                  <strong className="text-app-text">
+                    {storeDefaults.voice_enabled
+                      ? `Speaker ${storeDefaults.selected_voice}`
+                      : "Off"}
                   </strong>
                 </span>
               </div>

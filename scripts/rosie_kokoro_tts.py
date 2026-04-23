@@ -11,12 +11,21 @@ import numpy as np
 import sherpa_onnx
 
 
-VOICE_IDS = {
+VOICE_ALIASES = {
     "adam": 5,
     "michael": 6,
     "emma": 7,
     "isabella": 8,
 }
+
+DEFAULT_VOICE_ID = 5
+
+
+def resolve_speaker_id(raw_voice: str) -> int:
+    normalized = raw_voice.strip().lower()
+    if normalized.isdigit():
+        return max(0, min(52, int(normalized)))
+    return VOICE_ALIASES.get(normalized, DEFAULT_VOICE_ID)
 
 
 def write_wav(path: Path, samples: np.ndarray, sample_rate: int) -> None:
@@ -55,7 +64,7 @@ def main() -> int:
 
     model_dir = Path(args.model_dir)
     tts = build_tts(model_dir, args.provider)
-    speaker_id = VOICE_IDS.get(args.voice.strip().lower(), VOICE_IDS["adam"])
+    speaker_id = resolve_speaker_id(args.voice)
     generated = tts.generate(args.text, sid=speaker_id, speed=max(0.8, min(1.2, args.speed)))
     samples = np.asarray(generated.samples, dtype=np.float32)
     sample_rate = int(generated.sample_rate)
