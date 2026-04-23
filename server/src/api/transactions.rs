@@ -34,7 +34,6 @@ use crate::logic::pos_rms_charge;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_studio_html;
 use crate::logic::receipt_zpl;
-use crate::logic::sales_commission;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::transaction_recalc;
 use crate::logic::transaction_returns::{self, ReturnLineInput};
@@ -1255,6 +1254,13 @@ async fn mark_transaction_pickup(
             .execute(&mut *tx)
             .await?;
     }
+
+    crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
+        &mut tx,
+        transaction_id,
+        &body.delivered_item_ids,
+    )
+    .await?;
 
     // For Special/Custom transactions: the item physically arrives from the vendor and goes
     // into reserved_stock. At pickup, the item leaves the store, so we decrement both
@@ -3053,7 +3059,7 @@ async fn patch_transaction_attribution(
     .await
     .map_err(TransactionError::Database)?;
 
-    let Some((status, is_employee_purchase_order)) = order_gate else {
+    let Some((status, _is_employee_purchase_order)) = order_gate else {
         return Err(TransactionError::NotFound);
     };
 
@@ -3079,18 +3085,13 @@ async fn patch_transaction_attribution(
     #[derive(FromRow)]
     struct LineAttribRow {
         salesperson_id: Option<Uuid>,
-        unit_price: Decimal,
-        quantity: i32,
-        product_id: Uuid,
-        variant_id: Uuid,
         commission_payout_finalized_at: Option<DateTime<Utc>>,
     }
 
     for line in &body.line_attribution {
         let row: Option<LineAttribRow> = sqlx::query_as(
             r#"
-            SELECT oi.salesperson_id, oi.unit_price, oi.quantity, oi.product_id, oi.variant_id,
-                   oi.commission_payout_finalized_at
+            SELECT oi.salesperson_id, oi.commission_payout_finalized_at
             FROM transaction_lines oi
             WHERE oi.id = $1 AND oi.transaction_id = $2
             "#,
@@ -3103,10 +3104,6 @@ async fn patch_transaction_attribution(
 
         let Some(LineAttribRow {
             salesperson_id: prior_sp,
-            unit_price,
-            quantity: qty,
-            product_id,
-            variant_id,
             commission_payout_finalized_at,
         }) = row
         else {
@@ -3129,29 +3126,12 @@ async fn patch_transaction_attribution(
 
         line_attribution_changes += 1;
 
-        let new_comm = sales_commission::commission_for_line(
+        crate::logic::commission_recalc::recalc_transaction_line_commission(
             &mut tx,
-            unit_price,
-            qty,
+            transaction_id,
+            line.transaction_line_id,
             line.salesperson_id,
-            product_id,
-            variant_id,
-            is_employee_purchase_order,
         )
-        .await?;
-
-        sqlx::query(
-            r#"
-            UPDATE transaction_lines
-            SET salesperson_id = $1, calculated_commission = $2
-            WHERE id = $3 AND transaction_id = $4
-            "#,
-        )
-        .bind(line.salesperson_id)
-        .bind(new_comm)
-        .bind(line.transaction_line_id)
-        .bind(transaction_id)
-        .execute(&mut *tx)
         .await
         .map_err(TransactionError::Database)?;
 

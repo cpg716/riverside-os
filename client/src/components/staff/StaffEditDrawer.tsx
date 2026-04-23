@@ -60,6 +60,14 @@ function decimalFromPctInput(s: string): number | null {
   return v / 100;
 }
 
+function todayYmd(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
 export default function StaffEditDrawer({
   staff,
   open,
@@ -88,6 +96,11 @@ export default function StaffEditDrawer({
 
   const [basePct, setBasePct] = useState("");
   const [maxDiscountPct, setMaxDiscountPct] = useState("");
+  const [commissionEffectiveDate, setCommissionEffectiveDate] = useState(
+    todayYmd(),
+  );
+  const [recalculateEligibleCommission, setRecalculateEligibleCommission] =
+    useState(true);
 
   const [employmentStart, setEmploymentStart] = useState("");
   const [employmentEnd, setEmploymentEnd] = useState("");
@@ -130,6 +143,8 @@ export default function StaffEditDrawer({
     setAvatarKey(staff.avatar_key?.trim() || "ros_default");
     setBasePct(pctFromDecimal(staff.base_commission_rate));
     setMaxDiscountPct(String(staff.max_discount_percent ?? "30"));
+    setCommissionEffectiveDate(todayYmd());
+    setRecalculateEligibleCommission(true);
     setEmploymentStart(staff.employment_start_date?.slice(0, 10) ?? "");
     setEmploymentEnd(staff.employment_end_date?.slice(0, 10) ?? "");
     setEmployeeCustomerId(staff.employee_customer_id ?? null);
@@ -166,6 +181,15 @@ export default function StaffEditDrawer({
         employment_start_date: employmentStart.trim() || null,
         employment_end_date: employmentEnd.trim() || null,
       };
+
+      const baseChanged =
+        base !== decimalFromPctInput(pctFromDecimal(staff.base_commission_rate));
+      if (baseChanged) {
+        payload.commission_effective_start_date =
+          commissionEffectiveDate.trim() || todayYmd();
+        payload.recalculate_commissions_from_effective_date =
+          recalculateEligibleCommission;
+      }
 
       if (staff.id === "NEW") {
         payload.cashier_code = newPin.trim();
@@ -279,6 +303,15 @@ export default function StaffEditDrawer({
     }
     return m;
   }, []);
+
+  const baseRateChanged = useMemo(() => {
+    const original = decimalFromPctInput(
+      pctFromDecimal(staff.base_commission_rate),
+    );
+    const current = decimalFromPctInput(basePct);
+    if (original == null || current == null) return false;
+    return original !== current;
+  }, [basePct, staff.base_commission_rate]);
 
   return (
     <DetailDrawer
@@ -540,6 +573,52 @@ export default function StaffEditDrawer({
                       </p>
                     </label>
                   </div>
+
+                  {baseRateChanged ? (
+                    <div className="rounded-2xl border border-indigo-400/30 bg-indigo-500/10 p-4 space-y-4">
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-[0.2em] text-indigo-200">
+                          Commission change timing
+                        </p>
+                        <p className="mt-1 text-[11px] text-app-text-muted">
+                          Commission payouts follow fulfillment. Choose when this
+                          new rate starts, and whether Riverside should
+                          reconcile eligible unfinalized lines from that date.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <label className="block">
+                          <span className="text-[9px] font-black uppercase text-indigo-300/60 mb-1 block">
+                            New rate starts on
+                          </span>
+                          <input
+                            type="date"
+                            value={commissionEffectiveDate}
+                            onChange={(e) =>
+                              setCommissionEffectiveDate(e.target.value)
+                            }
+                            className="ui-input w-full text-sm font-bold text-white bg-indigo-950/20 border-indigo-500/30"
+                          />
+                        </label>
+                        <label className="flex items-start gap-3 rounded-xl border border-app-border bg-app-surface/60 px-4 py-3">
+                          <input
+                            type="checkbox"
+                            checked={recalculateEligibleCommission}
+                            onChange={(e) =>
+                              setRecalculateEligibleCommission(
+                                e.target.checked,
+                              )
+                            }
+                            className="mt-1 h-4 w-4 rounded border-app-border text-app-accent"
+                          />
+                          <span className="text-[11px] text-app-text-muted">
+                            Recalculate unfinalized commission lines from this
+                            date. Finalized payouts stay locked.
+                          </span>
+                        </label>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               </section>
             </div>

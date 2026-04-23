@@ -41,6 +41,12 @@ interface CommissionLineRow {
   is_finalized: boolean;
 }
 
+interface CommissionStaffRow {
+  id: string;
+  full_name: string;
+  role?: string;
+}
+
 function chip(
   active: boolean,
   label: string,
@@ -79,6 +85,8 @@ export default function CommissionPayoutsPanel() {
   const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
   const [traceLineId, setTraceLineId] = useState<string | null>(null);
+  const [staffRoster, setStaffRoster] = useState<CommissionStaffRow[]>([]);
+  const [selectedStaffId, setSelectedStaffId] = useState("");
 
   const commissionRowKey = useCallback((r: CommissionLedgerRow) => {
     return r.staff_id ?? COMMISSION_UNASSIGNED;
@@ -130,9 +138,44 @@ export default function CommissionPayoutsPanel() {
     setCommissionTo(setLocalYmd(end));
   };
 
+  const applyPriorMonthWindow = () => {
+    const now = new Date();
+    const firstOfThisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const firstOfPriorMonth = new Date(
+      firstOfThisMonth.getFullYear(),
+      firstOfThisMonth.getMonth() - 1,
+      1,
+    );
+    const lastOfPriorMonth = new Date(
+      firstOfThisMonth.getFullYear(),
+      firstOfThisMonth.getMonth(),
+      0,
+    );
+    setCommissionFrom(setLocalYmd(firstOfPriorMonth));
+    setCommissionTo(setLocalYmd(lastOfPriorMonth));
+  };
+
   useEffect(() => {
     void loadCommissions();
   }, [loadCommissions]);
+
+  useEffect(() => {
+    const loadRoster = async () => {
+      try {
+        const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
+        if (!res.ok) throw new Error("Could not load staff roster");
+        const rows = (await res.json()) as CommissionStaffRow[];
+        setStaffRoster(
+          rows.filter(
+            (row) => !row.role || row.role === "salesperson" || row.role === "admin",
+          ),
+        );
+      } catch {
+        setStaffRoster([]);
+      }
+    };
+    void loadRoster();
+  }, []);
 
   const toggleCommissionRow = (r: CommissionLedgerRow) => {
     const k = commissionRowKey(r);
@@ -152,6 +195,14 @@ export default function CommissionPayoutsPanel() {
     }
     return tCents / 100;
   }, [commissionRows, commissionSelected, commissionRowKey]);
+
+  const filteredRows = useMemo(() => {
+    if (!selectedStaffId.trim()) return commissionRows;
+    return commissionRows.filter((row) => row.staff_id === selectedStaffId);
+  }, [commissionRows, selectedStaffId]);
+
+  const selectedStaffName =
+    staffRoster.find((row) => row.id === selectedStaffId)?.full_name ?? "Selected staff";
 
   const finalizeCommissionPayout = useCallback(() => {
     const staff_ids = [...commissionSelected].filter(
@@ -247,6 +298,21 @@ export default function CommissionPayoutsPanel() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <label className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
+              Staff
+              <select
+                value={selectedStaffId}
+                onChange={(e) => setSelectedStaffId(e.target.value)}
+                className="ui-input px-2 py-1 font-sans text-[11px]"
+              >
+                <option value="">All staff</option>
+                {staffRoster.map((row) => (
+                  <option key={row.id} value={row.id}>
+                    {row.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-tight text-app-text-muted">
               From
               <input
                 type="date"
@@ -279,6 +345,7 @@ export default function CommissionPayoutsPanel() {
           </span>
           {chip(false, "Last 14 days", () => applyPayoutDayWindow(14, 0))}
           {chip(false, "Prior 14 days", () => applyPayoutDayWindow(14, 14))}
+          {chip(false, "Prior month payroll", applyPriorMonthWindow)}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border/80 pt-3">
           <p className="text-[11px] text-app-text-muted">
@@ -319,7 +386,7 @@ export default function CommissionPayoutsPanel() {
             </tr>
           </thead>
           <tbody className="divide-y divide-app-border">
-            {commissionRows.map((r) => {
+            {filteredRows.map((r) => {
               const k = commissionRowKey(r);
               const isExpanded = expandedStaffId === k;
               const pendCents = parseMoneyToCents(
@@ -390,19 +457,44 @@ export default function CommissionPayoutsPanel() {
                 </Fragment>
               );
             })}
-            {!loading && commissionRows.length === 0 ? (
+            {!loading && filteredRows.length === 0 ? (
               <tr>
                 <td
                   colSpan={5}
                   className="px-4 py-8 text-center text-app-text-muted"
                 >
-                  No commission movement in range.
+                  {selectedStaffId
+                    ? "No commission movement for this staff member in range."
+                    : "No commission movement in range."}
                 </td>
               </tr>
             ) : null}
           </tbody>
         </table>
       </div>
+
+      {selectedStaffId ? (
+        <div className="ui-card">
+          <div className="border-b border-app-border px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Staff report
+            </p>
+            <p className="mt-1 text-sm font-semibold text-app-text">
+              {selectedStaffName}
+            </p>
+            <p className="mt-1 text-[11px] text-app-text-muted">
+              This staff-level line report still runs even when the payout
+              summary table has no visible row for the selected window.
+            </p>
+          </div>
+          <CommissionDrillDown
+            staffId={selectedStaffId}
+            from={commissionFrom}
+            to={commissionTo}
+            onTrace={(id) => setTraceLineId(id)}
+          />
+        </div>
+      ) : null}
 
       {showFinalizeConfirm ? (
         <ConfirmationModal

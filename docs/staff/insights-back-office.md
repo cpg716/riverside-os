@@ -53,9 +53,17 @@ Give **staff-class** Metabase credentials to floor teams; reserve **admin-class*
 **Purpose:** **Finalize** realized commission for selected staff (and optional **unassigned** lines) for a date window. This is **payroll-sensitive**.
 
 1. **Staff** → **Commission payouts** (unlock **Staff** with your code if prompted).
-2. Set **From** / **To** (or use **Last 14 days** / **Prior 14 days** presets), then **Refresh**.
-3. Select rows that have **Realized (pending)** amounts you are paying out.
-4. Confirm **Selected pending payout**, then **Finalize payout** and complete the confirmation modal.
+2. Set **From** / **To** (or use **Last 14 days**, **Prior 14 days**, or **Prior month payroll**), then **Refresh**.
+3. Optional: pick a **Staff** member to run a staff-level report even if the summary ledger is empty.
+4. Review **Realized (pending)** amounts for the recognition window. Riverside uses **fulfillment / pickup / shipping recognition**, not booking, for payout timing.
+5. Select rows you are paying, confirm **Selected pending payout**, then **Finalize payout** and complete the confirmation modal.
+
+### Effective-dated commission changes
+
+- Staff base commission changes now require a **start date**.
+- Riverside can reconcile **eligible unfinalized** commission lines from that date.
+- Finalized payouts stay locked.
+- Salesperson attribution changes continue to recalculate immediately for eligible unfinalized lines.
 
 **Category commission rates** (per product category) are edited under **Staff** → **Commission** — not here.
 

@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-04-23T17:39:48.420Z",
+  "generated_at": "2026-04-23T19:01:03.648Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 52,
-  "draft_manual_count": 113,
+  "published_manual_count": 53,
+  "draft_manual_count": 112,
   "manuals": [
     {
       "id": "pos",
@@ -5789,7 +5789,7 @@
     {
       "id": "staff-commission-payouts-panel",
       "title": "Commission Payouts Panel (staff)",
-      "status": "draft",
+      "status": "approved",
       "source_path": "client/src/assets/docs/staff-commission-payouts-panel-manual.md",
       "required_buckets": [
         {
@@ -5825,10 +5825,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 5,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },

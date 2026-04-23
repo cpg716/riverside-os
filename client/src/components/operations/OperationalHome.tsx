@@ -219,7 +219,13 @@ interface WeatherForecastPayload {
   source?: string;
 }
 
-function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
+function WeatherDashboardWidget({
+  refreshSignal,
+  compact = false,
+}: {
+  refreshSignal: number;
+  compact?: boolean;
+}) {
   const [forecast, setForecast] = useState<WeatherForecastPayload | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -256,10 +262,66 @@ function WeatherDashboardWidget({ refreshSignal }: { refreshSignal: number }) {
   const Icon = isSnow ? Snowflake : isRain ? CloudRain : isCloudy ? Cloud : Sun;
 
 
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          "relative min-w-[280px] max-w-[420px] flex-1 overflow-hidden rounded-2xl border border-app-border bg-app-surface/90 px-4 py-3 shadow-sm",
+          "bg-gradient-to-r from-app-surface to-app-surface/60"
+        )}
+      >
+        <div className="relative z-10 flex items-center justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-app-accent/20 bg-app-accent/10 text-app-accent">
+              <Icon size={22} />
+            </div>
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[9px] font-black uppercase tracking-[0.16em] text-app-text-muted">
+                  Buffalo, NY
+                </span>
+                <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                {forecast?.source === "mock" ? (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                    Mock Weather
+                  </span>
+                ) : null}
+              </div>
+              <div className="mt-1 flex items-baseline gap-2">
+                <h3 className="text-2xl font-black leading-none text-app-text">
+                  {current != null ? `${current.temp.toFixed(0)}°` : `${today.temp_high.toFixed(0)}°`}
+                </h3>
+                <span className="truncate text-xs font-semibold text-app-text-muted">
+                  {condition.charAt(0).toUpperCase() + condition.slice(1)}
+                </span>
+              </div>
+              <p className="mt-1 truncate text-[11px] font-medium text-app-text-muted">
+                Today {today.temp_high.toFixed(0)}° / {today.temp_low.toFixed(0)}° · Tomorrow {tomorrow.temp_high.toFixed(0)}°
+              </p>
+            </div>
+          </div>
+
+          <div className="hidden shrink-0 items-center gap-3 rounded-xl border border-app-border bg-app-bg/50 px-3 py-2 lg:flex">
+            <div>
+              <p className="text-[8px] font-black uppercase tracking-[0.16em] text-app-text-muted">Tomorrow</p>
+              <p className="mt-1 text-sm font-black text-app-text">{tomorrow.temp_high.toFixed(0)}°</p>
+            </div>
+            <div className="h-7 w-px bg-app-border" />
+            <div className="flex flex-col items-center gap-1 opacity-40">
+              <Wind size={12} />
+              <ThermometerSun size={12} />
+            </div>
+          </div>
+        </div>
+        <div className="absolute -right-8 -top-8 size-24 rounded-full bg-app-accent/5 blur-2xl" />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
-        "relative mb-8 rounded-2xl border border-app-border bg-app-surface p-6 shadow-sm overflow-hidden",
+        "relative rounded-2xl border border-app-border bg-app-surface p-6 shadow-sm overflow-hidden",
         "bg-gradient-to-br from-app-surface to-app-surface/50"
       )}
     >
@@ -879,11 +941,12 @@ export default function OperationalHome({
   const renderDashboard = () => (
     <div className="space-y-8 animate-in fade-in duration-500">
       
-      <div className="flex flex-wrap items-center justify-between gap-6 mb-8">
+      <div className="mb-8 flex flex-wrap items-center gap-6">
         <div className="space-y-1">
           <h2 className="text-3xl font-bold tracking-tight text-app-text">Operations Overview</h2>
           <p className="text-sm font-medium text-app-text-muted">Real-time snapshots of your store operations</p>
         </div>
+        <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
         <div className="flex items-center gap-3">
            <div className="h-2 w-2 rounded-full bg-emerald-500" />
            <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Live Dashboard Active</span>
@@ -1144,8 +1207,6 @@ export default function OperationalHome({
 
         {/* Floor Management */}
         <div className="xl:col-span-4 space-y-6">
-           <WeatherDashboardWidget refreshSignal={refreshSignal} />
-
            <DashboardGridCard
              title="Team on Floor"
              subtitle="Active personnel status"

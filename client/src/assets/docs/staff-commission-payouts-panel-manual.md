@@ -2,11 +2,11 @@
 id: staff-commission-payouts-panel
 title: "Commission Payouts Panel (staff)"
 order: 1104
-summary: "Draft maintainer scaffold for client/src/components/staff/CommissionPayoutsPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Review fulfillment-based commission payouts, filter by staff, run prior-month payroll windows, and finalize only eligible unfinalized lines."
 source: client/src/components/staff/CommissionPayoutsPanel.tsx
 last_scanned: 2026-04-23
-tags: staff-commission-payouts-panel, component, auto-scaffold
-status: draft
+tags: staff-commission-payouts-panel, component, commission, payroll
+status: approved
 ---
 
 # Commission Payouts Panel (staff)
@@ -17,42 +17,35 @@ _Linked component: `client/src/components/staff/CommissionPayoutsPanel.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
-
-## When to use it
-
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use **Staff → Commission payouts** to review fulfillment-based commission, run a staff report for a selected date window, and finalize realized commission that is ready for payroll.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- You need **insights.view** to read the ledger.
+- You need **insights.commission_finalize** to finalize payouts.
+- Commission follows the **fulfillment / recognition** date, not the original booking date.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open **Staff → Commission payouts**.
+2. Choose a date window. Use **Prior month payroll** when paying the first paycheck of the new month from the previous month's fulfilled work.
+3. Optional: pick a **Staff** member to run a staff-level report even if the summary table is empty.
+4. Review **Realized (pending)** for the people or rows you are paying.
+5. Select the rows with pending payout, then choose **Finalize payout**.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- **Unpaid** is pipeline on open lines. It is not ready for payroll.
+- **Realized (pending)** is the amount eligible for payout in the recognition window.
+- **Paid out** is already finalized and locked.
+- If a staff rate changes, Riverside can reconcile eligible unfinalized lines from the chosen effective date.
+- If a salesperson changes on an eligible line, Riverside recalculates that line immediately.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+After finalize, matching commission lines move from **Realized (pending)** to **Paid out** and are no longer eligible for silent attribution or rate rewrites.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/staff-commission-payouts-panel/` and replace this example with governed screenshots.
-
-![Example](../images/help/staff-commission-payouts-panel/example.png)
-
+- Open **Staff → Commission** to manage rates, SPIFF rules, and combo incentives.
+- Open the broader Insights / Staff manual for payroll timing and permissions guidance.

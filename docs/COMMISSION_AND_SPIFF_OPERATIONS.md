@@ -11,6 +11,16 @@ The workspace is divided into three primary functional areas:
 2. **Promo Manager (Rules)**: Manage specificity-based overrides and flat SPIFF bonuses.
 3. **Combo Rewards**: Configure multi-item bundles that trigger incentives for single-salesperson transactions.
 
+## Fulfillment-based payroll rule
+
+Commission payouts follow the **fulfillment / recognition** clock, not the original booking date.
+
+- **Pickup / takeaway:** payout timing follows the fulfilled / pickup moment.
+- **Shipments:** payout timing follows the first qualifying shipment recognition event.
+- **Effective-dated staff rate changes:** Riverside can apply a new base rate from a chosen date and reconcile eligible unfinalized lines from that date.
+- **Salesperson corrections:** reassignment recalculates immediately for eligible unfinalized lines.
+- **Finalized payouts:** once a line has been paid out and finalized, Riverside preserves the locked amount and requires accounting adjustment instead of silent rewrite.
+
 ---
 
 ## Specificity Hierarchy

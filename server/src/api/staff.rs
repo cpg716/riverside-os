@@ -124,6 +124,12 @@ pub struct PatchStaffRequest {
     pub role: Option<DbStaffRole>,
     pub is_active: Option<bool>,
     pub base_commission_rate: Option<Decimal>,
+    #[serde(default)]
+    pub commission_effective_start_date: Option<NaiveDate>,
+    #[serde(default)]
+    pub recalculate_commissions_from_effective_date: Option<bool>,
+    #[serde(default)]
+    pub commission_change_note: Option<String>,
     pub phone: Option<String>,
     pub email: Option<String>,
     pub avatar_key: Option<String>,
@@ -889,7 +895,7 @@ async fn admin_patch_staff(
     headers: HeaderMap,
     Json(body): Json<PatchStaffRequest>,
 ) -> Result<Json<serde_json::Value>, StaffApiError> {
-    let _ = require_staff_with_permission(&state, &headers, STAFF_EDIT)
+    let admin = require_staff_with_permission(&state, &headers, STAFF_EDIT)
         .await
         .map_err(|_| StaffApiError::Forbidden)?;
 
@@ -976,16 +982,18 @@ async fn admin_patch_staff(
         return Err(StaffApiError::InvalidPayload("staff not found".to_string()));
     }
 
-    let current_staff: (DbStaffRole, bool, String) =
-        sqlx::query_as("SELECT role, is_active, full_name FROM staff WHERE id = $1")
-            .bind(staff_id)
-            .fetch_one(&state.db)
-            .await?;
+    let current_staff: (DbStaffRole, bool, String, Decimal) = sqlx::query_as(
+        "SELECT role, is_active, full_name, base_commission_rate FROM staff WHERE id = $1",
+    )
+    .bind(staff_id)
+    .fetch_one(&state.db)
+    .await?;
+    let (current_role, current_is_active, current_name, current_rate) = current_staff;
 
-    let next_role = body.role.unwrap_or(current_staff.0);
-    let next_is_active = body.is_active.unwrap_or(current_staff.1);
-    let admin_access_removed = current_staff.0 == DbStaffRole::Admin
-        && (next_role != DbStaffRole::Admin || !next_is_active);
+    let next_role = body.role.unwrap_or(current_role);
+    let next_is_active = body.is_active.unwrap_or(current_is_active);
+    let admin_access_removed =
+        current_role == DbStaffRole::Admin && (next_role != DbStaffRole::Admin || !next_is_active);
 
     if admin_access_removed {
         let other_active_admins: i64 = sqlx::query_scalar(
@@ -1022,7 +1030,7 @@ async fn admin_patch_staff(
         if open_register_count > 0 {
             return Err(StaffApiError::InvalidPayload(format!(
                 "cannot deactivate {} while they still own open register sessions",
-                current_staff.2
+                current_name
             )));
         }
     }
@@ -1075,6 +1083,22 @@ async fn admin_patch_staff(
     } else {
         body.employee_customer_id
     };
+    let rate_change_requested = body
+        .base_commission_rate
+        .map(|rate| rate != current_rate)
+        .unwrap_or(false);
+    let commission_effective_start_date = body
+        .commission_effective_start_date
+        .unwrap_or_else(|| Utc::now().date_naive());
+    let commission_change_note = body
+        .commission_change_note
+        .as_ref()
+        .map(|note| note.trim())
+        .filter(|note| !note.is_empty())
+        .map(ToOwned::to_owned);
+    let recalculate_commissions_from_effective_date = body
+        .recalculate_commissions_from_effective_date
+        .unwrap_or(rate_change_requested);
 
     let phone_bind = body.phone.as_ref().map(|s| {
         let t = s.trim();
@@ -1097,6 +1121,8 @@ async fn admin_patch_staff(
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
+
+    let mut tx = state.db.begin().await?;
 
     sqlx::query(
         r#"
@@ -1130,12 +1156,97 @@ async fn admin_patch_staff(
     .bind(body.employment_end_date)
     .bind(ec_apply)
     .bind(ec_value)
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+
+    let mut reconciled_line_count = 0u64;
+    if rate_change_requested {
+        let new_rate = body.base_commission_rate.unwrap_or(current_rate);
+
+        let has_history: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM staff_commission_rate_history WHERE staff_id = $1)",
+        )
+        .bind(staff_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if !has_history {
+            sqlx::query(
+                r#"
+                INSERT INTO staff_commission_rate_history (
+                    staff_id, effective_start_date, base_commission_rate, changed_by_staff_id, note
+                )
+                VALUES ($1, $2, $3, $4, $5)
+                ON CONFLICT (staff_id, effective_start_date) DO NOTHING
+                "#,
+            )
+            .bind(staff_id)
+            .bind(NaiveDate::from_ymd_opt(1900, 1, 1).expect("valid baseline date"))
+            .bind(current_rate)
+            .bind(admin.id)
+            .bind("Baseline before effective-dated commission change")
+            .execute(&mut *tx)
+            .await?;
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff_commission_rate_history (
+                staff_id, effective_start_date, base_commission_rate, changed_by_staff_id, note
+            )
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (staff_id, effective_start_date) DO UPDATE SET
+                base_commission_rate = EXCLUDED.base_commission_rate,
+                changed_by_staff_id = EXCLUDED.changed_by_staff_id,
+                note = EXCLUDED.note,
+                created_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(staff_id)
+        .bind(commission_effective_start_date)
+        .bind(new_rate)
+        .bind(admin.id)
+        .bind(commission_change_note.as_deref())
+        .execute(&mut *tx)
+        .await?;
+
+        if recalculate_commissions_from_effective_date {
+            reconciled_line_count = crate::logic::commission_recalc::recalc_staff_commissions_from(
+                &mut tx,
+                staff_id,
+                commission_effective_start_date,
+            )
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
 
     spawn_meilisearch_staff_upsert(&state, staff_id);
 
-    Ok(Json(json!({ "status": "updated" })))
+    if rate_change_requested {
+        let _ = log_staff_access(
+            &state.db,
+            admin.id,
+            "admin_staff_commission_rate_change",
+            json!({
+                "target_staff_id": staff_id,
+                "target_staff_name": current_name,
+                "prior_rate": current_rate,
+                "new_rate": body.base_commission_rate,
+                "effective_start_date": commission_effective_start_date,
+                "recalculate_commissions_from_effective_date": recalculate_commissions_from_effective_date,
+                "reconciled_line_count": reconciled_line_count,
+                "note": commission_change_note,
+            }),
+        )
+        .await;
+    }
+
+    Ok(Json(json!({
+        "status": "updated",
+        "reconciled_line_count": reconciled_line_count,
+    })))
 }
 
 async fn admin_set_pin(

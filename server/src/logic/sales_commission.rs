@@ -1,5 +1,6 @@
 //! Per-line commission snapshot on `transaction_lines.calculated_commission`.
 
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use sqlx::postgres::PgConnection;
 use uuid::Uuid;
@@ -18,6 +19,31 @@ pub async fn commission_for_line(
     variant_id: Uuid,
     is_employee_sale: bool,
 ) -> Result<Decimal, sqlx::Error> {
+    commission_for_line_at(
+        conn,
+        unit_price,
+        quantity,
+        salesperson_id,
+        product_id,
+        variant_id,
+        is_employee_sale,
+        Utc::now(),
+    )
+    .await
+}
+
+/// Effective-dated commission snapshot. Fulfillment-based recalculation paths use the line's
+/// recognition / booked timestamp instead of "right now".
+pub async fn commission_for_line_at(
+    conn: &mut PgConnection,
+    unit_price: Decimal,
+    quantity: i32,
+    salesperson_id: Option<Uuid>,
+    product_id: Uuid,
+    variant_id: Uuid,
+    is_employee_sale: bool,
+    as_of: DateTime<Utc>,
+) -> Result<Decimal, sqlx::Error> {
     if is_employee_sale {
         return Ok(Decimal::ZERO);
     }
@@ -30,12 +56,25 @@ pub async fn commission_for_line(
 
     let staff_row: Option<(Decimal, DbStaffRole)> = sqlx::query_as(
         r#"
-        SELECT base_commission_rate, role
-        FROM staff
-        WHERE id = $1 AND is_active = TRUE
+        SELECT
+            COALESCE(
+                (
+                    SELECT h.base_commission_rate
+                    FROM staff_commission_rate_history h
+                    WHERE h.staff_id = s.id
+                      AND h.effective_start_date <= $2
+                    ORDER BY h.effective_start_date DESC, h.created_at DESC
+                    LIMIT 1
+                ),
+                s.base_commission_rate
+            ) AS base_commission_rate,
+            s.role
+        FROM staff s
+        WHERE s.id = $1 AND s.is_active = TRUE
         "#,
     )
     .bind(sid)
+    .bind(as_of.date_naive())
     .fetch_optional(&mut *conn)
     .await?;
 
@@ -65,8 +104,8 @@ pub async fn commission_for_line(
         SELECT override_rate, fixed_spiff_amount
         FROM commission_rules
         WHERE is_active = TRUE
-          AND (start_date IS NULL OR start_date <= now())
-          AND (end_date IS NULL OR end_date >= now())
+          AND (start_date IS NULL OR start_date <= $4)
+          AND (end_date IS NULL OR end_date >= $4)
           AND (
             (match_type = 'variant' AND match_id = $1)
             OR (match_type = 'product' AND match_id = $2)
@@ -84,6 +123,7 @@ pub async fn commission_for_line(
     .bind(variant_id)
     .bind(product_id)
     .bind(category_id)
+    .bind(as_of.date_naive())
     .fetch_optional(&mut *conn)
     .await?;
 

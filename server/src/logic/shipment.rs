@@ -584,6 +584,15 @@ pub async fn purchase_shipment_label(
     )
     .await?;
 
+    if let Some(oid) = row.transaction_id {
+        let _ = crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
+            &mut tx,
+            oid,
+            &[],
+        )
+        .await?;
+    }
+
     tx.commit().await?;
     Ok(purchased)
 }
@@ -649,12 +658,13 @@ pub async fn patch_shipment(
     body: PatchShipmentBody,
     staff_id: Uuid,
 ) -> Result<(), ShipmentError> {
-    let _cur = get_shipment_detail(pool, shipment_id)
+    let cur = get_shipment_detail(pool, shipment_id)
         .await?
         .ok_or(ShipmentError::NotFound)?;
 
     let mut tx = pool.begin().await?;
     let mut log_bits: Vec<String> = Vec::new();
+    let mut recognition_touched = false;
 
     if let Some(ref st) = body.status {
         let st_e = parse_status(st)?;
@@ -664,6 +674,14 @@ pub async fn patch_shipment(
             .execute(&mut *tx)
             .await?;
         log_bits.push(format!("status set to {st}"));
+        if matches!(
+            st_e,
+            DbShipmentStatus::LabelPurchased
+                | DbShipmentStatus::InTransit
+                | DbShipmentStatus::Delivered
+        ) {
+            recognition_touched = true;
+        }
     }
     if let Some(ref tn) = body.tracking_number {
         sqlx::query("UPDATE shipment SET tracking_number = $2, updated_at = NOW() WHERE id = $1")
@@ -702,6 +720,17 @@ pub async fn patch_shipment(
             Some(staff_id),
         )
         .await?;
+    }
+
+    if recognition_touched {
+        if let Some(oid) = cur.transaction_id {
+            crate::logic::commission_recalc::recalc_transaction_commissions_after_fulfillment(
+                &mut tx,
+                oid,
+                &[],
+            )
+            .await?;
+        }
     }
 
     tx.commit().await?;
