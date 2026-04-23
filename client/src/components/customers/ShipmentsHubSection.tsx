@@ -4,7 +4,6 @@ import {
   Package,
   Plus,
   RefreshCw,
-  Send,
   StickyNote,
   Truck,
 } from "lucide-react";
@@ -13,6 +12,7 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { CheckCircle2 } from "lucide-react";
 
 const defaultBase = getBaseUrl();
@@ -473,9 +473,14 @@ export default function ShipmentsHubSection({
     >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-            Shipments
-          </p>
+          <div className="mb-3 flex items-center">
+            <IntegrationBrandLogo
+              brand="shippo"
+              kind="wordmark"
+              className="inline-flex rounded-2xl border border-lime-500/20 bg-white px-4 py-2 shadow-sm"
+              imageClassName="h-10 w-auto object-contain"
+            />
+          </div>
           <h2 className="text-xl font-black tracking-tight text-app-text">
             {customerIdFilter ? "Customer shipments" : "All shipments"}
           </h2>
@@ -678,7 +683,12 @@ export default function ShipmentsHubSection({
                     onClick={() => void refreshRates()}
                     className="flex w-full items-center justify-center gap-2 rounded-xl border border-app-border py-2 text-[10px] font-black uppercase tracking-widest"
                   >
-                    <Send size={14} />
+                    <IntegrationBrandLogo
+                      brand="shippo"
+                      kind="icon"
+                      className="inline-flex"
+                      imageClassName="h-4 w-4 object-contain"
+                    />
                     {ratesBusy ? "Fetching…" : "Get shipping rates"}
                   </button>
                   {rates.length > 0 ? (
@@ -713,9 +723,17 @@ export default function ShipmentsHubSection({
                     if (!rateRef && !labelUrl && !txId) return null;
                     return (
                       <div className="space-y-2 rounded-lg border border-sky-500/30 bg-sky-500/5 p-2">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Shippo label
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <IntegrationBrandLogo
+                            brand="shippo"
+                            kind="icon"
+                            className="inline-flex rounded-lg bg-white p-1 ring-1 ring-black/5"
+                            imageClassName="h-4 w-4 object-contain"
+                          />
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            Label purchase
+                          </p>
+                        </div>
                         {labelUrl ? (
                           <a
                             href={labelUrl}
@@ -735,7 +753,7 @@ export default function ShipmentsHubSection({
                           >
                             {labelPurchaseBusy
                               ? "Purchasing…"
-                              : "Buy Shippo label"}
+                              : "Buy label"}
                           </button>
                         ) : null}
                         {!rateRef && !txId ? (

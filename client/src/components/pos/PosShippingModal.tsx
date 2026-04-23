@@ -3,6 +3,7 @@ import { Truck, X } from "lucide-react";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 import type { Customer } from "./CustomerSelector";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 export interface PosShippingSelection {
   rate_quote_id: string;
@@ -337,15 +338,29 @@ export default function PosShippingModal({
             type="button"
             disabled={loading}
             onClick={() => void fetchRates()}
-            className="w-full rounded-xl border-2 border-app-border bg-app-surface-2 py-2.5 text-[11px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface disabled:opacity-50"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border-2 border-app-border bg-app-surface-2 py-2.5 text-[11px] font-black uppercase tracking-widest text-app-text hover:bg-app-surface disabled:opacity-50"
           >
+            <IntegrationBrandLogo
+              brand="shippo"
+              kind="icon"
+              className="inline-flex"
+              imageClassName="h-4 w-4 object-contain"
+            />
             {loading ? "Loading rates…" : "Get shipping rates"}
           </button>
 
           {stub && rates.length > 0 ? (
-            <p className="text-[10px] font-semibold text-amber-700">
-              Demo rates (stub). Configure Shippo in Settings for live carrier pricing.
-            </p>
+            <div className="flex items-center gap-2 text-[10px] font-semibold text-amber-700">
+              <IntegrationBrandLogo
+                brand="shippo"
+                kind="icon"
+                className="inline-flex"
+                imageClassName="h-4 w-4 object-contain"
+              />
+              <p>
+                Demo rates (stub). Configure Shippo in Settings for live carrier pricing.
+              </p>
+            </div>
           ) : null}
 
           {rates.length > 0 ? (

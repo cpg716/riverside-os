@@ -4,16 +4,19 @@ import podiumWhiteIcon from "../../assets/images/brands/Podium_White_Icon.png";
 import podiumWordmarkWhite from "../../assets/images/brands/Podium_Logo_White.jpg";
 import qboIcon from "../../assets/images/brands/QBO_icon.png";
 import qboWordmark from "../../assets/images/brands/QB_logo.png";
+import shippoIcon from "../../assets/images/brands/Shippo_Icon.png";
+import shippoWordmark from "../../assets/images/brands/Shippo_Logo.png";
 import stripeIcon from "../../assets/images/brands/Stripe_Icon.png";
 import stripeWordmark from "../../assets/images/brands/stripe_logo.png";
 
-export type IntegrationBrand = "podium" | "qbo" | "stripe";
+export type IntegrationBrand = "podium" | "qbo" | "shippo" | "stripe";
 type IntegrationBrandKind = "icon" | "wordmark";
 type IntegrationBrandTheme = "light" | "dark";
 
 const BRAND_LABELS: Record<IntegrationBrand, string> = {
   podium: "Podium",
   qbo: "QuickBooks Online",
+  shippo: "Shippo",
   stripe: "Stripe",
 };
 
@@ -27,6 +30,9 @@ function resolveSrc(
   }
   if (brand === "qbo") {
     return kind === "icon" ? qboIcon : qboWordmark;
+  }
+  if (brand === "shippo") {
+    return kind === "icon" ? shippoIcon : shippoWordmark;
   }
   if (kind === "icon") {
     return theme === "dark" ? podiumWhiteIcon : podiumBlackIcon;
