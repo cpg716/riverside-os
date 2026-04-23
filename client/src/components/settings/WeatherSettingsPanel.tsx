@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { Cloud, RefreshCw, Save } from "lucide-react";
+import { RefreshCw, Save } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 interface WeatherConfig {
   enabled: boolean;
@@ -110,6 +111,14 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="mb-10">
+        <div className="mb-4 flex items-center">
+          <IntegrationBrandLogo
+            brand="weather"
+            kind="icon"
+            className="inline-flex rounded-3xl border border-sky-500/20 bg-white p-2 shadow-sm"
+            imageClassName="h-12 w-12 rounded-2xl object-cover"
+          />
+        </div>
         <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Visual Crossing Weather</h2>
         <p className="text-sm text-app-text-muted mt-2 font-medium">Configure live weather snapshots for the dashboard and Golden Rule logs.</p>
       </header>
@@ -123,8 +132,13 @@ const WeatherSettingsPanel: React.FC<WeatherSettingsPanelProps> = ({ baseUrl }) 
       >
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500/15 text-sky-600 shadow-inner">
-              <Cloud className="h-7 w-7" aria-hidden />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-inner ring-1 ring-black/5">
+              <IntegrationBrandLogo
+                brand="weather"
+                kind="icon"
+                className="inline-flex"
+                imageClassName="h-10 w-10 rounded-2xl object-cover"
+              />
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Weather Provider Status</h3>

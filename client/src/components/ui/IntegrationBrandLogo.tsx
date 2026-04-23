@@ -16,6 +16,7 @@ import shippoIcon from "../../assets/images/brands/Shippo_Icon.png";
 import shippoWordmark from "../../assets/images/brands/Shippo_Logo.png";
 import stripeIcon from "../../assets/images/brands/Stripe_Icon.png";
 import stripeWordmark from "../../assets/images/brands/stripe_logo.png";
+import weatherIcon from "../../assets/images/brands/weather_icon.jpeg";
 
 export type IntegrationBrand =
   | "corecredit"
@@ -25,7 +26,8 @@ export type IntegrationBrand =
   | "podium"
   | "qbo"
   | "shippo"
-  | "stripe";
+  | "stripe"
+  | "weather";
 type IntegrationBrandKind = "icon" | "wordmark";
 type IntegrationBrandTheme = "light" | "dark";
 
@@ -38,6 +40,7 @@ const BRAND_LABELS: Record<IntegrationBrand, string> = {
   qbo: "QuickBooks Online",
   shippo: "Shippo",
   stripe: "Stripe",
+  weather: "Weather",
 };
 
 function resolveSrc(
@@ -59,6 +62,9 @@ function resolveSrc(
   }
   if (brand === "nuorder") {
     return kind === "icon" ? nuorderIcon : nuorderWordmark;
+  }
+  if (brand === "weather") {
+    return weatherIcon;
   }
   if (brand === "qbo") {
     return kind === "icon" ? qboIcon : qboWordmark;

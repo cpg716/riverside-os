@@ -2,6 +2,7 @@ import { getBaseUrl } from "../../lib/apiConfig";
 
 
 import {
+  createElement,
   lazy,
   Suspense,
   useState,
@@ -23,6 +24,7 @@ import {
   Monitor,
   Star,
   Save,
+  type LucideIcon,
 } from "lucide-react";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -110,6 +112,16 @@ interface SettingsWorkspaceProps {
   onPosRefreshMeta?: () => Promise<void>;
   onNavigateToTab?: (tab: string) => void;
 }
+
+type IntegrationCardItem = {
+  id: string;
+  label: string;
+  desc: string;
+  color: string;
+  icon?: LucideIcon;
+  brand?: IntegrationBrand;
+  brandKind?: "icon" | "wordmark";
+};
 
 export default function SettingsWorkspace({
   activeSection,
@@ -876,7 +888,7 @@ export default function SettingsWorkspace({
                 </header>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-                  {[
+                  {([
                     {
                       id: "meilisearch",
                       label: "Meilisearch",
@@ -896,9 +908,10 @@ export default function SettingsWorkspace({
                     {
                       id: "weather",
                       label: "Live Weather",
-                      icon: Cloud,
                       desc: "Visual Crossing snapshots",
-                      color: "bg-sky-500",
+                      color: "bg-white",
+                      brand: "weather" as IntegrationBrand,
+                      brandKind: "icon" as const,
                     },
                     {
                       id: "shippo",
@@ -940,7 +953,7 @@ export default function SettingsWorkspace({
                       brand: "stripe" as IntegrationBrand,
                       brandKind: "icon" as const,
                     },
-                  ].map((item) => (
+                  ] satisfies IntegrationCardItem[]).map((item) => (
                     <button
                       type="button"
                       key={item.id}
@@ -957,9 +970,9 @@ export default function SettingsWorkspace({
                             className="inline-flex"
                             imageClassName="max-h-10 max-w-10 rounded-md object-contain"
                           />
-                        ) : (
-                          <item.icon size={28} />
-                        )}
+                        ) : "icon" in item && item.icon ? (
+                          createElement(item.icon as LucideIcon, { size: 28 })
+                        ) : null}
                       </div>
                       <h3 className="text-sm font-black uppercase tracking-widest text-app-text mb-2">
                         {item.label}
