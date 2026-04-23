@@ -49,6 +49,28 @@ import { WEDDING_MEMBER_RETAIL_SIZE_FIELDS } from '../../customers/retailMeasure
 import CustomerSearchInput from '../../ui/CustomerSearchInput';
 import VariantSearchInput from '../../ui/VariantSearchInput';
 
+const WEDDING_WORKFLOW_STEPS = [
+    { key: 'measured', label: 'Measure' },
+    { key: 'ordered', label: 'Order' },
+    { key: 'received', label: 'Receive' },
+    { key: 'fitting', label: 'Fit' },
+    { key: 'pickup', label: 'Pickup' },
+];
+
+function buildWeddingWorkflow(member) {
+    const steps = WEDDING_WORKFLOW_STEPS.map((step) => ({
+        ...step,
+        complete: step.key === 'pickup' ? Boolean(member?.pickup) : Boolean(member?.[step.key]),
+    }));
+    const currentIndex = steps.findIndex((step) => !step.complete);
+    const activeIndex = currentIndex === -1 ? steps.length - 1 : currentIndex;
+    return {
+        steps,
+        activeIndex,
+        nextStep: currentIndex === -1 ? null : steps[currentIndex],
+    };
+}
+
 const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, onRefresh }) => {
 
 
@@ -62,6 +84,7 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
     const [financialBusy, setFinancialBusy] = useState(false);
     const [financialRow, setFinancialRow] = useState(null);
     const [financialLines, setFinancialLines] = useState([]);
+    const workflow = useMemo(() => buildWeddingWorkflow(localMember), [localMember]);
 
     // Find Party and Salesperson
     // Find Party and Salesperson
@@ -571,6 +594,52 @@ const MemberDetailModal = ({ isOpen, onClose, member, onUpdate, onAdd, parties, 
                                                 <div className="text-xs font-black uppercase leading-none">{localMember.ordered ? 'Ordered' : 'Needs Order'}</div>
                                                 {localMember.orderedDate && <div className="text-[10px] font-bold opacity-80 mt-1">{new Date(localMember.orderedDate).toLocaleDateString()}</div>}
                                             </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div>
+                                <h4 className="font-bold text-app-text mb-2 border-b border-app-border pb-1">
+                                    Member Workflow
+                                </h4>
+                                <div className="space-y-3 rounded-lg border border-app-border bg-app-surface-2 p-3">
+                                    <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
+                                        {workflow.steps.map((step, index) => {
+                                            const isCurrent = index === workflow.activeIndex && !step.complete;
+                                            const isComplete = step.complete;
+                                            return (
+                                                <div
+                                                    key={step.key}
+                                                    className={`rounded-lg border px-3 py-2 ${
+                                                        isCurrent
+                                                            ? 'border-app-accent bg-app-accent/10 text-app-text'
+                                                            : isComplete
+                                                                ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                                                : 'border-app-border bg-app-surface text-app-text-muted'
+                                                    }`}
+                                                >
+                                                    <div className="text-[10px] font-black uppercase tracking-widest opacity-75">
+                                                        Step {index + 1}
+                                                    </div>
+                                                    <div className="mt-1 text-xs font-black uppercase tracking-wide">
+                                                        {step.label}
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                    <div className="rounded-lg border border-app-border bg-app-surface p-3 text-[11px] leading-relaxed text-app-text-muted">
+                                        <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                            Next step
+                                        </div>
+                                        <div className="mt-1 font-semibold text-app-text">
+                                            {workflow.nextStep ? workflow.nextStep.label : 'Pickup complete'}
+                                        </div>
+                                        <div className="mt-1">
+                                            {workflow.nextStep
+                                                ? `${workflow.nextStep.label} is the next milestone for this member. Keep payment, appointments, receiving, and pickup work tied to this record so the lifecycle stays in order.`
+                                                : 'This member has completed the full wedding lifecycle. Use timelines and transactions below for any follow-up.'}
                                         </div>
                                     </div>
                                 </div>

@@ -2,6 +2,27 @@ import React from 'react';
 import Icon from './Icon';
 import { formatPhone } from '../lib/utils';
 
+const WEDDING_WORKFLOW_STEPS = [
+    { key: 'measured', label: 'Measure' },
+    { key: 'ordered', label: 'Order' },
+    { key: 'received', label: 'Receive' },
+    { key: 'fitting', label: 'Fit' },
+    { key: 'pickup', label: 'Pickup' },
+];
+
+function buildWeddingWorkflow(member) {
+    const steps = WEDDING_WORKFLOW_STEPS.map((step) => ({
+        ...step,
+        complete: step.key === 'pickup' ? Boolean(member?.pickup) : Boolean(member?.[step.key]),
+    }));
+    const currentIndex = steps.findIndex((step) => !step.complete);
+    return {
+        steps,
+        activeIndex: currentIndex === -1 ? steps.length - 1 : currentIndex,
+        nextStep: currentIndex === -1 ? null : steps[currentIndex],
+    };
+}
+
 const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId = {}, onMemberClick, onUpdateMember, toggleStatus, onAppointmentClick }) => {
     if (members.length === 0) {
         return (
@@ -46,6 +67,7 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                         : paymentStatus === 'PARTIAL'
                             ? 'bg-amber-100 text-amber-700'
                             : 'bg-rose-100 text-rose-700';
+                const workflow = buildWeddingWorkflow(member);
 
                 return (
                     <div key={member.id} className="bg-app-surface rounded-lg shadow-sm border border-app-border p-4 active:scale-[0.99] transition-transform duration-200">
@@ -115,6 +137,42 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                                     />
                                 </div>
                             ))}
+                        </div>
+
+                        <div className="mb-4 rounded-lg border border-app-border bg-app-surface-2 p-3">
+                            <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Member workflow
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-2">
+                                {workflow.steps.map((step, index) => {
+                                    const isCurrent = index === workflow.activeIndex && !step.complete;
+                                    const isComplete = step.complete;
+                                    return (
+                                        <div
+                                            key={step.key}
+                                            className={`rounded-lg border px-2 py-2 text-center ${
+                                                isCurrent
+                                                    ? 'border-app-accent bg-app-accent/10 text-app-text'
+                                                    : isComplete
+                                                        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                                                        : 'border-app-border bg-app-surface text-app-text-muted'
+                                            }`}
+                                        >
+                                            <div className="text-[9px] font-black uppercase tracking-widest opacity-75">
+                                                {index + 1}
+                                            </div>
+                                            <div className="mt-1 text-[10px] font-black uppercase">
+                                                {step.label}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                            <div className="mt-2 text-[11px] text-app-text-muted">
+                                {workflow.nextStep
+                                    ? `Next step: ${workflow.nextStep.label}`
+                                    : 'Lifecycle complete'}
+                            </div>
                         </div>
 
                         {/* Status Toggles Grid */}

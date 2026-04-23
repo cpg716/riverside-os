@@ -37,6 +37,30 @@ function jsonHeaders(base: Record<string, string>): HeadersInit {
 
 type Step = "load" | "return" | "done";
 
+type WorkflowStep = {
+  id: Step;
+  label: string;
+  hint: string;
+};
+
+const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
+  {
+    id: "load",
+    label: "Find original sale",
+    hint: "Load the transaction you are exchanging on this register session.",
+  },
+  {
+    id: "return",
+    label: "Record return items",
+    hint: "Enter only the quantities coming back from the original sale.",
+  },
+  {
+    id: "done",
+    label: "Sell replacements",
+    hint: "Move the customer into a replacement sale and finish checkout there.",
+  },
+];
+
 export default function PosExchangeWizard({
   open,
   onClose,
@@ -63,6 +87,11 @@ export default function PosExchangeWizard({
   const [detail, setDetail] = useState<OrderDetailLite | null>(null);
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
+  const nextWorkflowStep =
+    workflowIndex < EXCHANGE_WORKFLOW_STEPS.length - 1
+      ? EXCHANGE_WORKFLOW_STEPS[workflowIndex + 1]
+      : null;
 
   const sessionQs = `register_session_id=${encodeURIComponent(sessionId)}`;
 
@@ -204,6 +233,47 @@ export default function PosExchangeWizard({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mb-4 space-y-3 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+            <div className="grid gap-2 sm:grid-cols-3">
+              {EXCHANGE_WORKFLOW_STEPS.map((item, index) => {
+                const isCurrent = item.id === step;
+                const isComplete = index < workflowIndex;
+                return (
+                  <div
+                    key={item.id}
+                    className={`rounded-xl border px-3 py-3 ${
+                      isCurrent
+                        ? "border-app-accent bg-app-accent/10 text-app-text"
+                        : isComplete
+                          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                          : "border-app-border bg-app-surface text-app-text-muted"
+                    }`}
+                  >
+                    <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
+                      Step {index + 1}
+                    </p>
+                    <p className="mt-1 text-xs font-black uppercase tracking-wide text-current">
+                      {item.label}
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+            <div className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs text-app-text-muted">
+              <p className="text-[10px] font-black uppercase tracking-widest">
+                Current stage
+              </p>
+              <p className="mt-1 font-bold text-app-text">
+                {EXCHANGE_WORKFLOW_STEPS[workflowIndex]?.label}
+              </p>
+              <p className="mt-1 leading-relaxed">
+                {nextWorkflowStep
+                  ? `Next: ${nextWorkflowStep.label}. ${nextWorkflowStep.hint}`
+                  : "Next: continue into the replacement sale and finish the new checkout."}
+              </p>
+            </div>
+          </div>
+
           {step === "load" && (
             <div className="space-y-4">
               <p className="text-xs text-app-text-muted">
@@ -232,6 +302,9 @@ export default function PosExchangeWizard({
               <p className="text-xs font-bold text-app-text">
                 Order <span className="font-mono">{detail.order_id.slice(0, 8)}…</span>
               </p>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[11px] leading-relaxed text-app-text-muted">
+                Step 2 records the items coming back first. Once the return is saved, the next screen sends you straight into the replacement sale.
+              </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] leading-relaxed text-app-text-muted">
                 <p className="font-black uppercase tracking-widest text-app-text">Order totals</p>
                 <p className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">

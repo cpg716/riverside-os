@@ -283,6 +283,10 @@ test.describe("POS exchange wizard", () => {
     await expect(page.getByTestId("pos-exchange-wizard-dialog")).toBeVisible({
       timeout: 15_000,
     });
+    await expect(page.getByText(/find original sale/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/record return items/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/sell replacements/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/next: record return items/i)).toBeVisible({ timeout: 10_000 });
   });
 
   test("returned quantity stays in sync across totals, refund queue, and receipt output", async ({
