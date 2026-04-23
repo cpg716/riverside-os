@@ -2131,7 +2131,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
- "uuid 1.23.0",
+ "uuid 1.23.1",
  "wasm-bindgen-futures",
  "web-sys",
  "yaup",
@@ -2346,7 +2346,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "url",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -3226,7 +3226,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "urlencoding",
- "uuid 1.23.0",
+ "uuid 1.23.1",
  "wiremock",
 ]
 
@@ -3245,7 +3245,7 @@ dependencies = [
  "rkyv_derive",
  "seahash",
  "tinyvec",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -3766,7 +3766,7 @@ dependencies = [
  "tokio-stream",
  "tracing",
  "url",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -3848,7 +3848,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.18",
  "tracing",
- "uuid 1.23.0",
+ "uuid 1.23.1",
  "whoami",
 ]
 
@@ -3888,7 +3888,7 @@ dependencies = [
  "stringprep",
  "thiserror 2.0.18",
  "tracing",
- "uuid 1.23.0",
+ "uuid 1.23.1",
  "whoami",
 ]
 
@@ -3915,7 +3915,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tracing",
  "url",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -4252,7 +4252,7 @@ dependencies = [
  "num-traits",
  "tokio",
  "tracing",
- "uuid 1.23.0",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -4638,9 +4638,9 @@ dependencies = [
 
 [[package]]
 name = "uuid"
-version = "1.23.0"
+version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ac8b6f42ead25368cf5b098aeb3dc8a1a2c05a3eee8a9a1a68c640edbfc79d9"
+checksum = "ddd74a9687298c6858e9b88ec8935ec45d22e8fd5e6394fa1bd4e99a87789c76"
 dependencies = [
  "getrandom 0.4.2",
  "js-sys",
