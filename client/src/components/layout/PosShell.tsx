@@ -71,7 +71,9 @@ interface PosShellProps {
   handleSessionClosed: () => void;
   refreshOpenSessionMeta: () => Promise<void>;
   onRegisterReconcilingBegun: () => void;
+  onRegisterTransactionCommitted: () => void;
   onOpenWeddingParty?: (partyId: string) => void;
+  refreshSignal: number;
   receiptTimezone: string;
   collapsed: boolean;
   onToggleCollapse: () => void;
@@ -105,7 +107,9 @@ export default function PosShell({
   handleSessionClosed,
   refreshOpenSessionMeta,
   onRegisterReconcilingBegun,
+  onRegisterTransactionCommitted,
   onOpenWeddingParty,
+  refreshSignal,
   receiptTimezone,
   collapsed,
   onToggleCollapse,
@@ -300,6 +304,7 @@ export default function PosShell({
                     onOpenWeddingParty?.(id);
                   }}
                   onSaleCompleted={() => setActivePosTab("register")}
+                  onRegisterTransactionCommitted={onRegisterTransactionCommitted}
                   onExitPosMode={onExitPosMode}
                 />
               ) : null}
@@ -398,6 +403,7 @@ export default function PosShell({
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Order Hub...</div>}>
                 <OrdersWorkspace 
                   activeSection="open"
+                  refreshSignal={refreshSignal}
                   onOpenInRegister={(orderId) => {
                     setPendingPosTransactionId(orderId);
                     clearPendingPosCustomer();

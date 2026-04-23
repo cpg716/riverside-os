@@ -426,7 +426,7 @@ function App() {
       }
 
       // 2. Specific item focus (Orders, Alterations, POs, QBO log)
-      const orderId = linkStr(link, "order_id");
+      const orderId = linkStr(link, "order_id") || linkStr(link, "transaction_id");
       if (t === "order" && orderId) {
         setTransactionsDeepLinkTxnId(orderId);
         setActiveTab("orders");
@@ -1247,9 +1247,11 @@ function AppShell({
             handleSessionClosed={handleSessionClosed}
             refreshOpenSessionMeta={refreshOpenSessionMeta}
             onRegisterReconcilingBegun={onRegisterReconcilingBegun}
+            onRegisterTransactionCommitted={triggerDashboardRefresh}
             onOpenWeddingParty={(partyId: string) => navigateWedding(partyId)}
             pendingWmPartyId={pendingWmPartyId}
             onClearPendingWmPartyId={onClearPendingWmPartyId}
+            refreshSignal={refreshSignal}
           />
 
         ) : insightsMode ? (
@@ -1736,6 +1738,7 @@ function AppMainColumn({
                   return (
                     <OrdersWorkspace
                       activeSection={activeSubSection}
+                      refreshSignal={refreshSignal}
                       deepLinkTxnId={transactionsDeepLinkTxnId}
                       onDeepLinkTxnConsumed={onTransactionsDeepLinkConsumed}
                       onOpenInRegister={(orderId) => {

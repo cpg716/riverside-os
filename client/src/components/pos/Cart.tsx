@@ -140,6 +140,7 @@ interface CartProps {
   onInitialWeddingPosLinkConsumed?: () => void;
   /** After checkout succeeds (cart cleared); e.g. switch POS shell back to Register for next sale sign-in. */
   onSaleCompleted?: () => void;
+  onRegisterTransactionCommitted?: () => void;
   onExitPosMode?: () => void;
   pendingInventorySku?: string | null;
   onPendingInventorySkuConsumed?: () => void;
@@ -165,6 +166,7 @@ export default function Cart({
   initialWeddingPosLink = null,
   onInitialWeddingPosLinkConsumed,
   onSaleCompleted,
+  onRegisterTransactionCommitted,
   onExitPosMode,
   onCartInteraction,
   receiptTimezone: receiptTimezoneProp,
@@ -458,8 +460,9 @@ export default function Cart({
     if (checkoutTransactionId) {
       setLastTransactionId(checkoutTransactionId);
       setCheckoutDrawerOpen(false);
+      onRegisterTransactionCommitted?.();
     }
-  }, [checkoutTransactionId]);
+  }, [checkoutTransactionId, onRegisterTransactionCommitted]);
 
   // --- Parked Sales Hook ---
   const {

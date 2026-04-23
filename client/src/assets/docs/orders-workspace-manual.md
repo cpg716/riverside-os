@@ -17,7 +17,10 @@ The Orders workspace is the main place to review non-takeaway orders.
 - Review open or closed orders.
 - Filter by **Order**, **Custom**, **Wedding**, or **Layaway**.
 - Open an order to see items, balances, and available actions.
+- Open an order to see pickup versus shipping mode, remaining work, fulfilled work, and release-blocking balance cues at a glance.
+- Edit an open order line directly in the drawer when staff only need to adjust quantity, unit price, or fulfillment without leaving the workspace.
 - Open an order in POS when staff need to review it from the register or copy its unfulfilled lines into a new sale.
+- After Register checkout activity, reopen the order or return to Orders to see the latest authoritative order data instead of a stale snapshot.
 - Use the `Order Integrity` summary at the top of the workspace to quickly see which visible orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
 
 ## Order Lifecycle

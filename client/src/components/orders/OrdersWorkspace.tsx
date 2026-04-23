@@ -123,6 +123,17 @@ interface OrderRowActions {
   onReturnAll: () => void;
   deleteLine: (it: OrderItem) => void;
   addBySku: () => void;
+  updateLine: (
+    item: Pick<
+      OrderItem,
+      "transaction_line_id" | "sku" | "product_name" | "quantity" | "unit_price" | "fulfillment"
+    >,
+    patch: {
+      quantity?: number;
+      unit_price?: string;
+      fulfillment?: FulfillmentKind;
+    },
+  ) => Promise<void>;
   setSku: (s: string) => void;
   sku: string;
   canModify: boolean;
@@ -239,12 +250,14 @@ export default function OrdersWorkspace({
   onOpenInRegister,
   deepLinkTxnId = null,
   onDeepLinkTxnConsumed,
+  refreshSignal = 0,
 }: {
   activeSection?: string;
   onOpenInRegister?: (orderId: string) => void;
   /** When set, selects this order in the list and opens detail (e.g. from CRM hub). */
   deepLinkTxnId?: string | null;
   onDeepLinkTxnConsumed?: () => void;
+  refreshSignal?: number;
 }) {
   const section: Section = activeSection === "all" ? "all" : "open";
   const baseUrl = getBaseUrl();
@@ -445,6 +458,15 @@ export default function OrdersWorkspace({
     setRefundTargetOrderId(selectedId);
   }, [selectedId, loadDetail]);
 
+  useEffect(() => {
+    if (refreshSignal === 0) return;
+    void loadPipelineStats();
+    void loadTransactions();
+    if (selectedId) {
+      void loadDetail(selectedId);
+    }
+  }, [loadDetail, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
+
   const addBySku = async () => {
     if (!detail || !sku.trim() || !canModify) return;
     const scanRes = await fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(sku.trim())}`, {
@@ -516,6 +538,59 @@ export default function OrdersWorkspace({
     await loadDetail(detail.transaction_id);
     await loadTransactions();
   };
+
+  const updateLine = useCallback(
+    async (
+      item: Pick<
+        OrderItem,
+        "transaction_line_id" | "sku" | "product_name" | "quantity" | "unit_price" | "fulfillment"
+      >,
+      patch: {
+        quantity?: number;
+        unit_price?: string;
+        fulfillment?: FulfillmentKind;
+      },
+    ) => {
+      if (!detail || !canModify || !item.transaction_line_id) return;
+      const body: {
+        quantity?: number;
+        unit_price?: string;
+        fulfillment?: FulfillmentKind;
+      } = {};
+      if (patch.quantity !== undefined) {
+        body.quantity = patch.quantity;
+      }
+      if (patch.unit_price !== undefined) {
+        body.unit_price = centsToFixed2(parseMoneyToCents(patch.unit_price));
+      }
+      if (patch.fulfillment !== undefined) {
+        body.fulfillment = patch.fulfillment;
+      }
+      if (
+        body.quantity === undefined &&
+        body.unit_price === undefined &&
+        body.fulfillment === undefined
+      ) {
+        return;
+      }
+      const res = await fetch(
+        `${baseUrl}/api/transactions/${detail.transaction_id}/items/${item.transaction_line_id}`,
+        {
+          method: "PATCH",
+          headers: jsonHeaders(backofficeHeaders),
+          body: JSON.stringify(body),
+        },
+      );
+      if (!res.ok) {
+        const b = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(b.error ?? "We couldn't save that line. Please try again.");
+      }
+      toast(`${item.product_name} updated.`, "success");
+      await loadDetail(detail.transaction_id);
+      await loadTransactions();
+    },
+    [backofficeHeaders, baseUrl, canModify, detail, loadDetail, loadTransactions, toast],
+  );
 
   /** applyReturns is used in ConfirmationModal or similar, if unused prefix with _ */
   const _applyReturns = async () => {
@@ -814,6 +889,7 @@ export default function OrdersWorkspace({
                       onReturnAll: () => setReturnConfirmOpen(true),
                       deleteLine: (it: OrderItem) => void deleteLine(it),
                       addBySku: () => void addBySku(),
+                      updateLine,
                       setSku,
                       sku,
                       canModify,
@@ -965,6 +1041,7 @@ export default function OrdersWorkspace({
           onProcessRefund: () => setRefundModalOpen(true),
           deleteLine: (it) => void deleteLine(it),
           addBySku: () => void addBySku(),
+          updateLine,
           setSku,
           sku,
           canModify,

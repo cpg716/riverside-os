@@ -33,8 +33,13 @@ This is especially important for special orders, custom work, and wedding-linked
 
 1. Open the transaction from Orders or a related customer/order surface.
 2. Review the rule summary first so you know whether you are looking at payment state, readiness state, or both.
-3. Use the financial summary to confirm total, paid amount, deposits, and balance due.
-4. Use the order timeline to confirm what changed and who touched the order.
+3. Use the top fulfillment summary chips to confirm whether the order is pickup or shipping, whether work is still open, and whether balance still blocks release.
+4. Use the financial summary to confirm total, paid amount, deposits, and balance due.
+5. In the Items section, review `Still Open` versus `Already Fulfilled` so remaining work and completed work do not blend together.
+6. Use `Edit` on an open line when you need to adjust quantity, unit price, or fulfillment using the existing audited order-line contract.
+7. Save or cancel the line edit before moving on. The drawer refreshes the order detail and timeline after a successful save.
+8. If the order was sent to Register and staff completed register work, reopen the drawer from Orders to recheck the latest authoritative transaction state.
+9. Use the order timeline to confirm what changed and who touched the order.
 
 ## Rule reminders
 

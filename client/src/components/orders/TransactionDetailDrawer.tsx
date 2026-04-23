@@ -116,12 +116,43 @@ export interface TransactionDrawerOrderActions {
     fulfillment: FulfillmentKind;
   }) => void;
   addBySku?: () => void;
+  updateLine?: (
+    item: {
+      transaction_line_id: string;
+      sku: string;
+      product_name: string;
+      quantity: number;
+      unit_price: string;
+      fulfillment: FulfillmentKind;
+    },
+    patch: {
+      quantity?: number;
+      unit_price?: string;
+      fulfillment?: FulfillmentKind;
+    },
+  ) => Promise<void>;
   setSku?: (sku: string) => void;
   sku?: string;
   canModify?: boolean;
   canAttemptCancel?: boolean;
   canRefund?: boolean;
 }
+
+type EditableFulfillmentKind = Extract<
+  FulfillmentKind,
+  "special_order" | "custom" | "wedding_order" | "layaway" | "takeaway"
+>;
+
+const EDITABLE_FULFILLMENT_OPTIONS: Array<{
+  value: EditableFulfillmentKind;
+  label: string;
+}> = [
+  { value: "special_order", label: "Order" },
+  { value: "custom", label: "Custom" },
+  { value: "wedding_order", label: "Wedding" },
+  { value: "layaway", label: "Layaway" },
+  { value: "takeaway", label: "Takeaway" },
+];
 
 interface TransactionDetailDrawerProps {
   orderId: string | null;
@@ -245,12 +276,111 @@ function orderKindLabel(detail: TransactionDrawerDetail): string {
 
 function fulfillmentSummary(detail: TransactionDrawerDetail) {
   const customerVisibleItems = detail.items.filter((item) => !item.is_internal);
-  const fulfilled = customerVisibleItems.filter((item) => item.is_fulfilled).length;
-  const pending = customerVisibleItems.length - fulfilled;
+  const fulfilledItems = customerVisibleItems.filter((item) => item.is_fulfilled);
+  const pendingItems = customerVisibleItems.filter((item) => !item.is_fulfilled);
+  const fulfilled = fulfilledItems.length;
+  const pending = pendingItems.length;
   return {
     total: customerVisibleItems.length,
     fulfilled,
     pending,
+    fulfilledUnits: fulfilledItems.reduce((sum, item) => sum + item.quantity, 0),
+    pendingUnits: pendingItems.reduce((sum, item) => sum + item.quantity, 0),
+    returnedUnits: customerVisibleItems.reduce(
+      (sum, item) => sum + (item.quantity_returned ?? 0),
+      0,
+    ),
+  };
+}
+
+function modeSummary(detail: TransactionDrawerDetail): {
+  modeLabel: string;
+  modeDetail: string;
+} {
+  if (detail.fulfillment_method === "ship") {
+    return {
+      modeLabel: "Shipping Order",
+      modeDetail: detail.tracking_number
+        ? "Shipping flow is active and a tracking number is on file."
+        : "Shipping flow is active. Confirm address, label, and carrier progress.",
+    };
+  }
+  return {
+    modeLabel: "Pickup Order",
+    modeDetail: "Pickup release still depends on readiness, not just payment status.",
+  };
+}
+
+function readinessSummary(
+  detail: TransactionDrawerDetail,
+  summary: ReturnType<typeof fulfillmentSummary>,
+): {
+  readinessLabel: string;
+  readinessTone: "success" | "warning" | "info";
+  remainingWorkLabel: string;
+  releaseLabel: string;
+  releaseTone: "success" | "warning" | "info";
+} {
+  const dueCents = parseMoneyToCents(detail.balance_due);
+  const isShip = detail.fulfillment_method === "ship";
+
+  let readinessLabel: string;
+  let readinessTone: "success" | "warning" | "info";
+  if (detail.status === "fulfilled" || summary.pending === 0) {
+    readinessLabel = "Complete";
+    readinessTone = "success";
+  } else if (detail.status === "pending_measurement") {
+    readinessLabel = "Waiting on Details";
+    readinessTone = "warning";
+  } else if (summary.fulfilled > 0) {
+    readinessLabel = "Partially Fulfilled";
+    readinessTone = "info";
+  } else {
+    readinessLabel = "Open";
+    readinessTone = "warning";
+  }
+
+  let remainingWorkLabel: string;
+  if (summary.pending === 0) {
+    remainingWorkLabel = isShip
+      ? "No customer-visible shipping work is still open."
+      : "No customer-visible pickup work is still open.";
+  } else if (summary.pending === 1) {
+    remainingWorkLabel = isShip
+      ? "1 line still needs shipping work."
+      : "1 line still needs pickup-ready work.";
+  } else {
+    remainingWorkLabel = isShip
+      ? `${summary.pending} lines still need shipping work.`
+      : `${summary.pending} lines still need pickup-ready work.`;
+  }
+
+  if (dueCents > 0) {
+    return {
+      readinessLabel,
+      readinessTone,
+      remainingWorkLabel,
+      releaseLabel: "Balance Due Before Release",
+      releaseTone: "warning",
+    };
+  }
+
+  if (summary.pending > 0) {
+    return {
+      readinessLabel,
+      readinessTone,
+      remainingWorkLabel,
+      releaseLabel: isShip ? "Balance Clear, Work Still Open" : "Balance Clear, Pickup Still Blocked",
+      releaseTone: "info",
+    };
+  }
+
+  return {
+    readinessLabel,
+    readinessTone,
+    remainingWorkLabel,
+    releaseLabel: isShip ? "Ready for Shipping Release" : "Ready for Pickup Release",
+    releaseTone: "success",
   };
 }
 
@@ -374,6 +504,13 @@ export default function TransactionDetailDrawer({
   const [internalLoading, setInternalLoading] = useState(false);
   const [internalErrorMessage, setInternalErrorMessage] = useState<string | null>(null);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
+  const [editQuantity, setEditQuantity] = useState("1");
+  const [editUnitPrice, setEditUnitPrice] = useState("");
+  const [editFulfillment, setEditFulfillment] =
+    useState<EditableFulfillmentKind>("special_order");
+  const [editBusy, setEditBusy] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const usesControlledData =
     controlledDetail !== undefined ||
@@ -435,6 +572,99 @@ export default function TransactionDetailDrawer({
 
   const summary = useMemo(() => (detail ? fulfillmentSummary(detail) : null), [detail]);
   const shippingLines = useMemo(() => addressLines(detail?.ship_to), [detail?.ship_to]);
+  const mode = useMemo(() => (detail ? modeSummary(detail) : null), [detail]);
+  const readiness = useMemo(
+    () => (detail && summary ? readinessSummary(detail, summary) : null),
+    [detail, summary],
+  );
+  const beginLineEdit = useCallback((item: TransactionDrawerItem) => {
+    if (!item.transaction_line_id) return;
+    setEditingLineId(item.transaction_line_id);
+    setEditQuantity(String(item.quantity));
+    setEditUnitPrice(String(item.unit_price));
+    setEditFulfillment(
+      (item.fulfillment as EditableFulfillmentKind) ?? "special_order",
+    );
+    setEditError(null);
+  }, []);
+  const cancelLineEdit = useCallback(() => {
+    if (editBusy) return;
+    setEditingLineId(null);
+    setEditError(null);
+  }, [editBusy]);
+
+  useEffect(() => {
+    if (!detail || !editingLineId) return;
+    const stillExists = detail.items.some(
+      (item) => item.transaction_line_id === editingLineId,
+    );
+    if (!stillExists) {
+      setEditingLineId(null);
+      setEditError(null);
+    }
+  }, [detail, editingLineId]);
+
+  const submitLineEdit = useCallback(
+    async (item: TransactionDrawerItem) => {
+      if (!orderActions?.updateLine || !item.transaction_line_id) return;
+      const quantity = Number.parseInt(editQuantity.trim(), 10);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        setEditError("Quantity must be a whole number greater than zero.");
+        return;
+      }
+      const nextPrice = editUnitPrice.trim();
+      if (!nextPrice) {
+        setEditError("Unit price is required.");
+        return;
+      }
+
+      const patch: {
+        quantity?: number;
+        unit_price?: string;
+        fulfillment?: FulfillmentKind;
+      } = {};
+      if (quantity !== item.quantity) patch.quantity = quantity;
+      if (nextPrice !== String(item.unit_price)) patch.unit_price = nextPrice;
+      if (editFulfillment !== item.fulfillment) patch.fulfillment = editFulfillment;
+      if (
+        patch.quantity === undefined &&
+        patch.unit_price === undefined &&
+        patch.fulfillment === undefined
+      ) {
+        setEditingLineId(null);
+        return;
+      }
+
+      setEditBusy(true);
+      setEditError(null);
+      try {
+        await orderActions.updateLine(
+          {
+            transaction_line_id: item.transaction_line_id,
+            sku: item.sku,
+            product_name: item.product_name,
+            quantity: item.quantity,
+            unit_price: String(item.unit_price),
+            fulfillment: item.fulfillment as FulfillmentKind,
+          },
+          {
+            ...patch,
+          },
+        );
+        setEditingLineId(null);
+      } catch (error) {
+        setEditError(
+          error instanceof Error
+            ? error.message
+            : "We couldn't save that line right now.",
+        );
+      } finally {
+        setEditBusy(false);
+      }
+    },
+    [editFulfillment, editQuantity, editUnitPrice, orderActions],
+  );
+
   const subtitle = detail ? (
     <div className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -602,6 +832,27 @@ export default function TransactionDetailDrawer({
                     Fulfillment Snapshot
                   </h3>
                 </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName("info")}`}
+                  >
+                    {mode?.modeLabel ?? "Order"}
+                  </span>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                      readiness?.readinessTone ?? "neutral",
+                    )}`}
+                  >
+                    {readiness?.readinessLabel ?? "Open"}
+                  </span>
+                  <span
+                    className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                      readiness?.releaseTone ?? "neutral",
+                    )}`}
+                  >
+                    {readiness?.releaseLabel ?? "Review Release State"}
+                  </span>
+                </div>
                 <div className="mt-4 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -635,6 +886,46 @@ export default function TransactionDetailDrawer({
                       {summary?.pending ?? 0}
                     </p>
                   </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Open Units
+                    </p>
+                    <p className="mt-1 text-sm font-black text-app-text">
+                      {summary?.pendingUnits ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Completed Units
+                    </p>
+                    <p className="mt-1 text-sm font-black text-app-text">
+                      {summary?.fulfilledUnits ?? 0}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Returned Units
+                    </p>
+                    <p className="mt-1 text-sm font-black text-app-text">
+                      {summary?.returnedUnits ?? 0}
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-4 rounded-xl border border-sky-500/15 bg-sky-500/5 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Mode Cue
+                  </p>
+                  <p className="mt-2 text-[12px] font-semibold text-app-text">
+                    {mode?.modeDetail}
+                  </p>
+                </div>
+                <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Remaining Work
+                  </p>
+                  <p className="mt-2 text-[12px] font-semibold text-app-text">
+                    {readiness?.remainingWorkLabel}
+                  </p>
                 </div>
                 <div className="mt-4 rounded-xl border border-app-border/70 bg-app-surface p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -765,9 +1056,19 @@ export default function TransactionDetailDrawer({
                       ) : null}
                     </>
                   ) : (
-                    <p className="text-app-text-muted">
-                      Pickup release still depends on readiness, not just payment status.
-                    </p>
+                    <div className="space-y-2">
+                      <p className="text-app-text-muted">
+                        Pickup release still depends on readiness, not just payment status.
+                      </p>
+                      <div className="rounded-xl border border-app-border/70 bg-app-surface p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Release Check
+                        </p>
+                        <p className="mt-2 text-[12px] font-semibold text-app-text">
+                          {readiness?.releaseLabel ?? "Review balance and readiness before release."}
+                        </p>
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -803,15 +1104,61 @@ export default function TransactionDetailDrawer({
                 ) : null}
               </div>
               <div className="mt-4 space-y-3">
-                {detail.items
-                  .filter((item) => !item.is_internal)
-                  .map((item) => {
+                {[
+                  {
+                    key: "open",
+                    title: "Still Open",
+                    description:
+                      detail.fulfillment_method === "ship"
+                        ? "These lines still need shipping work."
+                        : "These lines still need pickup-ready work.",
+                    items: detail.items.filter(
+                      (item) => !item.is_internal && !item.is_fulfilled,
+                    ),
+                  },
+                  {
+                    key: "fulfilled",
+                    title: "Already Fulfilled",
+                    description:
+                      detail.fulfillment_method === "ship"
+                        ? "These lines are already completed for shipping."
+                        : "These lines are already completed for pickup.",
+                    items: detail.items.filter(
+                      (item) => !item.is_internal && item.is_fulfilled,
+                    ),
+                  },
+                ]
+                  .filter((group) => group.items.length > 0)
+                  .map((group) => (
+                    <div key={group.key} className="space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-app-border/60 bg-app-surface-2/70 px-3 py-2">
+                        <div>
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                            {group.title}
+                          </p>
+                          <p className="mt-1 text-[11px] font-semibold text-app-text-muted">
+                            {group.description}
+                          </p>
+                        </div>
+                        <span
+                          className={`rounded-full border px-2 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName(
+                            group.key === "fulfilled" ? "success" : "warning",
+                          )}`}
+                        >
+                          {group.items.length} {group.items.length === 1 ? "line" : "lines"}
+                        </span>
+                      </div>
+                      {group.items.map((item) => {
                     const itemId = item.order_item_id ?? item.transaction_line_id;
                     const returnedQty = item.quantity_returned ?? 0;
                     return (
                       <div
                         key={itemId ?? `${item.sku}-${item.product_name}`}
-                        className="rounded-xl border border-app-border bg-app-surface p-4"
+                        className={`rounded-xl border p-4 ${
+                          item.is_fulfilled
+                            ? "border-emerald-500/15 bg-emerald-500/5"
+                            : "border-app-border bg-app-surface"
+                        }`}
                       >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
@@ -849,28 +1196,119 @@ export default function TransactionDetailDrawer({
                               {returnedQty > 0 ? <span>Returned {returnedQty}</span> : null}
                             </div>
                           </div>
-                          {orderActions?.canModify &&
-                          detail.status !== "cancelled" &&
-                          orderActions.deleteLine &&
-                          itemId ? (
-                            <button
-                              type="button"
-                              onClick={() =>
-                                orderActions.deleteLine?.({
-                                  order_item_id: itemId,
-                                  sku: item.sku,
-                                  product_name: item.product_name,
-                                  quantity: item.quantity,
-                                  fulfillment: item.fulfillment as FulfillmentKind,
-                                })
-                              }
-                              className="rounded-lg p-2 text-app-text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-600"
-                              aria-label={`Delete ${item.product_name}`}
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          ) : null}
+                          <div className="flex items-center gap-1">
+                            {orderActions?.canModify &&
+                            detail.status !== "cancelled" &&
+                            !item.is_fulfilled &&
+                            orderActions.updateLine &&
+                            item.transaction_line_id ? (
+                              <button
+                                type="button"
+                                onClick={() => beginLineEdit(item)}
+                                className="rounded-lg px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-colors hover:bg-app-accent/10"
+                              >
+                                Edit
+                              </button>
+                            ) : null}
+                            {orderActions?.canModify &&
+                            detail.status !== "cancelled" &&
+                            orderActions.deleteLine &&
+                            itemId ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  orderActions.deleteLine?.({
+                                    order_item_id: itemId,
+                                    sku: item.sku,
+                                    product_name: item.product_name,
+                                    quantity: item.quantity,
+                                    fulfillment: item.fulfillment as FulfillmentKind,
+                                  })
+                                }
+                                className="rounded-lg p-2 text-app-text-muted transition-colors hover:bg-rose-500/10 hover:text-rose-600"
+                                aria-label={`Delete ${item.product_name}`}
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            ) : null}
+                          </div>
                         </div>
+                        {editingLineId === item.transaction_line_id ? (
+                          <div className="mt-4 rounded-xl border border-app-accent/20 bg-app-accent/5 p-4">
+                            <div className="grid gap-3 sm:grid-cols-3">
+                              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Quantity
+                                <input
+                                  type="number"
+                                  min="1"
+                                  step="1"
+                                  value={editQuantity}
+                                  onChange={(event) => setEditQuantity(event.target.value)}
+                                  disabled={editBusy}
+                                  className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                />
+                              </label>
+                              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Unit Price
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={editUnitPrice}
+                                  onChange={(event) => setEditUnitPrice(event.target.value)}
+                                  disabled={editBusy}
+                                  className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                />
+                              </label>
+                              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Fulfillment
+                                <select
+                                  value={editFulfillment}
+                                  onChange={(event) =>
+                                    setEditFulfillment(
+                                      event.target.value as EditableFulfillmentKind,
+                                    )
+                                  }
+                                  disabled={editBusy}
+                                  className="mt-1 h-10 w-full rounded-lg border border-app-border bg-app-surface px-3 text-sm font-semibold outline-none"
+                                >
+                                  {EDITABLE_FULFILLMENT_OPTIONS.map((option) => (
+                                    <option key={option.value} value={option.value}>
+                                      {option.label}
+                                    </option>
+                                  ))}
+                                </select>
+                              </label>
+                            </div>
+                            {editError ? (
+                              <p className="mt-3 text-[11px] font-semibold text-rose-700">
+                                {editError}
+                              </p>
+                            ) : (
+                              <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
+                                Save updates before leaving the drawer to keep order totals and
+                                fulfillment in sync.
+                              </p>
+                            )}
+                            <div className="mt-4 flex flex-wrap justify-end gap-2">
+                              <button
+                                type="button"
+                                onClick={cancelLineEdit}
+                                disabled={editBusy}
+                                className="rounded-lg border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void submitLineEdit(item)}
+                                disabled={editBusy}
+                                className="rounded-lg border border-emerald-500/20 bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-60"
+                              >
+                                {editBusy ? "Saving…" : "Save Line"}
+                              </button>
+                            </div>
+                          </div>
+                        ) : null}
                         {item.custom_item_type ? (
                           <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface-2/70 p-3">
                             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -895,7 +1333,9 @@ export default function TransactionDetailDrawer({
                         ) : null}
                       </div>
                     );
-                  })}
+                      })}
+                    </div>
+                  ))}
               </div>
             </section>
 

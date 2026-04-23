@@ -2609,8 +2609,6 @@ async fn update_transaction_line(
         None => None,
     };
 
-    let mut qb = sqlx::QueryBuilder::<sqlx::Postgres>::new("UPDATE transaction_lines SET ");
-    let mut sep = qb.separated(", ");
     let mut touched = false;
     if let Some(q) = body.quantity {
         if q <= 0 {
@@ -2618,23 +2616,33 @@ async fn update_transaction_line(
                 "quantity must be positive".to_string(),
             ));
         }
-        sep.push("quantity = ").push_bind(q);
         touched = true;
     }
     if let Some(p) = body.unit_price {
-        sep.push("unit_price = ").push_bind(p);
         touched = true;
     }
     if let Some(f) = normalized_fulfillment {
-        sep.push("fulfillment = ").push_bind(f);
         touched = true;
     }
     if touched {
-        qb.push(" WHERE id = ")
-            .push_bind(transaction_line_id)
-            .push(" AND transaction_id = ")
-            .push_bind(transaction_id);
-        qb.build().execute(&mut *tx).await?;
+        sqlx::query(
+            r#"
+            UPDATE transaction_lines
+            SET
+                quantity = COALESCE($1, quantity),
+                unit_price = COALESCE($2, unit_price),
+                fulfillment = COALESCE($3, fulfillment)
+            WHERE id = $4
+              AND transaction_id = $5
+            "#,
+        )
+        .bind(body.quantity)
+        .bind(body.unit_price)
+        .bind(normalized_fulfillment)
+        .bind(transaction_line_id)
+        .bind(transaction_id)
+        .execute(&mut *tx)
+        .await?;
     }
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
