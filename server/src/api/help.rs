@@ -31,6 +31,43 @@ use crate::logic::meilisearch_search::{help_search_hits, HelpSearchHit};
 use crate::logic::rosie_intelligence::{self, RosieIntelligencePack};
 use crate::middleware;
 
+fn build_rosie_upstream_client() -> Result<reqwest::Client, reqwest::Error> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(120))
+        .pool_max_idle_per_host(0)
+        .http1_only()
+        .build()
+}
+
+async fn send_rosie_upstream_chat_request(
+    upstream_client: &reqwest::Client,
+    upstream_url: &str,
+    body: &Value,
+) -> Result<reqwest::Response, reqwest::Error> {
+    let mut last_error = None;
+    for attempt in 1..=3 {
+        match upstream_client.post(upstream_url).json(body).send().await {
+            Ok(ok) => return Ok(ok),
+            Err(error) => {
+                tracing::warn!(
+                    attempt,
+                    error = %error,
+                    %upstream_url,
+                    "rosie upstream request attempt failed"
+                );
+                last_error = Some(error);
+                if attempt < 3 {
+                    tokio::time::sleep(std::time::Duration::from_millis(250 * attempt as u64))
+                        .await;
+                }
+            }
+        }
+    }
+
+    Err(last_error.expect("rosie upstream retries should capture a terminal error"))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct HelpSearchQuery {
     pub q: String,
@@ -192,8 +229,11 @@ mod tests {
     use axum::http::{HeaderValue, StatusCode};
     use rust_decimal::Decimal;
     use sqlx::PgPool;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
     use std::time::Instant;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
 
     use crate::api::{store_account_rate::StoreAccountRateState, PaymentIntentMinuteWindow};
     use crate::auth::permissions::{
@@ -868,6 +908,82 @@ mod tests {
             .expect_err("status should preserve help.manage permission");
 
         assert_eq!(err.status(), StatusCode::FORBIDDEN);
+    }
+
+    #[tokio::test]
+    async fn rosie_chat_proxy_retries_transport_failures() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind retry test listener");
+        let address = listener.local_addr().expect("retry test local addr");
+        let attempts = Arc::new(AtomicUsize::new(0));
+        let attempts_for_server = Arc::clone(&attempts);
+
+        let server = tokio::spawn(async move {
+            loop {
+                let (mut socket, _) = listener.accept().await.expect("accept retry test socket");
+                let attempt = attempts_for_server.fetch_add(1, Ordering::SeqCst) + 1;
+
+                if attempt < 3 {
+                    let mut buffer = [0_u8; 1024];
+                    let _ = socket.read(&mut buffer).await;
+                    drop(socket);
+                    continue;
+                }
+
+                let mut request = Vec::new();
+                let mut chunk = [0_u8; 1024];
+                loop {
+                    let read = socket
+                        .read(&mut chunk)
+                        .await
+                        .expect("read retry test request");
+                    if read == 0 {
+                        break;
+                    }
+                    request.extend_from_slice(&chunk[..read]);
+                    if request.windows(4).any(|window| window == b"\r\n\r\n") {
+                        break;
+                    }
+                }
+
+                let body = br#"{"choices":[{"index":0,"message":{"role":"assistant","content":"Proxy retry ok."}}]}"#;
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n",
+                    body.len()
+                );
+                socket
+                    .write_all(response.as_bytes())
+                    .await
+                    .expect("write retry test headers");
+                socket.write_all(body).await.expect("write retry test body");
+                break;
+            }
+        });
+
+        let client = build_rosie_upstream_client().expect("build rosie upstream client");
+        let response = send_rosie_upstream_chat_request(
+            &client,
+            &format!("http://{address}/v1/chat/completions"),
+            &serde_json::json!({
+                "model": "local",
+                "messages": [{ "role": "user", "content": "Say retry ok." }],
+            }),
+        )
+        .await
+        .expect("proxy should retry into a successful response");
+        let payload = response
+            .json::<Value>()
+            .await
+            .expect("retry test response json");
+
+        server.await.expect("retry test server");
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+        assert_eq!(
+            payload["choices"][0]["message"]["content"],
+            Value::String("Proxy retry ok.".to_string())
+        );
     }
 }
 
@@ -1597,11 +1713,17 @@ async fn rosie_chat_completions(
         })?;
 
     let upstream_url = format!("{upstream}/v1/chat/completions");
-    let response = state
-        .http_client
-        .post(&upstream_url)
-        .json(&body)
-        .send()
+    let upstream_client = build_rosie_upstream_client().map_err(|e| {
+        tracing::error!(error = %e, %upstream_url, "rosie upstream client init failed");
+        (
+            axum::http::StatusCode::BAD_GATEWAY,
+            Json(serde_json::json!({
+                "error": "ROSIE upstream is unavailable",
+            })),
+        )
+            .into_response()
+    })?;
+    let response = send_rosie_upstream_chat_request(&upstream_client, &upstream_url, &body)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, %upstream_url, "rosie upstream request failed");

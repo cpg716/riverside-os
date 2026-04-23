@@ -770,10 +770,12 @@ export default function HelpCenterDrawer({
       const message =
         error instanceof Error ? error.message : "ROSIE is unavailable right now.";
       const unavailable =
-        /disabled|not configured|failed to reach local ROSIE runtime|upstream/i.test(
+        /Host LLM service could not be reached|upstream request failed|upstream is unavailable/i.test(
           message,
         )
-          ? "ROSIE is unavailable right now. The local model is not running or no upstream is configured."
+          ? "ROSIE is unavailable right now. The Host LLM service could not be reached."
+          : /disabled|not configured|failed to reach local ROSIE runtime/i.test(message)
+            ? "ROSIE is unavailable right now. The local ROSIE runtime is not running or is misconfigured."
           : message;
       setRosieStatus(unavailable);
       setRosieMessages((prev) => [
