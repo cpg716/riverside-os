@@ -132,6 +132,66 @@ impl IntoResponse for CustomerError {
     }
 }
 
+const CUSTOMER_LIFECYCLE_ACTIVE_DAYS: i64 = 90;
+
+fn normalize_customer_lifecycle_filter(raw: Option<&str>) -> Option<&'static str> {
+    match raw.map(str::trim).filter(|value| !value.is_empty()) {
+        Some("new") => Some(CustomerLifecycleState::New.as_str()),
+        Some("active") => Some(CustomerLifecycleState::Active.as_str()),
+        Some("pending") => Some(CustomerLifecycleState::Pending.as_str()),
+        Some("pickup") => Some(CustomerLifecycleState::Pickup.as_str()),
+        Some("completed") => Some(CustomerLifecycleState::Completed.as_str()),
+        Some("issue") => Some(CustomerLifecycleState::Issue.as_str()),
+        _ => None,
+    }
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct CustomerLifecycleSignals {
+    lifetime_sales: Decimal,
+    open_orders_count: i64,
+    active_shipment_status: Option<String>,
+    wedding_active: bool,
+    ready_for_pickup_count: i64,
+    last_activity_at: Option<DateTime<Utc>>,
+}
+
+fn derive_customer_lifecycle(signals: &CustomerLifecycleSignals) -> CustomerLifecycleState {
+    if signals.active_shipment_status.as_deref() == Some("exception") {
+        return CustomerLifecycleState::Issue;
+    }
+
+    if signals.ready_for_pickup_count > 0 {
+        return CustomerLifecycleState::Pickup;
+    }
+
+    if signals.open_orders_count > 0
+        || signals.wedding_active
+        || matches!(
+            signals.active_shipment_status.as_deref(),
+            Some("draft" | "quoted" | "label_purchased" | "in_transit")
+        )
+    {
+        return CustomerLifecycleState::Pending;
+    }
+
+    if signals.lifetime_sales <= Decimal::ZERO && signals.last_activity_at.is_none() {
+        return CustomerLifecycleState::New;
+    }
+
+    if let Some(last_activity_at) = signals.last_activity_at {
+        if (Utc::now() - last_activity_at).num_days() <= CUSTOMER_LIFECYCLE_ACTIVE_DAYS {
+            return CustomerLifecycleState::Active;
+        }
+    }
+
+    if signals.lifetime_sales > Decimal::ZERO || signals.last_activity_at.is_some() {
+        return CustomerLifecycleState::Completed;
+    }
+
+    CustomerLifecycleState::New
+}
+
 fn spawn_meilisearch_customer_hooks(state: &AppState, customer_id: Uuid) {
     let ms = state.meilisearch.clone();
     let pool = state.db.clone();
@@ -456,6 +516,86 @@ async fn load_customer_profile_row(
     Ok(row)
 }
 
+async fn load_customer_lifecycle_signals(
+    pool: &sqlx::PgPool,
+    customer_id: Uuid,
+) -> Result<CustomerLifecycleSignals, sqlx::Error> {
+    sqlx::query_as::<_, CustomerLifecycleSignals>(
+        r#"
+        SELECT
+            COALESCE(tx.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
+            COALESCE(tx.open_orders_count, 0)::bigint AS open_orders_count,
+            (
+                SELECT s.status::text
+                FROM shipment s
+                WHERE s.customer_id = c.id
+                  AND s.status NOT IN ('delivered', 'cancelled')
+                ORDER BY s.created_at DESC
+                LIMIT 1
+            ) AS active_shipment_status,
+            EXISTS (
+                SELECT 1
+                FROM wedding_members wm
+                JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                WHERE wm.customer_id = c.id
+                  AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                  AND wp.event_date >= CURRENT_DATE
+            ) AS wedding_active,
+            COALESCE(tx.ready_for_pickup_count, 0)::bigint AS ready_for_pickup_count,
+            (
+                SELECT MAX(ts)
+                FROM (
+                    SELECT MAX(booked_at) AS ts
+                    FROM transactions
+                    WHERE customer_id = c.id
+                    UNION ALL
+                    SELECT MAX(created_at)
+                    FROM payment_transactions
+                    WHERE payer_id = c.id
+                    UNION ALL
+                    SELECT MAX(created_at)
+                    FROM measurements
+                    WHERE customer_id = c.id
+                    UNION ALL
+                    SELECT MAX(measured_at)
+                    FROM customer_measurements
+                    WHERE customer_id = c.id
+                    UNION ALL
+                    SELECT MAX(created_at)
+                    FROM customer_timeline_notes
+                    WHERE customer_id = c.id
+                    UNION ALL
+                    SELECT MAX(l.created_at)
+                    FROM wedding_activity_log l
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        WHERE wm.wedding_party_id = l.wedding_party_id
+                          AND wm.customer_id = c.id
+                          AND (
+                            l.wedding_member_id IS NULL
+                            OR l.wedding_member_id = wm.id
+                          )
+                    )
+                ) activity
+            ) AS last_activity_at
+        FROM customers c
+        LEFT JOIN LATERAL (
+            SELECT
+                SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
+            FROM transactions
+            WHERE customer_id = c.id
+        ) tx ON true
+        WHERE c.id = $1
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_one(pool)
+    .await
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct WeddingMembershipRow {
     pub wedding_member_id: Uuid,
@@ -485,6 +625,7 @@ pub struct CustomerHubStats {
     pub days_since_last_visit: Option<i64>,
     pub marketing_needs_attention: bool,
     pub loyalty_points: i32,
+    pub lifecycle_state: CustomerLifecycleState,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -575,6 +716,32 @@ pub struct CustomerBrowseQuery {
     pub offset: Option<i64>,
     /// Filter to customers in a group (`customer_groups.code`).
     pub group_code: Option<String>,
+    /// Optional lifecycle filter (`new`, `active`, `pending`, `pickup`, `completed`, `issue`).
+    pub lifecycle: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CustomerLifecycleState {
+    New,
+    Active,
+    Pending,
+    Pickup,
+    Completed,
+    Issue,
+}
+
+impl CustomerLifecycleState {
+    fn as_str(self) -> &'static str {
+        match self {
+            CustomerLifecycleState::New => "new",
+            CustomerLifecycleState::Active => "active",
+            CustomerLifecycleState::Pending => "pending",
+            CustomerLifecycleState::Pickup => "pickup",
+            CustomerLifecycleState::Completed => "completed",
+            CustomerLifecycleState::Issue => "issue",
+        }
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -605,6 +772,7 @@ pub struct CustomerBrowseRow {
     pub wedding_party_id: Option<Uuid>,
     pub couple_id: Option<Uuid>,
     pub couple_primary_id: Option<Uuid>,
+    pub lifecycle_state: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1930,6 +2098,7 @@ async fn browse_customers(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
+    let lifecycle_filter = normalize_customer_lifecycle_filter(query.lifecycle.as_deref());
 
     let meili_browse_ids: Option<Vec<uuid::Uuid>> =
         if search_raw.is_some() && party_search_raw.is_none() {
@@ -1955,118 +2124,205 @@ async fn browse_customers(
     let rows = if let Some(ids) = meili_browse_ids {
         sqlx::query_as::<_, CustomerBrowseRow>(&format!(
             r#"
+            WITH browse_base AS (
+                SELECT
+                    c.id,
+                    c.customer_code,
+                    COALESCE(c.first_name, '') AS first_name,
+                    COALESCE(c.last_name, '') AS last_name,
+                    c.company_name,
+                    c.email,
+                    c.phone,
+                    c.is_vip,
+                    c.couple_id,
+                    c.couple_primary_id,
+                    COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
+                    COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
+                    COALESCE(ob.open_orders_count, 0)::bigint AS open_orders_count,
+                    COALESCE(ob.ready_for_pickup_count, 0)::bigint AS ready_for_pickup_count,
+                    (
+                        SELECT s.status::text
+                        FROM shipment s
+                        WHERE s.customer_id = c.id
+                          AND s.status NOT IN ('delivered', 'cancelled')
+                        ORDER BY s.created_at DESC
+                        LIMIT 1
+                    ) AS active_shipment_status,
+                    (
+                        SELECT MAX(ts)
+                        FROM (
+                            SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(created_at) FROM payment_transactions WHERE payer_id = c.id
+                            UNION ALL
+                            SELECT MAX(created_at) FROM measurements WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(l.created_at)
+                            FROM wedding_activity_log l
+                            WHERE EXISTS (
+                                SELECT 1
+                                FROM wedding_members wm
+                                WHERE wm.wedding_party_id = l.wedding_party_id
+                                  AND wm.customer_id = c.id
+                                  AND (
+                                      l.wedding_member_id IS NULL
+                                      OR l.wedding_member_id = wm.id
+                                  )
+                            )
+                        ) activity
+                    ) AS last_activity_at,
+                    EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                          AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
+                    ) AS wedding_soon,
+                    EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                    ) AS wedding_active,
+                    (
+                        SELECT {SQL_PARTY_TRACKING_LABEL_WP}
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                        ORDER BY wp.event_date ASC
+                        LIMIT 1
+                    ) AS wedding_party_name,
+                    (
+                        SELECT wp.id
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                        ORDER BY wp.event_date ASC
+                        LIMIT 1
+                    ) AS wedding_party_id
+                FROM customers c
+                LEFT JOIN LATERAL (
+                    SELECT
+                        SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                        SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                        COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                        COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
+                    FROM transactions
+                    WHERE customer_id = c.id
+                ) ob ON true
+                WHERE ($2::bool = false OR c.is_vip = TRUE)
+                  AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
+                  AND (
+                    $4::bool = false
+                    OR EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                          AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
+                    )
+                  )
+                  AND (
+                    $5::text IS NULL
+                    OR LENGTH(TRIM($5::text)) = 0
+                    OR c.id = ANY($8)
+                  )
+                  AND (
+                    $6::text IS NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND (
+                            COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
+                            OR wp.groom_name ILIKE ('%' || $6::text || '%')
+                          )
+                    )
+                  )
+                  AND (
+                    $7::text IS NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM customer_group_members cgm
+                        JOIN customer_groups cg ON cg.id = cgm.group_id
+                        WHERE cgm.customer_id = c.id
+                          AND cg.code = $7::text
+                    )
+                  )
+            ),
+            browse_derived AS (
+                SELECT
+                    id,
+                    customer_code,
+                    first_name,
+                    last_name,
+                    company_name,
+                    email,
+                    phone,
+                    is_vip,
+                    open_balance_due,
+                    lifetime_sales,
+                    open_orders_count,
+                    active_shipment_status,
+                    wedding_soon,
+                    wedding_active,
+                    wedding_party_name,
+                    wedding_party_id,
+                    couple_id,
+                    couple_primary_id,
+                    CASE
+                        WHEN active_shipment_status = 'exception' THEN 'issue'
+                        WHEN ready_for_pickup_count > 0 THEN 'pickup'
+                        WHEN open_orders_count > 0
+                          OR wedding_active = TRUE
+                          OR COALESCE(active_shipment_status, '') IN ('draft', 'quoted', 'label_purchased', 'in_transit') THEN 'pending'
+                        WHEN lifetime_sales <= 0 AND last_activity_at IS NULL THEN 'new'
+                        WHEN last_activity_at IS NOT NULL
+                          AND last_activity_at >= (CURRENT_TIMESTAMP - ($12::bigint * INTERVAL '1 day')) THEN 'active'
+                        WHEN lifetime_sales > 0 OR last_activity_at IS NOT NULL THEN 'completed'
+                        ELSE 'new'
+                    END AS lifecycle_state
+                FROM browse_base
+            )
             SELECT
-                c.id,
-                c.customer_code,
-                COALESCE(c.first_name, '') AS first_name,
-                COALESCE(c.last_name, '') AS last_name,
-                c.company_name,
-                c.email,
-                c.phone,
-                c.is_vip,
-                c.couple_id,
-                c.couple_primary_id,
-                COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
-                COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
-                COALESCE(ob.open_orders_count, 0)::bigint AS open_orders_count,
-                (
-                    SELECT s.status::text 
-                    FROM shipment s 
-                    WHERE s.customer_id = c.id 
-                      AND s.status NOT IN ('delivered', 'cancelled')
-                    ORDER BY s.created_at DESC 
-                    LIMIT 1
-                ) AS active_shipment_status,
-                EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                      AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
-                ) AS wedding_soon,
-                EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                ) AS wedding_active,
-                (
-                    SELECT {SQL_PARTY_TRACKING_LABEL_WP}
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                    ORDER BY wp.event_date ASC
-                    LIMIT 1
-                ) AS wedding_party_name,
-                (
-                    SELECT wp.id
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                    ORDER BY wp.event_date ASC
-                    LIMIT 1
-                ) AS wedding_party_id
-            FROM customers c
-            LEFT JOIN LATERAL (
-                SELECT 
-                    SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
-                    COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count
-                FROM transactions
-                WHERE customer_id = c.id
-            ) ob ON true
-            WHERE ($2::bool = false OR c.is_vip = TRUE)
-              AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
-              AND (
-                $4::bool = false
-                OR EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                      AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
-                )
-              )
-              AND (
-                $5::text IS NULL
-                OR LENGTH(TRIM($5::text)) = 0
-                OR c.id = ANY($8)
-              )
-              AND (
-                $6::text IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND (
-                        COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
-                        OR wp.groom_name ILIKE ('%' || $6::text || '%')
-                      )
-                )
-              )
-              AND (
-                $7::text IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM customer_group_members cgm
-                    JOIN customer_groups cg ON cg.id = cgm.group_id
-                    WHERE cgm.customer_id = c.id
-                      AND cg.code = $7::text
-                )
-              )
-            ORDER BY array_position($9::uuid[], c.id)
+                id,
+                customer_code,
+                first_name,
+                last_name,
+                company_name,
+                email,
+                phone,
+                is_vip,
+                open_balance_due,
+                lifetime_sales,
+                open_orders_count,
+                active_shipment_status,
+                wedding_soon,
+                wedding_active,
+                wedding_party_name,
+                wedding_party_id,
+                couple_id,
+                couple_primary_id,
+                lifecycle_state
+            FROM browse_derived
+            WHERE ($13::text IS NULL OR lifecycle_state = $13::text)
+            ORDER BY array_position($9::uuid[], id)
             LIMIT $10 OFFSET $11
             "#
         ))
@@ -2081,128 +2337,217 @@ async fn browse_customers(
         .bind(&ids[..])
         .bind(limit)
         .bind(offset)
+        .bind(CUSTOMER_LIFECYCLE_ACTIVE_DAYS)
+        .bind(lifecycle_filter)
         .fetch_all(&state.db)
         .await?
     } else {
         sqlx::query_as::<_, CustomerBrowseRow>(&format!(
             r#"
+            WITH browse_base AS (
+                SELECT
+                    c.id,
+                    c.customer_code,
+                    COALESCE(c.first_name, '') AS first_name,
+                    COALESCE(c.last_name, '') AS last_name,
+                    c.company_name,
+                    c.email,
+                    c.phone,
+                    c.is_vip,
+                    c.couple_id,
+                    c.couple_primary_id,
+                    COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
+                    COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
+                    COALESCE(ob.open_orders_count, 0)::bigint AS open_orders_count,
+                    COALESCE(ob.ready_for_pickup_count, 0)::bigint AS ready_for_pickup_count,
+                    (
+                        SELECT s.status::text
+                        FROM shipment s
+                        WHERE s.customer_id = c.id
+                          AND s.status NOT IN ('delivered', 'cancelled')
+                        ORDER BY s.created_at DESC
+                        LIMIT 1
+                    ) AS active_shipment_status,
+                    (
+                        SELECT MAX(ts)
+                        FROM (
+                            SELECT MAX(booked_at) AS ts FROM transactions WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(created_at) FROM payment_transactions WHERE payer_id = c.id
+                            UNION ALL
+                            SELECT MAX(created_at) FROM measurements WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(measured_at) FROM customer_measurements WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(created_at) FROM customer_timeline_notes WHERE customer_id = c.id
+                            UNION ALL
+                            SELECT MAX(l.created_at)
+                            FROM wedding_activity_log l
+                            WHERE EXISTS (
+                                SELECT 1
+                                FROM wedding_members wm
+                                WHERE wm.wedding_party_id = l.wedding_party_id
+                                  AND wm.customer_id = c.id
+                                  AND (
+                                      l.wedding_member_id IS NULL
+                                      OR l.wedding_member_id = wm.id
+                                  )
+                            )
+                        ) activity
+                    ) AS last_activity_at,
+                    EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                          AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
+                    ) AS wedding_soon,
+                    EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                    ) AS wedding_active,
+                    (
+                        SELECT {SQL_PARTY_TRACKING_LABEL_WP}
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                        ORDER BY wp.event_date ASC
+                        LIMIT 1
+                    ) AS wedding_party_name,
+                    (
+                        SELECT wp.id
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                        ORDER BY wp.event_date ASC
+                        LIMIT 1
+                    ) AS wedding_party_id
+                FROM customers c
+                LEFT JOIN LATERAL (
+                    SELECT
+                        SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
+                        SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
+                        COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count,
+                        COUNT(*) FILTER (WHERE status::text = 'ready') AS ready_for_pickup_count
+                    FROM transactions
+                    WHERE customer_id = c.id
+                ) ob ON true
+                WHERE ($2::bool = false OR c.is_vip = TRUE)
+                  AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
+                  AND (
+                    $4::bool = false
+                    OR EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND wp.event_date >= CURRENT_DATE
+                          AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
+                    )
+                  )
+                  AND (
+                    $5::text IS NULL
+                    OR LENGTH(TRIM($5::text)) = 0
+                    OR c.first_name ILIKE ('%' || $5::text || '%')
+                    OR c.last_name ILIKE ('%' || $5::text || '%')
+                    OR c.customer_code ILIKE ('%' || $5::text || '%')
+                    OR COALESCE(c.company_name, '') ILIKE ('%' || $5::text || '%')
+                    OR COALESCE(c.email, '') ILIKE ('%' || $5::text || '%')
+                    OR COALESCE(c.phone, '') ILIKE ('%' || $5::text || '%')
+                  )
+                  AND (
+                    $6::text IS NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM wedding_members wm
+                        JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+                        WHERE wm.customer_id = c.id
+                          AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
+                          AND (
+                            COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
+                            OR wp.groom_name ILIKE ('%' || $6::text || '%')
+                          )
+                    )
+                  )
+                  AND (
+                    $7::text IS NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM customer_group_members cgm
+                        JOIN customer_groups cg ON cg.id = cgm.group_id
+                        WHERE cgm.customer_id = c.id
+                          AND cg.code = $7::text
+                    )
+                  )
+            ),
+            browse_derived AS (
+                SELECT
+                    id,
+                    customer_code,
+                    first_name,
+                    last_name,
+                    company_name,
+                    email,
+                    phone,
+                    is_vip,
+                    open_balance_due,
+                    lifetime_sales,
+                    open_orders_count,
+                    active_shipment_status,
+                    wedding_soon,
+                    wedding_active,
+                    wedding_party_name,
+                    wedding_party_id,
+                    couple_id,
+                    couple_primary_id,
+                    CASE
+                        WHEN active_shipment_status = 'exception' THEN 'issue'
+                        WHEN ready_for_pickup_count > 0 THEN 'pickup'
+                        WHEN open_orders_count > 0
+                          OR wedding_active = TRUE
+                          OR COALESCE(active_shipment_status, '') IN ('draft', 'quoted', 'label_purchased', 'in_transit') THEN 'pending'
+                        WHEN lifetime_sales <= 0 AND last_activity_at IS NULL THEN 'new'
+                        WHEN last_activity_at IS NOT NULL
+                          AND last_activity_at >= (CURRENT_TIMESTAMP - ($10::bigint * INTERVAL '1 day')) THEN 'active'
+                        WHEN lifetime_sales > 0 OR last_activity_at IS NOT NULL THEN 'completed'
+                        ELSE 'new'
+                    END AS lifecycle_state
+                FROM browse_base
+            )
             SELECT
-                c.id,
-                c.customer_code,
-                COALESCE(c.first_name, '') AS first_name,
-                COALESCE(c.last_name, '') AS last_name,
-                c.company_name,
-                c.email,
-                c.phone,
-                c.is_vip,
-                c.couple_id,
-                c.couple_primary_id,
-                COALESCE(ob.balance_sum, 0)::numeric(12, 2) AS open_balance_due,
-                COALESCE(ob.lifetime_sales, 0)::numeric(12, 2) AS lifetime_sales,
-                COALESCE(ob.open_orders_count, 0)::bigint AS open_orders_count,
-                (
-                    SELECT s.status::text 
-                    FROM shipment s 
-                    WHERE s.customer_id = c.id 
-                      AND s.status NOT IN ('delivered', 'cancelled')
-                    ORDER BY s.created_at DESC 
-                    LIMIT 1
-                ) AS active_shipment_status,
-                EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                      AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
-                ) AS wedding_soon,
-                EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                ) AS wedding_active,
-                (
-                    SELECT {SQL_PARTY_TRACKING_LABEL_WP}
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                    ORDER BY wp.event_date ASC
-                    LIMIT 1
-                ) AS wedding_party_name,
-                (
-                    SELECT wp.id
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                    ORDER BY wp.event_date ASC
-                    LIMIT 1
-                ) AS wedding_party_id
-            FROM customers c
-            LEFT JOIN LATERAL (
-                SELECT 
-                    SUM(balance_due) FILTER (WHERE status = 'open'::order_status) AS balance_sum,
-                    SUM(total_price) FILTER (WHERE status = 'fulfilled'::order_status AND booked_at >= '2018-01-01') AS lifetime_sales,
-                    COUNT(*) FILTER (WHERE status IN ('open'::order_status, 'pending_measurement'::order_status)) AS open_orders_count
-                FROM transactions
-                WHERE customer_id = c.id
-            ) ob ON true
-            WHERE ($2::bool = false OR c.is_vip = TRUE)
-              AND ($3::bool = false OR COALESCE(ob.balance_sum, 0) > 0)
-              AND (
-                $4::bool = false
-                OR EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND wp.event_date >= CURRENT_DATE
-                      AND wp.event_date <= CURRENT_DATE + ($1::bigint * INTERVAL '1 day')
-                )
-              )
-              AND (
-                $5::text IS NULL
-                OR LENGTH(TRIM($5::text)) = 0
-                OR c.first_name ILIKE ('%' || $5::text || '%')
-                OR c.last_name ILIKE ('%' || $5::text || '%')
-                OR c.customer_code ILIKE ('%' || $5::text || '%')
-                OR COALESCE(c.company_name, '') ILIKE ('%' || $5::text || '%')
-                OR COALESCE(c.email, '') ILIKE ('%' || $5::text || '%')
-                OR COALESCE(c.phone, '') ILIKE ('%' || $5::text || '%')
-              )
-              AND (
-                $6::text IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM wedding_members wm
-                    JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
-                    WHERE wm.customer_id = c.id
-                      AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
-                      AND (
-                        COALESCE(wp.party_name, '') ILIKE ('%' || $6::text || '%')
-                        OR wp.groom_name ILIKE ('%' || $6::text || '%')
-                      )
-                )
-              )
-              AND (
-                $7::text IS NULL
-                OR EXISTS (
-                    SELECT 1
-                    FROM customer_group_members cgm
-                    JOIN customer_groups cg ON cg.id = cgm.group_id
-                    WHERE cgm.customer_id = c.id
-                      AND cg.code = $7::text
-                )
-              )
-            ORDER BY c.last_name ASC, c.first_name ASC
+                id,
+                customer_code,
+                first_name,
+                last_name,
+                company_name,
+                email,
+                phone,
+                is_vip,
+                open_balance_due,
+                lifetime_sales,
+                open_orders_count,
+                active_shipment_status,
+                wedding_soon,
+                wedding_active,
+                wedding_party_name,
+                wedding_party_id,
+                couple_id,
+                couple_primary_id,
+                lifecycle_state
+            FROM browse_derived
+            WHERE ($11::text IS NULL OR lifecycle_state = $11::text)
+            ORDER BY last_name ASC, first_name ASC
             LIMIT $8 OFFSET $9
             "#
         ))
@@ -2215,6 +2560,8 @@ async fn browse_customers(
         .bind(group_code)
         .bind(limit)
         .bind(offset)
+        .bind(CUSTOMER_LIFECYCLE_ACTIVE_DAYS)
+        .bind(lifecycle_filter)
         .fetch_all(&state.db)
         .await?
     };
@@ -3140,6 +3487,9 @@ async fn get_customer_hub(
 ) -> Result<Json<CustomerHubResponse>, CustomerError> {
     require_customer_perm_or_pos(&state, &headers, CUSTOMERS_HUB_VIEW).await?;
     let row = load_customer_profile_row(&state.db, customer_id).await?;
+    let lifecycle = load_customer_lifecycle_signals(&state.db, customer_id)
+        .await
+        .map_err(CustomerError::Database)?;
 
     let weddings = list_wedding_rows(&state.db, customer_id).await?;
     let hub = fetch_hub_stats(&state.db, customer_id)
@@ -3175,6 +3525,7 @@ async fn get_customer_hub(
             days_since_last_visit: days_since_last_visit(hub.last_activity_at),
             marketing_needs_attention,
             loyalty_points: hub.loyalty_points,
+            lifecycle_state: derive_customer_lifecycle(&lifecycle),
         },
         customer: row,
         profile_complete,
@@ -3513,16 +3864,10 @@ async fn build_customer_timeline(
 
     for o in orders {
         let items = o.items_summary.unwrap_or_else(|| "Purchase".to_string());
-        let d = o.booked_at.format("%m/%d/%y").to_string();
         events.push(CustomerTimelineEvent {
             at: o.booked_at,
             kind: "sale".to_string(),
-            summary: format!(
-                "{}: Purchased {} (Order · {})",
-                d,
-                items,
-                short_order_ref(o.id)
-            ),
+            summary: format!("Purchased {} (Order {})", items, short_order_ref(o.id)),
             reference_id: Some(o.id),
             reference_type: Some("order".to_string()),
             wedding_party_id: None,
@@ -3534,11 +3879,8 @@ async fn build_customer_timeline(
             at: p.created_at,
             kind: "payment".to_string(),
             summary: format!(
-                "{}: Paid {} {} ({})",
-                p.created_at.format("%m/%d/%y"),
-                p.amount,
-                p.payment_method,
-                p.category
+                "Payment recorded: {} via {} ({})",
+                p.amount, p.payment_method, p.category
             ),
             reference_id: Some(p.id),
             reference_type: Some("payment".to_string()),
@@ -3549,19 +3891,9 @@ async fn build_customer_timeline(
     for w in wedding_logs {
         let desc = w.description.trim();
         let summary = if desc.is_empty() {
-            format!(
-                "{}: {} — {}",
-                w.created_at.format("%m/%d/%y"),
-                w.party_name,
-                w.action_type
-            )
+            format!("Wedding party {} — {}", w.party_name, w.action_type)
         } else {
-            format!(
-                "{}: {} — {}",
-                w.created_at.format("%m/%d/%y"),
-                w.party_name,
-                desc
-            )
+            format!("Wedding party {} — {}", w.party_name, desc)
         };
         events.push(CustomerTimelineEvent {
             at: w.created_at,
@@ -3577,7 +3909,7 @@ async fn build_customer_timeline(
         events.push(CustomerTimelineEvent {
             at: n.created_at,
             kind: "note".to_string(),
-            summary: format!("{}: {}", n.created_at.format("%m/%d/%y"), n.body),
+            summary: n.body,
             reference_id: Some(n.id),
             reference_type: Some("note".to_string()),
             wedding_party_id: None,
@@ -3588,10 +3920,7 @@ async fn build_customer_timeline(
         events.push(CustomerTimelineEvent {
             at: m.created_at,
             kind: "measurement".to_string(),
-            summary: format!(
-                "{}: Body measurements recorded",
-                m.created_at.format("%m/%d/%y")
-            ),
+            summary: "Body measurements recorded".to_string(),
             reference_id: Some(m.id),
             reference_type: Some("measurement".to_string()),
             wedding_party_id: None,
@@ -3602,11 +3931,7 @@ async fn build_customer_timeline(
         events.push(CustomerTimelineEvent {
             at: a.datetime,
             kind: "appointment".to_string(),
-            summary: format!(
-                "{}: Scheduled {} appointment",
-                a.datetime.format("%m/%d/%y"),
-                a.appt_type
-            ),
+            summary: format!("Scheduled {} appointment", a.appt_type),
             reference_id: Some(a.id),
             reference_type: Some("appointment".to_string()),
             wedding_party_id: None,
@@ -3638,8 +3963,7 @@ async fn build_customer_timeline(
             at: se.at,
             kind: "shipping".to_string(),
             summary: format!(
-                "{}: Shipment {} — {}{}",
-                se.at.format("%m/%d/%y"),
+                "Shipment {} — {}{}",
                 short_order_ref(se.shipment_id),
                 body,
                 staff_suffix

@@ -45,6 +45,12 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import WeddingPartySearchInput from "../ui/WeddingPartySearchInput";
+import {
+  CUSTOMER_LIFECYCLE_OPTIONS,
+  customerLifecycleBadgeClassName,
+  customerLifecycleLabel,
+  type CustomerLifecycleState,
+} from "./customerLifecycle";
 // Redundant CloseIcon import removed
 
 const baseUrl = getBaseUrl();
@@ -112,6 +118,14 @@ interface CustomerBrowseRow {
   wedding_active: boolean;
   wedding_party_name: string | null;
   wedding_party_id: string | null;
+  lifecycle_state: CustomerLifecycleState;
+}
+
+interface CustomerQualitySummary {
+  visibleCustomers: number;
+  incompleteProfiles: number;
+  missingPhone: number;
+  missingEmail: number;
 }
 
 function moneyDec(s: string) {
@@ -137,6 +151,10 @@ function rowToCustomer(r: CustomerBrowseRow): Customer {
 function escapeCsvCell(v: string) {
   if (/[",\n\r]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
   return v;
+}
+
+function customerProfileComplete(row: CustomerBrowseRow) {
+  return Boolean(row.phone?.trim()) && Boolean(row.email?.trim());
 }
 
 export default function CustomersWorkspace({
@@ -296,6 +314,9 @@ export default function CustomersWorkspace({
   const [vipOnly, setVipOnly] = useState(false);
   const [balanceDueOnly, setBalanceDueOnly] = useState(false);
   const [weddingSoonOnly, setWeddingSoonOnly] = useState(false);
+  const [lifecycleFilter, setLifecycleFilter] = useState<
+    CustomerLifecycleState | ""
+  >("");
   const [rows, setRows] = useState<CustomerBrowseRow[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -347,6 +368,7 @@ export default function CustomersWorkspace({
       if (vipOnly) p.set("vip_only", "true");
       if (balanceDueOnly) p.set("balance_due_only", "true");
       if (weddingSoonOnly) p.set("wedding_soon_only", "true");
+      if (lifecycleFilter) p.set("lifecycle", lifecycleFilter);
       if (_weddingPartyQuery.trim().length > 0) {
         p.set("wedding_party_q", _weddingPartyQuery.trim());
       }
@@ -363,6 +385,7 @@ export default function CustomersWorkspace({
       vipOnly,
       balanceDueOnly,
       weddingSoonOnly,
+      lifecycleFilter,
       _weddingPartyQuery,
       groupFilterCode,
     ],
@@ -387,6 +410,7 @@ export default function CustomersWorkspace({
         vipOnly,
         balanceDueOnly,
         weddingSoonOnly,
+        lifecycleFilter,
         wp: _weddingPartyQuery.trim(),
         group: groupFilterCode.trim(),
       }),
@@ -395,6 +419,7 @@ export default function CustomersWorkspace({
       vipOnly,
       balanceDueOnly,
       weddingSoonOnly,
+      lifecycleFilter,
       _weddingPartyQuery,
       groupFilterCode,
     ],
@@ -501,6 +526,29 @@ export default function CustomersWorkspace({
     () => rows.filter((r) => selected.has(r.id)),
     [rows, selected],
   );
+
+  const customerQualitySummary = useMemo<CustomerQualitySummary>(() => {
+    return rows.reduce(
+      (summary, row) => {
+        const hasPhone = Boolean(row.phone?.trim());
+        const hasEmail = Boolean(row.email?.trim());
+        return {
+          visibleCustomers: summary.visibleCustomers + 1,
+          incompleteProfiles:
+            summary.incompleteProfiles +
+            (customerProfileComplete(row) ? 0 : 1),
+          missingPhone: summary.missingPhone + (hasPhone ? 0 : 1),
+          missingEmail: summary.missingEmail + (hasEmail ? 0 : 1),
+        };
+      },
+      {
+        visibleCustomers: 0,
+        incompleteProfiles: 0,
+        missingPhone: 0,
+        missingEmail: 0,
+      },
+    );
+  }, [rows]);
 
   const bulkAddToWedding = () => {
     if (selected.size === 0) return;
@@ -921,6 +969,43 @@ export default function CustomersWorkspace({
           ))}
         </div>
 
+        <div className="px-4 sm:px-6">
+          <div className="rounded-[20px] border border-app-border bg-app-surface-2/80 px-4 py-4 shadow-sm backdrop-blur-md">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Customer Completeness
+                </p>
+                <p className="mt-1 text-sm font-semibold text-app-text">
+                  Visible CRM rows missing the phone or email Riverside already uses for a complete customer profile.
+                </p>
+              </div>
+              <span className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {customerQualitySummary.visibleCustomers} customers in view
+              </span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {[
+                ["Profiles incomplete", customerQualitySummary.incompleteProfiles],
+                ["Missing phone", customerQualitySummary.missingPhone],
+                ["Missing email", customerQualitySummary.missingEmail],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {label}
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
         <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
           <div className="flex flex-col rounded-3xl border border-app-border bg-app-surface shadow-xl">
             {/* Toolbar */}
@@ -1024,6 +1109,26 @@ export default function CustomersWorkspace({
                 )}
 
                 <div className="h-4 w-[1px] bg-app-border/40 mx-2" />
+
+                <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-80">
+                  Lifecycle
+                  <select
+                    value={lifecycleFilter}
+                    onChange={(e) =>
+                      setLifecycleFilter(
+                        (e.target.value as CustomerLifecycleState | "") ?? "",
+                      )
+                    }
+                    className="ui-input max-w-[140px] appearance-none py-1 text-xs font-black bg-transparent border-none text-app-accent underline underline-offset-4"
+                  >
+                    <option value="">All States</option>
+                    {CUSTOMER_LIFECYCLE_OPTIONS.map((option) => (
+                      <option key={option.value} value={option.value}>
+                        {option.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
 
                 <label className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-80">
                   Segment
@@ -1133,6 +1238,20 @@ export default function CustomersWorkspace({
                                   </span>
                                 </>
                               )}
+                            </div>
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${customerLifecycleBadgeClassName(
+                                  r.lifecycle_state,
+                                )}`}
+                              >
+                                {customerLifecycleLabel(r.lifecycle_state)}
+                              </span>
+                              {!customerProfileComplete(r) ? (
+                                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-800">
+                                  Profile incomplete
+                                </span>
+                              ) : null}
                             </div>
                           </button>
                         </td>

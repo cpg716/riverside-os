@@ -29,6 +29,12 @@ import {
 import ShipmentsHubSection from "./ShipmentsHubSection";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
+import {
+  customerLifecycleBadgeClassName,
+  customerLifecycleDescription,
+  customerLifecycleLabel,
+  type CustomerLifecycleState,
+} from "./customerLifecycle";
 
 const defaultBase = getBaseUrl();
 
@@ -40,6 +46,7 @@ export interface CustomerHubStats {
   days_since_last_visit: number | null;
   marketing_needs_attention: boolean;
   loyalty_points: number;
+  lifecycle_state: CustomerLifecycleState;
 }
 
 export interface CoupleMemberPreview {
@@ -116,6 +123,27 @@ function formatMessagePreview(body: string, channel: string): string {
       .trim();
   }
   return body.trim();
+}
+
+function customerTimelineKindLabel(kind: string): string {
+  switch (kind) {
+    case "sale":
+      return "Purchase";
+    case "payment":
+      return "Payment";
+    case "wedding":
+      return "Wedding activity";
+    case "note":
+      return "Timeline note";
+    case "measurement":
+      return "Measurements";
+    case "appointment":
+      return "Appointment";
+    case "shipping":
+      return "Shipment update";
+    default:
+      return kind.replace(/_/g, " ");
+  }
 }
 
 /** Server: `inbound` = customer; `automated` = system templates; `outbound` = ROS staff or Podium app sender name. */
@@ -389,6 +417,7 @@ export function CustomerRelationshipHubDrawer({
               !profile.marketing_sms_opt_in &&
               !(profile.transactional_sms_opt_in ?? false),
             loyalty_points: 0,
+            lifecycle_state: "new",
           },
           partner: null,
           couple_id: null,
@@ -1329,6 +1358,13 @@ export function CustomerRelationshipHubDrawer({
         <div className="space-y-6">
           {showHubSummary ? (
             <div className="flex flex-wrap items-center gap-2">
+              <span
+                className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${customerLifecycleBadgeClassName(
+                  hub.stats.lifecycle_state,
+                )}`}
+              >
+                Lifecycle: {customerLifecycleLabel(hub.stats.lifecycle_state)}
+              </span>
               {hub.is_vip ? (
                 <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
                   <Sparkles size={12} aria-hidden />
@@ -1379,11 +1415,15 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {showHubSummary ? (
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               {[
                 [
                   `Lifetime${hub.couple_id ? " (Joint)" : ""}`,
                   fmtLifetimeCompact(hub.stats.lifetime_spend_usd),
+                ],
+                [
+                  "Lifecycle",
+                  customerLifecycleLabel(hub.stats.lifecycle_state),
                 ],
                 ["Profile", hub.profile_complete ? "OK" : "Incomplete"],
                 ["Last visit", lastVisitLabel(hub.stats.days_since_last_visit)],
@@ -1394,6 +1434,10 @@ export function CustomerRelationshipHubDrawer({
                   className={`rounded-2xl border px-4 py-3 ${
                     k === "Profile" && hub.profile_complete
                       ? "border-emerald-200 bg-emerald-50/80"
+                      : k === "Lifecycle"
+                        ? customerLifecycleBadgeClassName(
+                            hub.stats.lifecycle_state,
+                          )
                       : "border-app-border bg-app-surface-2/90"
                   }`}
                 >
@@ -1409,6 +1453,11 @@ export function CustomerRelationshipHubDrawer({
                   >
                     {v}
                   </p>
+                  {k === "Lifecycle" ? (
+                    <p className="mt-1 text-[10px] font-medium normal-case tracking-normal opacity-80">
+                      {customerLifecycleDescription(hub.stats.lifecycle_state)}
+                    </p>
+                  ) : null}
                 </div>
               ))}
             </div>
@@ -1703,9 +1752,16 @@ export function CustomerRelationshipHubDrawer({
                 )
               )}
               <section>
-                <h3 className="mb-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Interaction timeline
-                </h3>
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                    Interaction timeline
+                  </h3>
+                  {canTimeline && timeline.length > 0 ? (
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                      Newest first
+                    </p>
+                  ) : null}
+                </div>
                 {!canTimeline ? (
                   <p className="text-sm text-app-text-muted">
                     You do not have permission to view the timeline
@@ -1717,7 +1773,7 @@ export function CustomerRelationshipHubDrawer({
                   </p>
                 ) : timeline.length === 0 ? (
                   <p className="text-sm text-app-text-muted">
-                    No interactions recorded yet.
+                    No customer history recorded yet.
                   </p>
                 ) : (
                   <ul className="relative space-y-0 border-l-2 border-app-border pl-6">
@@ -1729,7 +1785,8 @@ export function CustomerRelationshipHubDrawer({
                           }`}
                         />
                         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          {new Date(ev.at).toLocaleString()} · {ev.kind}
+                          {new Date(ev.at).toLocaleString()} ·{" "}
+                          {customerTimelineKindLabel(ev.kind)}
                         </p>
                         {ev.kind === "shipping" &&
                         ev.reference_type === "shipment" &&
