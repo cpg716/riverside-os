@@ -5,9 +5,9 @@ DROP VIEW IF EXISTS reporting.alterations_active;
 CREATE VIEW reporting.alterations_active AS
 SELECT
     ao.id AS alteration_id,
-    COALESCE(ao.transaction_id, ao.linked_transaction_id) AS order_id,
-    COALESCE(t.display_id, t.short_id, LEFT(COALESCE(ao.transaction_id, ao.linked_transaction_id)::text, 8)) AS order_short_id,
-    COALESCE(ao.transaction_id, ao.linked_transaction_id) AS transaction_id,
+    ao.transaction_id AS order_id,
+    COALESCE(t.display_id, t.short_id, LEFT(ao.transaction_id::text, 8)) AS order_short_id,
+    ao.transaction_id AS transaction_id,
     t.display_id AS transaction_display_id,
     ao.fulfillment_order_id,
     fo.display_id AS fulfillment_order_display_id,
@@ -25,7 +25,7 @@ SELECT
         ELSE false
     END AS is_overdue
 FROM alteration_orders ao
-LEFT JOIN transactions t ON t.id = COALESCE(ao.transaction_id, ao.linked_transaction_id)
+LEFT JOIN transactions t ON t.id = ao.transaction_id
 LEFT JOIN fulfillment_orders fo ON fo.id = ao.fulfillment_order_id
 LEFT JOIN customers c ON c.id = ao.customer_id
 WHERE (ao.status)::text <> 'picked_up';

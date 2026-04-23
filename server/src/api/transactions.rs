@@ -2618,10 +2618,10 @@ async fn update_transaction_line(
         }
         touched = true;
     }
-    if let Some(p) = body.unit_price {
+    if body.unit_price.is_some() {
         touched = true;
     }
-    if let Some(f) = normalized_fulfillment {
+    if normalized_fulfillment.is_some() {
         touched = true;
     }
     if touched {
