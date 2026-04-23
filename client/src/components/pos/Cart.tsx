@@ -92,6 +92,39 @@ interface OpenDepositPrompt {
   customerId: string;
 }
 
+interface HandoffOrderDetail {
+  transaction_id: string;
+  transaction_display_id?: string;
+  fulfillment_method?: string;
+  shipping_amount_usd?: string | null;
+  customer: {
+    id: string;
+    first_name: string;
+    last_name: string;
+    email?: string | null;
+    phone?: string | null;
+    customer_code?: string | null;
+    company_name?: string | null;
+  } | null;
+  items: Array<{
+    product_id: string;
+    variant_id: string;
+    sku: string;
+    product_name: string;
+    variation_label?: string | null;
+    quantity: number;
+    unit_price: string;
+    unit_cost?: string;
+    state_tax?: string;
+    local_tax?: string;
+    fulfillment: FulfillmentKind;
+    is_fulfilled: boolean;
+    is_internal?: boolean;
+    custom_item_type?: string | null;
+    custom_order_details?: ResolvedSkuItem["custom_order_details"];
+  }>;
+}
+
 interface CartProps {
   sessionId: string;
   cashierName?: string | null;
@@ -487,6 +520,8 @@ export default function Cart({
   // pendingExchangeOriginalOrderIdRef removed
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
+  const initialOrderApplyingRef = useRef<string | null>(null);
+  const initialOrderAppliedRef = useRef<string | null>(null);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
   
@@ -647,10 +682,115 @@ export default function Cart({
     onInitialCustomerConsumed?.();
   }, [initialCustomer, onInitialCustomerConsumed, setSelectedCustomer]);
 
+  const loadOrderIntoRegister = useCallback(
+    async (orderId: string) => {
+      const res = await fetch(`${baseUrl}/api/transactions/${orderId}`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) {
+        toast("We couldn't load that order into the register. Please try again.", "error");
+        return false;
+      }
+
+      const detail = (await res.json()) as HandoffOrderDetail;
+      const unfulfilled = (detail.items ?? []).filter(
+        (item) => !item.is_fulfilled && !item.is_internal,
+      );
+
+      if (unfulfilled.length === 0) {
+        toast("All order lines are already marked complete.", "info");
+        return false;
+      }
+
+      clearCart();
+      setActiveWeddingMember(null);
+      setActiveWeddingPartyName(null);
+      setDisbursementMembers([]);
+      setPosShipping(null);
+      setCheckoutOrderOptions(null);
+      setSelectedLineKey(null);
+
+      if (detail.customer) {
+        setSelectedCustomer({
+          id: detail.customer.id,
+          customer_code: detail.customer.customer_code ?? "",
+          first_name: detail.customer.first_name,
+          last_name: detail.customer.last_name,
+          company_name: detail.customer.company_name ?? null,
+          email: detail.customer.email ?? null,
+          phone: detail.customer.phone ?? null,
+        });
+      } else {
+        setSelectedCustomer(null);
+      }
+
+      setLines(
+        unfulfilled.map((item) => ({
+          product_id: item.product_id,
+          variant_id: item.variant_id,
+          sku: item.sku,
+          name: item.product_name,
+          variation_label: item.variation_label ?? "",
+          standard_retail_price: item.unit_price,
+          unit_cost: item.unit_cost ?? "0",
+          state_tax: item.state_tax ?? "0",
+          local_tax: item.local_tax ?? "0",
+          quantity: Math.max(1, item.quantity),
+          fulfillment: item.fulfillment,
+          cart_row_id: newCartRowId(),
+          custom_item_type: item.custom_item_type ?? undefined,
+          custom_order_details: item.custom_order_details ?? null,
+        })),
+      );
+
+      if (detail.fulfillment_method === "ship" || parseMoneyToCents(detail.shipping_amount_usd ?? "0") > 0) {
+        toast(
+          `Loaded ${detail.transaction_display_id ?? "order"} into the register. Review shipping details before checkout because this handoff starts a new sale.`,
+          "info",
+        );
+      } else {
+        toast(
+          `Loaded ${detail.transaction_display_id ?? "order"} into the register. This starts a new sale and does not collect payment on the original order.`,
+          "info",
+        );
+      }
+      return true;
+    },
+    [apiAuth, baseUrl, clearCart, setActiveWeddingMember, setActiveWeddingPartyName, setCheckoutOrderOptions, setDisbursementMembers, setLines, setPosShipping, setSelectedLineKey, toast],
+  );
+
   useEffect(() => {
-    if (!initialOrderId) return;
-    onInitialOrderConsumed?.();
-  }, [initialOrderId, onInitialOrderConsumed]);
+    if (!initialOrderId) {
+      initialOrderApplyingRef.current = null;
+      initialOrderAppliedRef.current = null;
+      return;
+    }
+    if (!saleHydrated) return;
+    if (
+      initialOrderApplyingRef.current === initialOrderId ||
+      initialOrderAppliedRef.current === initialOrderId
+    ) {
+      return;
+    }
+
+    let cancelled = false;
+    initialOrderApplyingRef.current = initialOrderId;
+    void (async () => {
+      await loadOrderIntoRegister(initialOrderId);
+      if (cancelled) return;
+      initialOrderAppliedRef.current = initialOrderId;
+      if (initialOrderApplyingRef.current === initialOrderId) {
+        initialOrderApplyingRef.current = null;
+      }
+      onInitialOrderConsumed?.();
+    })();
+    return () => {
+      cancelled = true;
+      if (initialOrderApplyingRef.current === initialOrderId) {
+        initialOrderApplyingRef.current = null;
+      }
+    };
+  }, [initialOrderId, loadOrderIntoRegister, onInitialOrderConsumed, saleHydrated]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;
