@@ -2,11 +2,11 @@
 id: inventory-variations-workspace
 title: "Variations Workspace (inventory)"
 order: 1029
-summary: "Draft maintainer scaffold for client/src/components/inventory/VariationsWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Variation matrix and list workspace for pricing, stock controls, and selected retail price-tag printing."
 source: client/src/components/inventory/VariationsWorkspace.tsx
 last_scanned: 2026-04-23
-tags: inventory-variations-workspace, component, auto-scaffold
-status: draft
+tags: inventory-variations-workspace, inventory, variations, retail-price-tags
+status: approved
 ---
 
 # Variations Workspace (inventory)
@@ -17,42 +17,47 @@ _Linked component: `client/src/components/inventory/VariationsWorkspace.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use **Variations Workspace** inside Product Hub when you need a matrix-level view of one product’s sizes, colors, or other variation axes and want to act on all or part of that matrix.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this workspace when you need to:
+
+1. Review all variations for a single product in grid or list form.
+2. Select a subset of variations for a bulk action.
+3. Print retail price tags for all variations or only the selected ones.
+4. Review pricing, low-stock, and web state at the variation level.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Open the correct product in **Product Hub** first.
+- Decide whether you want a full variation batch or only a selected subset.
+- Confirm the product’s effective retail pricing is correct before printing tags.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open the **Variations** tab inside Product Hub.
+2. Switch between grid and list view depending on whether matrix layout or row-level detail is easier for the task.
+3. If you only need some variations, select those rows first.
+4. Use `Print selected tags` when you have an active selection, or `Print all tags` when you want the full variation set.
+5. Review the shared retail price-tag dialog and adjust quantities for each variation.
+6. Confirm the print batch when the dialog matches the physical tags you need.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- The print button changes meaning based on selection. Check whether it says `Print selected tags` or `Print all tags` before confirming.
+- A quantity of `0` skips a variation even if it was selected.
+- Printing from this workspace uses the same Zebra LP2844 retail price-tag path as Inventory List and Receiving Bay.
+- If a variation’s price or label looks wrong, correct the product data before printing floor tags.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+- Riverside sends the approved tag batch to the direct print station when available, or opens print preview as a fallback.
+- Printed variations are marked as shelf-labeled.
+- You remain in Product Hub so you can keep reviewing stock, pricing, or the next variation subset.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/inventory-variations-workspace/` and replace this example with governed screenshots.
-
-![Example](../images/help/inventory-variations-workspace/example.png)
-
+- Use **Product Hub Drawer** for the broader product overview and General-tab tag action.
+- Use **Inventory Control Board** for the fastest browse-to-print workflow.
+- Use **Receiving Bay** when received quantities should prefill the print batch.

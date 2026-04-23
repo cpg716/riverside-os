@@ -2,11 +2,11 @@
 id: pos-procurement-hub
 title: "Procurement Hub (pos)"
 order: 1065
-summary: "Draft maintainer scaffold for client/src/components/pos/ProcurementHub.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "POS-side procurement surface for opening purchase orders, direct invoices, and Receiving Bay workflows."
 source: client/src/components/pos/ProcurementHub.tsx
 last_scanned: 2026-04-23
-tags: pos-procurement-hub, component, auto-scaffold
-status: draft
+tags: pos-procurement-hub, pos, procurement, receiving
+status: approved
 ---
 
 # Procurement Hub (pos)
@@ -17,42 +17,42 @@ _Linked component: `client/src/components/pos/ProcurementHub.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use **Procurement Hub** in POS mode when staff need a register-friendly way to open purchase orders, direct invoices, and the receiving workflow without leaving the operational shell.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this workspace when you need to:
+
+1. Find a purchase order or direct invoice that is ready for action.
+2. Open **Receiving Bay** from the procurement workflow.
+3. Finish a receipt and review retail price tags for the received items.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Confirm you have the vendor paperwork in hand.
+- Use a submitted PO for standard receiving, or a direct invoice when the vendor already shipped and billed the goods.
+- If you need shelf tags immediately after receiving, plan to use the built-in **Review price tags** step in Receiving Bay.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open **Procurement Hub** in POS mode.
+2. Find and open the PO or direct invoice you need.
+3. Move into **Receiving Bay** to stage the quantities that physically arrived.
+4. Use **Review price tags** if you need retail price tags for those received items.
+5. Print the required tags, then finish the receipt with **Post inventory** when everything matches the paperwork.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Receiving and printing tags are related but separate actions. Printing tags does not post inventory.
+- The receiving worksheet is the source for prefilled tag quantities.
+- Direct invoices and standard POs both flow through Receiving Bay for the final receipt step.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+- After printing, staff can continue receiving or return to the procurement list.
+- After posting inventory, the products become part of live stock and the receiving step is complete.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/pos-procurement-hub/` and replace this example with governed screenshots.
-
-![Example](../images/help/pos-procurement-hub/example.png)
-
+- Use **Receiving Bay** for the final receipt worksheet and prefilled retail price-tag review.
+- Use **Inventory Control Board** or **Product Hub Drawer** when you need to print more floor tags after receiving is complete.

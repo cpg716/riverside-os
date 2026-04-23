@@ -2,11 +2,11 @@
 id: inventory-bulk-bar
 title: "Inventory Bulk Bar (inventory)"
 order: 1015
-summary: "Draft maintainer scaffold for client/src/components/inventory/InventoryBulkBar.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Selection toolbar for inventory list actions including bulk retail price-tag printing."
 source: client/src/components/inventory/InventoryBulkBar.tsx
 last_scanned: 2026-04-23
-tags: inventory-bulk-bar, component, auto-scaffold
-status: draft
+tags: inventory-bulk-bar, inventory, bulk-actions, retail-price-tags
+status: approved
 ---
 
 # Inventory Bulk Bar (inventory)
@@ -17,42 +17,38 @@ _Linked component: `client/src/components/inventory/InventoryBulkBar.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use the **Inventory Bulk Bar** when you have selected one or more products in Inventory List and need to act on that selection without opening every product one by one.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use it when you need to:
+
+1. Print retail price tags for a selected product set.
+2. Run other bulk inventory actions from the current list selection.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Make sure the selected products are the ones you actually want to act on.
+- For tag printing, remember that each selected product may expand into multiple variations in the review dialog.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. In **Inventory List**, select the products you want.
+2. Use `Bulk print price tags`.
+3. Review the variation-aware print dialog and adjust quantities where needed.
+4. Confirm the final retail price-tag batch.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Bulk selection does not bypass review. The final dialog is still where you confirm the exact variation quantities.
+- Use `Set all to 1` in the dialog when you want the fastest one-tag-per-variation batch.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+- Riverside sends the reviewed batch to the Zebra LP2844 or opens print preview if direct print is unavailable.
+- The selection toolbar stays tied to the current list so you can continue with another bulk action if needed.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/inventory-bulk-bar/` and replace this example with governed screenshots.
-
-![Example](../images/help/inventory-bulk-bar/example.png)
-
+- Use **Inventory Control Board** for the main browse-and-select workflow.
+- Use **Product Hub Drawer** when you want to print from one product’s detail view instead of from a bulk list.

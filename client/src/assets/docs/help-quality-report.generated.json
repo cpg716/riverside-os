@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-04-23T17:30:55.994Z",
+  "generated_at": "2026-04-23T17:39:48.420Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 48,
-  "draft_manual_count": 117,
+  "published_manual_count": 52,
+  "draft_manual_count": 113,
   "manuals": [
     {
       "id": "pos",
@@ -1089,7 +1089,7 @@
     {
       "id": "inventory-bulk-bar",
       "title": "Inventory Bulk Bar (inventory)",
-      "status": "draft",
+      "status": "approved",
       "source_path": "client/src/assets/docs/inventory-bulk-bar-manual.md",
       "required_buckets": [
         {
@@ -1125,10 +1125,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 6,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -1158,25 +1156,23 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": false
+          "present": true
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": false
+          "present": true
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 10,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-intelligence-panel",
@@ -1363,7 +1359,7 @@
     {
       "id": "inventory-product-hub-drawer",
       "title": "Product Hub Drawer (inventory)",
-      "status": "draft",
+      "status": "approved",
       "source_path": "client/src/assets/docs/inventory-product-hub-drawer-manual.md",
       "required_buckets": [
         {
@@ -1379,33 +1375,30 @@
         {
           "key": "guardrails",
           "label": "What to watch for / common mistakes / tips",
-          "present": false
+          "present": true
         }
       ],
       "optional_buckets": [
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": false
+          "present": true
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": false
+          "present": true
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 11,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Draft manual is missing: What to watch for / common mistakes / tips.",
-        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-product-master-form",
@@ -1525,12 +1518,12 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": false
+          "present": true
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -1538,12 +1531,10 @@
           "present": false
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 11,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
-      ]
+      "warnings": []
     },
     {
       "id": "inventory-universal-importer",
@@ -1866,7 +1857,7 @@
     {
       "id": "inventory-variations-workspace",
       "title": "Variations Workspace (inventory)",
-      "status": "draft",
+      "status": "approved",
       "source_path": "client/src/assets/docs/inventory-variations-workspace-manual.md",
       "required_buckets": [
         {
@@ -1902,10 +1893,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 10,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -3922,7 +3911,7 @@
     {
       "id": "pos-procurement-hub",
       "title": "Procurement Hub (pos)",
-      "status": "draft",
+      "status": "approved",
       "source_path": "client/src/assets/docs/pos-procurement-hub-manual.md",
       "required_buckets": [
         {
@@ -3958,10 +3947,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 8,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
