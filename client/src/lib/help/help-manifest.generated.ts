@@ -54,6 +54,7 @@ import manual_49_raw from "../../assets/docs/settings-counterpoint-sync-settings
 import manual_50_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
 import manual_51_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
 import manual_52_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_53_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -426,6 +427,13 @@ export const HELP_MANUALS: HelpManual[] = [
     summary: "Review fulfillment-based commission payouts, filter by staff, run prior-month payroll windows, and finalize only eligible unfinalized lines.",
     markdown: manual_52_raw,
     tags: ["staff-commission-payouts-panel","component","commission","payroll"],
+  },
+  {
+    id: "staff-commission-manager-workspace",
+    title: "Commission Manager Workspace (staff)",
+    summary: "Use Staff → Commissions as the single workspace for commission payouts, category rates, and SPIFF or combo incentive rules.",
+    markdown: manual_53_raw,
+    tags: ["staff-commission-manager-workspace","component","commission","payroll","rates"],
   },
 ];
 

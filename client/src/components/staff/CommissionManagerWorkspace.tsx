@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
   Percent,
   Receipt,
@@ -7,7 +7,6 @@ import {
   Settings,
   Plus,
   Trash2,
-  TrendingUp,
   Layers,
   X,
 } from "lucide-react";
@@ -28,9 +27,15 @@ const DNA = {
   heading: "text-[10px] font-black uppercase tracking-widest text-app-text-muted",
 };
 
-type TabId = "payouts" | "promos" | "products";
+type TabId = "payouts" | "rates" | "promos";
 
 type MatchType = "category" | "product" | "variant";
+
+interface CategoryCommissionRow {
+  category_id: string;
+  category_name: string;
+  commission_rate: string | number;
+}
 
 interface CommissionRule {
   id: string;
@@ -71,8 +76,40 @@ interface RuleDraft {
   is_active: boolean;
 }
 
+/** Commission rate stored as 0–1 decimal → percent label for the grid (not currency). */
+function pctFromDecimal(d: string | number): string {
+  const v = typeof d === "number" ? d : Number.parseFloat(String(d));
+  if (!Number.isFinite(v)) return "0";
+  return (v * 100).toFixed(2);
+}
+
+/** Cashier-entered percent string → 0–1 decimal for PATCH payloads (not currency). */
+function decimalFromPctInput(s: string): number | null {
+  const t = s.trim().replace(/%/g, "");
+  const v = Number.parseFloat(t);
+  if (!Number.isFinite(v) || v < 0 || v > 100) return null;
+  return v / 100;
+}
+
 export default function CommissionManagerWorkspace() {
-  const [activeTab, setActiveTab] = useState<TabId>("payouts");
+  const { hasPermission } = useBackofficeAuth();
+  const canViewPayouts =
+    hasPermission("insights.view") && hasPermission("insights.commission_finalize");
+  const canManageCommission = hasPermission("staff.manage_commission");
+  const availableTabs = useMemo(
+    () => [
+      ...(canViewPayouts ? (["payouts"] as TabId[]) : []),
+      ...(canManageCommission ? (["rates", "promos"] as TabId[]) : []),
+    ],
+    [canManageCommission, canViewPayouts],
+  );
+  const [activeTab, setActiveTab] = useState<TabId>(availableTabs[0] ?? "payouts");
+
+  useEffect(() => {
+    if (!availableTabs.includes(activeTab)) {
+      setActiveTab(availableTabs[0] ?? "payouts");
+    }
+  }, [activeTab, availableTabs]);
 
   return (
     <div
@@ -88,33 +125,39 @@ export default function CommissionManagerWorkspace() {
           </div>
           <div>
             <h1 className="line-height-tight text-lg font-bold tracking-tight text-app-text">
-              Commission Manager
+              Commissions
             </h1>
             <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
-              Staff Incentives & SPIFF Hub
+              Payouts, rates, and incentives
             </p>
           </div>
         </div>
 
         <nav className="flex items-center gap-1 rounded-full border border-app-border bg-app-surface-2 p-1">
-          <TabButton
-            active={activeTab === "payouts"}
-            onClick={() => setActiveTab("payouts")}
-            icon={<Receipt size={14} />}
-            label="Payout Ledger"
-          />
-          <TabButton
-            active={activeTab === "promos"}
-            onClick={() => setActiveTab("promos")}
-            icon={<Zap size={14} />}
-            label="Promo Manager"
-          />
-          <TabButton
-            active={activeTab === "products"}
-            onClick={() => setActiveTab("products")}
-            icon={<Settings size={14} />}
-            label="Product Settings"
-          />
+          {canViewPayouts ? (
+            <TabButton
+              active={activeTab === "payouts"}
+              onClick={() => setActiveTab("payouts")}
+              icon={<Receipt size={14} />}
+              label="Payouts"
+            />
+          ) : null}
+          {canManageCommission ? (
+            <TabButton
+              active={activeTab === "rates"}
+              onClick={() => setActiveTab("rates")}
+              icon={<Percent size={14} />}
+              label="Rates"
+            />
+          ) : null}
+          {canManageCommission ? (
+            <TabButton
+              active={activeTab === "promos"}
+              onClick={() => setActiveTab("promos")}
+              icon={<Zap size={14} />}
+              label="Rules & SPIFFs"
+            />
+          ) : null}
         </nav>
       </header>
 
@@ -127,18 +170,9 @@ export default function CommissionManagerWorkspace() {
           </div>
         )}
 
-        {activeTab === "promos" && <PromoManagerSection />}
+        {activeTab === "rates" && <CommissionRatesSection />}
 
-        {activeTab === "products" && (
-          <div className="flex h-full flex-col items-center justify-center text-slate-500 opacity-30">
-            <TrendingUp size={48} className="mb-4" />
-            <p className="text-center text-[10px] font-black uppercase tracking-widest">
-              Specificity Overrides View Coming Soon
-              <br />
-              (Matrix of base Category/Product rates)
-            </p>
-          </div>
-        )}
+        {activeTab === "promos" && <PromoManagerSection />}
       </main>
     </div>
   );
@@ -469,6 +503,153 @@ function PromoManagerSection() {
         onClose={() => setDeleteTarget(null)}
       />
     </div>
+  );
+}
+
+function CommissionRatesSection() {
+  const { toast } = useToast();
+  const { backofficeHeaders } = useBackofficeAuth();
+  const [rows, setRows] = useState<CategoryCommissionRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyCategoryId, setBusyCategoryId] = useState<string | null>(null);
+
+  const loadRows = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/admin/category-commissions`, {
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) throw new Error("Could not load category rates");
+      const data = (await res.json()) as CategoryCommissionRow[];
+      setRows(Array.isArray(data) ? data : []);
+    } catch {
+      setRows([]);
+      toast("Failed to load category commission rates", "error");
+    } finally {
+      setLoading(false);
+    }
+  }, [backofficeHeaders, toast]);
+
+  useEffect(() => {
+    void loadRows();
+  }, [loadRows]);
+
+  const saveRate = useCallback(
+    async (categoryId: string, pctStr: string) => {
+      const rate = decimalFromPctInput(pctStr);
+      if (rate === null) {
+        toast("Enter a commission rate between 0% and 100%.", "error");
+        return;
+      }
+      setBusyCategoryId(categoryId);
+      try {
+        const res = await fetch(
+          `${baseUrl}/api/staff/admin/category-commissions/${encodeURIComponent(categoryId)}`,
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json", ...backofficeHeaders() },
+            body: JSON.stringify({ commission_rate: rate }),
+          },
+        );
+        if (!res.ok) {
+          const body = (await res.json().catch(() => ({}))) as { error?: string };
+          throw new Error(body.error ?? "Could not save category commission rate");
+        }
+        toast("Category commission rate saved.", "success");
+        await loadRows();
+      } catch (error) {
+        toast(error instanceof Error ? error.message : "Could not save category commission rate", "error");
+      } finally {
+        setBusyCategoryId(null);
+      }
+    },
+    [backofficeHeaders, loadRows, toast],
+  );
+
+  return (
+    <section className="flex h-full flex-col gap-4 overflow-hidden">
+      <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
+        <p className="text-sm text-app-text-muted">
+          Category overrides apply to commission-eligible staff when a sale line maps to that category.
+          Commission remains fulfillment-based, and Sales Support continues to earn no commission.
+        </p>
+      </div>
+      <div className="flex-1 overflow-auto rounded-2xl border border-app-border bg-app-surface">
+        <table className="w-full text-left text-sm">
+          <thead className="sticky top-0 border-b border-app-border bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            <tr>
+              <th className="px-4 py-3">Category</th>
+              <th className="px-4 py-3">Override %</th>
+              <th className="px-4 py-3 text-right">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={3} className="px-4 py-12 text-center text-app-text-muted">
+                  Loading category rates…
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={3} className="px-4 py-12 text-center text-app-text-muted">
+                  No category overrides configured.
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <CategoryRateRow
+                  key={row.category_id}
+                  row={row}
+                  disabled={busyCategoryId === row.category_id}
+                  onSave={(pct) => void saveRate(row.category_id, pct)}
+                />
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function CategoryRateRow({
+  row,
+  disabled,
+  onSave,
+}: {
+  row: CategoryCommissionRow;
+  disabled: boolean;
+  onSave: (pct: string) => void;
+}) {
+  const [local, setLocal] = useState(pctFromDecimal(row.commission_rate));
+
+  useEffect(() => {
+    setLocal(pctFromDecimal(row.commission_rate));
+  }, [row.commission_rate]);
+
+  return (
+    <tr className="border-b border-app-border/50">
+      <td className="px-4 py-3 font-semibold text-app-text">{row.category_name}</td>
+      <td className="px-4 py-3">
+        <input
+          value={local}
+          onChange={(e) => setLocal(e.target.value)}
+          disabled={disabled}
+          className="ui-input w-24 py-1.5 font-mono text-sm"
+        />
+      </td>
+      <td className="px-4 py-3 text-right">
+        <button
+          type="button"
+          disabled={disabled}
+          onClick={() => onSave(local)}
+          className="ui-btn-primary px-3 py-1.5 disabled:opacity-50"
+        >
+          Apply
+        </button>
+      </td>
+    </tr>
   );
 }
 

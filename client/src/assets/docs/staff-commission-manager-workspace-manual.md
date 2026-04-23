@@ -2,11 +2,11 @@
 id: staff-commission-manager-workspace
 title: "Commission Manager Workspace (staff)"
 order: 1110
-summary: "Draft maintainer scaffold for client/src/components/staff/CommissionManagerWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Use Staff → Commissions as the single workspace for commission payouts, category rates, and SPIFF or combo incentive rules."
 source: client/src/components/staff/CommissionManagerWorkspace.tsx
 last_scanned: 2026-04-23
-tags: staff-commission-manager-workspace, component, auto-scaffold
-status: draft
+tags: staff-commission-manager-workspace, component, commission, payroll, rates
+status: approved
 ---
 
 # Commission Manager Workspace (staff)
@@ -17,42 +17,27 @@ _Linked component: `client/src/components/staff/CommissionManagerWorkspace.tsx`.
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
-
-## When to use it
-
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use **Staff → Commissions** as the single hub for commission work. This workspace combines payroll review, category commission rates, and SPIFF or combo incentive rules in one place so managers do not need to bounce between separate Staff sections.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- **Payouts** requires **insights.view** and **insights.commission_finalize**.
+- **Rates** and **Rules & SPIFFs** require **staff.manage_commission**.
+- Commission follows the **fulfillment / recognition** date, not the original booking date.
 
-## Steps
+## Tabs
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. **Payouts**: review realized commission, filter by date or staff member, and finalize eligible payout rows.
+2. **Rates**: manage category-level override percentages for commission-eligible sales.
+3. **Rules & SPIFFs**: manage fixed-dollar SPIFF rules and combo rewards.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
-
-## What happens next
-
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+- Finalized payouts stay locked.
+- Rate changes can reconcile eligible unfinalized lines only from the chosen effective date.
+- Sales Support continues to earn no commission unless store policy and code change separately.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/staff-commission-manager-workspace/` and replace this example with governed screenshots.
-
-![Example](../images/help/staff-commission-manager-workspace/example.png)
-
+- [staff-commission-payouts-panel-manual.md](./staff-commission-payouts-panel-manual.md)
+- [settings-staff-profile-panel-manual.md](./settings-staff-profile-panel-manual.md)

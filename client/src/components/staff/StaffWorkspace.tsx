@@ -2,15 +2,13 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   CalendarDays,
-  CircleDollarSign,
   ClipboardList,
   LayoutGrid,
   ListChecks,
-  Percent,
   Search,
   UserPlus,
 } from "lucide-react";
-import CommissionPayoutsPanel from "./CommissionPayoutsPanel";
+import CommissionManagerWorkspace from "./CommissionManagerWorkspace";
 import StaffTasksPanel from "./StaffTasksPanel";
 import StaffSchedulePanel from "./StaffSchedulePanel";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -26,12 +24,6 @@ type StaffStatusFilter = "all" | "active" | "inactive";
 
 // HubRow is imported from StaffEditDrawer
 
-interface CategoryCommissionRow {
-  category_id: string;
-  category_name: string;
-  commission_rate: string | number;
-}
-
 /** USD display — `parseFloat` here is only a finite-string guard before `parseMoneyToCents`. */
 function money(n: string | number | null | undefined): string {
   if (n == null) return "—";
@@ -41,19 +33,11 @@ function money(n: string | number | null | undefined): string {
   return formatUsdFromCents(parseMoneyToCents(n));
 }
 
-/** Commission rate stored as 0–1 decimal → percent label for the grid (not currency). */
+/** Commission rate stored as 0–1 decimal → percent label for roster display. */
 function pctFromDecimal(d: string | number): string {
   const v = typeof d === "number" ? d : Number.parseFloat(String(d));
   if (!Number.isFinite(v)) return "0";
   return (v * 100).toFixed(2);
-}
-
-/** Cashier-entered percent string → 0–1 decimal for PATCH payloads (not currency). */
-function decimalFromPctInput(s: string): number | null {
-  const t = s.trim().replace(/%/g, "");
-  const v = Number.parseFloat(t);
-  if (!Number.isFinite(v) || v < 0 || v > 100) return null;
-  return v / 100;
 }
 
 interface StaffWorkspaceProps {
@@ -88,13 +72,11 @@ export default function StaffWorkspace({
       activeSection === "commission-payouts" ||
       activeSection === "audit"
     ) {
-      setTab(activeSection as StaffTab);
+      setTab(activeSection === "commission-payouts" ? "commission" : (activeSection as StaffTab));
     }
   }, [activeSection]);
   const [roster, setRoster] = useState<HubRow[]>([]);
-  const [categories, setCategories] = useState<CategoryCommissionRow[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
   const [searchInput, setSearchInput] = useState("");
   const [statusFilter, setStatusFilter] = useState<StaffStatusFilter>("active");
   const [auditSearchInput, setAuditSearchInput] = useState("");
@@ -131,19 +113,6 @@ export default function StaffWorkspace({
     }
   }, [backofficeHeaders]);
 
-  const refreshCategories = useCallback(async () => {
-    try {
-      const res = await fetch(`${baseUrl}/api/staff/admin/category-commissions`, {
-        headers: backofficeHeaders(),
-      });
-      if (!res.ok) throw new Error("Could not load categories");
-      const rows = (await res.json()) as CategoryCommissionRow[];
-      setCategories(Array.isArray(rows) ? rows : []);
-    } catch {
-      setCategories([]);
-    }
-  }, [backofficeHeaders]);
-
   const refreshAccessLog = useCallback(async () => {
     setAccessLogLoading(true);
     try {
@@ -163,8 +132,7 @@ export default function StaffWorkspace({
 
   useEffect(() => {
     void refreshRoster();
-    void refreshCategories();
-  }, [refreshRoster, refreshCategories]);
+  }, [refreshRoster]);
 
   useEffect(() => {
     if (tab !== "audit") return;
@@ -350,32 +318,6 @@ export default function StaffWorkspace({
     toast,
   ]);
 
-  const saveCategoryRate = async (categoryId: string, pctStr: string) => {
-    const rate = decimalFromPctInput(pctStr);
-    if (rate === null) return;
-    setBusy(true);
-    try {
-      const res = await fetch(
-        `${baseUrl}/api/staff/admin/category-commissions/${encodeURIComponent(categoryId)}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", ...backofficeHeaders() },
-          body: JSON.stringify({ commission_rate: rate }),
-        },
-      );
-      if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(b.error ?? "Update failed");
-      }
-      await refreshCategories();
-      await refreshRoster();
-    } catch (e) {
-      setLoadErr(e instanceof Error ? e.message : "Save failed");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const roleLabel = (r: StaffRole) =>
     r === "admin"
       ? "Admin"
@@ -394,20 +336,21 @@ export default function StaffWorkspace({
       icon: typeof LayoutGrid;
       perm?: string;
       requireAll?: string[];
+      requireAny?: string[];
     }[] = [
       { id: "team", label: "Team", icon: LayoutGrid, perm: "staff.view" },
       { id: "tasks", label: "Tasks", icon: ListChecks, perm: "tasks.complete" },
       { id: "schedule", label: "Schedule", icon: CalendarDays, perm: "staff.view" },
-      { id: "commission", label: "Commission", icon: Percent, perm: "staff.manage_commission" },
       {
-        id: "commission-payouts",
-        label: "Commission payouts",
-        icon: CircleDollarSign,
-        requireAll: ["insights.view", "insights.commission_finalize"],
+        id: "commission",
+        label: "Commissions",
+        icon: LayoutGrid,
+        requireAny: ["staff.manage_commission", "insights.commission_finalize"],
       },
       { id: "audit", label: "Audit", icon: ClipboardList, perm: "staff.view_audit" },
     ];
     return all.filter((t) => {
+      if (t.requireAny?.length) return t.requireAny.some((k) => hasPermission(k));
       if (t.requireAll?.length) return t.requireAll.every((k) => hasPermission(k));
       if (t.perm) return hasPermission(t.perm);
       return false;
@@ -759,37 +702,7 @@ export default function StaffWorkspace({
         </section>
       ) : null}
 
-      {tab === "commission-payouts" ? <CommissionPayoutsPanel /> : null}
-
-      {tab === "commission" ? (
-        <section className="ui-card space-y-4 p-4">
-          <p className="text-sm text-app-text-muted">
-            Category overrides apply to commission-eligible staff when a line’s
-            product maps to that category. Sales Support earns no commission.
-          </p>
-          <div className="ui-card overflow-hidden">
-            <table className="w-full text-left text-sm">
-              <thead className="border-b border-app-border bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                <tr>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3">Override %</th>
-                  <th className="px-4 py-3" />
-                </tr>
-              </thead>
-              <tbody>
-                {categories.map((c) => (
-                  <CategoryRateRow
-                    key={c.category_id}
-                    row={c}
-                    disabled={busy}
-                    onSave={(pct) => void saveCategoryRate(c.category_id, pct)}
-                  />
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ) : null}
+      {tab === "commission" ? <CommissionManagerWorkspace /> : null}
 
       {editRow && (
         <StaffEditDrawer
@@ -803,46 +716,5 @@ export default function StaffWorkspace({
         />
       )}
     </div>
-  );
-}
-
-function CategoryRateRow({
-  row,
-  disabled,
-  onSave,
-}: {
-  row: CategoryCommissionRow;
-  disabled: boolean;
-  onSave: (pct: string) => void;
-}) {
-  const [local, setLocal] = useState(pctFromDecimal(row.commission_rate));
-  useEffect(() => {
-    setLocal(pctFromDecimal(row.commission_rate));
-  }, [row.commission_rate]);
-
-  return (
-    <tr className="border-b border-app-border/50">
-      <td className="px-4 py-3 font-semibold text-app-text">
-        {row.category_name}
-      </td>
-      <td className="px-4 py-3">
-        <input
-          value={local}
-          onChange={(e) => setLocal(e.target.value)}
-          disabled={disabled}
-          className="ui-input w-24 py-1.5 font-mono text-sm"
-        />
-      </td>
-      <td className="px-4 py-3 text-right">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onSave(local)}
-          className="ui-btn-primary px-3 py-1.5 disabled:opacity-50"
-        >
-          Apply
-        </button>
-      </td>
-    </tr>
   );
 }

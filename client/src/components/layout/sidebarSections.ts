@@ -50,12 +50,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
   alterations: [
     { id: "queue", label: "Queue" },
   ],
-  orders: [
-    { id: "open", label: "Open Orders" },
-    { id: "all", label: "Order History" },
-    { id: "returns", label: "Returns" },
-    { id: "pickups", label: "Pending Pickups" },
-  ],
+  orders: [],
   inventory: [
     { id: "list", label: "List" },
     { id: "purchase_orders", label: "Purchase Orders" },
@@ -81,8 +76,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "team", label: "Team" },
     { id: "tasks", label: "Tasks" },
     { id: "schedule", label: "Schedule" },
-    { id: "commission", label: "Commission" },
-    { id: "commission-payouts", label: "Commission Payouts" },
+    { id: "commission", label: "Commissions" },
     { id: "audit", label: "Audit" },
   ],
   qbo: [

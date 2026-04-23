@@ -45,6 +45,10 @@ export const SIDEBAR_SUB_SECTION_PERMISSIONS_ALL: Record<string, string[]> = {
 
 /** Subsection visible if any listed permission is held (OR). */
 export const SIDEBAR_SUB_SECTION_PERMISSIONS_ANY: Record<string, string[]> = {
+  "staff:commission": [
+    "staff.manage_commission",
+    "insights.commission_finalize",
+  ],
   "settings:staff-access-defaults": ["settings.admin", "staff.manage_access"],
   "customers:rms-charge": [
     "customers.rms_charge",

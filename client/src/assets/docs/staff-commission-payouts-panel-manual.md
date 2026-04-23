@@ -17,7 +17,7 @@ _Linked component: `client/src/components/staff/CommissionPayoutsPanel.tsx`._
 
 ## What this is
 
-Use **Staff → Commission payouts** to review fulfillment-based commission, run a staff report for a selected date window, and finalize realized commission that is ready for payroll.
+Use **Staff → Commissions → Payouts** to review fulfillment-based commission, run a staff report for a selected date window, and finalize realized commission that is ready for payroll.
 
 ## Before you start
 
@@ -27,7 +27,7 @@ Use **Staff → Commission payouts** to review fulfillment-based commission, run
 
 ## Steps
 
-1. Open **Staff → Commission payouts**.
+1. Open **Staff → Commissions** and stay on **Payouts**.
 2. Choose a date window. Use **Prior month payroll** when paying the first paycheck of the new month from the previous month's fulfilled work.
 3. Optional: pick a **Staff** member to run a staff-level report even if the summary table is empty.
 4. Review **Realized (pending)** for the people or rows you are paying.
@@ -47,5 +47,5 @@ After finalize, matching commission lines move from **Realized (pending)** to **
 
 ## Related workflows
 
-- Open **Staff → Commission** to manage rates, SPIFF rules, and combo incentives.
+- Open **Staff → Commissions → Rates** or **Rules & SPIFFs** to manage rates, SPIFF rules, and combo incentives.
 - Open the broader Insights / Staff manual for payroll timing and permissions guidance.

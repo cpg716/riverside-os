@@ -55,4 +55,5 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("settings-remote-access-panel", "client/src/assets/docs/settings-remote-access-panel-manual.md"),
     ("settings-stripe-settings-panel", "client/src/assets/docs/settings-stripe-settings-panel-manual.md"),
     ("staff-commission-payouts-panel", "client/src/assets/docs/staff-commission-payouts-panel-manual.md"),
+    ("staff-commission-manager-workspace", "client/src/assets/docs/staff-commission-manager-workspace-manual.md"),
 ];

@@ -665,7 +665,13 @@ function App() {
             "commission-payouts",
             "audit",
           ]);
-          setActiveSubSection(allowedS.has(sec) ? sec : "team");
+          setActiveSubSection(
+            allowedS.has(sec)
+              ? sec === "commission-payouts"
+                ? "commission"
+                : sec
+              : "team",
+          );
         }
         return;
       }
@@ -837,7 +843,7 @@ function App() {
 
   const onNavigateCommissionPayouts = useCallback(() => {
     setActiveTab("staff");
-    setActiveSubSection("commission-payouts");
+    setActiveSubSection("commission");
   }, []);
 
   return (
