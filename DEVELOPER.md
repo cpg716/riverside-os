@@ -261,7 +261,9 @@ From the repo root, after `docker compose up -d`, client `npm install`, and once
 npm run dev
 ```
 
-Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.sh) — prepends **Rust 1.88** `bin` to **`PATH`** when needed) and **`cd client && npm run dev`** in parallel (requires [concurrently](https://www.npmjs.com/package/concurrently) from the root `package.json`). Stop with one Ctrl+C. Ensure Postgres is up first (**`npm run docker:db`**) so the API can connect.
+Runs **`npm run dev:server`** ([**`scripts/dev-server.sh`**](scripts/dev-server.sh) — prepends **Rust 1.88** `bin` to **`PATH`** when needed), **`cd client && npm run dev`**, and the Counterpoint bridge in parallel (requires [concurrently](https://www.npmjs.com/package/concurrently) from the root `package.json`). Stop with one Ctrl+C. Ensure Postgres is up first (**`npm run docker:db`**) so the API can connect.
+
+When the approved local ROSIE assets are present, `npm run dev` also auto-starts the local Gemma Host runtime and exports **`RIVERSIDE_LLAMA_UPSTREAM=http://127.0.0.1:8080`** for the API process. That keeps Help Center ROSIE available in the normal dev stack instead of requiring a separate manual `llama-server` launch. If you need to point the API at a different Host runtime, set **`RIVERSIDE_LLAMA_UPSTREAM`** explicitly in `server/.env`. If you need to keep the API text-only for a session, set **`RIVERSIDE_DEV_AUTOSTART_ROSIE_HOST=0`**.
 
 **Local env requirement:** keep a real **`server/.env`** in your working tree (copy from **`server/.env.example`**). For local Docker Postgres, **`DATABASE_URL`** must use **`localhost:5433`**. If you expect automatic Metabase sign-in in local/RC browser runs, that same file must also define the local **`RIVERSIDE_METABASE_ADMIN_*`** / **`RIVERSIDE_METABASE_STAFF_*`** shared-auth credentials (or export them in the shell before **`npm run dev:server`**).
 

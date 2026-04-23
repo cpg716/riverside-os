@@ -125,6 +125,7 @@ These may remain in the codebase as explicit fallback-only paths, but they are n
 - The Host must provide the approved production assets or explicit env overrides for them.
 - The Host is responsible for running the local ROSIE stack or an explicitly configured upstream fallback.
 - Runtime assumptions must be explicit in env/config and must match this file.
+- For local development, `npm run dev` should auto-start the approved local Gemma Host runtime when the pinned assets are present and no explicit non-loopback upstream override is configured.
 
 ### Tauri expectations
 - Tauri may use local/direct first when `local_first` is enabled.
