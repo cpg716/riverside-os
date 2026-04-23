@@ -13,7 +13,13 @@ import {
   Target,
   KeyRound,
   Check,
-  X
+  X,
+  Bell,
+  ClipboardList,
+  CalendarDays,
+  Package,
+  Users,
+  Megaphone
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -37,6 +43,78 @@ interface StaffProfile {
   avatar_key: string;
   max_discount_percent: string;
   employee_customer_code: string | null;
+  notification_preferences: NotificationPreferences;
+}
+
+type NotificationPreferences = {
+  orders: boolean;
+  tasks: boolean;
+  weddings_appointments: boolean;
+  inventory_purchasing: boolean;
+  customers_loyalty: boolean;
+  announcements: boolean;
+};
+
+const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  orders: true,
+  tasks: true,
+  weddings_appointments: true,
+  inventory_purchasing: true,
+  customers_loyalty: true,
+  announcements: true,
+};
+
+const NOTIFICATION_PREFERENCE_OPTIONS: Array<{
+  key: keyof NotificationPreferences;
+  title: string;
+  description: string;
+  icon: typeof Bell;
+}> = [
+  {
+    key: "orders",
+    title: "Orders",
+    description: "Due dates, pickups, refunds, and order workflow updates.",
+    icon: Bell,
+  },
+  {
+    key: "tasks",
+    title: "Tasks",
+    description: "Assigned task reminders and other checklist-style follow-up work.",
+    icon: ClipboardList,
+  },
+  {
+    key: "weddings_appointments",
+    title: "Weddings & Appointments",
+    description: "Upcoming wedding and appointment reminders tied to your work.",
+    icon: CalendarDays,
+  },
+  {
+    key: "inventory_purchasing",
+    title: "Inventory & Purchasing",
+    description: "Low stock, receiving, catalog, and purchase order activity.",
+    icon: Package,
+  },
+  {
+    key: "customers_loyalty",
+    title: "Customers & Loyalty",
+    description: "Customer updates, Podium activity, reviews, and gift card or loyalty alerts.",
+    icon: Users,
+  },
+  {
+    key: "announcements",
+    title: "Announcements",
+    description: "Team-wide updates from managers and store leadership.",
+    icon: Megaphone,
+  },
+];
+
+function normalizeNotificationPreferences(
+  value: Partial<NotificationPreferences> | null | undefined,
+): NotificationPreferences {
+  return {
+    ...DEFAULT_NOTIFICATION_PREFERENCES,
+    ...(value ?? {}),
+  };
 }
 
 export default function StaffProfilePanel() {
@@ -55,6 +133,9 @@ export default function StaffProfilePanel() {
   const [email, setEmail] = useState("");
   const [phone, setPhone] = useState("");
   const [avatarKey, setAvatarKey] = useState("");
+  const [notificationPreferences, setNotificationPreferences] = useState<NotificationPreferences>(
+    DEFAULT_NOTIFICATION_PREFERENCES,
+  );
 
   const baseUrl = getBaseUrl();
 
@@ -71,6 +152,9 @@ export default function StaffProfilePanel() {
       setEmail(data.email || "");
       setPhone(data.phone || "");
       setAvatarKey(data.avatar_key);
+      setNotificationPreferences(
+        normalizeNotificationPreferences(data.notification_preferences),
+      );
     } catch (e) {
       toast(e instanceof Error ? e.message : "We couldn't load your profile.", "error");
     } finally {
@@ -96,6 +180,7 @@ export default function StaffProfilePanel() {
           email: email.trim() || null,
           phone: phone.trim() || null,
           avatar_key: avatarKey,
+          notification_preferences: notificationPreferences,
         }),
       });
 
@@ -352,6 +437,79 @@ export default function StaffProfilePanel() {
                   </div>
                 </div>
               )}
+            </div>
+
+            <div className="mt-14 rounded-[2rem] border border-app-border bg-app-surface-2/70 p-6 md:p-8">
+              <div className="flex items-start gap-4">
+                <div className="mt-1 flex h-12 w-12 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent">
+                  <Bell size={20} />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <h4 className="text-lg font-black uppercase tracking-[0.12em] text-app-text">
+                    Notification Preferences
+                  </h4>
+                  <p className="mt-2 max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
+                    Trim down routine inbox noise without missing critical operations alerts.
+                    System and security alerts still stay on for everyone.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-8 grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {NOTIFICATION_PREFERENCE_OPTIONS.map((option) => {
+                  const checked = notificationPreferences[option.key];
+                  const Icon = option.icon;
+                  return (
+                    <label
+                      key={option.key}
+                      className={`flex cursor-pointer items-start gap-4 rounded-[1.5rem] border px-5 py-4 transition-all ${
+                        checked
+                          ? "border-app-accent/30 bg-app-accent/5"
+                          : "border-app-border bg-app-surface"
+                      }`}
+                    >
+                      <div
+                        className={`mt-0.5 flex h-10 w-10 items-center justify-center rounded-2xl border ${
+                          checked
+                            ? "border-app-accent/20 bg-app-accent/10 text-app-accent"
+                            : "border-app-border bg-app-surface-2 text-app-text-muted"
+                        }`}
+                      >
+                        <Icon size={18} />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black uppercase tracking-widest text-app-text">
+                              {option.title}
+                            </p>
+                            <p className="mt-1 text-sm leading-relaxed text-app-text-muted">
+                              {option.description}
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) =>
+                              setNotificationPreferences((current) => ({
+                                ...current,
+                                [option.key]: e.target.checked,
+                              }))
+                            }
+                            aria-label={`${option.title} notifications`}
+                            className="mt-1 h-5 w-5 rounded border-app-border text-app-accent focus:ring-app-accent"
+                          />
+                        </div>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+
+              <div className="mt-5 rounded-2xl border border-amber-500/20 bg-amber-500/5 px-4 py-3 text-sm text-app-text-muted">
+                Critical system alerts such as backup failures, QuickBooks issues, register discrepancies,
+                and security notices still appear even when routine categories are turned off.
+              </div>
             </div>
 
             <div className="mt-14 pt-10 border-t border-app-border flex justify-end">

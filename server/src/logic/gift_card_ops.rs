@@ -387,15 +387,13 @@ pub async fn notify_sales_support_direct_pos_load(
     let sess = register_session_id
         .map(|u| u.to_string())
         .unwrap_or_else(|| "n/a".to_string());
+    let normalized_code = code.trim().to_ascii_uppercase();
     let body = format!(
-        "Gift card credited via direct POS load API (bypasses cart-paid flow). Code: {}. Amount: ${}. Register session: {}. Prefer the Gift card button so credit only applies when the sale is fully paid.",
-        code.trim().to_ascii_uppercase(),
-        amount,
-        sess
+        "Gift card {normalized_code} was loaded for ${amount} outside checkout on register session {sess}. Review the sale flow if this credit should have waited for full payment."
     );
     let deep = json!({
         "kind": "gift_card_direct_pos_load",
-        "code": code.trim().to_ascii_uppercase(),
+        "code": normalized_code,
         "amount": amount.to_string(),
         "register_session_id": register_session_id,
         "operator_staff_id": operator_staff_id,
@@ -411,7 +409,7 @@ pub async fn notify_sales_support_direct_pos_load(
     let nid = match crate::logic::notifications::insert_app_notification_deduped(
         pool,
         "gift_card_direct_pos_load",
-        "Gift card: direct POS load API",
+        "Gift card loaded outside checkout",
         &body,
         deep,
         "pos_gift_card",
@@ -424,7 +422,7 @@ pub async fn notify_sales_support_direct_pos_load(
         None => return Ok(()),
     };
 
-    crate::logic::notifications::fan_out_to_staff_ids(pool, nid, &staff_ids).await?;
+    crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &staff_ids).await?;
 
     if let Some(sid) = operator_staff_id {
         let _ = crate::auth::pins::log_staff_access(

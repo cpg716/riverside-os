@@ -14,8 +14,8 @@ use uuid::Uuid;
 use crate::api::AppState;
 use crate::auth::permissions::NOTIFICATIONS_BROADCAST;
 use crate::logic::notifications::{
-    self, insert_app_notification_deduped, mark_read_for_all_recipients,
-    resolve_broadcast_audience, BroadcastAudience,
+    self, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
+    mark_read_for_all_recipients, resolve_broadcast_audience, BroadcastAudience,
 };
 use crate::middleware;
 
@@ -252,7 +252,7 @@ async fn post_broadcast(
         tracing::error!("broadcast insert unexpectedly skipped");
         StatusCode::INTERNAL_SERVER_ERROR.into_response()
     })?;
-    notifications::fan_out_to_staff_ids(&state.db, nid, &target)
+    fan_out_notification_to_staff_ids(&state.db, nid, &target)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "fan_out broadcast");

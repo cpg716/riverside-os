@@ -14,9 +14,7 @@ use crate::auth::permissions::OPS_DEV_CENTER_VIEW;
 use crate::logic::backups::BackupManager;
 use crate::logic::help_corpus;
 use crate::logic::insights_config::StoreInsightsConfig;
-use crate::logic::notifications::{
-    fan_out_to_staff_ids, insert_app_notification_deduped, staff_ids_with_permission,
-};
+use crate::logic::notifications::{insert_app_notification_deduped, staff_ids_with_permission};
 use crate::logic::shippo::load_effective_shippo_config;
 use crate::logic::weather::load_store_weather_settings;
 
@@ -564,7 +562,8 @@ async fn emit_open_alert_notifications(
             .await?
             .ok_or_else(|| sqlx::Error::Protocol("ops alert notification insert skipped".into()))?;
 
-            fan_out_to_staff_ids(pool, nid, &target).await?;
+            crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &target)
+                .await?;
             for sid in target {
                 let _ = log_delivery_row(
                     pool,

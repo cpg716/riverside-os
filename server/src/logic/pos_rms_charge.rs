@@ -577,7 +577,8 @@ pub async fn notify_sales_support_after_checkout(
             None => continue,
         };
 
-        crate::logic::notifications::fan_out_to_staff_ids(pool, nid, &staff_ids).await?;
+        crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &staff_ids)
+            .await?;
     }
 
     let _ = crate::auth::pins::log_staff_access(

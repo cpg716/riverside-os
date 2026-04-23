@@ -527,7 +527,9 @@ pub fn router() -> Router<AppState> {
         .route("/appointments/search", get(search_appointments))
         .route(
             "/appointments/{appointment_id}",
-            patch(update_appointment).delete(delete_appointment),
+            get(get_appointment)
+                .patch(update_appointment)
+                .delete(delete_appointment),
         )
         .route("/parties", get(list_parties).post(create_party))
         .route("/parties/{party_id}/ledger", get(get_ledger))
@@ -1568,6 +1570,27 @@ async fn list_appointments(
     let to_dt = q.to.as_ref().map(|s| parse_datetime(s)).transpose()?;
     let rows = list_appointments_filtered(&state.db, from_dt, to_dt).await?;
     Ok(Json(rows))
+}
+
+async fn get_appointment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(appointment_id): Path<Uuid>,
+) -> Result<Json<AppointmentRow>, WeddingError> {
+    require_weddings_view(&state, &headers).await?;
+    let row = sqlx::query_as(
+        r#"
+        SELECT id, wedding_party_id, wedding_member_id, customer_id, customer_display_name, phone,
+               appointment_type, starts_at, notes, status, salesperson
+        FROM wedding_appointments
+        WHERE id = $1
+        "#,
+    )
+    .bind(appointment_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| WeddingError::BadRequest("Appointment not found".to_string()))?;
+    Ok(Json(row))
 }
 
 async fn create_appointment(

@@ -254,9 +254,7 @@ pub async fn notify_settings_admins_new_report(
     summary_preview: &str,
 ) -> Result<(), sqlx::Error> {
     use crate::auth::permissions::SETTINGS_ADMIN;
-    use crate::logic::notifications::{
-        fan_out_to_staff_ids, insert_app_notification_deduped, staff_ids_with_permission,
-    };
+    use crate::logic::notifications::{insert_app_notification_deduped, staff_ids_with_permission};
     use serde_json::json;
 
     let staff = staff_ids_with_permission(pool, SETTINGS_ADMIN).await?;
@@ -287,7 +285,7 @@ pub async fn notify_settings_admins_new_report(
     )
     .await?
     {
-        fan_out_to_staff_ids(pool, nid, &staff).await?;
+        crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &staff).await?;
     }
     Ok(())
 }

@@ -9,7 +9,7 @@ use crate::auth::permissions::{
 use crate::logic::backups::BackupSettings;
 use crate::logic::notifications::{
     admin_staff_ids, archive_stale_staff_notifications, delete_app_notification_by_dedupe,
-    emit_qbo_sync_failed, fan_out_to_staff_ids, insert_app_notification_deduped,
+    emit_qbo_sync_failed, fan_out_notification_to_staff_ids, insert_app_notification_deduped,
     purge_archived_staff_notifications, staff_ids_with_permission,
     upsert_app_notification_by_dedupe,
 };
@@ -34,6 +34,11 @@ fn env_purge_hours() -> i64 {
         .ok()
         .and_then(|s| s.parse().ok())
         .unwrap_or(24 * 400)
+}
+
+fn short_entity_label(prefix: &str, id: Uuid) -> String {
+    let short = id.to_string().chars().take(8).collect::<String>();
+    format!("{prefix} …{short}")
 }
 
 pub async fn run_notification_maintenance(pool: &PgPool) {
@@ -217,7 +222,7 @@ pub async fn run_messaging_and_reviews_unread_nudges(pool: &PgPool) -> Result<()
         )
         .await?
         {
-            let _ = fan_out_to_staff_ids(pool, nid, &staff).await;
+            let _ = fan_out_notification_to_staff_ids(pool, nid, &staff).await;
         }
     }
     Ok(())
@@ -302,7 +307,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
             )
             .await?
             {
-                fan_out_to_staff_ids(pool, nid, &admins).await?;
+                fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
             }
         }
     }
@@ -338,7 +343,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
                 )
                 .await?
                 {
-                    fan_out_to_staff_ids(pool, nid, &admins).await?;
+                    fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
                 }
             }
         }
@@ -373,7 +378,7 @@ pub async fn run_backup_admin_notifications(pool: &PgPool) -> Result<(), sqlx::E
                 )
                 .await?
                 {
-                    fan_out_to_staff_ids(pool, nid, &admins).await?;
+                    fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
                 }
             }
         }
@@ -542,7 +547,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             &low_bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'morning_low_stock'"#)
             .execute(pool)
             .await?;
@@ -599,7 +604,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             &wed_bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'morning_wedding_today'"#)
             .execute(pool)
             .await?;
@@ -657,7 +662,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             &po_bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'morning_po_expected'"#)
             .execute(pool)
             .await?;
@@ -692,11 +697,8 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             .into_iter()
             .map(|(aid,)| {
                 bundle_row(
-                    {
-                        let s = aid.to_string();
-                        format!("Alteration {}", s.chars().take(8).collect::<String>())
-                    },
-                    "Due today — open in Alterations".to_string(),
+                    short_entity_label("Alteration order", aid),
+                    "Due today in Alterations".to_string(),
                     json!({ "type": "alteration", "alteration_id": aid.to_string() }),
                 )
             })
@@ -719,7 +721,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             &alt_bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
         let _ =
             sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'morning_alteration_due'"#)
                 .execute(pool)
@@ -740,9 +742,9 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
     if let Some((cnt, amt)) = row {
         if cnt > 0 {
             let dedupe = format!("morning_refund_queue:{day_key}");
-            let title = format!("Refund queue: {cnt} open");
+            let title = format!("Refunds waiting ({cnt})");
             let body = format!(
-                "Open refund queue rows totaling ${} still need processing.",
+                "Refund requests totaling ${} still need review in Orders.",
                 amt.round_dp(2)
             );
             let deep = json!({ "type": "orders", "subsection": "open" });
@@ -758,7 +760,7 @@ pub async fn run_morning_admin_digest(pool: &PgPool) -> Result<(), sqlx::Error> 
             )
             .await?
             {
-                fan_out_to_staff_ids(pool, nid, &admins).await?;
+                fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
             }
         }
     }
@@ -822,7 +824,7 @@ async fn run_task_due_reminders(pool: &PgPool) -> Result<(), sqlx::Error> {
             &dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &[assignee_id]).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &[assignee_id]).await?;
     }
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'task_due_soon'"#)
         .execute(pool)
@@ -885,7 +887,7 @@ async fn run_wedding_soon(pool: &PgPool) -> Result<(), sqlx::Error> {
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'wedding_soon'"#)
             .execute(pool)
             .await?;
@@ -961,7 +963,7 @@ async fn run_stale_open_orders(pool: &PgPool) -> Result<(), sqlx::Error> {
         &bundle_dedupe,
     )
     .await?;
-    fan_out_to_staff_ids(pool, nid, &targets).await?;
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await?;
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'order_due'"#)
         .execute(pool)
         .await?;
@@ -1000,12 +1002,16 @@ async fn run_alteration_due(pool: &PgPool) -> Result<(), sqlx::Error> {
             staff_set.insert(s);
         }
         let overdue = due_at < chrono::Utc::now();
-        let label = if overdue { "Overdue" } else { "Due soon" };
-        let aid_s = aid.to_string();
-        let short = aid_s.chars().take(8).collect::<String>();
         items.push(bundle_row(
-            format!("{label} · …{short}"),
-            format!("Due {}", due_at.format("%Y-%m-%d")),
+            short_entity_label("Alteration order", aid),
+            if overdue {
+                format!(
+                    "Past due since {} — open in Alterations",
+                    due_at.format("%Y-%m-%d")
+                )
+            } else {
+                format!("Due {} — open in Alterations", due_at.format("%Y-%m-%d"))
+            },
             json!({ "type": "alteration", "alteration_id": aid.to_string() }),
         ));
     }
@@ -1039,7 +1045,7 @@ async fn run_alteration_due(pool: &PgPool) -> Result<(), sqlx::Error> {
         &bundle_dedupe,
     )
     .await?;
-    fan_out_to_staff_ids(pool, nid, &targets).await?;
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await?;
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'alteration_due'"#)
         .execute(pool)
         .await?;
@@ -1129,7 +1135,7 @@ async fn run_pickup_stale(pool: &PgPool) -> Result<(), sqlx::Error> {
         &bundle_dedupe,
     )
     .await?;
-    fan_out_to_staff_ids(pool, nid, &targets).await?;
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await?;
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'pickup_stale'"#)
         .execute(pool)
         .await?;
@@ -1194,7 +1200,7 @@ async fn run_po_overdue_receive(pool: &PgPool) -> Result<(), sqlx::Error> {
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'po_overdue_receive'"#)
             .execute(pool)
             .await?;
@@ -1261,7 +1267,7 @@ async fn run_po_direct_invoice_overdue(pool: &PgPool) -> Result<(), sqlx::Error>
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ =
             sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'po_direct_invoice_overdue'"#)
                 .execute(pool)
@@ -1334,7 +1340,7 @@ async fn run_po_received_unlabeled(pool: &PgPool) -> Result<(), sqlx::Error> {
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'po_received_unlabeled'"#)
             .execute(pool)
             .await?;
@@ -1403,7 +1409,7 @@ async fn run_po_partial_receive_stale(pool: &PgPool) -> Result<(), sqlx::Error> 
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ =
             sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'po_partial_receive_stale'"#)
                 .execute(pool)
@@ -1467,7 +1473,7 @@ async fn run_po_draft_stale(pool: &PgPool) -> Result<(), sqlx::Error> {
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'po_draft_stale'"#)
             .execute(pool)
             .await?;
@@ -1534,7 +1540,7 @@ async fn run_po_submitted_no_expected_date(pool: &PgPool) -> Result<(), sqlx::Er
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ = sqlx::query(
             r#"DELETE FROM app_notification WHERE kind = 'po_submitted_no_expected_date'"#,
         )
@@ -1656,7 +1662,7 @@ async fn run_integration_health_admin_notifications(pool: &PgPool) -> Result<(),
         &bundle_dedupe,
     )
     .await?;
-    fan_out_to_staff_ids(pool, nid, &admins).await?;
+    fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'integration_health_failed'"#)
         .execute(pool)
         .await?;
@@ -1750,7 +1756,7 @@ async fn run_counterpoint_sync_admin_notifications(pool: &PgPool) -> Result<(), 
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
         let _ = sqlx::query(
             r#"DELETE FROM app_notification WHERE kind IN ('counterpoint_sync_error', 'counterpoint_sync_stale')"#,
         )
@@ -1791,12 +1797,16 @@ async fn run_appointment_soon_reminders(pool: &PgPool) -> Result<(), sqlx::Error
         let n = appts.len();
         let items: Vec<Value> = appts
             .into_iter()
-            .map(|(_id, starts_at, appt_type, who)| {
+            .map(|(appointment_id, starts_at, appt_type, who)| {
                 let label = who.unwrap_or_else(|| "Walk-in / unnamed".to_string());
                 bundle_row(
                     appt_type,
                     format!("{} — {}", label, starts_at.format("%Y-%m-%d %H:%M UTC")),
-                    json!({ "type": "appointments", "section": "scheduler" }),
+                    json!({
+                        "type": "appointments",
+                        "section": "scheduler",
+                        "appointment_id": appointment_id.to_string(),
+                    }),
                 )
             })
             .collect();
@@ -1818,7 +1828,7 @@ async fn run_appointment_soon_reminders(pool: &PgPool) -> Result<(), sqlx::Error
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'appointment_soon'"#)
             .execute(pool)
             .await?;
@@ -1916,7 +1926,7 @@ async fn run_negative_available_stock_admin(pool: &PgPool) -> Result<(), sqlx::E
         &bundle_dedupe,
     )
     .await?;
-    fan_out_to_staff_ids(pool, nid, &admins).await?;
+    fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
     // Legacy: one row per SKU (pre-bundle). Remove so inboxes keep a single bundle.
     let _ = sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'negative_available_stock'"#)
         .execute(pool)
@@ -1969,7 +1979,7 @@ async fn run_pin_failure_security_digest(pool: &PgPool) -> Result<(), sqlx::Erro
     )
     .await?
     {
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
     }
     Ok(())
 }
@@ -2030,7 +2040,7 @@ async fn run_after_hours_access_digest(pool: &PgPool) -> Result<(), sqlx::Error>
     )
     .await?
     {
-        fan_out_to_staff_ids(pool, nid, &admins).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &admins).await?;
     }
     Ok(())
 }
@@ -2099,7 +2109,7 @@ async fn run_gift_card_expiring_reminders(pool: &PgPool) -> Result<(), sqlx::Err
             &bundle_dedupe,
         )
         .await?;
-        fan_out_to_staff_ids(pool, nid, &recipients).await?;
+        fan_out_notification_to_staff_ids(pool, nid, &recipients).await?;
         let _ =
             sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'gift_card_expiring_soon'"#)
                 .execute(pool)
@@ -2185,7 +2195,7 @@ async fn run_special_order_ready_to_stage(pool: &PgPool) -> Result<(), sqlx::Err
         &bundle_dedupe,
     )
     .await?;
-    fan_out_to_staff_ids(pool, nid, &targets).await?;
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await?;
     let _ =
         sqlx::query(r#"DELETE FROM app_notification WHERE kind = 'special_order_ready_to_stage'"#)
             .execute(pool)

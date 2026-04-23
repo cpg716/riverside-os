@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-04-23T14:19:03.304Z",
+  "generated_at": "2026-04-23T17:30:55.994Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 46,
-  "draft_manual_count": 119,
+  "published_manual_count": 48,
+  "draft_manual_count": 117,
   "manuals": [
     {
       "id": "pos",
@@ -2595,8 +2595,8 @@
     },
     {
       "id": "notifications-notification-center-bell",
-      "title": "Notification Center Bell (notifications)",
-      "status": "draft",
+      "title": "Notifications Bell",
+      "status": "approved",
       "source_path": "client/src/assets/docs/notifications-notification-center-bell-manual.md",
       "required_buckets": [
         {
@@ -2632,17 +2632,15 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 10,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
     {
       "id": "notifications-notification-center-drawer",
-      "title": "Notification Center Drawer (notifications)",
-      "status": "draft",
+      "title": "Notification Center and Team Announcements",
+      "status": "approved",
       "source_path": "client/src/assets/docs/notifications-notification-center-drawer-manual.md",
       "required_buckets": [
         {
@@ -2678,10 +2676,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 19,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },

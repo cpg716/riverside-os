@@ -28,6 +28,8 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("layout-pwa-update-prompt", "client/src/assets/docs/layout-pwa-update-prompt-manual.md"),
     ("loyalty-workspace", "client/src/assets/docs/loyalty-workspace-manual.md"),
     ("loyalty-redeem-dialog", "client/src/assets/docs/loyalty-redeem-dialog-manual.md"),
+    ("notifications-notification-center-bell", "client/src/assets/docs/notifications-notification-center-bell-manual.md"),
+    ("notifications-notification-center-drawer", "client/src/assets/docs/notifications-notification-center-drawer-manual.md"),
     ("operations-operational-home", "client/src/assets/docs/operations-operational-home-manual.md"),
     ("orders-workspace", "client/src/assets/docs/orders-workspace-manual.md"),
     ("pos-close-register-modal", "client/src/assets/docs/pos-close-register-modal-manual.md"),

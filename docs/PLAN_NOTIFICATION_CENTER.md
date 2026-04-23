@@ -183,3 +183,301 @@ See **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. In
 - **QBO:** shared `dedupe_key` for event + sweep.
 - **PO:** `direct_invoice` semantics vs standard receive.
 - **Bundling:** high-volume hourly jobs **upsert** a single **`app_notification`** per store-local day (or per assignee+day for tasks) via **`dedupe_key`**; legacy per-entity rows are **deleted** when the bundled job runs. Client inbox stays compact; users expand bundles or tap through to targets.
+
+## Completion summary (current end state)
+
+### Overview
+
+The Riverside OS notification system is a PostgreSQL-backed, per-staff operational inbox optimized for fast in-app handoff: glance, understand, tap, land in the exact source context. It is intentionally closer to a familiar phone-style notification center than an admin utility drawer, while preserving auditability, controlled delivery, and predictable extension rules.
+
+It is optimized for:
+
+- operator scanning during busy store days
+- direct handoff into the correct workspace, record, drawer, or modal
+- per-staff noise reduction without weakening critical alerts
+- safe cleanup and inbox maintenance in short bursts
+- predictable extension by future contributors
+
+### Final behavior model
+
+Creation → delivery → interaction → cleanup works like this:
+
+- Server emitters create canonical `app_notification` rows with a reviewed `kind`, operator-facing title/body, and deep-link payload.
+- Fan-out creates per-staff inbox rows with independent read/completed/archived state.
+- Per-staff preferences are enforced server-side before routine notifications are delivered.
+- Mandatory/system alerts bypass suppressible preference categories and still deliver.
+- The bell unread count comes from the provider-level unread endpoint.
+- The drawer loads inbox/history/broadcast views from the notifications API.
+- Operators tap actionable rows to open the destination directly, or preview bundle/announcement rows.
+- Read, complete, and dismiss/archive actions update per-staff lifecycle state.
+- History shows archived/completed cleanup state; Inbox focuses on active attention.
+
+### Routing and landing
+
+Deep links are the contract between notification creation and client handoff.
+
+Expected behavior:
+
+- A notification must open the correct app area.
+- Where an existing workspace already supports exact selection, it should also open the correct record, drawer, or modal.
+- “Right workspace only” is not considered sufficient if exact landing already exists in that destination.
+
+Current precise landing includes:
+
+- Orders: exact transaction/order context
+- Staff Tasks: exact task instance
+- Weddings: exact party
+- Alterations: exact alteration row/context
+- Purchasing: exact PO
+- Inventory: exact product hub/product context
+- QBO: exact sync log where applicable
+- Customers/Messaging: exact customer/hub tab context
+- Settings/Bug reports: exact settings subsection/report context
+- Appointments: exact appointment day + modal via `appointment_id`
+
+### Interaction contract
+
+This contract is intentionally centralized and should not drift.
+
+- Actionable, non-bundle, non-announcement rows direct-open on primary tap.
+- `notification_bundle` rows preview/expand first rather than direct-open.
+- Bundle children can navigate directly through their nested `deep_link`.
+- `admin_broadcast` / announcement rows are preview-oriented and not task-like.
+- Client-side synthetic rebundling is intentionally not part of the system.
+
+### Preferences and delivery
+
+Preferences are per-staff and enforced server-side.
+
+Current configurable categories:
+
+- Orders
+- Tasks
+- Weddings & Appointments
+- Inventory & Purchasing
+- Customers & Loyalty
+- Announcements
+
+Current mandatory/non-suppressible class:
+
+- System Alerts
+
+Important properties:
+
+- Preferences are stored in `staff.notification_preferences`.
+- Preferences are read/written through `GET/PATCH /api/staff/self`.
+- Enforcement happens during server fan-out, not only in the client.
+- Mandatory/system and unknown-safe behavior remain protected.
+
+### Taxonomy
+
+Notification taxonomy is explicit and reviewed.
+
+Requirements:
+
+- Every emitted notification kind should have an intentional classification.
+- Unknown fallback remains safe, but should be rare.
+- New kinds should not silently become mandatory because of weak heuristics.
+
+Current model:
+
+- Explicit kind review lives in server notification logic.
+- Drift-protection tests assert that current emitted kinds are intentionally classified.
+- Heuristic substring classification is not the accepted extension model.
+
+### Payload standards
+
+Payload quality is part of the product, not decoration.
+
+Title expectations:
+
+- concise
+- human
+- operator-facing
+- distinct enough to scan in a crowded inbox
+
+Body expectations:
+
+- add useful context
+- do not merely repeat the title
+- help answer “what happened?” and “what should I do next?”
+
+Source/context expectations:
+
+- include the entity or context users need to recognize quickly
+- include IDs only when they help operators, not as raw system leakage
+- carry the deep-link payload fields the client actually needs for precise landing
+
+Language rules:
+
+- avoid tooling-heavy/internal phrasing
+- avoid queue/process jargon when a store operator phrase is better
+- prefer plain operational language over implementation detail
+
+### Severity model
+
+Severity is explicit and used for visual treatment.
+
+Current levels:
+
+- `announcement`
+- `info`
+- `action`
+- `urgent`
+- `system`
+
+Operator interpretation:
+
+- `announcement`: team communication, not an actionable alert
+- `info`: informative, low-pressure update
+- `action`: workflow item that likely needs attention
+- `urgent`: operational risk or stale item needing prompt attention
+- `system`: admin/system issue that should clearly stand apart
+
+UI intent:
+
+- severity should be visible at a glance
+- unread state supports severity, but does not replace it
+- bundle parents inherit severity from their semantic `bundle_kind`
+
+### Inbox ergonomics
+
+The inbox is tuned for burst scanning.
+
+Current ergonomics:
+
+- `Today` / `Earlier` grouping
+- relative-time emphasis
+- unread rows stand out
+- older/read rows recede
+- severity is visible before detailed reading
+- bundles reduce clutter without hiding direct child actions
+
+Scanning expectation:
+
+Operators should be able to answer quickly:
+
+- what is new
+- what matters now
+- what can wait
+
+### Lifecycle and cleanup
+
+Per-row lifecycle:
+
+- `read`: row has been seen
+- `complete`: task-like row is done and also marks read
+- `archive` / dismiss: moves the row out of active inbox use into history behavior
+
+Cleanup behavior:
+
+- read/archive are per-staff state
+- shared `read-all` exists only for specific shared/common notification classes where that behavior is intentional
+- completion remains limited to task-like notifications
+
+Bulk cleanup:
+
+- Inbox supports cautious bulk actions
+- `Mark new read`: targets visible unread, non-archived rows
+- `Dismiss reviewed`: targets visible read, non-archived rows
+- bulk actions do not introduce auto-delete or hidden destructive behavior
+
+Safety constraints:
+
+- no aggressive auto-dismiss rules
+- no complex lifecycle engine
+- no behavior that silently removes unseen alerts
+
+### Micro-feedback and empty states
+
+The system should feel complete when there is nothing urgent to do.
+
+Current expectations:
+
+- empty inbox should feel reassuring, not broken
+- history empty state should explain what will appear there
+- loading should feel calm, not abrupt
+- bulk cleanup should feel like closure, not transaction processing
+
+Tone/style:
+
+- calm
+- operator-facing
+- brief
+- reassuring, not cute
+- closer to polished mobile notification feedback than internal admin tooling
+
+### Testing and protection
+
+Current protection covers the behavior contract and the extension seams that most often drift.
+
+Client-side contract coverage includes:
+
+- deep-link actionability for normalized destinations such as `order`
+- primary interaction rules: open vs preview
+- announcement behavior
+- completion classification
+- severity mapping
+- recency bucketing
+- appointment actionability/landing contract
+- bulk lifecycle helper targeting safety
+
+Server-side notification tests cover:
+
+- taxonomy/category mapping
+- mandatory fallback behavior
+- default-enabled preference behavior
+- explicit review of emitted kinds
+
+Must not regress:
+
+- direct-open vs preview rules
+- order deep-link normalization
+- bundle child navigability
+- appointment exact landing contract
+- task-only completion semantics
+- taxonomy explicitness
+- preference enforcement model
+
+### Extension rules
+
+When adding a new notification kind, do all of the following:
+
+1. Taxonomy classification
+   Add or confirm explicit taxonomy review in server notification logic. Do not rely on substring accidents or unknown fallback unless the alert is truly intended to be mandatory/system-like.
+2. Payload quality
+   Write an operator-facing title/body. Make the row scannable in a crowded inbox and include useful context instead of internal process language.
+3. Deep-link completeness
+   Provide the route payload the client actually needs. If exact landing already exists in the destination workspace, include the exact record/context ID.
+4. Severity assignment
+   Ensure the kind maps intentionally to `announcement`, `info`, `action`, `urgent`, or `system`.
+5. Preference review
+   Decide whether the kind is suppressible under an existing category or mandatory. Do not let routine alerts become mandatory by omission.
+6. Test updates
+   Update client contract tests if behavior or helper classification changes. Update server tests if a new emitted kind is added to the taxonomy set.
+7. Preserve the interaction contract
+   Do not invent a new row behavior mode casually. Use direct-open for actionable single rows, preview for bundles and announcements.
+
+Primary extension test locations:
+
+- [`client/e2e/notification-deep-link-contract.spec.ts`](../client/e2e/notification-deep-link-contract.spec.ts)
+- [`server/src/logic/notifications.rs`](../server/src/logic/notifications.rs)
+
+### Explicit non-goals
+
+This system intentionally does not try to be:
+
+- a multi-channel delivery system for email/SMS/push
+- a complex preference matrix with per-entity/per-route rules
+- a gesture-heavy native-mobile abstraction layer
+- an auto-dismiss or auto-delete engine
+- a large analytics/reporting subsystem for notification performance
+- a replacement for chat or messaging products
+- a new global routing architecture
+
+It is intentionally a focused in-app notification center with:
+
+- clear delivery
+- precise in-app handoff
+- controlled noise
+- predictable extension rules

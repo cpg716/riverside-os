@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::auth::permissions::NOTIFICATIONS_VIEW;
 use crate::logic::customers::{insert_customer, CustomerCreatedSource, InsertCustomerParams};
-use crate::logic::notifications::{fan_out_to_staff_ids, staff_ids_with_permission};
+use crate::logic::notifications::staff_ids_with_permission;
 use crate::logic::podium::{
     load_store_podium_config, normalize_phone_e164, send_podium_sms_message, PodiumTokenCache,
 };
@@ -676,7 +676,10 @@ pub async fn ingest_from_webhook(
         .await
         {
             if let Ok(staff) = staff_ids_with_permission(pool, NOTIFICATIONS_VIEW).await {
-                let _ = fan_out_to_staff_ids(pool, nid, &staff).await;
+                let _ = crate::logic::notifications::fan_out_notification_to_staff_ids(
+                    pool, nid, &staff,
+                )
+                .await;
             }
         }
     }

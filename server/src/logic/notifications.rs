@@ -12,6 +12,195 @@ use crate::auth::permissions::{
 };
 use crate::models::DbStaffRole;
 
+const fn notification_preferences_enabled_by_default() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationPreferenceCategory {
+    Orders,
+    Tasks,
+    WeddingsAppointments,
+    InventoryPurchasing,
+    CustomersLoyalty,
+    Announcements,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StaffNotificationPreferences {
+    #[serde(default = "notification_preferences_enabled_by_default")]
+    pub orders: bool,
+    #[serde(default = "notification_preferences_enabled_by_default")]
+    pub tasks: bool,
+    #[serde(default = "notification_preferences_enabled_by_default")]
+    pub weddings_appointments: bool,
+    #[serde(default = "notification_preferences_enabled_by_default")]
+    pub inventory_purchasing: bool,
+    #[serde(default = "notification_preferences_enabled_by_default")]
+    pub customers_loyalty: bool,
+    #[serde(default = "notification_preferences_enabled_by_default")]
+    pub announcements: bool,
+}
+
+impl Default for StaffNotificationPreferences {
+    fn default() -> Self {
+        Self {
+            orders: true,
+            tasks: true,
+            weddings_appointments: true,
+            inventory_purchasing: true,
+            customers_loyalty: true,
+            announcements: true,
+        }
+    }
+}
+
+impl StaffNotificationPreferences {
+    pub fn is_enabled(&self, category: NotificationPreferenceCategory) -> bool {
+        match category {
+            NotificationPreferenceCategory::Orders => self.orders,
+            NotificationPreferenceCategory::Tasks => self.tasks,
+            NotificationPreferenceCategory::WeddingsAppointments => self.weddings_appointments,
+            NotificationPreferenceCategory::InventoryPurchasing => self.inventory_purchasing,
+            NotificationPreferenceCategory::CustomersLoyalty => self.customers_loyalty,
+            NotificationPreferenceCategory::Announcements => self.announcements,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NotificationPreferenceHandling {
+    Configurable(NotificationPreferenceCategory),
+    Mandatory,
+}
+
+#[cfg(test)]
+const KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS: &[&str] = &[
+    "admin_broadcast",
+    "after_hours_access_digest",
+    "alteration_due",
+    "appointment_soon",
+    "backup_admin_cloud_failed",
+    "backup_admin_local_failed",
+    "backup_admin_past_due",
+    "catalog_import_rows_skipped",
+    "commission_finalize_failed",
+    "counterpoint_alerts",
+    "customer_merge_completed",
+    "gift_card_direct_pos_load",
+    "gift_card_expiring_soon",
+    "integration_health_failed",
+    "messaging_unread_nudge",
+    "morning_alteration_due",
+    "morning_low_stock",
+    "morning_po_expected",
+    "morning_refund_queue",
+    "morning_wedding_today",
+    "negative_available_stock",
+    "nuorder_sync_failed",
+    "nuorder_sync_success",
+    "ops_alert",
+    "order_due_stale",
+    "order_fully_fulfilled",
+    "pickup_stale",
+    "pin_failure_digest",
+    "po_direct_invoice_overdue",
+    "po_draft_stale",
+    "po_overdue_receive",
+    "po_partial_receive_stale",
+    "po_received_unlabeled",
+    "po_submitted_no_expected_date",
+    "qbo_sync_failed",
+    "register_cash_discrepancy",
+    "rms_r2s_charge",
+    "special_order_ready_to_stage",
+    "staff_bug_report",
+    "task_due_soon",
+    "wedding_soon",
+];
+
+fn semantic_notification_kind<'a>(kind: &'a str, deep_link: &'a Value) -> &'a str {
+    if kind == "notification_bundle" {
+        deep_link
+            .get("bundle_kind")
+            .and_then(Value::as_str)
+            .unwrap_or(kind)
+    } else {
+        kind
+    }
+}
+
+/// Reviewed taxonomy for every currently emitted semantic kind.
+/// Returning `None` from `notification_preference_category` remains the safe fallback:
+/// delivery is mandatory until a new kind is intentionally classified.
+fn reviewed_notification_preference_handling_for_semantic_kind(
+    semantic_kind: &str,
+) -> Option<NotificationPreferenceHandling> {
+    use NotificationPreferenceCategory as Category;
+    use NotificationPreferenceHandling as Handling;
+
+    match semantic_kind {
+        "admin_broadcast" => Some(Handling::Configurable(Category::Announcements)),
+        "alteration_due" | "morning_alteration_due" | "rms_r2s_charge" | "task_due_soon" => {
+            Some(Handling::Configurable(Category::Tasks))
+        }
+        "appointment_soon" | "morning_wedding_today" | "wedding_soon" => {
+            Some(Handling::Configurable(Category::WeddingsAppointments))
+        }
+        "catalog_import_rows_skipped"
+        | "morning_low_stock"
+        | "morning_po_expected"
+        | "negative_available_stock"
+        | "nuorder_sync_success"
+        | "po_direct_invoice_overdue"
+        | "po_draft_stale"
+        | "po_overdue_receive"
+        | "po_partial_receive_stale"
+        | "po_received_unlabeled"
+        | "po_submitted_no_expected_date" => {
+            Some(Handling::Configurable(Category::InventoryPurchasing))
+        }
+        "customer_merge_completed"
+        | "gift_card_direct_pos_load"
+        | "gift_card_expiring_soon"
+        | "messaging_unread_nudge" => Some(Handling::Configurable(Category::CustomersLoyalty)),
+        "morning_refund_queue"
+        | "order_due_stale"
+        | "order_fully_fulfilled"
+        | "pickup_stale"
+        | "special_order_ready_to_stage" => Some(Handling::Configurable(Category::Orders)),
+        "after_hours_access_digest"
+        | "backup_admin_cloud_failed"
+        | "backup_admin_local_failed"
+        | "backup_admin_past_due"
+        | "commission_finalize_failed"
+        | "counterpoint_alerts"
+        | "integration_health_failed"
+        | "nuorder_sync_failed"
+        | "ops_alert"
+        | "pin_failure_digest"
+        | "qbo_sync_failed"
+        | "register_cash_discrepancy"
+        | "staff_bug_report" => Some(Handling::Mandatory),
+        _ => None,
+    }
+}
+
+pub fn notification_preference_category(
+    kind: &str,
+    deep_link: &Value,
+) -> Option<NotificationPreferenceCategory> {
+    let semantic_kind = semantic_notification_kind(kind, deep_link);
+    match reviewed_notification_preference_handling_for_semantic_kind(semantic_kind) {
+        Some(NotificationPreferenceHandling::Configurable(category)) => Some(category),
+        Some(NotificationPreferenceHandling::Mandatory) | None => None,
+    }
+}
+
+fn parse_staff_notification_preferences(value: &Value) -> StaffNotificationPreferences {
+    serde_json::from_value(value.clone()).unwrap_or_default()
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct NotificationListItem {
     pub staff_notification_id: Uuid,
@@ -219,6 +408,57 @@ pub async fn fan_out_to_staff_ids(
         .await?;
     }
     Ok(())
+}
+
+pub async fn fan_out_notification_to_staff_ids(
+    pool: &PgPool,
+    notification_id: Uuid,
+    staff_ids: &[Uuid],
+) -> Result<(), sqlx::Error> {
+    if staff_ids.is_empty() {
+        return Ok(());
+    }
+
+    let Some((kind, deep_link)) = sqlx::query_as::<_, (String, Value)>(
+        r#"SELECT kind, deep_link FROM app_notification WHERE id = $1"#,
+    )
+    .bind(notification_id)
+    .fetch_optional(pool)
+    .await?
+    else {
+        return Ok(());
+    };
+
+    let Some(category) = notification_preference_category(&kind, &deep_link) else {
+        return fan_out_to_staff_ids(pool, notification_id, staff_ids).await;
+    };
+
+    #[derive(sqlx::FromRow)]
+    struct StaffPreferenceRow {
+        id: Uuid,
+        notification_preferences: Value,
+    }
+
+    let rows: Vec<StaffPreferenceRow> = sqlx::query_as(
+        r#"
+        SELECT id, COALESCE(notification_preferences, '{}'::jsonb) AS notification_preferences
+        FROM staff
+        WHERE id = ANY($1)
+        "#,
+    )
+    .bind(staff_ids)
+    .fetch_all(pool)
+    .await?;
+
+    let filtered: Vec<Uuid> = rows
+        .into_iter()
+        .filter_map(|row| {
+            let prefs = parse_staff_notification_preferences(&row.notification_preferences);
+            prefs.is_enabled(category).then_some(row.id)
+        })
+        .collect();
+
+    fan_out_to_staff_ids(pool, notification_id, &filtered).await
 }
 
 pub async fn staff_ids_with_permission(pool: &PgPool, key: &str) -> Result<Vec<Uuid>, sqlx::Error> {
@@ -710,7 +950,7 @@ pub async fn emit_qbo_sync_failed(
         return Ok(());
     };
     let staff = staff_ids_with_permission(pool, QBO_VIEW).await?;
-    fan_out_to_staff_ids(pool, nid, &staff).await
+    fan_out_notification_to_staff_ids(pool, nid, &staff).await
 }
 
 pub async fn emit_register_cash_discrepancy(
@@ -749,7 +989,7 @@ pub async fn emit_register_cash_discrepancy(
     else {
         return Ok(());
     };
-    fan_out_to_staff_ids(pool, nid, &targets).await
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await
 }
 
 pub async fn emit_catalog_import_rows_skipped(
@@ -795,7 +1035,7 @@ pub async fn emit_catalog_import_rows_skipped(
     else {
         return Ok(());
     };
-    fan_out_to_staff_ids(pool, nid, &targets).await
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await
 }
 
 pub async fn emit_customer_merge_completed(
@@ -835,7 +1075,7 @@ pub async fn emit_customer_merge_completed(
     else {
         return Ok(());
     };
-    fan_out_to_staff_ids(pool, nid, &targets).await
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await
 }
 
 pub async fn emit_order_fully_fulfilled(
@@ -869,7 +1109,7 @@ pub async fn emit_order_fully_fulfilled(
     else {
         return Ok(());
     };
-    fan_out_to_staff_ids(pool, nid, &staff).await
+    fan_out_notification_to_staff_ids(pool, nid, &staff).await
 }
 
 pub async fn emit_commission_finalize_failed(
@@ -913,7 +1153,7 @@ pub async fn emit_commission_finalize_failed(
     else {
         return Ok(());
     };
-    fan_out_to_staff_ids(pool, nid, &targets).await
+    fan_out_notification_to_staff_ids(pool, nid, &targets).await
 }
 
 pub async fn emit_nuorder_sync_finished(
@@ -943,7 +1183,7 @@ pub async fn emit_nuorder_sync_finished(
         return Ok(());
     };
     let staff = staff_ids_with_permission(pool, NUORDER_SYNC).await?;
-    fan_out_to_staff_ids(pool, nid, &staff).await
+    fan_out_notification_to_staff_ids(pool, nid, &staff).await
 }
 
 pub async fn emit_nuorder_sync_failed(
@@ -972,5 +1212,105 @@ pub async fn emit_nuorder_sync_failed(
         return Ok(());
     };
     let staff = staff_ids_with_permission(pool, NUORDER_SYNC).await?;
-    fan_out_to_staff_ids(pool, nid, &staff).await
+    fan_out_notification_to_staff_ids(pool, nid, &staff).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        notification_preference_category,
+        reviewed_notification_preference_handling_for_semantic_kind,
+        NotificationPreferenceCategory, NotificationPreferenceHandling,
+        StaffNotificationPreferences, KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn configurable_notification_categories_map_to_plain_operator_groups() {
+        assert_eq!(
+            notification_preference_category(
+                "notification_bundle",
+                &json!({
+                    "type": "notification_bundle",
+                    "bundle_kind": "pickup_stale",
+                }),
+            ),
+            Some(NotificationPreferenceCategory::Orders)
+        );
+        assert_eq!(
+            notification_preference_category(
+                "notification_bundle",
+                &json!({
+                    "type": "notification_bundle",
+                    "bundle_kind": "task_due_soon",
+                }),
+            ),
+            Some(NotificationPreferenceCategory::Tasks)
+        );
+        assert_eq!(
+            notification_preference_category(
+                "notification_bundle",
+                &json!({
+                    "type": "notification_bundle",
+                    "bundle_kind": "morning_po_expected",
+                }),
+            ),
+            Some(NotificationPreferenceCategory::InventoryPurchasing)
+        );
+        assert_eq!(
+            notification_preference_category(
+                "notification_bundle",
+                &json!({
+                    "type": "notification_bundle",
+                    "bundle_kind": "morning_alteration_due",
+                }),
+            ),
+            Some(NotificationPreferenceCategory::Tasks)
+        );
+        assert_eq!(
+            notification_preference_category("admin_broadcast", &json!({ "type": "none" })),
+            Some(NotificationPreferenceCategory::Announcements)
+        );
+    }
+
+    #[test]
+    fn system_and_unknown_notifications_stay_mandatory_by_default() {
+        assert_eq!(
+            notification_preference_category(
+                "qbo_sync_failed",
+                &json!({ "type": "qbo_staging", "sync_log_id": "abc" }),
+            ),
+            None
+        );
+        assert_eq!(
+            reviewed_notification_preference_handling_for_semantic_kind("ops_alert"),
+            Some(NotificationPreferenceHandling::Mandatory)
+        );
+        assert_eq!(
+            notification_preference_category("some_future_kind", &json!({ "type": "none" })),
+            None
+        );
+    }
+
+    #[test]
+    fn staff_notification_preferences_default_all_configurable_categories_to_enabled() {
+        let prefs: StaffNotificationPreferences =
+            serde_json::from_value(json!({ "orders": false })).expect("preferences deserialize");
+        assert!(!prefs.orders);
+        assert!(prefs.tasks);
+        assert!(prefs.weddings_appointments);
+        assert!(prefs.inventory_purchasing);
+        assert!(prefs.customers_loyalty);
+        assert!(prefs.announcements);
+    }
+
+    #[test]
+    fn all_current_emitted_notification_kinds_are_explicitly_reviewed() {
+        for kind in KNOWN_EMITTED_NOTIFICATION_SEMANTIC_KINDS {
+            assert!(
+                reviewed_notification_preference_handling_for_semantic_kind(kind).is_some(),
+                "notification kind `{kind}` is emitted but has no explicit taxonomy review",
+            );
+        }
+    }
 }

@@ -30,9 +30,14 @@ export interface Appointment {
 
 interface SchedulerWorkspaceProps {
   activeSection?: string;
+  deepLinkAppointmentId?: string | null;
+  onDeepLinkAppointmentConsumed?: () => void;
 }
 
-const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
+const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
+  deepLinkAppointmentId,
+  onDeepLinkAppointmentConsumed,
+}) => {
   const { backofficeHeaders } = useBackofficeAuth();
   const wmHeaders = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -105,6 +110,29 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = () => {
     const timer = setInterval(fetchAppointments, 60000);
     return () => clearInterval(timer);
   }, [fetchAppointments]);
+
+  useEffect(() => {
+    const appointmentId = deepLinkAppointmentId?.trim();
+    if (!appointmentId) return;
+    void (async () => {
+      try {
+        const appt = await weddingApi.getAppointment(appointmentId, {
+          headers: wmHeaders,
+        });
+        const appointmentDate = new Date(appt.datetime);
+        if (Number.isFinite(appointmentDate.getTime())) {
+          setSelectedDate(appointmentDate);
+        }
+        setViewMode('day');
+        setSelectedAppt(appt);
+        setIsModalOpen(true);
+      } catch (err) {
+        console.error("Failed to open appointment from notification:", err);
+      } finally {
+        onDeepLinkAppointmentConsumed?.();
+      }
+    })();
+  }, [deepLinkAppointmentId, onDeepLinkAppointmentConsumed, wmHeaders]);
 
   const handlePrev = () => {
     const newDate = new Date(selectedDate);

@@ -23,8 +23,7 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
-use crate::logic::pricing_limits;
-use crate::logic::register_staff_metrics;
+use crate::logic::{notifications, pricing_limits, register_staff_metrics};
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
 
@@ -92,6 +91,7 @@ pub struct StaffHubRow {
     pub employment_end_date: Option<NaiveDate>,
     pub employee_customer_id: Option<Uuid>,
     pub employee_customer_code: Option<String>,
+    pub notification_preferences: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -493,7 +493,8 @@ async fn self_get_profile(
             s.employment_start_date,
             s.employment_end_date,
             s.employee_customer_id,
-            NULLIF(trim(c.customer_code), '') AS employee_customer_code
+            NULLIF(trim(c.customer_code), '') AS employee_customer_code,
+            COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences
         FROM staff s
         LEFT JOIN customers c ON c.id = s.employee_customer_id
         WHERE s.id = $1
@@ -512,6 +513,7 @@ pub struct PatchSelfRequest {
     pub phone: Option<String>,
     pub email: Option<String>,
     pub avatar_key: Option<String>,
+    pub notification_preferences: Option<notifications::StaffNotificationPreferences>,
     pub employee_customer_id: Option<Uuid>,
     #[serde(default)]
     pub detach_employee_customer: bool,
@@ -573,6 +575,14 @@ async fn self_patch_profile(
     if let Some(ref k) = body.avatar_key {
         sqlx::query("UPDATE staff SET avatar_key = $1 WHERE id = $2")
             .bind(k.trim())
+            .bind(staff.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref prefs) = body.notification_preferences {
+        sqlx::query("UPDATE staff SET notification_preferences = $1 WHERE id = $2")
+            .bind(serde_json::to_value(prefs).unwrap_or_else(|_| json!({})))
             .bind(staff.id)
             .execute(&mut *tx)
             .await?;
@@ -834,7 +844,8 @@ async fn admin_roster(
             s.employment_start_date,
             s.employment_end_date,
             s.employee_customer_id,
-            NULLIF(trim(c.customer_code), '') AS employee_customer_code
+            NULLIF(trim(c.customer_code), '') AS employee_customer_code,
+            COALESCE(s.notification_preferences, '{}'::jsonb) AS notification_preferences
         FROM staff s
         LEFT JOIN customers c ON c.id = s.employee_customer_id
         ORDER BY s.full_name ASC

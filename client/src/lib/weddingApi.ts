@@ -182,6 +182,18 @@ export const weddingApi = {
     if (!res.ok) throw new Error("Failed to delete appointment");
   },
 
+  async getAppointment(
+    id: string,
+    opts?: WeddingApiFetchOpts,
+  ): Promise<WeddingAppointmentClient> {
+    const res = await fetch(`${baseUrl}/api/weddings/appointments/${id}`, {
+      headers: opts?.headers,
+    });
+    if (!res.ok) throw new Error("Failed to fetch appointment");
+    const row: Record<string, unknown> = await res.json();
+    return mapAppointmentRow(row);
+  },
+
   async getAppointments(
     params: { from?: string; to?: string; headers?: Record<string, string> } = {},
   ): Promise<WeddingAppointmentClient[]> {

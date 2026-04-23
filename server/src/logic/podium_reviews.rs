@@ -1,4 +1,4 @@
-//! Podium post-sale review invites (stub until Podium review API is wired).
+//! Podium post-sale review invite tracking.
 
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -6,9 +6,7 @@ use sqlx::PgPool;
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::logic::notifications::{
-    admin_staff_ids, fan_out_to_staff_ids, staff_ids_with_permission, upsert_bundle_item,
-};
+use crate::logic::notifications::{admin_staff_ids, staff_ids_with_permission, upsert_bundle_item};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -78,10 +76,11 @@ pub async fn apply_post_sale_review_choice(
         Option<Uuid>,
         Option<chrono::DateTime<chrono::Utc>>,
         Option<chrono::DateTime<chrono::Utc>>,
+        String,
     );
     let row: Option<OrderReviewGateRow> = sqlx::query_as(
         r#"
-        SELECT customer_id, review_invite_suppressed_at, review_invite_sent_at
+        SELECT customer_id, review_invite_suppressed_at, review_invite_sent_at, display_id
         FROM transactions WHERE id = $1 FOR UPDATE
         "#,
     )
@@ -89,7 +88,7 @@ pub async fn apply_post_sale_review_choice(
     .fetch_optional(&mut *tx)
     .await?;
 
-    let Some((customer_id, suppressed_at, sent_at)) = row else {
+    let Some((customer_id, suppressed_at, sent_at, display_id)) = row else {
         return Err(ReviewInviteError::NotFound);
     };
 
@@ -138,9 +137,11 @@ pub async fn apply_post_sale_review_choice(
     if let Ok(nid) = upsert_bundle_item(
         pool,
         "review_invite_sent",
-        "Review invites recorded",
-        "Review invite recorded",
-        &format!("Transaction {transaction_id} — stub until Podium review API is configured."),
+        "Review follow-up",
+        "Review invite ready",
+        &format!(
+            "{display_id} is marked for a customer review follow-up. Open Reviews to check status."
+        ),
         json!({
             "type": "home",
             "subsection": "reviews",
@@ -160,7 +161,9 @@ pub async fn apply_post_sale_review_choice(
         targets.sort_unstable();
         targets.dedup();
         if !targets.is_empty() {
-            let _ = fan_out_to_staff_ids(pool, nid, &targets).await;
+            let _ =
+                crate::logic::notifications::fan_out_notification_to_staff_ids(pool, nid, &targets)
+                    .await;
         }
     }
 

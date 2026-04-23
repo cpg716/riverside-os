@@ -153,6 +153,9 @@ function App() {
   const [qboDeepLinkSyncLogId, setQboDeepLinkSyncLogId] = useState<
     string | null
   >(null);
+  const [appointmentsDeepLinkId, setAppointmentsDeepLinkId] = useState<
+    string | null
+  >(null);
   const [staffTasksFocusInstanceId, setStaffTasksFocusInstanceId] = useState<
     string | null
   >(null);
@@ -622,6 +625,10 @@ function App() {
         enterBackofficeShell("appointments");
         const sec = linkStr(link, "section") || "scheduler";
         setActiveSubSection(sec === "conflicts" ? "conflicts" : "scheduler");
+        const appointmentId = linkStr(link, "appointment_id");
+        if (appointmentId) {
+          setAppointmentsDeepLinkId(appointmentId);
+        }
         return;
       }
 
@@ -929,6 +936,8 @@ function App() {
             setInventoryProductHubProductId={setInventoryProductHubProductId}
             qboDeepLinkSyncLogId={qboDeepLinkSyncLogId}
             setQboDeepLinkSyncLogId={setQboDeepLinkSyncLogId}
+            appointmentsDeepLinkId={appointmentsDeepLinkId}
+            setAppointmentsDeepLinkId={setAppointmentsDeepLinkId}
             staffTasksFocusInstanceId={staffTasksFocusInstanceId}
             setStaffTasksFocusInstanceId={setStaffTasksFocusInstanceId}
             handleStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
@@ -1034,6 +1043,8 @@ interface AppShellProps {
   setInventoryProductHubProductId: (id: string | null) => void;
   qboDeepLinkSyncLogId: string | null;
   setQboDeepLinkSyncLogId: (id: string | null) => void;
+  appointmentsDeepLinkId: string | null;
+  setAppointmentsDeepLinkId: (id: string | null) => void;
   staffTasksFocusInstanceId: string | null;
   setStaffTasksFocusInstanceId: (id: string | null) => void;
   handleStaffTasksFocusConsumed: () => void;
@@ -1131,6 +1142,8 @@ function AppShell({
   setInventoryProductHubProductId,
   qboDeepLinkSyncLogId,
   setQboDeepLinkSyncLogId,
+  appointmentsDeepLinkId,
+  setAppointmentsDeepLinkId,
   staffTasksFocusInstanceId,
   handleStaffTasksFocusConsumed,
   customersMessagingFocusCustomerId,
@@ -1350,6 +1363,8 @@ function AppShell({
                 onInventoryProductHubConsumed={() => setInventoryProductHubProductId(null)}
                 qboDeepLinkSyncLogId={qboDeepLinkSyncLogId}
                 onQboDeepLinkConsumed={() => setQboDeepLinkSyncLogId(null)}
+                appointmentsDeepLinkId={appointmentsDeepLinkId}
+                setAppointmentsDeepLinkId={setAppointmentsDeepLinkId}
                 staffTasksFocusInstanceId={staffTasksFocusInstanceId}
                 onStaffTasksFocusConsumed={handleStaffTasksFocusConsumed}
                 customersMessagingFocusCustomerId={customersMessagingFocusCustomerId}
@@ -1554,6 +1569,8 @@ type AppMainColumnProps = {
   onInventoryProductHubConsumed: () => void;
   qboDeepLinkSyncLogId: string | null;
   onQboDeepLinkConsumed: () => void;
+  appointmentsDeepLinkId: string | null;
+  setAppointmentsDeepLinkId: (id: string | null) => void;
   staffTasksFocusInstanceId: string | null;
   onStaffTasksFocusConsumed: () => void;
   customersMessagingFocusCustomerId: string | null;
@@ -1599,6 +1616,8 @@ function AppMainColumn({
   onInventoryProductHubConsumed,
   qboDeepLinkSyncLogId,
   onQboDeepLinkConsumed,
+  appointmentsDeepLinkId,
+  setAppointmentsDeepLinkId,
   staffTasksFocusInstanceId,
   onStaffTasksFocusConsumed,
   customersMessagingFocusCustomerId,
@@ -1790,7 +1809,13 @@ function AppMainColumn({
                   );
                 if (activeTab === "appointments")
                   return (
-                    <SchedulerWorkspace activeSection={activeSubSection} />
+                    <SchedulerWorkspace
+                      activeSection={activeSubSection}
+                      deepLinkAppointmentId={appointmentsDeepLinkId}
+                      onDeepLinkAppointmentConsumed={() =>
+                        setAppointmentsDeepLinkId(null)
+                      }
+                    />
                   );
                 if (activeTab === "register")
                   return (

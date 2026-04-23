@@ -99,6 +99,7 @@ export function NotificationCenterProvider({
           apiAuth={apiAuth}
           onNavigate={onNavigate}
           onCountsChanged={() => void refreshUnread()}
+          unread={unread}
         />
       ) : null}
     </NotificationCenterContext.Provider>

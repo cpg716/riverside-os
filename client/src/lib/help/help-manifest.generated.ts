@@ -27,26 +27,28 @@ import manual_22_raw from "../../assets/docs/layout-pos-shell-manual.md?raw";
 import manual_23_raw from "../../assets/docs/layout-pwa-update-prompt-manual.md?raw";
 import manual_24_raw from "../../assets/docs/loyalty-workspace-manual.md?raw";
 import manual_25_raw from "../../assets/docs/loyalty-redeem-dialog-manual.md?raw";
-import manual_26_raw from "../../assets/docs/operations-operational-home-manual.md?raw";
-import manual_27_raw from "../../assets/docs/orders-workspace-manual.md?raw";
-import manual_28_raw from "../../assets/docs/pos-close-register-modal-manual.md?raw";
-import manual_29_raw from "../../assets/docs/operations-fulfillment-command-center-manual.md?raw";
-import manual_30_raw from "../../assets/docs/pos-custom-work-manual.md?raw";
-import manual_31_raw from "../../assets/docs/pos-nexo-checkout-drawer-manual.md?raw";
-import manual_32_raw from "../../assets/docs/pos-shipping-manual.md?raw";
-import manual_33_raw from "../../assets/docs/pos-shipping-modal-manual.md?raw";
-import manual_34_raw from "../../assets/docs/pos-sidebar-manual.md?raw";
-import manual_35_raw from "../../assets/docs/pos-receipt-summary-modal-manual.md?raw";
-import manual_36_raw from "../../assets/docs/pos-order-load-modal-manual.md?raw";
-import manual_37_raw from "../../assets/docs/pos-register-dashboard-manual.md?raw";
-import manual_38_raw from "../../assets/docs/pos-register-gift-card-load-modal-manual.md?raw";
-import manual_39_raw from "../../assets/docs/pos-register-overlay-manual.md?raw";
-import manual_40_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
-import manual_41_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
-import manual_42_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
-import manual_43_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
-import manual_44_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_45_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
+import manual_26_raw from "../../assets/docs/notifications-notification-center-bell-manual.md?raw";
+import manual_27_raw from "../../assets/docs/notifications-notification-center-drawer-manual.md?raw";
+import manual_28_raw from "../../assets/docs/operations-operational-home-manual.md?raw";
+import manual_29_raw from "../../assets/docs/orders-workspace-manual.md?raw";
+import manual_30_raw from "../../assets/docs/pos-close-register-modal-manual.md?raw";
+import manual_31_raw from "../../assets/docs/operations-fulfillment-command-center-manual.md?raw";
+import manual_32_raw from "../../assets/docs/pos-custom-work-manual.md?raw";
+import manual_33_raw from "../../assets/docs/pos-nexo-checkout-drawer-manual.md?raw";
+import manual_34_raw from "../../assets/docs/pos-shipping-manual.md?raw";
+import manual_35_raw from "../../assets/docs/pos-shipping-modal-manual.md?raw";
+import manual_36_raw from "../../assets/docs/pos-sidebar-manual.md?raw";
+import manual_37_raw from "../../assets/docs/pos-receipt-summary-modal-manual.md?raw";
+import manual_38_raw from "../../assets/docs/pos-order-load-modal-manual.md?raw";
+import manual_39_raw from "../../assets/docs/pos-register-dashboard-manual.md?raw";
+import manual_40_raw from "../../assets/docs/pos-register-gift-card-load-modal-manual.md?raw";
+import manual_41_raw from "../../assets/docs/pos-register-overlay-manual.md?raw";
+import manual_42_raw from "../../assets/docs/pos-register-reports-manual.md?raw";
+import manual_43_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
+import manual_44_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
+import manual_45_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
+import manual_46_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_47_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -232,143 +234,157 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["loyalty","redemption","gift-cards","checkout"],
   },
   {
+    id: "notifications-notification-center-bell",
+    title: "Notifications Bell",
+    summary: "How staff use the bell to check new alerts, open the inbox, and stay caught up during the day.",
+    markdown: manual_26_raw,
+    tags: ["notifications","bell","inbox","staff"],
+  },
+  {
+    id: "notifications-notification-center-drawer",
+    title: "Notification Center and Team Announcements",
+    summary: "How staff and managers use the Communications & Alerts drawer to review alerts, clean up the inbox, and send team announcements when allowed.",
+    markdown: manual_27_raw,
+    tags: ["notifications","inbox","announcements","managers"],
+  },
+  {
     id: "operations-operational-home",
     title: "Operations Home",
     summary: "Use Operations for the store dashboard, daily sales, pickup queue, Podium inbox, and review tracking.",
-    markdown: manual_26_raw,
+    markdown: manual_28_raw,
     tags: ["operations","dashboard","daily-sales","pickup-queue","podium-inbox","reviews"],
   },
   {
     id: "orders-workspace",
     title: "Orders Workspace",
     summary: "Manage Special, Custom, Wedding, and Layaway orders. Review balances, order kind, and fulfillment status.",
-    markdown: manual_27_raw,
+    markdown: manual_29_raw,
     tags: ["orders","fulfillment","deposits","tracking"],
   },
   {
     id: "pos-close-register-modal",
     title: "Closing the Register (Z-Report)",
     summary: "Reconciling your daily shift, counting cash, and generating the professional Z-Audit report.",
-    markdown: manual_28_raw,
+    markdown: manual_30_raw,
     tags: ["pos","register","closing","Z-report","audit"],
   },
   {
     id: "operations-fulfillment-command-center",
     title: "Pickup Queue",
     summary: "Prioritize ready, rush, due-soon, and blocked orders from the Operations pickup queue.",
-    markdown: manual_29_raw,
+    markdown: manual_31_raw,
     tags: ["operations","pickup-queue","orders","ready-for-pickup","rush"],
   },
   {
     id: "pos-custom-work",
     title: "Custom Orders & Rush Orders",
     summary: "Book made-to-measure custom work in POS, capture vendor references, and flag rush handling when needed.",
-    markdown: manual_30_raw,
+    markdown: manual_32_raw,
     tags: ["pos","custom-orders","rush","fulfillment"],
   },
   {
     id: "pos-nexo-checkout-drawer",
     title: "Nexo Checkout Drawer (pos)",
     summary: "Guide to the high-level checkout flow, focusing on Stripe card processing and phone orders.",
-    markdown: manual_31_raw,
+    markdown: manual_33_raw,
     tags: ["pos","checkout","stripe","card","manual-entry","payment"],
   },
   {
     id: "pos-shipping-manual",
     title: "Shipping & Fulfillment Guide",
     summary: "Guide to quoting shipping rates at terminal, processing shipped orders, and tracking fulfillment in the Back Office Hub.",
-    markdown: manual_32_raw,
+    markdown: manual_34_raw,
     tags: ["pos","shipping","shippo","fulfillment","back-office"],
   },
   {
     id: "pos-shipping-modal",
     title: "Shipping Quote Modal",
     summary: "Component for capturing delivery addresses and fetching live carrier rates at the Register.",
-    markdown: manual_33_raw,
+    markdown: manual_35_raw,
     tags: ["pos","shipping","shippo","rates"],
   },
   {
     id: "pos-sidebar",
     title: "POS Sidebar",
     summary: "Use the POS rail to move between register-native workflows like Register, Customers, RMS Charge, Podium Inbox, Shipping, and Layaways without inheriting the broader Back Office subsection tree.",
-    markdown: manual_34_raw,
+    markdown: manual_36_raw,
     tags: ["pos-sidebar","pos","navigation","register"],
   },
   {
     id: "pos-receipt-summary-modal",
     title: "Receipt Summary Modal (pos)",
     summary: "Use this screen after a completed sale to print, retry, or send the receipt.",
-    markdown: manual_35_raw,
+    markdown: manual_37_raw,
     tags: ["pos-receipt-summary-modal","pos","receipt","printing"],
   },
   {
     id: "pos-order-load-modal",
     title: "Customer Orders",
     summary: "Review a customer's open orders in POS, check balance and lifecycle status, and copy unfulfilled lines into a new register sale when needed.",
-    markdown: manual_36_raw,
+    markdown: manual_38_raw,
     tags: ["pos","orders","pickup","fulfillment"],
   },
   {
     id: "pos-register-dashboard",
     title: "Register Dashboard (pos)",
     summary: "Use the register dashboard as the Windows station home screen after the till is open.",
-    markdown: manual_37_raw,
+    markdown: manual_39_raw,
     tags: ["pos-register-dashboard","pos","register","windows"],
   },
   {
     id: "pos-register-gift-card-load-modal",
     title: "Register Gift Card",
     summary: "POS guide for adding a purchased gift card load to the cart.",
-    markdown: manual_38_raw,
+    markdown: manual_40_raw,
     tags: ["pos","gift-cards","register","staff-manual"],
   },
   {
     id: "pos-register-overlay",
     title: "Register Overlay (pos)",
     summary: "Use this screen to open or attach the Windows register terminal to the correct lane before selling.",
-    markdown: manual_39_raw,
+    markdown: manual_41_raw,
     tags: ["pos-register-overlay","pos","register","windows"],
   },
   {
     id: "pos-register-reports",
     title: "Register Reports & Daily Sales",
     summary: "Daily sales activity timeline, tender totals, and professional audit printing for the current register session.",
-    markdown: manual_40_raw,
+    markdown: manual_42_raw,
     tags: ["pos","register","reports","audit","printing"],
   },
   {
     id: "qbo-mapping-matrix",
     title: "QBO Mapping Matrix (qbo)",
     summary: "Guide to linking Riverside OS accounts (Revenue, Inventory, Tenders) to your QuickBooks Online Chart of Accounts.",
-    markdown: manual_41_raw,
+    markdown: manual_43_raw,
     tags: ["qbo","mapping","accounting","chart-of-accounts","coa","setup"],
   },
   {
     id: "qbo-workspace",
     title: "QBO Workspace (qbo)",
     summary: "Central hub for QuickBooks Online integration: credentials, staging queue, and journal synchronization.",
-    markdown: manual_42_raw,
+    markdown: manual_44_raw,
     tags: ["qbo","quickbooks","accounting","journal","staging","finance"],
   },
   {
     id: "settings-counterpoint-sync-settings-panel",
     title: "Counterpoint Sync Settings Panel (settings)",
     summary: "Monitor the Counterpoint bridge, review staged batches, and maintain Counterpoint-to-ROS mapping tables.",
-    markdown: manual_43_raw,
+    markdown: manual_45_raw,
     tags: ["settings-counterpoint-sync-settings-panel","component","counterpoint","bridge","sync"],
   },
   {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel",
     summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
-    markdown: manual_44_raw,
+    markdown: manual_46_raw,
     tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "settings-stripe-settings-panel",
     title: "Stripe & Merchant Hub (settings)",
     summary: "High-level integration manual for card processing, fee reconciliation, and QBO clearing account workflows.",
-    markdown: manual_45_raw,
+    markdown: manual_47_raw,
     tags: ["settings-stripe-settings-panel","merchant-processing","reconciliation","stripe","qbo"],
   },
 ];
