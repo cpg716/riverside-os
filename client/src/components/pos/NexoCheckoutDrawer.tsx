@@ -1119,6 +1119,16 @@ export default function NexoCheckoutDrawer({
                   <div className="mt-6 max-h-[32vh] overflow-y-auto border-t border-app-border pt-6 pr-1 animate-in slide-in-from-top-2">
                     {tab === "rms_charge" && (
                       <div className="space-y-3">
+                        <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            How RMS Charge works
+                          </p>
+                          <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                            <p>RMS Charge always starts with an attached Riverside customer and a resolved linked RMS account.</p>
+                            <p>New RMS charges also require an eligible plan before the payment line can be added.</p>
+                            <p>RMS payments post against the selected RMS account. They are not the same thing as taking a standard retail cash or check tender.</p>
+                          </div>
+                        </div>
                         {!customerId ? (
                           <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700">
                             Attach a customer before using RMS Charge.
@@ -1240,6 +1250,14 @@ export default function NexoCheckoutDrawer({
 
                     {rmsPaymentCollectionMode && (tab === "cash" || tab === "check") && (
                       <div className="space-y-3 mb-4">
+                        <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            RMS payment rule
+                          </p>
+                          <p className="mt-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                            In RMS payment mode, this cash or check entry posts to the selected RMS account balance. Keep it separate from a normal retail payment on the sale.
+                          </p>
+                        </div>
                         {!customerId ? (
                           <div className="rounded-xl border border-amber-300/40 bg-amber-500/10 p-4 text-sm font-semibold text-amber-700">
                             Attach a customer before collecting an RMS Charge payment.

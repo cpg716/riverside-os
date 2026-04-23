@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useRegisterGate } from "../../context/RegisterGateContextLogic";
@@ -15,17 +15,16 @@ import {
 } from "../../lib/money";
 import {
   Activity,
-  ArrowLeftRight,
-  Clock,
   Heart,
   Package,
   Search,
-  Wrench,
-  ShoppingBag,
-  Trash2,
   RotateCcw,
 } from "lucide-react";
 import AttachOrderToWeddingModal from "./AttachOrderToWeddingModal";
+import TransactionDetailDrawer, {
+  type TransactionDrawerAudit,
+  type TransactionDrawerDetail,
+} from "./TransactionDetailDrawer";
 import DashboardGridCard from "../ui/DashboardGridCard";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -55,6 +54,7 @@ interface TransactionRow {
 
 interface OrderItem {
   order_item_id: string;
+  transaction_line_id?: string;
   product_id: string;
   variant_id: string;
   sku: string;
@@ -68,40 +68,24 @@ interface OrderItem {
   local_tax: string;
   fulfillment: FulfillmentKind;
   /** Takeaway lines can be fulfilled at checkout; orders at pickup. */
-  is_fulfilled?: boolean;
+  is_fulfilled: boolean;
 }
 
-interface OrderDetail {
-  transaction_id: string;
-  status: string;
-  total_price: string;
-  amount_paid: string;
-  balance_due: string;
-  financial_summary?: {
-    total_allocated_payments: string;
-    total_applied_deposit_amount: string;
-  };
-  exchange_group_id: string | null;
+type WorkspaceOrderDetail = Omit<TransactionDrawerDetail, "items"> & {
   items: OrderItem[];
-  booked_at: string;
-  wedding_member_id: string | null;
-  wedding_summary?: {
-    wedding_party_id: string;
-    wedding_member_id: string;
-    party_name?: string | null;
-    event_date?: string | null;
-    member_role?: string | null;
-  } | null;
-  is_forfeited: boolean;
-  forfeited_at: string | null;
-  forfeiture_reason: string | null;
+};
+
+interface TransactionPipelineStats {
+  needs_action: number;
+  ready_for_pickup: number;
+  overdue: number;
+  wedding_orders: number;
 }
 
-interface OrderAuditEvent {
-  id: string;
-  event_kind: string;
-  summary: string;
-  created_at: string;
+interface OrderIntegritySummary {
+  visibleOrders: number;
+  waitingOnDetails: number;
+  balanceStillDue: number;
 }
 
 
@@ -122,17 +106,6 @@ function money(v: string | number) {
   return formatUsdFromCents(parseMoneyToCents(v));
 }
 
-const OrderKindIcon = ({ kind, className }: { kind: string; className?: string }) => {
-  switch (kind) {
-    case "wedding_order": return <Heart size={18} className={className} />;
-    case "special_order": return <ShoppingBag size={18} className={className} />;
-    case "regular_order": return <Package size={18} className={className} />;
-    case "custom": return <Wrench size={18} className={className} />;
-    case "layaway": return <Clock size={18} className={className} />;
-    default: return <Search size={18} className={className} />;
-  }
-};
-
 type Section = "open" | "all";
 type FulfillmentKind =
   | "takeaway"
@@ -148,17 +121,12 @@ interface OrderRowActions {
   onAttachToWedding: () => void;
   onCancel: () => void;
   onReturnAll: () => void;
-  onProcessRefund: () => void;
   deleteLine: (it: OrderItem) => void;
   addBySku: () => void;
   setSku: (s: string) => void;
   sku: string;
   canModify: boolean;
-  canRefund: boolean;
   canAttemptCancel: boolean;
-  _canSuitSwap: boolean;
-  _orderAllowsLineSwap: boolean;
-  setSuitSwapTarget: (it: OrderItem | null) => void;
 }
 
 
@@ -178,83 +146,21 @@ function orderKindLabel(kind: string) {
   }
 }
 
-function describeOrderLifecycle(detail: OrderDetail) {
-  const paidCents = parseMoneyToCents(detail.amount_paid);
-  const dueCents = parseMoneyToCents(detail.balance_due);
-  const depositCents = parseMoneyToCents(
-    detail.financial_summary?.total_applied_deposit_amount ?? "0",
-  );
-  const isWedding = Boolean(detail.wedding_summary);
-  const weddingLead = isWedding
-    ? "Keep follow-up tied to the linked wedding member before changing pickup status."
-    : null;
-
-  if (detail.status === "fulfilled") {
-    return {
-      label: "Picked up",
-      note: isWedding
-        ? "This wedding order is complete. Use the member history if you need to review payment or pickup details."
-        : "This order is complete. Use the history below if you need to review payment or pickup details.",
-    };
-  }
-  if (detail.status === "pending_measurement") {
-    return {
-      label: "Waiting on details",
-      note: isWedding
-        ? "Do not release this wedding order for pickup until measurements, booking details, and member follow-up are complete."
-        : "Do not release this order for pickup until measurements and booking details are complete.",
-    };
-  }
-  if (dueCents <= 0) {
-    return {
-      label: "Balance paid",
-      note: isWedding
-        ? "Payment is complete, but pickup release still stays with the wedding member workflow. Confirm receiving and member readiness before handing anything over."
-        : "Payment is complete, but receiving and pickup release still stay with the order team.",
-    };
-  }
-  if (depositCents > 0) {
-    return {
-      label: "Deposit received",
-      note: isWedding
-        ? `A wedding deposit is on the member record. ${formatUsdFromCents(dueCents)} is still due, and pickup should stay in the wedding workflow until the member is ready.`
-        : `A deposit is on the order. ${formatUsdFromCents(dueCents)} is still due before pickup can be completed.`,
-    };
-  }
-  if (paidCents > 0) {
-    return {
-      label: "Partial payment",
-      note: isWedding
-        ? `${formatUsdFromCents(dueCents)} is still due. Keep payment and pickup follow-up tied to the linked wedding member.`
-        : `${formatUsdFromCents(dueCents)} is still due before pickup can be completed.`,
-    };
-  }
-  return {
-    label: "Balance still due",
-    note: isWedding
-      ? `No payment is recorded yet. ${weddingLead}`
-      : "No payment is recorded yet. Confirm receiving and readiness before collecting money.",
-  };
-}
-
-function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
+function OrderTableRow({ row, isSelected, onClick, actions }: {
   row: TransactionRow;
   isSelected: boolean; 
   onClick: () => void;
-  detail: OrderDetail | null;
-  audit: OrderAuditEvent[];
   actions: OrderRowActions;
 }) {
   return (
-    <>
-      <tr 
-        onClick={onClick}
-        onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
-        className={cn(
-          "cursor-pointer transition-all hover:bg-app-bg group",
-          isSelected ? "bg-app-bg/80 border-l-4 border-emerald-500" : "bg-app-surface border-l-4 border-transparent"
-        )}
-      >
+    <tr 
+      onClick={onClick}
+      onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
+      className={cn(
+        "cursor-pointer transition-all hover:bg-app-bg group",
+        isSelected ? "bg-app-bg/80 border-l-4 border-emerald-500" : "bg-app-surface border-l-4 border-transparent"
+      )}
+    >
         <td className="px-6 py-5">
            <p className="text-[11px] font-black tracking-tight text-app-text mb-1">{row.display_id}</p>
            <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
@@ -302,23 +208,15 @@ function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
            </span>
         </td>
         <td className="px-6 py-5">
-           {detail ? (
-             <>
-               <p className="text-[11px] font-black text-app-text">{money(detail.total_price)}</p>
-               <p className="text-[9px] font-bold text-app-text-muted opacity-80 mt-1">
-                 Paid {money(detail.amount_paid)}
-               </p>
-             </>
-           ) : (
-             <p className="text-[9px] font-bold text-app-text-muted opacity-40 italic tracking-widest">Select record...</p>
-           )}
+          <p className="text-[11px] font-black text-app-text">{money(row.total_price)}</p>
+          <p className="text-[9px] font-bold text-app-text-muted opacity-80 mt-1">
+            Paid {money(row.amount_paid)}
+          </p>
         </td>
         <td className="px-6 py-5 text-right flex items-center justify-end gap-3">
-           {detail && (
-             <p className={cn("text-[11px] font-black", parseMoneyToCents(detail.balance_due) > 0 ? "text-amber-500" : "text-app-text-muted opacity-40")}>
-               {money(detail.balance_due)}
-             </p>
-           )}
+          <p className={cn("text-[11px] font-black", parseMoneyToCents(row.balance_due) > 0 ? "text-amber-500" : "text-app-text-muted opacity-40")}>
+            {money(row.balance_due)}
+          </p>
            <button 
              onClick={(e) => { e.stopPropagation(); actions.onOpenInRegister?.(row.transaction_id); }}
              className="opacity-0 group-hover:opacity-100 transition-all px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest"
@@ -327,173 +225,6 @@ function OrderTableRow({ row, isSelected, onClick, detail, audit, actions }: {
            </button>
         </td>
       </tr>
-      {isSelected && (
-        <tr className="bg-app-bg/40 border-y border-emerald-500/10 animate-workspace-snap">
-          <td colSpan={6} className="p-8">
-            {detail ? (
-              <div className="space-y-8 max-w-[1200px]">
-                {/* Action Board Row */}
-                <div className="flex items-center justify-between pb-6 border-b border-app-border/40">
-                  <div className="flex items-center gap-2">
-                    {actions.onOpenInRegister && (
-                      <button onClick={() => actions.onOpenInRegister!(detail.transaction_id)} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-white bg-emerald-600 shadow-glow-emerald-xs">Open in POS</button>
-                    )}
-                    {actions.canModify && !detail.wedding_member_id && detail.status !== "cancelled" && (
-                      <button onClick={actions.onAttachToWedding} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text bg-app-surface border border-app-border">Attach Wedding</button>
-                    )}
-                    {detail.wedding_summary && (
-                      <div className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-600 bg-rose-500/10 border border-rose-500/20">
-                        Wedding Linked
-                      </div>
-                    )}
-                    {actions.canAttemptCancel && detail.status !== "cancelled" && (
-                      <button onClick={actions.onCancel} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-rose-500 bg-app-surface border border-app-border">Cancel Order</button>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {actions.canModify && detail.status !== "cancelled" && (
-                      <button onClick={actions.onReturnAll} className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text bg-app-surface border border-app-border">Return All</button>
-                    )}
-                  </div>
-                </div>
-
-                {detail.wedding_summary && (
-                  <div className="rounded-2xl border border-rose-500/20 bg-rose-500/8 p-5">
-                    <div className="flex items-center gap-2">
-                      <Heart size={16} className="text-rose-500" />
-                      <h4 className="text-[11px] font-black uppercase tracking-[0.2em] text-rose-600">
-                        Wedding Order
-                      </h4>
-                    </div>
-                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Party
-                        </p>
-                        <p className="mt-1 text-[11px] font-bold text-app-text">
-                          {detail.wedding_summary.party_name ?? "Linked wedding party"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Member Role
-                        </p>
-                        <p className="mt-1 text-[11px] font-bold text-app-text">
-                          {detail.wedding_summary.member_role ?? "Wedding member"}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Event Date
-                        </p>
-                        <p className="mt-1 text-[11px] font-bold text-app-text">
-                          {detail.wedding_summary.event_date
-                            ? new Date(detail.wedding_summary.event_date).toLocaleDateString()
-                            : "Not set"}
-                        </p>
-                      </div>
-                    </div>
-                    <p className="mt-4 text-[10px] font-semibold text-app-text-muted">
-                      Wedding deposits, group-pay disbursements, and pickup follow-up should stay tied
-                      to the linked wedding member record.
-                    </p>
-                  </div>
-                )}
-
-                <div className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
-                  <div className="flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic">
-                        Order Lifecycle
-                      </p>
-                      <p className="mt-2 text-[15px] font-black text-app-text">
-                        {describeOrderLifecycle(detail).label}
-                      </p>
-                      <p className="mt-2 max-w-3xl text-[11px] font-semibold text-app-text-muted">
-                        {describeOrderLifecycle(detail).note}
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        Deposit on Ledger
-                      </p>
-                      <p className="mt-1 text-[13px] font-black text-emerald-600">
-                        {money(detail.financial_summary?.total_applied_deposit_amount ?? "0")}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-12">
-                   {/* Items Sub-Table */}
-                     <div>
-                     <div className="flex items-center justify-between mb-4 px-2">
-                        <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic">Order Lines</h4>
-                        {actions.canModify && detail.status !== "cancelled" && (
-                          <div className="flex gap-2">
-                            <input 
-                              value={actions.sku} 
-                              onChange={(e) => actions.setSku(e.target.value)}
-                              placeholder="Add SKU..."
-                              className="h-8 w-32 rounded-lg border border-app-border bg-app-bg px-3 text-[10px] font-bold outline-none"
-                            />
-                            <button onClick={actions.addBySku} className="text-[10px] font-black uppercase tracking-widest text-app-accent mt-0.5">Add</button>
-                          </div>
-                        )}
-                     </div>
-                     <div className="space-y-3">
-                        {detail.items.map((it: OrderItem) => (
-                          <div key={it.order_item_id} className="p-4 rounded-xl border border-app-border bg-app-surface/60 flex items-center justify-between group">
-                             <div className="flex items-center gap-4">
-                                <OrderKindIcon kind={it.fulfillment} className="text-app-text-muted" />
-                                <div>
-                                   <p className="text-[11px] font-black text-app-text">{it.product_name}</p>
-                                   <p className="text-[9px] font-bold text-app-text-muted opacity-60 mt-0.5">{it.sku} · QTY {it.quantity}</p>
-                                </div>
-                             </div>
-                             <div className="flex items-center gap-2">
-                                <div className="text-right mr-4">
-                                   <p className="text-[11px] font-black text-app-text">{money(it.unit_price)}</p>
-                                </div>
-                                {it.fulfillment === "takeaway" && actions._canSuitSwap && actions._orderAllowsLineSwap && (
-                                  <button onClick={() => actions.setSuitSwapTarget(it)} className="text-app-text-muted hover:text-purple-500 p-2"><ArrowLeftRight size={14}/></button>
-                                )}
-                                {actions.canModify && detail.status !== "cancelled" && (
-                                  <button onClick={() => actions.deleteLine(it)} className="text-app-text-muted hover:text-rose-500 p-2 opacity-0 group-hover:opacity-100 transition-all"><Trash2 size={14}/></button>
-                                )}
-                             </div>
-                          </div>
-                        ))}
-                     </div>
-                   </div>
-
-                   {/* Audit / Logistics */}
-                   <div>
-                     <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic mb-4 px-2">Order Activity</h4>
-                     <div className="p-6 rounded-2xl border border-app-border bg-app-surface/40 space-y-4">
-                        {audit.slice(0, 4).map((e: OrderAuditEvent) => (
-                           <div key={e.id} className="flex gap-4">
-                              <div className="shrink-0 h-1.5 w-1.5 rounded-full bg-emerald-500 mt-1.5" />
-                              <div className="min-w-0">
-                                 <p className="text-[11px] font-bold text-app-text leading-tight">{e.summary}</p>
-                                 <p className="text-[9px] font-bold text-app-text-muted opacity-60 mt-1 uppercase tracking-widest italic">{new Date(e.created_at).toLocaleDateString()}</p>
-                              </div>
-                           </div>
-                        ))}
-                     </div>
-                   </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center justify-center p-20 gap-4 opacity-50">
-                 <div className="h-6 w-6 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
-                 <p className="text-[11px] font-black uppercase tracking-widest italic">Loading order record...</p>
-              </div>
-            )}
-          </td>
-        </tr>
-      )}
-    </>
   );
 }
 
@@ -525,13 +256,16 @@ export default function OrdersWorkspace({
   const canCancel = hasPermission("orders.cancel");
   const canVoidUnpaid = hasPermission("orders.void_sale");
   const canRefund = hasPermission("orders.refund_process");
-  const _canSuitSwap = hasPermission("orders.suit_component_swap") && canModify;
 
   const [transactionRows, setTransactionRows] = useState<TransactionRow[]>([]);
+  const [pipelineStats, setPipelineStats] =
+    useState<TransactionPipelineStats | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [detail, setDetail] = useState<OrderDetail | null>(null);
+  const [detail, setDetail] = useState<WorkspaceOrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [sku, setSku] = useState("");
-  const [audit, setAudit] = useState<OrderAuditEvent[]>([]);
+  const [audit, setAudit] = useState<TransactionDrawerAudit[]>([]);
   const [page, setPage] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
   const limit = 5000; // High-volume non-paginated limit for operational focus
@@ -555,11 +289,8 @@ export default function OrdersWorkspace({
   );
   // exchangeOtherId removed
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
-  const [suitSwapTarget, setSuitSwapTarget] = useState<OrderItem | null>(null);
-  const [suitSwapSku, setSuitSwapSku] = useState("");
-  const [suitSwapNote, setSuitSwapNote] = useState("");
-  const [suitSwapBusy, setSuitSwapBusy] = useState(false);
   const [attachWeddingModalOpen, setAttachWeddingModalOpen] = useState(false);
+  const detailRequestSeqRef = useRef(0);
 
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -581,9 +312,12 @@ export default function OrdersWorkspace({
 
   const loadPipelineStats = useCallback(async () => {
     try {
-      await fetch(`${baseUrl}/api/transactions/pipeline-stats`, {
+      const res = await fetch(`${baseUrl}/api/transactions/pipeline-stats`, {
         headers: backofficeHeaders(),
       });
+      if (!res.ok) return;
+      const data = (await res.json()) as TransactionPipelineStats;
+      setPipelineStats(data);
     } catch {
       // ignore
     }
@@ -616,19 +350,72 @@ export default function OrdersWorkspace({
   }, [baseUrl, backofficeHeaders, page, debouncedSearch, kindFilter, paymentFilter, salespersonFilter, dateFrom, dateTo, section]);
 
   const loadDetail = useCallback(async (id: string) => {
-    const res = await fetch(`${baseUrl}/api/transactions/${id}`, {
-      headers: backofficeHeaders(),
-    });
-    if (!res.ok) return;
-    setDetail((await res.json()) as OrderDetail);
-    const a = await fetch(`${baseUrl}/api/transactions/${id}/audit`, {
-      headers: backofficeHeaders(),
-    });
-    if (a.ok) setAudit((await a.json()) as OrderAuditEvent[]);
+    const requestSeq = detailRequestSeqRef.current + 1;
+    detailRequestSeqRef.current = requestSeq;
+    setDetailLoading(true);
+    setDetailError(null);
+    try {
+      const [detailRes, auditRes] = await Promise.all([
+        fetch(`${baseUrl}/api/transactions/${id}`, {
+          headers: backofficeHeaders(),
+        }),
+        fetch(`${baseUrl}/api/transactions/${id}/audit`, {
+          headers: backofficeHeaders(),
+        }),
+      ]);
+
+      if (!detailRes.ok) {
+        if (detailRequestSeqRef.current !== requestSeq) return;
+        setDetail(null);
+        setAudit([]);
+        setDetailError("We couldn't load this order right now.");
+        return;
+      }
+
+      const rawDetail = (await detailRes.json()) as TransactionDrawerDetail;
+      if (detailRequestSeqRef.current !== requestSeq) return;
+      setDetail({
+        ...rawDetail,
+        items: (rawDetail.items ?? []).map((item) => ({
+          order_item_id:
+            (item as { order_item_id?: string; transaction_line_id?: string }).order_item_id ??
+            item.transaction_line_id ??
+            `${item.sku}-${item.product_name}`,
+          transaction_line_id: item.transaction_line_id,
+          product_id: (item as { product_id?: string }).product_id ?? "",
+          variant_id: (item as { variant_id?: string }).variant_id ?? "",
+          sku: item.sku,
+          product_name: item.product_name,
+          variation_label: item.variation_label,
+          quantity: item.quantity,
+          quantity_returned: item.quantity_returned ?? 0,
+          unit_price: item.unit_price,
+          unit_cost: item.unit_cost,
+          state_tax: String(item.state_tax ?? "0"),
+          local_tax: String(item.local_tax ?? "0"),
+          fulfillment: item.fulfillment as FulfillmentKind,
+          is_fulfilled: Boolean(item.is_fulfilled),
+        })),
+      });
+      if (auditRes.ok) {
+        const nextAudit = (await auditRes.json()) as TransactionDrawerAudit[];
+        if (detailRequestSeqRef.current !== requestSeq) return;
+        setAudit(nextAudit);
+      } else {
+        if (detailRequestSeqRef.current !== requestSeq) return;
+        setAudit([]);
+      }
+    } catch {
+      if (detailRequestSeqRef.current !== requestSeq) return;
+      setDetail(null);
+      setAudit([]);
+      setDetailError("We couldn't load this order right now.");
+    } finally {
+      if (detailRequestSeqRef.current === requestSeq) {
+        setDetailLoading(false);
+      }
+    }
     setReturnQtyDraft({});
-    setSuitSwapTarget(null);
-    setSuitSwapSku("");
-    setSuitSwapNote("");
   }, [baseUrl, backofficeHeaders]);
 
   useEffect(() => {
@@ -647,59 +434,16 @@ export default function OrdersWorkspace({
 
   useEffect(() => {
     if (!selectedId) {
+      detailRequestSeqRef.current += 1;
       setDetail(null);
+      setAudit([]);
+      setDetailError(null);
       setRefundTargetOrderId(null);
       return;
     }
     void loadDetail(selectedId);
     setRefundTargetOrderId(selectedId);
   }, [selectedId, loadDetail]);
-
-// updateItem removed
-
-  const _orderAllowsLineSwap =
-    !!detail &&
-    (detail.status === "open" || detail.status === "pending_measurement");
-
-  const submitSuitSwap = async () => {
-    if (!detail || !suitSwapTarget || !suitSwapSku.trim()) return;
-    setSuitSwapBusy(true);
-    try {
-      const scanRes = await fetch(
-        `${baseUrl}/api/inventory/scan/${encodeURIComponent(suitSwapSku.trim())}`,
-        { headers: backofficeHeaders() },
-      );
-      if (!scanRes.ok) {
-        toast("We couldn't find that replacement item. Check the SKU and try again.", "error");
-        return;
-      }
-      const scanned = (await scanRes.json()) as ScanItem;
-      const res = await fetch(
-        `${baseUrl}/api/transactions/${detail.transaction_id}/items/${suitSwapTarget.order_item_id}/suit-swap`,
-        {
-          method: "POST",
-          headers: jsonHeaders(backofficeHeaders),
-          body: JSON.stringify({
-            in_variant_id: scanned.variant_id,
-            note: suitSwapNote.trim() || null,
-          }),
-        },
-      );
-      if (!res.ok) {
-        const b = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(b.error ?? "Swap failed", "error");
-        return;
-      }
-      toast("Item updated. Inventory was adjusted where needed.", "success");
-      setSuitSwapTarget(null);
-      setSuitSwapSku("");
-      setSuitSwapNote("");
-      await loadDetail(detail.transaction_id);
-      await loadTransactions();
-    } finally {
-      setSuitSwapBusy(false);
-    }
-  };
 
   const addBySku = async () => {
     if (!detail || !sku.trim() || !canModify) return;
@@ -758,7 +502,7 @@ export default function OrdersWorkspace({
     void loadRefundsDue();
   };
 
-  const deleteLine = async (item: OrderItem) => {
+  const deleteLine = async (item: Pick<OrderItem, "order_item_id">) => {
     if (!detail || !canModify) return;
     const res = await fetch(`${baseUrl}/api/transactions/${detail.transaction_id}/items/${item.order_item_id}`, {
       method: "DELETE",
@@ -873,6 +617,24 @@ export default function OrdersWorkspace({
     return Array.from(set).sort((a, b) => a.localeCompare(b));
   }, [transactionRows]);
 
+  const orderIntegritySummary = useMemo<OrderIntegritySummary>(() => {
+    return transactionRows.reduce(
+      (summary, row) => ({
+        visibleOrders: summary.visibleOrders + 1,
+        waitingOnDetails:
+          summary.waitingOnDetails + (row.status === "pending_measurement" ? 1 : 0),
+        balanceStillDue:
+          summary.balanceStillDue +
+          (parseMoneyToCents(row.balance_due) > 0 ? 1 : 0),
+      }),
+      {
+        visibleOrders: 0,
+        waitingOnDetails: 0,
+        balanceStillDue: 0,
+      },
+    );
+  }, [transactionRows]);
+
   return (
     <div className="flex flex-1 flex-col bg-transparent">
 
@@ -919,6 +681,42 @@ export default function OrdersWorkspace({
           className="flex-1"
           contentClassName="p-0 flex flex-col"
         >
+          <div className="border-b border-app-border bg-app-surface-2/40 px-8 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                  Order Integrity
+                </p>
+                <p className="mt-1 text-sm font-semibold text-app-text">
+                  Open visibility into orders that still need booking details, payment follow-up, or aging review.
+                </p>
+              </div>
+              <span className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {orderIntegritySummary.visibleOrders} visible orders
+              </span>
+            </div>
+            <div className="mt-4 grid gap-2 sm:grid-cols-4">
+              {[
+                ["Waiting on details", orderIntegritySummary.waitingOnDetails],
+                ["Balance still due", orderIntegritySummary.balanceStillDue],
+                ["Needs action", pipelineStats?.needs_action ?? 0],
+                ["Overdue follow-up", pipelineStats?.overdue ?? 0],
+              ].map(([label, value]) => (
+                <div
+                  key={label}
+                  className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+                >
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    {label}
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {value}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* Header Filters Area */}
           <div className="px-8 py-6 border-b border-app-border bg-app-bg/20 flex flex-wrap items-center gap-4">
             <div className="relative group flex-1 min-w-[300px]">
@@ -1009,24 +807,17 @@ export default function OrdersWorkspace({
                     row={r} 
                     isSelected={selectedId === r.transaction_id}
                     onClick={() => setSelectedId(selectedId === r.transaction_id ? null : r.transaction_id)}
-                    detail={selectedId === r.transaction_id ? detail : null}
-                    audit={selectedId === r.transaction_id ? audit : []}
                     actions={{
                       onOpenInRegister,
                       onAttachToWedding: () => setAttachWeddingModalOpen(true),
                       onCancel: () => setCancelConfirmOpen(true),
                       onReturnAll: () => setReturnConfirmOpen(true),
-                      onProcessRefund: () => setRefundModalOpen(true),
                       deleteLine: (it: OrderItem) => void deleteLine(it),
                       addBySku: () => void addBySku(),
                       setSku,
                       sku,
                       canModify,
-                      canRefund,
                       canAttemptCancel,
-                      _canSuitSwap,
-                      _orderAllowsLineSwap,
-                      setSuitSwapTarget
                     }}
                   />
                 ))}
@@ -1158,59 +949,29 @@ export default function OrdersWorkspace({
         </div>
       )}
 
-      {suitSwapTarget && (
-        <div className="ui-overlay-backdrop flex items-center justify-center p-4">
-          <div className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300">
-            <div className="border-b border-app-border p-4">
-              <h3 className="text-lg font-bold text-app-text">Suit Swap</h3>
-              <p className="mt-1 text-xs text-app-text-muted">
-                Replace <strong>{suitSwapTarget.product_name}</strong> ({suitSwapTarget.sku}) with a different variant.
-              </p>
-            </div>
-            <div className="space-y-4 p-4">
-              <label className="block text-xs font-bold text-app-text-muted uppercase tracking-widest">
-                New SKU / Variant
-                <input
-                  type="text"
-                  value={suitSwapSku}
-                  onChange={(e) => setSuitSwapSku(e.target.value)}
-                  className="ui-input mt-1.5 w-full text-sm font-mono"
-                  placeholder="Enter replacement SKU…"
-                  autoFocus
-                />
-              </label>
-              <label className="block text-xs font-bold text-app-text-muted uppercase tracking-widest">
-                Internal note
-                <textarea
-                  value={suitSwapNote}
-                  onChange={(e) => setSuitSwapNote(e.target.value)}
-                  className="ui-input mt-1.5 w-full text-sm"
-                  rows={2}
-                  placeholder="Reason for swap…"
-                />
-              </label>
-            </div>
-            <div className="flex justify-end gap-2 border-t border-app-border p-4">
-              <button
-                type="button"
-                className="ui-btn-secondary px-4 py-2 text-sm"
-                disabled={suitSwapBusy}
-                onClick={() => setSuitSwapTarget(null)}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="ui-btn-primary px-4 py-2 text-sm bg-purple-600 hover:bg-purple-700 font-bold"
-                disabled={suitSwapBusy || !suitSwapSku.trim()}
-                onClick={() => void submitSuitSwap()}
-              >
-                {suitSwapBusy ? "Swapping…" : "Confirm swap"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <TransactionDetailDrawer
+        orderId={selectedId}
+        isOpen={selectedId !== null}
+        onClose={() => setSelectedId(null)}
+        detail={detail}
+        audit={audit}
+        loading={detailLoading}
+        errorMessage={detailError}
+        orderActions={{
+          onOpenInRegister,
+          onAttachToWedding: () => setAttachWeddingModalOpen(true),
+          onCancel: () => setCancelConfirmOpen(true),
+          onReturnAll: () => setReturnConfirmOpen(true),
+          onProcessRefund: () => setRefundModalOpen(true),
+          deleteLine: (it) => void deleteLine(it),
+          addBySku: () => void addBySku(),
+          setSku,
+          sku,
+          canModify,
+          canAttemptCancel,
+          canRefund,
+        }}
+      />
 
       <RegisterRequiredModal
         open={registerRequiredOpen}
