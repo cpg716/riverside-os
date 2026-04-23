@@ -11,6 +11,10 @@ tags: pos, register, closing, Z-report, audit
 
 The **Close Register** workspace is the final step of a shift. It reconciles expected totals against actual physical counts.
 
+## What this is
+
+Use this workflow to close the live till group, reconcile tender totals, and produce the final Z-audit output for the shift.
+
 ## Till Group Closing
 Riverside OS uses a **lane-aggregated model**. Opening **Register #1 (Main)** automatically opens satellite lanes (iPad and Back Office). 
 - To close the entire group, you **MUST** use the **Close Register** action on **Register #1**.

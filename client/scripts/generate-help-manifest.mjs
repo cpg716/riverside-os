@@ -38,6 +38,115 @@ const TRASH_DIR = path.join(DOCS_DIR, ".trash");
 const CLIENT_LIB_HELP = path.join(REPO_ROOT, "client", "src", "lib", "help");
 const OUT_TS = path.join(CLIENT_LIB_HELP, "help-manifest.generated.ts");
 const OUT_RS = path.join(REPO_ROOT, "server", "src", "logic", "help_corpus_manuals.generated.rs");
+const OUT_QUALITY = path.join(DOCS_DIR, "help-quality-report.generated.json");
+
+const HELP_MANUAL_STANDARD = {
+  required: {
+    purpose: {
+      label: "Purpose / what this is",
+      headings: [
+        "what this is",
+        "what this screen is for",
+        "what this panel shows",
+        "what it shows",
+        "what staff can do here",
+        "workflow overview",
+        "how it works now",
+        "who can open it",
+        "accessing the hub",
+      ],
+    },
+    steps: {
+      label: "Numbered steps / how to use it",
+      headings: [
+        "how to use it",
+        "how to use",
+        "quick steps",
+        "steps",
+        "how to sign in",
+        "open the register workspace",
+        "ring a sale",
+        "workflow",
+        "the reconciliation flow",
+        "detailed field guide",
+        "order lifecycle",
+        "using metabase day to day",
+        "sign in to metabase",
+        "start host mode",
+        "restoration procedure",
+        "how to map an account",
+        "how it works",
+      ],
+    },
+    guardrails: {
+      label: "What to watch for / common mistakes / tips",
+      headings: [
+        "tips",
+        "what to watch for",
+        "common mistakes",
+        "troubleshooting",
+        "important",
+        "important rules",
+        "validation rules",
+        "critical",
+        "privacy",
+        "faq",
+        "if startup fails",
+        "if the app still looks stale",
+      ],
+    },
+  },
+  optional: {
+    when: {
+      label: "When to use it / prerequisites / permissions",
+      headings: [
+        "when to use it",
+        "when to use",
+        "before you start",
+        "prerequisites",
+        "permissions",
+        "access",
+        "api host settings",
+        "what this is not",
+        "when to stay here",
+        "when to use counterpoint instead",
+      ],
+    },
+    outcome: {
+      label: "What happens next / expected result",
+      headings: [
+        "what happens next",
+        "expected result",
+        "expected results",
+        "review and publish behavior",
+        "what the detail panel shows",
+        "what each section tells you",
+        "what the summary area tells you",
+        "customer visibility",
+        "professional audit printing",
+        "performance metrics",
+      ],
+    },
+    related: {
+      label: "Related workflows",
+      headings: [
+        "related workflows",
+        "related sections",
+        "see also",
+        "reports vs insights",
+        "full documentation",
+        "refreshing the pictures in this guide",
+      ],
+    },
+  },
+  placeholderPatterns: [
+    "briefly describe",
+    "replace with staff-facing help",
+    "add pngs under",
+    "_auto-generated from `",
+    "1. \n2.",
+  ],
+};
 
 function posix(p) {
   return p.split(path.sep).join("/");
@@ -104,6 +213,12 @@ function parseTags(raw) {
       .filter(Boolean);
   }
   return s.split(",").map((x) => x.trim()).filter(Boolean);
+}
+
+function parseManualStatus(raw) {
+  const normalized = String(raw ?? "").trim().toLowerCase();
+  if (normalized === "approved" || normalized === "draft") return normalized;
+  return "";
 }
 
 const COMPONENT_SOURCE_START = "<!-- help:component-source -->";
@@ -198,7 +313,8 @@ function buildComponentManualMarkdown(id, rel, order, today) {
     id,
     title,
     order: String(order),
-    summary: `Auto-generated stub for ${relSrc} — replace with staff-facing help.`,
+    status: "draft",
+    summary: `Draft maintainer scaffold for ${relSrc}. Promote to approved after SOP review and screenshot capture.`,
     source: relSrc,
     last_scanned: today,
     tags: `${id}, component, auto-scaffold`,
@@ -212,24 +328,162 @@ ${block}
 
 ## What this is
 
-Briefly describe what staff use this screen for.
+This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
 
-## How to use it
+## When to use it
 
-1. 
-2. 
+Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
 
-## Tips
+## Before you start
 
-- 
+- Confirm which workspace or role opens this component.
+- Confirm any permission, prerequisite record, or previous workflow step staff need first.
+- Capture screenshots only after the UI state is stable and redacted.
+
+## Steps
+
+1. Enter the workspace or drawer that opens this component.
+2. Describe the staff action that starts the task.
+3. Describe the key review or confirmation step.
+4. Describe how staff finish or exit cleanly.
+
+## What to watch for
+
+- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
+- Keep the wording staff-facing and operational instead of implementation-heavy.
+
+## What happens next
+
+Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+
+## Related workflows
+
+- Link to the broader workspace manual when this component is only one step in a larger SOP.
+- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
 
 ## Screenshots
 
-Add PNGs under \`../images/help/${id}/\` and embed them, for example:
+Add PNGs under \`../images/help/${id}/\` and replace this example with governed screenshots.
 
 ![Example](../images/help/${id}/example.png)
 
 `;
+}
+
+function inferManualStatus(attrs) {
+  const explicit = parseManualStatus(attrs.status);
+  if (explicit) return explicit;
+  return hasAutoScaffoldTag(attrs) ? "draft" : "approved";
+}
+
+function extractHeadings(markdownBody) {
+  return [...markdownBody.matchAll(/^##\s+(.+)$/gm)].map((match) =>
+    match[1].trim().toLowerCase(),
+  );
+}
+
+function hasBucketHeading(headings, bucket) {
+  return bucket.headings.some((expected) =>
+    headings.some((heading) => heading.includes(expected)),
+  );
+}
+
+function countNumberedSteps(markdownBody) {
+  return [...markdownBody.matchAll(/^\d+\.\s+\S.+$/gm)].length;
+}
+
+function normalizeBodyForComparison(body) {
+  return body.replace(/\r\n/g, "\n").trim();
+}
+
+function bodyNeedsDraftUpgrade(body) {
+  const normalized = normalizeBodyForComparison(body).toLowerCase();
+  return HELP_MANUAL_STANDARD.placeholderPatterns.some((pattern) =>
+    normalized.includes(pattern),
+  );
+}
+
+function collectManualQuality(manual) {
+  const raw = fs.readFileSync(path.join(REPO_ROOT, manual.markdown), "utf8");
+  const { attrs, body } = splitFrontMatter(raw);
+  const headings = extractHeadings(body);
+  const numberedSteps = countNumberedSteps(body);
+  const requiredBuckets = Object.entries(HELP_MANUAL_STANDARD.required).map(
+    ([key, bucket]) => ({
+      key,
+      label: bucket.label,
+      present: hasBucketHeading(headings, bucket),
+    }),
+  );
+  const optionalBuckets = Object.entries(HELP_MANUAL_STANDARD.optional).map(
+    ([key, bucket]) => ({
+      key,
+      label: bucket.label,
+      present: hasBucketHeading(headings, bucket),
+    }),
+  );
+  const placeholderHits = HELP_MANUAL_STANDARD.placeholderPatterns.filter((pattern) =>
+    body.toLowerCase().includes(pattern),
+  );
+
+  /** @type {string[]} */
+  const errors = [];
+  /** @type {string[]} */
+  const warnings = [];
+
+  if (!extractFirstH1(body)) {
+    errors.push("Missing visible H1 title.");
+  }
+  if (!manual.summary?.trim()) {
+    errors.push("Missing front matter summary.");
+  }
+  if (manual.status === "approved") {
+    for (const bucket of requiredBuckets) {
+      if (!bucket.present) errors.push(`Missing required section bucket: ${bucket.label}.`);
+    }
+    if (numberedSteps < 2) {
+      errors.push("Approved manuals need a numbered step list with at least 2 items.");
+    }
+    if (placeholderHits.length > 0) {
+      errors.push(`Approved manual still contains draft placeholder text: ${placeholderHits.join(", ")}.`);
+    }
+  } else {
+    for (const bucket of requiredBuckets) {
+      if (!bucket.present) warnings.push(`Draft manual is missing: ${bucket.label}.`);
+    }
+    if (numberedSteps < 2) {
+      warnings.push("Draft manual still needs a real numbered step list.");
+    }
+  }
+
+  if (!optionalBuckets.some((bucket) => bucket.present)) {
+    warnings.push("Add at least one follow-up section such as when to use it, expected result, or related workflows.");
+  }
+
+  return {
+    id: manual.id,
+    title: manual.title,
+    status: manual.status,
+    source_path: manual.markdown,
+    required_buckets: requiredBuckets,
+    optional_buckets: optionalBuckets,
+    numbered_steps: numberedSteps,
+    placeholder_hits: placeholderHits,
+    errors,
+    warnings,
+  };
+}
+
+function writeQualityReport(allManuals, qualityById) {
+  const report = {
+    generated_at: new Date().toISOString(),
+    standard_version: "help-manual-standard-v1",
+    published_manual_count: allManuals.filter((manual) => manual.status === "approved").length,
+    draft_manual_count: allManuals.filter((manual) => manual.status === "draft").length,
+    manuals: allManuals.map((manual) => qualityById.get(manual.id)),
+  };
+  fs.writeFileSync(OUT_QUALITY, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+  console.log(`Wrote ${path.relative(REPO_ROOT, OUT_QUALITY)}`);
 }
 
 function buildComponentIdToPathMap(includeShadcn) {
@@ -261,7 +515,7 @@ function discoverManuals() {
     );
   }
 
-  /** @type {Array<{id:string,title:string,summary:string,markdown:string,tags?:string[],order:number}>} */
+  /** @type {Array<{id:string,title:string,summary:string,markdown:string,tags?:string[],order:number,status:"approved"|"draft"}>} */
   const manuals = [];
   const seen = new Set();
 
@@ -282,6 +536,7 @@ function discoverManuals() {
     const title = (attrs.title || extractFirstH1(body) || id).trim();
     const summary = attrs.summary != null ? String(attrs.summary).trim() : "";
     const tags = parseTags(attrs.tags);
+    const status = inferManualStatus(attrs);
     let order = 100;
     if (attrs.order != null && String(attrs.order).trim() !== "") {
       const n = Number.parseInt(String(attrs.order), 10);
@@ -296,6 +551,7 @@ function discoverManuals() {
       markdown,
       tags: tags?.length ? tags : [id],
       order,
+      status,
     });
   }
 
@@ -304,16 +560,38 @@ function discoverManuals() {
 }
 
 function validateManuals(manuals) {
+  /** @type {Map<string, ReturnType<typeof collectManualQuality>>} */
+  const qualityById = new Map();
   for (const m of manuals) {
     const abs = path.join(REPO_ROOT, m.markdown);
     if (!fs.existsSync(abs)) {
       throw new Error(`Manual ${m.id}: file not found: ${m.markdown}`);
     }
+    qualityById.set(m.id, collectManualQuality(m));
   }
+  writeQualityReport(manuals, qualityById);
+
+  const approvedErrors = manuals
+    .filter((manual) => manual.status === "approved")
+    .flatMap((manual) => {
+      const quality = qualityById.get(manual.id);
+      return quality.errors.map((error) => `${manual.id}: ${error}`);
+    });
+
+  if (approvedErrors.length > 0) {
+    throw new Error(
+      `Approved Help manuals failed the Help Manual Standard:\n- ${approvedErrors.join("\n- ")}`,
+    );
+  }
+
+  const published = manuals.filter((manual) => manual.status === "approved").length;
+  const drafts = manuals.filter((manual) => manual.status === "draft").length;
+  console.log(`Help manual quality: ${published} approved, ${drafts} draft.`);
 }
 
 function writeTs(manuals) {
-  const imports = manuals.map((m, i) => {
+  const publishedManuals = manuals.filter((manual) => manual.status === "approved");
+  const imports = publishedManuals.map((m, i) => {
     const imp = importPathFromLibHelpToMarkdown(m.markdown);
     return `import manual_${i}_raw from "${imp}";`;
   });
@@ -326,7 +604,7 @@ function writeTs(manuals) {
     return s.length > 0 ? `\n    summary: ${JSON.stringify(s)},` : "";
   };
 
-  const entries = manuals
+  const entries = publishedManuals
     .map(
       (m, i) => `  {
     id: ${JSON.stringify(m.id)},
@@ -356,6 +634,7 @@ export function helpManualById(id: string): HelpManual | undefined {
 
 function writeRs(manuals) {
   const rows = manuals
+    .filter((manual) => manual.status === "approved")
     .map((m) => `    (${JSON.stringify(m.id)}, ${JSON.stringify(posix(m.markdown))}),`)
     .join("\n");
 
@@ -541,17 +820,34 @@ function runRescanComponents() {
     }
 
     const sourceChanged = String(attrs.source || "").trim() !== relSrc;
-    const newBody = syncComponentSourceBlock(body, relSrc);
+    const upgradedBody = bodyNeedsDraftUpgrade(body)
+      ? splitFrontMatter(buildComponentManualMarkdown(id, rel, order, today)).body
+      : body;
+    const newBody = syncComponentSourceBlock(upgradedBody, relSrc);
     const norm = (s) => s.replace(/\r\n/g, "\n");
     const bodyChanged = norm(newBody) !== norm(body);
 
-    if (!sourceChanged && !bodyChanged) {
+    const nextAttrs = {
+      ...attrs,
+      status: "draft",
+      summary:
+        attrs.summary && !String(attrs.summary).includes("replace with staff-facing help")
+          ? attrs.summary
+          : `Draft maintainer scaffold for ${relSrc}. Promote to approved after SOP review and screenshot capture.`,
+      source: relSrc,
+      last_scanned: today,
+    };
+    const attrChanged =
+      String(attrs.status || "").trim().toLowerCase() !== "draft" ||
+      String(attrs.source || "").trim() !== relSrc ||
+      String(attrs.last_scanned || "").trim() !== today ||
+      String(attrs.summary || "").trim() !== String(nextAttrs.summary).trim();
+
+    if (!attrChanged && !bodyChanged && !sourceChanged) {
       skippedUnchanged += 1;
       continue;
     }
 
-    /** @type {Record<string, string>} */
-    const nextAttrs = { ...attrs, source: relSrc, last_scanned: today };
     const nextRaw = `${stringifyFrontMatter(nextAttrs)}\n\n${newBody.replace(/^\n+/, "")}`;
 
     if (dryRun) {

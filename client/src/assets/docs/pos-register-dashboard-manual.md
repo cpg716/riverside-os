@@ -32,6 +32,6 @@ This is the default home screen many Windows register stations land on after the
 
 ## Screenshots
 
-Add PNGs under `../images/help/pos-register-dashboard/` and embed them, for example:
+Use governed screenshots from `../images/help/pos-register-dashboard/` when this manual is refreshed so the dashboard examples match the live station view.
 
 ![Example](../images/help/pos-register-dashboard/example.png)

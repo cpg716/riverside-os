@@ -12,6 +12,17 @@ tags: loyalty, rewards, fulfillment, analytics
 
 The Loyalty Management Hub helps staff see who is ready for a reward, review recent loyalty activity, and handle reward-card fulfillment.
 
+## What this is
+
+Use this workspace to manage Riverside loyalty rewards, review reward readiness, and complete fulfillment follow-up after redemption.
+
+## How to use it
+
+1. Start in **Customers Ready For Reward** to see who is eligible.
+2. Use **Redeem** when you are ready to issue the loyalty reward to a gift card.
+3. Review **Loyalty Activity** or **History** when a customer needs explanation or fulfillment follow-up.
+4. Use **Program Settings** only when an authorized admin needs to change loyalty rules or letter content.
+
 ## Top Summary
 
 At the top of the workspace, the summary cards show:
@@ -69,3 +80,7 @@ You can edit the "Thank You" letter text directly in the **Program Settings** ta
 
 > [!IMPORTANT]
 > Printing letters requires a PDF-capable browser. Ensure pop-ups are allowed for `riverside-os` to enable the print preview window.
+
+## What happens next
+
+After a redemption, the customer leaves the eligible pool and the issuance moves into **History** for letter and label follow-up.

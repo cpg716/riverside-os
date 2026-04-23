@@ -147,3 +147,18 @@ Optional: after ship, one line in [AGENTS.md](AGENTS.md) / [README.md](README.md
 5. Register existing POS manual in manifest, reindex Meilisearch, verify images + search in both modes (Meili on/off).
 6. Write `docs/MANUAL_CREATION.md` (include Meili reindex step) and (optionally) README link.
 7. **COMPLETED:** Implement Help Center maintenance suite (orphan detection, Safety Net trashing, and 60-day auto-pruning) via `npm run generate:help:components:cleanup`.
+
+## Help manual quality standard (maintainer rule)
+
+The Help Center maintainer flow now distinguishes between:
+
+- **Approved manuals**: publishable staff SOP/training content that appears in Help and is indexed in `ros_help`
+- **Draft manuals**: maintainer scaffolds that can live under `client/src/assets/docs/` but do not ship until promoted
+
+The quality source of truth is `docs/MANUAL_CREATION.md`.
+
+`npm run generate:help` should be treated as the Help quality gate:
+
+- approved manuals must include a clear purpose, a real numbered procedure, and operator guidance
+- approved manuals must not contain scaffold placeholders
+- draft component manuals may be generated automatically, but they stay out of the published Help corpus until upgraded

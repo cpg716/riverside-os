@@ -12,6 +12,10 @@ tags: layout-backoffice-sign-in-gate, signin, access-pin, host-settings
 
 The sign-in gate protects Riverside before any shell or navigation appears.
 
+## What this is
+
+Use this gate to select the current staff identity and enter the correct **Access PIN** before opening Back Office or POS work.
+
 ## How to sign in
 
 1. Select your name.
@@ -35,3 +39,9 @@ Example values:
 - The last selected staff member is remembered on that device.
 - If your name does not appear, the device may be pointed at the wrong host URL for its current role or location.
 - For lockout recovery, use the in-app **Lockout Recovery Manual** from Help.
+
+## What to watch for
+
+- Confirm the correct staff member is selected before entering the PIN.
+- Use **API Host Settings** only when the device truly needs a different Riverside host.
+- Escalate lockout or missing-roster problems instead of guessing at host values on a live station.

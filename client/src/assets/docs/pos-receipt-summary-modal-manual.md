@@ -34,6 +34,6 @@ This is the post-sale receipt screen shown after checkout succeeds. It confirms 
 
 ## Screenshots
 
-Add PNGs under `../images/help/pos-receipt-summary-modal/` and embed them, for example:
+Use governed screenshots from `../images/help/pos-receipt-summary-modal/` when this manual is refreshed so receipt-delivery examples stay aligned with the live UI.
 
 ![Example](../images/help/pos-receipt-summary-modal/example.png)

@@ -12,6 +12,26 @@ This guide covers day-to-day use of the in-store register: opening the till, the
 
 ---
 
+## What this is
+
+Use **Register (POS)** for live selling, shift-ready lane work, and same-station checkout.
+
+This is the staff workflow for:
+
+- opening the register lane
+- moving between the dashboard and the live cart
+- ringing normal sales
+- handling supported swap and wedding lookup tasks
+- taking payment and finishing receipt delivery
+
+## When to use it
+
+Use this guide when a staff member is working a live register station.
+
+- Use **POS → Register** for active selling.
+- Use **POS → Dashboard** for shift context between customers.
+- Move to the dedicated **Orders**, **Customers**, or **Reports** manuals when the task leaves live checkout.
+
 ## Cashier Sign-In
 
 To ensure sales are attributed to the correct staff member, Riverside OS uses a **touch-grid sign-in** system.
@@ -60,6 +80,13 @@ When the drawer is active, you often land on **Dashboard**. Here you can see shi
 - If scanner input lands in the wrong field after switching tabs or returning to the register, use **Focus /** next to the product search field, or press **/** on a keyboard station, and scan again.
 - Use on-screen actions for discounts or notes only when your manager has shown you how.
 
+## What to watch for
+
+- Confirm the correct staff identity before you start the sale.
+- Open the correct register lane before serving customers.
+- Do not guess between takeaway, order, and wedding handling if the drawer is asking for a fulfillment decision.
+- Treat receipt printer failures as delivery issues only after the sale already succeeded.
+
 ---
 
 ## Suit or component swap
@@ -101,6 +128,16 @@ Inventory and bookkeeping follow server rules for takeaway vs order vs wedding l
 From **Register**, select **Wedding** to open the wedding lookup panel. Search or pick the party you need, then use the on-screen actions your manager defined. Press **Escape** to close when finished.
 
 ![Wedding lookup](../images/help/pos/wedding-lookup-drawer.png)
+
+---
+
+## What happens next
+
+After checkout, staff should either:
+
+- finish receipt delivery from the receipt summary screen
+- return to **Dashboard** or **Register** for the next customer
+- move into the related order, wedding, or customer workflow when follow-up work is needed
 
 ---
 

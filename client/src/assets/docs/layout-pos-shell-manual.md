@@ -40,6 +40,6 @@ This is the main **Register desktop shell** used on the Windows Tauri app after 
 
 ## Screenshots
 
-Add PNGs under `../images/help/layout-pos-shell/` and embed them, for example:
+Use governed screenshots from `../images/help/layout-pos-shell/` when this manual is refreshed so the POS shell visuals stay aligned with the live UI.
 
 ![Example](../images/help/layout-pos-shell/example.png)

@@ -12,6 +12,17 @@ tags: pos, shipping, shippo, fulfillment, back-office
 
 Riverside OS features a unified shipping integration that connects the **POS Register**, the **Online Store**, and the **Customer Relationship Hub**. This ensures that every order destined for a doorstep is tracked from the moment of sale to final delivery.
 
+## What this is
+
+Use this guide for shipping quotes at checkout and for the follow-up shipment workflow after the sale is booked.
+
+## How to use it
+
+1. Link the correct customer profile before quoting shipment at the register.
+2. Add shipping in the POS cart and confirm the quoted rate.
+3. Complete checkout with shipping paid correctly.
+4. Move into the **Shipments Hub** afterward to post tracking and status updates.
+
 ## 1. Shipping from the POS (Register)
 
 When a customer wants to have their purchase shipped, follow these steps at the register:

@@ -12,6 +12,14 @@ tags: loyalty, redemption, gift-cards, checkout
 
 The **Reward Redemption Dialog** is the final step in the loyalty reward cycle. It allows staff to deduct points from a customer and issue the full reward to a loyalty gift card.
 
+## What this is
+
+Use this dialog to convert an eligible loyalty balance into a real reward card for the customer.
+
+## When to use it
+
+Open this dialog only after the customer appears in the eligible pool and you are ready to issue the reward card immediately.
+
 ## How to use it
 
 1. **Initiate Redemption**: Click "Redeem" on an eligible customer in the Loyalty Workspace.
@@ -38,3 +46,7 @@ The **Reward Redemption Dialog** is the final step in the loyalty reward cycle. 
 
 > [!TIP]
 > After a successful redemption, the customer drops out of the eligible list. Use the **History** tab to confirm the reward card code, then use **Loyalty Activity** if you need to explain the point deduction.
+
+## What happens next
+
+After issuance, confirm the reward in **History**, then print or communicate the fulfillment materials the customer needs.

@@ -12,11 +12,15 @@ This guide covers **Insights** (powered by **Metabase**) and **commission payout
 
 ---
 
-## What Insights is
+## What this is
 
 - **Insights** in the left sidebar opens a **full-screen shell** with a thin Riverside header and a large **embedded Metabase** window.
 - **Exploratory reporting** (questions, dashboards, SQL where your store allows it) happens **inside Metabase**, not in old built-in chart tabs.
 - **Riverside** and **Metabase** use **separate logins**. Your staff code and PIN do **not** automatically sign you into Metabase.
+
+## When to use it
+
+Use **Insights** when staff need exploratory dashboards, saved Metabase questions, or analytics views that go beyond the fixed Riverside **Reports** card library.
 
 ---
 

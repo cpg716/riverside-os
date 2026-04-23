@@ -2,10 +2,11 @@
 id: pos-suit-swap-wizard
 title: "Pos Suit Swap Wizard (pos)"
 order: 1063
-summary: "Auto-generated stub for client/src/components/pos/PosSuitSwapWizard.tsx — replace with staff-facing help."
+summary: "Draft maintainer scaffold for client/src/components/pos/PosSuitSwapWizard.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/PosSuitSwapWizard.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-04-23
 tags: pos-suit-swap-wizard, component, auto-scaffold
+status: draft
 ---
 
 # Pos Suit Swap Wizard (pos)
@@ -16,20 +17,42 @@ _Linked component: `client/src/components/pos/PosSuitSwapWizard.tsx`._
 
 ## What this is
 
-Briefly describe what staff use this screen for.
+This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
 
-## How to use it
+## When to use it
 
-1. 
-2. 
+Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
 
-## Tips
+## Before you start
 
-- 
+- Confirm which workspace or role opens this component.
+- Confirm any permission, prerequisite record, or previous workflow step staff need first.
+- Capture screenshots only after the UI state is stable and redacted.
+
+## Steps
+
+1. Enter the workspace or drawer that opens this component.
+2. Describe the staff action that starts the task.
+3. Describe the key review or confirmation step.
+4. Describe how staff finish or exit cleanly.
+
+## What to watch for
+
+- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
+- Keep the wording staff-facing and operational instead of implementation-heavy.
+
+## What happens next
+
+Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+
+## Related workflows
+
+- Link to the broader workspace manual when this component is only one step in a larger SOP.
+- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
 
 ## Screenshots
 
-Add PNGs under `../images/help/pos-suit-swap-wizard/` and embed them, for example:
+Add PNGs under `../images/help/pos-suit-swap-wizard/` and replace this example with governed screenshots.
 
 ![Example](../images/help/pos-suit-swap-wizard/example.png)
 

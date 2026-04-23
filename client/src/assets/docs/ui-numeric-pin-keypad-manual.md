@@ -2,10 +2,11 @@
 id: ui-numeric-pin-keypad
 title: "Numeric Pin Keypad (ui)"
 order: 1117
-summary: "Auto-generated stub for client/src/components/ui/NumericPinKeypad.tsx — replace with staff-facing help."
+summary: "Draft maintainer scaffold for client/src/components/ui/NumericPinKeypad.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/NumericPinKeypad.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-04-23
 tags: ui-numeric-pin-keypad, component, auto-scaffold
+status: draft
 ---
 
 # Numeric Pin Keypad (ui)

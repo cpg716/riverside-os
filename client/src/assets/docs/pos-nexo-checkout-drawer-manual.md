@@ -16,6 +16,10 @@ _Linked component: `client/src/components/pos/NexoCheckoutDrawer.tsx`._
 
 The **Checkout Drawer** is the final step for every sale. It handles tender collection, receipt generation, and real-time Stripe integration.
 
+## What this is
+
+Use this drawer to collect tender, finish checkout, and hand the customer into receipt delivery.
+
 ## How to use it
 
 1. Review the cart totals and apply any final discounts.
@@ -45,3 +49,7 @@ Used for taking payments over the phone or when a physical card is not present.
 
 - **Split Tenders**: You can split a single order across multiple payment methods (e.g., $100 Cash + $200 Card). ROS will track the fees for the card portion only.
 - **Receipts**: After a successful Stripe payment, you can send an SMS or Email receipt via the **Receipt Summary** modal.
+
+## What happens next
+
+After checkout succeeds, continue to the receipt summary screen to print, retry, or send the receipt.

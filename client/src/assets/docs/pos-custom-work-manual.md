@@ -1,6 +1,31 @@
+---
+id: pos-custom-work
+title: "Custom Orders & Rush Orders"
+order: 1055
+summary: "Book made-to-measure custom work in POS, capture vendor references, and flag rush handling when needed."
+tags: pos, custom-orders, rush, fulfillment
+---
+
 # Custom Orders & Rush Orders
 
 This manual covers Custom garment orders in POS and how to flag them for rush handling.
+
+## What this is
+
+Use this workflow for made-to-measure or custom garment bookings that should stay separate from standard stocked items.
+
+## How to use it
+
+1. Confirm the cart is for a real custom-work booking.
+2. Add the correct custom garment SKU and complete the custom-order form.
+3. Finish checkout through the normal fulfillment-order path.
+4. Review the order in **Orders** afterward, especially if it is marked rush.
+
+## What to watch for
+
+- Capture the vendor-form references Riverside asks for during booking.
+- Keep the paper vendor form when measurements or handwritten style notes still live outside Riverside.
+- Rush flags help staff prioritize follow-up, but they do not replace daily order review.
 
 ## 1. Custom Orders
 Custom orders are used for made-to-measure garments that must stay separate from standard Special Orders.

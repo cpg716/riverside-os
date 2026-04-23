@@ -15,6 +15,17 @@ Riverside uses this surface for both parts of the installed PWA contract:
 - **Install prompt** when the device is still running Riverside in a normal browser tab
 - **Update prompt** when a newer web shell has already downloaded and is waiting
 
+## What this is
+
+Use this prompt when Riverside needs the workstation to install the app shell or refresh to a newer client build.
+
+## How to use it
+
+1. Read whether the prompt is asking for install or refresh.
+2. Finish the current customer task first when practical.
+3. Choose the install or reload action Riverside offers.
+4. Reopen the workspace you were using after the refresh finishes.
+
 ## Install guidance
 
 - On Windows laptops and supported mobile browsers, use **Install app** when Riverside offers it.
@@ -37,3 +48,7 @@ Riverside uses this surface for both parts of the installed PWA contract:
 - reload the PWA again when practical
 - close and reopen the installed app icon
 - if needed, clear site data or reinstall the home-screen icon
+
+## What happens next
+
+After the install or refresh completes, Riverside should reopen on the newer shell and the prompt should clear.

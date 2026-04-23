@@ -16,6 +16,10 @@ _Linked component: `client/src/components/qbo/QboMappingMatrix.tsx`._
 
 The **Mapping Matrix** is the configuration engine that tells Riverside OS where to "post" every dollar. Correct mappings are essential for automated reconciliation.
 
+## What this is
+
+Use this matrix to map Riverside categories, tenders, and fallback accounts to the correct QuickBooks Online chart-of-accounts records.
+
 ## Mapping categories
 
 The matrix is divided into three primary sections:
@@ -49,3 +53,7 @@ These are safety accounts used when a specific mapping is missing or for global 
 - **Balanced Journals**: If you leave a required account unmapped, the daily journal will use a "MISC FALLBACK" account and include a warning in the staging queue.
 - **New Accounts**: If you create a new account in QuickBooks, you must click **"Refresh QBO accounts"** at the top of the matrix to see it in the list.
 - **Clearing Account Reconcile**: Use the "Transfer" feature in QuickBooks to move funds from your "Stripe Clearing" account to your "Checking" account once the daily settlement hits your bank statement.
+
+## What happens next
+
+After you save the matrix, future journal proposals use the updated mappings the next time Riverside prepares QBO posting data.

@@ -25,6 +25,7 @@ Between `---` lines at the **top** of the file (not shown in the Help article bo
 | `summary` | No | Omitted |
 | `tags` | No | `[id]` — comma-separated or `[a, b]` |
 | `order` | No | `100` — lower numbers appear first in the manual picker |
+| `status` | No | Inferred: `approved` for curated manuals, `draft` for `auto-scaffold` component stubs |
 
 Example:
 
@@ -35,6 +36,7 @@ title: "Register (POS)"
 order: 0
 summary: "Short blurb for search / picker."
 tags: pos, register, checkout
+status: approved
 ---
 ```
 
@@ -64,6 +66,71 @@ Body markdown follows the closing `---` (start with `#` for the visible title).
 - You only edited **body** text or existing **sections** (`##` / `###`) inside a file that was already listed — the next **`npm run dev` / `npm run build`** still bundles the updated `?raw` import.
 
 Commit the generated `.ts` and `.rs` whenever the generator output changes.
+
+---
+
+## Help Manual Standard (publishable ROSIE / AIDOCS output)
+
+This is the quality standard for Help manuals that actually ship into:
+
+- the Help Center picker
+- `help-manifest.generated.ts`
+- `help_corpus_manuals.generated.rs`
+- the `ros_help` search index
+
+### Approved vs draft
+
+- `status: approved`
+  This manual is staff-facing and publishable. It appears in Help and is indexed for ROSIE / Help search.
+- `status: draft`
+  This manual is a maintainer scaffold only. It can live under `client/src/assets/docs/`, but it does **not** ship into the Help picker or `ros_help` until it is promoted.
+
+If `status` is omitted:
+
+- manuals with the `auto-scaffold` tag are treated as `draft`
+- other manuals are treated as `approved`
+
+### What an approved manual must do
+
+Approved manuals should read like training and SOP documents, not raw UI notes.
+
+They must include:
+
+- a clear title and front-matter summary
+- a purpose section
+  Examples: `## What this is`, `## What this screen is for`
+- a real step-by-step section with numbered steps
+  Examples: `## How to use it`, `## Steps`, `## Quick steps`
+- an operator guidance section
+  Examples: `## What to watch for`, `## Tips`, `## Troubleshooting`, `## Important`
+
+They should include, when helpful:
+
+- when to use it
+- prerequisites or permissions
+- what happens next / expected result
+- related workflows
+- screenshots or anchors that match the real UI
+
+### Writing style for approved manuals
+
+- Write for staff training and day-to-day operations.
+- Use Riverside labels staff will actually see.
+- Prefer concrete actions over implementation detail.
+- Explain what good completion looks like.
+- Call out common mistakes and escalation points.
+- Do not leave placeholder text, empty steps, or screenshot TODOs in approved manuals.
+
+### What the maintainer flow enforces
+
+`npm run generate:help` now performs Help quality validation before publishing manuals.
+
+- approved manuals that miss required structure fail generation
+- draft manuals are allowed, but remain outside the published Help corpus
+- a generated quality report is written to:
+  - `client/src/assets/docs/help-quality-report.generated.json`
+
+This keeps the Help Center maintainer path durable instead of relying on one-time cleanup.
 
 ---
 
@@ -121,6 +188,19 @@ Or: `cd client && npm run generate:help:components`
 - **Include** `ui-shadcn` primitives: append **`-- --include-shadcn`**
 
 Each new file is named from the component path, e.g. `pos/Cart.tsx` → **`pos-cart-manual.md`**, with **`order`** in the **1000+** range so hand-written manuals (lower `order`) stay at the top of the Help picker. Tags include **`auto-scaffold`** so you can find generated stubs. Stubs also get **`source:`** (repo path to the `.tsx` file), **`last_scanned:`** (ISO date), and a **`<!-- help:component-source -->`** block in the body linking to that file. Existing `*-manual.md` files with the same name are **skipped** (safe to re-run).
+
+Component stubs are generated as **`status: draft`** with the full Help Manual Standard outline already in place:
+
+- What this is
+- When to use it
+- Before you start
+- Steps
+- What to watch for
+- What happens next
+- Related workflows
+- Screenshots
+
+They are maintainer drafts, not publishable Help, until someone promotes them to **`status: approved`** and replaces the draft text with real SOP content.
 
 ### Rescan later (new components + path sync)
 

@@ -2,10 +2,11 @@
 id: staff-workspace
 title: "Staff Workspace (staff)"
 order: 1110
-summary: "Auto-generated stub for client/src/components/staff/StaffWorkspace.tsx — replace with staff-facing help."
+summary: "Draft maintainer scaffold for client/src/components/staff/StaffWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/StaffWorkspace.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-04-23
 tags: staff-workspace, component, auto-scaffold
+status: draft
 ---
 
 # Staff Workspace (staff)

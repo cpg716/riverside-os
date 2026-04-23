@@ -1,6 +1,30 @@
+---
+id: lockout
+title: "Lockout Recovery Manual"
+order: 45
+summary: "Recover staff access when the sign-in gate rejects valid users or the auth service is unreachable."
+tags: auth, recovery, sign-in, support
+---
+
 # Lockout Recovery Manual
 
 If you or your staff are unable to sign in to the Riverside OS Back Office or POS Register, follow these steps to restore access.
+
+## What this is
+
+Use this recovery guide when staff cannot get past the Riverside sign-in gate and normal retry steps are not enough.
+
+## How to use it
+
+1. Read the sign-in error and confirm the correct staff member is selected first.
+2. Try the lowest-impact recovery level that matches the situation.
+3. Escalate to the next level only when the previous level cannot restore access.
+
+## What to watch for
+
+- Start with the least invasive repair first.
+- Use emergency terminal reset only when no working admin can sign in normally.
+- After recovery, re-save the affected staff account in Riverside so it returns to the standard security path.
 
 ## Common Causes
 1. **Incorrect Staff Member Selected**: Ensure the correct name is selected on the touch-grid before entering the PIN.
@@ -40,3 +64,7 @@ The login screen provides specific clues:
 - **"Invalid PIN"**: The credential did not match the stored hash.
 - **"PIN belongs to another staff member"**: You entered a valid PIN, but for a different person than the one selected.
 - **"404 Not Found"**: The server endpoint moved or is unreachable. Refresh the app.
+
+## What happens next
+
+Once access is restored, confirm the affected staff member can sign in from the normal sign-in gate before returning the station to live use.

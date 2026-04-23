@@ -63,6 +63,13 @@ At the top of the drawer, staff may see:
 
 These are customer-review signals. They help staff understand the account quickly before taking the next action.
 
+## How to use it
+
+1. Open the customer record and confirm you have the correct person before editing anything.
+2. Review the summary area first to understand open balances, loyalty status, and recent activity.
+3. Move into the tab that matches the task, such as profile cleanup, shipments, measurements, or wedding linkage.
+4. Leave the drawer only when the task clearly belongs in a different workflow like RMS Charge or a full order follow-up.
+
 ## When to stay here versus move to RMS Charge
 
 Stay in the relationship hub when you need to:
@@ -86,4 +93,3 @@ Move to `RMS Charge` when you need to:
 - Start by confirming the customer record first.
 - Use the customer hub to understand the full account before changing anything.
 - If the issue is specifically about financing account behavior, switch to `RMS Charge` instead of trying to solve it here.
-

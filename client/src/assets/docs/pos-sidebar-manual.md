@@ -45,6 +45,6 @@ The POS rail should route cashiers into register-focused workflows directly:
 
 ## Screenshots
 
-Add PNGs under `../images/help/pos-sidebar/` and embed them, for example:
+Use governed screenshots from `../images/help/pos-sidebar/` when this manual is refreshed so the rail examples match the live POS layout.
 
 ![Example](../images/help/pos-sidebar/example.png)

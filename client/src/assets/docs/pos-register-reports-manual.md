@@ -11,6 +11,17 @@ tags: pos, register, reports, audit, printing
 
 This screen provides a real-time audit of all activity on the current register session. 
 
+## What this is
+
+Use this screen to review the current register session, print the full-page daily report, and verify lane activity before final close.
+
+## How to use it
+
+1. Open **POS → Reports** while the register session is still active.
+2. Review the sales timeline and summary cards for the current lane or till group.
+3. Open individual entries when you need receipt or tender detail.
+4. Use **Print Report (Full Page)** when the shift needs a professional audit printout.
+
 ## Daily Sales Activity
 The **Daily Sales** view shows a chronological timeline of every transaction. Tap an entry to view the full receipt or reprint it. Use this for:
 - Verifying the status of recent sales.

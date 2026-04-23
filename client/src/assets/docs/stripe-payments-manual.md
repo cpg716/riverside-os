@@ -11,6 +11,17 @@ Riverside OS (ROS) includes a "Power Integration" for Stripe that allows for mor
 
 ---
 
+## What this is
+
+Use this guide when staff need to work with saved cards, card-present Stripe payments, or terminal-based credits inside Riverside.
+
+## How to use it
+
+1. Decide whether the workflow is card vaulting, charging a saved card, or issuing a credit.
+2. Open the correct customer or checkout surface first.
+3. Follow the Stripe-managed prompts instead of collecting card data manually in Riverside.
+4. Confirm the resulting vault, charge, or credit before moving to the next step of the sale or return.
+
 ## 🔒 Customer Privacy & Security
 
 **ROS is designed for 100% PCI compliance.**
@@ -67,3 +78,9 @@ For certain returns or unlinked refunds, you can issue a credit directly back to
   - Ensure the Stripe terminal is powered on and connected to the same network as your ROS station.
 - **Deleted Cards?**
   - You can remove a vaulted card at any time from the **Customer Hub** by tapping the "Remove" icon.
+
+## What happens next
+
+- Vaulted cards appear in the customer's saved payment list.
+- Saved-card charges continue through the normal receipt and order flow.
+- Terminal credits finalize the return path and should be verified like any other completed refund.

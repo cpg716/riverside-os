@@ -27,6 +27,14 @@ The host can expose a private Riverside remote path after both of these are true
 - when host startup succeeds, the panel shows the local satellite URL plus detected LAN identity for same-network devices
 - off-site devices still need Tailscale to use the separate remote-access path
 
+## How to use it
+
+1. Confirm this PC is the intended host machine.
+2. Open **Settings → Remote Access** on that machine.
+3. Verify **Tailscale** is connected if the goal is off-site access.
+4. Start host mode and wait for Riverside to report a healthy host state.
+5. Share the correct LAN or Tailscale address based on where the satellite device is connecting from.
+
 ## Important
 
 - This flow is for **private off-site access**, not public-web deployment

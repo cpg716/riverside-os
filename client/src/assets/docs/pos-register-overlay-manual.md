@@ -37,6 +37,6 @@ This is the **Register Access** screen shown before the POS cart can be used. It
 
 ## Screenshots
 
-Add PNGs under `../images/help/pos-register-overlay/` and embed them, for example:
+Use governed screenshots from `../images/help/pos-register-overlay/` when this manual is refreshed so the station-readiness examples stay aligned with the live UI.
 
 ![Example](../images/help/pos-register-overlay/example.png)

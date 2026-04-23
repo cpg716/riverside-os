@@ -23,6 +23,12 @@ You need **insights.view** to see the **Reports** tab. Some cards need extra key
 
 **Booked** = when the sale was rung. **Completed** = recognition-style timing for fulfilled lines (see store policy). Ask a lead if you are unsure which to use for payroll or tax questions.
 
+## What to watch for
+
+- The **Reports** library respects Riverside permissions, so missing cards usually mean missing access.
+- **Margin pivot** is more restricted than standard sales views.
+- Choose the correct **Basis** before exporting or printing; booked and completed answers are not interchangeable.
+
 ## Reports vs Insights
 
 - **Reports** — fixed list, fast answers, **Riverside RBAC** (only **Admin** Riverside roles get **Margin pivot** here).

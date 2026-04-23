@@ -12,6 +12,14 @@ tags: pos, gift-cards, register, staff-manual
 
 Use this register modal when a customer is buying or reloading a **purchased** gift card at the register.
 
+## What this is
+
+Use this modal to add a purchased gift card load to the current register sale before payment is completed.
+
+## What happens next
+
+After checkout is fully paid, the gift card receives the loaded balance and the receipt summary confirms the masked card code.
+
 ## How it works
 
 - The line is added to the cart first.

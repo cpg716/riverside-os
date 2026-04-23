@@ -1,6 +1,18 @@
+---
+id: settings-backups
+title: "Data Lifecycle & Backups"
+order: 120
+summary: "Create, review, and restore Riverside backups with clear recovery guardrails."
+tags: settings, backups, restore, recovery
+---
+
 # Data Lifecycle & Backups
 
 Riverside OS includes an enterprise-grade backup and restoration system designed to ensure data integrity across local and cloud environments.
+
+## What this is
+
+Use this screen when an authorized operator needs to protect the database before risky work or recover the system from a known backup.
 
 ## 1. Local Snapshots
 Snapshots are full PostgreSQL dumps stored in the `backups/` directory on the server.
@@ -30,3 +42,13 @@ Restoring a backup will **overwrite all current data** in the PostgreSQL databas
 
 > [!CAUTION]
 > Always perform a manual backup immediately before restoring an older snapshot. Restoration is an irreversible operation.
+
+## What to watch for
+
+- Backups protect data, but restore is destructive.
+- Take a fresh manual backup before restoring an older snapshot.
+- Treat restore as an operations event: confirm timing, scope, and who approved it.
+
+## What happens next
+
+After a restore, Riverside reloads so the UI and cached data match the recovered database state.

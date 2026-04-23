@@ -2,10 +2,11 @@
 id: pos-sale-cashier-sign-in-overlay
 title: "Pos Sale Cashier Sign In Overlay (pos)"
 order: 1060
-summary: "Auto-generated stub for client/src/components/pos/PosSaleCashierSignInOverlay.tsx — replace with staff-facing help."
+summary: "Draft maintainer scaffold for client/src/components/pos/PosSaleCashierSignInOverlay.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/PosSaleCashierSignInOverlay.tsx
-last_scanned: 2026-04-11
+last_scanned: 2026-04-23
 tags: pos-sale-cashier-sign-in-overlay, component, auto-scaffold
+status: draft
 ---
 
 # Pos Sale Cashier Sign In Overlay (pos)
