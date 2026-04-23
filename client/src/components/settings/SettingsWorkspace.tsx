@@ -48,6 +48,7 @@ import WeatherSettingsPanel from "./WeatherSettingsPanel";
 import PodiumSettingsPanel from "./PodiumSettingsPanel";
 import MeilisearchSettingsPanel from "./MeilisearchSettingsPanel";
 import QuickBooksSettingsPanel from "./QuickBooksSettingsPanel";
+import ShippoSettingsPanel from "./ShippoSettingsPanel";
 import StripeSettingsPanel from "./StripeSettingsPanel";
 import IntegrationBrandLogo, { type IntegrationBrand } from "../ui/IntegrationBrandLogo";
 import RemoteAccessPanel from "./RemoteAccessPanel";
@@ -900,6 +901,14 @@ export default function SettingsWorkspace({
                       color: "bg-sky-500",
                     },
                     {
+                      id: "shippo",
+                      label: "Shippo",
+                      desc: "Carrier rates & labels",
+                      color: "bg-white",
+                      brand: "shippo" as IntegrationBrand,
+                      brandKind: "icon" as const,
+                    },
+                    {
                       id: "podium",
                       label: "Podium Comms",
                       desc: "Lifecycle SMS & HTML Email",
@@ -931,9 +940,11 @@ export default function SettingsWorkspace({
                       brandKind: "icon" as const,
                     },
                   ].map((item) => (
-                    <div
+                    <button
+                      type="button"
                       key={item.id}
-                      className="ui-card p-8 flex flex-col items-center text-center group transition-all"
+                      onClick={() => navigateToTab?.(item.id)}
+                      className="ui-card group flex flex-col items-center p-8 text-center transition-all hover:-translate-y-0.5"
                     >
                       <div
                         className={`w-16 h-16 ${item.color} text-white rounded-2xl flex items-center justify-center mb-6 shadow-xl shadow-black/10 group-hover:scale-110 transition-transform ring-1 ring-black/5`}
@@ -955,7 +966,7 @@ export default function SettingsWorkspace({
                       <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider">
                         {item.desc}
                       </p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -1071,6 +1082,10 @@ export default function SettingsWorkspace({
 
             {activeTab === "weather" && hasPermission("settings.admin") && (
               <WeatherSettingsPanel baseUrl={baseUrl} />
+            )}
+
+            {activeTab === "shippo" && hasPermission("settings.admin") && (
+              <ShippoSettingsPanel baseUrl={baseUrl} />
             )}
 
             {activeTab === "podium" && hasPermission("settings.admin") && (
