@@ -453,6 +453,35 @@ declare global {
 let activeSpeechUtterance: SpeechSynthesisUtterance | null = null;
 let activeTauriSpeechPoller: number | null = null;
 
+async function ensureBrowserSpeechSynthesisReady(): Promise<void> {
+  if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
+    return;
+  }
+  const existing = window.speechSynthesis.getVoices();
+  if (existing.length > 0) return;
+
+  await new Promise<void>((resolve) => {
+    let resolved = false;
+    const finish = () => {
+      if (resolved) return;
+      resolved = true;
+      window.speechSynthesis.onvoiceschanged = null;
+      resolve();
+    };
+    const timeout = window.setTimeout(finish, 1200);
+    window.speechSynthesis.onvoiceschanged = () => {
+      window.clearTimeout(timeout);
+      finish();
+    };
+    try {
+      window.speechSynthesis.getVoices();
+    } catch {
+      window.clearTimeout(timeout);
+      finish();
+    }
+  });
+}
+
 function getBrowserSpeechSynthesisVoices(): BrowserSpeechSynthesisVoice[] {
   if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
     return [];
@@ -848,35 +877,67 @@ export function speakRosieText(
   stopRosieSpeechPlayback();
 
   const utterance = new window.SpeechSynthesisUtterance(text);
-  const selectedBrowserVoice = pickBrowserSpeechSynthesisVoice(options?.voice);
-  if (selectedBrowserVoice) {
-    utterance.voice = selectedBrowserVoice as SpeechSynthesisVoice;
-    utterance.lang = selectedBrowserVoice.lang;
-  }
   utterance.rate =
     typeof options?.rate === "number" && options.rate >= 0.8 && options.rate <= 1.2
       ? options.rate
       : 1;
+  let stopped = false;
+  let startTimeout: number | null = null;
+  const clearStartTimeout = () => {
+    if (startTimeout != null && typeof window !== "undefined") {
+      window.clearTimeout(startTimeout);
+      startTimeout = null;
+    }
+  };
   utterance.onstart = () => {
+    clearStartTimeout();
     activeSpeechUtterance = utterance;
     options?.on_start?.();
   };
   utterance.onend = () => {
+    clearStartTimeout();
     if (activeSpeechUtterance === utterance) {
       activeSpeechUtterance = null;
     }
     options?.on_end?.();
   };
   utterance.onerror = () => {
+    clearStartTimeout();
     if (activeSpeechUtterance === utterance) {
       activeSpeechUtterance = null;
     }
     options?.on_error?.("ROSIE could not play voice output on this workstation.");
   };
-  window.speechSynthesis.speak(utterance);
+
+  void ensureBrowserSpeechSynthesisReady()
+    .then(() => {
+      if (stopped) return;
+      const selectedBrowserVoice = pickBrowserSpeechSynthesisVoice(options?.voice);
+      if (selectedBrowserVoice) {
+        utterance.voice = selectedBrowserVoice as SpeechSynthesisVoice;
+        utterance.lang = selectedBrowserVoice.lang;
+      }
+      window.speechSynthesis.cancel();
+      window.speechSynthesis.resume();
+      startTimeout = window.setTimeout(() => {
+        if (stopped || activeSpeechUtterance === utterance) return;
+        window.speechSynthesis.cancel();
+        options?.on_error?.(
+          "ROSIE voice output did not start. Check browser audio permissions or try the desktop app.",
+        );
+      }, 1500);
+      window.speechSynthesis.speak(utterance);
+    })
+    .catch(() => {
+      if (!stopped) {
+        options?.on_error?.("ROSIE could not prepare voice output on this workstation.");
+      }
+    });
 
   return {
     stop: () => {
+      stopped = true;
+      clearStartTimeout();
       if (activeSpeechUtterance === utterance) {
         activeSpeechUtterance = null;
       }
@@ -980,6 +1041,8 @@ function buildGroundedHelpSystemPrompt(
     request.settings.show_citations
       ? "When helpful, mention the source title or section in the answer."
       : "Do not add inline citation formatting in the answer.",
+    "Do not output a thinking process, reasoning trace, or hidden analysis.",
+    "Answer with the final response only.",
     "Use markdown for readability.",
   ].join(" ");
 }
@@ -1073,28 +1136,52 @@ export async function askRosieGroundedHelp(
   },
 ): Promise<RosieGroundedHelpResponse> {
   const context = await fetchRosieToolContext(request, options);
-  const completion = await rosieChatCompletions(
+  const messages: RosieChatMessage[] = [
     {
-      model: "local",
-      temperature: 0.2,
-      max_tokens: request.settings.response_style === "detailed" ? 420 : 180,
-      messages: [
-        {
-          role: "system",
-          content: buildGroundedHelpSystemPrompt(request, context),
-        },
-        {
-          role: "user",
-          content: buildGroundedHelpUserPrompt(request, context),
-        },
-      ],
+      role: "system",
+      content: buildGroundedHelpSystemPrompt(request, context),
     },
     {
-      headers: options?.headers,
+      role: "user",
+      content: buildGroundedHelpUserPrompt(request, context),
     },
-  );
+  ];
 
-  const answer = completion.choices?.[0]?.message?.content?.trim();
+  const runCompletion = async (maxTokens: number, retrying = false) =>
+    rosieChatCompletions(
+      {
+        model: "local",
+        temperature: 0.2,
+        max_tokens: maxTokens,
+        messages: retrying
+          ? [
+              ...messages,
+              {
+                role: "user",
+                content:
+                  "Your previous attempt did not include a final answer. Reply now with only the final answer in 2-4 concise sentences.",
+              },
+            ]
+          : messages,
+      },
+      {
+        headers: options?.headers,
+      },
+    );
+
+  const initialMaxTokens =
+    request.settings.response_style === "detailed" ? 420 : 180;
+  let completion = await runCompletion(initialMaxTokens);
+  let answer = completion.choices?.[0]?.message?.content?.trim();
+
+  if (!answer) {
+    completion = await runCompletion(
+      request.settings.response_style === "detailed" ? 560 : 260,
+      true,
+    );
+    answer = completion.choices?.[0]?.message?.content?.trim();
+  }
+
   if (!answer) {
     throw new Error("ROSIE returned an empty Help Center response.");
   }

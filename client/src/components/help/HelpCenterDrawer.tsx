@@ -383,6 +383,7 @@ export default function HelpCenterDrawer({
   const [rosieQuestion, setRosieQuestion] = useState("");
   const [rosieBusy, setRosieBusy] = useState(false);
   const [rosieStatus, setRosieStatus] = useState<string | null>(null);
+  const [rosieThinkingDots, setRosieThinkingDots] = useState(".");
   const [rosieListening, setRosieListening] = useState(false);
   const [rosieSpeaking, setRosieSpeaking] = useState(false);
   const [rosieTranscriptPreview, setRosieTranscriptPreview] = useState("");
@@ -404,6 +405,7 @@ export default function HelpCenterDrawer({
       setRosieQuestion("");
       setRosieBusy(false);
       setRosieStatus(null);
+      setRosieThinkingDots(".");
       voiceCaptureRef.current?.stop();
       voiceCaptureRef.current = null;
       speechPlaybackRef.current?.stop();
@@ -443,6 +445,20 @@ export default function HelpCenterDrawer({
       cancelled = true;
     };
   }, [isOpen, apiAuth]);
+
+  useEffect(() => {
+    if (!rosieBusy) {
+      setRosieThinkingDots(".");
+      return;
+    }
+    const frames = [".", "..", "...", "...."];
+    let index = 0;
+    const timer = window.setInterval(() => {
+      index = (index + 1) % frames.length;
+      setRosieThinkingDots(frames[index]);
+    }, 320);
+    return () => window.clearInterval(timer);
+  }, [rosieBusy]);
 
   useEffect(() => {
     if (!manualList?.length) return;
@@ -1057,6 +1073,19 @@ export default function HelpCenterDrawer({
                         ) : null}
                       </div>
                     ))}
+                    {rosieBusy ? (
+                      <div className="mr-8 rounded-2xl border border-app-border bg-app-surface-2/60 p-4">
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          ROSIE
+                        </p>
+                        <div className="flex items-center gap-2 text-sm font-medium text-app-text">
+                          <Bot size={16} className="text-app-accent" aria-hidden />
+                          <span>
+                            Thinking{rosieThinkingDots}
+                          </span>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 )}
               </div>
@@ -1073,6 +1102,14 @@ export default function HelpCenterDrawer({
                   >
                     Captured question: {rosieTranscriptPreview}
                   </p>
+                ) : null}
+                {rosieBusy ? (
+                  <div className="mb-3 flex items-center gap-2">
+                    <span className="inline-flex items-center gap-2 rounded-full border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-app-accent">
+                      <Bot size={12} aria-hidden />
+                      Rosie is thinking{rosieThinkingDots}
+                    </span>
+                  </div>
                 ) : null}
                 {(rosieListening || rosieSpeaking) ? (
                   <div className="mb-3 flex flex-wrap items-center gap-2">
