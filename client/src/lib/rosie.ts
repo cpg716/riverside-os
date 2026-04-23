@@ -25,6 +25,7 @@ export type RosieChatCompletionRequest = {
   model?: string;
   messages: RosieChatMessage[];
   temperature?: number;
+  max_tokens?: number;
   stream?: boolean;
 };
 
@@ -987,19 +988,30 @@ function buildGroundedHelpUserPrompt(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
 ): string {
+  const summarizeJson = (value: unknown, maxChars: number): string => {
+    try {
+      const raw = JSON.stringify(value);
+      if (!raw) return "null";
+      if (raw.length <= maxChars) return raw;
+      return `${raw.slice(0, maxChars)}...`;
+    } catch {
+      return String(value);
+    }
+  };
+
   const toolResults = context.tool_results
+    .slice(0, 4)
     .map((tool, index) =>
       [
         `Tool ${index + 1}: ${tool.tool_name}`,
-        "Args:",
-        JSON.stringify(tool.args, null, 2),
-        "Result:",
-        JSON.stringify(tool.result, null, 2),
+        `Args: ${summarizeJson(tool.args, 320)}`,
+        `Result summary: ${summarizeJson(tool.result, 900)}`,
       ].join("\n"),
     )
     .join("\n\n---\n\n");
 
   const sources = context.sources
+    .slice(0, 4)
     .map((source, index) =>
       [
         `Source ${index + 1}: ${source.title}`,
@@ -1007,8 +1019,6 @@ function buildGroundedHelpUserPrompt(
         source.manual_id ? `Manual ID: ${source.manual_id}` : null,
         source.section_heading ? `Section: ${source.section_heading}` : null,
         source.excerpt ? `Excerpt: ${source.excerpt}` : null,
-        "Content:",
-        source.content,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -1067,6 +1077,7 @@ export async function askRosieGroundedHelp(
     {
       model: "local",
       temperature: 0.2,
+      max_tokens: request.settings.response_style === "detailed" ? 420 : 180,
       messages: [
         {
           role: "system",
