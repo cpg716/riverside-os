@@ -51,6 +51,7 @@ This drawer is not the place to work RMS exceptions or reconciliation. Use `RMS 
 
 At the top of the drawer, staff may see:
 
+- lifecycle state
 - VIP status
 - loyalty points
 - balance due
@@ -62,6 +63,8 @@ At the top of the drawer, staff may see:
 - last visit timing
 
 These are customer-review signals. They help staff understand the account quickly before taking the next action.
+
+Lifecycle is derived from the customer's current order, shipment, wedding, and activity signals already in RiversideOS. It is meant to answer the simple question: what stage is this customer in right now?
 
 ## How to use it
 

@@ -30,6 +30,7 @@ Use **Inventory List** as the main SKU browse and control surface for searching 
 - This board is optimized for lookup, review, and controlled maintenance, not for inbound receipt posting.
 - Low-stock and replenishment signals depend on the current catalog and variant settings.
 - If you need to correct live on-hand after a full count, use **Physical count** review/publish rather than casual manual edits.
+- The `Catalog Completeness` summary is a lightweight quality signal for the current filtered view. It calls out visible templates that are missing a brand, category, or primary vendor so staff can clean up the core identity fields before purchasing or merchandising work depends on them.
 
 ## Tips
 

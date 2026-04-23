@@ -17,42 +17,30 @@ _Linked component: `client/src/components/inventory/ProductHubDrawer.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use Product Hub when staff need the authoritative SKU view for inventory, recent movement, and purchase-order context.
 
-## When to use it
+## What the inventory truth panel means
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+- `On hand`
+  Physical units Riverside currently counts in stock.
+- `Reserved in store`
+  Units already committed to open order, wedding, or other pickup work.
+- `Available now`
+  The live sellable quantity after Riverside subtracts reserved units from on-hand stock.
+- `On order`
+  Incoming purchase-order units only. These are not available to sell until the receipt posts.
 
-## Before you start
+The Product Hub panel is a visibility surface. It uses current server-computed values instead of asking staff to calculate availability themselves.
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+## How to use it
 
-## Steps
+1. Open the product from Inventory.
+2. Review `On hand`, `Reserved in store`, and `Available now` before promising stock.
+3. Check `On order` only as incoming pipeline, not as current sellable stock.
+4. Use recent inventory events when you need to confirm why the number changed.
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+## Rule reminders
 
-## What to watch for
-
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
-
-## What happens next
-
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
-
-## Related workflows
-
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/inventory-product-hub-drawer/` and replace this example with governed screenshots.
-
-![Example](../images/help/inventory-product-hub-drawer/example.png)
-
+- Reserved units are already promised and should not be treated as walk-in availability.
+- Available quantity follows the current server rule, not a manual floor estimate.
+- Incoming PO units only count after receiving posts the inventory movement.

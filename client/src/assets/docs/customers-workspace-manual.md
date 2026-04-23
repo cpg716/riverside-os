@@ -28,12 +28,15 @@ Use this workspace to:
 Each customer row is a quick support summary. Staff can usually see:
 
 - customer name and code
+- lifecycle state such as `New`, `Pending`, `Pickup`, or `Issue`
 - contact information
 - lifetime sales
 - open balance
 - whether the customer is tied to an active wedding party
 
 This list helps you decide which customer to open. It is not the full support record by itself.
+
+The workspace now also shows a `Customer Completeness` summary above the list. That summary uses the same existing profile-complete expectation already used elsewhere in Riverside: a complete customer profile has both a phone number and an email address. Use it to spot records that may block future receipt, pickup, or follow-up work.
 
 ## What belongs here versus RMS Charge
 
@@ -58,10 +61,11 @@ The relationship hub supports customer review. The RMS workspace supports financ
 ## How to use it
 
 1. Search for the correct customer first.
-2. Open the customer row to review the relationship hub.
-3. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
-4. Return to the main workspace if you need a different customer.
-5. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
+2. Use the lifecycle filter when you need to isolate new customers, active follow-up, ready pickups, completed history, or issues.
+3. Open the customer row to review the relationship hub.
+4. Use the relationship hub tabs for profile, orders, messages, measurements, weddings, and shipments.
+5. Return to the main workspace if you need a different customer.
+6. Move to `RMS Charge` only when the question is about RMS financing accounts or RMS support follow-up.
 
 ## Related sections
 
@@ -75,4 +79,4 @@ The relationship hub supports customer review. The RMS workspace supports financ
 - Start with the active Riverside customer profile, not a name-only match.
 - Use phone, customer code, and wedding context to confirm the right record before taking action.
 - If the issue is financing-specific, do not try to solve it from the relationship hub alone. Open `RMS Charge`.
-
+- A `Profile incomplete` chip on the browse row means the record is missing either phone or email, even if the rest of the account looks active.

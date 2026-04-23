@@ -18,6 +18,7 @@ The Orders workspace is the main place to review non-takeaway orders.
 - Filter by **Order**, **Custom**, **Wedding**, or **Layaway**.
 - Open an order to see items, balances, and available actions.
 - Open an order in POS when staff need to review it from the register or copy its unfulfilled lines into a new sale.
+- Use the `Order Integrity` summary at the top of the workspace to quickly see which visible orders are still waiting on booking details, still carrying balance due, or already showing action-needed / overdue follow-up counts from the existing pipeline stats feed.
 
 ## Order Lifecycle
 

@@ -45,6 +45,15 @@ Used for taking payments over the phone or when a physical card is not present.
 - **Card Refunds**: If an order was originally paid via Stripe, the refund can be processed back to the original card directly from the **Orders Workspace**. A physical card is not required for the refund.
 - **Exchanges**: If the customer is returning an item and buying another, the drawer will show the **Net Balance Due** or **Refund Due**.
 
+## RMS Charge rules
+
+When staff use `RMS Charge`, RiversideOS follows the existing financing rules already enforced by checkout:
+
+- an attached Riverside customer is required first
+- Riverside must resolve the linked RMS account before a charge or RMS payment can continue
+- new RMS charges require an eligible plan selection
+- RMS payment collection posts against the selected RMS account and should not be treated like a normal retail cash or check payment on the sale
+
 ## Tips
 
 - **Split Tenders**: You can split a single order across multiple payment methods (e.g., $100 Cash + $200 Card). ROS will track the fees for the card portion only.

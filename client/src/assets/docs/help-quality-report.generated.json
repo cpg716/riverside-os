@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T05:15:05.215Z",
+  "generated_at": "2026-04-23T12:36:52.956Z",
   "standard_version": "help-manual-standard-v1",
   "published_manual_count": 46,
   "draft_manual_count": 119,
@@ -581,7 +581,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 5,
+      "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -1379,32 +1379,33 @@
         {
           "key": "guardrails",
           "label": "What to watch for / common mistakes / tips",
-          "present": true
+          "present": false
         }
       ],
       "optional_buckets": [
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Draft manual is missing: What to watch for / common mistakes / tips.",
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "inventory-product-master-form",
@@ -3347,32 +3348,33 @@
         {
           "key": "guardrails",
           "label": "What to watch for / common mistakes / tips",
-          "present": true
+          "present": false
         }
       ],
       "optional_buckets": [
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": true
+          "present": false
         },
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": true
+          "present": false
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": true
+          "present": false
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
-      "warnings": []
+      "warnings": [
+        "Draft manual is missing: What to watch for / common mistakes / tips.",
+        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
+      ]
     },
     {
       "id": "pos-customer-measurements-drawer",
@@ -4510,7 +4512,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []

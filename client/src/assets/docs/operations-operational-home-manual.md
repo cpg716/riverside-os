@@ -36,8 +36,15 @@ Use it for:
    - **Podium Inbox** for customer communications
    - **Reviews** for post-sale reputation follow-up
 
+On the main dashboard, start with:
+
+- **What Changed Today** for booked sales, pickups, online orders, appointments, new wedding activity, and the short plain-language movement summary under those counts
+- **What Needs Attention** for the shortest list of problems that already need a decision
+- **Top Issues** for the operator-readable meaning of the queue, inventory, and inbox load
+
 ## Tips
 
 - **Orders** is still the full transaction and order workspace. Use **Pickup Queue** to decide what needs attention first, then open the order record to finish the work.
 - **Podium Inbox** is a communications surface, not a general task inbox.
 - If a subsection is missing, check permissions before assuming the feature is broken.
+- The dashboard is meant to answer "what changed" and "what matters" quickly. If you need the full ledger or transaction detail, jump from Operations into the dedicated workspace instead of treating the overview as the full report.
