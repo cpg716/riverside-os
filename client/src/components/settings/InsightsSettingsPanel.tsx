@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useState } from "react";
 import { BarChart3, RefreshCw } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 const baseUrl = getBaseUrl();
 
@@ -103,6 +104,14 @@ const InsightsSettingsPanel: React.FC = () => {
   return (
     <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <header className="mb-10">
+        <div className="mb-4 flex items-center">
+          <IntegrationBrandLogo
+            brand="metabase"
+            kind="wordmark"
+            className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+            imageClassName="h-10 w-auto object-contain"
+          />
+        </div>
         <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Data Insights</h2>
         <p className="text-sm text-app-text-muted mt-2 font-medium">Configure enterprise reporting, role-based database access, and secure auth handoff.</p>
       </header>
@@ -110,8 +119,13 @@ const InsightsSettingsPanel: React.FC = () => {
       <section className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-600/10 text-violet-600 shadow-inner">
-              <BarChart3 className="h-7 w-7" aria-hidden />
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-white shadow-inner ring-1 ring-black/5">
+              <IntegrationBrandLogo
+                brand="metabase"
+                kind="icon"
+                className="inline-flex"
+                imageClassName="h-8 w-8 object-contain"
+              />
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Business Intelligence Layer</h3>

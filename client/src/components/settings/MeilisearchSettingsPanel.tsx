@@ -1,9 +1,10 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
-import { Search, RefreshCw, CheckCircle2, History, Info } from "lucide-react";
+import { RefreshCw, CheckCircle2, History, Info } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 const baseUrl = getBaseUrl();
 
@@ -107,12 +108,25 @@ export default function MeilisearchSettingsPanel() {
     <div className="space-y-10">
       <header className="mb-2">
         <div className="flex flex-wrap items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/25 bg-gradient-to-br from-emerald-500/15 to-transparent text-emerald-600 dark:text-emerald-400">
-            <Search className="h-7 w-7" aria-hidden />
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/25 bg-white">
+            <IntegrationBrandLogo
+              brand="meilisearch"
+              kind="icon"
+              className="inline-flex"
+              imageClassName="h-8 w-8 object-contain"
+            />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
+            <div className="mb-2 flex items-center">
+              <IntegrationBrandLogo
+                brand="meilisearch"
+                kind="wordmark"
+                className="inline-flex rounded-2xl border border-emerald-500/20 bg-white px-4 py-2 shadow-sm"
+                imageClassName="h-8 w-auto object-contain"
+              />
+            </div>
             <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-              Meilisearch
+              Search Infrastructure
             </h2>
             <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
               High-performance fuzzy search engine. Riverside uses Meilisearch
@@ -126,8 +140,13 @@ export default function MeilisearchSettingsPanel() {
       <section className="ui-card p-8 max-w-5xl border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-transparent">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-              <Search className="h-6 w-6" aria-hidden />
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white ring-1 ring-black/5">
+              <IntegrationBrandLogo
+                brand="meilisearch"
+                kind="icon"
+                className="inline-flex"
+                imageClassName="h-7 w-7 object-contain"
+              />
             </div>
             <div>
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">

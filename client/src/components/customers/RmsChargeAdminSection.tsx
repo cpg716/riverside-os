@@ -7,6 +7,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import PromptModal from "../ui/PromptModal";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { Link2, RefreshCw, ShieldCheck, Unlink, X as CloseIcon } from "lucide-react";
 
 const baseUrl = getBaseUrl();
@@ -743,6 +744,14 @@ export default function RmsChargeAdminSection({
   return (
     <div className="ui-page flex min-h-0 flex-1 flex-col p-6">
       <div className="mb-4 shrink-0">
+        <div className="mb-3 flex items-center">
+          <IntegrationBrandLogo
+            brand="corecredit"
+            kind="wordmark"
+            className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+            imageClassName="h-8 w-auto object-contain"
+          />
+        </div>
         <p className="text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted">
           {surface === "pos" ? "Register" : "Customers"}
         </p>

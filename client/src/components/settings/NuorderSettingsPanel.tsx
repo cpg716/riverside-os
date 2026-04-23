@@ -2,15 +2,14 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
 import {
   RefreshCw,
-  ShoppingBag,
   Package,
   ArrowRightLeft,
-  CheckCircle2,
   ShieldCheck,
   Zap,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 
 interface NuorderSyncLog {
   id: string;
@@ -110,11 +109,24 @@ export default function NuorderSettingsPanel() {
     <div className="ui-card p-8 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent">
       <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
         <div className="flex items-center gap-3">
-          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-indigo-500/15 text-indigo-600">
-            <ShoppingBag className="h-6 w-6" />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white ring-1 ring-black/5">
+            <IntegrationBrandLogo
+              brand="nuorder"
+              kind="icon"
+              className="inline-flex"
+              imageClassName="h-8 w-8 object-contain"
+            />
           </div>
           <div>
-            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">NuORDER Integration</h3>
+            <div className="mb-2 flex items-center">
+              <IntegrationBrandLogo
+                brand="nuorder"
+                kind="wordmark"
+                className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+                imageClassName="h-8 w-auto object-contain"
+              />
+            </div>
+            <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Vendor Portal Sync</h3>
             <p className="text-xs text-app-text-muted mt-1 leading-relaxed max-w-2xl">
               Connect to your NuORDER brand portal to sync styles, download media, import approved orders as pending Purchase Orders, and broadcast inventory ATS levels.
             </p>
@@ -183,7 +195,14 @@ export default function NuorderSettingsPanel() {
                   className="ui-btn-secondary p-4 flex flex-col items-center gap-2 transition-all hover:border-indigo-500/50"
                 >
                   {type === "catalog" && <Package className="h-5 w-5" />}
-                  {type === "orders" && <ShoppingBag className="h-5 w-5" />}
+                  {type === "orders" && (
+                    <IntegrationBrandLogo
+                      brand="nuorder"
+                      kind="icon"
+                      className="inline-flex"
+                      imageClassName="h-5 w-5 object-contain"
+                    />
+                  )}
                   {type === "inventory" && <ArrowRightLeft className="h-5 w-5" />}
                   <span className="text-[9px] font-black uppercase tracking-widest">
                     {syncBusy === type ? "Syncing..." : `Sync ${type}`}
@@ -198,7 +217,12 @@ export default function NuorderSettingsPanel() {
         <div className="rounded-xl border border-app-border bg-app-surface/40 p-5 shadow-sm min-w-0">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2 text-app-text-muted">
-              <CheckCircle2 className="h-4 w-4" />
+              <IntegrationBrandLogo
+                brand="nuorder"
+                kind="icon"
+                className="inline-flex"
+                imageClassName="h-4 w-4 object-contain"
+              />
               <span className="text-[10px] font-black uppercase tracking-widest">Recent Activity</span>
             </div>
           </div>
