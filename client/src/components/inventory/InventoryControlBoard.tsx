@@ -137,9 +137,66 @@ interface ProductListRow {
   web_published_count: number;
 }
 
+interface CatalogQualitySummary {
+  templatesVisible: number;
+  missingBrand: number;
+  missingCategory: number;
+  missingPrimaryVendor: number;
+}
+
 function money(v: string | number) {
   if (typeof v === "number") return formatUsdFromCents(Math.round(v * 100));
   return formatUsdFromCents(parseMoneyToCents(v || "0"));
+}
+
+function stockRiskSummary(row: BoardRow): {
+  onHand: number;
+  available: number;
+  reserved: number;
+} {
+  const onHand = row.stock_on_hand ?? 0;
+  const available = typeof row.available_stock === "number" ? row.available_stock : onHand;
+  return {
+    onHand,
+    available,
+    reserved: Math.max(0, onHand - available),
+  };
+}
+
+function getStockReductionWarnings(
+  row: BoardRow,
+  quantity: number,
+): string[] {
+  const { onHand, available, reserved } = stockRiskSummary(row);
+  const nextOnHand = onHand - quantity;
+  const nextAvailable = available - quantity;
+  const warnings: string[] = [];
+
+  if (nextOnHand < 0) {
+    warnings.push(
+      `This change would move ${row.sku} below zero on hand. The system allows it, but the team will be working from a shortage until stock is corrected.`,
+    );
+  } else if (onHand > 0 && nextOnHand === 0) {
+    warnings.push(
+      `This removes the last on-hand unit for ${row.sku}. Walk-in availability will drop to zero immediately.`,
+    );
+  }
+
+  if (reserved > 0 && nextAvailable < 0) {
+    warnings.push(
+      `Open reservations already use ${reserved} unit${reserved === 1 ? "" : "s"}. Removing this stock will deepen the shortage against those promises.`,
+    );
+  } else if (available > 0 && nextAvailable === 0) {
+    warnings.push(
+      `This uses the last currently available unit. Any additional demand will rely on incoming or corrected stock.`,
+    );
+  } else if (available <= 0) {
+    warnings.push(
+      `There is no available stock right now. On-hand units are already committed elsewhere, so another reduction will widen the gap.`,
+    );
+  }
+
+  return warnings;
 }
 
 function FilterChip({
@@ -334,6 +391,8 @@ export default function InventoryControlBoard({
   const [maintenanceTarget, setMaintenanceTarget] = useState<{
     variantId: string;
     sku: string;
+    stockOnHand: number;
+    availableStock: number;
     type: "damaged" | "return_to_vendor";
   } | null>(null);
   const [maintenanceQty, setMaintenanceQty] = useState("1");
@@ -374,6 +433,36 @@ export default function InventoryControlBoard({
   const scanToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [boardHasMore, setBoardHasMore] = useState(false);
   const [boardLoadingMore, setBoardLoadingMore] = useState(false);
+
+  const adjustSummary = adjustRow ? stockRiskSummary(adjustRow) : null;
+  const quickDecrementWarnings = adjustRow
+    ? getStockReductionWarnings(adjustRow, 1)
+    : [];
+  const maintenanceWarnings = useMemo(() => {
+    if (!maintenanceTarget) return [];
+    const qty = Number.parseInt(maintenanceQty || "0", 10);
+    if (!Number.isFinite(qty) || qty <= 0) return [];
+    return getStockReductionWarnings(
+      {
+        variant_id: maintenanceTarget.variantId,
+        product_id: "",
+        sku: maintenanceTarget.sku,
+        product_name: maintenanceTarget.sku,
+        brand: null,
+        variation_label: null,
+        category_id: null,
+        category_name: null,
+        is_clothing_footwear: null,
+        stock_on_hand: maintenanceTarget.stockOnHand,
+        available_stock: maintenanceTarget.availableStock,
+        retail_price: "0",
+        cost_price: "0",
+        base_retail_price: "0",
+        base_cost: "0",
+      },
+      qty,
+    );
+  }, [maintenanceQty, maintenanceTarget]);
 
   const boardPageLimit = debouncedSearch
     ? BOARD_LIMIT_WITH_SEARCH
@@ -581,6 +670,29 @@ export default function InventoryControlBoard({
       return true;
     });
   }, [inStockOnly, productRows]);
+
+  const catalogQualitySummary = useMemo<CatalogQualitySummary>(() => {
+    return visibleProductRows.reduce(
+      (summary, row) => {
+        const hasBrand = Boolean(row.brand?.trim());
+        const hasCategory = Boolean(row.category_name?.trim());
+        const hasPrimaryVendor = Boolean(row.primary_vendor_name?.trim());
+        return {
+          templatesVisible: summary.templatesVisible + 1,
+          missingBrand: summary.missingBrand + (hasBrand ? 0 : 1),
+          missingCategory: summary.missingCategory + (hasCategory ? 0 : 1),
+          missingPrimaryVendor:
+            summary.missingPrimaryVendor + (hasPrimaryVendor ? 0 : 1),
+        };
+      },
+      {
+        templatesVisible: 0,
+        missingBrand: 0,
+        missingCategory: 0,
+        missingPrimaryVendor: 0,
+      },
+    );
+  }, [visibleProductRows]);
 
   const groupedRowsByVendor = useMemo(() => {
     if (!groupByPrimaryVendor) return null;
@@ -1247,6 +1359,41 @@ export default function InventoryControlBoard({
             <FilterChip label="Negative Stock" onRemove={() => setNegativeStockOnly(false)} />
           )}
         </div>
+
+        <div className="rounded-2xl border border-app-border/40 bg-app-surface/20 px-4 py-4 backdrop-blur-md">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Catalog Completeness
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-text">
+                Visible templates missing core catalog identity fields in the current inventory view.
+              </p>
+            </div>
+            <span className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              {catalogQualitySummary.templatesVisible} templates visible
+            </span>
+          </div>
+          <div className="mt-4 grid gap-2 sm:grid-cols-3">
+            {[
+              ["Brand missing", catalogQualitySummary.missingBrand],
+              ["Category missing", catalogQualitySummary.missingCategory],
+              ["Primary vendor missing", catalogQualitySummary.missingPrimaryVendor],
+            ].map(([label, value]) => (
+              <div
+                key={label}
+                className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+              >
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  {label}
+                </p>
+                <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
 
       <div className="flex flex-col border border-app-border/40 bg-app-bg/10">
@@ -1368,6 +1515,50 @@ export default function InventoryControlBoard({
               </p>
             </div>
 
+            {adjustSummary ? (
+              <div className="mb-4 grid grid-cols-3 gap-2">
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-center">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                    On hand
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {adjustSummary.onHand}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-center">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                    Reserved
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {adjustSummary.reserved}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-center">
+                  <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">
+                    Available
+                  </p>
+                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                    {adjustSummary.available}
+                  </p>
+                </div>
+              </div>
+            ) : null}
+
+            {quickDecrementWarnings.length > 0 ? (
+              <div className="mb-4 rounded-3xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-left">
+                <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
+                  Before you reduce stock
+                </p>
+                <div className="mt-2 space-y-2">
+                  {quickDecrementWarnings.map((warning) => (
+                    <p key={warning} className="text-[11px] font-semibold leading-relaxed text-app-text">
+                      {warning}
+                    </p>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
@@ -1394,14 +1585,36 @@ export default function InventoryControlBoard({
             <div className="mt-4 flex gap-2">
               <button
                 type="button"
-                onClick={() => setMaintenanceTarget({ variantId: adjustRow.variant_id, sku: adjustRow.sku, type: "damaged" })}
+                onClick={() =>
+                  setMaintenanceTarget({
+                    variantId: adjustRow.variant_id,
+                    sku: adjustRow.sku,
+                    stockOnHand: adjustRow.stock_on_hand,
+                    availableStock:
+                      typeof adjustRow.available_stock === "number"
+                        ? adjustRow.available_stock
+                        : adjustRow.stock_on_hand,
+                    type: "damaged",
+                  })
+                }
                 className="flex-1 rounded-xl border border-red-200 bg-red-50 py-3 text-[9px] font-black uppercase tracking-widest text-red-600 hover:bg-red-100"
               >
                 Damage…
               </button>
               <button
                 type="button"
-                onClick={() => setMaintenanceTarget({ variantId: adjustRow.variant_id, sku: adjustRow.sku, type: "return_to_vendor" })}
+                onClick={() =>
+                  setMaintenanceTarget({
+                    variantId: adjustRow.variant_id,
+                    sku: adjustRow.sku,
+                    stockOnHand: adjustRow.stock_on_hand,
+                    availableStock:
+                      typeof adjustRow.available_stock === "number"
+                        ? adjustRow.available_stock
+                        : adjustRow.stock_on_hand,
+                    type: "return_to_vendor",
+                  })
+                }
                 className="flex-1 rounded-xl border border-app-accent/30 bg-app-accent/5 py-3 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent/10"
               >
                 RTV…
@@ -1458,6 +1671,21 @@ export default function InventoryControlBoard({
                   className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2.5 font-bold text-app-text outline-none ring-app-accent focus:ring-2"
                 />
               </div>
+
+              {maintenanceWarnings.length > 0 ? (
+                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
+                    Adjustment warning
+                  </p>
+                  <div className="mt-2 space-y-2">
+                    {maintenanceWarnings.map((warning) => (
+                      <p key={warning} className="text-[11px] font-semibold leading-relaxed text-app-text">
+                        {warning}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
 
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">

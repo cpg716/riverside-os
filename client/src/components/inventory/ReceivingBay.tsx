@@ -152,6 +152,30 @@ function mergeWorksheetLines(
   });
 }
 
+type ReceivingWorkflowStep = {
+  id: "verify" | "count" | "post";
+  label: string;
+  hint: string;
+};
+
+const RECEIVING_WORKFLOW_STEPS: ReceivingWorkflowStep[] = [
+  {
+    id: "verify",
+    label: "Verify PO",
+    hint: "Confirm you opened the correct vendor invoice and scan against this PO.",
+  },
+  {
+    id: "count",
+    label: "Count & invoice",
+    hint: "Enter receiving quantities, invoice number, and freight from the paperwork in hand.",
+  },
+  {
+    id: "post",
+    label: "Post inventory",
+    hint: "Review the staged receipt, then post once this invoice is ready to move inventory.",
+  },
+];
+
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
@@ -359,6 +383,22 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
 
   const freightCents = parseMoneyToCents(freight || "0");
   const grandTotalCents = itemsTotalCents + freightCents;
+  const receivingLineCount = useMemo(
+    () => lines.filter((line) => line.qty_receiving > 0).length,
+    [lines],
+  );
+  const costAlertLines = useMemo(
+    () =>
+      lines.filter((line) =>
+        unitCostAlerts(line.prior_effective_cost, line.unit_cost),
+      ),
+    [lines],
+  );
+  const hasReceiptDraft =
+    receivingLineCount > 0 ||
+    scanCount > 0 ||
+    freightCents > 0 ||
+    invoiceNum.trim() !== "";
 
   const markAllRemaining = () => {
     setLines((prev) =>
@@ -411,6 +451,15 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
 
   const canPost =
     !receivingClosed && lines.some((l) => l.qty_receiving > 0) && !loading;
+  const receivingWorkflowCurrentStep: ReceivingWorkflowStep["id"] =
+    receivingClosed ? "post" : canPost ? "post" : hasReceiptDraft ? "count" : "verify";
+  const receivingWorkflowIndex = RECEIVING_WORKFLOW_STEPS.findIndex(
+    (step) => step.id === receivingWorkflowCurrentStep,
+  );
+  const receivingWorkflowNextStep =
+    !receivingClosed && receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1
+      ? RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1]
+      : null;
 
   // ── Render: Error ──────────────────────────────────────────────────────────
 
@@ -600,6 +649,90 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           or open a direct invoice draft).
         </div>
       )}
+
+      {!receivingClosed && costAlertLines.length > 0 && (
+        <div className="border-b border-amber-200 bg-amber-50 px-6 py-3 text-xs text-amber-950">
+          <div className="flex items-start gap-2">
+            <AlertCircle size={16} className="mt-0.5 shrink-0" />
+            <div>
+              <p className="font-black uppercase tracking-widest">
+                Cost change to review before posting
+              </p>
+              <p className="mt-1 font-semibold leading-relaxed">
+                {costAlertLines.length === 1
+                  ? "One line differs from its prior effective cost by more than 5%."
+                  : `${costAlertLines.length} lines differ from their prior effective cost by more than 5%.`}{" "}
+                Posting will use the invoice cost shown here for receipt valuation and downstream accounting.
+              </p>
+              <p className="mt-2 font-semibold leading-relaxed">
+                Review the highlighted unit cost rows before you finalize this receipt:
+                {" "}
+                {costAlertLines
+                  .slice(0, 3)
+                  .map((line) => line.sku)
+                  .join(", ")}
+                {costAlertLines.length > 3 ? ", …" : ""}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="border-b border-app-border bg-app-surface px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex flex-wrap gap-3">
+            {RECEIVING_WORKFLOW_STEPS.map((step, index) => {
+              const isCurrent = step.id === receivingWorkflowCurrentStep;
+              const isComplete =
+                receivingClosed || index < receivingWorkflowIndex;
+              return (
+                <div
+                  key={step.id}
+                  className={`min-w-[10rem] rounded-2xl border px-4 py-3 ${
+                    isCurrent
+                      ? "border-app-accent bg-app-accent/10 text-app-text"
+                      : isComplete
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted"
+                  }`}
+                >
+                  <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
+                    Step {index + 1}
+                  </p>
+                  <p className="mt-1 text-sm font-black text-current">
+                    {step.label}
+                  </p>
+                  <p className="mt-1 text-[11px] leading-relaxed opacity-80">
+                    {step.hint}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm text-app-text lg:max-w-sm">
+            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Current stage
+            </p>
+            <p className="mt-1 font-black text-app-text">
+              {RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex]?.label}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-app-text-muted">
+              {receivingClosed
+                ? "This receipt is already posted. Reopen the PO workflow elsewhere if another action is needed."
+                : receivingWorkflowNextStep
+                  ? `Next: ${receivingWorkflowNextStep.label}. ${receivingWorkflowNextStep.hint}`
+                  : "Next: Post inventory when the staged receipt matches the invoice in hand."}
+            </p>
+            {!receivingClosed ? (
+              <p className="mt-2 text-[11px] font-semibold text-app-text-muted">
+                {receivingLineCount > 0
+                  ? `${receivingLineCount} line${receivingLineCount === 1 ? "" : "s"} staged for this receipt.`
+                  : "No lines staged yet."}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-8">
         <div className="mx-auto max-w-6xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-sm">

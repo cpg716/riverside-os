@@ -8,6 +8,8 @@ import {
   createVendor,
   ensureServerReachable,
   getInventoryIntelligence,
+  getProductHubInventory,
+  getProductTimeline,
   getPurchaseOrderDetail,
   receivePurchaseOrder,
   requireOrSkip,
@@ -122,6 +124,74 @@ test.describe("Inventory receiving API regressions", () => {
 
     const replayDetail = await getPurchaseOrderDetail(request, po.id);
     expect(replayDetail.lines[0]?.qty_previously_received).toBe(1);
+  });
+
+  test("product hub surfaces unified inventory truth from server-backed values", async ({
+    request,
+  }) => {
+    const suffix = uniqueSuffix("hub");
+    const vendor = await createVendor(request, suffix);
+    const product = await createSingleVariantProduct(request, suffix, { stockOnHand: 2 });
+    const po = await createDraftPurchaseOrder(request, vendor.id);
+    await addPurchaseOrderLine(request, po.id, product.variantId, 3);
+    await submitPurchaseOrder(request, po.id);
+
+    const beforeHub = await getProductHubInventory(request, product.productId);
+    const beforeVariant = beforeHub.variants.find((row) => row.id === product.variantId);
+    expect(beforeVariant, "hub variant row missing before receipt").toBeTruthy();
+    expect(beforeHub.stats.total_units_on_hand).toBe(2);
+    expect(beforeHub.stats.total_reserved_units).toBe(0);
+    expect(beforeHub.stats.total_available_units).toBe(2);
+    expect(beforeVariant?.stock_on_hand).toBe(2);
+    expect(beforeVariant?.reserved_stock).toBe(0);
+    expect(beforeVariant?.available_stock).toBe(2);
+    expect(beforeHub.can_view_procurement).toBeTruthy();
+    expect(beforeVariant?.qty_on_order).toBe(3);
+
+    const detail = await getPurchaseOrderDetail(request, po.id);
+    const line = detail.lines[0];
+    expect(line, "purchase order line missing").toBeTruthy();
+
+    await receivePurchaseOrder(request, po.id, {
+      invoice_number: `HUB-${suffix}`,
+      lines: [{ po_line_id: line!.line_id, quantity_received_now: 1 }],
+    });
+
+    const afterHub = await getProductHubInventory(request, product.productId);
+    const afterVariant = afterHub.variants.find((row) => row.id === product.variantId);
+    expect(afterVariant, "hub variant row missing after receipt").toBeTruthy();
+    expect(afterHub.stats.total_units_on_hand).toBe(3);
+    expect(afterHub.stats.total_reserved_units).toBe(0);
+    expect(afterHub.stats.total_available_units).toBe(3);
+    expect(afterVariant?.stock_on_hand).toBe(3);
+    expect(afterVariant?.reserved_stock).toBe(0);
+    expect(afterVariant?.available_stock).toBe(3);
+    expect(afterVariant?.qty_on_order).toBe(2);
+  });
+
+  test("product timeline returns readable inventory history after receipt", async ({ request }) => {
+    const suffix = uniqueSuffix("timeline");
+    const vendor = await createVendor(request, suffix);
+    const product = await createSingleVariantProduct(request, suffix);
+    const po = await createDraftPurchaseOrder(request, vendor.id);
+    await addPurchaseOrderLine(request, po.id, product.variantId, 1);
+    await submitPurchaseOrder(request, po.id);
+
+    const detail = await getPurchaseOrderDetail(request, po.id);
+    const line = detail.lines[0];
+    expect(line, "purchase order line missing").toBeTruthy();
+
+    await receivePurchaseOrder(request, po.id, {
+      invoice_number: `TIMELINE-${suffix}`,
+      lines: [{ po_line_id: line!.line_id, quantity_received_now: 1 }],
+    });
+
+    const timeline = await getProductTimeline(request, product.productId);
+    const receiptEvent = timeline.find((event) => event.kind === "inventory_po_receipt");
+    expect(receiptEvent, "expected product timeline to include PO receipt event").toBeTruthy();
+    expect(receiptEvent?.summary).toContain("Received into stock");
+    expect(receiptEvent?.summary).toContain(product.sku);
+    expect(receiptEvent?.summary ?? "").not.toContain("po_receipt:");
   });
 
   test("direct invoice receiving uses the same final posting path and remains exact-once on replay", async ({

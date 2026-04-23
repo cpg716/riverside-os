@@ -68,6 +68,34 @@ export interface InventoryIntelligence {
   qty_on_order: number;
 }
 
+export interface ProductHubVariantInventoryRow {
+  id: string;
+  sku: string;
+  stock_on_hand: number;
+  reserved_stock: number;
+  available_stock: number;
+  qty_on_order?: number | null;
+  last_physical_count_at?: string | null;
+}
+
+export interface ProductHubInventoryResponse {
+  can_view_procurement?: boolean;
+  stats: {
+    total_units_on_hand: number;
+    total_reserved_units: number;
+    total_available_units: number;
+    last_physical_count_at?: string | null;
+  };
+  variants: ProductHubVariantInventoryRow[];
+}
+
+export interface ProductTimelineEvent {
+  at: string;
+  kind: string;
+  summary: string;
+  reference_id: string | null;
+}
+
 export function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
@@ -249,6 +277,31 @@ export async function getInventoryIntelligence(
     failOnStatusCode: false,
   });
   return (await expectJsonOk(res, "fetch inventory intelligence")) as InventoryIntelligence;
+}
+
+export async function getProductHubInventory(
+  request: APIRequestContext,
+  productId: string,
+): Promise<ProductHubInventoryResponse> {
+  const res = await request.get(`${apiBase()}/api/products/${productId}/hub`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  return (await expectJsonOk(res, "fetch product hub")) as ProductHubInventoryResponse;
+}
+
+export async function getProductTimeline(
+  request: APIRequestContext,
+  productId: string,
+): Promise<ProductTimelineEvent[]> {
+  const res = await request.get(`${apiBase()}/api/products/${productId}/timeline`, {
+    headers: adminHeaders(),
+    failOnStatusCode: false,
+  });
+  const json = (await expectJsonOk(res, "fetch product timeline")) as {
+    events?: ProductTimelineEvent[];
+  };
+  return json.events ?? [];
 }
 
 export async function createDraftPurchaseOrder(

@@ -74,11 +74,17 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByText(/^step 1$/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/verify po/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/count & invoice/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/post inventory/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/next: count & invoice/i)).toBeVisible({ timeout: 10_000 });
 
     const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();
     const receivingNowInput = receivingRow.getByRole("spinbutton");
     await expect(receivingNowInput).toBeVisible({ timeout: 10_000 });
     await receivingNowInput.fill("1");
+    await expect(page.getByText(/next: post inventory/i)).toBeVisible({ timeout: 10_000 });
 
     const postInventoryButton = page.getByRole("button", { name: /^post inventory$/i });
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });
@@ -134,11 +140,14 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(page.getByText(/verify po/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/next: count & invoice/i)).toBeVisible({ timeout: 10_000 });
 
     const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();
     const receivingNowInput = receivingRow.getByRole("spinbutton");
     await expect(receivingNowInput).toBeVisible({ timeout: 10_000 });
     await receivingNowInput.fill("1");
+    await expect(page.getByText(/next: post inventory/i)).toBeVisible({ timeout: 10_000 });
 
     const postInventoryButton = page.getByRole("button", { name: /^post inventory$/i });
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });

@@ -578,9 +578,12 @@ pub struct VariantPricingPatch {
 #[derive(Debug, Serialize)]
 pub struct ProductHubStats {
     pub total_units_on_hand: i64,
+    pub total_reserved_units: i64,
+    pub total_available_units: i64,
     pub value_on_hand: Decimal,
     pub units_sold_all_time: i64,
     pub open_order_units: i64,
+    pub last_physical_count_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -591,6 +594,10 @@ pub struct HubVariantRow {
     pub variation_label: Option<String>,
     pub vendor_upc: Option<String>,
     pub stock_on_hand: i32,
+    pub reserved_stock: i32,
+    pub available_stock: i32,
+    pub qty_on_order: Option<i32>,
+    pub last_physical_count_at: Option<DateTime<Utc>>,
     pub reorder_point: i32,
     pub track_low_stock: bool,
     pub retail_price_override: Option<Decimal>,
@@ -609,6 +616,10 @@ struct HubVariantJoinRow {
     variation_label: Option<String>,
     vendor_upc: Option<String>,
     stock_on_hand: i32,
+    reserved_stock: i32,
+    available_stock: i32,
+    qty_on_order: i32,
+    last_physical_count_at: Option<DateTime<Utc>>,
     reorder_point: i32,
     track_low_stock: bool,
     retail_price_override: Option<Decimal>,
@@ -643,6 +654,13 @@ pub struct ProductHubProductRow {
     catalog_handle: Option<String>,
 }
 
+#[derive(Debug, FromRow)]
+struct ProductHubInventoryTotalsRow {
+    total_units_on_hand: i64,
+    total_reserved_units: i64,
+    total_available_units: i64,
+}
+
 #[derive(Debug, Serialize, FromRow)]
 pub struct ProductPoSummaryLine {
     pub purchase_order_id: Uuid,
@@ -668,6 +686,7 @@ pub struct ProductHubResponse {
     pub product: ProductHubProductRow,
     /// Store-wide default (same source as checkout `AppState::global_employee_markup`).
     pub store_default_employee_markup_percent: Decimal,
+    pub can_view_procurement: bool,
     pub stats: ProductHubStats,
     pub po_summary: ProductPoSummary,
     pub variants: Vec<HubVariantRow>,
@@ -971,7 +990,7 @@ async fn list_products(
     State(state): State<AppState>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<ProductRow>>, ProductError> {
-    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
     let rows = sqlx::query_as::<_, ProductRow>(
         r#"
         SELECT id, name, brand, base_retail_price, base_cost
@@ -2133,11 +2152,27 @@ async fn fetch_product_hub(
         return Err(ProductError::ProductNotFound);
     };
 
-    let total_units_on_hand: i64 = sqlx::query_scalar(
+    let inventory_totals = sqlx::query_as::<_, ProductHubInventoryTotalsRow>(
         r#"
-        SELECT COALESCE(SUM(stock_on_hand), 0)::bigint
+        SELECT
+            COALESCE(SUM(stock_on_hand), 0)::bigint AS total_units_on_hand,
+            COALESCE(SUM(reserved_stock), 0)::bigint AS total_reserved_units,
+            COALESCE(SUM(GREATEST(0, stock_on_hand - reserved_stock)), 0)::bigint AS total_available_units
         FROM product_variants
         WHERE product_id = $1
+        "#,
+    )
+    .bind(product_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let last_physical_count_at: Option<DateTime<Utc>> = sqlx::query_scalar(
+        r#"
+        SELECT MAX(it.created_at)
+        FROM inventory_transactions it
+        INNER JOIN product_variants pv ON pv.id = it.variant_id
+        WHERE pv.product_id = $1
+          AND it.tx_type = 'physical_inventory'
         "#,
     )
     .bind(product_id)
@@ -2195,6 +2230,10 @@ async fn fetch_product_hub(
             pv.variation_label,
             pv.vendor_upc,
             pv.stock_on_hand,
+            pv.reserved_stock,
+            GREATEST(0, pv.stock_on_hand - pv.reserved_stock)::integer AS available_stock,
+            COALESCE(po_open.qty_on_order, 0)::int4 AS qty_on_order,
+            physical.last_physical_count_at,
             pv.reorder_point,
             pv.track_low_stock,
             pv.retail_price_override,
@@ -2205,6 +2244,19 @@ async fn fetch_product_hub(
             pv.web_gallery_order
         FROM product_variants pv
         INNER JOIN products p ON p.id = pv.product_id
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(SUM(pol.quantity_ordered - pol.quantity_received), 0)::int4 AS qty_on_order
+            FROM purchase_order_lines pol
+            INNER JOIN purchase_orders po ON po.id = pol.purchase_order_id
+            WHERE pol.variant_id = pv.id
+              AND po.status IN ('submitted', 'partially_received')
+        ) po_open ON true
+        LEFT JOIN LATERAL (
+            SELECT MAX(it.created_at) AS last_physical_count_at
+            FROM inventory_transactions it
+            WHERE it.variant_id = pv.id
+              AND it.tx_type = 'physical_inventory'
+        ) physical ON true
         WHERE pv.product_id = $1
         ORDER BY pv.created_at
         "#,
@@ -2222,6 +2274,10 @@ async fn fetch_product_hub(
             variation_label: r.variation_label,
             vendor_upc: r.vendor_upc,
             stock_on_hand: r.stock_on_hand,
+            reserved_stock: r.reserved_stock,
+            available_stock: r.available_stock,
+            qty_on_order: Some(r.qty_on_order),
+            last_physical_count_at: r.last_physical_count_at,
             reorder_point: r.reorder_point,
             track_low_stock: r.track_low_stock,
             retail_price_override: r.retail_price_override,
@@ -2239,7 +2295,16 @@ async fn fetch_product_hub(
     let eff = effective_permissions_for_staff(&state.db, staff.id, staff.role)
         .await
         .map_err(ProductError::Database)?;
-    let po_summary = if staff_has_permission(&eff, PROCUREMENT_VIEW) {
+    let can_view_procurement = staff_has_permission(&eff, PROCUREMENT_VIEW);
+    let variants: Vec<HubVariantRow> = variants
+        .into_iter()
+        .map(|variant| HubVariantRow {
+            qty_on_order: can_view_procurement.then_some(variant.qty_on_order.unwrap_or(0)),
+            ..variant
+        })
+        .collect();
+
+    let po_summary = if can_view_procurement {
         load_product_po_summary(&state.db, product_id)
             .await
             .map_err(ProductError::Database)?
@@ -2255,11 +2320,15 @@ async fn fetch_product_hub(
     Ok(ProductHubResponse {
         product,
         store_default_employee_markup_percent: state.global_employee_markup,
+        can_view_procurement,
         stats: ProductHubStats {
-            total_units_on_hand,
+            total_units_on_hand: inventory_totals.total_units_on_hand,
+            total_reserved_units: inventory_totals.total_reserved_units,
+            total_available_units: inventory_totals.total_available_units,
             value_on_hand,
             units_sold_all_time,
             open_order_units,
+            last_physical_count_at,
         },
         po_summary,
         variants,
@@ -2375,6 +2444,7 @@ struct InvTimelineRow {
     sku: String,
     notes: Option<String>,
     reference_id: Option<Uuid>,
+    actor_name: Option<String>,
 }
 
 #[derive(Debug, FromRow)]
@@ -2388,12 +2458,34 @@ struct CatalogAuditTimelineRow {
     changed_by_name: Option<String>,
 }
 
+fn product_inventory_timeline_label(tx_type: &str) -> &'static str {
+    match tx_type {
+        "adjustment" => "Inventory adjusted",
+        "damaged" => "Marked damaged",
+        "return_to_vendor" => "Returned to vendor",
+        "po_receipt" => "Received into stock",
+        "physical_inventory" => "Physical count published",
+        _ => "Inventory updated",
+    }
+}
+
+fn product_catalog_timeline_label(change_source: &str) -> String {
+    match change_source {
+        "rosie" => "Catalog update from ROSIE".to_string(),
+        "import" => "Catalog update from import".to_string(),
+        other if !other.trim().is_empty() => {
+            format!("Catalog update ({})", other.replace('_', " "))
+        }
+        _ => "Catalog update".to_string(),
+    }
+}
+
 async fn get_product_timeline(
     State(state): State<AppState>,
     Path(product_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<ProductTimelineResponse>, ProductError> {
-    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
     let exists: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)",
     )
@@ -2435,9 +2527,11 @@ async fn get_product_timeline(
             it.quantity_delta,
             pv.sku,
             it.notes,
-            it.reference_id
+            it.reference_id,
+            s.full_name AS actor_name
         FROM inventory_transactions it
         INNER JOIN product_variants pv ON pv.id = it.variant_id
+        LEFT JOIN staff s ON s.id = it.created_by
         WHERE pv.product_id = $1
         ORDER BY it.created_at DESC
         LIMIT 25
@@ -2489,15 +2583,30 @@ async fn get_product_timeline(
     }
 
     for t in inv {
+        let actor_suffix = t
+            .actor_name
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
+            .map(|name| format!(" by {name}"))
+            .unwrap_or_default();
+        let notes_suffix = t
+            .notes
+            .as_deref()
+            .map(str::trim)
+            .filter(|notes| !notes.is_empty())
+            .map(|notes| format!(" — {notes}"))
+            .unwrap_or_default();
         events.push(ProductTimelineEvent {
             at: t.created_at,
             kind: format!("inventory_{}", t.tx_type),
             summary: format!(
-                "{}: {:+}× {} — {}",
-                t.tx_type,
+                "{}{}: {:+} × {}{}",
+                product_inventory_timeline_label(&t.tx_type),
+                actor_suffix,
                 t.quantity_delta,
                 t.sku,
-                t.notes.unwrap_or_default()
+                notes_suffix
             ),
             reference_id: t.reference_id,
         });
@@ -2523,8 +2632,8 @@ async fn get_product_timeline(
             at: audit.created_at,
             kind: format!("catalog_{}", audit.change_source),
             summary: format!(
-                "Catalog update ({}) by {} — {}",
-                audit.change_source.to_ascii_uppercase(),
+                "{} by {} — {}",
+                product_catalog_timeline_label(&audit.change_source),
                 actor,
                 summary
             ),
@@ -2768,7 +2877,7 @@ async fn list_variants(
     Path(product_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<VariantRow>>, ProductError> {
-    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
     let rows = sqlx::query_as::<_, VariantRow>(
         r#"
         SELECT
@@ -2791,7 +2900,7 @@ async fn get_maintenance_ledger(
     Query(query): Query<MaintenanceLedgerQuery>,
     headers: HeaderMap,
 ) -> Result<Json<Vec<MaintenanceLedgerRow>>, ProductError> {
-    require_catalog_perm(state, headers, CATALOG_VIEW).await?;
+    require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
 
     let tx_type_filter = query.tx_type.unwrap_or_else(|| "damaged".to_string());
     let limit = query.limit.unwrap_or(100).min(1000);

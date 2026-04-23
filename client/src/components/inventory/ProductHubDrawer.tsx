@@ -50,9 +50,12 @@ interface VendorOption {
 
 interface ProductHubStats {
   total_units_on_hand: number;
+  total_reserved_units: number;
+  total_available_units: number;
   value_on_hand: string;
   units_sold_all_time: number;
   open_order_units: number;
+  last_physical_count_at?: string | null;
 }
 
 interface HubApiVariant {
@@ -61,6 +64,10 @@ interface HubApiVariant {
   variation_values: Record<string, unknown>;
   variation_label: string | null;
   stock_on_hand: number;
+  reserved_stock: number;
+  available_stock: number;
+  qty_on_order?: number | null;
+  last_physical_count_at?: string | null;
   reorder_point: number;
   track_low_stock: boolean;
   retail_price_override: string | null;
@@ -93,6 +100,7 @@ interface ProductHubResponse {
   product: ProductHubProduct;
   /** Present on current API; fallback for older servers. */
   store_default_employee_markup_percent?: string | number;
+  can_view_procurement?: boolean;
   stats: ProductHubStats;
   po_summary: ProductPoSummary;
   variants: HubApiVariant[];
@@ -117,6 +125,22 @@ interface ProductHubDrawerProps {
 
 function money(v: string | number) {
   return formatUsdFromCents(parseMoneyToCents(v));
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return "Not counted yet";
+  return new Date(value).toLocaleString();
+}
+
+function formatEventKind(kind: string) {
+  if (kind === "sale") return "Sale";
+  if (kind.startsWith("inventory_")) {
+    return kind.replace(/^inventory_/, "").replace(/_/g, " ");
+  }
+  if (kind.startsWith("catalog_")) {
+    return "Catalog update";
+  }
+  return kind.replace(/_/g, " ");
 }
 
 export default function ProductHubDrawer({
@@ -236,10 +260,11 @@ export default function ProductHubDrawer({
   useEffect(() => {
     if (!isOpen || !productId) return;
     void loadHub();
+    void loadTimeline();
     void loadCatalogAnalysis();
     void loadCatalogSuggestion();
     setTab("general");
-  }, [isOpen, productId, loadHub, loadCatalogAnalysis, loadCatalogSuggestion]);
+  }, [isOpen, productId, loadHub, loadTimeline, loadCatalogAnalysis, loadCatalogSuggestion]);
 
   useEffect(() => {
     if (!isOpen || !productId) return;
@@ -492,6 +517,10 @@ export default function ProductHubDrawer({
       web_gallery_order: v.web_gallery_order ?? 0,
     })) ?? [];
 
+  const inventoryEvents = timeline
+    .filter((event) => event.kind.startsWith("inventory_"))
+    .slice(0, 5);
+
   const tabBtn = (id: HubTab, label: string) => (
     <button
       key={id}
@@ -563,6 +592,163 @@ export default function ProductHubDrawer({
                 </div>
               </label>
 
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      Inventory truth
+                    </h3>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      This view uses current server inventory values. Reserved units are already
+                      promised to open orders and are not available for walk-in sale.
+                    </p>
+                  </div>
+                  <div className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2 text-right">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Last physical count
+                    </p>
+                    <p className="mt-1 text-sm font-bold text-app-text">
+                      {formatDateTime(hub.stats.last_physical_count_at)}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      On hand
+                    </p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                      {hub.stats.total_units_on_hand}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Reserved in store
+                    </p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                      {hub.stats.total_reserved_units}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      Available now
+                    </p>
+                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                      {hub.stats.total_available_units}
+                    </p>
+                  </div>
+                  {hub.can_view_procurement ? (
+                    <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        On order
+                      </p>
+                      <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                        {hub.po_summary.pending_receive_units}
+                      </p>
+                    </div>
+                  ) : null}
+                </div>
+
+                <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-2/70 px-4 py-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    How inventory rules work
+                  </p>
+                  <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                    <p>
+                      Available now follows the live server rule: on hand minus units already reserved for open store work.
+                    </p>
+                    <p>
+                      Reserved in store covers units already committed to orders, weddings, or other promised pickup work.
+                    </p>
+                    {hub.can_view_procurement ? (
+                      <p>
+                        On order shows incoming purchase-order units only. They do not become sellable inventory until the receipt posts.
+                      </p>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-4 overflow-x-auto">
+                  <table className="min-w-full text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-app-border text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <th className="px-3 py-2">SKU</th>
+                        <th className="px-3 py-2">Option</th>
+                        <th className="px-3 py-2 text-right">On hand</th>
+                        <th className="px-3 py-2 text-right">Reserved</th>
+                        <th className="px-3 py-2 text-right">Available</th>
+                        {hub.can_view_procurement ? (
+                          <th className="px-3 py-2 text-right">On order</th>
+                        ) : null}
+                        <th className="px-3 py-2">Last physical count</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hub.variants.map((variant) => (
+                        <tr
+                          key={variant.id}
+                          className="border-b border-app-border/60 bg-app-surface-2/30 last:border-b-0"
+                        >
+                          <td className="px-3 py-3 font-mono text-xs font-bold text-app-text">
+                            {variant.sku}
+                          </td>
+                          <td className="px-3 py-3 text-app-text">
+                            {variant.variation_label ?? "Standard"}
+                          </td>
+                          <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                            {variant.stock_on_hand}
+                          </td>
+                          <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                            {variant.reserved_stock}
+                          </td>
+                          <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                            {variant.available_stock}
+                          </td>
+                          {hub.can_view_procurement ? (
+                            <td className="px-3 py-3 text-right font-black tabular-nums text-app-text">
+                              {variant.qty_on_order ?? 0}
+                            </td>
+                          ) : null}
+                          <td className="px-3 py-3 text-xs text-app-text-muted">
+                            {formatDateTime(variant.last_physical_count_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="mt-4">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Recent inventory events
+                  </p>
+                  {timelineLoading && inventoryEvents.length === 0 ? (
+                    <p className="mt-2 text-sm text-app-text-muted">Loading recent activity…</p>
+                  ) : inventoryEvents.length === 0 ? (
+                    <p className="mt-2 text-sm text-app-text-muted">
+                      No inventory movements recorded for this template yet.
+                    </p>
+                  ) : (
+                    <ul className="mt-2 space-y-2">
+                      {inventoryEvents.map((event, index) => (
+                        <li
+                          key={`${event.at}-${index}`}
+                          className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                        >
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                            {formatDateTime(event.at)} · {formatEventKind(event.kind)}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-app-text">
+                            {event.summary}
+                          </p>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </section>
+
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                 {[
                   ["$ value on hand", money(hub?.stats?.value_on_hand ?? 0)],
@@ -570,7 +756,9 @@ export default function ProductHubDrawer({
                   ["Open order units", String(hub?.stats?.open_order_units ?? 0)],
                   [
                     "Purchase orders",
-                    (hub?.po_summary?.open_po_count ?? 0) === 0 &&
+                    !hub.can_view_procurement
+                      ? "Procurement access required"
+                      : (hub?.po_summary?.open_po_count ?? 0) === 0 &&
                     (hub?.po_summary?.pending_receive_units ?? 0) === 0
                       ? "No open pipeline"
                       : `${hub?.po_summary?.open_po_count ?? 0} open PO${
@@ -589,6 +777,7 @@ export default function ProductHubDrawer({
                       {v}
                     </p>
                     {k === "Purchase orders" &&
+                    hub.can_view_procurement &&
                     ((hub?.po_summary?.open_po_count ?? 0) > 0 ||
                       (hub?.po_summary?.pending_receive_units ?? 0) > 0) ? (
                       <p className="mt-1 text-[11px] font-semibold tabular-nums text-app-text-muted">
@@ -1091,11 +1280,16 @@ export default function ProductHubDrawer({
 
           {tab === "history" && (
             <div className="space-y-3">
+              {timeline.length > 0 ? (
+                <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                  Newest first
+                </p>
+              ) : null}
               {timelineLoading ? (
                 <p className="text-sm text-app-text-muted">Loading timeline…</p>
               ) : timeline.length === 0 ? (
                 <p className="text-sm text-app-text-muted">
-                  No sales or inventory movements recorded for this template yet.
+                  No product history recorded yet.
                 </p>
               ) : (
                 <ul className="relative space-y-0 border-l-2 border-app-border pl-6">
@@ -1103,7 +1297,7 @@ export default function ProductHubDrawer({
                     <li key={`${ev.at}-${i}`} className="relative pb-6">
                       <span className="absolute -left-[9px] top-1.5 h-3 w-3 rounded-full border-2 border-app-surface bg-app-accent shadow-sm" />
                       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        {new Date(ev.at).toLocaleString()} · {ev.kind}
+                        {new Date(ev.at).toLocaleString()} · {formatEventKind(ev.kind)}
                       </p>
                       <p className="mt-1 text-sm font-semibold text-app-text">
                         {ev.summary}
