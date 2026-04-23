@@ -157,6 +157,18 @@ fn default_receipt_thermal_mode() -> String {
     "zpl".to_string()
 }
 
+fn default_rosie_speech_rate() -> f32 {
+    1.0
+}
+
+fn default_rosie_voice() -> String {
+    "adam".to_string()
+}
+
+fn default_rosie_microphone_mode() -> RosieMicrophoneMode {
+    RosieMicrophoneMode::PushToTalk
+}
+
 impl Default for ReceiptConfig {
     fn default() -> Self {
         Self {
@@ -173,6 +185,67 @@ impl Default for ReceiptConfig {
             receipt_studio_project_json: None,
             receipt_studio_exported_html: None,
             receipt_thermal_mode: default_receipt_thermal_mode(),
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RosieVerbosity {
+    Concise,
+    Detailed,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum RosieMicrophoneMode {
+    PushToTalk,
+    Toggle,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct RosieConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default = "default_true", alias = "direct_mode_enabled")]
+    pub local_first: bool,
+    #[serde(default, alias = "verbosity")]
+    pub response_style: RosieVerbosity,
+    #[serde(default = "default_true")]
+    pub show_citations: bool,
+    #[serde(default = "default_true", alias = "voice_output_enabled")]
+    pub voice_enabled: bool,
+    #[serde(default, alias = "speak_replies")]
+    pub speak_responses: bool,
+    #[serde(default = "default_rosie_voice")]
+    pub selected_voice: String,
+    #[serde(default = "default_rosie_speech_rate")]
+    pub speech_rate: f32,
+    #[serde(default = "default_true", alias = "voice_input_enabled")]
+    pub microphone_enabled: bool,
+    #[serde(default = "default_rosie_microphone_mode")]
+    pub microphone_mode: RosieMicrophoneMode,
+}
+
+impl Default for RosieVerbosity {
+    fn default() -> Self {
+        Self::Concise
+    }
+}
+
+impl Default for RosieConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            local_first: true,
+            response_style: RosieVerbosity::Concise,
+            show_citations: true,
+            voice_enabled: true,
+            speak_responses: false,
+            selected_voice: default_rosie_voice(),
+            speech_rate: default_rosie_speech_rate(),
+            microphone_enabled: true,
+            microphone_mode: default_rosie_microphone_mode(),
         }
     }
 }
@@ -254,6 +327,52 @@ async fn get_receipt_preview_html(
         .header(axum::http::header::CONTENT_TYPE, "text/html; charset=utf-8")
         .body(body.into())
         .map_err(|e| SettingsError::InvalidPayload(e.to_string()))
+}
+
+async fn get_rosie_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<RosieConfig>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+    let raw: Value = sqlx::query_scalar("SELECT rosie_config FROM store_settings WHERE id = 1")
+        .fetch_one(&state.db)
+        .await?;
+
+    let cfg: RosieConfig = serde_json::from_value(raw).unwrap_or_default();
+    Ok(Json(cfg))
+}
+
+async fn patch_rosie_config(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Result<Json<RosieConfig>, SettingsError> {
+    require_settings_admin(&state, &headers).await?;
+
+    let existing_raw: Value =
+        sqlx::query_scalar("SELECT rosie_config FROM store_settings WHERE id = 1")
+            .fetch_one(&state.db)
+            .await?;
+
+    let mut existing: Value = existing_raw;
+    if let (Value::Object(existing_map), Value::Object(new_map)) = (&mut existing, body) {
+        for (k, v) in new_map {
+            existing_map.insert(k, v);
+        }
+    }
+
+    let normalized: RosieConfig = serde_json::from_value(existing).map_err(|e| {
+        SettingsError::InvalidPayload(format!("invalid ROSIE settings payload: {e}"))
+    })?;
+    let normalized_value = serde_json::to_value(&normalized)
+        .map_err(|e| SettingsError::InvalidPayload(format!("serialize failed: {e}")))?;
+
+    sqlx::query("UPDATE store_settings SET rosie_config = $1 WHERE id = 1")
+        .bind(&normalized_value)
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(normalized))
 }
 
 async fn get_backups(
@@ -1220,6 +1339,7 @@ pub fn router() -> Router<AppState> {
             "/receipt",
             get(get_receipt_config).patch(patch_receipt_config),
         )
+        .route("/rosie", get(get_rosie_config).patch(patch_rosie_config))
         .route("/backups", get(get_backups))
         .route("/backups/create", post(create_backup))
         .route("/backups/restore/{filename}", post(restore_backup))

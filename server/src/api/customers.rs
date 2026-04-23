@@ -43,6 +43,25 @@ use crate::logic::lightspeed_customers::{
 };
 use crate::logic::podium;
 use crate::logic::podium_messaging;
+
+pub(crate) async fn rosie_customer_hub_snapshot(
+    state: &AppState,
+    headers: &HeaderMap,
+    customer_id: Uuid,
+) -> Result<serde_json::Value, Response> {
+    let Json(hub) = get_customer_hub(State(state.clone()), headers.clone(), Path(customer_id))
+        .await
+        .map_err(IntoResponse::into_response)?;
+
+    serde_json::to_value(hub).map_err(|error| {
+        tracing::error!(error = %error, %customer_id, "serialize ROSIE customer hub snapshot");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to serialize customer hub snapshot" })),
+        )
+            .into_response()
+    })
+}
 use crate::logic::store_credit;
 use crate::logic::wedding_party_display::SQL_PARTY_TRACKING_LABEL_WP;
 use crate::middleware;

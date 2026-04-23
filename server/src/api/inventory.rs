@@ -256,14 +256,14 @@ async fn batch_scan(
 
 /// Detailed product data for POS "Intelligence" drawer.
 /// Aggregates inventory levels, open PO quantities, and sale history.
-async fn get_product_intelligence(
-    State(state): State<AppState>,
-    Path(variant_id): Path<Uuid>,
-    headers: HeaderMap,
-) -> impl IntoResponse {
-    let auth = match middleware::require_staff_or_pos_register_session(&state, &headers).await {
-        Ok(a) => a,
-        Err((status, body)) => return (status, body).into_response(),
+async fn fetch_product_intelligence(
+    state: &AppState,
+    headers: &HeaderMap,
+    variant_id: Uuid,
+) -> Result<ProductIntelligence, Response> {
+    let auth = match middleware::require_staff_or_pos_register_session(state, headers).await {
+        Ok(auth) => auth,
+        Err((status, body)) => return Err((status, body).into_response()),
     };
 
     let show_cost = match &auth {
@@ -311,7 +311,7 @@ async fn get_product_intelligence(
     .unwrap_or(None);
 
     let Some((name, sku, label, soh, res, retail, cost, product_id)) = basic else {
-        return StatusCode::NOT_FOUND.into_response();
+        return Err(StatusCode::NOT_FOUND.into_response());
     };
 
     // 3. Fetch Qty On Order (Sum of open PO lines)
@@ -344,7 +344,7 @@ async fn get_product_intelligence(
     .await
     .unwrap_or(None);
 
-    Json(ProductIntelligence {
+    Ok(ProductIntelligence {
         variant_id,
         product_id,
         sku,
@@ -358,7 +358,33 @@ async fn get_product_intelligence(
         retail_price: retail,
         last_sale_date,
     })
-    .into_response()
+}
+
+async fn get_product_intelligence(
+    State(state): State<AppState>,
+    Path(variant_id): Path<Uuid>,
+    headers: HeaderMap,
+) -> impl IntoResponse {
+    match fetch_product_intelligence(&state, &headers, variant_id).await {
+        Ok(intelligence) => Json(intelligence).into_response(),
+        Err(response) => response,
+    }
+}
+
+pub(crate) async fn rosie_inventory_variant_intelligence(
+    state: &AppState,
+    headers: &HeaderMap,
+    variant_id: Uuid,
+) -> Result<serde_json::Value, Response> {
+    let intelligence = fetch_product_intelligence(state, headers, variant_id).await?;
+    serde_json::to_value(intelligence).map_err(|error| {
+        tracing::error!(error = %error, %variant_id, "serialize ROSIE inventory intelligence");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to serialize inventory intelligence" })),
+        )
+            .into_response()
+    })
 }
 
 async fn get_recommendations(

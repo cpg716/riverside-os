@@ -10,6 +10,16 @@ export type HelpSearchChunk = {
   body: string;
 };
 
+export function findHelpChunkBySlug(
+  markdown: string,
+  manualId: string,
+  manualTitleFallback: string,
+  slug: string,
+): HelpSearchChunk | null {
+  const chunks = buildLocalSearchChunks(manualId, manualTitleFallback, markdown);
+  return chunks.find((chunk) => chunk.sectionSlug === slug) ?? null;
+}
+
 /** Slugs for `##` / `###` in document order (matches server chunking, excluding intro). */
 export function orderedSectionSlugs(markdown: string): string[] {
   const lines = markdown.split("\n");

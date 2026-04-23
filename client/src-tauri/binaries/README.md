@@ -1,68 +1,76 @@
-# llama-server sidecar (llama.cpp)
+# llama-server sidecar (ROSIE Host LLM runtime)
 
-Tauri bundles **`llama-server`** from this folder. See [`client/src-tauri/src/llama_server.rs`](../src/llama_server.rs) for spawn/stop commands.
+Tauri bundles `llama-server` from this folder. Spawn/stop behavior lives in [`client/src-tauri/src/llama_server.rs`](../src/llama_server.rs).
 
-## Step A — Build `llama-server` on Windows 11 (AVX2 / VNNI)
+The canonical ROSIE stack source of truth is [`docs/ROSIE_HOST_STACK.md`](../../../docs/ROSIE_HOST_STACK.md).
+Use that file for approval status, fallback policy, and Host expectations.
 
-On a **Windows 11** dev machine with **CMake** and **Visual Studio Build Tools** (MSVC):
+## Approved production stack
 
-1. Clone **[ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp)** (or your fork).
-2. Configure with CPU features enabled (MSVC):
+The approved production Host stack is:
 
-   ```bat
-   cmake -B build -DCMAKE_BUILD_TYPE=Release ^
-     -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_VNNI=ON
-   cmake --build build --config Release -j
-   ```
+- LLM runtime: `llama.cpp` `llama-server`
+- LLM model: Gemma 4 E4B
+- STT: SenseVoice Small via Sherpa-ONNX
+- TTS: Kokoro-82M via Sherpa-ONNX
 
-   Adjust flags to match your **llama.cpp** CMake options (`-DGGML_NATIVE=ON` can tune for the local CPU instead).
+Fallback-only paths remain supported where the Host stack file says they are allowed, but they are not the primary story.
 
-3. Copy the built server binary to this repo:
+## Pinned local asset expectations
 
-   - From `build/bin/Release/llama-server.exe` (path may vary), copy to:
+- `RIVERSIDE_LLAMA_MODEL_PATH`
+  - default: `~/Library/Application Support/riverside-os/rosie/models/gemma-4-e4b/google_gemma-4-E4B-it-Q4_K_M.gguf`
+- `RIVERSIDE_SENSEVOICE_MODEL_DIR`
+  - default: `~/Library/Application Support/riverside-os/rosie/stt/sherpa-onnx-sense-voice-zh-en-ja-ko-yue-int8-2024-07-17`
+- `RIVERSIDE_KOKORO_MODEL_DIR`
+  - default: `~/Library/Application Support/riverside-os/rosie/tts/kokoro-multi-lang-v1_0`
+- `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH`
+  - default on the current workstation flow: `~/.local/share/uv/tools/sherpa-onnx/bin/python`
 
-     `client/src-tauri/binaries/llama-server-x86_64-pc-windows-msvc.exe`
+## Bundling the sidecar on Apple Silicon
 
-   Tauri expects the **`TARGET_TRIPLE`** suffix. Check with:
+On Apple Silicon development machines, this repo can bundle the already-installed Homebrew `llama-server` binary:
 
-   ```bat
-   rustc --print host-tuple
-   ```
+```bash
+brew install llama.cpp
+cp /opt/homebrew/bin/llama-server client/src-tauri/binaries/llama-server-aarch64-apple-darwin
+chmod +x client/src-tauri/binaries/llama-server-aarch64-apple-darwin
+```
 
-   For Windows MSVC amd64 this is usually `x86_64-pc-windows-msvc`.
+The desktop shell treats that sidecar as the local-first direct runtime path.
 
-4. **macOS / Linux** developers: place the corresponding triple file (e.g. `llama-server-aarch64-apple-darwin`) next to the Windows binary for cross-bundle workflows, or build only on Windows for POS installers.
+## Runtime env
 
-## Step B — Already wired
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `RIVERSIDE_LLAMA_MODEL_PATH` | Gemma path above | Approved primary GGUF for the Host LLM runtime. |
+| `RIVERSIDE_LLAMA_HOST` | `127.0.0.1` | Loopback HTTP bind for the OpenAI-compatible runtime. |
+| `RIVERSIDE_LLAMA_PORT` | `8080` | Loopback port for the local Host runtime. |
+| `RIVERSIDE_LLAMA_EXTRA_ARGS` | unset | Optional extra `llama-server` arguments for Host tuning. |
+| `RIVERSIDE_ROSIE_SPEECH_PYTHON_PATH` | `~/.local/share/uv/tools/sherpa-onnx/bin/python` | Python runtime used by the SenseVoice and Kokoro helper scripts. |
+| `RIVERSIDE_SENSEVOICE_MODEL_DIR` | SenseVoice path above | Approved primary STT model directory. |
+| `RIVERSIDE_KOKORO_MODEL_DIR` | Kokoro path above | Approved primary TTS model directory. |
+| `RIVERSIDE_SHERPA_PROVIDER` | `cpu` | Sherpa provider; Host deployments may use OpenVINO where applicable. |
+| `RIVERSIDE_WHISPER_CLI_PATH` / `RIVERSIDE_WHISPER_MODEL_PATH` | unset | Fallback-only STT path. |
+| `RIVERSIDE_TTS_FALLBACK_COMMAND_PATH` | `/usr/bin/say` | Fallback-only host TTS path. |
 
-[`tauri.conf.json`](../tauri.conf.json) lists `"externalBin": ["binaries/llama-server"]`.
+## Verification
 
-## Step C — Runtime (orchestrator)
+Run the end-to-end local verifier:
 
-From the desktop shell, after setting **`RIVERSIDE_LLAMA_MODEL_PATH`** to a `.gguf` file:
+```bash
+./scripts/verify_rosie_local_stack.sh
+```
 
-| Invoke | Purpose |
-|--------|---------|
-| `rosie_llama_start` | Spawns sidecar (`-m`, `--host`/`--port` from env). |
-| `rosie_llama_stop` | Kills the embedded process. |
-| `rosie_llama_status` | Whether this app still holds the child handle. |
+That script checks:
+- Gemma runtime load + response
+- Kokoro speech synthesis
+- SenseVoice transcription
+- governed Ask ROSIE flow from transcript to answer
+- Kokoro interruption behavior
 
-Optional env:
+## OpenVINO note
 
-| Variable | Default | Notes |
-|----------|---------|--------|
-| `RIVERSIDE_LLAMA_HOST` | `127.0.0.1` | HTTP bind for OpenAI-compatible API. |
-| `RIVERSIDE_LLAMA_PORT` | `8080` | Match your client HTTP port. |
-| `RIVERSIDE_LLAMA_MMPROJ_PATH` | (unset) | **LLaVA**: path to `mmproj` file; passed as `--mmproj`. |
-
-Frontend can call these via `@tauri-apps/plugin-shell` later; the Rust API is sufficient for ROSIE integration.
-
-## LLaVA + Playwright (vision tip)
-
-For **multimodal** analysis of ROS screenshots, build a **llama.cpp** server with **LLaVA** support, set **`RIVERSIDE_LLAMA_MMPROJ_PATH`**, and POST images per **[llama.cpp server multimodal](https://github.com/ggml-org/llama.cpp/blob/master/examples/server/README.md)** (API evolves with upstream).
-
-Production POS should still prefer **Tauri-first** or structured UI context per **`docs/PLAN_LOCAL_LLM_HELP.md`**; Playwright + LLaVA is best for **engineering / QA** rigs.
-
-## License
-
-Ensure your **llama.cpp** and model **GGUF** artifacts comply with upstream and model card terms.
+OpenVINO is the preferred Host optimization path where applicable.
+Do not assume AVX512.
+On macOS workstation verification, `cpu` providers may still be the active local runtime path.

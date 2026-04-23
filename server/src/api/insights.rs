@@ -11,6 +11,7 @@ use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use serde_json::Value;
 use sqlx::types::Json as SqlxJson;
 use sqlx::FromRow;
 use sqlx::PgPool;
@@ -45,6 +46,100 @@ pub enum InsightsError {
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RosieReportingRunResponse {
+    pub spec_id: String,
+    pub route: &'static str,
+    pub required_permission: &'static str,
+    pub params: Value,
+    pub data: Value,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RosieReportingRunRequest {
+    pub spec_id: String,
+    #[serde(default)]
+    pub params: Value,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieDateRangeParams {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieSalesPivotParams {
+    #[serde(default = "default_group_by")]
+    pub group_by: String,
+    #[serde(default = "default_basis")]
+    pub basis: String,
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieBestSellersParams {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    #[serde(default = "default_insights_report_basis")]
+    pub basis: String,
+    #[serde(default = "default_velocity_limit")]
+    pub limit: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieDeadStockParams {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    #[serde(default = "default_insights_report_basis")]
+    pub basis: String,
+    #[serde(default = "default_velocity_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub max_units_sold: Option<i64>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieStaffPerformanceParams {
+    pub basis: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieRegisterSessionsParams {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    #[serde(default = "default_register_sessions_limit")]
+    pub limit: i64,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieRegisterOverrideMixParams {
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    #[serde(default = "default_insights_report_basis")]
+    pub basis: String,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct RosieRegisterDayActivityParams {
+    pub preset: Option<String>,
+    pub from: Option<NaiveDate>,
+    pub to: Option<NaiveDate>,
+    pub register_session_id: Option<Uuid>,
+    #[serde(default = "default_insights_report_basis")]
+    pub basis: String,
 }
 
 impl IntoResponse for InsightsError {
@@ -1372,6 +1467,221 @@ async fn insights_auth_insights_view(
         })
 }
 
+fn parse_rosie_params<T>(spec_id: &str, params: Value) -> Result<(T, Value), InsightsError>
+where
+    T: for<'de> Deserialize<'de> + Serialize,
+{
+    let parsed: T = serde_json::from_value(params).map_err(|e| {
+        InsightsError::BadRequest(format!("invalid reporting params for {spec_id}: {e}"))
+    })?;
+    let normalized = serde_json::to_value(&parsed).map_err(|e| {
+        InsightsError::BadRequest(format!(
+            "failed to normalize reporting params for {spec_id}: {e}"
+        ))
+    })?;
+    Ok((parsed, normalized))
+}
+
+pub async fn rosie_reporting_run(
+    state: &AppState,
+    headers: &HeaderMap,
+    request: RosieReportingRunRequest,
+) -> Result<RosieReportingRunResponse, InsightsError> {
+    match request.spec_id.as_str() {
+        "sales_pivot" => {
+            let (params, normalized) =
+                parse_rosie_params::<RosieSalesPivotParams>("sales_pivot", request.params)?;
+            let query = SalesPivotQuery {
+                group_by: params.group_by,
+                basis: params.basis,
+                range: DateRangeQuery {
+                    from: params.from,
+                    to: params.to,
+                },
+            };
+            let Json(data) =
+                sales_pivot(State(state.clone()), headers.clone(), Query(query)).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "sales_pivot".to_string(),
+                route: "/api/insights/sales-pivot",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "best_sellers" => {
+            let (params, normalized) =
+                parse_rosie_params::<RosieBestSellersParams>("best_sellers", request.params)?;
+            let query = BestSellersQuery {
+                range: DateRangeQuery {
+                    from: params.from,
+                    to: params.to,
+                },
+                basis: params.basis,
+                limit: params.limit,
+            };
+            let Json(data) =
+                best_sellers(State(state.clone()), headers.clone(), Query(query)).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "best_sellers".to_string(),
+                route: "/api/insights/best-sellers",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "dead_stock" => {
+            let (params, normalized) =
+                parse_rosie_params::<RosieDeadStockParams>("dead_stock", request.params)?;
+            let query = DeadStockQuery {
+                range: DateRangeQuery {
+                    from: params.from,
+                    to: params.to,
+                },
+                basis: params.basis,
+                limit: params.limit,
+                max_units_sold: params.max_units_sold,
+            };
+            let Json(data) =
+                dead_stock(State(state.clone()), headers.clone(), Query(query)).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "dead_stock".to_string(),
+                route: "/api/insights/dead-stock",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "wedding_health" => {
+            let (_params, normalized) = parse_rosie_params::<serde_json::Map<String, Value>>(
+                "wedding_health",
+                request.params,
+            )?;
+            let Json(data) = wedding_health_summary(State(state.clone()), headers.clone()).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "wedding_health".to_string(),
+                route: "/api/insights/wedding-health",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "commission_ledger" => {
+            let (params, normalized) =
+                parse_rosie_params::<RosieDateRangeParams>("commission_ledger", request.params)?;
+            let query = DateRangeQuery {
+                from: params.from,
+                to: params.to,
+            };
+            let Json(data) =
+                commission_ledger(State(state.clone()), headers.clone(), Query(query)).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "commission_ledger".to_string(),
+                route: "/api/insights/commission-ledger",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "staff_performance" => {
+            let (params, normalized) = parse_rosie_params::<RosieStaffPerformanceParams>(
+                "staff_performance",
+                request.params,
+            )?;
+            let query = StaffPerformanceQuery {
+                basis: params.basis,
+            };
+            let Json(data) =
+                staff_performance(State(state.clone()), headers.clone(), Query(query)).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "staff_performance".to_string(),
+                route: "/api/insights/staff-performance",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "register_sessions" => {
+            let (params, normalized) = parse_rosie_params::<RosieRegisterSessionsParams>(
+                "register_sessions",
+                request.params,
+            )?;
+            let query = RegisterSessionsQuery {
+                from: params.from,
+                to: params.to,
+                limit: params.limit,
+            };
+            let Json(data) =
+                register_session_history(State(state.clone()), headers.clone(), Query(query))
+                    .await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "register_sessions".to_string(),
+                route: "/api/insights/register-sessions",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "register_override_mix" => {
+            let (params, normalized) = parse_rosie_params::<RosieRegisterOverrideMixParams>(
+                "register_override_mix",
+                request.params,
+            )?;
+            let query = DateRangeWithBasisQuery {
+                range: DateRangeQuery {
+                    from: params.from,
+                    to: params.to,
+                },
+                basis: params.basis,
+            };
+            let Json(data) =
+                register_override_mix(State(state.clone()), headers.clone(), Query(query)).await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "register_override_mix".to_string(),
+                route: "/api/insights/register-override-mix",
+                required_permission: INSIGHTS_VIEW,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        "register_day_activity" => {
+            let (params, normalized) = parse_rosie_params::<RosieRegisterDayActivityParams>(
+                "register_day_activity",
+                request.params,
+            )?;
+            let query = RegisterDayActivityQuery {
+                preset: params.preset,
+                from: params.from,
+                to: params.to,
+                register_session_id: params.register_session_id,
+                basis: params.basis,
+            };
+            let Json(data) =
+                register_day_activity_summary(State(state.clone()), headers.clone(), Query(query))
+                    .await?;
+            Ok(RosieReportingRunResponse {
+                spec_id: "register_day_activity".to_string(),
+                route: "/api/insights/register-day-activity",
+                required_permission: REGISTER_REPORTS,
+                params: normalized,
+                data: serde_json::to_value(data)
+                    .map_err(|e| InsightsError::BadRequest(e.to_string()))?,
+            })
+        }
+        other => Err(InsightsError::BadRequest(format!(
+            "unsupported reporting spec_id: {other}"
+        ))),
+    }
+}
+
 async fn best_sellers(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1917,4 +2227,242 @@ pub fn router() -> Router<AppState> {
         .route("/dead-stock", get(dead_stock))
         .route("/loyalty-velocity", get(loyalty_velocity))
         .route("/merchant-activity", get(get_merchant_activity))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::store_account_rate::StoreAccountRateState;
+    use crate::api::{AppState, PaymentIntentMinuteWindow};
+    use crate::auth::permissions::{INSIGHTS_VIEW, REGISTER_REPORTS};
+    use crate::auth::pins::hash_pin;
+    use crate::logic::corecard::{CoreCardConfig, CoreCardTokenCache};
+    use crate::logic::podium::PodiumTokenCache;
+    use crate::logic::wedding_push::WeddingEventBus;
+    use crate::observability::ServerLogRing;
+    use axum::http::{HeaderMap, HeaderValue};
+    use rust_decimal::Decimal;
+    use sqlx::PgPool;
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tokio::sync::Mutex;
+
+    async fn connect_test_db() -> PgPool {
+        let _ =
+            dotenvy::from_filename(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env"));
+        let database_url =
+            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
+        PgPool::connect(&database_url)
+            .await
+            .expect("connect test database")
+    }
+
+    async fn next_staff_code(pool: &PgPool) -> String {
+        for _ in 0..128 {
+            let candidate = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1)")
+                    .bind(&candidate)
+                    .fetch_one(pool)
+                    .await
+                    .expect("check cashier_code uniqueness");
+            if !exists {
+                return candidate;
+            }
+        }
+        panic!("could not allocate unique 4-digit cashier code for test staff");
+    }
+
+    async fn insert_staff_with_permissions(
+        pool: &PgPool,
+        role: &str,
+        permissions: &[&str],
+    ) -> (Uuid, String) {
+        let id = Uuid::new_v4();
+        let code = next_staff_code(pool).await;
+        let pin_hash = hash_pin(&code).expect("hash test staff pin");
+        sqlx::query(
+            r#"
+            INSERT INTO staff (
+                id, full_name, cashier_code, pin_hash, role, is_active, avatar_key
+            )
+            VALUES ($1, $2, $3, $4, $5::staff_role, TRUE, 'ros_default')
+            "#,
+        )
+        .bind(id)
+        .bind(format!("ROSIE Reporting Test {}", id.simple()))
+        .bind(&code)
+        .bind(pin_hash)
+        .bind(role)
+        .execute(pool)
+        .await
+        .expect("insert test staff");
+
+        for permission in permissions {
+            sqlx::query(
+                r#"
+                INSERT INTO staff_permission (staff_id, permission_key, allowed)
+                VALUES ($1, $2, TRUE)
+                ON CONFLICT (staff_id, permission_key)
+                DO UPDATE SET allowed = EXCLUDED.allowed
+                "#,
+            )
+            .bind(id)
+            .bind(permission)
+            .execute(pool)
+            .await
+            .expect("insert test permission");
+        }
+
+        (id, code)
+    }
+
+    fn build_test_state(pool: PgPool) -> AppState {
+        AppState {
+            db: pool,
+            global_employee_markup: Decimal::new(15, 0),
+            stripe_client: stripe::Client::new("sk_test_rosie_reporting"),
+            http_client: reqwest::Client::new(),
+            podium_token_cache: Arc::new(Mutex::new(PodiumTokenCache::default())),
+            database_url: "postgres://test".to_string(),
+            counterpoint_sync_token: None,
+            wedding_events: WeddingEventBus::new(),
+            payment_intent_minute: Arc::new(Mutex::new(PaymentIntentMinuteWindow {
+                window_start: Instant::now(),
+                count: 0,
+            })),
+            payment_intent_max_per_minute: 0,
+            store_customer_jwt_secret: Arc::<[u8]>::from(b"rosie-reporting-test".as_slice()),
+            store_account_rate: Arc::new(Mutex::new(StoreAccountRateState::default())),
+            store_account_unauth_post_per_minute_ip: 0,
+            store_account_authed_per_minute: 0,
+            meilisearch: None,
+            corecard_config: CoreCardConfig::from_env(),
+            corecard_token_cache: Arc::new(Mutex::new(CoreCardTokenCache::default())),
+            server_log_ring: ServerLogRing::new(32, 512),
+        }
+    }
+
+    fn auth_headers(code: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-riverside-staff-code",
+            HeaderValue::from_str(code).expect("staff code header"),
+        );
+        headers.insert(
+            "x-riverside-staff-pin",
+            HeaderValue::from_str(code).expect("staff pin header"),
+        );
+        headers
+    }
+
+    #[tokio::test]
+    async fn rosie_reporting_run_executes_allowlisted_report() {
+        let pool = connect_test_db().await;
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[INSIGHTS_VIEW]).await;
+        let state = build_test_state(pool);
+
+        let result = rosie_reporting_run(
+            &state,
+            &auth_headers(&code),
+            RosieReportingRunRequest {
+                spec_id: "wedding_health".to_string(),
+                params: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect("allowlisted report should execute");
+
+        assert_eq!(result.spec_id, "wedding_health");
+        assert_eq!(result.route, "/api/insights/wedding-health");
+        assert!(result.data.is_object());
+    }
+
+    #[tokio::test]
+    async fn rosie_reporting_run_rejects_invalid_spec_id() {
+        let pool = connect_test_db().await;
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[INSIGHTS_VIEW]).await;
+        let state = build_test_state(pool);
+
+        let err = rosie_reporting_run(
+            &state,
+            &auth_headers(&code),
+            RosieReportingRunRequest {
+                spec_id: "margin_pivot".to_string(),
+                params: serde_json::json!({}),
+            },
+        )
+        .await
+        .expect_err("non-allowlisted spec should be rejected");
+
+        match err {
+            InsightsError::BadRequest(message) => {
+                assert!(message.contains("unsupported reporting spec_id"));
+            }
+            other => panic!("expected bad request, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rosie_reporting_run_rejects_unknown_params() {
+        let pool = connect_test_db().await;
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[INSIGHTS_VIEW]).await;
+        let state = build_test_state(pool);
+
+        let err = rosie_reporting_run(
+            &state,
+            &auth_headers(&code),
+            RosieReportingRunRequest {
+                spec_id: "sales_pivot".to_string(),
+                params: serde_json::json!({
+                    "group_by": "brand",
+                    "basis": "booked",
+                    "rogue": true
+                }),
+            },
+        )
+        .await
+        .expect_err("unknown keys should be rejected");
+
+        match err {
+            InsightsError::BadRequest(message) => {
+                assert!(message.contains("invalid reporting params for sales_pivot"));
+                assert!(message.contains("rogue"));
+            }
+            other => panic!("expected bad request, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rosie_reporting_run_enforces_underlying_permissions() {
+        let pool = connect_test_db().await;
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[INSIGHTS_VIEW]).await;
+        let state = build_test_state(pool);
+
+        let err = rosie_reporting_run(
+            &state,
+            &auth_headers(&code),
+            RosieReportingRunRequest {
+                spec_id: "register_day_activity".to_string(),
+                params: serde_json::json!({
+                    "from": Utc::now().date_naive(),
+                    "to": Utc::now().date_naive(),
+                    "basis": "booked"
+                }),
+            },
+        )
+        .await
+        .expect_err("register reports permission should be required");
+
+        match err {
+            InsightsError::Forbidden(message) => {
+                assert!(message.contains(REGISTER_REPORTS));
+            }
+            other => panic!("expected forbidden, got {other:?}"),
+        }
+    }
 }

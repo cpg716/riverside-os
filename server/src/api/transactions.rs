@@ -43,6 +43,33 @@ use crate::models::{
     DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus, DbTransactionCategory,
 };
 
+pub(crate) async fn rosie_order_summary(
+    state: &AppState,
+    headers: &HeaderMap,
+    transaction_id: Uuid,
+    register_session_id: Option<Uuid>,
+) -> Result<serde_json::Value, Response> {
+    let Json(detail) = get_transaction_detail(
+        State(state.clone()),
+        Path(transaction_id),
+        Query(TransactionReadQuery {
+            register_session_id,
+        }),
+        headers.clone(),
+    )
+    .await
+    .map_err(IntoResponse::into_response)?;
+
+    serde_json::to_value(detail).map_err(|error| {
+        tracing::error!(error = %error, %transaction_id, "serialize ROSIE order summary");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to serialize order summary" })),
+        )
+            .into_response()
+    })
+}
+
 #[derive(Debug, Error)]
 pub enum TransactionError {
     #[error("Database error: {0}")]

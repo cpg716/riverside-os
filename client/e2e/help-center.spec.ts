@@ -48,6 +48,35 @@ async function openSettingsHelpCenterManager(
   ).toBeVisible({ timeout: 20_000 });
 }
 
+async function openSettingsRosiePanel(
+  page: Parameters<typeof test>[0]["page"],
+) {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await openBackofficeSidebarTab(page, "settings");
+    const mainNav = await ensureMainNavigationVisible(page);
+    const rosieButton = mainNav.getByRole("button", {
+      name: /^rosie$/i,
+    });
+    await rosieButton.scrollIntoViewIfNeeded();
+    await expect(rosieButton).toBeVisible({ timeout: 15_000 });
+    await expect(rosieButton).toBeEnabled();
+    await rosieButton.click();
+
+    const rosiePanel = page.getByTestId("rosie-settings-panel");
+    if (await rosiePanel.isVisible().catch(() => false)) {
+      return;
+    }
+    await rosiePanel.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+    if (await rosiePanel.isVisible().catch(() => false)) {
+      return;
+    }
+  }
+
+  await expect(page.getByTestId("rosie-settings-panel")).toBeVisible({
+    timeout: 20_000,
+  });
+}
+
 test("opens Help from Back Office header", async ({ page }) => {
   await signInToBackOffice(page);
   await page.goto(base(), { waitUntil: "domcontentloaded" });
@@ -76,6 +105,479 @@ test("help search lists Results after query (Meilisearch or local fallback)", as
   await expect(page.getByText("Results").first()).toBeVisible({
     timeout: 15_000,
   });
+});
+
+test("Ask ROSIE sends grounded Help request and renders source chips", async ({
+  page,
+}) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    const body = route.request().postDataJSON() as {
+      question?: string;
+      settings?: { enabled?: boolean; response_style?: string; show_citations?: boolean };
+    };
+    expect(body.question).toBe("how do I close the register");
+    expect(body.settings?.enabled).toBe(true);
+    expect(body.settings?.response_style).toBe("concise");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: body.question,
+        settings: body.settings,
+        sources: [
+          {
+            kind: "manual",
+            title: "POS Manual — Register Closing",
+            excerpt: "Close the register from the register reports workflow.",
+            content: "Close the register from the register reports workflow.",
+            manual_id: "pos",
+            manual_title: "POS Manual",
+            section_slug: "register-closing",
+            section_heading: "Register Closing",
+            anchor_id: "help-pos-register-closing",
+          },
+        ],
+        tool_results: [
+          {
+            tool_name: "help_search",
+            args: { q: body.question, limit: 6 },
+            result: {
+              hits: [
+                {
+                  manual_id: "pos",
+                  manual_title: "POS Manual",
+                  section_slug: "register-closing",
+                  section_heading: "Register Closing",
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    const body = route.request().postDataJSON() as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
+    expect(userPrompt).toContain("User question: how do I close the register");
+    expect(userPrompt).toContain("Structured tool results:");
+    expect(userPrompt).toContain("Tool 1: help_search");
+    expect(userPrompt).toContain("Grounding sources:");
+    expect(userPrompt).toMatch(/Source 1:/);
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "chatcmpl-test",
+        object: "chat.completion",
+        created: Date.now(),
+        model: "local",
+        choices: [
+          {
+            index: 0,
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content:
+                "Open the register reports workflow and complete the close sequence from the register tools.",
+            },
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-ask-rosie-input").fill("how do I close the register");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(
+    page.getByText(/grounded sources/i).first(),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByTestId("help-center-rosie-source-chip").first(),
+  ).toBeVisible({ timeout: 15_000 });
+});
+
+test("Ask ROSIE voice input reuses the normal text flow and can stop voice output", async ({
+  page,
+}) => {
+  await page.addInitScript(() => {
+    function MockSpeechRecognition(this: {
+      continuous: boolean;
+      interimResults: boolean;
+      lang: string;
+      maxAlternatives: number;
+      onstart: null | (() => void);
+      onresult: null | ((event: unknown) => void);
+      onerror: null | ((event: { error?: string }) => void);
+      onend: null | (() => void);
+    }) {
+      this.continuous = false;
+      this.interimResults = true;
+      this.lang = "en-US";
+      this.maxAlternatives = 1;
+      this.onstart = null;
+      this.onresult = null;
+      this.onerror = null;
+      this.onend = null;
+    }
+
+    MockSpeechRecognition.prototype.start = function start() {
+      (
+        window as typeof window & { __rosieRecognitionStarted?: boolean }
+      ).__rosieRecognitionStarted = true;
+      this.onstart?.();
+      window.setTimeout(() => {
+        this.onresult?.({
+          resultIndex: 0,
+          results: [
+            {
+              isFinal: true,
+              length: 1,
+              0: { transcript: "how do I close the register" },
+            },
+          ],
+        });
+        this.onend?.();
+      }, 25);
+    };
+
+    MockSpeechRecognition.prototype.stop = function stop() {
+      this.onend?.();
+    };
+
+    function MockSpeechSynthesisUtterance(
+      this: {
+        text: string;
+        rate: number;
+        onstart: null | (() => void);
+        onend: null | (() => void);
+        onerror: null | (() => void);
+      },
+      text: string,
+    ) {
+      this.text = text;
+      this.rate = 1;
+      this.onstart = null;
+      this.onend = null;
+      this.onerror = null;
+    }
+
+    Object.defineProperty(window, "webkitSpeechRecognition", {
+      configurable: true,
+      writable: true,
+      value: MockSpeechRecognition,
+    });
+    Object.defineProperty(window, "SpeechRecognition", {
+      configurable: true,
+      writable: true,
+      value: MockSpeechRecognition,
+    });
+    Object.defineProperty(window, "SpeechSynthesisUtterance", {
+      configurable: true,
+      writable: true,
+      value: MockSpeechSynthesisUtterance,
+    });
+    Object.defineProperty(window, "speechSynthesis", {
+      configurable: true,
+      writable: true,
+      value: {
+        speak(utterance: { text: string; onstart?: () => void }) {
+          (window as typeof window & { __rosieSpokenText?: string }).__rosieSpokenText =
+            utterance.text;
+          utterance.onstart?.();
+        },
+        cancel() {
+          (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled =
+            true;
+        },
+      },
+    });
+
+    window.localStorage.setItem(
+      "ros.rosie.settings.v1",
+      JSON.stringify({
+        enabled: true,
+        local_first: false,
+        response_style: "concise",
+        show_citations: true,
+        voice_enabled: true,
+        speak_responses: true,
+        selected_voice: "adam",
+        microphone_enabled: true,
+        microphone_mode: "push_to_talk",
+        speech_rate: 1,
+      }),
+    );
+  });
+
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    const body = route.request().postDataJSON() as {
+      question?: string;
+    };
+    expect(body.question).toBe("how do I close the register");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: body.question,
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: true,
+        },
+        sources: [
+          {
+            kind: "manual",
+            title: "POS Manual — Register Closing",
+            excerpt: "Close the register from the register reports workflow.",
+            content: "Close the register from the register reports workflow.",
+            manual_id: "pos",
+            manual_title: "POS Manual",
+            section_slug: "register-closing",
+            section_heading: "Register Closing",
+            anchor_id: "help-pos-register-closing",
+          },
+        ],
+        tool_results: [
+          {
+            tool_name: "help_search",
+            args: { q: body.question, limit: 6 },
+            result: { hits: [] },
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "chatcmpl-voice-test",
+        object: "chat.completion",
+        created: Date.now(),
+        model: "local",
+        choices: [
+          {
+            index: 0,
+            finish_reason: "stop",
+            message: {
+              role: "assistant",
+              content:
+                "Open the register reports workflow and complete the close sequence from the register tools.",
+            },
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-ask-rosie-mic").click();
+
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () =>
+            (
+              window as typeof window & { __rosieRecognitionStarted?: boolean }
+            ).__rosieRecognitionStarted === true,
+        ),
+    )
+    .toBe(true);
+  await expect(
+    page.getByTestId("help-center-ask-rosie-speaking"),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByText(/grounded sources/i).first(),
+  ).toBeVisible({ timeout: 15_000 });
+
+  await page.getByTestId("help-center-ask-rosie-stop-audio").click();
+  await expect(page.getByTestId("help-center-ask-rosie-speaking")).toHaveCount(0);
+  await expect
+    .poll(() => page.evaluate(() => (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled === true))
+    .toBe(true);
+});
+
+test("Ask ROSIE narrates approved reporting tool results", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "show me best sellers for last week",
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: true,
+        },
+        sources: [
+          {
+            kind: "report",
+            title: "Report — best sellers",
+            excerpt: "best_sellers via /api/insights/best-sellers",
+            content: "{\"rows\":[{\"product_name\":\"Navy Suit\",\"units_sold\":4}]}",
+            report_spec_id: "best_sellers",
+            report_route: "/api/insights/best-sellers",
+          },
+        ],
+        tool_results: [
+          {
+            tool_name: "reporting_run",
+            args: {
+              spec_id: "best_sellers",
+              params: {
+                from: "2026-04-15",
+                to: "2026-04-21",
+                basis: "booked",
+                limit: 100,
+              },
+            },
+            result: {
+              route: "/api/insights/best-sellers",
+              required_permission: "insights.view",
+              data: {
+                reporting_basis: "booked",
+                rows: [{ product_name: "Navy Suit", units_sold: 4 }],
+              },
+            },
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    const body = route.request().postDataJSON() as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const systemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? "";
+    const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
+    expect(systemPrompt).toContain("A reporting_run result is present");
+    expect(userPrompt).toContain("Tool 1: reporting_run");
+    expect(userPrompt).toContain("\"spec_id\": \"best_sellers\"");
+    expect(userPrompt).toContain("\"product_name\": \"Navy Suit\"");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content: "Navy Suit is the top best seller for the selected window.",
+            },
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page.getByTestId("help-center-ask-rosie-input").fill("show me best sellers for last week");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(
+    page.getByText(/Navy Suit is the top best seller/i),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByText(/Report — best sellers/i),
+  ).toBeVisible({ timeout: 15_000 });
+});
+
+test("Ask ROSIE narrates approved operational tool results", async ({ page }) => {
+  await signInToBackOffice(page);
+  await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        question: "show inventory intelligence for variant 11111111-1111-1111-1111-111111111111",
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: true,
+        },
+        sources: [
+          {
+            kind: "inventory",
+            title: "Inventory Intelligence — MTX-42R",
+            excerpt: "Read from /api/inventory/intelligence/11111111-1111-1111-1111-111111111111",
+            content: "{\"sku\":\"MTX-42R\",\"available_stock\":4,\"qty_on_order\":0}",
+            route: "/api/inventory/intelligence/11111111-1111-1111-1111-111111111111",
+            entity_id: "11111111-1111-1111-1111-111111111111",
+          },
+        ],
+        tool_results: [
+          {
+            tool_name: "inventory_variant_intelligence",
+            args: {
+              variant_id: "11111111-1111-1111-1111-111111111111",
+            },
+            result: {
+              sku: "MTX-42R",
+              name: "Midnight Tux",
+              available_stock: 4,
+              qty_on_order: 0,
+            },
+          },
+        ],
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
+    const body = route.request().postDataJSON() as {
+      messages?: Array<{ role?: string; content?: string }>;
+    };
+    const systemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? "";
+    const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
+    expect(systemPrompt).toContain("Approved operational tool results are present");
+    expect(userPrompt).toContain("Tool 1: inventory_variant_intelligence");
+    expect(userPrompt).toContain("\"sku\": \"MTX-42R\"");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              role: "assistant",
+              content:
+                "Variant `MTX-42R` currently shows 4 available units and no open PO quantity in the approved inventory intelligence result.",
+            },
+          },
+        ],
+      }),
+    });
+  });
+
+  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.getByTestId("help-center-trigger").click();
+  await page.getByTestId("help-center-ask-rosie-tab").click();
+  await page
+    .getByTestId("help-center-ask-rosie-input")
+    .fill("show inventory intelligence for variant 11111111-1111-1111-1111-111111111111");
+  await page.getByTestId("help-center-ask-rosie-send").click();
+
+  await expect(
+    page.getByText(/4 available units/i),
+  ).toBeVisible({ timeout: 15_000 });
+  await expect(
+    page.getByText(/Inventory Intelligence — MTX-42R/i),
+  ).toBeVisible({ timeout: 15_000 });
 });
 
 test.describe("Help Center Manager (settings)", () => {
@@ -166,5 +668,154 @@ test.describe("Help Center Manager (settings)", () => {
 
     expect(typeof body).toBe("object");
     expect(typeof body.full_reindex_fallback).toBe("boolean");
+  });
+});
+
+test.describe("ROSIE settings governance", () => {
+  test("shows governed intelligence pack status and triggers refresh request", async ({
+    page,
+  }) => {
+    test.setTimeout(90_000);
+    await signInToBackOffice(page);
+
+    await page.route("**/api/settings/rosie", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            enabled: true,
+            local_first: true,
+            response_style: "concise",
+            show_citations: true,
+            voice_enabled: true,
+            speak_responses: false,
+            selected_voice: "adam",
+            speech_rate: 1,
+            microphone_enabled: true,
+            microphone_mode: "push_to_talk",
+          }),
+        });
+        return;
+      }
+
+      await route.continue();
+    });
+
+    await page.route("**/api/help/rosie/v1/intelligence/status", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          pack: {
+            policy_pack_version: "rosie-policy-pack-2026-04-22-v1",
+            intelligence_pack_version: "rosie-intelligence-pack-2026-04-22-v1",
+            approved_source_groups: [
+              {
+                key: "help_manuals",
+                label: "Help manuals",
+                description: "Bundled in-app Help Center manuals.",
+                source_count: 160,
+                source_paths: ["client/src/assets/docs/pos-manual.md"],
+              },
+              {
+                key: "policy_contracts",
+                label: "ROSIE contract docs",
+                description: "Versioned contract docs.",
+                source_count: 3,
+                source_paths: ["docs/AI_CONTEXT_FOR_ASSISTANTS.md"],
+              },
+            ],
+            excluded_source_rules: [
+              "raw live customer, order, payment, and catalog database content",
+              "unrestricted conversation history or chat transcripts",
+            ],
+            issues_detected: [],
+            last_generated_at: "2026-04-22T12:00:00Z",
+          },
+          last_reindex_at: "2026-04-22T12:05:00Z",
+          meilisearch_configured: true,
+          node_available: true,
+          refresh_capabilities: {
+            generate_help_manifest: true,
+            reindex_search: true,
+          },
+        }),
+      });
+    });
+
+    const refreshRequest = page.waitForRequest(
+      (request) =>
+        request.url().includes("/api/help/rosie/v1/intelligence/refresh") &&
+        request.method() === "POST",
+      { timeout: 20_000 },
+    );
+    await page.route("**/api/help/rosie/v1/intelligence/refresh", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          status: {
+            pack: {
+              policy_pack_version: "rosie-policy-pack-2026-04-22-v1",
+              intelligence_pack_version: "rosie-intelligence-pack-2026-04-22-v1",
+              approved_source_groups: [
+                {
+                  key: "help_manuals",
+                  label: "Help manuals",
+                  description: "Bundled in-app Help Center manuals.",
+                  source_count: 160,
+                  source_paths: ["client/src/assets/docs/pos-manual.md"],
+                },
+              ],
+              excluded_source_rules: [
+                "raw live customer, order, payment, and catalog database content",
+              ],
+              issues_detected: [],
+              last_generated_at: "2026-04-22T12:10:00Z",
+            },
+            last_reindex_at: "2026-04-22T12:11:00Z",
+            meilisearch_configured: true,
+            node_available: true,
+            refresh_capabilities: {
+              generate_help_manifest: true,
+              reindex_search: true,
+            },
+          },
+          generate_manifest: {
+            ok: true,
+            exit_code: 0,
+            stdout: "manifest refreshed",
+            stderr: "",
+          },
+          reindex_search: {
+            ok: true,
+            exit_code: 0,
+            stdout: "help search reindex completed",
+            stderr: "",
+          },
+          dry_run: false,
+        }),
+      });
+    });
+
+    await openSettingsRosiePanel(page);
+
+    await expect(page.getByText(/governed intelligence pack/i)).toBeVisible();
+    await expect(
+      page.getByText(/rosie-policy-pack-2026-04-22-v1/i),
+    ).toBeVisible();
+    await expect(
+      page.getByText(/unrestricted conversation history or chat transcripts/i),
+    ).toBeVisible();
+
+    await page.getByTestId("rosie-intelligence-refresh-reindex").click();
+    const request = await refreshRequest;
+    const body = request.postDataJSON() as {
+      reindex_search?: boolean;
+      dry_run?: boolean;
+    };
+    expect(body.reindex_search).toBe(true);
+    expect(body.dry_run).toBe(false);
   });
 });

@@ -56,6 +56,7 @@ import RemoteAccessPanel from "./RemoteAccessPanel";
 import RegisterSettings from "../pos/RegisterSettings";
 import StaffProfilePanel from "./StaffProfilePanel";
 import RosDevCenterPanel from "./RosDevCenterPanel";
+import RosieSettingsPanel from "./RosieSettingsPanel";
 
 
 
@@ -1030,6 +1031,7 @@ export default function SettingsWorkspace({
               <OnlineStoreSettingsPanel baseUrl={baseUrl} />
             )}
 
+            {activeTab === "rosie" && <RosieSettingsPanel />}
             {activeTab === "help-center" && <HelpCenterSettingsPanel />}
             {activeTab === "bug-reports" && hasPermission("settings.admin") && (
               <BugReportsSettingsPanel

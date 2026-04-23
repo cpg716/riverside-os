@@ -38,6 +38,29 @@ use crate::logic::wedding_queries::{
 use crate::logic::weddings as wedding_logic;
 use crate::middleware;
 
+pub(crate) async fn rosie_wedding_actions(
+    state: &AppState,
+    headers: &HeaderMap,
+    days: Option<i64>,
+) -> Result<serde_json::Value, Response> {
+    let Json(actions) = get_actions(
+        State(state.clone()),
+        headers.clone(),
+        Query(ActionsQuery { days }),
+    )
+    .await
+    .map_err(IntoResponse::into_response)?;
+
+    serde_json::to_value(actions).map_err(|error| {
+        tracing::error!(error = %error, days, "serialize ROSIE wedding actions");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to serialize wedding actions" })),
+        )
+            .into_response()
+    })
+}
+
 fn spawn_meilisearch_wedding_party(state: &AppState, party_id: Uuid) {
     let ms = state.meilisearch.clone();
     let pool = state.db.clone();

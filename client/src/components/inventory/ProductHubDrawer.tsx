@@ -3,6 +3,7 @@ import { Building2, ChevronsUpDown, X, ShoppingBag } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
+import ConfirmationModal from "../ui/ConfirmationModal";
 import {
   formatMoney,
   formatUsdFromCents,
@@ -11,6 +12,12 @@ import {
 } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import {
+  rosieProductCatalogAnalyze,
+  rosieProductCatalogSuggest,
+  type RosieProductCatalogAnalysisResponse,
+  type RosieProductCatalogSuggestionResponse,
+} from "../../lib/rosie";
 
 type HubTab = "general" | "variations" | "history";
 
@@ -139,6 +146,16 @@ export default function ProductHubDrawer({
   const [employeeMarkupDraft, setEmployeeMarkupDraft] = useState("");
   const [employeeExtraDraft, setEmployeeExtraDraft] = useState("");
   const [employeeSaving, setEmployeeSaving] = useState(false);
+  const [catalogAnalysis, setCatalogAnalysis] =
+    useState<RosieProductCatalogAnalysisResponse | null>(null);
+  const [catalogAnalysisLoading, setCatalogAnalysisLoading] = useState(false);
+  const [catalogAnalysisError, setCatalogAnalysisError] = useState<string | null>(null);
+  const [catalogSuggestion, setCatalogSuggestion] =
+    useState<RosieProductCatalogSuggestionResponse | null>(null);
+  const [catalogSuggestionLoading, setCatalogSuggestionLoading] = useState(false);
+  const [catalogSuggestionError, setCatalogSuggestionError] = useState<string | null>(null);
+  const [catalogSuggestionConfirmOpen, setCatalogSuggestionConfirmOpen] = useState(false);
+  const [catalogSuggestionApplying, setCatalogSuggestionApplying] = useState(false);
 
   const loadHub = useCallback(async () => {
     if (!productId) return;
@@ -174,11 +191,55 @@ export default function ProductHubDrawer({
     }
   }, [productId, baseUrl, apiAuth]);
 
+  const loadCatalogAnalysis = useCallback(async () => {
+    if (!productId) return;
+    setCatalogAnalysisLoading(true);
+    setCatalogAnalysisError(null);
+    try {
+      const analysis = await rosieProductCatalogAnalyze(productId, {
+        headers: apiAuth(),
+      });
+      setCatalogAnalysis(analysis);
+    } catch (error) {
+      setCatalogAnalysis(null);
+      setCatalogAnalysisError(
+        error instanceof Error
+          ? error.message
+          : "ROSIE catalog analysis is unavailable right now.",
+      );
+    } finally {
+      setCatalogAnalysisLoading(false);
+    }
+  }, [productId, apiAuth]);
+
+  const loadCatalogSuggestion = useCallback(async () => {
+    if (!productId) return;
+    setCatalogSuggestionLoading(true);
+    setCatalogSuggestionError(null);
+    try {
+      const suggestion = await rosieProductCatalogSuggest(productId, {
+        headers: apiAuth(),
+      });
+      setCatalogSuggestion(suggestion);
+    } catch (error) {
+      setCatalogSuggestion(null);
+      setCatalogSuggestionError(
+        error instanceof Error
+          ? error.message
+          : "ROSIE catalog suggestion is unavailable right now.",
+      );
+    } finally {
+      setCatalogSuggestionLoading(false);
+    }
+  }, [productId, apiAuth]);
+
   useEffect(() => {
     if (!isOpen || !productId) return;
     void loadHub();
+    void loadCatalogAnalysis();
+    void loadCatalogSuggestion();
     setTab("general");
-  }, [isOpen, productId, loadHub]);
+  }, [isOpen, productId, loadHub, loadCatalogAnalysis, loadCatalogSuggestion]);
 
   useEffect(() => {
     if (!isOpen || !productId) return;
@@ -331,6 +392,42 @@ export default function ProductHubDrawer({
     }
   };
 
+  const applyCatalogSuggestion = async () => {
+    if (!hub || !catalogSuggestion?.suggested_parent_title) return;
+    setCatalogSuggestionApplying(true);
+    try {
+      const body: Record<string, unknown> = {
+        name: catalogSuggestion.suggested_parent_title,
+        audit_source: "rosie",
+        audit_note: "Applied ROSIE catalog normalization suggestion from Product Hub",
+        audit_confidence: catalogSuggestion.suggestion_confidence,
+      };
+
+      const supplierCode = catalogAnalysis?.parsed_fields.supplier_code?.trim();
+      if (supplierCode && supplierCode !== (hub.product.nuorder_product_id ?? "").trim()) {
+        body.catalog_handle = supplierCode;
+      }
+
+      const suggestedBrand = catalogAnalysis?.parsed_fields.brand?.trim();
+      const currentBrand = (hub.product.brand ?? "").trim();
+      if (suggestedBrand && suggestedBrand !== currentBrand) {
+        body.brand = suggestedBrand;
+      }
+
+      const ok = await patchProductModel(body);
+      if (!ok) return;
+
+      await Promise.all([loadCatalogAnalysis(), loadCatalogSuggestion()]);
+      if (tab === "history") {
+        await loadTimeline();
+      }
+      setCatalogSuggestionConfirmOpen(false);
+      toast("ROSIE catalog suggestion applied.", "success");
+    } finally {
+      setCatalogSuggestionApplying(false);
+    }
+  };
+
   const title =
     hub?.product.name ??
     seedTitle;
@@ -350,6 +447,33 @@ export default function ProductHubDrawer({
   );
 
   const totalStock = hub?.stats?.total_units_on_hand ?? 0;
+  const confidenceLabel = catalogAnalysis
+    ? `${Math.round((catalogAnalysis.confidence_score ?? 0) * 100)}% confidence`
+    : null;
+  const parsedCatalogFields = catalogAnalysis
+    ? [
+        ["Vendor", catalogAnalysis.parsed_fields.vendor],
+        ["Brand", catalogAnalysis.parsed_fields.brand],
+        ["Supplier code", catalogAnalysis.parsed_fields.supplier_code],
+        ["Product type", catalogAnalysis.parsed_fields.product_type],
+        ["Color", catalogAnalysis.parsed_fields.color],
+        ["Size", catalogAnalysis.parsed_fields.size],
+        ["Fit", catalogAnalysis.parsed_fields.fit],
+      ].filter(([, value]) => Boolean(value))
+    : [];
+  const currentParentTitle = hub?.product.name ?? "";
+  const suggestedParentTitle = catalogSuggestion?.suggested_parent_title ?? null;
+  const suggestedBrand = catalogAnalysis?.parsed_fields.brand?.trim() ?? "";
+  const currentBrand = (hub?.product.brand ?? "").trim();
+  const suggestedSupplierCode = catalogAnalysis?.parsed_fields.supplier_code?.trim() ?? "";
+  const currentSupplierCode = (hub?.product.nuorder_product_id ?? "").trim();
+  const canApplyCatalogSuggestion =
+    Boolean(hub) &&
+    Boolean(
+      (suggestedParentTitle && suggestedParentTitle !== currentParentTitle) ||
+        (suggestedBrand && suggestedBrand !== currentBrand) ||
+        (suggestedSupplierCode && suggestedSupplierCode !== currentSupplierCode),
+    );
 
   const hubVariants: HubVariant[] =
     hub?.variants?.map((v) => ({
@@ -550,6 +674,222 @@ export default function ProductHubDrawer({
                     ) : null}
                   </div>
                 </div>
+              </section>
+
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      ROSIE catalog analysis
+                    </h3>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      Read-only parsing of the current product data. This surfaces confidence and
+                      issues without changing catalog fields.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadCatalogAnalysis()}
+                    disabled={catalogAnalysisLoading}
+                    className="ui-btn-secondary rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    {catalogAnalysisLoading ? "Analyzing…" : "Refresh analysis"}
+                  </button>
+                </div>
+
+                {catalogAnalysisError ? (
+                  <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    {catalogAnalysisError}
+                  </div>
+                ) : null}
+
+                {catalogAnalysis ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-app-accent/30 bg-app-accent/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                        {confidenceLabel}
+                      </span>
+                      <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                        Source: {catalogAnalysis.source_route}
+                      </span>
+                    </div>
+
+                    {parsedCatalogFields.length > 0 ? (
+                      <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                        {parsedCatalogFields.map(([label, value]) => (
+                          <div
+                            key={label}
+                            className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                          >
+                            <dt className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              {label}
+                            </dt>
+                            <dd className="mt-1 font-semibold text-app-text">{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      <p className="text-sm text-app-text-muted">
+                        ROSIE could not parse any structured fields confidently from the current
+                        product data.
+                      </p>
+                    )}
+
+                    {catalogAnalysis.issues_detected.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Issues detected
+                        </p>
+                        <ul className="mt-2 space-y-2 text-sm text-app-text">
+                          {catalogAnalysis.issues_detected.map((issue) => (
+                            <li
+                              key={issue}
+                              className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                            >
+                              {issue}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    {catalogAnalysis.unresolved_parts.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Unresolved / ambiguous
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {catalogAnalysis.unresolved_parts.map((part) => (
+                            <span
+                              key={part}
+                              className="rounded-full border border-app-border bg-app-surface-2 px-3 py-1 text-xs font-semibold text-app-text"
+                            >
+                              {part}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </section>
+
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      ROSIE normalization suggestion
+                    </h3>
+                    <p className="mt-1 text-xs text-app-text-muted">
+                      Operator-reviewed parent-title cleanup grounded in the current catalog
+                      analysis. Variant field suggestions are inspection-only in this pass.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void loadCatalogSuggestion()}
+                    disabled={catalogSuggestionLoading}
+                    className="ui-btn-secondary rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+                  >
+                    {catalogSuggestionLoading ? "Refreshing…" : "Refresh suggestion"}
+                  </button>
+                </div>
+
+                {catalogSuggestionError ? (
+                  <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    {catalogSuggestionError}
+                  </div>
+                ) : null}
+
+                {catalogSuggestion ? (
+                  <div className="mt-4 space-y-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-app-accent/30 bg-app-accent/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
+                        {Math.round((catalogSuggestion.suggestion_confidence ?? 0) * 100)}%
+                        suggestion confidence
+                      </span>
+                    </div>
+
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <div className="rounded-xl border border-app-border bg-app-surface-2/80 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Current parent title
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-app-text">
+                          {currentParentTitle || "—"}
+                        </p>
+                        <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Current brand / supplier code
+                        </p>
+                        <p className="mt-2 text-xs text-app-text-muted">
+                          {(hub.product.brand ?? "No brand")} ·{" "}
+                          {hub.product.nuorder_product_id ?? "No supplier code"}
+                        </p>
+                      </div>
+
+                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Suggested parent title
+                        </p>
+                        <p className="mt-2 text-sm font-semibold text-app-text">
+                          {suggestedParentTitle ?? "No safe suggestion"}
+                        </p>
+                        <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Suggested variant fields
+                        </p>
+                        <p className="mt-2 text-xs text-app-text-muted">
+                          {[
+                            catalogSuggestion.suggested_variant_fields.color
+                              ? `Color: ${catalogSuggestion.suggested_variant_fields.color}`
+                              : null,
+                            catalogSuggestion.suggested_variant_fields.size
+                              ? `Size: ${catalogSuggestion.suggested_variant_fields.size}`
+                              : null,
+                            catalogSuggestion.suggested_variant_fields.fit
+                              ? `Fit: ${catalogSuggestion.suggested_variant_fields.fit}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ") || "No grounded variant-field suggestion"}
+                        </p>
+                      </div>
+                    </div>
+
+                    {catalogSuggestion.suggestion_issues.length > 0 ? (
+                      <div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          Suggestion issues
+                        </p>
+                        <ul className="mt-2 space-y-2 text-sm text-app-text">
+                          {catalogSuggestion.suggestion_issues.map((issue) => (
+                            <li
+                              key={issue}
+                              className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                            >
+                              {issue}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canApplyCatalogSuggestion || catalogSuggestionApplying}
+                        onClick={() => setCatalogSuggestionConfirmOpen(true)}
+                        className="ui-btn-primary rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest disabled:opacity-50"
+                      >
+                        Apply parent suggestion
+                      </button>
+                      {!canApplyCatalogSuggestion ? (
+                        <span className="rounded-full border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                          Nothing safe to apply
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : null}
               </section>
 
               {hub.po_summary.recent_lines.length > 0 ? (
@@ -776,6 +1116,16 @@ export default function ProductHubDrawer({
           )}
         </>
       )}
+      <ConfirmationModal
+        isOpen={catalogSuggestionConfirmOpen}
+        onClose={() => setCatalogSuggestionConfirmOpen(false)}
+        onConfirm={() => void applyCatalogSuggestion()}
+        title="Apply ROSIE catalog suggestion"
+        message={`Apply the grounded parent-title suggestion for this product?\n\nCurrent: ${currentParentTitle || "—"}\nSuggested: ${suggestedParentTitle || "—"}\n\nThis writes through the existing product update API and records a ROSIE audit entry.`}
+        confirmLabel="Apply suggestion"
+        variant="info"
+        loading={catalogSuggestionApplying}
+      />
     </DetailDrawer>
   );
 }

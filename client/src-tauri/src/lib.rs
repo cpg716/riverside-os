@@ -2,12 +2,14 @@
 pub mod app_updates;
 pub mod hardware;
 pub mod llama_server;
+pub mod rosie_voice;
 pub mod unified_server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(llama_server::LlamaSidecarState::default())
+        .manage(rosie_voice::RosieSpeechState::default())
         .manage(unified_server::UnifiedServerState::default())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -29,6 +31,12 @@ pub fn run() {
             llama_server::rosie_llama_start,
             llama_server::rosie_llama_stop,
             llama_server::rosie_llama_status,
+            llama_server::rosie_llama_chat_completions,
+            rosie_voice::rosie_local_runtime_status,
+            rosie_voice::rosie_transcribe_wav,
+            rosie_voice::rosie_tts_speak,
+            rosie_voice::rosie_tts_stop,
+            rosie_voice::rosie_tts_status,
             #[cfg(desktop)]
             app_updates::check_app_update,
             #[cfg(desktop)]

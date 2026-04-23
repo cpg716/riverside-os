@@ -37,6 +37,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": []
+    "externalBin": [
+      "binaries/llama-server"
+    ]
   }
 }

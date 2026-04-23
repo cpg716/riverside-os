@@ -481,6 +481,7 @@ function App() {
           "nuorder",
           "counterpoint",
           "remote-access",
+          "rosie",
           "online-store",
           "help-center",
           "backups",

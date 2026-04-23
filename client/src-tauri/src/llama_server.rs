@@ -1,6 +1,8 @@
 //! Optional embedded **llama.cpp** `llama-server` sidecar (see `binaries/README.md`).
 //! Spawns with [`tauri_plugin_shell`] and tracks lifecycle for ROSIE / local LLM HTTP clients.
 
+use serde_json::Value;
+use std::path::PathBuf;
 use std::sync::Mutex;
 use tauri::async_runtime::Receiver;
 use tauri::AppHandle;
@@ -14,6 +16,18 @@ impl Default for LlamaSidecarState {
     fn default() -> Self {
         Self(Mutex::new(None))
     }
+}
+
+fn default_rosie_model_path() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(PathBuf::from).map(|home| {
+        home.join("Library")
+            .join("Application Support")
+            .join("riverside-os")
+            .join("rosie")
+            .join("models")
+            .join("gemma-4-e4b")
+            .join("google_gemma-4-E4B-it-Q4_K_M.gguf")
+    })
 }
 
 fn drain_sidecar_logs(mut rx: Receiver<CommandEvent>) {
@@ -52,6 +66,7 @@ fn drain_sidecar_logs(mut rx: Receiver<CommandEvent>) {
 /// - `RIVERSIDE_LLAMA_MMPROJ_PATH` — optional; enables **LLaVA** (`--mmproj`).
 /// - `RIVERSIDE_LLAMA_HOST` — default `127.0.0.1`.
 /// - `RIVERSIDE_LLAMA_PORT` — default `8080`.
+/// - `RIVERSIDE_LLAMA_EXTRA_ARGS` — optional extra args split on ASCII whitespace.
 #[tauri::command]
 pub async fn rosie_llama_start(
     app: AppHandle,
@@ -67,10 +82,17 @@ pub async fn rosie_llama_start(
     }
 
     let model_path = std::env::var("RIVERSIDE_LLAMA_MODEL_PATH")
-        .map_err(|_| "RIVERSIDE_LLAMA_MODEL_PATH is not set (path to .gguf)".to_string())?;
-    if model_path.is_empty() {
-        return Err("RIVERSIDE_LLAMA_MODEL_PATH is empty".to_string());
-    }
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            default_rosie_model_path()
+                .filter(|path| path.exists())
+                .map(|path| path.display().to_string())
+        })
+        .ok_or_else(|| {
+            "RIVERSIDE_LLAMA_MODEL_PATH is not set and no default ROSIE model path was found"
+                .to_string()
+        })?;
 
     let host = std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
     let port = std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".into());
@@ -93,6 +115,16 @@ pub async fn rosie_llama_start(
     if let Ok(mmproj) = std::env::var("RIVERSIDE_LLAMA_MMPROJ_PATH") {
         if !mmproj.is_empty() {
             cmd = cmd.args(["--mmproj", mmproj.as_str()]);
+        }
+    }
+
+    if let Ok(extra_args) = std::env::var("RIVERSIDE_LLAMA_EXTRA_ARGS") {
+        let trimmed = extra_args.trim();
+        if !trimmed.is_empty() {
+            let parsed: Vec<&str> = trimmed.split_ascii_whitespace().collect();
+            if !parsed.is_empty() {
+                cmd = cmd.args(parsed);
+            }
         }
     }
 
@@ -137,4 +169,44 @@ pub fn rosie_llama_status(state: tauri::State<'_, LlamaSidecarState>) -> Result<
         .lock()
         .map_err(|_| "llama-server state lock poisoned".to_string())?;
     Ok(guard.is_some())
+}
+
+fn rosie_llama_base_url() -> String {
+    let host = std::env::var("RIVERSIDE_LLAMA_HOST").unwrap_or_else(|_| "127.0.0.1".into());
+    let port = std::env::var("RIVERSIDE_LLAMA_PORT").unwrap_or_else(|_| "8080".into());
+    format!("http://{host}:{port}")
+}
+
+/// Proxy a ROSIE chat completion request to the locally managed llama.cpp server.
+/// This is used by the desktop shell to avoid browser CORS issues and keep
+/// the direct/local runtime path inside Tauri.
+#[tauri::command]
+pub async fn rosie_llama_chat_completions(payload: Value) -> Result<Value, String> {
+    let url = format!("{}/v1/chat/completions", rosie_llama_base_url());
+    let client = reqwest::Client::new();
+    let response = client
+        .post(&url)
+        .json(&payload)
+        .send()
+        .await
+        .map_err(|e| format!("failed to reach local ROSIE runtime: {e}"))?;
+
+    let status = response.status();
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|e| format!("failed to parse local ROSIE response: {e}"))?;
+
+    if !status.is_success() {
+        let message = body
+            .get("error")
+            .and_then(|err| {
+                err.as_str()
+                    .or_else(|| err.get("message").and_then(|msg| msg.as_str()))
+            })
+            .unwrap_or("local ROSIE runtime returned an error");
+        return Err(format!("{message} (HTTP {status})"));
+    }
+
+    Ok(body)
 }

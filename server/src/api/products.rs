@@ -20,6 +20,9 @@ use crate::auth::permissions::{
     PROCUREMENT_VIEW,
 };
 use crate::logic::importer::{execute_import, ImportPayload, ImportSummary, ImporterError};
+use crate::logic::product_catalog_analysis::{
+    analyze_product_catalog, suggest_product_catalog_normalization, ProductCatalogAnalysisInput,
+};
 use crate::logic::template_variant_pricing::effective_retail_usd;
 use crate::middleware;
 
@@ -492,12 +495,16 @@ pub struct BulkUpdateRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct PatchProductModelRequest {
+    pub name: Option<String>,
     pub base_retail_price: Option<Decimal>,
     pub base_cost: Option<Decimal>,
     pub category_id: Option<Uuid>,
     #[serde(default)]
     pub clear_category_id: bool,
     pub brand: Option<String>,
+    pub catalog_handle: Option<String>,
+    #[serde(default)]
+    pub clear_catalog_handle: bool,
     pub is_bundle: Option<bool>,
     pub track_low_stock: Option<bool>,
     /// When set, overrides store default employee markup % for this product; omit to keep prior.
@@ -510,6 +517,9 @@ pub struct PatchProductModelRequest {
     pub primary_vendor_id: Option<Uuid>,
     #[serde(default)]
     pub clear_primary_vendor_id: bool,
+    pub audit_source: Option<String>,
+    pub audit_note: Option<String>,
+    pub audit_confidence: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -579,6 +589,7 @@ pub struct HubVariantRow {
     pub sku: String,
     pub variation_values: Value,
     pub variation_label: Option<String>,
+    pub vendor_upc: Option<String>,
     pub stock_on_hand: i32,
     pub reorder_point: i32,
     pub track_low_stock: bool,
@@ -596,6 +607,7 @@ struct HubVariantJoinRow {
     sku: String,
     variation_values: Value,
     variation_label: Option<String>,
+    vendor_upc: Option<String>,
     stock_on_hand: i32,
     reorder_point: i32,
     track_low_stock: bool,
@@ -623,10 +635,12 @@ pub struct ProductHubProductRow {
     matrix_col_axis_key: Option<String>,
     primary_vendor_id: Option<Uuid>,
     primary_vendor_name: Option<String>,
+    primary_vendor_code: Option<String>,
     track_low_stock: bool,
     employee_markup_percent: Option<Decimal>,
     employee_extra_amount: Decimal,
     nuorder_product_id: Option<String>,
+    catalog_handle: Option<String>,
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -657,6 +671,32 @@ pub struct ProductHubResponse {
     pub stats: ProductHubStats,
     pub po_summary: ProductPoSummary,
     pub variants: Vec<HubVariantRow>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RosieProductCatalogAnalysisResponse {
+    pub tool_name: String,
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub source_route: String,
+    pub parsed_fields: crate::logic::product_catalog_analysis::ProductCatalogParsedFields,
+    pub issues_detected: Vec<String>,
+    pub confidence_score: f64,
+    pub unresolved_parts: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RosieProductCatalogSuggestionResponse {
+    pub tool_name: String,
+    pub product_id: Uuid,
+    pub product_name: String,
+    pub source_route: String,
+    pub suggested_parent_title: Option<String>,
+    pub suggested_variant_fields:
+        crate::logic::product_catalog_analysis::ProductCatalogSuggestedVariantFields,
+    pub suggestion_issues: Vec<String>,
+    pub suggestion_confidence: f64,
+    pub unresolved_parts: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1343,22 +1383,63 @@ async fn patch_product_model(
     headers: HeaderMap,
     Json(body): Json<PatchProductModelRequest>,
 ) -> Result<Json<Value>, ProductError> {
-    require_catalog_perm(&state, &headers, CATALOG_EDIT).await?;
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM products WHERE id = $1 AND is_active = TRUE)",
+    let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
+    let current = sqlx::query_as::<_, ProductModelAuditSnapshot>(
+        "SELECT name, brand, catalog_handle FROM products WHERE id = $1 AND is_active = TRUE",
     )
     .bind(product_id)
-    .fetch_one(&state.db)
+    .fetch_optional(&state.db)
     .await?;
 
-    if !exists {
+    let Some(current) = current else {
         return Err(ProductError::ProductNotFound);
+    };
+
+    if body.clear_catalog_handle && body.catalog_handle.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set catalog_handle and clear_catalog_handle together".to_string(),
+        ));
     }
 
-    let mut qb: sqlx::QueryBuilder<'_, sqlx::Postgres> =
-        sqlx::QueryBuilder::new("UPDATE products SET ");
-    let mut sep = qb.separated(", ");
+    let audit_source = normalize_audit_source(body.audit_source.as_deref())?;
+
     let mut n = 0u8;
+    let mut before_values = serde_json::Map::<String, Value>::new();
+    let mut after_values = serde_json::Map::<String, Value>::new();
+    let mut name_value: Option<String> = None;
+    let mut set_name = false;
+    let mut set_base_retail = false;
+    let mut set_base_cost = false;
+    let mut set_category = false;
+    let mut category_value: Option<Uuid> = None;
+    let mut set_brand = false;
+    let mut brand_value: Option<String> = None;
+    let mut set_catalog_handle = false;
+    let mut catalog_handle_value: Option<String> = None;
+    let mut set_employee_markup = false;
+    let mut employee_markup_value: Option<Decimal> = None;
+    let mut set_employee_extra = false;
+    let mut employee_extra_value: Option<Decimal> = None;
+    let mut set_primary_vendor = false;
+    let mut primary_vendor_value: Option<Uuid> = None;
+    let mut set_is_bundle = false;
+    let mut is_bundle_value = false;
+    let mut set_track_low_stock = false;
+    let mut track_low_stock_value = false;
+
+    if let Some(ref name) = body.name {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err(ProductError::InvalidPayload("name is required".to_string()));
+        }
+        set_name = true;
+        name_value = Some(trimmed.to_string());
+        n += 1;
+        if current.name != trimmed {
+            before_values.insert("name".to_string(), Value::String(current.name.clone()));
+            after_values.insert("name".to_string(), Value::String(trimmed.to_string()));
+        }
+    }
 
     if let Some(p) = body.base_retail_price {
         if p < Decimal::ZERO {
@@ -1366,7 +1447,7 @@ async fn patch_product_model(
                 "base_retail_price must be non-negative".to_string(),
             ));
         }
-        sep.push("base_retail_price = ").push_bind(p);
+        set_base_retail = true;
         n += 1;
     }
     if let Some(c) = body.base_cost {
@@ -1375,22 +1456,90 @@ async fn patch_product_model(
                 "base_cost must be non-negative".to_string(),
             ));
         }
-        sep.push("base_cost = ").push_bind(c);
+        set_base_cost = true;
         n += 1;
     }
     if body.clear_category_id {
-        sep.push("category_id = NULL");
+        set_category = true;
         n += 1;
     } else if let Some(cid) = body.category_id {
         ensure_category_exists(&state.db, Some(cid)).await?;
-        sep.push("category_id = ").push_bind(cid);
+        set_category = true;
+        category_value = Some(cid);
         n += 1;
     }
     if let Some(ref b) = body.brand {
         let t = b.trim();
-        let brand_val: Option<&str> = if t.is_empty() { None } else { Some(t) };
-        sep.push("brand = ").push_bind(brand_val);
+        let brand_val = if t.is_empty() {
+            None
+        } else {
+            Some(t.to_string())
+        };
+        set_brand = true;
+        brand_value = brand_val.clone();
         n += 1;
+        let normalized_before = normalize_optional_text(current.brand.as_deref());
+        let normalized_after = brand_val;
+        if normalized_before != normalized_after {
+            before_values.insert(
+                "brand".to_string(),
+                normalized_before.map(Value::String).unwrap_or(Value::Null),
+            );
+            after_values.insert(
+                "brand".to_string(),
+                normalized_after.map(Value::String).unwrap_or(Value::Null),
+            );
+        }
+    }
+
+    if body.clear_catalog_handle {
+        set_catalog_handle = true;
+        n += 1;
+        if current.catalog_handle.is_some() {
+            before_values.insert(
+                "catalog_handle".to_string(),
+                current
+                    .catalog_handle
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+            after_values.insert("catalog_handle".to_string(), Value::Null);
+        }
+    } else if let Some(ref handle) = body.catalog_handle {
+        let trimmed = handle.trim();
+        if trimmed.is_empty() {
+            return Err(ProductError::InvalidPayload(
+                "catalog_handle must be non-empty when provided".to_string(),
+            ));
+        }
+        let existing_conflict: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM products WHERE lower(catalog_handle) = lower($1) AND id <> $2 LIMIT 1",
+        )
+        .bind(trimmed)
+        .bind(product_id)
+        .fetch_optional(&state.db)
+        .await?;
+        if existing_conflict.is_some() {
+            return Err(ProductError::InvalidPayload(
+                "catalog_handle is already in use by another product".to_string(),
+            ));
+        }
+        set_catalog_handle = true;
+        catalog_handle_value = Some(trimmed.to_string());
+        n += 1;
+        let normalized_before = normalize_optional_text(current.catalog_handle.as_deref());
+        let normalized_after = Some(trimmed.to_string());
+        if normalized_before != normalized_after {
+            before_values.insert(
+                "catalog_handle".to_string(),
+                normalized_before.map(Value::String).unwrap_or(Value::Null),
+            );
+            after_values.insert(
+                "catalog_handle".to_string(),
+                Value::String(trimmed.to_string()),
+            );
+        }
     }
 
     if body.clear_employee_markup_percent && body.employee_markup_percent.is_some() {
@@ -1407,7 +1556,7 @@ async fn patch_product_model(
     }
 
     if body.clear_employee_markup_percent {
-        sep.push("employee_markup_percent = NULL");
+        set_employee_markup = true;
         n += 1;
     } else if let Some(m) = body.employee_markup_percent {
         if m < Decimal::ZERO {
@@ -1415,7 +1564,8 @@ async fn patch_product_model(
                 "employee_markup_percent must be non-negative".to_string(),
             ));
         }
-        sep.push("employee_markup_percent = ").push_bind(m);
+        set_employee_markup = true;
+        employee_markup_value = Some(m);
         n += 1;
     }
     if let Some(x) = body.employee_extra_amount {
@@ -1424,12 +1574,13 @@ async fn patch_product_model(
                 "employee_extra_amount must be non-negative".to_string(),
             ));
         }
-        sep.push("employee_extra_amount = ").push_bind(x);
+        set_employee_extra = true;
+        employee_extra_value = Some(x);
         n += 1;
     }
 
     if body.clear_primary_vendor_id {
-        sep.push("primary_vendor_id = NULL");
+        set_primary_vendor = true;
         n += 1;
     } else if let Some(vid) = body.primary_vendor_id {
         let vendor_ok: bool = sqlx::query_scalar(
@@ -1444,17 +1595,20 @@ async fn patch_product_model(
                 "primary_vendor_id not found or inactive".to_string(),
             ));
         }
-        sep.push("primary_vendor_id = ").push_bind(vid);
+        set_primary_vendor = true;
+        primary_vendor_value = Some(vid);
         n += 1;
     }
 
     if let Some(ib) = body.is_bundle {
-        sep.push("is_bundle = ").push_bind(ib);
+        set_is_bundle = true;
+        is_bundle_value = ib;
         n += 1;
     }
 
     if let Some(t) = body.track_low_stock {
-        sep.push("track_low_stock = ").push_bind(t);
+        set_track_low_stock = true;
+        track_low_stock_value = t;
         n += 1;
     }
 
@@ -1464,8 +1618,110 @@ async fn patch_product_model(
         ));
     }
 
-    qb.push(" WHERE id = ").push_bind(product_id);
-    qb.build().execute(&state.db).await?;
+    let mut tx = state.db.begin().await?;
+    sqlx::query(
+        r#"
+        UPDATE products
+        SET
+            name = CASE WHEN $1 THEN $2 ELSE name END,
+            base_retail_price = CASE WHEN $3 THEN $4 ELSE base_retail_price END,
+            base_cost = CASE WHEN $5 THEN $6 ELSE base_cost END,
+            category_id = CASE
+                WHEN $7 THEN NULL
+                WHEN $8 THEN $9
+                ELSE category_id
+            END,
+            brand = CASE WHEN $10 THEN $11 ELSE brand END,
+            catalog_handle = CASE
+                WHEN $12 THEN NULL
+                WHEN $13 THEN $14
+                ELSE catalog_handle
+            END,
+            employee_markup_percent = CASE
+                WHEN $15 THEN NULL
+                WHEN $16 THEN $17
+                ELSE employee_markup_percent
+            END,
+            employee_extra_amount = CASE WHEN $18 THEN $19 ELSE employee_extra_amount END,
+            primary_vendor_id = CASE
+                WHEN $20 THEN NULL
+                WHEN $21 THEN $22
+                ELSE primary_vendor_id
+            END,
+            is_bundle = CASE WHEN $23 THEN $24 ELSE is_bundle END,
+            track_low_stock = CASE WHEN $25 THEN $26 ELSE track_low_stock END
+        WHERE id = $27
+        "#,
+    )
+    .bind(set_name)
+    .bind(name_value)
+    .bind(set_base_retail)
+    .bind(body.base_retail_price)
+    .bind(set_base_cost)
+    .bind(body.base_cost)
+    .bind(body.clear_category_id)
+    .bind(set_category && !body.clear_category_id)
+    .bind(category_value)
+    .bind(set_brand)
+    .bind(brand_value)
+    .bind(body.clear_catalog_handle)
+    .bind(set_catalog_handle && !body.clear_catalog_handle)
+    .bind(catalog_handle_value)
+    .bind(body.clear_employee_markup_percent)
+    .bind(set_employee_markup && !body.clear_employee_markup_percent)
+    .bind(employee_markup_value)
+    .bind(set_employee_extra)
+    .bind(employee_extra_value)
+    .bind(body.clear_primary_vendor_id)
+    .bind(set_primary_vendor && !body.clear_primary_vendor_id)
+    .bind(primary_vendor_value)
+    .bind(set_is_bundle)
+    .bind(is_bundle_value)
+    .bind(set_track_low_stock)
+    .bind(track_low_stock_value)
+    .bind(product_id)
+    .execute(&mut *tx)
+    .await?;
+
+    if !before_values.is_empty() {
+        let note = body
+            .audit_note
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                build_catalog_change_summary(
+                    &Value::Object(before_values.clone()),
+                    &Value::Object(after_values.clone()),
+                )
+            });
+        sqlx::query(
+            r#"
+            INSERT INTO product_catalog_audit_log (
+                product_id,
+                changed_by,
+                change_source,
+                before_values,
+                after_values,
+                change_note,
+                suggestion_confidence
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(product_id)
+        .bind(actor.id)
+        .bind(audit_source)
+        .bind(Value::Object(before_values))
+        .bind(Value::Object(after_values))
+        .bind(note)
+        .bind(body.audit_confidence)
+        .execute(&mut *tx)
+        .await?;
+    }
+
+    tx.commit().await?;
 
     spawn_meilisearch_product_resync(&state, product_id);
     Ok(Json(json!({ "status": "updated" })))
@@ -1776,11 +2032,69 @@ async fn clear_product_retail_overrides(
     Ok(Json(json!({ "cleared": res.rows_affected() })))
 }
 
+#[derive(Debug, FromRow)]
+struct ProductModelAuditSnapshot {
+    name: String,
+    brand: Option<String>,
+    catalog_handle: Option<String>,
+}
+
+fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_audit_source(value: Option<&str>) -> Result<String, ProductError> {
+    match value
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .unwrap_or("manual")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "manual" => Ok("manual".to_string()),
+        "rosie" => Ok("rosie".to_string()),
+        _ => Err(ProductError::InvalidPayload(
+            "audit_source must be 'manual' or 'rosie'".to_string(),
+        )),
+    }
+}
+
+fn build_catalog_change_summary(before_values: &Value, after_values: &Value) -> String {
+    let mut fragments = Vec::new();
+    for key in ["name", "brand", "catalog_handle"] {
+        let before = before_values
+            .get(key)
+            .and_then(Value::as_str)
+            .unwrap_or("—");
+        let after = after_values.get(key).and_then(Value::as_str).unwrap_or("—");
+        if before != after {
+            fragments.push(format!("{key}: {before} -> {after}"));
+        }
+    }
+    if fragments.is_empty() {
+        "Catalog normalization review".to_string()
+    } else {
+        fragments.join("; ")
+    }
+}
+
 async fn get_product_hub(
     State(state): State<AppState>,
     Path(product_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Json<ProductHubResponse>, ProductError> {
+    let hub = fetch_product_hub(&state, &headers, product_id).await?;
+    Ok(Json(hub))
+}
+
+async fn fetch_product_hub(
+    state: &AppState,
+    headers: &HeaderMap,
+    product_id: Uuid,
+) -> Result<ProductHubResponse, ProductError> {
     require_catalog_perm(&state, &headers, CATALOG_VIEW).await?;
     let product = sqlx::query_as::<_, ProductHubProductRow>(
         r#"
@@ -1799,10 +2113,12 @@ async fn get_product_hub(
             c.matrix_col_axis_key,
             p.primary_vendor_id,
             v_primary.name AS primary_vendor_name,
+            v_primary.vendor_code AS primary_vendor_code,
             p.track_low_stock,
             p.employee_markup_percent,
             COALESCE(p.employee_extra_amount, 0::numeric) AS employee_extra_amount,
-            p.catalog_handle AS nuorder_product_id
+            p.catalog_handle AS nuorder_product_id,
+            p.catalog_handle
         FROM products p
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN vendors v_primary ON v_primary.id = p.primary_vendor_id
@@ -1877,6 +2193,7 @@ async fn get_product_hub(
             pv.sku,
             pv.variation_values,
             pv.variation_label,
+            pv.vendor_upc,
             pv.stock_on_hand,
             pv.reorder_point,
             pv.track_low_stock,
@@ -1903,6 +2220,7 @@ async fn get_product_hub(
             sku: r.sku,
             variation_values: r.variation_values,
             variation_label: r.variation_label,
+            vendor_upc: r.vendor_upc,
             stock_on_hand: r.stock_on_hand,
             reorder_point: r.reorder_point,
             track_low_stock: r.track_low_stock,
@@ -1934,7 +2252,7 @@ async fn get_product_hub(
         }
     };
 
-    Ok(Json(ProductHubResponse {
+    Ok(ProductHubResponse {
         product,
         store_default_employee_markup_percent: state.global_employee_markup,
         stats: ProductHubStats {
@@ -1945,7 +2263,98 @@ async fn get_product_hub(
         },
         po_summary,
         variants,
-    }))
+    })
+}
+
+pub(crate) async fn rosie_product_catalog_analyze(
+    state: &AppState,
+    headers: &HeaderMap,
+    product_id: Uuid,
+) -> Result<serde_json::Value, Response> {
+    let hub = fetch_product_hub(state, headers, product_id)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    let analysis = analyze_product_catalog(&ProductCatalogAnalysisInput {
+        title: hub.product.name.clone(),
+        vendor: hub.product.primary_vendor_name.clone(),
+        vendor_code: hub.product.primary_vendor_code.clone(),
+        brand: hub.product.brand.clone(),
+        supplier_code_hint: hub.product.catalog_handle.clone(),
+        category_name: hub.product.category_name.clone(),
+        variation_axes: hub.product.variation_axes.clone(),
+        variant_values: hub
+            .variants
+            .iter()
+            .map(|variant| variant.variation_values.clone())
+            .collect(),
+    });
+
+    let response = RosieProductCatalogAnalysisResponse {
+        tool_name: "product_catalog_analyze".to_string(),
+        product_id,
+        product_name: hub.product.name,
+        source_route: format!("/api/products/{product_id}/hub"),
+        parsed_fields: analysis.parsed_fields,
+        issues_detected: analysis.issues_detected,
+        confidence_score: analysis.confidence_score,
+        unresolved_parts: analysis.unresolved_parts,
+    };
+
+    serde_json::to_value(response).map_err(|error| {
+        tracing::error!(error = %error, %product_id, "serialize ROSIE product catalog analysis");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to serialize product catalog analysis" })),
+        )
+            .into_response()
+    })
+}
+
+pub(crate) async fn rosie_product_catalog_suggest(
+    state: &AppState,
+    headers: &HeaderMap,
+    product_id: Uuid,
+) -> Result<serde_json::Value, Response> {
+    let hub = fetch_product_hub(state, headers, product_id)
+        .await
+        .map_err(IntoResponse::into_response)?;
+    let input = ProductCatalogAnalysisInput {
+        title: hub.product.name.clone(),
+        vendor: hub.product.primary_vendor_name.clone(),
+        vendor_code: hub.product.primary_vendor_code.clone(),
+        brand: hub.product.brand.clone(),
+        supplier_code_hint: hub.product.catalog_handle.clone(),
+        category_name: hub.product.category_name.clone(),
+        variation_axes: hub.product.variation_axes.clone(),
+        variant_values: hub
+            .variants
+            .iter()
+            .map(|variant| variant.variation_values.clone())
+            .collect(),
+    };
+    let analysis = analyze_product_catalog(&input);
+    let suggestion = suggest_product_catalog_normalization(&input, &analysis);
+
+    let response = RosieProductCatalogSuggestionResponse {
+        tool_name: "product_catalog_suggest".to_string(),
+        product_id,
+        product_name: hub.product.name,
+        source_route: format!("/api/products/{product_id}/hub"),
+        suggested_parent_title: suggestion.suggested_parent_title,
+        suggested_variant_fields: suggestion.suggested_variant_fields,
+        suggestion_issues: suggestion.suggestion_issues,
+        suggestion_confidence: suggestion.suggestion_confidence,
+        unresolved_parts: analysis.unresolved_parts,
+    };
+
+    serde_json::to_value(response).map_err(|error| {
+        tracing::error!(error = %error, %product_id, "serialize ROSIE product catalog suggestion");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "failed to serialize product catalog suggestion" })),
+        )
+            .into_response()
+    })
 }
 
 #[derive(Debug, FromRow)]
@@ -1966,6 +2375,17 @@ struct InvTimelineRow {
     sku: String,
     notes: Option<String>,
     reference_id: Option<Uuid>,
+}
+
+#[derive(Debug, FromRow)]
+struct CatalogAuditTimelineRow {
+    id: Uuid,
+    created_at: DateTime<Utc>,
+    change_source: String,
+    before_values: Value,
+    after_values: Value,
+    change_note: Option<String>,
+    changed_by_name: Option<String>,
 }
 
 async fn get_product_timeline(
@@ -2027,6 +2447,27 @@ async fn get_product_timeline(
     .fetch_all(&state.db)
     .await?;
 
+    let catalog_audit = sqlx::query_as::<_, CatalogAuditTimelineRow>(
+        r#"
+        SELECT
+            a.id,
+            a.created_at,
+            a.change_source,
+            a.before_values,
+            a.after_values,
+            a.change_note,
+            s.full_name AS changed_by_name
+        FROM product_catalog_audit_log a
+        LEFT JOIN staff s ON s.id = a.changed_by
+        WHERE a.product_id = $1
+        ORDER BY a.created_at DESC
+        LIMIT 20
+        "#,
+    )
+    .bind(product_id)
+    .fetch_all(&state.db)
+    .await?;
+
     let mut events: Vec<ProductTimelineEvent> = Vec::new();
 
     for s in sales {
@@ -2059,6 +2500,35 @@ async fn get_product_timeline(
                 t.notes.unwrap_or_default()
             ),
             reference_id: t.reference_id,
+        });
+    }
+
+    for audit in catalog_audit {
+        let actor = audit
+            .changed_by_name
+            .as_deref()
+            .filter(|name| !name.trim().is_empty())
+            .unwrap_or("Staff");
+        let summary = if let Some(note) = audit
+            .change_note
+            .as_deref()
+            .map(str::trim)
+            .filter(|note| !note.is_empty())
+        {
+            note.to_string()
+        } else {
+            build_catalog_change_summary(&audit.before_values, &audit.after_values)
+        };
+        events.push(ProductTimelineEvent {
+            at: audit.created_at,
+            kind: format!("catalog_{}", audit.change_source),
+            summary: format!(
+                "Catalog update ({}) by {} — {}",
+                audit.change_source.to_ascii_uppercase(),
+                actor,
+                summary
+            ),
+            reference_id: Some(audit.id),
         });
     }
 
@@ -2402,12 +2872,27 @@ async fn get_variant(
 #[cfg(test)]
 mod tests {
     use super::{
-        ensure_skus_do_not_exist, validate_create_product_payload, CreateProductRequest,
-        CreateVariantInput, ProductError,
+        ensure_skus_do_not_exist, patch_product_model, validate_create_product_payload,
+        CreateProductRequest, CreateVariantInput, PatchProductModelRequest, ProductError,
     };
+    use crate::api::{
+        store_account_rate::StoreAccountRateState, AppState, PaymentIntentMinuteWindow,
+    };
+    use crate::auth::permissions::CATALOG_EDIT;
+    use crate::auth::pins::hash_pin;
+    use crate::logic::corecard::auth::CoreCardTokenCache;
+    use crate::logic::corecard::CoreCardConfig;
+    use crate::logic::podium::PodiumTokenCache;
+    use crate::logic::wedding_push::WeddingEventBus;
+    use crate::observability::ServerLogRing;
+    use axum::extract::{Path, State};
+    use axum::http::{HeaderMap, HeaderValue};
+    use axum::Json;
     use rust_decimal::Decimal;
     use serde_json::json;
     use sqlx::PgPool;
+    use std::sync::Arc;
+    use std::time::Instant;
     use uuid::Uuid;
 
     fn sample_request() -> CreateProductRequest {
@@ -2435,6 +2920,160 @@ mod tests {
                 track_low_stock: false,
             }],
         }
+    }
+
+    async fn connect_test_db() -> PgPool {
+        let database_url = std::env::var("TEST_DATABASE_URL")
+            .or_else(|_| std::env::var("DATABASE_URL"))
+            .expect("TEST_DATABASE_URL or DATABASE_URL must be set for tests");
+        PgPool::connect(&database_url)
+            .await
+            .expect("connect test database")
+    }
+
+    async fn next_staff_code(pool: &PgPool) -> String {
+        for _ in 0..128 {
+            let candidate = format!("{:04}", (Uuid::new_v4().as_u128() % 10_000) as u16);
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM staff WHERE cashier_code = $1)")
+                    .bind(&candidate)
+                    .fetch_one(pool)
+                    .await
+                    .expect("check cashier_code uniqueness");
+            if !exists {
+                return candidate;
+            }
+        }
+        panic!("could not allocate unique 4-digit cashier code for test staff");
+    }
+
+    async fn insert_staff_with_permissions(
+        pool: &PgPool,
+        role: &str,
+        permissions: &[&str],
+    ) -> (Uuid, String) {
+        let id = Uuid::new_v4();
+        let code = next_staff_code(pool).await;
+        let pin_hash = hash_pin(&code).expect("hash test pin");
+        sqlx::query(
+            r#"
+            INSERT INTO staff (id, full_name, cashier_code, pin_hash, role, is_active, avatar_key)
+            VALUES ($1, $2, $3, $4, $5::staff_role, TRUE, 'ros_default')
+            "#,
+        )
+        .bind(id)
+        .bind(format!("ROSIE Product Test {}", id.simple()))
+        .bind(&code)
+        .bind(pin_hash)
+        .bind(role)
+        .execute(pool)
+        .await
+        .expect("insert staff");
+
+        for permission in permissions {
+            sqlx::query(
+                r#"
+                INSERT INTO staff_permission (staff_id, permission_key, allowed)
+                VALUES ($1, $2, TRUE)
+                ON CONFLICT (staff_id, permission_key)
+                DO UPDATE SET allowed = EXCLUDED.allowed
+                "#,
+            )
+            .bind(id)
+            .bind(permission)
+            .execute(pool)
+            .await
+            .expect("insert permission");
+        }
+
+        (id, code)
+    }
+
+    fn auth_headers(code: &str) -> HeaderMap {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "x-riverside-staff-code",
+            HeaderValue::from_str(code).expect("staff code header"),
+        );
+        headers.insert(
+            "x-riverside-staff-pin",
+            HeaderValue::from_str(code).expect("staff pin header"),
+        );
+        headers
+    }
+
+    fn build_test_state(pool: PgPool) -> AppState {
+        AppState {
+            db: pool,
+            global_employee_markup: Decimal::new(15, 0),
+            stripe_client: stripe::Client::new("sk_test_products"),
+            http_client: reqwest::Client::new(),
+            podium_token_cache: Arc::new(tokio::sync::Mutex::new(PodiumTokenCache::default())),
+            database_url: "postgres://test".to_string(),
+            counterpoint_sync_token: None,
+            wedding_events: WeddingEventBus::new(),
+            payment_intent_minute: Arc::new(tokio::sync::Mutex::new(PaymentIntentMinuteWindow {
+                window_start: Instant::now(),
+                count: 0,
+            })),
+            payment_intent_max_per_minute: 0,
+            store_customer_jwt_secret: Arc::<[u8]>::from(b"product-test".as_slice()),
+            store_account_rate: Arc::new(tokio::sync::Mutex::new(StoreAccountRateState::default())),
+            store_account_unauth_post_per_minute_ip: 0,
+            store_account_authed_per_minute: 0,
+            meilisearch: None,
+            corecard_config: CoreCardConfig::from_env(),
+            corecard_token_cache: Arc::new(tokio::sync::Mutex::new(CoreCardTokenCache::default())),
+            server_log_ring: ServerLogRing::new(32, 512),
+        }
+    }
+
+    async fn insert_patchable_product(pool: &PgPool) -> Uuid {
+        sqlx::query(
+            r#"
+            CREATE TABLE IF NOT EXISTS product_catalog_audit_log (
+                id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+                product_id UUID NOT NULL REFERENCES products(id) ON DELETE CASCADE,
+                changed_by UUID REFERENCES staff(id),
+                change_source TEXT NOT NULL DEFAULT 'manual',
+                before_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+                after_values JSONB NOT NULL DEFAULT '{}'::jsonb,
+                change_note TEXT,
+                suggestion_confidence DOUBLE PRECISION,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            "#,
+        )
+        .execute(pool)
+        .await
+        .expect("ensure product catalog audit table");
+        let vendor_id = Uuid::new_v4();
+        let product_id = Uuid::new_v4();
+        let legacy_code = format!("LEG-{}", &product_id.simple().to_string()[..6]);
+        sqlx::query("INSERT INTO vendors (id, name, vendor_code) VALUES ($1, $2, 'PRLS')")
+            .bind(vendor_id)
+            .bind(format!(
+                "Patch Vendor {}",
+                &vendor_id.simple().to_string()[..8]
+            ))
+            .execute(pool)
+            .await
+            .expect("insert vendor");
+        sqlx::query(
+            r#"
+            INSERT INTO products (
+                id, name, brand, catalog_handle, primary_vendor_id, base_retail_price, base_cost, is_active
+            )
+            VALUES ($1, 'Legacy Title', NULL, $3, $2, 100.00, 50.00, TRUE)
+            "#,
+        )
+        .bind(product_id)
+        .bind(vendor_id)
+        .bind(legacy_code)
+        .execute(pool)
+        .await
+        .expect("insert product");
+        product_id
     }
 
     #[test]
@@ -2509,11 +3148,7 @@ mod tests {
 
     #[tokio::test]
     async fn ensure_skus_do_not_exist_rejects_existing_sku() {
-        let database_url =
-            std::env::var("DATABASE_URL").expect("DATABASE_URL must be set for DB-backed tests");
-        let pool = PgPool::connect(&database_url)
-            .await
-            .expect("connect test database");
+        let pool = connect_test_db().await;
 
         let product_id = Uuid::new_v4();
         let sku = format!("PRODUCT-VALIDATION-{}", Uuid::new_v4().simple());
@@ -2549,5 +3184,76 @@ mod tests {
             Err(ProductError::InvalidPayload(message))
             if message == format!("sku already exists: {}", sku)
         ));
+    }
+
+    #[tokio::test]
+    async fn patch_product_model_records_rosie_catalog_audit() {
+        let pool = connect_test_db().await;
+        let product_id = insert_patchable_product(&pool).await;
+        let suggested_code = format!("MK-{}", &product_id.simple().to_string()[..6]);
+        let (_staff_id, code) =
+            insert_staff_with_permissions(&pool, "salesperson", &[CATALOG_EDIT]).await;
+        let state = build_test_state(pool.clone());
+
+        let Json(response) = patch_product_model(
+            State(state),
+            Path(product_id),
+            auth_headers(&code),
+            Json(PatchProductModelRequest {
+                name: Some(format!("Michael Kors Suit {suggested_code}")),
+                base_retail_price: None,
+                base_cost: None,
+                category_id: None,
+                clear_category_id: false,
+                brand: Some("Michael Kors".to_string()),
+                catalog_handle: Some(suggested_code.clone()),
+                clear_catalog_handle: false,
+                is_bundle: None,
+                track_low_stock: None,
+                employee_markup_percent: None,
+                clear_employee_markup_percent: false,
+                employee_extra_amount: None,
+                primary_vendor_id: None,
+                clear_primary_vendor_id: false,
+                audit_source: Some("rosie".to_string()),
+                audit_note: Some("Applied ROSIE suggestion".to_string()),
+                audit_confidence: Some(0.88),
+            }),
+        )
+        .await
+        .expect("patch product model should succeed");
+
+        assert_eq!(response["status"], "updated");
+
+        let row: (String, Option<String>, Option<String>) =
+            sqlx::query_as("SELECT name, brand, catalog_handle FROM products WHERE id = $1")
+                .bind(product_id)
+                .fetch_one(&pool)
+                .await
+                .expect("load patched product");
+        assert_eq!(row.0, format!("Michael Kors Suit {suggested_code}"));
+        assert_eq!(row.1.as_deref(), Some("Michael Kors"));
+        assert_eq!(row.2.as_deref(), Some(suggested_code.as_str()));
+
+        let audit: (String, serde_json::Value, serde_json::Value) = sqlx::query_as(
+            r#"
+            SELECT change_source, before_values, after_values
+            FROM product_catalog_audit_log
+            WHERE product_id = $1
+            ORDER BY created_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(product_id)
+        .fetch_one(&pool)
+        .await
+        .expect("load catalog audit row");
+        assert_eq!(audit.0, "rosie");
+        assert_eq!(audit.1["name"], "Legacy Title");
+        assert_eq!(
+            audit.2["name"],
+            format!("Michael Kors Suit {suggested_code}")
+        );
+        assert_eq!(audit.2["catalog_handle"], suggested_code);
     }
 }

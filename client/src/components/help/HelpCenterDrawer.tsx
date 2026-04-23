@@ -1,10 +1,10 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { Components } from "react-markdown";
-import { CircleHelp, X } from "lucide-react";
+import { Bot, CircleHelp, Mic, SendHorizonal, Square, Volume2, X } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -19,6 +19,20 @@ import {
 import { slugifyHeading } from "../../lib/help/helpSlug";
 import { resolveHelpImageSrc } from "../../lib/help/helpImages";
 import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
+import {
+  askRosieGroundedHelp,
+  getRosieVoiceCapabilities,
+  loadLocalRosieSettings,
+  speakRosieText,
+  startRosieVoiceCapture,
+  stopRosieSpeechPlayback,
+  type RosieGroundedHelpRequest,
+  type RosieHelpGroundingSource,
+  type RosieSettings,
+  type RosieVoiceCapabilities,
+  type RosieSpeechPlayback,
+  type RosieVoiceCaptureSession,
+} from "../../lib/rosie";
 
 const baseUrl = getBaseUrl();
 
@@ -55,6 +69,16 @@ type HelpManualListEntry = {
   has_markdown_override?: boolean;
 };
 
+type RosiChatEntry = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  sources?: RosieHelpGroundingSource[];
+  error?: boolean;
+};
+
+type DrawerMode = "browse" | "ask";
+
 function extractText(node: unknown): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -64,6 +88,17 @@ function extractText(node: unknown): string {
     return extractText(p?.children);
   }
   return "";
+}
+
+function markdownToSpeechText(markdown: string): string {
+  return markdown
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\(([^)]+)\)/g, "$1")
+    .replace(/^[>*-]\s+/gm, "")
+    .replace(/#+\s+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function HelpMarkdownBody({
@@ -238,6 +273,71 @@ function HelpMarkdownBody({
   );
 }
 
+function RosieAnswerBody({ markdown }: { markdown: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children, ...props }) => (
+          <p className="help-center-prose-p" {...props}>
+            {children}
+          </p>
+        ),
+        ul: ({ children, ...props }) => (
+          <ul className="help-center-prose-ul" {...props}>
+            {children}
+          </ul>
+        ),
+        ol: ({ children, ...props }) => (
+          <ol className="help-center-prose-ol" {...props}>
+            {children}
+          </ol>
+        ),
+        li: ({ children, ...props }) => (
+          <li className="help-center-prose-li" {...props}>
+            {children}
+          </li>
+        ),
+        code: ({ className, children, ...props }) => {
+          const inline = !className;
+          if (inline) {
+            return (
+              <code
+                className="rounded bg-app-surface-2 px-1 py-0.5 font-mono text-[0.85em]"
+                {...props}
+              >
+                {children}
+              </code>
+            );
+          }
+          return <code className={className} {...props}>{children}</code>;
+        },
+        pre: ({ children, ...props }) => (
+          <pre
+            className="mb-3 overflow-x-auto rounded-lg border border-app-border bg-app-surface-2 p-3 text-xs font-mono"
+            {...props}
+          >
+            {children}
+          </pre>
+        ),
+        a: ({ href, children, ...props }) => (
+          <a
+            href={href}
+            className="text-app-accent underline-offset-2 hover:underline"
+            target="_blank"
+            rel="noreferrer"
+            {...props}
+          >
+            {children}
+          </a>
+        ),
+      }}
+    >
+      {markdown}
+    </ReactMarkdown>
+  );
+}
+
 type HelpImageLightbox = { src: string; alt: string };
 
 export default function HelpCenterDrawer({
@@ -275,12 +375,43 @@ export default function HelpCenterDrawer({
   const [helpListSource, setHelpListSource] = useState<"api" | "static">("static");
   const [markdownById, setMarkdownById] = useState<Record<string, string>>({});
   const [detailLoading, setDetailLoading] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<DrawerMode>("browse");
+  const [rosieSettings, setRosieSettings] = useState<RosieSettings>(() =>
+    loadLocalRosieSettings(),
+  );
+  const [rosieMessages, setRosieMessages] = useState<RosiChatEntry[]>([]);
+  const [rosieQuestion, setRosieQuestion] = useState("");
+  const [rosieBusy, setRosieBusy] = useState(false);
+  const [rosieStatus, setRosieStatus] = useState<string | null>(null);
+  const [rosieListening, setRosieListening] = useState(false);
+  const [rosieSpeaking, setRosieSpeaking] = useState(false);
+  const [rosieTranscriptPreview, setRosieTranscriptPreview] = useState("");
+  const [voiceCapabilities, setVoiceCapabilities] = useState<RosieVoiceCapabilities>({
+    speech_to_text_supported: false,
+    text_to_speech_supported: false,
+  });
+  const voiceCaptureRef = useRef<RosieVoiceCaptureSession | null>(null);
+  const speechPlaybackRef = useRef<RosieSpeechPlayback | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
       setManualList(null);
       setMarkdownById({});
       setHelpListSource("static");
+      setDrawerMode("browse");
+      setRosieSettings(loadLocalRosieSettings());
+      setRosieMessages([]);
+      setRosieQuestion("");
+      setRosieBusy(false);
+      setRosieStatus(null);
+      voiceCaptureRef.current?.stop();
+      voiceCaptureRef.current = null;
+      speechPlaybackRef.current?.stop();
+      speechPlaybackRef.current = null;
+      stopRosieSpeechPlayback();
+      setRosieListening(false);
+      setRosieSpeaking(false);
+      setRosieTranscriptPreview("");
       return;
     }
     let cancelled = false;
@@ -351,6 +482,34 @@ export default function HelpCenterDrawer({
       cancelled = true;
     };
   }, [isOpen, helpListSource, activeManualId, apiAuth, markdownById]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setRosieSettings(loadLocalRosieSettings());
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    let cancelled = false;
+    void getRosieVoiceCapabilities().then((capabilities) => {
+      if (!cancelled) {
+        setVoiceCapabilities(capabilities);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen]);
+
+  useEffect(() => {
+    return () => {
+      voiceCaptureRef.current?.stop();
+      voiceCaptureRef.current = null;
+      speechPlaybackRef.current?.stop();
+      speechPlaybackRef.current = null;
+      stopRosieSpeechPlayback();
+    };
+  }, []);
 
   const allowedManualIds = useMemo(() => {
     if (manualList?.length) return new Set(manualList.map((m) => m.id));
@@ -523,6 +682,199 @@ export default function HelpCenterDrawer({
         )
       : null);
 
+  const scrollToSource = useCallback(
+    (source: RosieHelpGroundingSource) => {
+      if (source.kind !== "manual" || !source.manual_id || !source.section_slug) {
+        return;
+      }
+      setDrawerMode("browse");
+      scrollToSection(source.manual_id, source.section_slug);
+    },
+    [scrollToSection],
+  );
+
+  const stopRosieSpeaking = useCallback(() => {
+    speechPlaybackRef.current?.stop();
+    speechPlaybackRef.current = null;
+    stopRosieSpeechPlayback();
+    setRosieSpeaking(false);
+  }, []);
+
+  const submitRosieQuestion = useCallback(async (questionOverride?: string) => {
+    const question = (questionOverride ?? rosieQuestion).trim();
+    if (!question || rosieBusy) return;
+
+    if (!rosieSettings.enabled) {
+      setRosieStatus(
+        "ROSIE is disabled for this workstation. Turn it on in Settings -> ROSIE.",
+      );
+      return;
+    }
+
+    setRosieBusy(true);
+    setRosieStatus(null);
+    stopRosieSpeaking();
+    const userEntry: RosiChatEntry = {
+      id: `user-${Date.now()}`,
+      role: "user",
+      content: question,
+    };
+    setRosieMessages((prev) => [...prev, userEntry]);
+    setRosieQuestion("");
+
+    try {
+      const groundedRequest: RosieGroundedHelpRequest = {
+        question,
+        settings: {
+          enabled: rosieSettings.enabled,
+          response_style: rosieSettings.response_style,
+          show_citations: rosieSettings.show_citations,
+        },
+      };
+      const result = await askRosieGroundedHelp(groundedRequest, {
+        headers: apiAuth() as Record<string, string>,
+      });
+      setRosieMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-${Date.now()}`,
+          role: "assistant",
+          content: result.answer,
+          sources: result.sources,
+        },
+      ]);
+      if (
+        rosieSettings.voice_enabled &&
+        rosieSettings.speak_responses &&
+        voiceCapabilities.text_to_speech_supported
+      ) {
+        const speechText = markdownToSpeechText(result.answer);
+        if (speechText) {
+          speechPlaybackRef.current = speakRosieText(speechText, {
+            rate: rosieSettings.speech_rate,
+            voice: rosieSettings.selected_voice,
+            on_start: () => setRosieSpeaking(true),
+            on_end: () => {
+              speechPlaybackRef.current = null;
+              setRosieSpeaking(false);
+            },
+            on_error: (message) => {
+              speechPlaybackRef.current = null;
+              setRosieSpeaking(false);
+              setRosieStatus(message);
+            },
+          });
+        }
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "ROSIE is unavailable right now.";
+      const unavailable =
+        /disabled|not configured|failed to reach local ROSIE runtime|upstream/i.test(
+          message,
+        )
+          ? "ROSIE is unavailable right now. The local model is not running or no upstream is configured."
+          : message;
+      setRosieStatus(unavailable);
+      setRosieMessages((prev) => [
+        ...prev,
+        {
+          id: `assistant-error-${Date.now()}`,
+          role: "assistant",
+          content: unavailable,
+          error: true,
+        },
+      ]);
+    } finally {
+      setRosieBusy(false);
+    }
+  }, [
+    apiAuth,
+    rosieBusy,
+    rosieQuestion,
+    rosieSettings,
+    stopRosieSpeaking,
+    voiceCapabilities.text_to_speech_supported,
+  ]);
+
+  const startRosieListening = useCallback(() => {
+    if (rosieBusy) return;
+    if (!rosieSettings.enabled) {
+      setRosieStatus(
+        "ROSIE is disabled for this workstation. Turn it on in Settings -> ROSIE.",
+      );
+      return;
+    }
+    if (!rosieSettings.voice_enabled || !rosieSettings.microphone_enabled) {
+      setRosieStatus(
+        "Voice input is turned off for this workstation. Enable it in Settings -> ROSIE.",
+      );
+      return;
+    }
+    if (!voiceCapabilities.speech_to_text_supported) {
+      setRosieStatus(
+        "Voice input is unavailable on this workstation. Use the text box to ask ROSIE.",
+      );
+      return;
+    }
+
+    voiceCaptureRef.current?.stop();
+    voiceCaptureRef.current = null;
+    stopRosieSpeaking();
+    setRosieStatus(null);
+    setRosieTranscriptPreview("");
+
+    try {
+      voiceCaptureRef.current = startRosieVoiceCapture({
+        on_start: () => {
+          setRosieListening(true);
+          setRosieStatus("Recording a ROSIE question locally. Press Stop when you are done.");
+        },
+        on_partial_transcript: (value) => {
+          setRosieTranscriptPreview(value);
+        },
+        on_final_transcript: (value) => {
+          setRosieTranscriptPreview(value);
+          setRosieQuestion(value);
+          void submitRosieQuestion(value);
+        },
+        on_error: (message) => {
+          setRosieStatus(message);
+        },
+        on_end: () => {
+          voiceCaptureRef.current = null;
+          setRosieListening(false);
+        },
+      });
+    } catch (error) {
+      setRosieListening(false);
+      setRosieStatus(
+        error instanceof Error
+          ? error.message
+          : "Voice input is unavailable on this workstation.",
+      );
+    }
+  }, [
+    rosieBusy,
+    rosieSettings.enabled,
+    rosieSettings.voice_enabled,
+    rosieSettings.microphone_enabled,
+    stopRosieSpeaking,
+    submitRosieQuestion,
+    voiceCapabilities.speech_to_text_supported,
+  ]);
+
+  const stopRosieListening = useCallback(() => {
+    voiceCaptureRef.current?.stop();
+    voiceCaptureRef.current = null;
+    setRosieListening(false);
+    setRosieStatus((current) =>
+      current === "Recording a ROSIE question locally. Press Stop when you are done."
+        ? "Transcribing your local ROSIE recording…"
+        : current,
+    );
+  }, []);
+
   return (
     <>
     <DetailDrawer
@@ -534,6 +886,34 @@ export default function HelpCenterDrawer({
     >
       <div className="flex h-full min-h-0 flex-col">
         <div className="shrink-0 space-y-3 border-b border-app-border bg-app-surface px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerMode("browse")}
+              className={`rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-colors ${
+                drawerMode === "browse"
+                  ? "bg-app-text text-white"
+                  : "border border-app-border bg-app-surface-2 text-app-text"
+              }`}
+            >
+              Browse
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawerMode("ask")}
+              data-testid="help-center-ask-rosie-tab"
+              className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-black uppercase tracking-widest transition-colors ${
+                drawerMode === "ask"
+                  ? "bg-app-accent text-white"
+                  : "border border-app-border bg-app-surface-2 text-app-text"
+              }`}
+            >
+              <Bot size={14} aria-hidden />
+              Ask ROSIE
+            </button>
+          </div>
+          {drawerMode === "browse" ? (
+            <>
           <div className="flex flex-wrap items-center gap-2">
             <label className="sr-only" htmlFor="help-center-search">
               Search help
@@ -584,10 +964,272 @@ export default function HelpCenterDrawer({
               Server search is unavailable, so results are coming from bundled manual content on this station.
             </p>
           ) : null}
+            </>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm font-medium text-app-text-muted">
+                Ask ROSIE for grounded Help Center guidance using visible manuals
+                and your store playbook when available.
+              </p>
+              {!rosieSettings.enabled ? (
+                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+                  ROSIE is disabled for this workstation. Turn it on in Settings
+                  -&gt; ROSIE to use Ask ROSIE.
+                </p>
+              ) : null}
+              {rosieSettings.enabled && !voiceCapabilities.speech_to_text_supported ? (
+                <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
+                  Voice input is only shown when this workstation has the local ROSIE speech stack installed.
+                </p>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <div className="flex min-h-0 flex-1">
-          {resultRows && resultRows.length > 0 ? (
+          {drawerMode === "ask" ? (
+            <div className="flex min-h-0 flex-1 flex-col">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+                {rosieMessages.length === 0 ? (
+                  <div className="rounded-2xl border border-app-border bg-app-surface-2/60 p-4">
+                    <p className="text-sm font-semibold text-app-text">
+                      Ask ROSIE about Help Center procedures.
+                    </p>
+                    <p className="mt-2 text-sm text-app-text-muted">
+                      ROSIE is grounded to Help search results, manual sections,
+                      and your store playbook when it is available.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {rosieMessages.map((message) => (
+                      <div
+                        key={message.id}
+                        className={`rounded-2xl border p-4 ${
+                          message.role === "user"
+                            ? "ml-8 border-app-accent/30 bg-app-accent/10"
+                            : message.error
+                              ? "mr-8 border-amber-500/30 bg-amber-500/10"
+                              : "mr-8 border-app-border bg-app-surface-2/60"
+                        }`}
+                      >
+                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          {message.role === "user" ? "You" : "ROSIE"}
+                        </p>
+                        {message.role === "assistant" ? (
+                          <div className="help-center-prose text-sm text-app-text">
+                            <RosieAnswerBody markdown={message.content} />
+                          </div>
+                        ) : (
+                          <p className="text-sm text-app-text">{message.content}</p>
+                        )}
+                        {message.sources && message.sources.length > 0 && rosieSettings.show_citations ? (
+                          <div className="mt-3 space-y-2">
+                            <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                              Grounded Sources
+                            </p>
+                            <div className="flex flex-wrap gap-2">
+                              {message.sources.map((source, index) => (
+                                source.kind === "manual" ? (
+                                  <button
+                                    key={`${message.id}-src-${index}`}
+                                    type="button"
+                                    data-testid="help-center-rosie-source-chip"
+                                    onClick={() => scrollToSource(source)}
+                                    className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-medium text-app-text transition-colors hover:bg-app-border/20"
+                                  >
+                                    {source.title}
+                                  </button>
+                                ) : (
+                                  <span
+                                    key={`${message.id}-src-${index}`}
+                                    data-testid="help-center-rosie-source-chip"
+                                    className="rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-xs font-medium text-app-text"
+                                  >
+                                    {source.title}
+                                  </span>
+                                )
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <div className="shrink-0 border-t border-app-border bg-app-surface px-4 py-3">
+                {rosieStatus ? (
+                  <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+                    {rosieStatus}
+                  </p>
+                ) : null}
+                {rosieTranscriptPreview ? (
+                  <p
+                    data-testid="help-center-ask-rosie-transcript-preview"
+                    className="mb-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted"
+                  >
+                    Captured question: {rosieTranscriptPreview}
+                  </p>
+                ) : null}
+                {(rosieListening || rosieSpeaking) ? (
+                  <div className="mb-3 flex flex-wrap items-center gap-2">
+                    {rosieListening ? (
+                      <span
+                        data-testid="help-center-ask-rosie-listening"
+                        className="inline-flex items-center gap-2 rounded-full border border-app-accent/30 bg-app-accent/10 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-app-accent"
+                      >
+                        <Mic size={12} aria-hidden />
+                        Listening
+                      </span>
+                    ) : null}
+                    {rosieSpeaking ? (
+                      <span
+                        data-testid="help-center-ask-rosie-speaking"
+                        className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface-2 px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-app-text"
+                      >
+                        <Volume2 size={12} aria-hidden />
+                        Speaking
+                      </span>
+                    ) : null}
+                    <button
+                      type="button"
+                      data-testid="help-center-ask-rosie-stop-audio"
+                      onClick={() => {
+                        stopRosieListening();
+                        stopRosieSpeaking();
+                      }}
+                      className="inline-flex items-center gap-2 rounded-full border border-app-border bg-app-surface px-3 py-1.5 text-[11px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-border/15"
+                    >
+                      <Square size={12} aria-hidden />
+                      Stop
+                    </button>
+                  </div>
+                ) : null}
+                <div className="flex items-end gap-2">
+                  {rosieSettings.voice_enabled &&
+                  rosieSettings.microphone_enabled &&
+                  voiceCapabilities.speech_to_text_supported ? (
+                    <button
+                      type="button"
+                      data-testid="help-center-ask-rosie-mic"
+                      onClick={
+                        rosieSettings.microphone_mode === "toggle"
+                          ? () => {
+                              if (rosieListening) {
+                                stopRosieListening();
+                              } else {
+                                startRosieListening();
+                              }
+                            }
+                          : undefined
+                      }
+                      onMouseDown={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? () => {
+                              if (!rosieListening) {
+                                startRosieListening();
+                              }
+                            }
+                          : undefined
+                      }
+                      onMouseUp={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? () => {
+                              if (rosieListening) {
+                                stopRosieListening();
+                              }
+                            }
+                          : undefined
+                      }
+                      onMouseLeave={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? () => {
+                              if (rosieListening) {
+                                stopRosieListening();
+                              }
+                            }
+                          : undefined
+                      }
+                      onTouchStart={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? () => {
+                              if (!rosieListening) {
+                                startRosieListening();
+                              }
+                            }
+                          : undefined
+                      }
+                      onTouchEnd={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? () => {
+                              if (rosieListening) {
+                                stopRosieListening();
+                              }
+                            }
+                          : undefined
+                      }
+                      disabled={!rosieSettings.enabled || rosieBusy}
+                      className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text transition-opacity hover:bg-app-border/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      aria-label={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? "Hold to talk to ROSIE"
+                          : rosieListening
+                            ? "Stop ROSIE voice input"
+                            : "Start ROSIE voice input"
+                      }
+                      title={
+                        rosieSettings.microphone_mode === "push_to_talk"
+                          ? "Hold to talk"
+                          : rosieListening
+                            ? "Stop voice input"
+                            : "Start voice input"
+                      }
+                    >
+                      <Mic size={18} aria-hidden />
+                    </button>
+                  ) : null}
+                  <label className="sr-only" htmlFor="help-center-ask-rosie-input">
+                    Ask ROSIE
+                  </label>
+                  <textarea
+                    id="help-center-ask-rosie-input"
+                    data-testid="help-center-ask-rosie-input"
+                    value={rosieQuestion}
+                    onChange={(e) => {
+                      setRosieQuestion(e.target.value);
+                      if (rosieTranscriptPreview) {
+                        setRosieTranscriptPreview("");
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        void submitRosieQuestion();
+                      }
+                    }}
+                    disabled={!rosieSettings.enabled || rosieBusy}
+                    placeholder={
+                      rosieListening
+                        ? "Listening for your question…"
+                        : "Ask about a workflow, policy, or how to use this screen…"
+                    }
+                    className="ui-input min-h-24 flex-1 resize-none text-sm"
+                  />
+                  <button
+                    type="button"
+                    data-testid="help-center-ask-rosie-send"
+                    onClick={() => void submitRosieQuestion()}
+                    disabled={!rosieSettings.enabled || rosieBusy || rosieQuestion.trim().length < 2}
+                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-app-accent text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="Send question to ROSIE"
+                  >
+                    <SendHorizonal size={18} aria-hidden />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : resultRows && resultRows.length > 0 ? (
             <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
               <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Results

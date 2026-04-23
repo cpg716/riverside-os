@@ -111,6 +111,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "counterpoint", label: "Counterpoint" },
     { id: "remote-access", label: "Remote Access" },
     { id: "ros-dev-center", label: "ROS Dev Center" },
+    { id: "rosie", label: "ROSIE" },
     { id: "online-store", label: "Online Store" },
     { id: "nuorder", label: "NuORDER" },
     { id: "help-center", label: "Help Center" },
