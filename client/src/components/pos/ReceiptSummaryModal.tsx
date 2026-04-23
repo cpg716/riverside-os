@@ -600,6 +600,12 @@ export default function ReceiptSummaryModal({
 
   const cust = transactionDetail?.customer;
   const itemRows = transactionDetail?.items ?? [];
+  const phoneOnFile = transactionDetail?.customer?.phone?.trim() ?? "";
+  const emailOnFile = transactionDetail?.customer?.email?.trim() ?? "";
+  const hasSmsTarget = Boolean(phoneDraft.trim() || phoneOnFile);
+  const hasEmailTarget = Boolean(emailDraft.trim() || emailOnFile);
+  const contactChanged =
+    phoneDraft.trim() !== phoneOnFile || emailDraft.trim() !== emailOnFile;
   const loadedGiftCards = Array.from(
     new Set(
       itemRows
@@ -879,6 +885,11 @@ export default function ReceiptSummaryModal({
                       autoComplete="tel"
                     />
                   </label>
+                  {!hasSmsTarget ? (
+                    <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold leading-relaxed text-app-text">
+                      SMS receipt needs a phone number on file or entered above.
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     disabled={sendingSms}
@@ -912,6 +923,11 @@ export default function ReceiptSummaryModal({
                       autoComplete="email"
                     />
                   </label>
+                  {!hasEmailTarget ? (
+                    <p className="mt-2 rounded-lg border border-amber-500/25 bg-amber-500/10 px-3 py-2 text-[10px] font-semibold leading-relaxed text-app-text">
+                      Email receipt needs an address on file or entered above.
+                    </p>
+                  ) : null}
                   <button
                     type="button"
                     disabled={sendingEmail}
@@ -941,6 +957,11 @@ export default function ReceiptSummaryModal({
                 <Save size={14} />
                 {savingContact ? "Saving…" : "Save phone & email to account"}
               </button>
+              {contactChanged ? (
+                <p className="shrink-0 text-[10px] font-semibold leading-snug text-app-text-muted">
+                  You can send with the contact typed above right now. Use save if this should stay on the customer account for future receipts.
+                </p>
+              ) : null}
               <p className="shrink-0 text-[9px] leading-snug text-app-text-muted">
                 Email sends inline HTML from Receipt Builder (not an attachment). SMS uses a receipt
                 image when MMS is supported; otherwise plain summary. Requires Podium in Integrations.
