@@ -463,7 +463,6 @@ type RosieRequestOptions = {
 
 let activeRosieSpeechPoller: number | null = null;
 let activeRosieSpeechAudio: HTMLAudioElement | null = null;
-let activeRosieSpeechUtterance: SpeechSynthesisUtterance | null = null;
 
 function getSpeechRecognitionConstructor():
   | BrowserSpeechRecognitionConstructor
@@ -842,10 +841,6 @@ export function stopRosieSpeechPlayback(options?: RosieRequestOptions): void {
     activeRosieSpeechAudio.src = "";
     activeRosieSpeechAudio = null;
   }
-  if (typeof window !== "undefined" && activeRosieSpeechUtterance) {
-    window.speechSynthesis.cancel();
-    activeRosieSpeechUtterance = null;
-  }
 
   void stopHostRosieSpeechPlayback(options).catch(() => {
     if (isTauri()) {
@@ -861,37 +856,6 @@ function audioBase64ToObjectUrl(audioBase64: string, mimeType: string): string {
     bytes[index] = binary.charCodeAt(index);
   }
   return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
-}
-
-function speakRosieTextWithWorkstationFallback(
-  text: string,
-  callbacks: Pick<NonNullable<Parameters<typeof speakRosieText>[1]>, "on_start" | "on_end" | "on_error">,
-): boolean {
-  if (
-    typeof window === "undefined" ||
-    !("speechSynthesis" in window) ||
-    typeof window.SpeechSynthesisUtterance === "undefined"
-  ) {
-    return false;
-  }
-  window.speechSynthesis.cancel();
-  const utterance = new window.SpeechSynthesisUtterance(text);
-  activeRosieSpeechUtterance = utterance;
-  utterance.onstart = () => callbacks.on_start?.();
-  utterance.onend = () => {
-    if (activeRosieSpeechUtterance === utterance) {
-      activeRosieSpeechUtterance = null;
-    }
-    callbacks.on_end?.();
-  };
-  utterance.onerror = () => {
-    if (activeRosieSpeechUtterance === utterance) {
-      activeRosieSpeechUtterance = null;
-    }
-    callbacks.on_error?.("ROSIE could not play voice output on this workstation.");
-  };
-  window.speechSynthesis.speak(utterance);
-  return true;
 }
 
 export function speakRosieText(
@@ -972,71 +936,13 @@ export function speakRosieText(
       error instanceof Error
         ? error.message
         : "ROSIE could not play voice output on this workstation.";
-    if (/\/voice\/synthesize failed with HTTP 405|HTTP 405/i.test(message)) {
-      if (
-        speakRosieTextWithWorkstationFallback(text, {
-          on_start: options?.on_start,
-          on_end: finishEnd,
-          on_error: options?.on_error,
-        })
-      ) {
-        return;
-      }
-    }
-    if (isTauri()) {
-      const tauriStopped = false;
-      void invoke("rosie_tts_speak", {
-        text,
-        rate: typeof options?.rate === "number" ? options.rate : 1,
-        voice: options?.voice ?? DEFAULT_ROSIE_VOICE,
-      })
-        .then(() => {
-          if (tauriStopped || stopped) return;
-          options?.on_start?.();
-          if (typeof window !== "undefined") {
-            activeRosieSpeechPoller = window.setInterval(() => {
-              void invoke<boolean>("rosie_tts_status")
-                .then((speaking) => {
-                  if (speaking || tauriStopped || stopped) return;
-                  if (activeRosieSpeechPoller != null) {
-                    window.clearInterval(activeRosieSpeechPoller);
-                    activeRosieSpeechPoller = null;
-                  }
-                  finishEnd();
-                })
-                .catch(() => {
-                  if (activeRosieSpeechPoller != null) {
-                    window.clearInterval(activeRosieSpeechPoller);
-                    activeRosieSpeechPoller = null;
-                  }
-                  if (!tauriStopped && !stopped && !ended) {
-                    ended = true;
-                    options?.on_error?.("ROSIE could not play voice output on this workstation.");
-                  }
-                });
-            }, 300);
-          }
-        })
-        .catch((tauriError) => {
-          if (!stopped && !ended) {
-            ended = true;
-            options?.on_error?.(
-              tauriError instanceof Error
-                ? tauriError.message
-                : "ROSIE could not play voice output on this workstation.",
-            );
-          }
-        });
-
-      return;
-    }
 
     if (!ended) {
       ended = true;
       options?.on_error?.(
-        error instanceof Error
-          ? error.message
-          : "ROSIE could not play voice output on this workstation.",
+        /HTTP 405/i.test(message)
+          ? "The running RiversideOS host build does not expose the ROSIE voice synthesis route yet. Restart or update the host build so satellite playback can use the approved ROSIE voice."
+          : message,
       );
     }
   });
@@ -1371,12 +1277,32 @@ function buildRosieGroundedFallbackAnswer(
     : "I could not get a final answer from the local ROSIE model, and no Help Center source was returned for that question. Try a more specific workflow or search term.";
 }
 
+function rosieConversationalGreeting(question: string): string | null {
+  const normalized = question.trim().toLowerCase().replace(/[!.?]+$/g, "");
+  if (!/^(hi|hello|hey|good morning|good afternoon|good evening|yo|howdy)$/.test(normalized)) {
+    return null;
+  }
+  return "Hi, I’m ROSIE. I can help with RiversideOS workflows, store data, reports, customers, inventory, wedding orders, and Help Center guidance. What would you like to work on?";
+}
+
 export async function askRosieGroundedHelp(
   request: RosieGroundedHelpRequest,
   options?: {
     headers?: Record<string, string>;
   },
 ): Promise<RosieGroundedHelpResponse> {
+  if (request.mode === "conversation") {
+    const greeting = rosieConversationalGreeting(request.question);
+    if (greeting) {
+      return {
+        answer: greeting,
+        sources: [],
+        tool_results: [],
+        completion: { choices: [{ message: { role: "assistant", content: greeting } }] },
+      };
+    }
+  }
+
   const context = await fetchRosieToolContext(request, options);
   const messages: RosieChatMessage[] = [
     {
