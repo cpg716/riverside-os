@@ -261,43 +261,47 @@ export type RosieSpeechPlayback = {
 
 const ROSIE_SETTINGS_STORAGE_KEY = "ros.rosie.settings.v1";
 const ROSIE_KOKORO_VOICE_COUNT = 53;
-const ROSIE_KOKORO_VOICE_ALIASES: Record<string, number> = {
-  adam: 5,
-  michael: 6,
-  emma: 7,
-  isabella: 8,
-};
+
+export const DEFAULT_ROSIE_VOICE = "5";
 
 export const ROSIE_VOICE_TEST_SENTENCE =
   "Hello, I am ROSIE. This is the selected Kokoro voice preview for Riverside OS.";
 
-export const ROSIE_KOKORO_VOICE_OPTIONS = Array.from(
-  { length: ROSIE_KOKORO_VOICE_COUNT },
-  (_, index) => {
-    const aliasEntry = Object.entries(ROSIE_KOKORO_VOICE_ALIASES).find(
-      ([, value]) => value === index,
-    );
-    const label = aliasEntry
-      ? `Speaker ${index} (${aliasEntry[0][0].toUpperCase()}${aliasEntry[0].slice(1)})`
-      : `Speaker ${index}`;
-    return {
-      value: String(index),
-      label,
-    };
-  },
+export const ROSIE_KOKORO_VOICE_OPTIONS = [
+  { value: "5", label: "ROSIE Classic" },
+  { value: "6", label: "ROSIE Calm" },
+  { value: "7", label: "ROSIE Bright" },
+  { value: "8", label: "ROSIE Clear" },
+] as const;
+
+const ROSIE_KOKORO_VOICE_VALUES = new Set<string>(
+  ROSIE_KOKORO_VOICE_OPTIONS.map((voice) => voice.value),
 );
+
+const ROSIE_LEGACY_VOICE_ALIASES: Record<string, string> = {
+  adam: "5",
+  michael: "6",
+  emma: "7",
+  isabella: "8",
+};
+
+export function rosieVoiceLabel(voiceValue: string | null | undefined): string {
+  return (
+    ROSIE_KOKORO_VOICE_OPTIONS.find((voice) => voice.value === voiceValue)?.label ??
+    ROSIE_KOKORO_VOICE_OPTIONS.find((voice) => voice.value === DEFAULT_ROSIE_VOICE)?.label ??
+    "ROSIE Classic"
+  );
+}
 
 function normalizeRosieVoice(rawVoice: unknown): string {
   if (typeof rawVoice !== "string") {
-    return String(ROSIE_KOKORO_VOICE_ALIASES.adam);
+    return DEFAULT_ROSIE_VOICE;
   }
   const normalized = rawVoice.trim().toLowerCase();
-  if (normalized in ROSIE_KOKORO_VOICE_ALIASES) {
-    return String(
-      ROSIE_KOKORO_VOICE_ALIASES[
-        normalized as keyof typeof ROSIE_KOKORO_VOICE_ALIASES
-      ],
-    );
+  if (normalized in ROSIE_LEGACY_VOICE_ALIASES) {
+    return ROSIE_LEGACY_VOICE_ALIASES[
+      normalized as keyof typeof ROSIE_LEGACY_VOICE_ALIASES
+    ];
   }
   if (/^\d+$/.test(normalized)) {
     const numericVoice = Number(normalized);
@@ -306,10 +310,13 @@ function normalizeRosieVoice(rawVoice: unknown): string {
       numericVoice >= 0 &&
       numericVoice < ROSIE_KOKORO_VOICE_COUNT
     ) {
-      return String(numericVoice);
+      const voiceValue = String(numericVoice);
+      return ROSIE_KOKORO_VOICE_VALUES.has(voiceValue)
+        ? voiceValue
+        : DEFAULT_ROSIE_VOICE;
     }
   }
-  return String(ROSIE_KOKORO_VOICE_ALIASES.adam);
+  return DEFAULT_ROSIE_VOICE;
 }
 
 export const DEFAULT_ROSIE_SETTINGS: RosieSettings = {
@@ -319,7 +326,7 @@ export const DEFAULT_ROSIE_SETTINGS: RosieSettings = {
   show_citations: true,
   voice_enabled: true,
   speak_responses: false,
-  selected_voice: String(ROSIE_KOKORO_VOICE_ALIASES.adam),
+  selected_voice: DEFAULT_ROSIE_VOICE,
   speech_rate: 1,
   microphone_enabled: true,
   microphone_mode: "push_to_talk",
@@ -857,7 +864,7 @@ export function speakRosieText(
       body: JSON.stringify({
         text,
         rate: typeof options?.rate === "number" ? options.rate : 1,
-        voice: options?.voice ?? "adam",
+        voice: options?.voice ?? DEFAULT_ROSIE_VOICE,
       }),
     });
 
@@ -905,7 +912,7 @@ export function speakRosieText(
       void invoke("rosie_tts_speak", {
         text,
         rate: typeof options?.rate === "number" ? options.rate : 1,
-        voice: options?.voice ?? "adam",
+        voice: options?.voice ?? DEFAULT_ROSIE_VOICE,
       })
         .then(() => {
           if (tauriStopped || stopped) return;

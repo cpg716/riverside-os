@@ -12,6 +12,7 @@ import {
   type RosieLocalRuntimeStatus,
   mergeRosieSettings,
   refreshRosieIntelligence,
+  rosieVoiceLabel,
   loadLocalRosieSettings,
   saveLocalRosieSettings,
   speakRosieText,
@@ -503,7 +504,7 @@ export default function RosieSettingsPanel() {
                 Voice
               </p>
               <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Selects the Kokoro speaker preset for spoken ROSIE replies.
+                Selects the spoken ROSIE voice preset for replies.
               </p>
             </div>
             <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-4 text-xs font-medium text-app-text-muted">
@@ -513,7 +514,7 @@ export default function RosieSettingsPanel() {
                   {!hostVoiceRuntimeAvailable
                     ? "Host runtime unavailable"
                     : kokoroVoiceControlsAvailable
-                    ? "Using Kokoro speaker IDs"
+                    ? "Using curated ROSIE voices"
                     : ttsFallbackActive
                       ? "Using native desktop fallback"
                       : "TTS unavailable"}
@@ -523,9 +524,9 @@ export default function RosieSettingsPanel() {
                 {!hostVoiceRuntimeAvailable
                   ? "This workstation could not reach the host ROSIE voice runtime, so spoken replies are unavailable right now."
                   : kokoroVoiceControlsAvailable
-                  ? "The host machine is on the approved Kokoro path, so speaker selection and preview use real Kokoro voices."
+                  ? "The host machine is on the approved Kokoro path. ROSIE only shows the curated voices we have chosen for staff use."
                   : ttsFallbackActive
-                    ? "The host machine is not currently using Kokoro. Spoken replies may still work through the approved host fallback, but speaker selection is disabled because that path does not map cleanly to Kokoro speaker IDs."
+                    ? "The host machine is not currently using Kokoro. Spoken replies may still work through the approved host fallback, but voice selection is disabled because that path does not support ROSIE voice presets."
                     : "Speech output is currently unavailable on this workstation."}
               </p>
             </div>
@@ -546,9 +547,9 @@ export default function RosieSettingsPanel() {
               ))}
             </select>
             <p className="mt-3 text-xs font-medium text-app-text-muted">
-              This Kokoro bundle exposes 53 speakers. Sherpa-ONNX reports the
-              speaker count, but not a full friendly-name catalog for this
-              bundle, so ROSIE shows numeric speaker IDs.
+              ROSIE uses a small curated set instead of exposing raw Kokoro
+              speaker numbers. Use preview before saving because these labels
+              describe the preset, not a guaranteed gender.
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               <button
@@ -727,7 +728,7 @@ export default function RosieSettingsPanel() {
                   Voice:{" "}
                   <strong className="text-app-text">
                     {storeDefaults.voice_enabled
-                      ? `Speaker ${storeDefaults.selected_voice}`
+                      ? rosieVoiceLabel(storeDefaults.selected_voice)
                       : "Off"}
                   </strong>
                 </span>
