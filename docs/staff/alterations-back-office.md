@@ -12,7 +12,7 @@
 
 The **Work queue** is the **system of record** for standalone alteration jobs: intake → in progress → ready → picked up. POS **Alterations** uses the same queue as Back Office.
 
-This area currently tracks tailoring work only. It does **not** create Register cart lines, collect alteration payment, print alteration tickets/barcodes, or automatically link work to a transaction line.
+This area tracks tailoring work orders attached to garments. New jobs can now record the item being altered, source type, work requested, optional SKU/reference text, and optional charge note. It still does **not** create Register cart lines, collect alteration payment, print alteration tickets/barcodes, or automatically link work to checkout revenue.
 
 ## Work queue
 
@@ -20,9 +20,11 @@ This area currently tracks tailoring work only. It does **not** create Register 
 
 1. **Alterations** → **Work queue** → **New** / **Intake** (per UI).
 2. Select the **customer**.
-3. Enter a **target due date** when one is known.
-4. Enter the tailoring instructions in **Job Notes**.
-5. Create the standalone job and confirm the success toast.
+3. Enter the **item source** if known: custom item, catalog/SKU item, or leave it unspecified for legacy/simple intake.
+4. Enter the **item being altered** and **work requested** when staff know them.
+5. Enter a **target due date** when one is known.
+6. Add operational **Job Notes**.
+7. Create the standalone job and confirm the success toast.
 
 ### Move status
 
@@ -32,8 +34,9 @@ This area currently tracks tailoring work only. It does **not** create Register 
 
 ### Rush or fee changes
 
-1. Use this queue for status and due-date tracking only.
-2. Handle **price**, **rush fee**, or payment questions through the approved Register/payment workflow outside this queue.
+1. Use this queue to record whether an alteration is free/included or has an optional charge note.
+2. Handle actual **price**, **rush fee**, or payment collection through the approved Register/payment workflow outside this queue.
+3. Register toolbar intake and checkout-linked alteration charges are not built yet.
 
 ## POS coordination
 

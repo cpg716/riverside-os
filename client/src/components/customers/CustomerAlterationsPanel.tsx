@@ -23,10 +23,48 @@ type AlterationRow = {
   status: string;
   due_at: string | null;
   notes: string | null;
+  linked_transaction_id: string | null;
+  linked_transaction_display_id: string | null;
+  source_type: string | null;
+  item_description: string | null;
+  work_requested: string | null;
+  source_sku: string | null;
+  charge_amount: string | number | null;
+  intake_channel: string;
   created_at: string;
 };
 
 const STATUS_FILTERS = ["all", "intake", "in_work", "ready", "picked_up"] as const;
+const SOURCE_TYPE_OPTIONS = [
+  { value: "", label: "Unspecified" },
+  { value: "custom_item", label: "Custom item" },
+  { value: "catalog_item", label: "Catalog/SKU item" },
+] as const;
+
+const sourceLabel = (sourceType: string | null | undefined) => {
+  switch (sourceType) {
+    case "current_cart_item":
+      return "Current sale item";
+    case "past_transaction_line":
+      return "Previous purchase";
+    case "catalog_item":
+      return "Catalog/SKU item";
+    case "custom_item":
+      return "Custom item";
+    default:
+      return "Standalone job";
+  }
+};
+
+const formatCharge = (amount: string | number | null | undefined) => {
+  if (amount == null || amount === "") return "Free / included";
+  const parsed = Number(amount);
+  if (!Number.isFinite(parsed) || parsed <= 0) return "Free / included";
+  return `Charge noted: ${new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(parsed)}`;
+};
 
 export default function CustomerAlterationsPanel({
   apiAuth,
@@ -44,6 +82,11 @@ export default function CustomerAlterationsPanel({
   const [selectedCustomerId, setSelectedCustomerId] = useState<string>("");
   const [dueAt, setDueAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [sourceType, setSourceType] = useState("");
+  const [itemDescription, setItemDescription] = useState("");
+  const [workRequested, setWorkRequested] = useState("");
+  const [sourceSku, setSourceSku] = useState("");
+  const [chargeAmount, setChargeAmount] = useState("");
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState<string>("all");
 
@@ -80,6 +123,15 @@ export default function CustomerAlterationsPanel({
       toast("Select a customer first.", "error");
       return;
     }
+    if (sourceType === "custom_item" && !itemDescription.trim()) {
+      toast("Describe the custom item before creating this alteration.", "error");
+      return;
+    }
+    const parsedCharge = chargeAmount.trim() ? Number(chargeAmount) : null;
+    if (parsedCharge != null && (!Number.isFinite(parsedCharge) || parsedCharge < 0)) {
+      toast("Charge amount must be zero or greater.", "error");
+      return;
+    }
     setBusy(true);
     try {
       const res = await fetch(`${baseUrl}/api/alterations`, {
@@ -89,6 +141,12 @@ export default function CustomerAlterationsPanel({
           customer_id: selectedCustomerId,
           notes: notes.trim() || null,
           due_at: dueAt ? new Date(dueAt).toISOString() : null,
+          source_type: sourceType || null,
+          item_description: itemDescription.trim() || null,
+          work_requested: workRequested.trim() || null,
+          source_sku: sourceSku.trim() || null,
+          charge_amount: parsedCharge,
+          intake_channel: "standalone",
         }),
       });
       if (!res.ok) {
@@ -100,6 +158,11 @@ export default function CustomerAlterationsPanel({
       setNotes("");
       setDueAt("");
       setSelectedCustomerId("");
+      setSourceType("");
+      setItemDescription("");
+      setWorkRequested("");
+      setSourceSku("");
+      setChargeAmount("");
       void load();
     } catch {
       toast("Network error", "error");
@@ -204,6 +267,77 @@ export default function CustomerAlterationsPanel({
 
                 <div className="grid grid-cols-1 gap-4">
                   <label className="block space-y-2">
+                    <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Item Source
+                    </span>
+                    <select
+                      value={sourceType}
+                      onChange={(e) => setSourceType(e.target.value)}
+                      className="ui-input w-full font-bold text-sm h-12 rounded-2xl bg-app-surface-2 border-transparent focus:border-app-accent"
+                    >
+                      {SOURCE_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Item Being Altered
+                    </span>
+                    <input
+                      type="text"
+                      value={itemDescription}
+                      onChange={(e) => setItemDescription(e.target.value)}
+                      placeholder="Navy suit jacket, customer-owned gown…"
+                      className="ui-input w-full font-bold text-sm h-12 rounded-2xl bg-app-surface-2 border-transparent focus:border-app-accent"
+                    />
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      SKU / Product Reference
+                    </span>
+                    <input
+                      type="text"
+                      value={sourceSku}
+                      onChange={(e) => setSourceSku(e.target.value)}
+                      placeholder="Optional SKU or item code"
+                      className="ui-input w-full font-bold text-sm h-12 rounded-2xl bg-app-surface-2 border-transparent focus:border-app-accent"
+                    />
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Work Requested
+                    </span>
+                    <input
+                      type="text"
+                      value={workRequested}
+                      onChange={(e) => setWorkRequested(e.target.value)}
+                      placeholder="Hem pants, take in waist, shorten sleeves…"
+                      className="ui-input w-full font-bold text-sm h-12 rounded-2xl bg-app-surface-2 border-transparent focus:border-app-accent"
+                    />
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Optional Charge Note
+                    </span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={chargeAmount}
+                      onChange={(e) => setChargeAmount(e.target.value)}
+                      placeholder="Leave blank for free/included"
+                      className="ui-input w-full font-bold text-sm h-12 rounded-2xl bg-app-surface-2 border-transparent focus:border-app-accent"
+                    />
+                  </label>
+
+                  <label className="block space-y-2">
                     <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted flex items-center gap-2">
                       <CalendarIcon size={12} className="opacity-40" />
                       Target Due Date
@@ -301,6 +435,48 @@ export default function CustomerAlterationsPanel({
                   {r.notes && (
                     <div className="rounded-xl bg-app-surface-2/60 border border-app-border/40 p-3 italic text-xs text-app-text/80 shadow-inner">
                        {r.notes}
+                    </div>
+                  )}
+
+                  {(r.item_description || r.work_requested || r.source_sku || r.charge_amount != null || r.linked_transaction_id) && (
+                    <div className="grid gap-2 rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs shadow-inner sm:grid-cols-2">
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Item
+                        </p>
+                        <p className="mt-1 font-bold text-app-text">
+                          {r.item_description || "Item not specified"}
+                        </p>
+                        {r.source_sku ? (
+                          <p className="mt-0.5 font-mono text-[10px] text-app-text-muted">
+                            SKU {r.source_sku}
+                          </p>
+                        ) : null}
+                      </div>
+                      <div>
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Work
+                        </p>
+                        <p className="mt-1 font-bold text-app-text">
+                          {r.work_requested || "Work details not specified"}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg border border-app-border bg-app-surface px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {sourceLabel(r.source_type)}
+                        </span>
+                        <span className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-emerald-700">
+                          {formatCharge(r.charge_amount)}
+                        </span>
+                      </div>
+                      {(r.linked_transaction_display_id || r.linked_transaction_id) ? (
+                        <div className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted sm:text-right">
+                          Transaction{" "}
+                          <span className="font-mono text-app-text">
+                            {r.linked_transaction_display_id ?? r.linked_transaction_id?.slice(0, 8).toUpperCase()}
+                          </span>
+                        </div>
+                      ) : null}
                     </div>
                   )}
 

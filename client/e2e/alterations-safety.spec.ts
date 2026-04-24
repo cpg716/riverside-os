@@ -25,6 +25,12 @@ type AlterationRow = {
   id: string;
   customer_id: string;
   status: string;
+  source_type?: string | null;
+  item_description?: string | null;
+  work_requested?: string | null;
+  source_sku?: string | null;
+  charge_amount?: string | number | null;
+  intake_channel?: string;
 };
 
 type AlterationActivityRow = {
@@ -89,6 +95,97 @@ test.describe("Alterations safety", () => {
     expect(createActivity?.detail.notes_set).toBe(true);
   });
 
+  test("create returns standalone source, work, and charge fields in the list", async ({
+    request,
+  }) => {
+    const fixture = await seedCustomerOrSkip(request, "Alteration Source Fields");
+    if (!fixture) return;
+
+    const createRes = await request.post(`${apiBase()}/api/alterations`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        customer_id: fixture.customer.id,
+        source_type: "custom_item",
+        item_description: "Customer-owned navy jacket",
+        work_requested: "Shorten sleeves",
+        source_sku: "MANUAL-JACKET",
+        charge_amount: "25.00",
+        intake_channel: "standalone",
+        notes: "E2E custom item source/work check",
+      },
+      failOnStatusCode: false,
+    });
+    expect(createRes.status()).toBe(200);
+    const created = (await createRes.json()) as AlterationRow;
+    expect(created.source_type).toBe("custom_item");
+    expect(created.item_description).toBe("Customer-owned navy jacket");
+    expect(created.work_requested).toBe("Shorten sleeves");
+    expect(created.source_sku).toBe("MANUAL-JACKET");
+    expect(Number(created.charge_amount)).toBe(25);
+    expect(created.intake_channel).toBe("standalone");
+
+    const listRes = await request.get(
+      `${apiBase()}/api/alterations?customer_id=${encodeURIComponent(fixture.customer.id)}`,
+      {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(listRes.status()).toBe(200);
+    const rows = (await listRes.json()) as AlterationRow[];
+    const listed = rows.find((row) => row.id === created.id);
+    expect(listed?.source_type).toBe("custom_item");
+    expect(listed?.item_description).toBe("Customer-owned navy jacket");
+    expect(listed?.work_requested).toBe("Shorten sleeves");
+    expect(Number(listed?.charge_amount)).toBe(25);
+  });
+
+  test("invalid source combination returns 400", async ({ request }) => {
+    const fixture = await seedCustomerOrSkip(request, "Alteration Invalid Source");
+    if (!fixture) return;
+
+    const createRes = await request.post(`${apiBase()}/api/alterations`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        customer_id: fixture.customer.id,
+        source_type: "custom_item",
+        work_requested: "Hem pants",
+      },
+      failOnStatusCode: false,
+    });
+    expect(createRes.status()).toBe(400);
+    const body = (await createRes.json()) as { error?: string };
+    expect(body.error).toContain("item_description");
+  });
+
+  test("negative charge amount returns 400", async ({ request }) => {
+    const fixture = await seedCustomerOrSkip(request, "Alteration Invalid Charge");
+    if (!fixture) return;
+
+    const createRes = await request.post(`${apiBase()}/api/alterations`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        customer_id: fixture.customer.id,
+        source_type: "catalog_item",
+        source_sku: "TEST-SKU",
+        charge_amount: "-1.00",
+      },
+      failOnStatusCode: false,
+    });
+    expect(createRes.status()).toBe(400);
+    const body = (await createRes.json()) as { error?: string };
+    expect(body.error).toContain("non-negative");
+  });
+
   test("invalid status returns 400 instead of a database error", async ({
     request,
   }) => {
@@ -136,5 +233,7 @@ test.describe("Alterations safety", () => {
     await expect(intakeFilter).toBeVisible({ timeout: 20_000 });
     await intakeFilter.click();
     await expect(intakeFilter).toHaveClass(/bg-app-accent/);
+    await expect(page.getByText("Item Source")).toBeVisible();
+    await expect(page.getByText("Work Requested")).toBeVisible();
   });
 });

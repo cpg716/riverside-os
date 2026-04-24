@@ -111,14 +111,14 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "alterations-workspace",
     title: "Alterations Workspace (alterations)",
-    summary: "Standalone alterations queue for customer-linked tailoring intake, due dates, notes, and status movement.",
+    summary: "Standalone alterations queue for customer-linked tailoring intake, garment/source details, work requested, optional charge notes, due dates, notes, and status movement.",
     markdown: manual_7_raw,
     tags: ["alterations-workspace","component","auto-scaffold"],
   },
   {
     id: "customers-customer-alterations-panel",
     title: "Customer Alterations Panel (customers)",
-    summary: "Shared alterations queue panel for standalone tailoring intake, due dates, notes, and status movement.",
+    summary: "Shared alterations queue panel for standalone tailoring intake, garment/source details, work requested, optional charge notes, due dates, notes, and status movement.",
     markdown: manual_8_raw,
     tags: ["customers-customer-alterations-panel","component","auto-scaffold"],
   },

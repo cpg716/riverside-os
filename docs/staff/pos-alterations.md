@@ -12,14 +12,14 @@
 
 Use **Alterations** from POS when you are **at the register** with a customer and need to **check status**, **intake a standalone tailoring job**, or **move a job** without walking to the back-office queue on another machine.
 
-This screen is a standalone alterations queue. It does **not** add alteration charges to the Register cart, create alteration service lines, or automatically link tailoring work to checkout revenue.
+This screen is a standalone alterations queue. It can now record the garment/source, work requested, optional SKU/reference text, and whether a charge was noted. It does **not** add alteration charges to the Register cart, create alteration service lines, or automatically link tailoring work to checkout revenue.
 
 ## How to use this screen
 
 1. Open POS mode with an **active register session** if your store requires it for POS navigation.
 2. Tap **Alterations** in the left rail.
 3. Use the queue filters (**All**, **Intake**, **In Work**, **Ready**, **Picked Up**) to narrow the list.
-4. Review **customer**, **status**, **due date**, and **notes**. Save status changes only when you are sure; marking a job **Ready** may notify the customer.
+4. Review **customer**, **item**, **work requested**, **source**, **charge note**, **status**, **due date**, and **notes**. Save status changes only when you are sure; marking a job **Ready** may notify the customer.
 
 ## Common tasks
 
@@ -31,8 +31,8 @@ This screen is a standalone alterations queue. It does **not** add alteration ch
 
 ### Hand off to the tailor with a note
 
-1. For a new standalone job, select the customer, set a target due date if known, and enter the tailoring instructions in **Job Notes**.
-2. For an existing job, use the visible note to confirm context before changing status.
+1. For a new standalone job, select the customer, enter the item/source and work requested if known, set a target due date if known, and add any tailoring context in **Job Notes**.
+2. For an existing job, use the visible item/work/source information and note to confirm context before changing status.
 3. Confirm a success toast appears after creating the job or changing status.
 
 ### Something was mis-tagged at intake
@@ -56,7 +56,7 @@ This screen is a standalone alterations queue. It does **not** add alteration ch
 
 ## When to get a manager
 
-- Any customer-facing promise about **price**, **rush fees**, or cart charges. This screen does not collect alteration payment.
+- Any customer-facing promise about **price**, **rush fees**, or cart charges. This screen can record an optional charge note, but it does not collect alteration payment or create Register cart lines.
 - **Lost item** or **damage** claims.
 - Any instruction to **delete** history or alter **completed** jobs without audit trail.
 
