@@ -222,7 +222,7 @@ export default function RegisterDashboard({
               {headline} <span className="text-app-text-muted font-medium mx-2">·</span> <span className="text-app-accent">{cashierName?.trim() || staffDisplayName.trim() || "User"}</span>
             </h1>
             <div className="flex items-center gap-2">
-               <div className="h-2 w-2 rounded-full bg-emerald-500" />
+               <div className="h-2 w-2 rounded-full bg-app-success" />
                <p className="text-xs font-medium text-app-text-muted">Register {registerOrdinal ?? "0"} · System Online</p>
             </div>
           </div>
@@ -265,14 +265,14 @@ export default function RegisterDashboard({
                           className={cn(
                             "flex w-full items-center justify-between gap-6 p-4 rounded-2xl border transition-all active:scale-[0.98] group/item",
                             item.tier === "urgent" 
-                              ? "bg-rose-500/[0.03] border-rose-500/10 hover:border-rose-500/30" 
-                              : "bg-app-bg/50 border-app-border hover:border-app-accent/30"
+                              ? "bg-app-danger/[0.06] border-app-danger/15 hover:border-app-danger/35" 
+                              : "bg-app-surface-2/72 border-app-border hover:border-app-accent/30"
                           )}
                         >
                           <div className="flex items-center gap-4 min-w-0">
                              <div className={cn(
                                "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl transition-colors",
-                               item.tier === "urgent" ? "bg-rose-500 text-white" : "bg-app-accent text-white"
+                               item.tier === "urgent" ? "bg-app-danger text-white" : "bg-app-accent text-white"
                              )}>
                                 <Zap size={18} strokeWidth={2.5} />
                              </div>
@@ -280,12 +280,12 @@ export default function RegisterDashboard({
                                <p className="text-sm font-bold text-app-text truncate group-hover/item:text-app-accent transition-colors">
                                  {item.kind === "wedding" ? `${item.row.customer_name} · ${compassBandLabel(item.band)}` : item.kind === "task" ? item.title : item.kind === "rush_order" ? `Rush: ${item.row.customer_name}` : item.id}
                                </p>
-                               <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider opacity-60">
+                               <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">
                                  {item.kind === "wedding" ? `${item.row.party_name} · ${item.row.event_date}` : item.kind === "task" && item.dueDate ? item.dueDate : "General Protocol"}
                                </p>
                              </div>
                           </div>
-                          <ChevronRight size={18} className="text-app-text-muted opacity-40 group-hover/item:opacity-100 group-hover/item:translate-x-1 transition-all" />
+                          <ChevronRight size={18} className="text-app-text-disabled group-hover/item:translate-x-1 group-hover/item:text-app-text transition-all" />
                         </button>
                       ))}
                     </div>
@@ -324,13 +324,13 @@ export default function RegisterDashboard({
            <div className="xl:col-span-4 space-y-8">
               {/* Environment Widget */}
               <DashboardGridCard title="Weather" icon={WxIcon}>
-                 <div className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-br from-app-bg to-app-bg/50 border border-app-border">
+                 <div className="flex items-center justify-between rounded-2xl border border-app-border bg-app-surface-2 px-4 py-4">
                     <div>
                        <div className="flex items-center gap-2 mb-1">
                           <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
-                          <div className={`h-1 w-1 rounded-full ${forecast?.source === "mock" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                          <div className={`h-1 w-1 rounded-full ${forecast?.source === "mock" ? "bg-app-warning" : "bg-app-success"}`} />
                           {forecast?.source === "mock" ? (
-                            <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                            <span className="rounded-full border border-app-warning/30 bg-app-warning/12 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
                               Mock Weather
                             </span>
                           ) : null}
@@ -342,7 +342,7 @@ export default function RegisterDashboard({
                          {cond || "Clear Skies"}
                        </p>
                        {forecast?.source === "mock" ? (
-                         <p className="mt-2 max-w-[16rem] text-[11px] font-medium text-amber-700 dark:text-amber-300">
+                         <p className="mt-2 max-w-[16rem] text-[11px] font-medium ui-caution-text">
                            Live weather is unavailable, so this register view is showing fallback conditions.
                          </p>
                        ) : null}
@@ -355,20 +355,20 @@ export default function RegisterDashboard({
               {stats && (
                 <DashboardGridCard title="Performance" icon={Target}>
                    <div className="grid grid-cols-2 gap-3">
-                      <div className="p-3 rounded-xl border border-app-border bg-app-bg/50">
+                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-1">Measure</p>
                          <p className="text-2xl font-bold text-app-text">{stats.needs_measure}</p>
                       </div>
-                      <div className="p-3 rounded-xl border border-app-border bg-app-bg/50">
+                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
                          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-wider mb-1">Order</p>
                          <p className="text-2xl font-bold text-app-text">{stats.needs_order}</p>
                       </div>
-                      <div className="p-3 rounded-xl border border-app-border bg-app-bg/50">
-                         <p className="text-[10px] font-bold text-rose-500/80 uppercase tracking-wider mb-1">Overdue</p>
-                         <p className="text-2xl font-bold text-rose-500">{stats.overdue_pickups}</p>
+                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
+                         <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-app-danger">Overdue</p>
+                         <p className="text-2xl font-bold text-app-danger">{stats.overdue_pickups}</p>
                       </div>
-                      <div className="p-3 rounded-xl border border-app-border bg-app-bg/50">
-                         <p className="text-[10px] font-bold text-app-accent/80 uppercase tracking-wider mb-1">Rush</p>
+                      <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3">
+                         <p className="mb-1 text-[10px] font-bold uppercase tracking-wider text-app-accent">Rush</p>
                          <p className="text-2xl font-bold text-app-accent">{stats.rush_orders}</p>
                       </div>
                    </div>

@@ -4,45 +4,49 @@
 
 :root {
   color-scheme: light;
-  --app-bg: #f8f7f4;
+  --app-bg: #f4f1ec;
   --app-surface: #ffffff;
-  --app-surface-2: #fbfaf8;
-  /* Nudge lighter than surface-2 for grid corners / tertiary panels */
-  --app-surface-3: #f4f4f5;
-  --app-text: #09090b;
-  --app-text-muted: #52525b;
-  --app-border: #e4e4e7;
+  --app-surface-2: #f6f2ec;
+  /* Nudge darker than surface-2 so tertiary panels and recessed zones separate cleanly. */
+  --app-surface-3: #ebe4da;
+  --app-text: #111827;
+  --app-text-muted: #5b6472;
+  --app-text-disabled: #8f98a7;
+  --app-border: #d8dbe2;
   --app-accent: #d946ef; /* Pro-Fuchsia */
   --app-accent-2: #0ea5e9; /* Sky-500 */
-  --app-success: #10b981; /* Emerald-500 */
-  --app-warning: #f59e0b; /* Amber-500 */
-  --app-danger: #ef4444; /* Red-500 */
-  --app-shell: #f8f7f4;
+  --app-success: #16956a;
+  --app-warning: #b7791f;
+  --app-danger: #cf5b5b;
+  --app-info: #2f7dd1;
+  --app-shell: #efeae2;
   --app-rail: #ffffff;
   /* Stronger than --app-border so form controls read clearly on white cards (light mode). */
-  --app-input-border: #a1a1aa;
+  --app-input-border: #99a3b2;
   --app-input-bg: var(--app-surface);
   --app-input-inset: inset 0 1px 2px rgba(15, 23, 42, 0.07);
 }
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --app-bg: #000000; /* True Black */
-  --app-surface: #09090b; /* Zinc-950 */
-  --app-surface-2: #18181b; /* Zinc-900 */
-  --app-surface-3: #27272a; /* Zinc-800 */
-  --app-text: #f4f4f5; /* Zinc-100 */
-  --app-text-muted: #a1a1aa; /* Zinc-400 */
-  --app-border: #27272a; /* Zinc-800 */
+  --app-bg: #0f141c;
+  --app-surface: #171d27;
+  --app-surface-2: #1f2734;
+  --app-surface-3: #2b3545;
+  --app-text: #f3f6fb;
+  --app-text-muted: #b0b8c6;
+  --app-text-disabled: #7e8899;
+  --app-border: #323d4e;
   --app-accent: #e879f9; /* Bright Fuchsia */
   --app-accent-2: #38bdf8; /* Sky-400 */
-  --app-success: #34d399; /* Emerald-400 */
-  --app-warning: #fbbf24; /* Amber-400 */
-  --app-danger: #f87171; /* Red-400 */
-  --app-shell: #000000;
-  --app-rail: #09090b;
-  --app-input-border: #3f3f46;
-  --app-input-bg: var(--app-surface);
+  --app-success: #41b98b;
+  --app-warning: #d7a44c;
+  --app-danger: #e07a7a;
+  --app-info: #6eabeb;
+  --app-shell: #131922;
+  --app-rail: #171d27;
+  --app-input-border: #455266;
+  --app-input-bg: #141a24;
   --app-input-inset: inset 0 1px 2px rgba(0, 0, 0, 0.35);
 }
 
@@ -188,23 +192,23 @@ html[data-theme="dark"] :where(
 
   /** Semantic status tints — prefer over ad hoc amber/sky + dark: pairs in new code. */
   .ui-caution-text {
-    @apply text-amber-800 dark:text-amber-200;
+    color: color-mix(in srgb, var(--app-warning) 82%, var(--app-text));
   }
 
   .ui-info-text {
-    @apply text-sky-900 dark:text-sky-200;
+    color: color-mix(in srgb, var(--app-info) 82%, var(--app-text));
   }
 
   .ui-positive-text {
-    @apply text-emerald-800 dark:text-emerald-300;
+    color: color-mix(in srgb, var(--app-success) 82%, var(--app-text));
   }
 
   /* Shared primitive classes to reduce one-off styling drift across surfaces. */
   .ui-card {
     border: 1px solid var(--app-border);
-    background: var(--app-surface);
+    background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-2));
     color: var(--app-text);
-    @apply rounded-2xl shadow-[0_10px_24px_-18px_rgba(20,20,20,0.45)];
+    @apply rounded-2xl shadow-[0_12px_26px_-20px_rgba(15,23,42,0.28)];
   }
 
   .ui-input {
@@ -258,13 +262,13 @@ html[data-theme="dark"] :where(
 
   .ui-table-shell {
     border: 1px solid var(--app-border);
-    background: var(--app-surface);
+    background: color-mix(in srgb, var(--app-surface) 94%, var(--app-surface-2));
     @apply overflow-hidden rounded-2xl shadow-sm;
   }
 
   .ui-filter-row {
     border: 1px solid var(--app-border);
-    background: color-mix(in srgb, var(--app-surface) 85%, var(--app-bg));
+    background: color-mix(in srgb, var(--app-surface-2) 82%, var(--app-surface));
     @apply flex flex-wrap items-center gap-2 rounded-2xl p-3;
   }
 
@@ -286,7 +290,7 @@ html[data-theme="dark"] :where(
 
   .ui-toolbar {
     border: 1px solid var(--app-border);
-    background: var(--app-surface);
+    background: color-mix(in srgb, var(--app-surface) 90%, var(--app-surface-2));
     @apply flex flex-wrap items-center gap-2 rounded-2xl p-3;
   }
 
@@ -307,7 +311,7 @@ html[data-theme="dark"] :where(
   }
   .ui-panel {
     border: 1px solid var(--app-border);
-    background: var(--app-surface-2);
+    background: color-mix(in srgb, var(--app-surface-2) 88%, var(--app-surface-3));
     @apply rounded-2xl;
   }
   .ui-kpi-card {
@@ -382,18 +386,23 @@ html[data-theme="dark"] :where(
   }
 
   .ui-status-ok {
-    background: color-mix(in srgb, var(--app-success) 20%, transparent);
-    color: var(--app-success);
+    background: color-mix(in srgb, var(--app-success) 14%, var(--app-surface));
+    color: color-mix(in srgb, var(--app-success) 82%, var(--app-text));
   }
 
   .ui-status-warn {
-    background: color-mix(in srgb, var(--app-warning) 20%, transparent);
-    color: var(--app-warning);
+    background: color-mix(in srgb, var(--app-warning) 14%, var(--app-surface));
+    color: color-mix(in srgb, var(--app-warning) 82%, var(--app-text));
   }
 
   .ui-status-danger {
-    background: color-mix(in srgb, var(--app-danger) 18%, transparent);
-    color: var(--app-danger);
+    background: color-mix(in srgb, var(--app-danger) 14%, var(--app-surface));
+    color: color-mix(in srgb, var(--app-danger) 82%, var(--app-text));
+  }
+
+  .ui-status-info {
+    background: color-mix(in srgb, var(--app-info) 14%, var(--app-surface));
+    color: color-mix(in srgb, var(--app-info) 82%, var(--app-text));
   }
 
   /* Pro-Grade Fulfillment & Brand Pops */
@@ -452,6 +461,9 @@ html[data-theme="dark"] :where(
   }
   .text-app-text-muted {
     color: var(--app-text-muted);
+  }
+  .text-app-text-disabled {
+    color: var(--app-text-disabled);
   }
   .bg-app-text-muted {
     background: var(--app-text-muted);

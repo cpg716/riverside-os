@@ -23,34 +23,34 @@ interface DashboardStatsCardProps {
 
 const colorMap = {
   blue: {
-    icon: "bg-blue-500/10 text-blue-500",
-    chart: "#3b82f6",
-    trendUp: "text-emerald-500",
-    trendDown: "text-rose-500",
+    icon: "bg-app-info/12 text-app-info ring-1 ring-app-info/20",
+    chart: "#2f7dd1",
+    trendUp: "text-app-success",
+    trendDown: "text-app-danger",
   },
   green: {
-    icon: "bg-emerald-500/10 text-emerald-500",
-    chart: "#10b981",
-    trendUp: "text-emerald-500",
-    trendDown: "text-rose-500",
+    icon: "bg-app-success/12 text-app-success ring-1 ring-app-success/20",
+    chart: "#16956a",
+    trendUp: "text-app-success",
+    trendDown: "text-app-danger",
   },
   orange: {
-    icon: "bg-orange-500/10 text-orange-500",
-    chart: "#f97316",
-    trendUp: "text-emerald-500",
-    trendDown: "text-rose-500",
+    icon: "bg-app-warning/12 text-app-warning ring-1 ring-app-warning/20",
+    chart: "#b7791f",
+    trendUp: "text-app-success",
+    trendDown: "text-app-danger",
   },
   rose: {
-    icon: "bg-rose-500/10 text-rose-500",
-    chart: "#f43f5e",
-    trendUp: "text-emerald-500",
-    trendDown: "text-rose-500",
+    icon: "bg-app-danger/12 text-app-danger ring-1 ring-app-danger/20",
+    chart: "#cf5b5b",
+    trendUp: "text-app-success",
+    trendDown: "text-app-danger",
   },
   purple: {
-    icon: "bg-purple-500/10 text-purple-500",
+    icon: "bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20",
     chart: "#a855f7",
-    trendUp: "text-emerald-500",
-    trendDown: "text-rose-500",
+    trendUp: "text-app-success",
+    trendDown: "text-app-danger",
   },
 };
 
@@ -68,7 +68,7 @@ export default function DashboardStatsCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-app-border bg-app-surface p-6 shadow-sm transition-all hover:shadow-md",
+        "relative overflow-hidden rounded-2xl border border-app-border bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-6 shadow-[0_12px_26px_-20px_rgba(15,23,42,0.24)] transition-all hover:border-app-accent/15 hover:shadow-[0_16px_32px_-22px_rgba(15,23,42,0.3)]",
         className,
       )}
     >
@@ -94,7 +94,7 @@ export default function DashboardStatsCard({
                   {trend.isUp ? "▲" : "▼"} {trend.value}
                 </span>
                 {trend.label && (
-                  <span className="text-[10px] font-medium text-app-text-muted opacity-60">
+                  <span className="text-[10px] font-medium text-app-text-muted">
                     {trend.label}
                   </span>
                 )}

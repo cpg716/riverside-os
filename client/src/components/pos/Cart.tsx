@@ -1011,7 +1011,7 @@ export default function Cart({
       ) : null}
       <div className="relative z-0 flex min-w-0 flex-col border-r border-app-border">
         <div className="shrink-0 border-b border-app-border bg-app-surface px-3 py-2 shadow-sm sm:px-4 lg:px-6 lg:py-3">
-          <div className="space-y-2 rounded-2xl border border-app-border/90 bg-gradient-to-br from-app-surface via-app-surface to-app-surface-2/40 p-2.5 shadow-[0_14px_48px_-24px_rgba(0,0,0,0.18)] ring-1 ring-black/[0.04] dark:from-app-surface dark:via-app-surface dark:to-app-surface-2/25 dark:ring-white/[0.06]">
+          <div className="space-y-2 rounded-2xl border border-app-border/90 bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-2.5 shadow-[0_14px_40px_-24px_rgba(15,23,42,0.22)]">
           {/* Wedding link badge */}
           {activeWeddingMember && (
             <div className="flex items-center justify-between rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300">
@@ -1068,10 +1068,7 @@ export default function Cart({
               </div>
               {!isGiftCardOnlyCart ? (
                 <>
-                  <div
-                    className="hidden h-6 w-px shrink-0 bg-app-border/80 sm:block"
-                    aria-hidden
-                  />
+                  <div className="hidden h-6 w-px shrink-0 bg-app-border/80 sm:block" aria-hidden />
                   <UserCircle
                     size={16}
                     className="hidden shrink-0 text-app-accent sm:block"
@@ -1096,7 +1093,7 @@ export default function Cart({
                     />
                   </label>
                   {lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "") ? (
-                    <span className="shrink-0 rounded-full bg-amber-500/15 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-amber-800 ring-1 ring-amber-500/25 dark:text-amber-200">
+                    <span className="shrink-0 rounded-full bg-app-warning/12 px-2 py-1 text-[9px] font-black uppercase tracking-wide text-app-warning ring-1 ring-app-warning/20">
                       Line overrides
                     </span>
                   ) : null}
@@ -1184,7 +1181,7 @@ export default function Cart({
                       fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
                     })));
                   }}
-                  className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-amber-500 bg-amber-50 text-amber-600" : "border-transparent bg-transparent text-app-text-muted hover:border-amber-500/40 hover:bg-app-surface hover:text-amber-700"}`}
+                  className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-transparent bg-transparent text-app-text-muted hover:border-app-warning/35 hover:bg-app-surface hover:text-app-warning"}`}
                 >
                   <Clock size={16} />
                   <span className="text-[10px] font-black uppercase tracking-widest">
@@ -1198,7 +1195,7 @@ export default function Cart({
                 data-testid="pos-action-gift-card"
                 onClick={() => setGiftCardLoadOpen(true)}
                 title="Enter load amount, then scan or type the card code"
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white"
               >
                 <GIFT_CARDS_ICON size={16} className="shrink-0" aria-hidden />
                 Gift Card
@@ -1220,7 +1217,7 @@ export default function Cart({
                 type="button"
                 disabled={lines.length === 0 && !selectedCustomer}
                 onClick={() => setShowClearConfirm(true)}
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-red-500 bg-red-50 px-3 text-[10px] font-black uppercase tracking-widest text-red-600 transition-all hover:bg-red-500 hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-danger/35 bg-app-danger/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-danger transition-all hover:bg-app-danger hover:text-white disabled:opacity-20"
               >
                 <RotateCcw size={16} />
                 Clear Sale
@@ -1230,7 +1227,7 @@ export default function Cart({
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
                 title="Set Rush, Fulfillment, or Shipping details"
-                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white disabled:opacity-20"
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
               >
                 <Zap size={16} className="shrink-0" aria-hidden />
                 Options
@@ -1240,7 +1237,7 @@ export default function Cart({
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
                 title={selectedCustomer ? "View previous orders for this customer" : "Select a customer to view orders"}
-                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-indigo-600/40 bg-indigo-50 px-3 text-[10px] font-black uppercase tracking-widest text-indigo-800 transition-all hover:bg-indigo-600 hover:text-white disabled:opacity-20"
+                className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-info/35 bg-app-info/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
               >
                 <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
                 Orders
@@ -1289,31 +1286,31 @@ export default function Cart({
           {disbursementMembers.length > 0 && (
              <div className="space-y-3">
                 <div className="flex items-center gap-3 px-2">
-                  <div className="h-px flex-1 bg-gradient-to-r from-blue-500/50 to-transparent" />
-                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-600">Wedding Party Disbursements</span>
-                  <div className="h-px flex-1 bg-gradient-to-l from-blue-500/50 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-r from-app-info/45 to-transparent" />
+                  <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">Wedding Party Disbursements</span>
+                  <div className="h-px flex-1 bg-gradient-to-l from-app-info/45 to-transparent" />
                 </div>
                 {disbursementMembers.map(m => (
-                  <div key={m.id} className="relative flex items-center justify-between gap-4 rounded-3xl border-2 border-blue-100 bg-blue-50/30 p-5 group animate-in slide-in-from-left duration-300">
+                  <div key={m.id} className="group relative flex items-center justify-between gap-4 rounded-3xl border-2 border-app-info/20 bg-app-info/8 p-5 animate-in slide-in-from-left duration-300">
                      <div className="flex items-center gap-4">
-                        <div className="h-10 w-10 flex items-center justify-center rounded-2xl bg-blue-500 text-white font-black italic shadow-lg shadow-blue-500/20">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-info text-white font-black italic shadow-lg shadow-app-info/20">
                            {m.first_name[0]}{m.last_name[0]}
                         </div>
                         <div>
                            <h4 className="text-sm font-black text-app-text leading-tight">{m.first_name} {m.last_name}</h4>
-                           <p className="text-[9px] font-black uppercase tracking-widest text-blue-600">{m.role}</p>
+                           <p className="text-[9px] font-black uppercase tracking-widest text-app-info">{m.role}</p>
                         </div>
                      </div>
                      <div className="text-right">
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60 mb-1">Applying Amount</p>
-                        <p className="text-xl font-black italic tracking-tighter text-blue-600">
+                        <p className="text-xl font-black italic tracking-tighter text-app-info">
                           $
                           {centsToFixed2(parseMoneyToCents(m.balance_due || "0"))}
                         </p>
                      </div>
                      <button 
                        onClick={() => setDisbursementMembers(prev => prev.filter(p => p.id !== m.id))}
-                       className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg opacity-0 group-hover:opacity-100 transition-opacity"
+                       className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-danger text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100"
                      >
                        <X size={12} />
                      </button>
@@ -1325,7 +1322,7 @@ export default function Cart({
       </div>
 
       <aside
-        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-gradient-to-b from-app-surface via-app-surface-2/25 to-app-bg shadow-[-8px_0_32px_-12px_rgba(0,0,0,0.12)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
+        className={`relative z-0 flex h-full min-h-0 w-full flex-col overflow-hidden border-l border-app-border/80 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-bg))] shadow-[-8px_0_32px_-12px_rgba(15,23,42,0.18)] ${checkoutDrawerOpen ? "pointer-events-none select-none opacity-40" : ""}`}
         aria-label="Customer, sale totals and keypad"
       >
         {/* ── Customer selector (payment rail) ── */}
@@ -1347,10 +1344,10 @@ export default function Cart({
 
         {/* ── Totals summary ── */}
         <div className="shrink-0 px-2.5 pt-2">
-          <div className="rounded-2xl border border-app-border/50 bg-app-surface/80 px-4 py-3 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+          <div className="rounded-2xl border border-app-border/60 bg-app-surface px-4 py-3 shadow-sm">
             <div className="mb-2 flex items-center justify-between gap-2 border-b border-app-border/40 pb-2">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.12] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-600/15 dark:text-emerald-400 dark:ring-emerald-500/20">
+                <span className="inline-flex items-center gap-1 rounded-full bg-app-success/12 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-app-success ring-1 ring-app-success/15">
                   <Package size={11} className="shrink-0 opacity-90" aria-hidden />
                   {isRmsPaymentCart ? "R2S payment" : "Retail"}
                 </span>
@@ -1399,7 +1396,7 @@ export default function Cart({
                         setShowVoidAllConfirm(true);
                       }
                     }}
-                    className="rounded-lg border border-red-500/35 bg-red-500/[0.06] px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-600 transition-all duration-150 hover:bg-red-500 hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/25"
+                    className="rounded-lg border border-app-danger/35 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger transition-all duration-150 hover:bg-app-danger hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-danger/25"
                   >
                     Void all
                   </button>
@@ -1411,16 +1408,16 @@ export default function Cart({
                 <span>Subtotal</span>
                 <span className="tabular-nums font-bold text-app-text">${centsToFixed2(totals.subtotalCents)}</span>
               </div>
-              <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+              <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <span>Items</span>
                 <span className="tabular-nums text-app-text">{totals.totalPieces}</span>
               </div>
               <div className="col-span-2 mt-2 space-y-1.5 border-t border-app-border/30 pt-2">
-                <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide opacity-60">
+                <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-app-text-muted">
                   <span>NYS Tax</span>
                   <span className="tabular-nums font-bold text-app-text-muted">${centsToFixed2(totals.stateTaxCents)}</span>
                 </div>
-                <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide opacity-60">
+                <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide text-app-text-muted">
                   <span>Local Tax</span>
                   <span className="tabular-nums font-bold text-app-text-muted">${centsToFixed2(totals.localTaxCents)}</span>
                 </div>
@@ -1430,9 +1427,9 @@ export default function Cart({
                 </div>
               </div>
               {posShipping ? (
-                <div className="col-span-2 flex items-start justify-between gap-2 rounded-lg bg-sky-500/10 px-2 py-1 text-sky-900 dark:text-sky-200">
+                <div className="col-span-2 flex items-start justify-between gap-2 rounded-lg bg-app-info/10 px-2 py-1 ui-info-text">
                   <div className="min-w-0 text-[9px] font-black uppercase leading-snug tracking-wide">
-                    <span className="block normal-case font-bold text-sky-950 dark:text-sky-100">
+                    <span className="block normal-case font-bold text-app-text">
                       {posShipping.label}
                     </span>
                     <span className="mt-0.5 flex flex-wrap gap-x-2">
@@ -1478,7 +1475,7 @@ export default function Cart({
             </p>
           </div>
 
-          <div className="min-h-0 flex-1 rounded-2xl border border-app-border/40 bg-app-surface/60 p-2 shadow-inner">
+          <div className="min-h-0 flex-1 rounded-2xl border border-app-border/40 bg-app-surface-2 p-2 shadow-inner">
             <div className="grid h-full grid-cols-3 grid-rows-5 gap-2">
               {["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "CLEAR"].map((key) => (
                 <button
@@ -1486,7 +1483,7 @@ export default function Cart({
                   type="button"
                   disabled={!selectedLineKey}
                   onClick={() => handleNumpadKey(key)}
-                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-xl font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 ${key === "CLEAR" ? "border-red-900/40 bg-red-600/10 text-red-600 hover:bg-red-600/20 focus-visible:ring-red-500/20" : "border-app-border/40 bg-app-surface-2/95 text-app-text hover:bg-app-surface"}`}
+                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-xl font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 ${key === "CLEAR" ? "border-app-danger/35 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border/40 bg-app-surface text-app-text hover:bg-app-surface-3"}`}
                 >
                   {key}
                 </button>
@@ -1496,7 +1493,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("%")}
-                className="flex cursor-pointer items-center justify-center rounded-xl bg-indigo-600 border-b-4 border-indigo-900 text-xl font-black text-white shadow-xl shadow-indigo-500/20 transition-all duration-150 hover:bg-indigo-500 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-35"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-xl font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 %
               </button>
@@ -1504,7 +1501,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("$")}
-                className="flex cursor-pointer items-center justify-center rounded-xl bg-indigo-600 border-b-4 border-indigo-900 text-xl font-black text-white shadow-xl shadow-indigo-500/20 transition-all duration-150 hover:bg-indigo-500 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-35"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-xl font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 $
               </button>
@@ -1512,7 +1509,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("ENTER")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-[6px] border-emerald-800 bg-emerald-600 text-base font-black uppercase tracking-widest text-white shadow-2xl shadow-emerald-500/25 transition-all duration-150 hover:bg-emerald-500 active:translate-y-0.5 active:scale-95 active:border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-35"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-[6px] border-app-success bg-app-success text-base font-black uppercase tracking-widest text-white shadow-2xl shadow-app-success/25 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 active:border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 Apply
               </button>
@@ -1573,7 +1570,7 @@ export default function Cart({
                  setCheckoutDrawerOpen(true);
                }
              }}
-             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 ${lines.length > 0 ? 'bg-emerald-600 border-emerald-800 text-white hover:bg-emerald-500 shadow-emerald-500/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
+             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${lines.length > 0 ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-app-success/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
            >
              <div className="flex flex-col items-start pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">

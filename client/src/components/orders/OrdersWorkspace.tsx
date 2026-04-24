@@ -175,42 +175,42 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
       onClick={onClick}
       onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
       className={cn(
-        "group cursor-pointer transition-all duration-150 hover:bg-app-bg focus-within:bg-app-bg/80",
-        isSelected ? "bg-app-bg/80 border-l-4 border-emerald-500" : "bg-app-surface border-l-4 border-transparent"
+        "group cursor-pointer transition-all duration-150 hover:bg-app-surface-2 focus-within:bg-app-surface-2",
+        isSelected ? "border-l-4 border-app-success bg-app-surface-2" : "border-l-4 border-transparent bg-app-surface"
       )}
     >
         <td className="px-6 py-4">
            <p className="text-[11px] font-black tracking-tight text-app-text mb-1">{row.display_id}</p>
-           <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
+           <p className="text-[9px] font-bold uppercase tracking-widest italic text-app-text-muted">
              {new Date(row.booked_at).toLocaleDateString()}
            </p>
         </td>
         <td className="px-6 py-4">
            <div className="flex items-center gap-3">
-              <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 text-[10px] font-black">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-success/10 text-[10px] font-black text-app-success">
                 {row.customer_name?.[0] ?? row.counterpoint_customer_code?.[0] ?? "W"}
               </div>
               <div>
                 <p className="text-[11px] font-bold text-app-text flex items-center gap-1.5">
                   {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
-                  {row.party_name && <WEDDINGS_ICON size={10} className="text-rose-500" />}
+                  {row.party_name && <WEDDINGS_ICON size={10} className="text-app-danger" />}
                 </p>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2">
-                  <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
+                  <p className="text-[9px] font-bold uppercase tracking-widest italic text-app-text-muted">
                     {orderKindLabel(row.order_kind)}
                   </p>
                   {row.counterpoint_customer_code && (
-                    <span className="rounded-md border border-emerald-500/20 bg-emerald-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-emerald-600">
+                    <span className="rounded-md border border-app-success/20 bg-app-success/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-success">
                       CP Open Doc
                     </span>
                   )}
-                  {row.party_name && <p className="text-[9px] font-bold text-rose-500/60 uppercase tracking-tighter italic">{row.party_name}</p>}
+                  {row.party_name && <p className="text-[9px] font-bold uppercase tracking-tighter italic text-app-danger">{row.party_name}</p>}
                 </div>
               </div>
            </div>
         </td>
         <td className="px-6 py-4 max-w-[300px]">
-           <p className="text-[10px] font-bold text-app-text-muted italic opacity-80 truncate">
+           <p className="truncate text-[10px] font-bold italic text-app-text-muted">
              {row.item_count} item{row.item_count === 1 ? "" : "s"}
              {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
            </p>
@@ -219,25 +219,25 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
            <span className={cn(
              "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
              row.counterpoint_customer_code
-               ? "border-sky-500/20 bg-sky-500/10 text-sky-600"
-               : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
+               ? "border-app-info/20 bg-app-info/10 text-app-info"
+               : "border-app-success/20 bg-app-success/10 text-app-success"
            )}>
              {formatOrderStatusLabel(row.status)}
            </span>
         </td>
         <td className="px-6 py-4">
           <p className="text-[11px] font-black text-app-text">{money(row.total_price)}</p>
-          <p className="text-[9px] font-bold text-app-text-muted opacity-80 mt-1">
+          <p className="mt-1 text-[9px] font-bold text-app-text-muted">
             Paid {money(row.amount_paid)}
           </p>
         </td>
         <td className="px-6 py-4 text-right flex items-center justify-end gap-3">
-          <p className={cn("text-[11px] font-black", parseMoneyToCents(row.balance_due) > 0 ? "text-amber-500" : "text-app-text-muted opacity-40")}>
+          <p className={cn("text-[11px] font-black", parseMoneyToCents(row.balance_due) > 0 ? "text-app-warning" : "text-app-text-disabled")}>
             {money(row.balance_due)}
           </p>
            <button 
              onClick={(e) => { e.stopPropagation(); actions.onOpenInRegister?.(row.transaction_id); }}
-             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-emerald-500 active:scale-95 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30"
+             className="rounded-lg bg-app-success px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:brightness-110 active:scale-95 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/30"
            >
              Register
            </button>
@@ -830,8 +830,8 @@ export default function OrdersWorkspace({
                     className={cn(
                       "rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all",
                       active
-                        ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-700"
-                        : "border-app-border bg-app-surface text-app-text-muted hover:bg-app-bg hover:text-app-text",
+                        ? "border-app-success/20 bg-app-success/10 text-app-success"
+                        : "border-app-border bg-app-surface text-app-text-muted hover:bg-app-surface-2 hover:text-app-text",
                     )}
                     aria-pressed={active}
                   >
@@ -843,9 +843,9 @@ export default function OrdersWorkspace({
           </div>
 
           {/* Header Filters Area */}
-          <div className="px-8 py-5 border-b border-app-border bg-app-bg/20 flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2/70 px-8 py-5">
             <div className="relative group flex-1 min-w-[300px]">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted opacity-40 group-focus-within:text-app-accent group-focus-within:opacity-100 transition-all" size={18} />
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-disabled group-focus-within:text-app-accent transition-all" size={18} />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -915,7 +915,7 @@ export default function OrdersWorkspace({
           {/* Wide Table Implementation */}
           <div className="flex-1 custom-scrollbar">
             <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead className="sticky top-0 z-20 bg-app-surface/80 backdrop-blur-md border-b border-app-border">
+              <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-2/95 backdrop-blur-md">
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>
@@ -951,7 +951,7 @@ export default function OrdersWorkspace({
             </table>
 
             {transactionRows.length === 0 && (
-              <div className="flex flex-col items-center justify-center p-16 opacity-30 italic">
+              <div className="flex flex-col items-center justify-center p-16 text-app-text-muted">
                 <Search size={48} className="mb-4" />
                 <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
               </div>

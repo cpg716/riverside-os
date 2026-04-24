@@ -89,6 +89,8 @@ Riverside OS follows a **search-first administrative mandate**. Direct entry of 
 ## Primitives and density
 
 - Prefer **`density-compact`** / **`density-standard`**, **`ui-card`**, **`ui-input`**, **`ui-btn-primary`**, **`ui-btn-secondary`**, **`ui-pill`** before bespoke Tailwind. Definitions live in **`client/src/index.css`** (`@layer utilities`) and **`client/tailwind.config.js`** (`theme.colors.app`).
+- Prefer semantic app tokens for operator surfaces: **`bg-app-bg`**, **`bg-app-surface`**, **`bg-app-surface-2`**, **`text-app-text`**, **`text-app-text-muted`**, **`text-app-text-disabled`**, and **`border-app-border`** before hardcoded black/white/zinc/gray utilities.
+- Prefer app status tokens or shared helpers for operational states: **`app.success`**, **`app.warning`**, **`app.danger`**, **`app.info`**, plus **`ui-status-ok`**, **`ui-status-warn`**, **`ui-status-danger`**, and **`ui-status-info`**. Avoid introducing fresh raw emerald/amber/rose/sky/blue classes on audited operator surfaces unless a screen has a deliberate brand exception.
 - **`StaffMiniSelector`**: The canonical component for in-line or high-density staff attribution (Avatar + Name dropdown). Replaces standard `<select>` in POS cart lines and headers for consistent, visual staff selection.
 - **`ui-input`** uses **`--app-input-border`** and **`--app-input-bg`** for consistent light/dark field contrast.
 - **Back Office density** (see inventory): `density-compact` on **POS** launchpad, customers, alterations, orders; **`density-standard`** elsewhere unless there is a deliberate POS-adjacent reason.

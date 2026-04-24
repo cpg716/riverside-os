@@ -919,33 +919,33 @@ export default function CustomersWorkspace({
               label: "Total CRM",
               count: pipelineStats?.total_customers,
               icon: Users,
-              color: "text-blue-500",
-              bg: "bg-blue-500/10",
-              border: "border-blue-500/20",
+              color: "text-app-info",
+              bg: "bg-app-info/10",
+              border: "border-app-info/20",
             },
             {
               label: "VIP Premium",
               count: pipelineStats?.vip_customers,
               icon: Gem,
-              color: "text-amber-500",
-              bg: "bg-amber-500/10",
-              border: "border-amber-500/20",
+              color: "text-app-warning",
+              bg: "bg-app-warning/10",
+              border: "border-app-warning/20",
             },
             {
               label: "Balance Recovery",
               count: pipelineStats?.with_balance,
               icon: Wallet,
-              color: "text-rose-500",
-              bg: "bg-rose-500/10",
-              border: "border-rose-500/20",
+              color: "text-app-danger",
+              bg: "bg-app-danger/10",
+              border: "border-app-danger/20",
             },
             {
               label: "Occasions (30d)",
               count: pipelineStats?.upcoming_weddings,
               icon: Heart,
-              color: "text-pink-500",
-              bg: "bg-pink-500/10",
-              border: "border-pink-500/20",
+              color: "text-app-accent",
+              bg: "bg-app-accent/10",
+              border: "border-app-accent/20",
             },
           ].map((stat, i) => (
             <div
@@ -953,7 +953,7 @@ export default function CustomersWorkspace({
               className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} ${stat.bg} p-4 shadow-sm backdrop-blur-md`}
             >
               <div
-                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/50 shadow-sm dark:bg-black/20`}
+                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-app-border/60 bg-app-surface shadow-sm"
               >
                 <stat.icon size={24} className={stat.color} />
               </div>
@@ -1019,7 +1019,7 @@ export default function CustomersWorkspace({
                   value={_q}
                   onChange={(e) => _setQ(e.target.value)}
                   placeholder="Search name, code, company, contact..."
-                  className="ui-input w-full pl-10 text-sm font-bold bg-white/50 backdrop-blur-sm border-app-border focus:border-app-accent shadow-sm"
+                  className="ui-input w-full border-app-border bg-app-surface pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
 
@@ -1033,7 +1033,7 @@ export default function CustomersWorkspace({
                       <button
                         type="button"
                         onClick={() => _setWeddingPartyQuery("")}
-                        className="ml-2 text-app-accent hover:text-black"
+                        className="ml-2 text-app-accent hover:text-app-text"
                       >
                         <CloseIcon size={12} />
                       </button>
@@ -1084,7 +1084,7 @@ export default function CustomersWorkspace({
             </div>
 
             {/* Filter Row */}
-            <div className="flex shrink-0 items-center justify-between border-b border-app-border/50 bg-app-surface/40 px-5 py-2.5 backdrop-blur-sm">
+            <div className="flex shrink-0 items-center justify-between border-b border-app-border/50 bg-app-surface-2/70 px-5 py-2.5 backdrop-blur-sm">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">
                   Quick Filters
@@ -1146,7 +1146,7 @@ export default function CustomersWorkspace({
                   </select>
                 </label>
               </div>
-              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-40">
+              <div className="text-[10px] font-black uppercase tracking-widest text-app-text-disabled">
                 {rows.length} records detected
               </div>
             </div>
@@ -1163,7 +1163,7 @@ export default function CustomersWorkspace({
             >
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-app-surface-2/95 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors backdrop-blur-xl">
+                  <tr className="bg-app-surface-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors backdrop-blur-xl">
                     <th className="w-12 px-5 py-4 border-b border-app-border">
                       <input
                         type="checkbox"
@@ -1227,13 +1227,13 @@ export default function CustomersWorkspace({
                               {r.first_name} {r.last_name}
                             </span>
                             <div className="flex items-center gap-2 mt-0.5">
-                              <span className="font-mono text-[9px] uppercase tracking-widest text-app-text-muted/60">
+                              <span className="font-mono text-[9px] uppercase tracking-widest text-app-text-disabled">
                                 {r.customer_code}
                               </span>
                               {r.company_name && (
                                 <>
                                   <span className="h-1 w-1 rounded-full bg-app-border" />
-                                  <span className="text-[9px] font-black uppercase tracking-tight text-app-accent/70">
+                                  <span className="text-[9px] font-black uppercase tracking-tight text-app-accent">
                                     {r.company_name}
                                   </span>
                                 </>
@@ -1248,7 +1248,7 @@ export default function CustomersWorkspace({
                                 {customerLifecycleLabel(r.lifecycle_state)}
                               </span>
                               {!customerProfileComplete(r) ? (
-                                <span className="inline-flex items-center rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-amber-800">
+                                <span className="inline-flex items-center rounded-full border border-app-warning/20 bg-app-warning/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
                                   Profile incomplete
                                 </span>
                               ) : null}
@@ -1257,35 +1257,35 @@ export default function CustomersWorkspace({
                         </td>
                         <td className="px-5 py-4 align-middle">
                           <div className="flex flex-col">
-                            <span className="text-xs font-bold text-app-text/90 flex items-center gap-1.5">
+                            <span className="flex items-center gap-1.5 text-xs font-bold text-app-text">
                               {r.phone || (
                                 <CheckCircle2
                                   size={12}
-                                  className="opacity-10"
+                                  className="text-app-text-disabled"
                                 />
                               )}
                               {r.phone}
                             </span>
-                            <span className="text-[10px] font-medium text-app-text-muted/70 lowercase tracking-tight">
+                            <span className="text-[10px] font-medium lowercase tracking-tight text-app-text-muted">
                               {r.email || "No email"}
                             </span>
                           </div>
                         </td>
                         <td className="px-5 py-4 align-middle text-right">
                           <div
-                            className={`font-mono text-sm font-black tabular-nums transition-colors ${hasBalance ? "text-rose-600 dark:text-rose-400" : "text-app-text-muted/40"}`}
+                            className={`font-mono text-sm font-black tabular-nums transition-colors ${hasBalance ? "text-app-danger" : "text-app-text-disabled"}`}
                           >
                             {moneyDec(r.open_balance_due)}
                           </div>
-                          <div className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">
+                          <div className="text-[8px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
                             Balance Due
                           </div>
                         </td>
                         <td className="px-5 py-4 align-middle text-right">
-                          <div className="font-mono text-sm font-black tabular-nums text-emerald-600 dark:text-emerald-400">
+                          <div className="font-mono text-sm font-black tabular-nums text-app-success">
                             {moneyDec(r.lifetime_sales)}
                           </div>
-                          <div className="text-[8px] font-black uppercase tracking-[0.2em] opacity-40">
+                          <div className="text-[8px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
                             LTV Sales
                           </div>
                         </td>
@@ -1297,18 +1297,18 @@ export default function CustomersWorkspace({
                                 r.wedding_party_id &&
                                 onOpenWeddingParty(r.wedding_party_id)
                               }
-                              className="inline-flex items-center gap-2 rounded-full border border-rose-500/20 bg-rose-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-rose-500 hover:bg-rose-500/20 transition-all shadow-sm active:scale-95"
+                              className="inline-flex items-center gap-2 rounded-full border border-app-danger/20 bg-app-danger/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger shadow-sm transition-all hover:bg-app-danger/15 active:scale-95"
                             >
                               <Heart size={10} fill="currentColor" />
                               {r.wedding_party_name || "Active Party"}
                             </button>
                           ) : r.wedding_soon ? (
-                            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-amber-600">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
                               <Clock size={10} />
                               Party Soon
                             </div>
                           ) : (
-                            <span className="text-app-text-muted/20">—</span>
+                            <span className="text-app-text-disabled">—</span>
                           )}
                         </td>
                         <td className="px-5 py-4 align-middle text-center">
@@ -1316,9 +1316,9 @@ export default function CustomersWorkspace({
                             <div className="flex flex-col items-center group/ord">
                               <ShoppingBag
                                 size={14}
-                                className={`transition-colors ${r.open_orders_count > 0 ? "text-app-accent" : "text-app-text-muted/20"}`}
+                                className={`transition-colors ${r.open_orders_count > 0 ? "text-app-accent" : "text-app-text-disabled"}`}
                               />
-                              <span className="text-[9px] font-black tabular-nums opacity-60">
+                              <span className="text-[9px] font-black tabular-nums text-app-text-muted">
                                 {r.open_orders_count > 0
                                   ? r.open_orders_count
                                   : 0}
@@ -1328,9 +1328,9 @@ export default function CustomersWorkspace({
                             <div className="flex flex-col items-center">
                               <Truck
                                 size={14}
-                                className={`transition-colors ${r.active_shipment_status ? "text-blue-500" : "text-app-text-muted/20"}`}
+                                className={`transition-colors ${r.active_shipment_status ? "text-app-info" : "text-app-text-disabled"}`}
                               />
-                              <span className="text-[9px] font-black uppercase tracking-tighter opacity-60">
+                              <span className="text-[9px] font-black uppercase tracking-tighter text-app-text-muted">
                                 {r.active_shipment_status
                                   ? r.active_shipment_status.replace(/_/g, " ")
                                   : "Ship"}
@@ -1344,13 +1344,13 @@ export default function CustomersWorkspace({
                               <div className="relative">
                                 <Gem
                                   size={20}
-                                  className="text-amber-500 drop-shadow-sm animate-pulse"
+                                  className="text-app-warning drop-shadow-sm animate-pulse"
                                 />
-                                <div className="absolute inset-0 bg-amber-500/20 blur-lg rounded-full" />
+                                <div className="absolute inset-0 rounded-full bg-app-warning/20 blur-lg" />
                               </div>
                             </div>
                           ) : (
-                            <span className="text-app-text-muted/10">—</span>
+                            <span className="text-app-text-disabled">—</span>
                           )}
                         </td>
                       </tr>
@@ -1360,7 +1360,7 @@ export default function CustomersWorkspace({
               </table>
 
               {hasMore && (
-                <div className="flex flex-col items-center justify-center border-t border-app-border/50 py-8 bg-app-surface-2/10">
+                <div className="flex flex-col items-center justify-center border-t border-app-border/50 bg-app-surface-2/50 py-8">
                   <button
                     type="button"
                     onClick={() => void loadMore()}
@@ -1373,7 +1373,7 @@ export default function CustomersWorkspace({
                       className="group-hover:translate-x-1 transition-transform"
                     />
                   </button>
-                  <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-app-text-muted/60">
+                  <p className="mt-4 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
                     Showing {rows.length} of{" "}
                     {pipelineStats?.total_customers ?? "thousands"}
                   </p>
@@ -1403,7 +1403,7 @@ export default function CustomersWorkspace({
           <div className="mt-4 flex items-center justify-between px-2 shrink-0">
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
-                <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+                <div className="h-2 w-2 rounded-full bg-app-success shadow-sm" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Live Sync Enabled
                 </span>
@@ -1415,7 +1415,7 @@ export default function CustomersWorkspace({
                 </span>
               </div>
             </div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted/40">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
               Riverside OS CRM — Performance-First Architecture
             </p>
           </div>
@@ -1454,7 +1454,7 @@ export default function CustomersWorkspace({
           <button
             type="button"
             onClick={openMergeModal}
-            className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-amber-900"
+            className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning"
           >
             Merge 2 records
           </button>
@@ -1580,7 +1580,7 @@ export default function CustomersWorkspace({
                 type="button"
                 disabled={mergeBusy || !mergeMasterId}
                 onClick={() => void executeMerge()}
-                className="min-h-11 rounded-xl border-b-8 border-emerald-800 bg-emerald-600 px-4 py-2 text-sm font-black uppercase tracking-wide text-white shadow-lg shadow-emerald-900/20 transition-all hover:brightness-110 active:translate-y-0.5 active:border-b-4 disabled:opacity-50"
+                className="min-h-11 rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2 text-sm font-black uppercase tracking-wide text-white shadow-lg transition-all hover:brightness-110 active:translate-y-0.5 active:border-b-4 disabled:opacity-50"
               >
                 {mergeBusy ? "Merging…" : "Merge"}
               </button>

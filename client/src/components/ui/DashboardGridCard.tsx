@@ -31,11 +31,11 @@ export default function DashboardGridCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-2xl border border-app-border bg-app-surface shadow-sm transition-all",
+        "flex flex-col rounded-2xl border border-app-border bg-[color-mix(in_srgb,var(--app-surface)_92%,var(--app-surface-2))] shadow-[0_12px_26px_-20px_rgba(15,23,42,0.24)] transition-all",
         className,
       )}
     >
-      <div className="flex items-center justify-between border-b border-app-border bg-app-surface px-6 py-4">
+      <div className="flex items-center justify-between border-b border-app-border bg-[color-mix(in_srgb,var(--app-surface-2)_88%,var(--app-surface))] px-6 py-4">
         <div className="flex items-center gap-3">
           {Icon && (
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-accent/10 text-app-accent">
@@ -51,7 +51,7 @@ export default function DashboardGridCard({
         {actionLabel && (
           <button
             onClick={onAction}
-            className="text-[10px] font-bold uppercase tracking-widest text-app-accent hover:opacity-80 transition-opacity"
+            className="text-[10px] font-bold uppercase tracking-widest text-app-accent transition-opacity hover:opacity-85"
           >
             {actionLabel}
           </button>

@@ -278,7 +278,7 @@ export default function WeddingLookupDrawer({
                           onPreferGroupPayConsumed?.();
                         }
                       }}
-                      className="group flex flex-col p-4 rounded-3xl border border-app-border bg-app-surface-2 hover:border-app-accent hover:bg-app-surface transition-all text-left shadow-sm"
+                    className="group flex flex-col rounded-3xl border border-app-border bg-app-surface-2 px-4 py-4 text-left shadow-sm transition-all hover:border-app-accent hover:bg-app-surface"
                     >
                       <div className="flex justify-between items-start mb-2">
                         <span className="text-[11px] font-black uppercase tracking-[0.15em] text-app-accent">Party</span>
@@ -313,12 +313,12 @@ export default function WeddingLookupDrawer({
                     <div className="animate-spin h-5 w-5 border-2 border-app-accent border-t-transparent rounded-full" />
                   </div>
                 ) : search.length >= 2 ? (
-                  <div className="text-center py-12 opacity-40">
+                  <div className="py-12 text-center text-app-text-muted">
                     <p className="text-xs font-bold uppercase tracking-widest">No parties found</p>
                   </div>
                 ) : (
-                  <div className="text-center py-12 opacity-40">
-                     <Users size={32} className="mx-auto mb-3 opacity-20" />
+                  <div className="py-12 text-center text-app-text-muted">
+                     <Users size={32} className="mx-auto mb-3 text-app-text-disabled" />
                      <p className="text-[10px] font-black uppercase tracking-[0.2em]">Enter 2+ characters to search</p>
                   </div>
                 )}
@@ -330,8 +330,8 @@ export default function WeddingLookupDrawer({
                  <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Party Members ({selectedParty.members.length})</span>
                  <button 
                   onClick={() => setGroupPayMode(!groupPayMode)}
-                  className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full transition-all ${
-                    groupPayMode ? 'bg-app-accent text-white shadow-lg' : 'bg-app-surface-2 text-app-text-muted border border-app-border'
+                    className={`text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full transition-all ${
+                    groupPayMode ? 'bg-app-accent text-white shadow-lg' : 'border border-app-border bg-app-surface text-app-text-muted'
                   }`}
                  >
                    {groupPayMode ? "Cancel Group Pay" : "Enter Group Pay"}
@@ -349,14 +349,14 @@ export default function WeddingLookupDrawer({
                     onClick={() => groupPayMode && toggleMember(member.id)}
                     className={`flex flex-col p-4 rounded-[2rem] border transition-all cursor-pointer ${
                       isSelected && groupPayMode
-                        ? "border-emerald-500 bg-emerald-50/50 shadow-md"
+                        ? "border-app-success/35 bg-app-success/10 shadow-md"
                         : "border-app-border bg-app-surface-2"
                     }`}
                   >
                     <div className="flex items-center justify-between mb-4">
                       <div className="flex items-center gap-3">
                         <div className={`h-10 w-10 flex items-center justify-center rounded-2xl border font-black italic transition-colors ${
-                          isSelected && groupPayMode ? 'bg-emerald-500 text-white' : 'bg-app-surface border-app-border text-app-accent'
+                          isSelected && groupPayMode ? 'bg-app-success text-white' : 'border-app-border bg-app-surface text-app-accent'
                         }`}>
                           {groupPayMode && isSelected ? <CheckCircle2 size={18} /> : `${member.first_name[0]}${member.last_name[0]}`}
                         </div>
@@ -375,12 +375,12 @@ export default function WeddingLookupDrawer({
                         </button>
                       ) : (
                         <div className="text-right">
-                          <p className="text-[10px] font-black text-app-text-muted uppercase opacity-40 leading-none mb-1">Balance</p>
+                          <p className="mb-1 text-[10px] font-black uppercase leading-none text-app-text-disabled">Balance</p>
                           <p
                             className={`text-sm font-black italic tracking-tighter ${
                               parseMoneyToCents(balance) > 0
-                                ? "text-red-500"
-                                : "text-emerald-600"
+                                ? "text-app-danger"
+                                : "text-app-success"
                             }`}
                           >
                             ${balance}
@@ -409,7 +409,7 @@ export default function WeddingLookupDrawer({
           <div className="absolute bottom-0 inset-x-0 p-6 bg-app-surface border-t border-app-border shadow-[0_-20px_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom duration-300">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">Payout Group ({selectedMemberIds.size})</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Payout Group ({selectedMemberIds.size})</p>
                 <p className="text-2xl font-black italic tracking-tighter text-app-text leading-none mt-1">
                   ${centsToFixed2(totalSelectedBalanceCents)}
                 </p>
@@ -432,8 +432,8 @@ function StatusPill({ active, label, icon }: { active: boolean; label: string; i
   return (
     <div className={`flex items-center justify-center gap-1.5 rounded-full py-1.5 px-3 text-[9px] font-black uppercase tracking-widest transition-colors ${
       active 
-        ? "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20" 
-        : "bg-app-surface border border-app-border text-app-text-muted opacity-40 shadow-inner"
+        ? "border border-app-success/20 bg-app-success/10 text-app-success" 
+        : "border border-app-border bg-app-surface text-app-text-muted shadow-inner"
     }`}>
       {icon ? icon : active ? <CheckCircle2 size={10} /> : <Circle size={10} />}
       {label}

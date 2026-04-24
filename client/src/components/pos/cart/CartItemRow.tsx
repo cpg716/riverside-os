@@ -100,17 +100,17 @@ export function CartItemRow({
 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <div className="flex items-center gap-1.5 shrink-0">
-            <span className="flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-bold text-app-text-muted dark:bg-zinc-800">
+            <span className="flex items-center gap-1 rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] font-bold text-app-text-muted ring-1 ring-app-border/70">
               <Tag size={10} />
               {line.sku}
             </span>
             {line.variation_label ? (
-              <span className="rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-tight text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400">
+              <span className="rounded bg-app-success/12 px-1.5 py-0.5 text-[10px] font-black uppercase tracking-tight text-app-success ring-1 ring-app-success/15">
                 {line.variation_label}
               </span>
             ) : null}
             {line.gift_card_load_code ? (
-              <span className="rounded bg-indigo-50 px-1.5 py-0.5 font-mono text-[10px] font-black text-indigo-700 dark:bg-indigo-950/30 dark:text-indigo-400">
+              <span className="rounded bg-app-info/12 px-1.5 py-0.5 font-mono text-[10px] font-black text-app-info ring-1 ring-app-info/15">
                 #{line.gift_card_load_code}
               </span>
             ) : null}
@@ -126,11 +126,11 @@ export function CartItemRow({
                 size="sm"
                 staff={commissionStaff}
                 selectedId={line.salesperson_id ?? ""}
-                onSelect={(id) => updateLineSalesperson(line.cart_row_id, id)}
-                placeholder={`Default (${orderSalespersonLabel || 'None'})`}
-                className="scale-90 origin-left"
-              />
-            </div>
+              onSelect={(id) => updateLineSalesperson(line.cart_row_id, id)}
+              placeholder={`Default (${orderSalespersonLabel || 'None'})`}
+              className="scale-90 origin-left"
+            />
+          </div>
           )}
         </div>
       </div>
@@ -145,7 +145,7 @@ export function CartItemRow({
           onClick={() => updateLineFulfillment(line.cart_row_id, "takeaway")}
           className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
             line.fulfillment === "takeaway"
-              ? "bg-zinc-900 text-white shadow-sm dark:bg-white dark:text-zinc-900"
+              ? "bg-app-text text-app-surface shadow-sm"
               : "bg-transparent text-app-text-muted hover:text-app-text"
           }`}
         >
@@ -156,7 +156,7 @@ export function CartItemRow({
           onClick={() => updateLineFulfillment(line.cart_row_id, orderLaterFulfillment)}
           className={`h-8 rounded-lg px-2.5 text-[9px] font-black uppercase tracking-widest transition-all ${
             (line.fulfillment === orderLaterFulfillment || line.fulfillment === "custom")
-              ? "bg-amber-500 text-white shadow-sm"
+              ? "bg-app-warning text-white shadow-sm"
               : "bg-transparent text-app-text-muted hover:text-app-text"
           }`}
         >
@@ -168,8 +168,8 @@ export function CartItemRow({
           onClick={() => updateLineGiftWrapStatus(line.cart_row_id, !line.needs_gift_wrap)}
           className={`flex h-8 w-8 items-center justify-center rounded-lg border transition-all ${
             line.needs_gift_wrap
-              ? "border-emerald-500 bg-emerald-500/10 text-emerald-600"
-              : "border-transparent text-app-text-muted hover:bg-zinc-100"
+              ? "border-app-success/40 bg-app-success/10 text-app-success"
+              : "border-transparent text-app-text-muted hover:bg-app-surface"
           }`}
         >
           <Gift size={14} />
@@ -220,11 +220,11 @@ export function CartItemRow({
           </span>
           <div className="flex items-center gap-1.5">
             {showRegSale && (
-               <span className={`text-[9px] font-bold tabular-nums line-through opacity-50`}>
+               <span className="text-[9px] font-bold tabular-nums text-app-text-disabled line-through">
                  ${centsToFixed2(regCents)}
                </span>
             )}
-            <span className={`text-sm font-black tabular-nums ${offPct > 0 && !(keypadMode === "price" && isSelected) ? "text-emerald-600 dark:text-emerald-400" : ""}`}>
+            <span className={`text-sm font-black tabular-nums ${offPct > 0 && !(keypadMode === "price" && isSelected) ? "text-app-success" : ""}`}>
               ${centsToFixed2(saleCents)}
             </span>
           </div>
@@ -236,7 +236,7 @@ export function CartItemRow({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); removeLine(line.cart_row_id); }}
-          className="group flex h-9 w-9 items-center justify-center rounded-full text-red-400 transition-all hover:bg-red-500 hover:text-white"
+          className="group flex h-9 w-9 items-center justify-center rounded-full text-app-danger transition-all hover:bg-app-danger hover:text-white"
           aria-label="Remove line"
         >
           <Trash2 size={16} className="transition-transform group-hover:scale-110" />
