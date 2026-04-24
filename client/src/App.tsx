@@ -74,7 +74,9 @@ import { ShellBackdropProvider } from "./components/layout/ShellBackdropContext"
 import { useShellBackdropDepth } from "./components/layout/ShellBackdropContextLogic";
 import BackofficeSignInGate from "./components/layout/BackofficeSignInGate";
 import RegisterSessionBootstrap from "./components/layout/RegisterSessionBootstrap";
-import HelpCenterDrawer from "./components/help/HelpCenterDrawer";
+import HelpCenterDrawer, {
+  type HelpCenterDrawerMode,
+} from "./components/help/HelpCenterDrawer";
 import BugReportFlow from "./components/bug-report/BugReportFlow";
 import {
   SIDEBAR_TAB_PERMISSION,
@@ -1178,6 +1180,8 @@ function AppShell({
   setInsightsMode,
 }: AppShellProps) {
   const { staffCode, permissionsLoaded, permissions } = useBackofficeAuth();
+  const [helpDrawerMode, setHelpDrawerMode] =
+    useState<HelpCenterDrawerMode>("browse");
   const isAuthenticated = !!(staffCode.trim() && permissionsLoaded && permissions.length > 0);
   useEffect(() => {
     // Shell entry tabs should reconcile their owning mode if the parent tab and mode drift.
@@ -1395,6 +1399,7 @@ function AppShell({
 
       <HelpCenterDrawer
         isOpen={helpDrawerOpen}
+        openMode={helpDrawerMode}
         onClose={() => setHelpDrawerOpen(false)}
       />
 
@@ -1471,7 +1476,14 @@ function AppShell({
         }}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         isRegisterOpen={isRegisterOpen}
-        onOpenHelp={() => setHelpDrawerOpen(true)}
+        onOpenHelp={() => {
+          setHelpDrawerMode("browse");
+          setHelpDrawerOpen(true);
+        }}
+        onOpenRosie={() => {
+          setHelpDrawerMode("ask");
+          setHelpDrawerOpen(true);
+        }}
         onOpenBugReport={() => setBugReportOpen(true)}
         onNavigateToTab={(tab, section) => {
           if (tab === "dashboard") {

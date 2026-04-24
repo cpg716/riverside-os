@@ -15,7 +15,10 @@ import { useOfflineSync } from "../../lib/offlineQueue";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import NotificationCenterBell from "../notifications/NotificationCenterBell";
-import { HelpCenterTriggerButton } from "../help/HelpCenterDrawer";
+import {
+  HelpCenterTriggerButton,
+  RosieTriggerButton,
+} from "../help/HelpCenterDrawer";
 import { BugReportTriggerButton } from "../bug-report/BugReportFlow";
 import { useTopBar } from "../../context/TopBarContextLogic";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
@@ -50,6 +53,7 @@ interface GlobalTopBarProps {
   /** When false, show optional Back Office "Switch staff" (register not required for BO). */
   isRegisterOpen?: boolean;
   onOpenHelp?: () => void;
+  onOpenRosie?: () => void;
   onOpenBugReport?: () => void;
   themeMode: ThemeMode;
   onThemeToggle: () => void;
@@ -72,6 +76,7 @@ export default function GlobalTopBar({
   onToggleSidebar,
   isRegisterOpen = false,
   onOpenHelp,
+  onOpenRosie,
   onOpenBugReport,
   themeMode,
   onThemeToggle,
@@ -183,6 +188,7 @@ export default function GlobalTopBar({
 
         {/* Global Action Cluster */}
         <div className="flex items-center gap-1 border-r border-app-border pr-2 sm:gap-1.5 sm:pr-4 md:mr-2">
+          {onOpenRosie ? <RosieTriggerButton onOpen={onOpenRosie} /> : null}
           {onOpenHelp ? <HelpCenterTriggerButton onOpen={onOpenHelp} /> : null}
           {onOpenBugReport ? <BugReportTriggerButton onOpen={onOpenBugReport} /> : null}
           

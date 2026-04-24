@@ -79,6 +79,8 @@ type RosiChatEntry = {
 
 type DrawerMode = "browse" | "ask";
 
+export type HelpCenterDrawerMode = DrawerMode;
+
 function extractText(node: unknown): string {
   if (node == null || typeof node === "boolean") return "";
   if (typeof node === "string" || typeof node === "number") return String(node);
@@ -343,9 +345,11 @@ type HelpImageLightbox = { src: string; alt: string };
 export default function HelpCenterDrawer({
   isOpen,
   onClose,
+  openMode = "browse",
 }: {
   isOpen: boolean;
   onClose: () => void;
+  openMode?: HelpCenterDrawerMode;
 }) {
   const [imageLightbox, setImageLightbox] = useState<HelpImageLightbox | null>(null);
   const closeLightbox = useCallback(() => setImageLightbox(null), []);
@@ -416,6 +420,7 @@ export default function HelpCenterDrawer({
       setRosieTranscriptPreview("");
       return;
     }
+    setDrawerMode(openMode);
     let cancelled = false;
     void (async () => {
       try {
@@ -444,7 +449,7 @@ export default function HelpCenterDrawer({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, apiAuth]);
+  }, [isOpen, apiAuth, openMode]);
 
   useEffect(() => {
     if (!rosieBusy) {
@@ -1361,6 +1366,27 @@ export function HelpCenterTriggerButton({
       aria-label="Help"
     >
       <CircleHelp size={18} strokeWidth={2} aria-hidden />
+    </button>
+  );
+}
+
+export function RosieTriggerButton({
+  onOpen,
+  className = "",
+}: {
+  onOpen: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      data-testid="help-center-ask-rosie-trigger"
+      className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
+      aria-label="Ask ROSIE"
+      title="Ask ROSIE"
+    >
+      <Bot size={18} strokeWidth={2} aria-hidden />
     </button>
   );
 }
