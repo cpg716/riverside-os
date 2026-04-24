@@ -1,0 +1,48 @@
+docs_root: docs
+
+project:
+  name: Riverside OS
+  type: admin
+  description: >
+    Production retail POS/ERM for formalwear and wedding retail with a bundled
+    in-app Help Center.
+
+audience:
+  primary: internal
+
+style:
+  tone: professional
+
+stack:
+  frontend:
+    path: client/src
+  backend:
+    path: server/src
+
+urls:
+  base: http://localhost:43173
+
+auth:
+  required: true
+  method: file
+
+content:
+  screenshot_position: overview
+  sections:
+    - overview
+    - how-to
+    - troubleshooting
+  exclude:
+    - node_modules
+    - client/dist
+    - server/target
+    - client/src-tauri/target
+
+notes:
+  - >
+    AIDocs is used here for governed authoring workflows and environment checks.
+    The shipped Help Center corpus still lives under client/src/assets/docs and
+    client/src/assets/images/help.
+  - >
+    Deterministic screenshot refresh for the bundled Help Center uses the local
+    Playwright script at client/scripts/capture-help-screenshots.mjs.

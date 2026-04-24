@@ -148,6 +148,57 @@ Use **`.claude/workflows/docs/*`** and **`aidocs init . --ai cursor`** (or your 
 3. **`npm run build`** (or your normal client build).
 4. **Reindex Meilisearch** when **search** should reflect new or heavily changed **text** (Settings → Rebuild, or your reindex script).
 
+### Checked-in AIDocs config
+
+Riverside now ships a checked-in AIDocs config at:
+
+- `docs/aidocs-config.yml`
+
+That gives the repo a real upstream AIDocs entrypoint for:
+
+- `uvx --from aidocs aidocs check`
+- `/docs:init`
+- `/docs:generate`
+- `/docs:flow`
+
+For the bundled in-app Help Center, AIDocs is the guided authoring layer. The
+deterministic screenshot + manifest refresh path is still repo-owned.
+
+## One-command refresh
+
+Use the root command when you want the repo to refresh the shipped Help Center
+artifacts end to end:
+
+```bash
+npm run generate:help:refresh
+```
+
+What it does:
+
+1. runs `aidocs check` when `uv` is installed
+2. auto-boots the local E2E stack if the UI/API are not already running
+3. captures deterministic Help screenshots with Playwright
+4. runs `npm run generate:help`
+
+Optional flags:
+
+```bash
+npm run generate:help:refresh -- --no-auto-boot
+npm run generate:help:refresh -- --skip-screenshots
+npm run generate:help:refresh -- --skip-generate-help
+npm run generate:help:refresh -- --reindex-search
+```
+
+The current deterministic screenshot set is defined in:
+
+- `client/scripts/help-screenshot-specs.mjs`
+
+The Playwright capture runner is:
+
+- `client/scripts/capture-help-screenshots.mjs`
+
+More detail: `docs/HELP_CENTER_AUTOMATION.md`
+
 ---
 
 ## Updating **existing** Help sections

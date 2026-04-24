@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "generate:help": "node scripts/generate-help-manifest.mjs",
+    "generate:help:screenshots": "node scripts/capture-help-screenshots.mjs",
     "generate:help:components": "node scripts/generate-help-manifest.mjs --scaffold-components",
     "generate:help:components:rescan": "node scripts/generate-help-manifest.mjs --rescan-components",
     "generate:help:components:cleanup": "node scripts/generate-help-manifest.mjs --rescan-components --delete-orphans",
