@@ -286,13 +286,13 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
   const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
   const productSearch = page.getByTestId("pos-product-search");
   const giftCardAction = page.getByTestId("pos-action-gift-card");
+  const continueButton = cashierDialog.getByRole("button", { name: /^continue$/i });
 
   for (let i = 0; i < 40; i += 1) {
-    if (
-      ((await productSearch.isVisible().catch(() => false)) &&
-        !(await cashierDialog.isVisible().catch(() => false))) ||
-      (await cashierDialog.isVisible().catch(() => false))
-    ) {
+    const productSearchVisible = await productSearch.isVisible().catch(() => false);
+    const cashierDialogVisible = await cashierDialog.isVisible().catch(() => false);
+    const continueVisible = await continueButton.isVisible().catch(() => false);
+    if ((productSearchVisible && !cashierDialogVisible) || (cashierDialogVisible && continueVisible)) {
       break;
     }
     await page.waitForTimeout(500);
@@ -346,10 +346,12 @@ async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
     }
   }
 
+  const firstPinKey = cashierDialog.getByTestId(`pin-key-${staffCode[0]}`);
+  await firstPinKey.waitFor({ state: "visible", timeout: 15000 });
+
   for (const digit of staffCode) {
     await cashierDialog.getByTestId(`pin-key-${digit}`).click();
   }
-  const continueButton = cashierDialog.getByRole("button", { name: /^continue$/i });
   await continueButton.waitFor({ state: "visible", timeout: 15000 });
   await continueButton.click();
   await cashierDialog.waitFor({ state: "hidden", timeout: 20000 });
@@ -430,8 +432,8 @@ async function runSpec(page, api, spec, opts) {
       await prepareBase(page, opts);
       await enterPosShell(page);
       await ensurePosRegisterSessionOpen(page, opts);
-      await ensurePosSaleCashierSignedIn(page, opts);
       await page.getByRole("button", { name: /^register$/i }).click();
+      await ensurePosSaleCashierSignedIn(page, opts);
       await page.getByTestId("pos-product-search").waitFor({
         state: "visible",
         timeout: 15000,
