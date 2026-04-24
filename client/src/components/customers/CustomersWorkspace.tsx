@@ -1764,17 +1764,67 @@ interface DuplicateCandidateRow {
   last_name: string | null;
   email: string | null;
   phone: string | null;
+  address_line1: string | null;
+  address_line2: string | null;
+  city: string | null;
+  state: string | null;
+  postal_code: string | null;
   match_reason: string;
 }
 
-function AddCustomerDrawer({
+type AddCustomerDraft = Partial<
+  Pick<
+    AddCustomerForm,
+    | "first_name"
+    | "last_name"
+    | "email"
+    | "phone"
+    | "address_line1"
+    | "address_line2"
+    | "city"
+    | "state"
+    | "postal_code"
+  >
+>;
+
+function formatDuplicateAddress(candidate: DuplicateCandidateRow): string {
+  return [
+    candidate.address_line1,
+    candidate.address_line2,
+    [candidate.city, candidate.state].filter(Boolean).join(", "),
+    candidate.postal_code,
+  ]
+    .filter(Boolean)
+    .join(" ");
+}
+
+function duplicateReasonLabel(reason: string): string {
+  switch (reason) {
+    case "same_phone_digits":
+      return "Phone match";
+    case "same_email":
+      return "Email match";
+    case "same_name_zip":
+      return "Name and ZIP match";
+    case "same_name":
+      return "Same name";
+    default:
+      return reason.replace(/_/g, " ");
+  }
+}
+
+export function AddCustomerDrawer({
   isOpen,
   onClose,
   onSaved,
+  initialDraft,
+  onCreatedCustomer,
 }: {
   isOpen: boolean;
   onClose: () => void;
   onSaved: () => void;
+  initialDraft?: AddCustomerDraft;
+  onCreatedCustomer?: (customer: Customer) => void;
 }) {
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -1789,6 +1839,7 @@ function AddCustomerDrawer({
     [],
   );
   const [dupLoading, setDupLoading] = useState(false);
+  const [nameNeedsPhoneReview, setNameNeedsPhoneReview] = useState(false);
   const dupAbortRef = useRef<AbortController | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -1840,6 +1891,26 @@ function AddCustomerDrawer({
     setForm({ ...EMPTY_ADD_CUSTOMER_FORM });
   }, []);
 
+  const draftKey = JSON.stringify(initialDraft ?? {});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setForm({
+      ...EMPTY_ADD_CUSTOMER_FORM,
+      ...(initialDraft ?? {}),
+      phone: initialDraft?.phone
+        ? formatPhoneInput(initialDraft.phone)
+        : EMPTY_ADD_CUSTOMER_FORM.phone,
+      state: initialDraft?.state
+        ? initialDraft.state.toUpperCase()
+        : EMPTY_ADD_CUSTOMER_FORM.state,
+    });
+    setTouched({});
+    setErr(null);
+    setDupCandidates([]);
+    setNameNeedsPhoneReview(false);
+  }, [isOpen, draftKey, initialDraft]);
+
   useEffect(() => {
     if (!isOpen) {
       setEmailPromptOpen(false);
@@ -1847,6 +1918,7 @@ function AddCustomerDrawer({
       setErr(null);
       setTouched({});
       setDupCandidates([]);
+      setNameNeedsPhoneReview(false);
       dupAbortRef.current?.abort();
       resetForm();
     }
@@ -1857,12 +1929,15 @@ function AddCustomerDrawer({
     const em = form.email.trim();
     const fn = form.first_name.trim();
     const ln = form.last_name.trim();
+    const zip = form.postal_code.trim();
     const pd = form.phone.replace(/\D/g, "");
     const emailOk = em.length > 0 && EMAIL_RE.test(em);
     const phoneOk = pd.length >= 10;
     const nameOk = fn.length > 0 && ln.length > 0;
+    const postalOk = zip.length > 0 && POSTAL_RE.test(zip);
     if (!emailOk && !phoneOk && !nameOk) {
       setDupCandidates([]);
+      setNameNeedsPhoneReview(false);
       return;
     }
     dupAbortRef.current?.abort();
@@ -1879,6 +1954,7 @@ function AddCustomerDrawer({
             p.set("first_name", fn);
             p.set("last_name", ln);
           }
+          if (postalOk) p.set("postal_code", zip);
           p.set("limit", "12");
           const res = await fetch(
             `${baseUrl}/api/customers/duplicate-candidates?${p.toString()}`,
@@ -1890,9 +1966,19 @@ function AddCustomerDrawer({
             return;
           }
           const rows = (await res.json()) as DuplicateCandidateRow[];
-          setDupCandidates(Array.isArray(rows) ? rows : []);
+          const safeRows = Array.isArray(rows) ? rows : [];
+          const hasNameMatch = safeRows.some((r) =>
+            r.match_reason.startsWith("same_name"),
+          );
+          const waitingForPhone =
+            nameOk && !phoneOk && !emailOk && hasNameMatch;
+          setNameNeedsPhoneReview(waitingForPhone);
+          setDupCandidates(waitingForPhone ? [] : safeRows);
         } catch {
-          if (!ac.signal.aborted) setDupCandidates([]);
+          if (!ac.signal.aborted) {
+            setDupCandidates([]);
+            setNameNeedsPhoneReview(false);
+          }
         } finally {
           if (!ac.signal.aborted) setDupLoading(false);
         }
@@ -1908,6 +1994,7 @@ function AddCustomerDrawer({
     form.phone,
     form.first_name,
     form.last_name,
+    form.postal_code,
     apiAuth,
   ]);
 
@@ -1998,6 +2085,7 @@ function AddCustomerDrawer({
       if (created.customer_code) {
         toast(`Customer created — code ${created.customer_code}`, "success");
       }
+      onCreatedCustomer?.(created as Customer);
       if (form.is_vip) {
         if (!hasPermission("customers.hub_edit")) {
           toast("VIP flag not saved: missing customers.hub_edit.", "error");
@@ -2057,9 +2145,9 @@ function AddCustomerDrawer({
       <DetailDrawer
         isOpen={isOpen}
         onClose={onClose}
-        title="Add customer"
-        subtitle="Create a new customer profile."
-        panelMaxClassName="max-w-3xl"
+        title="Add Customer"
+        subtitle="Capture identity, contact, address, and communication preferences."
+        panelMaxClassName="max-w-4xl"
         footer={
           <div className="flex gap-3">
             <button
@@ -2091,46 +2179,118 @@ function AddCustomerDrawer({
             </p>
           ) : null}
 
-          {(dupLoading || dupCandidates.length > 0) && (
+          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Identity
+                </p>
+                <p className="mt-1 text-sm font-black text-app-text">
+                  Name first
+                </p>
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Contact
+                </p>
+                <p className="mt-1 text-sm font-black text-app-text">
+                  Phone and email
+                </p>
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  Quality check
+                </p>
+                <p className="mt-1 text-sm font-black text-app-text">
+                  Duplicate review
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {(dupLoading || nameNeedsPhoneReview || dupCandidates.length > 0) && (
             <div
-              className="ui-panel ui-tint-warning px-3 py-3"
+              className="rounded-2xl border border-amber-400/30 bg-amber-50/80 p-4 shadow-sm ring-1 ring-amber-500/10 dark:bg-amber-500/10"
               data-testid="crm-duplicate-candidates"
             >
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
-                Possible existing customers
-              </p>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                    Customer match review
+                  </p>
+                  <p className="mt-1 text-xs font-semibold text-app-text">
+                    Compare the profile before creating a new customer so phone,
+                    email, and marketing contact details stay current.
+                  </p>
+                </div>
+                <span className="rounded-full border border-amber-400/40 bg-white/70 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700 dark:bg-black/10 dark:text-amber-200">
+                  Review
+                </span>
+              </div>
               {dupLoading ? (
                 <p className="mt-2 text-xs text-app-text-muted">Checking…</p>
+              ) : nameNeedsPhoneReview ? (
+                <p className="mt-3 rounded-xl border border-amber-400/30 bg-white/70 px-3 py-2 text-xs font-semibold text-app-text dark:bg-black/10">
+                  This name already exists. Enter a phone number first so we can
+                  check for a direct phone match before showing same-name
+                  profiles.
+                </p>
               ) : (
-                <ul className="mt-2 space-y-2 text-xs text-app-text">
+                <ul className="mt-3 space-y-2 text-xs text-app-text">
                   {dupCandidates.map((c) => (
                     <li
                       key={c.id}
-                      className="ui-metric-cell ui-tint-neutral px-2 py-1.5"
+                      className="rounded-xl border border-app-border bg-app-surface px-3 py-2 shadow-sm"
                     >
-                      <span className="font-mono font-bold">
-                        {c.customer_code}
-                      </span>
-                      {" — "}
-                      {[c.first_name, c.last_name].filter(Boolean).join(" ") ||
-                        "(no name)"}
-                      {c.email ? (
-                        <span className="block text-[10px] text-app-text-muted">
-                          {c.email}
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <p className="font-black text-app-text">
+                            {[c.first_name, c.last_name]
+                              .filter(Boolean)
+                              .join(" ") || "(no name)"}
+                          </p>
+                          <p className="font-mono text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                            {c.customer_code}
+                          </p>
+                        </div>
+                        <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                          {duplicateReasonLabel(c.match_reason)}
                         </span>
-                      ) : null}
-                      <span className="block text-[10px] font-semibold uppercase tracking-tight text-app-warning">
-                        {c.match_reason.replace(/_/g, " ")}
-                      </span>
+                      </div>
+                      <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                        <div>
+                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Phone
+                          </dt>
+                          <dd className="font-semibold text-app-text">
+                            {c.phone || "No phone"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Email
+                          </dt>
+                          <dd className="break-all font-semibold text-app-text">
+                            {c.email || "No email"}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            Address
+                          </dt>
+                          <dd className="font-semibold text-app-text">
+                            {formatDuplicateAddress(c) || "No address"}
+                          </dd>
+                        </div>
+                      </dl>
                     </li>
                   ))}
                 </ul>
               )}
               {!dupLoading && dupCandidates.length > 0 ? (
-                <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
-                  Open an existing profile in Customers if this is the same
-                  person; merge tools live under customer admin when you have
-                  access.
+                <p className="mt-3 text-[10px] font-semibold text-app-text-muted">
+                  If this is the same person, review the existing profile and
+                  update contact details there instead of creating a duplicate.
                 </p>
               ) : null}
             </div>

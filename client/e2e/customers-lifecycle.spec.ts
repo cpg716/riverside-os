@@ -289,6 +289,52 @@ test("failed address lookup keeps add customer form usable", async ({
   });
 });
 
+test("add customer waits for phone before showing same-name duplicate review", async ({
+  page,
+}) => {
+  await mockCustomerWorkspaceBasics(page);
+  await page.unroute("**/api/customers/duplicate-candidates*");
+  await page.route("**/api/customers/duplicate-candidates*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "55555555-5555-4555-8555-555555555555",
+          customer_code: "CUST-REVIEW",
+          first_name: "Morgan",
+          last_name: "Taylor",
+          email: "old-morgan@example.com",
+          phone: "(716) 555-0199",
+          address_line1: "77 Review Rd",
+          address_line2: null,
+          city: "Buffalo",
+          state: "NY",
+          postal_code: "14202",
+          match_reason: "same_name",
+        },
+      ]),
+    });
+  });
+
+  await openAddCustomerDrawer(page);
+  await page.getByLabel(/first name/i).fill("Morgan");
+  await page.getByLabel(/last name/i).fill("Taylor");
+
+  await expect(
+    page.getByText(/enter a phone number first/i),
+  ).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByText("77 Review Rd")).toBeHidden();
+
+  await page.getByPlaceholder("(555) 000-0000").first().fill("(716) 555-0100");
+
+  await expect(page.getByText("CUST-REVIEW")).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(page.getByText("old-morgan@example.com")).toBeVisible();
+  await expect(page.getByText(/77 Review Rd/)).toBeVisible();
+});
+
 test("customer lifecycle filter and hub badge use the same explicit state", async ({
   page,
 }) => {

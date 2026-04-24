@@ -1036,6 +1036,7 @@ struct DuplicateCandidatesQuery {
     phone: Option<String>,
     first_name: Option<String>,
     last_name: Option<String>,
+    postal_code: Option<String>,
     exclude_customer_id: Option<Uuid>,
     #[serde(default = "default_dup_limit")]
     limit: i64,
@@ -1060,6 +1061,7 @@ async fn get_duplicate_candidates(
         q.phone.as_deref(),
         q.first_name.as_deref(),
         q.last_name.as_deref(),
+        q.postal_code.as_deref(),
         q.exclude_customer_id,
         q.limit,
     )

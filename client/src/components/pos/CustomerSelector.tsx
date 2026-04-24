@@ -1,11 +1,10 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
-import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX, Clock } from "lucide-react";
-import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import { useToast } from "../ui/ToastProviderLogic";
+import { AddCustomerDrawer } from "../customers/CustomersWorkspace";
 import type { WeddingMembership } from "./customerProfileTypes";
 
 export interface Customer {
@@ -37,11 +36,30 @@ interface CustomerSelectorProps {
   onOpenParkedSales?: () => void;
 }
 
-interface ApiErrorBody {
-  error?: string;
+const CUSTOMER_SELECTOR_PAGE = 50;
+
+type PosCustomerDraft = Parameters<typeof AddCustomerDrawer>[0]["initialDraft"];
+
+function formatPhoneDraft(raw: string): string {
+  const d = raw.replace(/\D/g, "").slice(0, 10);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
+  return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
 }
 
-const CUSTOMER_SELECTOR_PAGE = 50;
+function customerDraftFromQuery(value: string): PosCustomerDraft {
+  const trimmed = value.trim();
+  if (!trimmed) return {};
+  if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed)) {
+    return { email: trimmed };
+  }
+  const digits = trimmed.replace(/\D/g, "");
+  if (digits.length >= 7 && digits.length >= trimmed.replace(/\s/g, "").length - 2) {
+    return { phone: formatPhoneDraft(digits) };
+  }
+  const [first = "", ...rest] = trimmed.split(/\s+/);
+  return { first_name: first, last_name: rest.join(" ") };
+}
 
 export default function CustomerSelector({
   selectedCustomer,
@@ -65,23 +83,10 @@ export default function CustomerSelector({
   const [results, setResults] = useState<Customer[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [isAdding, setIsAdding] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
   const [partyFilterMode, setPartyFilterMode] = useState(false);
-
-  const [newCustomer, setNewCustomer] = useState({
-    first_name: "",
-    last_name: "",
-    phone: "",
-    email: "",
-    address_line1: "",
-    city: "",
-    state: "",
-    postal_code: "",
-    marketing_email_opt_in: false,
-    marketing_sms_opt_in: false,
-  });
+  const [addDrawerOpen, setAddDrawerOpen] = useState(false);
+  const [addDraft, setAddDraft] = useState<PosCustomerDraft>({});
 
   const baseUrl = getBaseUrl();
 
@@ -197,64 +202,6 @@ export default function CustomerSelector({
     toast,
     apiAuth,
   ]);
-
-  const handleQuickAdd = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-    try {
-      const res = await fetch(apiUrl(baseUrl, "/api/customers"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({
-          first_name: newCustomer.first_name.trim(),
-          last_name: newCustomer.last_name.trim(),
-          phone: newCustomer.phone.trim() || null,
-          email: newCustomer.email.trim() || null,
-          address_line1: newCustomer.address_line1.trim() || null,
-          city: newCustomer.city.trim() || null,
-          state: newCustomer.state.trim() || null,
-          postal_code: newCustomer.postal_code.trim() || null,
-          marketing_email_opt_in: newCustomer.marketing_email_opt_in,
-          marketing_sms_opt_in: newCustomer.marketing_sms_opt_in,
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as ApiErrorBody;
-        throw new Error(body.error ?? "We couldn't add that customer. Please check the information and try again.");
-      }
-      const data = (await res.json()) as Customer;
-      onSelect(data);
-      if (data.customer_code) {
-        toast(`Customer added \u2014 code ${data.customer_code}`, "success");
-      } else {
-        toast("Customer added", "success");
-      }
-      setIsAdding(false);
-      setQuery("");
-      setResults([]);
-      setNewCustomer({
-        first_name: "",
-        last_name: "",
-        phone: "",
-        email: "",
-        address_line1: "",
-        city: "",
-        state: "",
-        postal_code: "",
-        marketing_email_opt_in: false,
-        marketing_sms_opt_in: false,
-      });
-    } catch (err: unknown) {
-      toast(
-        err instanceof Error
-          ? err.message
-          : "We couldn't add that customer. Please check the information and try again.",
-        "error",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   if (selectedCustomer) {
     if (variant === "posStrip") {
@@ -397,8 +344,7 @@ export default function CustomerSelector({
   return (
     <div className="space-y-4">
       {/* 1. Search Bar (Top) */}
-      {!isAdding && (
-        <div className="group relative">
+      <div className="group relative">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted transition-colors group-focus-within:text-app-accent"
             size={16}
@@ -453,6 +399,29 @@ export default function CustomerSelector({
                  <div className="p-3 text-sm text-app-text-muted">Searching\u2026</div>
                )}
                {!searchBusy && results.length === 0 && (
+                 <button
+                   type="button"
+                   onClick={() => {
+                     setAddDraft(customerDraftFromQuery(query));
+                     setAddDrawerOpen(true);
+                     setResults([]);
+                   }}
+                   className="flex w-full items-center gap-3 border-b border-app-border bg-app-accent/10 px-4 py-3 text-left transition-colors hover:bg-app-accent/15"
+                 >
+                   <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-app-accent text-white shadow-sm">
+                     <UserPlus size={16} />
+                   </div>
+                   <div className="min-w-0">
+                     <div className="text-sm font-black uppercase italic tracking-tight text-app-text">
+                       Add customer
+                     </div>
+                     <div className="truncate text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                       Start profile from "{query.trim()}"
+                     </div>
+                   </div>
+                 </button>
+               )}
+               {!searchBusy && results.length === 0 && (
                  <div className="p-3 text-sm text-app-text-muted">
                    No customers found
                  </div>
@@ -499,8 +468,7 @@ export default function CustomerSelector({
                </div>
             </div>
           )}
-        </div>
-      )}
+      </div>
 
       {/* 2. Walk-in / Parked / Options Row */}
       {!query.trim() && (
@@ -509,16 +477,18 @@ export default function CustomerSelector({
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">Quick Actions</span>
              <button
                 type="button"
-                onClick={() => setIsAdding((v) => !v)}
+                onClick={() => {
+                  setAddDraft({});
+                  setAddDrawerOpen(true);
+                }}
                 className="flex items-center gap-1 text-[10px] font-black uppercase tracking-widest text-blue-600 hover:text-blue-800 transition-colors"
               >
-                {isAdding ? <X size={14} /> : <UserPlus size={14} />}
-                {isAdding ? "Cancel" : "Quick Add Client"}
+                <UserPlus size={14} />
+                Add Customer
               </button>
           </div>
 
-          {!isAdding && (
-            <div className="grid grid-cols-1 gap-2">
+          <div className="grid grid-cols-1 gap-2">
                {showWalkInOption && (
                 <button
                   type="button"
@@ -558,88 +528,20 @@ export default function CustomerSelector({
                   </div>
                 </button>
               )}
-            </div>
-          )}
-
-          {isAdding && (
-            <form
-              onSubmit={handleQuickAdd}
-              className="space-y-3 rounded-2xl border-2 border-app-border bg-app-surface p-4 shadow-xl animate-in zoom-in-95 duration-200"
-            >
-               {/* Simplified Quick Add Form for POS */}
-               <div className="grid grid-cols-2 gap-2">
-                  <input
-                    required
-                    placeholder="First Name"
-                    className="ui-input h-10 px-3 text-sm font-bold"
-                    value={newCustomer.first_name}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, first_name: e.target.value }))}
-                  />
-                  <input
-                    required
-                    placeholder="Last Name"
-                    className="ui-input h-10 px-3 text-sm font-bold"
-                    value={newCustomer.last_name}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, last_name: e.target.value }))}
-                  />
-               </div>
-               <input
-                  placeholder="Phone Number"
-                  className="ui-input h-10 w-full px-3 text-sm font-bold tabular-nums"
-                  value={newCustomer.phone}
-                  onChange={(e) => setNewCustomer(p => ({ ...p, phone: e.target.value }))}
-               />
-               <input
-                  placeholder="Email (optional)"
-                  className="ui-input h-10 w-full px-3 text-sm font-bold"
-                  value={newCustomer.email}
-                  onChange={(e) => setNewCustomer(p => ({ ...p, email: e.target.value }))}
-               />
-               <AddressAutocompleteInput
-                  label="Address (optional)"
-                  value={newCustomer.address_line1}
-                  onChange={(value) => setNewCustomer(p => ({ ...p, address_line1: value }))}
-                  onSelectAddress={(suggestion) => setNewCustomer(p => ({
-                    ...p,
-                    address_line1: suggestion.address_line1,
-                    city: suggestion.city,
-                    state: suggestion.state,
-                    postal_code: suggestion.postal_code,
-                  }))}
-                  inputClassName="ui-input h-10 w-full px-3 text-sm font-bold"
-               />
-               <div className="grid grid-cols-[1fr_64px_88px] gap-2">
-                  <input
-                    placeholder="City"
-                    className="ui-input h-10 px-3 text-sm font-bold"
-                    value={newCustomer.city}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, city: e.target.value }))}
-                  />
-                  <input
-                    placeholder="ST"
-                    className="ui-input h-10 px-3 text-sm font-bold uppercase"
-                    value={newCustomer.state}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, state: e.target.value.toUpperCase() }))}
-                    maxLength={2}
-                  />
-                  <input
-                    placeholder="ZIP"
-                    className="ui-input h-10 px-3 text-sm font-bold tabular-nums"
-                    value={newCustomer.postal_code}
-                    onChange={(e) => setNewCustomer(p => ({ ...p, postal_code: e.target.value }))}
-                  />
-               </div>
-               <button
-                  type="submit"
-                  disabled={loading}
-                  className="ui-btn-primary w-full h-11 text-xs font-black uppercase tracking-widest shadow-lg shadow-app-accent/20"
-               >
-                  {loading ? "Adding..." : "Add & Select"}
-               </button>
-            </form>
-          )}
+          </div>
         </div>
       )}
+      <AddCustomerDrawer
+        isOpen={addDrawerOpen}
+        initialDraft={addDraft}
+        onClose={() => setAddDrawerOpen(false)}
+        onSaved={() => {
+          setAddDrawerOpen(false);
+          setQuery("");
+          setResults([]);
+        }}
+        onCreatedCustomer={(customer) => onSelect(customer)}
+      />
     </div>
   );
 }

@@ -137,12 +137,24 @@ test.describe("Phase 2: POS tender UI smoke", () => {
     test.setTimeout(90_000);
     await openPosRegisterSurface(page);
 
-    // Link a customer via deterministic Quick Add flow (avoids search-result variability).
-    await page.getByRole("button", { name: /quick add/i }).click();
-    await page.getByPlaceholder("First Name").fill("E2E");
-    await page.getByPlaceholder("Last Name").fill("Tender UI");
-    await page.getByPlaceholder("Phone Number").fill("7165550123");
-    await page.getByRole("button", { name: /add & select/i }).click();
+    // Link a customer through the shared Add Customer hub.
+    await page.getByRole("button", { name: /^add customer$/i }).click();
+    const addCustomerDrawer = page.getByRole("dialog", {
+      name: /add customer/i,
+    });
+    await expect(addCustomerDrawer).toBeVisible({ timeout: 20_000 });
+    await addCustomerDrawer.getByLabel(/first name/i).fill("E2E");
+    await addCustomerDrawer.getByLabel(/last name/i).fill("Tender UI");
+    await addCustomerDrawer
+      .getByPlaceholder("(555) 000-0000")
+      .first()
+      .fill("7165550123");
+    await addCustomerDrawer
+      .getByRole("textbox", { name: /email \(optional\)/i })
+      .fill(`e2e-tender-${Date.now()}@example.com`);
+    await addCustomerDrawer
+      .getByRole("button", { name: /create customer/i })
+      .click();
 
     // Wait for customer to be attached to the sale strip.
     await expect(

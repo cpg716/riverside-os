@@ -30,12 +30,22 @@ pub struct DuplicateCandidateRow {
     pub last_name: Option<String>,
     pub email: Option<String>,
     pub phone: Option<String>,
+    pub address_line1: Option<String>,
+    pub address_line2: Option<String>,
+    pub city: Option<String>,
+    pub state: Option<String>,
+    pub postal_code: Option<String>,
     pub match_reason: String,
 }
 
 type CustomerSlim = (
     Uuid,
     String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
     Option<String>,
     Option<String>,
     Option<String>,
@@ -49,6 +59,7 @@ pub async fn find_duplicate_candidates(
     phone: Option<&str>,
     first_name: Option<&str>,
     last_name: Option<&str>,
+    postal_code: Option<&str>,
     exclude_customer_id: Option<Uuid>,
     limit: i64,
 ) -> Result<Vec<DuplicateCandidateRow>, sqlx::Error> {
@@ -59,6 +70,9 @@ pub async fn find_duplicate_candidates(
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
     let nl = last_name
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty());
+    let nz = postal_code
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
 
@@ -72,7 +86,8 @@ pub async fn find_duplicate_candidates(
         let rows: Vec<CustomerSlim> = if let Some(ex) = exclude_customer_id {
             sqlx::query_as(
                 r#"
-                SELECT id, customer_code, first_name, last_name, email, phone
+                SELECT id, customer_code, first_name, last_name, email, phone,
+                       address_line1, address_line2, city, state, postal_code
                 FROM customers
                 WHERE is_active = true
                   AND lower(trim(email)) = $1
@@ -88,7 +103,8 @@ pub async fn find_duplicate_candidates(
         } else {
             sqlx::query_as(
                 r#"
-                SELECT id, customer_code, first_name, last_name, email, phone
+                SELECT id, customer_code, first_name, last_name, email, phone,
+                       address_line1, address_line2, city, state, postal_code
                 FROM customers
                 WHERE is_active = true
                   AND lower(trim(email)) = $1
@@ -100,7 +116,20 @@ pub async fn find_duplicate_candidates(
             .fetch_all(pool)
             .await?
         };
-        for (id, customer_code, first_name, last_name, email, phone) in rows {
+        for (
+            id,
+            customer_code,
+            first_name,
+            last_name,
+            email,
+            phone,
+            address_line1,
+            address_line2,
+            city,
+            state,
+            postal_code,
+        ) in rows
+        {
             out.push(DuplicateCandidateRow {
                 id,
                 customer_code,
@@ -108,6 +137,11 @@ pub async fn find_duplicate_candidates(
                 last_name,
                 email,
                 phone,
+                address_line1,
+                address_line2,
+                city,
+                state,
+                postal_code,
                 match_reason: "same_email".to_string(),
             });
         }
@@ -117,7 +151,8 @@ pub async fn find_duplicate_candidates(
         let rows: Vec<CustomerSlim> = if let Some(ex) = exclude_customer_id {
             sqlx::query_as(
                 r#"
-                SELECT id, customer_code, first_name, last_name, email, phone
+                SELECT id, customer_code, first_name, last_name, email, phone,
+                       address_line1, address_line2, city, state, postal_code
                 FROM customers
                 WHERE is_active = true
                   AND regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
@@ -133,7 +168,8 @@ pub async fn find_duplicate_candidates(
         } else {
             sqlx::query_as(
                 r#"
-                SELECT id, customer_code, first_name, last_name, email, phone
+                SELECT id, customer_code, first_name, last_name, email, phone,
+                       address_line1, address_line2, city, state, postal_code
                 FROM customers
                 WHERE is_active = true
                   AND regexp_replace(COALESCE(phone, ''), '\D', '', 'g') = $1
@@ -145,7 +181,20 @@ pub async fn find_duplicate_candidates(
             .fetch_all(pool)
             .await?
         };
-        for (id, customer_code, first_name, last_name, email, phone) in rows {
+        for (
+            id,
+            customer_code,
+            first_name,
+            last_name,
+            email,
+            phone,
+            address_line1,
+            address_line2,
+            city,
+            state,
+            postal_code,
+        ) in rows
+        {
             if out.iter().any(|r| r.id == id) {
                 continue;
             }
@@ -156,6 +205,11 @@ pub async fn find_duplicate_candidates(
                 last_name,
                 email,
                 phone,
+                address_line1,
+                address_line2,
+                city,
+                state,
+                postal_code,
                 match_reason: "same_phone_digits".to_string(),
             });
         }
@@ -165,7 +219,8 @@ pub async fn find_duplicate_candidates(
         let rows: Vec<CustomerSlim> = if let Some(ex) = exclude_customer_id {
             sqlx::query_as(
                 r#"
-                SELECT id, customer_code, first_name, last_name, email, phone
+                SELECT id, customer_code, first_name, last_name, email, phone,
+                       address_line1, address_line2, city, state, postal_code
                 FROM customers
                 WHERE is_active = true
                   AND lower(trim(COALESCE(first_name, ''))) = $1
@@ -183,7 +238,8 @@ pub async fn find_duplicate_candidates(
         } else {
             sqlx::query_as(
                 r#"
-                SELECT id, customer_code, first_name, last_name, email, phone
+                SELECT id, customer_code, first_name, last_name, email, phone,
+                       address_line1, address_line2, city, state, postal_code
                 FROM customers
                 WHERE is_active = true
                   AND lower(trim(COALESCE(first_name, ''))) = $1
@@ -197,10 +253,29 @@ pub async fn find_duplicate_candidates(
             .fetch_all(pool)
             .await?
         };
-        for (id, customer_code, first_name, last_name, email, phone) in rows {
+        for (
+            id,
+            customer_code,
+            first_name,
+            last_name,
+            email,
+            phone,
+            address_line1,
+            address_line2,
+            city,
+            state,
+            postal_code,
+        ) in rows
+        {
             if out.iter().any(|r| r.id == id) {
                 continue;
             }
+            let same_zip = match (&nz, &postal_code) {
+                (Some(input_zip), Some(candidate_zip)) => {
+                    candidate_zip.trim().eq_ignore_ascii_case(input_zip)
+                }
+                _ => false,
+            };
             out.push(DuplicateCandidateRow {
                 id,
                 customer_code,
@@ -208,7 +283,16 @@ pub async fn find_duplicate_candidates(
                 last_name,
                 email,
                 phone,
-                match_reason: "same_name".to_string(),
+                address_line1,
+                address_line2,
+                city,
+                state,
+                postal_code,
+                match_reason: if same_zip {
+                    "same_name_zip".to_string()
+                } else {
+                    "same_name".to_string()
+                },
             });
         }
     }
