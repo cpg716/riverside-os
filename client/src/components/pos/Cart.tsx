@@ -1275,10 +1275,13 @@ export default function Cart({
               ))}
             </div>
           ) : (
-              <div className="flex flex-col items-center justify-center h-full opacity-40 text-app-text-muted">
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-app-text-muted/80">
                 <Package size={64} strokeWidth={1} className="mb-4" />
                 <p className="text-base font-black uppercase italic tracking-widest">
                   Cart is Empty
+                </p>
+                <p className="mt-2 max-w-[20rem] text-sm font-medium normal-case tracking-normal text-app-text-muted">
+                  Search or scan an item to begin this sale.
                 </p>
              </div>
           )}
