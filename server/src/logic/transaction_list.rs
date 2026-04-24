@@ -481,7 +481,7 @@ pub async fn query_fulfillment_queue(
             o.created_at,
             o.status,
             c.id AS customer_id,
-            COALESCE(NULLIF(TRIM(CONCAT(MIN(c.first_name), ' ', MIN(c.last_name))), ''), 'CP: ' || t.counterpoint_customer_code, 'Walk-in') AS customer_name,
+            COALESCE(NULLIF(TRIM(CONCAT(MIN(c.first_name), ' ', MIN(c.last_name))), ''), 'CP: ' || NULLIF(TRIM(c.customer_code), ''), 'Walk-in') AS customer_name,
             COUNT(tl.id)::bigint AS item_count,
             COUNT(tl.id) FILTER (WHERE tl.is_fulfilled = true)::bigint AS fulfilled_item_count,
             CASE
@@ -493,7 +493,7 @@ pub async fn query_fulfillment_queue(
             NULL::timestamptz AS next_deadline, -- Logic for deadline moves to fulfillment_orders soon
             t.balance_due,
             {SQL_PARTY_TRACKING_LABEL_WP} AS wedding_party_name,
-            t.counterpoint_customer_code
+            NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code
         FROM fulfillment_orders o
         LEFT JOIN customers c ON c.id = o.customer_id
         LEFT JOIN transaction_lines tl ON tl.fulfillment_order_id = o.id
@@ -501,7 +501,7 @@ pub async fn query_fulfillment_queue(
         LEFT JOIN wedding_members wm ON wm.id = t.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         WHERE o.status IN ('open', 'ready')
-        GROUP BY o.id, c.id, wp.id, wm.id, t.balance_due, t.counterpoint_customer_code
+        GROUP BY o.id, c.id, c.customer_code, wp.id, wm.id, t.balance_due
         ORDER BY
             CASE
                 WHEN o.status = 'ready' THEN 1
