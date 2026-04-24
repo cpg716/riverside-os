@@ -23,7 +23,7 @@ interface AddressAutocompleteInputProps {
   readOnly?: boolean;
 }
 
-const MIN_LOOKUP_LENGTH = 8;
+const MIN_LOOKUP_LENGTH = 4;
 
 export default function AddressAutocompleteInput({
   value,
@@ -41,6 +41,7 @@ export default function AddressAutocompleteInput({
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState(false);
   const [lookupFailed, setLookupFailed] = useState(false);
+  const [lookupComplete, setLookupComplete] = useState(false);
   const blurTimerRef = useRef<number | null>(null);
   const trimmedValue = value.trim();
 
@@ -49,6 +50,7 @@ export default function AddressAutocompleteInput({
       setSuggestions([]);
       setBusy(false);
       setLookupFailed(false);
+      setLookupComplete(false);
       return;
     }
 
@@ -57,6 +59,7 @@ export default function AddressAutocompleteInput({
       void (async () => {
         setBusy(true);
         setLookupFailed(false);
+        setLookupComplete(false);
         try {
           const params = new URLSearchParams({ q: trimmedValue });
           const res = await fetch(
@@ -69,16 +72,19 @@ export default function AddressAutocompleteInput({
           if (!res.ok) {
             setSuggestions([]);
             setLookupFailed(true);
+            setLookupComplete(true);
             return;
           }
           const data = (await res.json()) as AddressSuggestion[];
           const next = Array.isArray(data) ? data.slice(0, 5) : [];
           setSuggestions(next);
           setOpen(next.length > 0);
+          setLookupComplete(true);
         } catch {
           if (!ac.signal.aborted) {
             setSuggestions([]);
             setLookupFailed(true);
+            setLookupComplete(true);
           }
         } finally {
           if (!ac.signal.aborted) setBusy(false);
@@ -96,8 +102,9 @@ export default function AddressAutocompleteInput({
     if (readOnly || trimmedValue.length < MIN_LOOKUP_LENGTH) return "";
     if (busy) return "Checking address...";
     if (lookupFailed) return "Address lookup unavailable. Manual entry is okay.";
+    if (lookupComplete && suggestions.length === 0) return "No suggestions found. Manual entry is okay.";
     return "";
-  }, [busy, lookupFailed, readOnly, trimmedValue.length]);
+  }, [busy, lookupComplete, lookupFailed, readOnly, suggestions.length, trimmedValue.length]);
 
   const handleBlur = () => {
     blurTimerRef.current = window.setTimeout(() => setOpen(false), 120);

@@ -133,10 +133,12 @@ impl IntoResponse for CustomerError {
 }
 
 const CUSTOMER_LIFECYCLE_ACTIVE_DAYS: i64 = 90;
-const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 8;
+const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 4;
 const ADDRESS_LOOKUP_MAX_RESULTS: usize = 5;
 const CENSUS_ADDRESS_LOOKUP_URL: &str =
     "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress";
+const PHOTON_ADDRESS_LOOKUP_URL: &str = "https://photon.komoot.io/api/";
+const ADDRESS_LOOKUP_USER_AGENT: &str = "RiversideOS/0.2.1 customer-address-autocomplete";
 
 #[derive(Debug, Deserialize)]
 struct AddressSuggestionQuery {
@@ -187,6 +189,33 @@ struct CensusAddressComponents {
     city: Option<String>,
     state: Option<String>,
     zip: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PhotonLookupResponse {
+    features: Vec<PhotonFeature>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PhotonFeature {
+    properties: PhotonProperties,
+}
+
+#[derive(Debug, Deserialize)]
+struct PhotonProperties {
+    #[serde(rename = "osm_type")]
+    osm_type: Option<String>,
+    #[serde(rename = "osm_id")]
+    osm_id: Option<i64>,
+    housenumber: Option<String>,
+    street: Option<String>,
+    name: Option<String>,
+    city: Option<String>,
+    locality: Option<String>,
+    county: Option<String>,
+    state: Option<String>,
+    postcode: Option<String>,
+    countrycode: Option<String>,
 }
 
 fn title_case_address(value: &str) -> String {
@@ -248,6 +277,58 @@ fn map_census_address_match(
         city,
         state,
         postal_code,
+    })
+}
+
+fn map_photon_feature(feature: PhotonFeature, index: usize) -> Option<AddressSuggestion> {
+    let p = feature.properties;
+    if !matches!(p.countrycode.as_deref(), Some(code) if code.eq_ignore_ascii_case("US")) {
+        return None;
+    }
+    let street = p
+        .street
+        .as_deref()
+        .or(p.name.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let address_line1 = [p.housenumber.as_deref(), Some(street)]
+        .into_iter()
+        .flatten()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>()
+        .join(" ");
+    if address_line1.is_empty() {
+        return None;
+    }
+    let city = p
+        .city
+        .as_deref()
+        .or(p.locality.as_deref())
+        .or(p.county.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?;
+    let state = p.state.as_deref()?.trim();
+    let postal_code = p.postcode.as_deref()?.trim();
+    if state.is_empty() || postal_code.is_empty() {
+        return None;
+    }
+
+    let address_line1 = title_case_address(&address_line1);
+    let city = title_case_address(city);
+    let state = state.to_ascii_uppercase();
+    let label = format!("{address_line1}, {city}, {state} {postal_code}");
+    Some(AddressSuggestion {
+        id: format!(
+            "photon-{}-{}-{index}",
+            p.osm_type.unwrap_or_default(),
+            p.osm_id.unwrap_or_default()
+        ),
+        label,
+        address_line1,
+        city,
+        state,
+        postal_code: postal_code.to_string(),
     })
 }
 
@@ -997,9 +1078,51 @@ async fn get_address_suggestions(
         return Ok(Json(Vec::new()));
     }
 
+    let photon_res = state
+        .http_client
+        .get(PHOTON_ADDRESS_LOOKUP_URL)
+        .header(reqwest::header::USER_AGENT, ADDRESS_LOOKUP_USER_AGENT)
+        .query(&[
+            ("q", query),
+            ("limit", &ADDRESS_LOOKUP_MAX_RESULTS.to_string()),
+            ("lang", "en"),
+        ])
+        .send()
+        .await;
+
+    match photon_res {
+        Ok(res) if res.status().is_success() => match res.json::<PhotonLookupResponse>().await {
+            Ok(body) => {
+                let suggestions: Vec<AddressSuggestion> = body
+                    .features
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(index, feature)| map_photon_feature(feature, index))
+                    .take(ADDRESS_LOOKUP_MAX_RESULTS)
+                    .collect();
+                if !suggestions.is_empty() {
+                    return Ok(Json(suggestions));
+                }
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "customer Photon address lookup response was not valid JSON");
+            }
+        },
+        Ok(res) => {
+            tracing::warn!(
+                status = %res.status(),
+                "customer Photon address lookup returned non-success status"
+            );
+        }
+        Err(error) => {
+            tracing::warn!(error = %error, "customer Photon address lookup request failed");
+        }
+    }
+
     let res = state
         .http_client
         .get(CENSUS_ADDRESS_LOOKUP_URL)
+        .header(reqwest::header::USER_AGENT, ADDRESS_LOOKUP_USER_AGENT)
         .query(&[
             ("address", query),
             ("benchmark", "Public_AR_Current"),
