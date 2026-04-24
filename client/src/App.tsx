@@ -1726,7 +1726,7 @@ function AppMainColumn({
       ) : null}
       <div className={`relative flex flex-1 flex-col ${activeTab === "alterations" ? "p-4" : "p-0"}`}>
         <div
-          className={`relative flex flex-1 flex-col transition-all duration-300 ease-standard ${activeTab === "alterations" ? "min-h-0 overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]" : "bg-app-surface"} ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : ""}`}
+          className={`relative flex flex-1 flex-col bg-app-bg transition-all duration-300 ease-standard ${activeTab === "alterations" ? "min-h-0 overflow-hidden rounded-2xl border border-app-border shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]" : ""} ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : ""}`}
         >
           <Suspense
             fallback={
@@ -1838,7 +1838,7 @@ function AppMainColumn({
                   );
                 if (activeTab === "register")
                   return (
-                    <div className="flex flex-1 flex-col items-center justify-center p-12 text-center bg-app-surface">
+                    <div className="flex flex-1 flex-col items-center justify-center bg-app-bg p-12 text-center">
                       <div className="mb-6 h-20 w-20 rounded-[2.5rem] bg-[linear-gradient(135deg,var(--app-accent),#f472b6)] flex items-center justify-center text-white shadow-2xl shadow-app-accent/20">
                         <ShoppingCart size={36} strokeWidth={2.5} />
                       </div>

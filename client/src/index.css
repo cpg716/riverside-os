@@ -28,10 +28,10 @@
 
 [data-theme="dark"] {
   color-scheme: dark;
-  --app-bg: #111923;
-  --app-surface: #202a38;
-  --app-surface-2: #2a3545;
-  --app-surface-3: #354154;
+  --app-bg: #121a24;
+  --app-surface: #1b2532;
+  --app-surface-2: #243040;
+  --app-surface-3: #303c4e;
   --app-text: #edf3fa;
   --app-text-muted: #c0c9d6;
   --app-text-disabled: #95a0af;
@@ -42,7 +42,7 @@
   --app-warning: #c19a63;
   --app-danger: #d28a8a;
   --app-info: #81a8d7;
-  --app-shell: #161f2b;
+  --app-shell: #121a24;
   --app-rail: #121a24;
   --app-input-border: #49576c;
   --app-input-bg: #18212d;
@@ -665,6 +665,12 @@ html[data-theme="dark"] :where(
   }
   .bg-app-surface-3 {
     background: var(--app-surface-3);
+  }
+  .bg-app-shell {
+    background: var(--app-shell);
+  }
+  .bg-app-rail {
+    background: var(--app-rail);
   }
   .text-app-text {
     color: var(--app-text);
