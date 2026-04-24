@@ -400,6 +400,7 @@ export default function HelpCenterDrawer({
   });
   const voiceCaptureRef = useRef<RosieVoiceCaptureSession | null>(null);
   const speechPlaybackRef = useRef<RosieSpeechPlayback | null>(null);
+  const rosieChatEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -731,6 +732,11 @@ export default function HelpCenterDrawer({
       ? "help-center-rosie-conversation-input"
       : "help-center-ask-rosie-input";
 
+  useEffect(() => {
+    if (!isOpen || drawerMode === "browse") return;
+    rosieChatEndRef.current?.scrollIntoView({ block: "end" });
+  }, [isOpen, drawerMode, activeRosieMessages.length, rosieBusy]);
+
   const stopRosieSpeaking = useCallback(() => {
     speechPlaybackRef.current?.stop();
     speechPlaybackRef.current = null;
@@ -918,8 +924,12 @@ export default function HelpCenterDrawer({
         },
         on_final_transcript: (value) => {
           setRosieTranscriptPreview(value);
-          setRosieQuestion(value);
-          void submitRosieQuestion(value);
+          if (activeRosieMode === "conversation") {
+            setRosieConversationQuestion(value);
+          } else {
+            setRosieQuestion(value);
+          }
+          void submitRosieQuestion(value, activeRosieMode);
         },
         on_error: (message) => {
           setRosieStatus(message);
@@ -941,6 +951,7 @@ export default function HelpCenterDrawer({
     }
   }, [
     apiAuth,
+    activeRosieMode,
     rosieBusy,
     rosieSettings.enabled,
     rosieSettings.voice_enabled,
@@ -961,13 +972,15 @@ export default function HelpCenterDrawer({
     );
   }, []);
 
+  const conversationModeActive = activeRosieMode === "conversation";
+
   return (
     <>
     <DetailDrawer
       isOpen={isOpen}
       onClose={onClose}
-      title={drawerMode === "conversation" ? "ROSIE" : "Help"}
-      panelMaxClassName="max-w-3xl"
+      title={drawerMode === "conversation" ? "ROSIE Chat" : "Help"}
+      panelMaxClassName={drawerMode === "conversation" ? "max-w-5xl" : "max-w-3xl"}
       noPadding
     >
       <div className="flex h-full min-h-0 flex-col">
@@ -1094,34 +1107,70 @@ export default function HelpCenterDrawer({
         <div className="flex min-h-0 flex-1">
           {drawerMode !== "browse" ? (
             <div className="flex min-h-0 flex-1 flex-col">
-              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+              <div
+                className={`min-h-0 flex-1 overflow-y-auto ${
+                  conversationModeActive ? "px-4 py-5 sm:px-8" : "px-4 py-4"
+                }`}
+                data-testid={
+                  conversationModeActive
+                    ? "help-center-rosie-conversation-thread"
+                    : undefined
+                }
+              >
                 {activeRosieMessages.length === 0 ? (
-                  <div className="rounded-2xl border border-app-border bg-app-surface-2/60 p-4">
+                  <div
+                    className={`border border-app-border bg-app-surface-2/60 ${
+                      conversationModeActive
+                        ? "mx-auto mt-6 max-w-2xl rounded-3xl p-6 text-center"
+                        : "rounded-2xl p-4"
+                    }`}
+                  >
+                    {conversationModeActive ? (
+                      <span className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-app-accent/30 bg-app-accent/10 text-app-accent">
+                        <MessagesSquare size={22} aria-hidden />
+                      </span>
+                    ) : null}
                     <p className="text-sm font-semibold text-app-text">
-                      {activeRosieMode === "conversation"
-                        ? "Start a ROSIE conversation."
+                      {conversationModeActive
+                        ? "Chat or speak with ROSIE."
                         : "Ask ROSIE about Help Center procedures."}
                     </p>
                     <p className="mt-2 text-sm text-app-text-muted">
-                      {activeRosieMode === "conversation"
-                        ? "Conversation Mode is ROSIE as a voice-first assistant. Ask about workflows, store data, reports, customers, inventory, or wedding orders; ROSIE will use the same governed paths and show sources when available."
+                      {conversationModeActive
+                        ? "Use ROSIE like a staff assistant for RiversideOS workflows and accessible store data. Responses stay on governed paths and show sources or tool context when available."
                         : "ROSIE is grounded to Help search results, manual sections, and your store playbook when available. Ask the question the way an operator would, then use source chips to open the referenced guidance."}
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div
+                    className={`space-y-4 ${
+                      conversationModeActive ? "mx-auto max-w-4xl" : ""
+                    }`}
+                  >
                     {activeRosieMessages.map((message) => (
                       <div
                         key={message.id}
-                        className={`rounded-2xl border p-4 ${
+                        className={`rounded-2xl border p-4 shadow-sm ${
                           message.role === "user"
-                            ? "ml-8 border-app-accent/30 bg-app-accent/10"
+                            ? conversationModeActive
+                              ? "ml-auto max-w-[82%] border-app-accent/30 bg-app-accent text-white"
+                              : "ml-8 border-app-accent/30 bg-app-accent/10"
                             : message.error
-                              ? "mr-8 border-amber-500/30 bg-amber-500/10"
-                              : "mr-8 border-app-border bg-app-surface-2/60"
+                              ? conversationModeActive
+                                ? "mr-auto max-w-[88%] border-amber-500/30 bg-amber-500/10"
+                                : "mr-8 border-amber-500/30 bg-amber-500/10"
+                              : conversationModeActive
+                                ? "mr-auto max-w-[88%] border-app-border bg-app-surface-2/70"
+                                : "mr-8 border-app-border bg-app-surface-2/60"
                         }`}
                       >
-                        <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        <p
+                          className={`mb-2 text-[10px] font-black uppercase tracking-widest ${
+                            conversationModeActive && message.role === "user"
+                              ? "text-white/70"
+                              : "text-app-text-muted"
+                          }`}
+                        >
                           {message.role === "user" ? "You" : "ROSIE"}
                         </p>
                         {message.role === "assistant" ? (
@@ -1129,7 +1178,13 @@ export default function HelpCenterDrawer({
                             <RosieAnswerBody markdown={message.content} />
                           </div>
                         ) : (
-                          <p className="text-sm text-app-text">{message.content}</p>
+                          <p
+                            className={`text-sm ${
+                              conversationModeActive ? "text-white" : "text-app-text"
+                            }`}
+                          >
+                            {message.content}
+                          </p>
                         )}
                         {message.role === "assistant" && !message.error ? (
                           <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[11px] font-medium text-app-text-muted">
@@ -1171,7 +1226,11 @@ export default function HelpCenterDrawer({
                       </div>
                     ))}
                     {rosieBusy ? (
-                      <div className="mr-8 rounded-2xl border border-app-border bg-app-surface-2/60 p-4">
+                      <div
+                        className={`rounded-2xl border border-app-border bg-app-surface-2/60 p-4 shadow-sm ${
+                          conversationModeActive ? "mr-auto max-w-[88%]" : "mr-8"
+                        }`}
+                      >
                         <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                           ROSIE
                         </p>
@@ -1183,10 +1242,15 @@ export default function HelpCenterDrawer({
                         </div>
                       </div>
                     ) : null}
+                    <div ref={rosieChatEndRef} />
                   </div>
                 )}
               </div>
-              <div className="shrink-0 border-t border-app-border bg-app-surface px-4 py-3">
+              <div
+                className={`shrink-0 border-t border-app-border bg-app-surface ${
+                  conversationModeActive ? "px-4 py-4 sm:px-8" : "px-4 py-3"
+                }`}
+              >
                 {rosieStatus ? (
                   <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
                     {rosieStatus}
@@ -1242,7 +1306,18 @@ export default function HelpCenterDrawer({
                     </button>
                   </div>
                 ) : null}
-                <div className="flex items-end gap-2">
+                {conversationModeActive ? (
+                  <p className="mb-2 text-[11px] font-medium text-app-text-muted">
+                    Governed chat: ROSIE can use approved RiversideOS context and will show grounding when it is returned.
+                  </p>
+                ) : null}
+                <div
+                  className={`flex items-end gap-2 ${
+                    conversationModeActive
+                      ? "mx-auto max-w-4xl rounded-2xl border border-app-border bg-app-surface-2 p-2 shadow-sm"
+                      : ""
+                  }`}
+                >
                   {rosieSettings.voice_enabled &&
                   rosieSettings.microphone_enabled &&
                   voiceCapabilities.speech_to_text_supported ? (
@@ -1306,7 +1381,13 @@ export default function HelpCenterDrawer({
                           : undefined
                       }
                       disabled={!rosieSettings.enabled || rosieBusy}
-                      className="inline-flex h-11 w-11 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-app-text transition-opacity hover:bg-app-border/15 disabled:cursor-not-allowed disabled:opacity-50"
+                      className={`inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border transition-opacity disabled:cursor-not-allowed disabled:opacity-50 ${
+                        conversationModeActive
+                          ? rosieListening
+                            ? "border-app-accent/40 bg-app-accent text-white"
+                            : "border-app-border bg-app-surface text-app-text hover:bg-app-border/15"
+                          : "border-app-border bg-app-surface-2 text-app-text hover:bg-app-border/15"
+                      }`}
                       aria-label={
                         rosieSettings.microphone_mode === "push_to_talk"
                           ? "Hold to talk to ROSIE"
@@ -1358,18 +1439,22 @@ export default function HelpCenterDrawer({
                     placeholder={
                       rosieListening
                         ? "Listening for your question…"
-                        : activeRosieMode === "conversation"
-                          ? "Talk to ROSIE about RiversideOS workflows, reports, customers, inventory, or wedding orders…"
+                        : conversationModeActive
+                          ? "Message ROSIE about workflows, reports, customers, inventory, or wedding orders…"
                           : "Ask about a workflow, policy, or how to use this screen…"
                     }
-                    className="ui-input min-h-24 flex-1 resize-none text-sm"
+                    className={`ui-input flex-1 resize-none text-sm ${
+                      conversationModeActive
+                        ? "min-h-12 border-transparent bg-transparent shadow-none focus:border-transparent focus:ring-0"
+                        : "min-h-24"
+                    }`}
                   />
                   <button
                     type="button"
                     data-testid="help-center-ask-rosie-send"
                     onClick={() => void submitRosieQuestion()}
                     disabled={!rosieSettings.enabled || rosieBusy || activeRosieQuestion.trim().length < 2}
-                    className="inline-flex h-11 w-11 items-center justify-center rounded-xl bg-app-accent text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                    className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-app-accent text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
                     aria-label="Send question to ROSIE"
                   >
                     <SendHorizonal size={18} aria-hidden />
