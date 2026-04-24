@@ -42,10 +42,13 @@ export type FulfillmentKind =
   | "layaway";
 
 export interface CartLineItem extends ResolvedSkuItem {
+  line_type?: "merchandise" | "alteration_service";
   quantity: number;
   fulfillment: FulfillmentKind;
   /** Stable row identity (e.g. multiple POS gift card loads share the same internal SKU). */
   cart_row_id: string;
+  alteration_intake_id?: string | null;
+  alteration_source_cart_row_id?: string | null;
   /** Set on internal `pos_gift_card_load` lines; sent as `gift_card_load_code` at checkout. */
   gift_card_load_code?: string | null;
   price_override_reason?: string;
@@ -69,6 +72,7 @@ export interface PendingAlterationIntake {
   customer_id: string;
   customer_name: string;
   source_type: AlterationSourceType;
+  alteration_cart_row_id?: string | null;
   cart_row_id?: string | null;
   item_description: string;
   work_requested: string;
@@ -84,13 +88,17 @@ export interface PendingAlterationIntake {
 }
 
 export interface CheckoutAlterationIntakePayload {
-  client_line_id: string;
-  source_type: "current_cart_item";
+  intake_id: string;
+  alteration_line_client_id: string;
+  source_client_line_id?: string | null;
+  source_type: AlterationSourceType;
   item_description: string;
   work_requested: string;
   source_product_id?: string | null;
   source_variant_id?: string | null;
   source_sku?: string | null;
+  source_transaction_id?: string | null;
+  source_transaction_line_id?: string | null;
   charge_amount?: string | null;
   due_at?: string | null;
   notes?: string | null;

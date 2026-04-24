@@ -57,6 +57,7 @@ interface PosAlterationIntakeModalProps {
   cartLines: CartLineItem[];
   baseUrl: string;
   apiAuth: () => Record<string, string>;
+  editingIntake?: PendingAlterationIntake | null;
   onClose: () => void;
   onSavedStandalone: () => void;
   onSavePending: (intake: PendingAlterationIntake) => void;
@@ -113,6 +114,7 @@ export default function PosAlterationIntakeModal({
   cartLines,
   baseUrl,
   apiAuth,
+  editingIntake = null,
   onClose,
   onSavedStandalone,
   onSavePending,
@@ -173,8 +175,31 @@ export default function PosAlterationIntakeModal({
   }, []);
 
   useEffect(() => {
-    if (!open) reset();
-  }, [open, reset]);
+    if (!open) {
+      reset();
+      return;
+    }
+    if (!editingIntake) return;
+    setSourceMode(editingIntake.source_type);
+    setSelectedSource({
+      source_type: editingIntake.source_type,
+      cart_row_id: editingIntake.cart_row_id ?? null,
+      item_description: editingIntake.item_description,
+      source_product_id: editingIntake.source_product_id ?? null,
+      source_variant_id: editingIntake.source_variant_id ?? null,
+      source_sku: editingIntake.source_sku ?? null,
+      source_transaction_id: editingIntake.source_transaction_id ?? null,
+      source_transaction_line_id: editingIntake.source_transaction_line_id ?? null,
+    });
+    setWorkRequested(editingIntake.work_requested);
+    setDueAt(editingIntake.due_at ? editingIntake.due_at.slice(0, 10) : "");
+    setNotes(editingIntake.notes ?? "");
+    setChargeEnabled(Boolean(editingIntake.charge_amount && editingIntake.charge_amount !== "0.00"));
+    setChargeAmount(editingIntake.charge_amount ?? "");
+    setCustomItemDescription(
+      editingIntake.source_type === "custom_item" ? editingIntake.item_description : "",
+    );
+  }, [editingIntake, open, reset]);
 
   useEffect(() => {
     if (!open || sourceMode !== "past_transaction_line" || !customer) return;
@@ -302,12 +327,13 @@ export default function PosAlterationIntakeModal({
     const chargeValue = chargeEnabled ? charge : null;
     const noteValue = notes.trim() || null;
 
-    if (source.source_type === "current_cart_item") {
-      onSavePending({
-        id: newPendingAlterationId(),
+    const intakeId = editingIntake?.id ?? newPendingAlterationId();
+    onSavePending({
+        id: intakeId,
         customer_id: customer.id,
         customer_name: customerName(customer),
-        source_type: "current_cart_item",
+        source_type: source.source_type,
+        alteration_cart_row_id: editingIntake?.alteration_cart_row_id ?? null,
         cart_row_id: source.cart_row_id ?? null,
         item_description: source.item_description,
         work_requested: work,
@@ -317,46 +343,11 @@ export default function PosAlterationIntakeModal({
         charge_amount: chargeValue,
         due_at: dueIso,
         notes: noteValue,
-        created_at: new Date().toISOString(),
+        created_at: editingIntake?.created_at ?? new Date().toISOString(),
       });
-      toast("Alteration intake saved with this cart item. It will link when checkout completes.", "success");
-      onClose();
-      return;
-    }
-
-    try {
-      const res = await fetch(`${baseUrl}/api/alterations`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...apiAuth() },
-        body: JSON.stringify({
-          customer_id: customer.id,
-          source_type: source.source_type,
-          item_description: source.item_description,
-          work_requested: work,
-          source_product_id: source.source_product_id ?? null,
-          source_variant_id: source.source_variant_id ?? null,
-          source_sku: source.source_sku ?? null,
-          source_transaction_id: source.source_transaction_id ?? null,
-          source_transaction_line_id: source.source_transaction_line_id ?? null,
-          linked_transaction_id: source.source_transaction_id ?? null,
-          charge_amount: chargeValue,
-          due_at: dueIso,
-          notes: noteValue,
-          intake_channel: "pos_register",
-          source_snapshot: source.source_snapshot ?? null,
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast(body.error ?? "Could not create alteration.", "error");
-        return;
-      }
-      toast("Alteration work order created.", "success");
-      onSavedStandalone();
-      onClose();
-    } catch {
-      toast("Network error creating alteration.", "error");
-    }
+    toast(editingIntake ? "Alteration line updated." : "Alteration line added to the cart.", "success");
+    onSavedStandalone();
+    onClose();
   };
 
   if (!open) return null;
@@ -674,6 +665,7 @@ export default function PosAlterationIntakeModal({
                   type="checkbox"
                   checked={chargeEnabled}
                   onChange={(event) => setChargeEnabled(event.target.checked)}
+                  data-testid="pos-alteration-charge-toggle"
                   className="h-5 w-5 accent-[var(--app-accent)]"
                 />
               </label>
@@ -690,10 +682,11 @@ export default function PosAlterationIntakeModal({
                     value={chargeAmount}
                     onChange={(event) => setChargeAmount(event.target.value)}
                     placeholder="0.00"
+                    data-testid="pos-alteration-charge-amount"
                     className="ui-input h-11 w-full text-sm font-bold"
                   />
                   <p className="text-[10px] font-semibold text-app-text-muted">
-                    This records the charge note only. Checkout charge lines come in a later phase.
+                    This updates the alteration cart line amount. The garment lookup is not sold again.
                   </p>
                 </label>
               ) : null}

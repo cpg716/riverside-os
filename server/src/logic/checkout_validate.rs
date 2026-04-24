@@ -56,6 +56,7 @@ pub async fn validate_checkout_lines_and_sum(
 
         let is_rms_payment = resolved.pos_line_kind.as_deref() == Some("rms_charge_payment");
         let is_pos_gc_load = resolved.pos_line_kind.as_deref() == Some("pos_gift_card_load");
+        let is_alteration_service = resolved.pos_line_kind.as_deref() == Some("alteration_service");
 
         if is_rms_payment {
             if line.quantity != 1 {
@@ -82,6 +83,22 @@ pub async fn validate_checkout_lines_and_sum(
             if !line.state_tax.is_zero() || !line.local_tax.is_zero() {
                 return Err(CheckoutValidateError::Invalid(
                     "POS GIFT CARD LOAD lines must have zero tax".to_string(),
+                ));
+            }
+        } else if is_alteration_service {
+            if line.quantity != 1 {
+                return Err(CheckoutValidateError::Invalid(
+                    "ALTERATION SERVICE lines must have quantity 1".to_string(),
+                ));
+            }
+            if line.unit_price < Decimal::ZERO {
+                return Err(CheckoutValidateError::Invalid(
+                    "ALTERATION SERVICE line amount cannot be negative".to_string(),
+                ));
+            }
+            if !line.state_tax.is_zero() || !line.local_tax.is_zero() {
+                return Err(CheckoutValidateError::Invalid(
+                    "ALTERATION SERVICE lines must have zero tax".to_string(),
                 ));
             }
         } else if !line.has_price_override {

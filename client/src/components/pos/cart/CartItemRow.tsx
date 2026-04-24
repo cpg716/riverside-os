@@ -1,4 +1,4 @@
-import { Gift, Trash2, Tag } from "lucide-react";
+import { Edit3, Gift, Scissors, Trash2, Tag } from "lucide-react";
 import { type CartLineItem, type FulfillmentKind, type PosStaffRow } from "../types";
 import { centsToFixed2, parseMoneyToCents } from "../../../lib/money";
 import StaffMiniSelector from "../../ui/StaffMiniSelector";
@@ -14,6 +14,7 @@ interface CartItemRowProps {
   updateLineFulfillment: (rowId: string, next: FulfillmentKind) => void;
   updateLineSalesperson: (rowId: string, salespersonId: string) => void;
   removeLine: (rowId: string) => void;
+  onEditAlterationLine?: (intakeId: string) => void;
   onLineProductTitleClick: (line: CartLineItem) => void;
   orderSalespersonLabel: string;
   hideLineSalesperson?: boolean;
@@ -36,6 +37,7 @@ export function CartItemRow({
   updateLineFulfillment,
   updateLineSalesperson,
   removeLine,
+  onEditAlterationLine,
   onLineProductTitleClick,
   commissionStaff,
   orderSalespersonLabel,
@@ -44,6 +46,7 @@ export function CartItemRow({
 }: CartItemRowProps) {
   const lk = cartLineKey(line);
   const isSelected = selectedLineKey === lk;
+  const isAlterationLine = line.line_type === "alteration_service";
   const regCents = parseMoneyToCents(
     line.original_unit_price ?? line.standard_retail_price,
   );
@@ -101,7 +104,7 @@ export function CartItemRow({
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="flex items-center gap-1 rounded bg-app-surface-2 px-1.5 py-0.5 text-[10px] font-bold text-app-text-muted ring-1 ring-app-border/70">
-              <Tag size={10} />
+              {isAlterationLine ? <Scissors size={10} /> : <Tag size={10} />}
               {line.sku}
             </span>
             {line.variation_label ? (
@@ -116,7 +119,7 @@ export function CartItemRow({
             ) : null}
           </div>
 
-          {!hideLineSalesperson && (
+          {!isAlterationLine && !hideLineSalesperson && (
             <div 
               className="flex items-center gap-1.5" 
               onClick={(e) => e.stopPropagation()}
@@ -136,6 +139,7 @@ export function CartItemRow({
       </div>
 
       {/* 2. Fulfillment Toggle (Middle) */}
+      {!isAlterationLine ? (
       <div 
         className="flex shrink-0 items-center gap-1 rounded-xl border border-app-border/60 bg-app-surface-2/40 p-1"
         onClick={(e) => e.stopPropagation()}
@@ -175,12 +179,18 @@ export function CartItemRow({
           <Gift size={14} />
         </button>
       </div>
+      ) : (
+        <div className="flex shrink-0 items-center rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent">
+          Work order
+        </div>
+      )}
 
       {/* 3. Qty & Sale Buttons (Right) */}
       <div 
         className="flex shrink-0 items-center gap-2"
         onClick={(e) => e.stopPropagation()}
       >
+        {!isAlterationLine ? (
         <button
           type="button"
           onClick={() => {
@@ -201,10 +211,15 @@ export function CartItemRow({
             {line.quantity}
           </span>
         </button>
+        ) : null}
 
         <button
           type="button"
           onClick={() => {
+            if (isAlterationLine && line.alteration_intake_id && onEditAlterationLine) {
+              onEditAlterationLine(line.alteration_intake_id);
+              return;
+            }
             setSelectedLineKey(lk);
             setKeypadMode("price");
             setKeypadBuffer("");
@@ -216,7 +231,7 @@ export function CartItemRow({
           }`}
         >
           <span className={`text-[8px] font-black uppercase tracking-widest ${keypadMode === "price" && isSelected ? "text-white/80" : "text-app-text-muted"}`}>
-            Sale
+            {isAlterationLine ? "Amount" : "Sale"}
           </span>
           <div className="flex items-center gap-1.5">
             {showRegSale && (
@@ -233,6 +248,20 @@ export function CartItemRow({
 
       {/* 4. Delete Action (Far Right) */}
       <div className="flex shrink-0 items-center pl-1">
+        {isAlterationLine && line.alteration_intake_id && onEditAlterationLine ? (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onEditAlterationLine(line.alteration_intake_id!);
+            }}
+            className="group mr-1 flex h-9 w-9 items-center justify-center rounded-full text-app-accent transition-all hover:bg-app-accent hover:text-white"
+            aria-label="Edit alteration line"
+            data-testid="pos-alteration-line-edit"
+          >
+            <Edit3 size={15} className="transition-transform group-hover:scale-110" />
+          </button>
+        ) : null}
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); removeLine(line.cart_row_id); }}

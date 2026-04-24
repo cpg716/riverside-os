@@ -60,7 +60,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 
 **Fulfillment Orders:** Lines that are **not** takeaway fulfillment typically do **not** reduce on-hand stock at checkout; **takeaway** items decrement stock at sale time. The system may allow **negative on-hand** when policy permits oversell. Do not promise same-day pickup unless the line type and notes say so.
 
-**Free current-cart alterations:** Use **Alteration** from the Register toolbar after selecting the customer and the cart item. Free/included alteration intake stays attached to the cart and becomes a linked alteration work order when checkout completes. Do not add scanned/past-purchase alteration-only garments as sale lines.
+**Register alterations:** Use **Alteration** from the Register toolbar after selecting the customer. Every Register alteration adds an editable **Alteration** cart line. Free/included work shows **$0.00**; charged work shows the entered service amount. The source garment can be a current cart item, past purchase, SKU lookup, or custom/manual description, but lookup-only and past-purchase garments are **not** sold again. Removing a source sale line asks whether to remove the attached alteration too or keep it as a custom/manual item.
 
 ## Attaching a customer
 

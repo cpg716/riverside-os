@@ -181,6 +181,7 @@ pub async fn propose_daily_journal(
           AND (oi.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+          AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
         GROUP BY
             p.category_id,
             c.name,
@@ -800,6 +801,7 @@ pub async fn propose_daily_journal(
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+                AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             LEFT JOIN categories c ON c.id = p.category_id
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
@@ -861,6 +863,7 @@ pub async fn propose_daily_journal(
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+                AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
@@ -929,6 +932,7 @@ pub async fn propose_daily_journal(
             INNER JOIN products p ON p.id = oi.product_id
                 AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
                 AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
+                AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
             LEFT JOIN (
                 SELECT transaction_line_id, SUM(quantity_returned)::int AS returned
                 FROM transaction_return_lines
@@ -1296,6 +1300,46 @@ pub async fn propose_daily_journal(
                     "Forfeited deposits of ${f_amt} detected, but missing `liability_deposit` or `income_forfeited_deposit` mappings."
                 ));
             }
+        }
+    }
+
+    let alteration_service_net: Decimal = sqlx::query_scalar(&format!(
+        r#"
+        SELECT COALESCE(SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)), 0)::numeric(14, 2)
+        {TL_EFFECTIVE_JOIN}
+        WHERE o.status::text NOT IN ('cancelled')
+          AND oi.fulfilled_at IS NOT NULL
+          AND (oi.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+          AND p.pos_line_kind = 'alteration_service'
+          AND oi.unit_price > 0::numeric
+        "#
+    ))
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    if alteration_service_net > Decimal::ZERO {
+        if let Some((aid, aname)) = qbo_map_with_misc_fallback(
+            pool,
+            "income_alterations",
+            "default",
+            Some("REVENUE_ALTERATIONS"),
+        )
+        .await?
+        {
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit: Decimal::ZERO,
+                credit: alteration_service_net,
+                memo: "Alterations Income".to_string(),
+                detail: vec![serde_json::json!({"kind": "alteration_service_income"})],
+            });
+        } else {
+            warnings.push(
+                "Charged alteration service lines detected but no `income_alterations` / default, `REVENUE_ALTERATIONS`, or MISC mapping; revenue omitted."
+                    .to_string(),
+            );
         }
     }
 

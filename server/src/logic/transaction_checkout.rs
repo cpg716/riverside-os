@@ -49,6 +49,10 @@ pub enum CheckoutError {
 pub struct CheckoutItem {
     #[serde(default)]
     pub client_line_id: Option<String>,
+    #[serde(default)]
+    pub line_type: Option<String>,
+    #[serde(default)]
+    pub alteration_intake_id: Option<String>,
     pub product_id: Uuid,
     pub variant_id: Uuid,
     pub fulfillment: DbFulfillmentType,
@@ -82,7 +86,10 @@ pub struct CheckoutItem {
 
 #[derive(Debug, Deserialize)]
 pub struct CheckoutAlterationIntake {
-    pub client_line_id: String,
+    pub intake_id: String,
+    pub alteration_line_client_id: String,
+    #[serde(default)]
+    pub source_client_line_id: Option<String>,
     pub source_type: String,
     #[serde(default)]
     pub item_description: Option<String>,
@@ -93,6 +100,10 @@ pub struct CheckoutAlterationIntake {
     pub source_variant_id: Option<Uuid>,
     #[serde(default)]
     pub source_sku: Option<String>,
+    #[serde(default)]
+    pub source_transaction_id: Option<Uuid>,
+    #[serde(default)]
+    pub source_transaction_line_id: Option<Uuid>,
     #[serde(default)]
     pub charge_amount: Option<Decimal>,
     #[serde(default)]
@@ -334,12 +345,29 @@ fn trimmed_non_empty(value: Option<&str>) -> Option<String> {
         .map(str::to_string)
 }
 
+fn checkout_line_type(item: &CheckoutItem) -> &str {
+    item.line_type
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("merchandise")
+}
+
+fn is_alteration_service_item(item: &CheckoutItem) -> bool {
+    checkout_line_type(item) == "alteration_service"
+}
+
 fn validate_checkout_alteration_intakes(
     customer_id: Option<Uuid>,
     items: &[CheckoutItem],
     intakes: &[CheckoutAlterationIntake],
 ) -> Result<HashSet<String>, CheckoutError> {
     if intakes.is_empty() {
+        if items.iter().any(|item| is_alteration_service_item(item)) {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration service line requires matching alteration intake".to_string(),
+            ));
+        }
         return Ok(HashSet::new());
     }
 
@@ -353,30 +381,158 @@ fn validate_checkout_alteration_intakes(
         .iter()
         .filter_map(|item| trimmed_non_empty(item.client_line_id.as_deref()))
         .collect();
-    let mut referenced = HashSet::new();
-
-    for intake in intakes {
-        if intake.source_type.trim() != "current_cart_item" {
+    let mut service_lines_by_intake: HashMap<String, (&CheckoutItem, String)> = HashMap::new();
+    for item in items.iter().filter(|item| is_alteration_service_item(item)) {
+        let client_line_id =
+            trimmed_non_empty(item.client_line_id.as_deref()).ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "alteration service line requires client_line_id".to_string(),
+                )
+            })?;
+        let intake_id =
+            trimmed_non_empty(item.alteration_intake_id.as_deref()).ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "alteration service line requires alteration_intake_id".to_string(),
+                )
+            })?;
+        if item.quantity != 1 {
             return Err(CheckoutError::InvalidPayload(
-                "checkout alteration intake only supports current_cart_item in this phase"
-                    .to_string(),
+                "alteration service lines must have quantity 1".to_string(),
             ));
         }
-        let client_line_id = trimmed_non_empty(Some(&intake.client_line_id)).ok_or_else(|| {
-            CheckoutError::InvalidPayload("alteration intake requires client_line_id".to_string())
+        if item.unit_price < Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration service line amount cannot be negative".to_string(),
+            ));
+        }
+        if !item.state_tax.is_zero() || !item.local_tax.is_zero() {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration service lines must be non-taxable".to_string(),
+            ));
+        }
+        service_lines_by_intake.insert(intake_id, (item, client_line_id));
+    }
+    if service_lines_by_intake.len()
+        != items
+            .iter()
+            .filter(|item| is_alteration_service_item(item))
+            .count()
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "alteration service lines must have unique alteration_intake_id values".to_string(),
+        ));
+    }
+    if service_lines_by_intake.len() != intakes.len() {
+        return Err(CheckoutError::InvalidPayload(
+            "every alteration service line must have a matching alteration intake".to_string(),
+        ));
+    }
+    let mut referenced = HashSet::new();
+    let mut intake_ids = HashSet::new();
+
+    for intake in intakes {
+        let intake_id = trimmed_non_empty(Some(&intake.intake_id)).ok_or_else(|| {
+            CheckoutError::InvalidPayload("alteration intake requires intake_id".to_string())
         })?;
-        if !line_ids.contains(&client_line_id) {
+        if !intake_ids.insert(intake_id.clone()) {
+            return Err(CheckoutError::InvalidPayload(
+                "duplicate alteration intake id in checkout".to_string(),
+            ));
+        }
+        let alteration_line_client_id = trimmed_non_empty(Some(&intake.alteration_line_client_id))
+            .ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "alteration intake requires alteration_line_client_id".to_string(),
+                )
+            })?;
+        let Some((service_line, service_client_line_id)) = service_lines_by_intake.get(&intake_id)
+        else {
             return Err(CheckoutError::InvalidPayload(format!(
-                "alteration intake references unknown client_line_id {client_line_id}"
+                "alteration intake {intake_id} has no matching alteration service line"
+            )));
+        };
+        if *service_client_line_id != alteration_line_client_id {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration intake service line id does not match cart line".to_string(),
+            ));
+        }
+        if !line_ids.contains(&alteration_line_client_id) {
+            return Err(CheckoutError::InvalidPayload(format!(
+                "alteration intake references unknown alteration_line_client_id {alteration_line_client_id}"
             )));
         }
-        if intake
-            .charge_amount
-            .map(|amount| amount > Decimal::ZERO)
-            .unwrap_or(false)
+        if !matches!(
+            intake.source_type.trim(),
+            "current_cart_item" | "past_transaction_line" | "catalog_item" | "custom_item"
+        ) {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration intake source_type is invalid".to_string(),
+            ));
+        }
+        let charge_amount = intake.charge_amount.unwrap_or(Decimal::ZERO);
+        if charge_amount < Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration charge amount cannot be negative".to_string(),
+            ));
+        }
+        if service_line.unit_price.round_dp(2) != charge_amount.round_dp(2) {
+            return Err(CheckoutError::InvalidPayload(
+                "alteration service line amount must match intake charge_amount".to_string(),
+            ));
+        }
+        if intake.source_type.trim() == "current_cart_item" {
+            let client_line_id = trimmed_non_empty(intake.source_client_line_id.as_deref())
+                .ok_or_else(|| {
+                    CheckoutError::InvalidPayload(
+                        "current-cart alteration intake requires source_client_line_id".to_string(),
+                    )
+                })?;
+            if !line_ids.contains(&client_line_id) {
+                return Err(CheckoutError::InvalidPayload(format!(
+                    "alteration intake references unknown source_client_line_id {client_line_id}"
+                )));
+            }
+            let source_item = items
+                .iter()
+                .find(|item| item.client_line_id.as_deref().map(str::trim) == Some(client_line_id.as_str()))
+                .ok_or_else(|| {
+                    CheckoutError::InvalidPayload(format!(
+                        "alteration intake references unknown source_client_line_id {client_line_id}"
+                    ))
+                })?;
+            if is_alteration_service_item(source_item) {
+                return Err(CheckoutError::InvalidPayload(
+                    "alteration source line cannot be another alteration service line".to_string(),
+                ));
+            }
+            referenced.insert(client_line_id);
+        }
+        if intake.source_type.trim() == "custom_item"
+            && trimmed_non_empty(intake.item_description.as_deref()).is_none()
         {
             return Err(CheckoutError::InvalidPayload(
-                "charged alteration intake is not supported at checkout in this phase".to_string(),
+                "custom alteration intake requires item_description".to_string(),
+            ));
+        }
+        if intake.source_type.trim() == "past_transaction_line"
+            && intake.source_transaction_line_id.is_none()
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "past-purchase alteration intake requires source_transaction_line_id".to_string(),
+            ));
+        }
+        if intake.source_type.trim() == "catalog_item"
+            && intake
+                .source_sku
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .is_none()
+            && intake.source_product_id.is_none()
+            && intake.source_variant_id.is_none()
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "catalog alteration intake requires SKU or product reference".to_string(),
             ));
         }
         if trimmed_non_empty(Some(&intake.work_requested)).is_none() {
@@ -384,7 +540,15 @@ fn validate_checkout_alteration_intakes(
                 "alteration intake requires work_requested".to_string(),
             ));
         }
-        referenced.insert(client_line_id);
+        referenced.insert(alteration_line_client_id);
+    }
+
+    for intake_id in service_lines_by_intake.keys() {
+        if !intake_ids.contains(intake_id) {
+            return Err(CheckoutError::InvalidPayload(
+                "orphan alteration service line without matching intake".to_string(),
+            ));
+        }
     }
 
     Ok(referenced)
@@ -571,6 +735,8 @@ async fn expand_bundle_checkout_items(
                 } else {
                     item.client_line_id.clone()
                 },
+                line_type: item.line_type.clone(),
+                alteration_intake_id: item.alteration_intake_id.clone(),
                 product_id: c.product_id,
                 variant_id: c.variant_id,
                 fulfillment: item.fulfillment,
@@ -1332,6 +1498,11 @@ pub async fn execute_checkout(
                 "Discount events cannot apply to POS GIFT CARD LOAD".to_string(),
             ));
         }
+        if resolved.pos_line_kind.as_deref() == Some("alteration_service") {
+            return Err(CheckoutError::InvalidPayload(
+                "Discount events cannot apply to ALTERATION SERVICE".to_string(),
+            ));
+        }
         let row: Option<(Decimal, String, bool)> = sqlx::query_as(
             r#"
             SELECT de.percent_off, de.receipt_label, de.is_active
@@ -1915,6 +2086,21 @@ pub async fn execute_checkout(
             }
             override_meta = Some(base);
         }
+        if is_alteration_service_item(item) {
+            let mut base = override_meta.unwrap_or_else(|| json!({}));
+            if let serde_json::Value::Object(ref mut m) = base {
+                m.insert("line_type".to_string(), json!("alteration_service"));
+                if let Some(intake_id) = item
+                    .alteration_intake_id
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                {
+                    m.insert("alteration_intake_id".to_string(), json!(intake_id));
+                }
+            }
+            override_meta = Some(base);
+        }
 
         if let Some(reason) = override_reason {
             price_override_audit.push(json!({
@@ -1966,8 +2152,11 @@ pub async fn execute_checkout(
         };
 
         let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
-        // Internal POS-only RMS payment collection must remain non-taxable.
-        let (state_tax, local_tax) = if pos_kind.as_deref() == Some("rms_charge_payment") {
+        // Internal POS-only service/payment lines must remain non-taxable.
+        let (state_tax, local_tax) = if matches!(
+            pos_kind.as_deref(),
+            Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
+        ) {
             (Decimal::ZERO, Decimal::ZERO)
         } else {
             (
@@ -2117,7 +2306,7 @@ pub async fn execute_checkout(
         // inventory is adjusted when product is received / at pickup per ops flow.
         let skip_stock = matches!(
             pos_kind.as_deref(),
-            Some("rms_charge_payment") | Some("pos_gift_card_load")
+            Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
         );
 
         if fulfillment == DbFulfillmentType::Takeaway && !skip_stock {
@@ -2134,26 +2323,61 @@ pub async fn execute_checkout(
     }
 
     for intake in &payload.alteration_intakes {
-        let client_line_id = trimmed_non_empty(Some(&intake.client_line_id)).ok_or_else(|| {
-            CheckoutError::InvalidPayload("alteration intake requires client_line_id".to_string())
+        let intake_id = trimmed_non_empty(Some(&intake.intake_id)).ok_or_else(|| {
+            CheckoutError::InvalidPayload("alteration intake requires intake_id".to_string())
         })?;
-        let source_transaction_line_id = transaction_line_by_client_id
-            .get(&client_line_id)
+        let alteration_line_client_id = trimmed_non_empty(Some(&intake.alteration_line_client_id))
+            .ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "alteration intake requires alteration_line_client_id".to_string(),
+                )
+            })?;
+        let charge_transaction_line_id = transaction_line_by_client_id
+            .get(&alteration_line_client_id)
             .copied()
             .ok_or_else(|| {
                 CheckoutError::InvalidPayload(format!(
-                    "alteration intake could not link client_line_id {client_line_id}"
+                    "alteration intake could not link alteration_line_client_id {alteration_line_client_id}"
                 ))
             })?;
+        let source_client_line_id = trimmed_non_empty(intake.source_client_line_id.as_deref());
+        let source_transaction_line_id = if intake.source_type.trim() == "current_cart_item" {
+            let source_client_line_id = source_client_line_id.as_ref().ok_or_else(|| {
+                CheckoutError::InvalidPayload(
+                    "current-cart alteration intake requires source_client_line_id".to_string(),
+                )
+            })?;
+            Some(
+                transaction_line_by_client_id
+                    .get(source_client_line_id)
+                    .copied()
+                    .ok_or_else(|| {
+                        CheckoutError::InvalidPayload(format!(
+                            "alteration intake could not link source_client_line_id {source_client_line_id}"
+                        ))
+                    })?,
+            )
+        } else {
+            intake.source_transaction_line_id
+        };
         let work_requested = trimmed_non_empty(Some(&intake.work_requested)).ok_or_else(|| {
             CheckoutError::InvalidPayload("alteration intake requires work_requested".to_string())
         })?;
         let item_description = trimmed_non_empty(intake.item_description.as_deref());
         let source_sku = trimmed_non_empty(intake.source_sku.as_deref());
         let notes = trimmed_non_empty(intake.notes.as_deref());
+        let source_type = intake.source_type.trim();
+        let source_transaction_id = if source_type == "current_cart_item" {
+            Some(transaction_id)
+        } else {
+            intake.source_transaction_id
+        };
+        let charge_amount = intake.charge_amount.unwrap_or(Decimal::ZERO).round_dp(2);
         let source_snapshot = json!({
-            "client_line_id": client_line_id,
-            "phase": "pos_register_current_cart_checkout",
+            "intake_id": intake_id,
+            "alteration_line_client_id": alteration_line_client_id,
+            "source_client_line_id": source_client_line_id,
+            "phase": "pos_register_alteration_service_checkout",
         });
 
         let alteration_id: Uuid = sqlx::query_scalar(
@@ -2168,11 +2392,11 @@ pub async fn execute_checkout(
             )
             VALUES (
                 $1, $2, $3, $4,
-                'current_cart_item'::alteration_source_type, $5, $6,
-                $7, $8, $9,
-                $4, $10,
-                NULL, NULL,
-                'pos_register'::alteration_intake_channel, $11
+                $5::alteration_source_type, $6, $7,
+                $8, $9, $10,
+                $11, $12,
+                $13, $14,
+                'pos_register'::alteration_intake_channel, $15
             )
             RETURNING id
             "#,
@@ -2181,12 +2405,16 @@ pub async fn execute_checkout(
         .bind(intake.due_at.as_ref().cloned())
         .bind(notes.as_deref())
         .bind(transaction_id)
+        .bind(source_type)
         .bind(item_description.as_deref())
         .bind(work_requested.as_str())
         .bind(intake.source_product_id)
         .bind(intake.source_variant_id)
         .bind(source_sku.as_deref())
+        .bind(source_transaction_id)
         .bind(source_transaction_line_id)
+        .bind(charge_amount)
+        .bind(charge_transaction_line_id)
         .bind(Json(source_snapshot.clone()))
         .fetch_one(&mut *tx)
         .await?;
@@ -2196,16 +2424,16 @@ pub async fn execute_checkout(
             "due_at": intake.due_at.as_ref().map(|d| d.to_rfc3339()),
             "notes_set": notes.is_some(),
             "linked_transaction_id": transaction_id,
-            "source_type": "current_cart_item",
+            "source_type": source_type,
             "item_description": item_description,
             "work_requested": work_requested,
             "source_product_id": intake.source_product_id,
             "source_variant_id": intake.source_variant_id,
             "source_sku": source_sku,
-            "source_transaction_id": transaction_id,
+            "source_transaction_id": source_transaction_id,
             "source_transaction_line_id": source_transaction_line_id,
-            "charge_amount": Option::<String>::None,
-            "charge_transaction_line_id": Option::<Uuid>::None,
+            "charge_amount": charge_amount.to_string(),
+            "charge_transaction_line_id": charge_transaction_line_id,
             "intake_channel": "pos_register",
             "source_snapshot_set": true,
         });
@@ -2226,6 +2454,9 @@ pub async fn execute_checkout(
     // Group items by salesperson and check for satisfied bundle rules.
     let mut salesperson_items: HashMap<Uuid, Vec<&CheckoutItem>> = HashMap::new();
     for item in &payload.items {
+        if is_alteration_service_item(item) {
+            continue;
+        }
         if let Some(sid) = item.salesperson_id.or(primary_for_lines) {
             salesperson_items.entry(sid).or_default().push(item);
         }
@@ -3051,6 +3282,8 @@ mod tests {
     fn checkout_item_with_client_line(client_line_id: Option<&str>) -> CheckoutItem {
         CheckoutItem {
             client_line_id: client_line_id.map(str::to_string),
+            line_type: None,
+            alteration_intake_id: None,
             product_id: Uuid::new_v4(),
             variant_id: Uuid::new_v4(),
             fulfillment: DbFulfillmentType::Takeaway,
@@ -3072,15 +3305,49 @@ mod tests {
         }
     }
 
-    fn current_cart_alteration(client_line_id: &str) -> CheckoutAlterationIntake {
+    fn alteration_service_item(
+        client_line_id: &str,
+        intake_id: &str,
+        amount: Decimal,
+    ) -> CheckoutItem {
+        CheckoutItem {
+            client_line_id: Some(client_line_id.to_string()),
+            line_type: Some("alteration_service".to_string()),
+            alteration_intake_id: Some(intake_id.to_string()),
+            product_id: Uuid::new_v4(),
+            variant_id: Uuid::new_v4(),
+            fulfillment: DbFulfillmentType::Takeaway,
+            quantity: 1,
+            unit_price: amount,
+            original_unit_price: Some(Decimal::ZERO),
+            price_override_reason: Some("alteration_service".to_string()),
+            unit_cost: Decimal::ZERO,
+            state_tax: Decimal::ZERO,
+            local_tax: Decimal::ZERO,
+            salesperson_id: None,
+            discount_event_id: None,
+            gift_card_load_code: None,
+            custom_item_type: Some("alteration_service".to_string()),
+            custom_order_details: None,
+            is_rush: false,
+            need_by_date: None,
+            needs_gift_wrap: false,
+        }
+    }
+
+    fn current_cart_alteration(source_client_line_id: &str) -> CheckoutAlterationIntake {
         CheckoutAlterationIntake {
-            client_line_id: client_line_id.to_string(),
+            intake_id: "intake-1".to_string(),
+            alteration_line_client_id: "alt-line-1".to_string(),
+            source_client_line_id: Some(source_client_line_id.to_string()),
             source_type: "current_cart_item".to_string(),
             item_description: Some("Suit jacket".to_string()),
             work_requested: "Hem sleeves".to_string(),
             source_product_id: Some(Uuid::new_v4()),
             source_variant_id: Some(Uuid::new_v4()),
             source_sku: Some("ALT-SUIT".to_string()),
+            source_transaction_id: None,
+            source_transaction_line_id: None,
             charge_amount: None,
             due_at: None,
             notes: Some("Customer prefers a shorter break.".to_string()),
@@ -3102,7 +3369,10 @@ mod tests {
     fn transaction_checkout_alteration_validation_requires_customer() {
         let err = validate_checkout_alteration_intakes(
             None,
-            &[checkout_item_with_client_line(Some("cart-1"))],
+            &[
+                checkout_item_with_client_line(Some("cart-1")),
+                alteration_service_item("alt-line-1", "intake-1", Decimal::ZERO),
+            ],
             &[current_cart_alteration("cart-1")],
         )
         .unwrap_err();
@@ -3113,48 +3383,93 @@ mod tests {
     fn transaction_checkout_alteration_validation_rejects_unknown_client_line_id() {
         let err = validate_checkout_alteration_intakes(
             Some(Uuid::new_v4()),
-            &[checkout_item_with_client_line(Some("cart-1"))],
+            &[
+                checkout_item_with_client_line(Some("cart-1")),
+                alteration_service_item("alt-line-1", "intake-1", Decimal::ZERO),
+            ],
             &[current_cart_alteration("cart-missing")],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("unknown client_line_id"));
+        assert!(err.to_string().contains("unknown source_client_line_id"));
     }
 
     #[test]
-    fn transaction_checkout_alteration_validation_rejects_non_current_cart_source() {
+    fn transaction_checkout_alteration_validation_rejects_invalid_source() {
         let mut intake = current_cart_alteration("cart-1");
-        intake.source_type = "custom_item".to_string();
+        intake.source_type = "legacy_source".to_string();
         let err = validate_checkout_alteration_intakes(
             Some(Uuid::new_v4()),
-            &[checkout_item_with_client_line(Some("cart-1"))],
+            &[
+                checkout_item_with_client_line(Some("cart-1")),
+                alteration_service_item("alt-line-1", "intake-1", Decimal::ZERO),
+            ],
             &[intake],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("current_cart_item"));
+        assert!(err.to_string().contains("source_type is invalid"));
     }
 
     #[test]
-    fn transaction_checkout_alteration_validation_rejects_charged_intake() {
+    fn transaction_checkout_alteration_validation_allows_charged_matching_line() {
         let mut intake = current_cart_alteration("cart-1");
         intake.charge_amount = Some(Decimal::new(1000, 2));
+        let result = validate_checkout_alteration_intakes(
+            Some(Uuid::new_v4()),
+            &[
+                checkout_item_with_client_line(Some("cart-1")),
+                alteration_service_item("alt-line-1", "intake-1", Decimal::new(1000, 2)),
+            ],
+            &[intake],
+        )
+        .unwrap();
+        assert!(result.contains("cart-1"));
+        assert!(result.contains("alt-line-1"));
+    }
+
+    #[test]
+    fn transaction_checkout_alteration_validation_rejects_amount_mismatch() {
+        let mut intake = current_cart_alteration("cart-1");
+        intake.charge_amount = Some(Decimal::new(1800, 2));
         let err = validate_checkout_alteration_intakes(
             Some(Uuid::new_v4()),
-            &[checkout_item_with_client_line(Some("cart-1"))],
+            &[
+                checkout_item_with_client_line(Some("cart-1")),
+                alteration_service_item("alt-line-1", "intake-1", Decimal::new(1000, 2)),
+            ],
             &[intake],
         )
         .unwrap_err();
-        assert!(err.to_string().contains("charged alteration"));
+        assert!(err.to_string().contains("must match"));
+    }
+
+    #[test]
+    fn transaction_checkout_alteration_validation_rejects_orphan_service_line() {
+        let err = validate_checkout_alteration_intakes(
+            Some(Uuid::new_v4()),
+            &[alteration_service_item(
+                "alt-line-1",
+                "intake-1",
+                Decimal::ZERO,
+            )],
+            &[],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("matching alteration intake"));
     }
 
     #[test]
     fn transaction_checkout_alteration_validation_returns_linked_client_line_ids() {
         let result = validate_checkout_alteration_intakes(
             Some(Uuid::new_v4()),
-            &[checkout_item_with_client_line(Some("cart-1"))],
+            &[
+                checkout_item_with_client_line(Some("cart-1")),
+                alteration_service_item("alt-line-1", "intake-1", Decimal::ZERO),
+            ],
             &[current_cart_alteration("cart-1")],
         )
         .unwrap();
         assert!(result.contains("cart-1"));
+        assert!(result.contains("alt-line-1"));
     }
 
     #[tokio::test]

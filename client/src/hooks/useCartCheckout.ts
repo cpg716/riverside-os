@@ -161,23 +161,35 @@ export function useCartCheckout({
 
       const checkoutClientId = newCheckoutClientId();
       const primaryTrim = primarySalespersonId.trim();
-      const currentCartAlterationIntakes = pendingAlterationIntakes.filter(
-        (intake) => intake.source_type === "current_cart_item",
-      );
-      if (currentCartAlterationIntakes.length > 0) {
+      const alterationLines = lines.filter((line) => line.line_type === "alteration_service");
+      if (pendingAlterationIntakes.length > 0 || alterationLines.length > 0) {
         if (!selectedCustomer?.id) {
           toast("Select a customer before checking out with alteration intake.", "error");
           setCheckoutBusy(false);
           return;
         }
         const activeLineIds = new Set(lines.map((line) => line.cart_row_id));
-        for (const intake of currentCartAlterationIntakes) {
-          if (intake.source_type !== "current_cart_item") {
-            toast("Only current-cart alteration intake can be checked out in this phase.", "error");
+        const alterationLinesByIntake = new Map(
+          alterationLines
+            .filter((line) => line.alteration_intake_id)
+            .map((line) => [line.alteration_intake_id!, line]),
+        );
+        if (alterationLinesByIntake.size !== alterationLines.length) {
+          toast("Every alteration cart line must be linked to an alteration intake.", "error");
+          setCheckoutBusy(false);
+          return;
+        }
+        for (const intake of pendingAlterationIntakes) {
+          const alterationLine = alterationLinesByIntake.get(intake.id);
+          if (!alterationLine || alterationLine.cart_row_id !== intake.alteration_cart_row_id) {
+            toast("Every alteration intake must have a matching alteration cart line.", "error");
             setCheckoutBusy(false);
             return;
           }
-          if (!intake.cart_row_id || !activeLineIds.has(intake.cart_row_id)) {
+          if (
+            intake.source_type === "current_cart_item" &&
+            (!intake.cart_row_id || !activeLineIds.has(intake.cart_row_id))
+          ) {
             toast("An alteration intake references an item that is no longer in the cart.", "error");
             setCheckoutBusy(false);
             return;
@@ -186,8 +198,17 @@ export function useCartCheckout({
             intake.charge_amount && intake.charge_amount.trim()
               ? parseMoneyToCents(intake.charge_amount)
               : 0;
-          if (chargeCents > 0) {
-            toast("Paid alteration charges are not available in checkout yet.", "error");
+          const lineCents = parseMoneyToCents(alterationLine.standard_retail_price);
+          if (lineCents !== chargeCents) {
+            toast("Alteration cart line amount must match the intake charge.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+        }
+        const intakeIds = new Set(pendingAlterationIntakes.map((intake) => intake.id));
+        for (const line of alterationLines) {
+          if (!line.alteration_intake_id || !intakeIds.has(line.alteration_intake_id)) {
+            toast("Remove or edit the orphan alteration line before checkout.", "error");
             setCheckoutBusy(false);
             return;
           }
@@ -223,6 +244,8 @@ export function useCartCheckout({
           const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
           return {
             client_line_id: l.cart_row_id,
+            line_type: l.line_type ?? "merchandise",
+            alteration_intake_id: l.alteration_intake_id ?? null,
             product_id: l.product_id, 
             variant_id: l.variant_id, 
             fulfillment: pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway"),
@@ -243,14 +266,18 @@ export function useCartCheckout({
             ...(l.gift_card_load_code?.trim() ? { gift_card_load_code: l.gift_card_load_code.trim().toUpperCase() } : {}),
           };
         }),
-        alteration_intakes: currentCartAlterationIntakes.map((intake) => ({
-          client_line_id: intake.cart_row_id!,
-          source_type: "current_cart_item",
+        alteration_intakes: pendingAlterationIntakes.map((intake) => ({
+          intake_id: intake.id,
+          alteration_line_client_id: intake.alteration_cart_row_id!,
+          source_client_line_id: intake.cart_row_id ?? null,
+          source_type: intake.source_type,
           item_description: intake.item_description,
           work_requested: intake.work_requested,
           source_product_id: intake.source_product_id ?? null,
           source_variant_id: intake.source_variant_id ?? null,
           source_sku: intake.source_sku ?? null,
+          source_transaction_id: intake.source_transaction_id ?? null,
+          source_transaction_line_id: intake.source_transaction_line_id ?? null,
           charge_amount: intake.charge_amount ?? null,
           due_at: intake.due_at ?? null,
           notes: intake.notes ?? null,

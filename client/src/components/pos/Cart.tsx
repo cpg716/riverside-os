@@ -90,6 +90,9 @@ import { getAppIcon } from "../../lib/icons";
 const WEDDINGS_ICON = getAppIcon("weddings");
 const GIFT_CARDS_ICON = getAppIcon("giftCards");
 const ORDER_HISTORY_ICON = getAppIcon("orderHistory");
+const ALTERATION_SERVICE_PRODUCT_ID = "b7c0a006-0006-4006-8006-000000000006";
+const ALTERATION_SERVICE_VARIANT_ID = "b7c0a007-0007-4007-8007-000000000007";
+const ALTERATION_SERVICE_SKU = "ROS-ALTERATION-SERVICE";
 
 interface OpenDepositPrompt {
   cents: number;
@@ -224,6 +227,11 @@ export default function Cart({
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
   const [alterationIntakeOpen, setAlterationIntakeOpen] = useState(false);
+  const [editingAlterationIntake, setEditingAlterationIntake] = useState<PendingAlterationIntake | null>(null);
+  const [sourceRemovalPrompt, setSourceRemovalPrompt] = useState<{
+    line: CartLineItem;
+    intakes: PendingAlterationIntake[];
+  } | null>(null);
   const [pendingAlterationIntakes, setPendingAlterationIntakes] = useState<PendingAlterationIntake[]>([]);
   const [customerProfileHubOpen, setCustomerProfileHubOpen] = useState(false);
   const [checkoutOrderOptions, setCheckoutOrderOptions] = useState<PosOrderOptions | null>(null);
@@ -314,17 +322,11 @@ export default function Cart({
     apiAuth,
   });
 
-  useEffect(() => {
-    const activeCartRowIds = new Set(lines.map((line) => line.cart_row_id));
-    setPendingAlterationIntakes((prev) => {
-      const next = prev.filter(
-        (intake) =>
-          intake.source_type !== "current_cart_item" ||
-          (intake.cart_row_id ? activeCartRowIds.has(intake.cart_row_id) : false),
-      );
-      return next.length === prev.length ? prev : next;
-    });
-  }, [lines]);
+  const clearCartAndAlterations = useCallback(() => {
+    clearCart();
+    setPendingAlterationIntakes([]);
+    setEditingAlterationIntake(null);
+  }, [clearCart]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
@@ -333,6 +335,18 @@ export default function Cart({
       return next.length === prev.length ? prev : next;
     });
   }, [selectedCustomer?.id]);
+
+  useEffect(() => {
+    const intakeIds = new Set(pendingAlterationIntakes.map((intake) => intake.id));
+    setLines((prev) => {
+      const next = prev.filter(
+        (line) =>
+          line.line_type !== "alteration_service" ||
+          (line.alteration_intake_id ? intakeIds.has(line.alteration_intake_id) : false),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, [pendingAlterationIntakes, setLines]);
 
   const handleNumpadKey = useCallback((key: string) => {
     if (key === "ENTER" && keypadMode === "price" && selectedLineKey) {
@@ -380,8 +394,133 @@ export default function Cart({
   }, [selectedLineKey, roleMaxDiscountPct, hasAccess, lines, hookApplyDiscountEvent]);
 
   const openLineProductBrowser = useCallback((line: CartLineItem) => {
+    if (line.line_type === "alteration_service") return;
     setIntelligenceVariantId(line.variant_id);
   }, []);
+
+  const upsertAlterationCartLine = useCallback((intake: PendingAlterationIntake) => {
+    const chargeCents =
+      intake.charge_amount && intake.charge_amount.trim()
+        ? parseMoneyToCents(intake.charge_amount)
+        : 0;
+    const rowId = intake.alteration_cart_row_id || newCartRowId();
+    const serviceLine: CartLineItem = {
+      product_id: ALTERATION_SERVICE_PRODUCT_ID,
+      variant_id: ALTERATION_SERVICE_VARIANT_ID,
+      sku: ALTERATION_SERVICE_SKU,
+      name: `Alteration: ${intake.work_requested}`,
+      variation_label: intake.item_description,
+      standard_retail_price: centsToFixed2(chargeCents),
+      unit_cost: "0.00",
+      state_tax: "0.00",
+      local_tax: "0.00",
+      tax_category: "other",
+      quantity: 1,
+      fulfillment: "takeaway",
+      cart_row_id: rowId,
+      line_type: "alteration_service",
+      alteration_intake_id: intake.id,
+      alteration_source_cart_row_id: intake.cart_row_id ?? null,
+      price_override_reason: "alteration_service",
+      original_unit_price: "0.00",
+      custom_item_type: "alteration_service",
+    };
+    const normalizedIntake = { ...intake, alteration_cart_row_id: rowId };
+    setLines((prev) => {
+      const existing = prev.findIndex(
+        (line) =>
+          line.line_type === "alteration_service" &&
+          line.alteration_intake_id === intake.id,
+      );
+      if (existing >= 0) {
+        return prev.map((line, index) => (index === existing ? serviceLine : line));
+      }
+      return [...prev, serviceLine];
+    });
+    setPendingAlterationIntakes((prev) => {
+      const existing = prev.findIndex((row) => row.id === intake.id);
+      if (existing >= 0) {
+        return prev.map((row, index) => (index === existing ? normalizedIntake : row));
+      }
+      return [...prev, normalizedIntake];
+    });
+    setSelectedLineKey(rowId);
+  }, [setLines, setSelectedLineKey]);
+
+  const removeAlterationIntake = useCallback((intakeId: string) => {
+    setPendingAlterationIntakes((prev) => prev.filter((intake) => intake.id !== intakeId));
+    setLines((prev) =>
+      prev.filter(
+        (line) =>
+          line.line_type !== "alteration_service" ||
+          line.alteration_intake_id !== intakeId,
+      ),
+    );
+  }, [setLines]);
+
+  const removeLineWithAlterationHandling = useCallback((rowId: string) => {
+    const line = lines.find((candidate) => candidate.cart_row_id === rowId);
+    if (!line) return;
+    if (line.line_type === "alteration_service") {
+      if (line.alteration_intake_id) removeAlterationIntake(line.alteration_intake_id);
+      else removeLine(rowId);
+      return;
+    }
+    const attached = pendingAlterationIntakes.filter(
+      (intake) => intake.source_type === "current_cart_item" && intake.cart_row_id === rowId,
+    );
+    if (attached.length > 0) {
+      setSourceRemovalPrompt({ line, intakes: attached });
+      return;
+    }
+    removeLine(rowId);
+  }, [lines, pendingAlterationIntakes, removeAlterationIntake, removeLine]);
+
+  const removeSourceLineAndAttachedAlterations = useCallback(() => {
+    if (!sourceRemovalPrompt) return;
+    const attachedIds = new Set(sourceRemovalPrompt.intakes.map((intake) => intake.id));
+    removeLine(sourceRemovalPrompt.line.cart_row_id);
+    setPendingAlterationIntakes((prev) => prev.filter((intake) => !attachedIds.has(intake.id)));
+    setLines((prev) =>
+      prev.filter(
+        (line) =>
+          line.line_type !== "alteration_service" ||
+          !line.alteration_intake_id ||
+          !attachedIds.has(line.alteration_intake_id),
+      ),
+    );
+    setSourceRemovalPrompt(null);
+  }, [removeLine, setLines, sourceRemovalPrompt]);
+
+  const keepAlterationsAsCustomAndRemoveSource = useCallback(() => {
+    if (!sourceRemovalPrompt) return;
+    const attachedIds = new Set(sourceRemovalPrompt.intakes.map((intake) => intake.id));
+    setPendingAlterationIntakes((prev) =>
+      prev.map((intake) =>
+        attachedIds.has(intake.id)
+          ? {
+              ...intake,
+              source_type: "custom_item",
+              cart_row_id: null,
+              source_product_id: null,
+              source_variant_id: null,
+              source_sku: null,
+            }
+          : intake,
+      ),
+    );
+    setLines((prev) =>
+      prev.map((line) =>
+        line.line_type === "alteration_service" &&
+        line.alteration_intake_id &&
+        attachedIds.has(line.alteration_intake_id)
+          ? { ...line, alteration_source_cart_row_id: null }
+          : line,
+      ),
+    );
+    removeLine(sourceRemovalPrompt.line.cart_row_id);
+    setSourceRemovalPrompt(null);
+  }, [removeLine, setLines, sourceRemovalPrompt]);
 
   const applyDiscountEventToSelectedLine = useCallback(() => {
     const event = activeDiscountEvents.find((e) => e.id === selectedDiscountEventId);
@@ -402,7 +541,9 @@ export default function Cart({
         acc.subtotalCents += pC * qty;
         acc.stateTaxCents += stC * qty;
         acc.localTaxCents += ltC * qty;
-        acc.totalPieces += qty;
+        if (l.line_type !== "alteration_service") {
+          acc.totalPieces += qty;
+        }
         if (l.fulfillment === "takeaway") {
           acc.takeawayDueCents += (pC + stC + ltC) * qty;
         }
@@ -480,7 +621,7 @@ export default function Cart({
     pickupConfirmed,
     totals,
     toast,
-    clearCart,
+    clearCart: clearCartAndAlterations,
     onSaleCompleted,
     ensurePosTokenForSession,
   });
@@ -521,7 +662,7 @@ export default function Cart({
     setDisbursementMembers,
     setPrimarySalespersonId,
     primarySalespersonId,
-    clearCart,
+    clearCart: clearCartAndAlterations,
     activeWeddingMember,
     activeWeddingPartyName,
     disbursementMembers,
@@ -537,6 +678,7 @@ export default function Cart({
     posShipping,
     primarySalespersonId,
     checkoutOperator,
+    pendingAlterationIntakes,
     setLines,
     setSelectedCustomer,
     setActiveWeddingMember,
@@ -544,7 +686,8 @@ export default function Cart({
     setPosShipping,
     setPrimarySalespersonId,
     setCheckoutOperator,
-    clearCart,
+    setPendingAlterationIntakes,
+    clearCart: clearCartAndAlterations,
   });
 
 
@@ -733,7 +876,7 @@ export default function Cart({
         return false;
       }
 
-      clearCart();
+      clearCartAndAlterations();
       setActiveWeddingMember(null);
       setActiveWeddingPartyName(null);
       setDisbursementMembers([]);
@@ -787,7 +930,7 @@ export default function Cart({
       }
       return true;
     },
-    [apiAuth, baseUrl, clearCart, setActiveWeddingMember, setActiveWeddingPartyName, setCheckoutOrderOptions, setDisbursementMembers, setLines, setPosShipping, setSelectedLineKey, toast],
+    [apiAuth, baseUrl, clearCartAndAlterations, setActiveWeddingMember, setActiveWeddingPartyName, setCheckoutOrderOptions, setDisbursementMembers, setLines, setPosShipping, setSelectedLineKey, toast],
   );
 
   useEffect(() => {
@@ -1195,6 +1338,7 @@ export default function Cart({
                     toast("Select or create a customer before starting an alteration.", "error");
                     return;
                   }
+                  setEditingAlterationIntake(null);
                   setAlterationIntakeOpen(true);
                 }}
                 title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
@@ -1312,7 +1456,7 @@ export default function Cart({
               </p>
               {sortedCartLines.map((line) => (
                 <CartItemRow
-                  key={`${line.sku}-${line.fulfillment}`}
+                  key={line.cart_row_id}
                   line={line}
                   orderLaterFulfillment={orderLaterFulfillment}
                   selectedLineKey={selectedLineKey}
@@ -1323,7 +1467,13 @@ export default function Cart({
                   updateLineFulfillment={updateLineFulfillment}
                   updateLineSalesperson={updateLineSalesperson}
                   updateLineGiftWrapStatus={updateLineGiftWrapStatus}
-                  removeLine={removeLine}
+                  removeLine={removeLineWithAlterationHandling}
+                  onEditAlterationLine={(intakeId) => {
+                    const intake = pendingAlterationIntakes.find((row) => row.id === intakeId);
+                    if (!intake) return;
+                    setEditingAlterationIntake(intake);
+                    setAlterationIntakeOpen(true);
+                  }}
                   onLineProductTitleClick={openLineProductBrowser}
                   commissionStaff={commissionStaff}
                   orderSalespersonLabel={primarySalespersonLabel}
@@ -1450,7 +1600,7 @@ export default function Cart({
                     type="button"
                     onClick={() => {
                       if (hasAccess) {
-                        clearCart();
+                        clearCartAndAlterations();
                         toast("Sale cleared.", "success");
                       } else {
                         setShowVoidAllConfirm(true);
@@ -1955,19 +2105,39 @@ export default function Cart({
         getHeaders={apiAuth}
         onAddToCart={(code, amountCents) => addGiftCardLoadToCart(code, amountCents)}
       />
+      <ConfirmationModal
+        isOpen={Boolean(sourceRemovalPrompt)}
+        onClose={keepAlterationsAsCustomAndRemoveSource}
+        onConfirm={removeSourceLineAndAttachedAlterations}
+        title="Remove attached alteration?"
+        message={
+          sourceRemovalPrompt
+            ? `${sourceRemovalPrompt.line.name} has ${sourceRemovalPrompt.intakes.length} attached alteration line${sourceRemovalPrompt.intakes.length === 1 ? "" : "s"}.\n\nRemove the alteration too, or keep it as a custom/manual item.`
+            : ""
+        }
+        confirmLabel="Remove alteration too"
+        cancelLabel="Keep as custom item"
+        variant="danger"
+      />
       <PosAlterationIntakeModal
         open={alterationIntakeOpen}
         customer={selectedCustomer}
-        cartLines={lines}
+        cartLines={lines.filter((line) => line.line_type !== "alteration_service")}
         baseUrl={baseUrl}
         apiAuth={apiAuth}
-        onClose={() => setAlterationIntakeOpen(false)}
+        editingIntake={editingAlterationIntake}
+        onClose={() => {
+          setAlterationIntakeOpen(false);
+          setEditingAlterationIntake(null);
+        }}
         onSavedStandalone={() => {
           setAlterationIntakeOpen(false);
+          setEditingAlterationIntake(null);
         }}
         onSavePending={(intake) => {
-          setPendingAlterationIntakes((prev) => [...prev, intake]);
+          upsertAlterationCartLine(intake);
           setAlterationIntakeOpen(false);
+          setEditingAlterationIntake(null);
         }}
       />
       {measDrawerOpen && selectedCustomer ? (
@@ -2078,7 +2248,7 @@ export default function Cart({
         isOpen={showClearConfirm}
         onClose={() => setShowClearConfirm(false)}
         onConfirm={() => {
-          clearCart();
+          clearCartAndAlterations();
           setShowClearConfirm(false);
           toast("Cart cleared", "info");
         }}
@@ -2128,7 +2298,7 @@ export default function Cart({
               }),
             });
             if (res.ok) {
-              clearCart();
+              clearCartAndAlterations();
               setShowVoidAllConfirm(false);
               toast("All items voided", "success");
               return true;
@@ -2408,7 +2578,7 @@ export default function Cart({
               void (async () => {
                 try {
                   // Clear cart and setup for recall
-                  clearCart();
+                  clearCartAndAlterations();
                   setOrderLoadOpen(false);
                   
                   items.forEach(item => {

@@ -199,7 +199,7 @@ test.describe("POS alteration intake", () => {
     await expect(page.getByText(/Sale lines/i)).toHaveCount(0);
   });
 
-  test("current cart intake stores pending alteration without API create", async ({
+  test("current cart intake creates a free alteration cart line without API create", async ({
     page,
   }) => {
     await selectCustomer(page);
@@ -221,6 +221,10 @@ test.describe("POS alteration intake", () => {
     await dialog.getByTestId("pos-alteration-work-requested").fill("Hem sleeves");
     await dialog.getByTestId("pos-alteration-save").click();
 
+    await expect(page.getByText(/Alteration: Hem sleeves/i)).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Amount $0.00", exact: true }),
+    ).toBeVisible();
     await expect(page.getByTestId("pos-pending-alterations-summary")).toContainText(
       /1 alteration intake/i,
     );
@@ -228,6 +232,31 @@ test.describe("POS alteration intake", () => {
       /will link to checkout/i,
     );
     expect(alterationCreateCalls).toBe(0);
+  });
+
+  test("charged alteration creates a paid cart line and edit updates it", async ({ page }) => {
+    await selectCustomer(page);
+    await addProductToCart(page);
+
+    await page.getByTestId("pos-alteration-intake-trigger").click();
+    const dialog = page.getByTestId("pos-alteration-intake-dialog");
+    await dialog.getByTestId("pos-alteration-cart-source-option").click();
+    await dialog.getByTestId("pos-alteration-work-requested").fill("Hem pants");
+    await dialog.getByTestId("pos-alteration-charge-toggle").check();
+    await dialog.getByTestId("pos-alteration-charge-amount").fill("18.00");
+    await dialog.getByTestId("pos-alteration-save").click();
+
+    await expect(page.getByText(/Alteration: Hem pants/i)).toBeVisible();
+    await expect(page.getByText(/\$18\.00/)).toBeVisible();
+
+    await page.getByTestId("pos-alteration-line-edit").click();
+    const editDialog = page.getByTestId("pos-alteration-intake-dialog");
+    await editDialog.getByTestId("pos-alteration-work-requested").fill("Hem pants and taper");
+    await editDialog.getByTestId("pos-alteration-charge-amount").fill("24.00");
+    await editDialog.getByTestId("pos-alteration-save").click();
+
+    await expect(page.getByText(/Alteration: Hem pants and taper/i)).toBeVisible();
+    await expect(page.getByText(/\$24\.00/)).toBeVisible();
   });
 
   test("current cart alteration is sent at checkout and appears in alterations queue", async ({
@@ -310,6 +339,9 @@ test.describe("POS alteration intake", () => {
       customer_id: CUSTOMER.id,
       alteration_intakes: [
         {
+          intake_id: expect.any(String),
+          alteration_line_client_id: expect.any(String),
+          source_client_line_id: expect.any(String),
           source_type: "current_cart_item",
           item_description: "Phase 2 Suit Jacket - 40R",
           work_requested: "Hem sleeves",
@@ -324,14 +356,21 @@ test.describe("POS alteration intake", () => {
     const alterationIntakes = (checkoutBody?.alteration_intakes ?? []) as Array<
       Record<string, unknown>
     >;
-    expect(alterationIntakes[0]?.client_line_id).toBe(checkoutItems[0]?.client_line_id);
+    const sourceLine = checkoutItems.find((item) => item.product_id === PRODUCT.product_id);
+    const alterationLine = checkoutItems.find((item) => item.line_type === "alteration_service");
+    expect(alterationIntakes[0]?.source_client_line_id).toBe(sourceLine?.client_line_id);
+    expect(alterationIntakes[0]?.alteration_line_client_id).toBe(alterationLine?.client_line_id);
+    expect(alterationLine).toMatchObject({
+      line_type: "alteration_service",
+      unit_price: "0.00",
+    });
 
     await page.getByRole("button", { name: "Alterations" }).click();
     await expect(page.getByText("Hem sleeves")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("TXN-ALT-P3")).toBeVisible();
   });
 
-  test("custom item intake creates alteration through API", async ({ page }) => {
+  test("custom item intake creates an alteration cart line without selling a garment", async ({ page }) => {
     await selectCustomer(page);
 
     let postedBody: Record<string, unknown> | null = null;
@@ -364,12 +403,8 @@ test.describe("POS alteration intake", () => {
     await dialog.getByTestId("pos-alteration-save").click();
 
     await expect(dialog).toBeHidden({ timeout: 10_000 });
-    expect(postedBody).toMatchObject({
-      customer_id: CUSTOMER.id,
-      source_type: "custom_item",
-      item_description: "Outside tuxedo jacket",
-      work_requested: "Take in sides",
-      intake_channel: "pos_register",
-    });
+    expect(postedBody).toBeNull();
+    await expect(page.getByText(/Alteration: Take in sides/i)).toBeVisible();
+    await expect(page.getByText(/Outside tuxedo jacket/i)).toBeVisible();
   });
 });

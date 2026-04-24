@@ -2,7 +2,11 @@ import { useEffect, useLayoutEffect, useState, useRef } from "react";
 import localforage from "localforage";
 import { type Customer } from "../components/pos/CustomerSelector";
 import { type WeddingMember } from "../components/pos/WeddingLookupDrawer";
-import { type CartLineItem, type FulfillmentKind } from "../components/pos/types";
+import {
+  type CartLineItem,
+  type FulfillmentKind,
+  type PendingAlterationIntake,
+} from "../components/pos/types";
 import { type PosShippingSelection } from "../components/pos/PosShippingModal";
 
 interface PersistedSale {
@@ -14,6 +18,7 @@ interface PersistedSale {
   posShipping?: PosShippingSelection;
   primarySalespersonId?: string;
   checkoutOperator?: { staffId: string; fullName: string };
+  pendingAlterationIntakes?: PendingAlterationIntake[];
 }
 
 interface UseCartPersistenceProps {
@@ -25,6 +30,7 @@ interface UseCartPersistenceProps {
   posShipping: PosShippingSelection | null;
   primarySalespersonId: string;
   checkoutOperator: { staffId: string; fullName: string } | null;
+  pendingAlterationIntakes?: PendingAlterationIntake[];
   setLines: (lines: CartLineItem[]) => void;
   setSelectedCustomer: (customer: Customer | null) => void;
   setActiveWeddingMember: (member: WeddingMember | null) => void;
@@ -32,6 +38,7 @@ interface UseCartPersistenceProps {
   setPosShipping: (shipping: PosShippingSelection | null) => void;
   setPrimarySalespersonId: (id: string) => void;
   setCheckoutOperator: (operator: { staffId: string; fullName: string } | null) => void;
+  setPendingAlterationIntakes?: (intakes: PendingAlterationIntake[]) => void;
   clearCart: () => void;
 }
 
@@ -44,6 +51,7 @@ export function useCartPersistence({
   posShipping,
   primarySalespersonId,
   checkoutOperator,
+  pendingAlterationIntakes = [],
   setLines,
   setSelectedCustomer,
   setActiveWeddingMember,
@@ -51,6 +59,7 @@ export function useCartPersistence({
   setPosShipping,
   setPrimarySalespersonId,
   setCheckoutOperator,
+  setPendingAlterationIntakes,
   clearCart,
 }: UseCartPersistenceProps) {
   const [saleHydrated, setSaleHydrated] = useState(false);
@@ -116,6 +125,7 @@ export function useCartPersistence({
                 fullName: co.fullName.trim(),
               });
             }
+            setPendingAlterationIntakes?.(saved.pendingAlterationIntakes || []);
           }
         } else if (saved && saved.sessionId !== sessionId) {
           clearCart();
@@ -136,7 +146,8 @@ export function useCartPersistence({
     setActiveWeddingPartyName, 
     setPosShipping, 
     setPrimarySalespersonId, 
-    setCheckoutOperator
+    setCheckoutOperator,
+    setPendingAlterationIntakes,
   ]);
 
   // Persist to disk on change
@@ -151,6 +162,7 @@ export function useCartPersistence({
       posShipping: posShipping || undefined,
       primarySalespersonId: primarySalespersonId || undefined,
       checkoutOperator: checkoutOperator || undefined,
+      pendingAlterationIntakes: pendingAlterationIntakes.length > 0 ? pendingAlterationIntakes : undefined,
     };
     void localforage.setItem("ros_pos_active_sale", sale);
   }, [
@@ -163,6 +175,7 @@ export function useCartPersistence({
     posShipping,
     primarySalespersonId,
     checkoutOperator,
+    pendingAlterationIntakes,
   ]);
 
   return { saleHydrated };

@@ -189,7 +189,8 @@ fn join_row_to_resolved(
 
     let is_rms_payment = row.pos_line_kind.as_deref() == Some("rms_charge_payment");
     let is_pos_gc_load = row.pos_line_kind.as_deref() == Some("pos_gift_card_load");
-    let (state_tax, local_tax) = if is_rms_payment || is_pos_gc_load {
+    let is_alteration_service = row.pos_line_kind.as_deref() == Some("alteration_service");
+    let (state_tax, local_tax) = if is_rms_payment || is_pos_gc_load || is_alteration_service {
         (Decimal::ZERO, Decimal::ZERO)
     } else {
         (
