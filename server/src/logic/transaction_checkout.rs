@@ -1829,12 +1829,14 @@ pub async fn execute_checkout(
 
         let commission = sales_commission::commission_for_line(
             &mut tx,
-            item.unit_price,
-            item.quantity,
-            line_salesperson_id,
-            item.product_id,
-            item.variant_id,
-            is_employee_purchase_order,
+            sales_commission::CommissionLineInput {
+                unit_price: item.unit_price,
+                quantity: item.quantity,
+                salesperson_id: line_salesperson_id,
+                product_id: item.product_id,
+                variant_id: item.variant_id,
+                is_employee_sale: is_employee_purchase_order,
+            },
         )
         .await?;
 

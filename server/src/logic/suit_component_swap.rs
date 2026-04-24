@@ -315,12 +315,14 @@ pub async fn execute_suit_component_swap(
 
     let commission = sales_commission::commission_for_line(
         tx,
-        new_unit_price,
-        ctx.quantity,
-        ctx.salesperson_id,
-        new_resolved.product_id,
-        body.in_variant_id,
-        ctx.is_employee_purchase,
+        sales_commission::CommissionLineInput {
+            unit_price: new_unit_price,
+            quantity: ctx.quantity,
+            salesperson_id: ctx.salesperson_id,
+            product_id: new_resolved.product_id,
+            variant_id: body.in_variant_id,
+            is_employee_sale: ctx.is_employee_purchase,
+        },
     )
     .await?;
 

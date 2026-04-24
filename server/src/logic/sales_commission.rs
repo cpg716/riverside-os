@@ -8,49 +8,39 @@ use uuid::Uuid;
 use crate::logic::pricing::round_money_usd;
 use crate::models::DbStaffRole;
 
+#[derive(Clone, Copy)]
+pub struct CommissionLineInput {
+    pub unit_price: Decimal,
+    pub quantity: i32,
+    pub salesperson_id: Option<Uuid>,
+    pub product_id: Uuid,
+    pub variant_id: Uuid,
+    pub is_employee_sale: bool,
+}
+
 /// Retail line gross × effective rate. Precedence: Variant Rule > Product Rule > Category Rule > Category Legacy Override > Staff Base.
 /// Employee-purchase transactions carry zero commission.
 pub async fn commission_for_line(
     conn: &mut PgConnection,
-    unit_price: Decimal,
-    quantity: i32,
-    salesperson_id: Option<Uuid>,
-    product_id: Uuid,
-    variant_id: Uuid,
-    is_employee_sale: bool,
+    input: CommissionLineInput,
 ) -> Result<Decimal, sqlx::Error> {
-    commission_for_line_at(
-        conn,
-        unit_price,
-        quantity,
-        salesperson_id,
-        product_id,
-        variant_id,
-        is_employee_sale,
-        Utc::now(),
-    )
-    .await
+    commission_for_line_at(conn, input, Utc::now()).await
 }
 
 /// Effective-dated commission snapshot. Fulfillment-based recalculation paths use the line's
 /// recognition / booked timestamp instead of "right now".
 pub async fn commission_for_line_at(
     conn: &mut PgConnection,
-    unit_price: Decimal,
-    quantity: i32,
-    salesperson_id: Option<Uuid>,
-    product_id: Uuid,
-    variant_id: Uuid,
-    is_employee_sale: bool,
+    input: CommissionLineInput,
     as_of: DateTime<Utc>,
 ) -> Result<Decimal, sqlx::Error> {
-    if is_employee_sale {
+    if input.is_employee_sale {
         return Ok(Decimal::ZERO);
     }
-    let Some(sid) = salesperson_id else {
+    let Some(sid) = input.salesperson_id else {
         return Ok(Decimal::ZERO);
     };
-    if quantity <= 0 {
+    if input.quantity <= 0 {
         return Ok(Decimal::ZERO);
     }
 
@@ -88,7 +78,7 @@ pub async fn commission_for_line_at(
 
     let category_id: Option<Uuid> =
         sqlx::query_scalar("SELECT category_id FROM products WHERE id = $1")
-            .bind(product_id)
+            .bind(input.product_id)
             .fetch_optional(&mut *conn)
             .await?;
 
@@ -120,8 +110,8 @@ pub async fn commission_for_line_at(
         LIMIT 1
         "#,
     )
-    .bind(variant_id)
-    .bind(product_id)
+    .bind(input.variant_id)
+    .bind(input.product_id)
     .bind(category_id)
     .bind(as_of.date_naive())
     .fetch_optional(&mut *conn)
@@ -130,7 +120,7 @@ pub async fn commission_for_line_at(
     let (rate, flat_bonus) = if let Some(r) = rule {
         (
             r.override_rate.unwrap_or(base_rate),
-            r.fixed_spiff_amount * Decimal::from(quantity),
+            r.fixed_spiff_amount * Decimal::from(input.quantity),
         )
     } else {
         // Fallback to legacy category overrides
@@ -151,6 +141,6 @@ pub async fn commission_for_line_at(
         (legacy_override.unwrap_or(base_rate), Decimal::ZERO)
     };
 
-    let gross = unit_price * Decimal::from(quantity);
+    let gross = input.unit_price * Decimal::from(input.quantity);
     Ok(round_money_usd(gross * rate + flat_bonus))
 }

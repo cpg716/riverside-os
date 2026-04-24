@@ -1029,8 +1029,7 @@ async fn admin_patch_staff(
         .await?;
         if open_register_count > 0 {
             return Err(StaffApiError::InvalidPayload(format!(
-                "cannot deactivate {} while they still own open register sessions",
-                current_name
+                "cannot deactivate {current_name} while they still own open register sessions"
             )));
         }
     }

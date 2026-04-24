@@ -6,6 +6,7 @@ use uuid::Uuid;
 
 use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::logic::sales_commission;
+use crate::logic::sales_commission::CommissionLineInput;
 
 #[derive(Debug, FromRow)]
 struct CommissionLineCalcRow {
@@ -71,12 +72,14 @@ pub async fn recalc_staff_commissions_from(
     for row in rows {
         let new_commission = sales_commission::commission_for_line_at(
             conn,
-            row.unit_price,
-            row.quantity,
-            row.salesperson_id,
-            row.product_id,
-            row.variant_id,
-            row.is_employee_purchase,
+            CommissionLineInput {
+                unit_price: row.unit_price,
+                quantity: row.quantity,
+                salesperson_id: row.salesperson_id,
+                product_id: row.product_id,
+                variant_id: row.variant_id,
+                is_employee_sale: row.is_employee_purchase,
+            },
             row.calc_at,
         )
         .await?;
@@ -139,12 +142,14 @@ pub async fn recalc_transaction_line_commission(
 
     let new_commission = sales_commission::commission_for_line_at(
         conn,
-        row.unit_price,
-        row.quantity,
-        salesperson_id,
-        row.product_id,
-        row.variant_id,
-        row.is_employee_purchase,
+        CommissionLineInput {
+            unit_price: row.unit_price,
+            quantity: row.quantity,
+            salesperson_id,
+            product_id: row.product_id,
+            variant_id: row.variant_id,
+            is_employee_sale: row.is_employee_purchase,
+        },
         row.calc_at,
     )
     .await?;
@@ -215,12 +220,14 @@ pub async fn recalc_transaction_commissions_after_fulfillment(
     for row in rows {
         let new_commission = sales_commission::commission_for_line_at(
             conn,
-            row.unit_price,
-            row.quantity,
-            row.salesperson_id,
-            row.product_id,
-            row.variant_id,
-            row.is_employee_purchase,
+            CommissionLineInput {
+                unit_price: row.unit_price,
+                quantity: row.quantity,
+                salesperson_id: row.salesperson_id,
+                product_id: row.product_id,
+                variant_id: row.variant_id,
+                is_employee_sale: row.is_employee_purchase,
+            },
             row.calc_at,
         )
         .await?;
