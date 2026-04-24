@@ -686,7 +686,7 @@ export default function GlobalCommandSearch({
           "order-3 flex min-w-0 items-center",
           isPosVariant
             ? "w-auto justify-start lg:order-none lg:flex-none"
-            : "w-full justify-center lg:order-none lg:flex-none",
+            : "w-full justify-center lg:order-none lg:flex-1",
         )}
       >
         <button
@@ -698,7 +698,7 @@ export default function GlobalCommandSearch({
             "group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
             isPosVariant
               ? "gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/95 px-3 py-2.5"
-              : "w-full max-w-[16rem] gap-3 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-3.5 py-2.5 lg:w-[15rem]",
+              : "w-full max-w-[16rem] gap-3 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-3.5 py-2.5 lg:w-auto",
           )}
           aria-label="Open universal search"
         >

@@ -183,7 +183,7 @@ export default function GlobalTopBar({
         variant={searchVariant}
       />
 
-      <div className="ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2 sm:gap-3 lg:min-w-[400px]">
+      <div className="ml-auto flex flex-none items-center justify-end gap-2 sm:gap-3">
         {/* Dynamic Slot Region */}
         <div className="hidden items-center gap-4 border-r border-app-border px-4 empty:hidden xl:flex">
           {slotContent}
