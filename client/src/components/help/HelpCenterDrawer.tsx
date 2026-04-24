@@ -820,8 +820,12 @@ export default function HelpCenterDrawer({
         (mode === "conversation" || rosieSettings.speak_responses);
       if (shouldSpeakResponse) {
         const speechText = markdownToSpeechText(answer);
-        if (speechText) {
-          speechPlaybackRef.current = speakRosieText(speechText, {
+        const spokenText =
+          mode === "conversation" && speechText.length > 700
+            ? `${speechText.slice(0, 700).trim()}...`
+            : speechText;
+        if (spokenText) {
+          speechPlaybackRef.current = speakRosieText(spokenText, {
             rate: rosieSettings.speech_rate,
             voice: rosieSettings.selected_voice,
             headers: apiAuth() as Record<string, string>,

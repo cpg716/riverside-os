@@ -291,7 +291,7 @@ test("Top Bar ROSIE opens voice-first Conversation Mode with grounded context", 
   expect(toolContextCalled).toBe(true);
 });
 
-test("Ask ROSIE voice input reuses the normal text flow and can stop host voice output", async ({
+test("Ask ROSIE voice input reuses the normal text flow and plays speech on the workstation", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -314,10 +314,21 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
         speech_rate: 1,
       }),
     );
+
+    const originalPlay = HTMLMediaElement.prototype.play;
+    HTMLMediaElement.prototype.play = function playRosieTestAudio() {
+      (window as typeof window & { __rosieSatelliteAudioPlayed?: boolean }).__rosieSatelliteAudioPlayed =
+        true;
+      return Promise.resolve();
+    };
+    HTMLMediaElement.prototype.pause = function pauseRosieTestAudio() {
+      (window as typeof window & { __rosieSatelliteAudioStopped?: boolean }).__rosieSatelliteAudioStopped =
+        true;
+    };
+    void originalPlay;
   });
 
   await signInToBackOffice(page);
-  let hostSpeaking = false;
   await page.route("**/api/help/rosie/v1/runtime-status", async (route) => {
     await route.fulfill({
       status: 200,
@@ -362,7 +373,7 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
           fallback_engine_name: "Host speech command",
           fallback_command_path: "/usr/bin/say",
           fallback_command_present: true,
-          speaking: hostSpeaking,
+          speaking: false,
         },
       }),
     });
@@ -378,29 +389,23 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
       }),
     });
   });
-  await page.route("**/api/help/rosie/v1/voice/speak", async (route) => {
+  await page.route("**/api/help/rosie/v1/voice/synthesize", async (route) => {
     const body = route.request().postDataJSON() as {
       text?: string;
       voice?: string;
     };
     expect(body.text).toContain("Open the register reports workflow");
     expect(body.voice).toBe("5");
-    hostSpeaking = true;
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ message: "ROSIE TTS started" }),
-    });
-  });
-  await page.route("**/api/help/rosie/v1/voice/status", async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ speaking: hostSpeaking }),
+      body: JSON.stringify({
+        audio_base64: "UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=",
+        mime_type: "audio/wav",
+      }),
     });
   });
   await page.route("**/api/help/rosie/v1/voice/stop", async (route) => {
-    hostSpeaking = false;
     await page.evaluate(() => {
       (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled =
         true;
@@ -484,6 +489,9 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
   await expect(
     page.getByTestId("help-center-ask-rosie-speaking"),
   ).toBeVisible({ timeout: 15_000 });
+  await expect
+    .poll(() => page.evaluate(() => (window as typeof window & { __rosieSatelliteAudioPlayed?: boolean }).__rosieSatelliteAudioPlayed === true))
+    .toBe(true);
   await expect(
     page.getByText(/grounded sources/i).first(),
   ).toBeVisible({ timeout: 15_000 });
@@ -492,6 +500,9 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
   await expect(page.getByTestId("help-center-ask-rosie-speaking")).toHaveCount(0);
   await expect
     .poll(() => page.evaluate(() => (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled === true))
+    .toBe(true);
+  await expect
+    .poll(() => page.evaluate(() => (window as typeof window & { __rosieSatelliteAudioStopped?: boolean }).__rosieSatelliteAudioStopped === true))
     .toBe(true);
 });
 

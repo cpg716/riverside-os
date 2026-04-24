@@ -207,6 +207,12 @@ struct RosieVoiceMessageResponse {
 }
 
 #[derive(Debug, Serialize)]
+struct RosieVoiceSynthesizeResponse {
+    audio_base64: String,
+    mime_type: String,
+}
+
+#[derive(Debug, Serialize)]
 struct RosieVoiceStatusResponse {
     speaking: bool,
 }
@@ -1626,6 +1632,7 @@ pub fn router() -> Router<AppState> {
         .route("/rosie/v1/chat/completions", post(rosie_chat_completions))
         .route("/rosie/v1/runtime-status", get(rosie_runtime_status))
         .route("/rosie/v1/voice/transcribe", post(rosie_voice_transcribe))
+        .route("/rosie/v1/voice/synthesize", post(rosie_voice_synthesize))
         .route("/rosie/v1/voice/speak", post(rosie_voice_speak))
         .route("/rosie/v1/voice/stop", post(rosie_voice_stop))
         .route("/rosie/v1/voice/status", get(rosie_voice_status))
@@ -1917,6 +1924,39 @@ async fn rosie_voice_speak(
     Ok(Json(RosieVoiceMessageResponse { message }))
 }
 
+async fn rosie_voice_synthesize(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RosieVoiceSpeakRequest>,
+) -> Result<Json<RosieVoiceSynthesizeResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let text = body.text.trim();
+    if text.is_empty() {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "text is required" })),
+        )
+            .into_response());
+    }
+
+    let audio_base64 =
+        rosie_speech::synthesize_tts_wav_base64(text, body.rate, body.voice.as_deref())
+            .await
+            .map_err(|error| {
+                tracing::warn!(%error, "rosie voice synthesize failed");
+                (
+                    axum::http::StatusCode::BAD_REQUEST,
+                    Json(serde_json::json!({ "error": error })),
+                )
+                    .into_response()
+            })?;
+
+    Ok(Json(RosieVoiceSynthesizeResponse {
+        audio_base64,
+        mime_type: "audio/wav".to_string(),
+    }))
+}
+
 async fn rosie_voice_stop(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1988,8 +2028,12 @@ async fn rosie_tool_context(
             .into_response()
     })?;
 
+    let help_limit = if conversation_mode { 3 } else { 6 };
+    let manual_detail_limit = if conversation_mode { 0 } else { 4 };
+    let source_excerpt_limit = if conversation_mode { 700 } else { 1200 };
+
     let help_hits = if let Some(client) = state.meilisearch.as_ref() {
-        match help_search_hits(client, question, 6).await {
+        match help_search_hits(client, question, help_limit).await {
             Ok(rows) => rows
                 .into_iter()
                 .filter(|h| {
@@ -2013,12 +2057,12 @@ async fn rosie_tool_context(
 
     tool_results.push(RosieToolResultOut {
         tool_name: "help_search".to_string(),
-        args: serde_json::json!({ "q": question, "limit": 6 }),
+        args: serde_json::json!({ "q": question, "limit": help_limit }),
         result: serde_json::json!({ "hits": help_hits }),
     });
 
     let mut seen_manuals = HashSet::<String>::new();
-    for hit in help_hits.iter().take(4) {
+    for hit in help_hits.iter().take(if conversation_mode { 2 } else { 4 }) {
         sources.push(RosieToolGroundingSourceOut {
             kind: "manual".to_string(),
             title: format!("{} — {}", hit.manual_title, hit.section_heading),
@@ -2035,7 +2079,7 @@ async fn rosie_tool_context(
             entity_id: None,
         });
 
-        if seen_manuals.insert(hit.manual_id.clone()) {
+        if seen_manuals.len() < manual_detail_limit && seen_manuals.insert(hit.manual_id.clone()) {
             let detail = build_manual_detail(
                 &state.db,
                 &hit.manual_id,
@@ -2091,7 +2135,7 @@ async fn rosie_tool_context(
             "markdown": if store_sop_markdown.trim().is_empty() {
                 String::new()
             } else {
-                sanitize_excerpt(&store_sop_markdown, 1200)
+                sanitize_excerpt(&store_sop_markdown, source_excerpt_limit)
             },
         }),
     });
@@ -2101,7 +2145,7 @@ async fn rosie_tool_context(
             kind: "store_sop".to_string(),
             title: "Store Staff Playbook".to_string(),
             excerpt: sanitize_excerpt(&store_sop_markdown, 240),
-            content: sanitize_excerpt(&store_sop_markdown, 1200),
+            content: sanitize_excerpt(&store_sop_markdown, source_excerpt_limit),
             manual_id: None,
             manual_title: None,
             section_slug: None,
@@ -2127,7 +2171,7 @@ async fn rosie_tool_context(
                     "{} via {}",
                     reporting_result.spec_id, reporting_result.route
                 ),
-                content: sanitize_excerpt(&reporting_result.data.to_string(), 1200),
+                content: sanitize_excerpt(&reporting_result.data.to_string(), source_excerpt_limit),
                 manual_id: None,
                 manual_title: None,
                 section_slug: None,
@@ -2188,7 +2232,7 @@ async fn rosie_tool_context(
                         kind: "order".to_string(),
                         title: format!("Order Summary — {display_id}"),
                         excerpt: format!("Read from /api/transactions/{transaction_id}"),
-                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        content: sanitize_excerpt(&result.to_string(), source_excerpt_limit),
                         manual_id: None,
                         manual_title: None,
                         section_slug: None,
@@ -2247,7 +2291,7 @@ async fn rosie_tool_context(
                             }
                         ),
                         excerpt: format!("Read from /api/customers/{customer_id}/hub"),
-                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        content: sanitize_excerpt(&result.to_string(), source_excerpt_limit),
                         manual_id: None,
                         manual_title: None,
                         section_slug: None,
@@ -2276,7 +2320,7 @@ async fn rosie_tool_context(
                             days.map(|value| format!("?days={value}"))
                                 .unwrap_or_default()
                         ),
-                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        content: sanitize_excerpt(&result.to_string(), source_excerpt_limit),
                         manual_id: None,
                         manual_title: None,
                         section_slug: None,
@@ -2323,7 +2367,7 @@ async fn rosie_tool_context(
                         kind: "inventory".to_string(),
                         title: format!("Inventory Intelligence — {sku}"),
                         excerpt: format!("Read from /api/inventory/intelligence/{variant_id}"),
-                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        content: sanitize_excerpt(&result.to_string(), source_excerpt_limit),
                         manual_id: None,
                         manual_title: None,
                         section_slug: None,

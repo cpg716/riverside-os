@@ -547,6 +547,66 @@ pub async fn start_tts(
     Ok("ROSIE TTS started".to_string())
 }
 
+pub async fn synthesize_tts_wav_base64(
+    text: &str,
+    rate: Option<f32>,
+    voice: Option<&str>,
+) -> Result<String, String> {
+    let rate_multiplier = rate.unwrap_or(1.0).clamp(0.8, 1.2);
+    let script_path = bundled_script_path("rosie_kokoro_tts.py")
+        .ok_or_else(|| "ROSIE Kokoro TTS script is not installed on the host.".to_string())?;
+    let model_dir = resolve_kokoro_model_dir()
+        .ok_or_else(|| "ROSIE Kokoro model directory is not configured on the host.".to_string())?;
+    let python_path = resolve_rosie_speech_python_path();
+    if !command_exists(&python_path) || resolve_kokoro_model_path().is_none() {
+        return Err("ROSIE Kokoro TTS is not available on the host.".to_string());
+    }
+
+    let voice_name = voice
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("5")
+        .to_string();
+    let provider = resolve_sherpa_provider();
+    let speed = rate_multiplier.to_string();
+    let wav_path = temp_voice_prefix("tts-output", "wav");
+    let output = tokio::process::Command::new(&python_path)
+        .arg(script_path)
+        .args([
+            "--model-dir",
+            model_dir
+                .to_str()
+                .ok_or_else(|| "invalid Kokoro model directory".to_string())?,
+            "--voice",
+            voice_name.as_str(),
+            "--speed",
+            speed.as_str(),
+            "--provider",
+            provider.as_str(),
+            "--text",
+            text,
+            "--output",
+            wav_path
+                .to_str()
+                .ok_or_else(|| "invalid ROSIE TTS output path".to_string())?,
+            "--no-play",
+        ])
+        .output()
+        .await
+        .map_err(|error| format!("failed to synthesize ROSIE speech: {error}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let _ = tokio::fs::remove_file(&wav_path).await;
+        return Err(format!("ROSIE Kokoro TTS failed: {}", stderr.trim()));
+    }
+
+    let audio_bytes = tokio::fs::read(&wav_path)
+        .await
+        .map_err(|error| format!("failed to read ROSIE synthesized speech: {error}"))?;
+    let _ = tokio::fs::remove_file(&wav_path).await;
+    Ok(BASE64_STANDARD.encode(audio_bytes))
+}
+
 fn fallback_tts_process(
     command_path: &Path,
     text: &str,

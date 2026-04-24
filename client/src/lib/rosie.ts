@@ -460,6 +460,7 @@ type RosieRequestOptions = {
 };
 
 let activeRosieSpeechPoller: number | null = null;
+let activeRosieSpeechAudio: HTMLAudioElement | null = null;
 
 function getSpeechRecognitionConstructor():
   | BrowserSpeechRecognitionConstructor
@@ -831,12 +832,26 @@ export function stopRosieSpeechPlayback(options?: RosieRequestOptions): void {
     window.clearInterval(activeRosieSpeechPoller);
     activeRosieSpeechPoller = null;
   }
+  if (activeRosieSpeechAudio) {
+    activeRosieSpeechAudio.pause();
+    activeRosieSpeechAudio.src = "";
+    activeRosieSpeechAudio = null;
+  }
 
   void stopHostRosieSpeechPlayback(options).catch(() => {
     if (isTauri()) {
       void invoke("rosie_tts_stop").catch(() => {});
     }
   });
+}
+
+function audioBase64ToObjectUrl(audioBase64: string, mimeType: string): string {
+  const binary = window.atob(audioBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
 }
 
 export function speakRosieText(
@@ -858,8 +873,15 @@ export function speakRosieText(
     options?.on_end?.();
   };
 
-  const startHostPlayback = async () => {
-    await fetchRosieVoiceJson<{ message: string }>("/voice/speak", {
+  const startSatellitePlayback = async () => {
+    if (typeof window === "undefined") {
+      throw new Error("ROSIE voice playback requires a workstation browser.");
+    }
+
+    const synthesized = await fetchRosieVoiceJson<{
+      audio_base64: string;
+      mime_type?: string;
+    }>("/voice/synthesize", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -873,44 +895,39 @@ export function speakRosieText(
     });
 
     if (stopped) {
-      await stopHostRosieSpeechPlayback({ headers: options?.headers }).catch(() => {});
       finishEnd();
       return;
     }
 
+    const objectUrl = audioBase64ToObjectUrl(
+      synthesized.audio_base64,
+      synthesized.mime_type ?? "audio/wav",
+    );
+    const audio = new Audio(objectUrl);
+    activeRosieSpeechAudio?.pause();
+    activeRosieSpeechAudio = audio;
+    audio.onended = () => {
+      if (activeRosieSpeechAudio === audio) {
+        activeRosieSpeechAudio = null;
+      }
+      URL.revokeObjectURL(objectUrl);
+      finishEnd();
+    };
+    audio.onerror = () => {
+      if (activeRosieSpeechAudio === audio) {
+        activeRosieSpeechAudio = null;
+      }
+      URL.revokeObjectURL(objectUrl);
+      if (!stopped && !ended) {
+        ended = true;
+        options?.on_error?.("ROSIE could not play voice output on this workstation.");
+      }
+    };
     options?.on_start?.();
-    if (typeof window !== "undefined") {
-      activeRosieSpeechPoller = window.setInterval(() => {
-        void fetchRosieVoiceJson<{ speaking: boolean }>("/voice/status", {
-          headers: options?.headers,
-        })
-          .then(({ speaking }) => {
-            if (speaking || stopped) return;
-            if (activeRosieSpeechPoller != null) {
-              window.clearInterval(activeRosieSpeechPoller);
-              activeRosieSpeechPoller = null;
-            }
-            finishEnd();
-          })
-          .catch((error) => {
-            if (activeRosieSpeechPoller != null) {
-              window.clearInterval(activeRosieSpeechPoller);
-              activeRosieSpeechPoller = null;
-            }
-            if (!stopped && !ended) {
-              ended = true;
-              options?.on_error?.(
-                error instanceof Error
-                  ? error.message
-                  : "ROSIE could not play voice output on this workstation.",
-              );
-            }
-          });
-      }, 300);
-    }
+    await audio.play();
   };
 
-  void startHostPlayback().catch((error) => {
+  void startSatellitePlayback().catch((error) => {
     if (isTauri()) {
       const tauriStopped = false;
       void invoke("rosie_tts_speak", {
@@ -1083,6 +1100,9 @@ function buildGroundedHelpSystemPrompt(
     request.settings.show_citations
       ? "When helpful, mention the source title or section in the answer."
       : "Do not add inline citation formatting in the answer.",
+    conversationMode
+      ? "For normal staff chat, answer in 2-4 direct sentences unless the user explicitly asks for detail."
+      : "Keep the answer concise enough for a Help Center drawer.",
     "Do not output a thinking process, reasoning trace, or hidden analysis.",
     "Answer with the final response only.",
     "Use markdown for readability.",
@@ -1093,6 +1113,12 @@ function buildGroundedHelpUserPrompt(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
 ): string {
+  const conversationMode = request.mode === "conversation";
+  const maxToolResults = conversationMode ? 3 : 4;
+  const maxSources = conversationMode ? 3 : 4;
+  const argsChars = conversationMode ? 180 : 320;
+  const resultChars = conversationMode ? 520 : 900;
+  const excerptChars = conversationMode ? 420 : 700;
   const summarizeJson = (value: unknown, maxChars: number): string => {
     try {
       const raw = JSON.stringify(value);
@@ -1105,25 +1131,25 @@ function buildGroundedHelpUserPrompt(
   };
 
   const toolResults = context.tool_results
-    .slice(0, 4)
+    .slice(0, maxToolResults)
     .map((tool, index) =>
       [
         `Tool ${index + 1}: ${tool.tool_name}`,
-        `Args: ${summarizeJson(tool.args, 320)}`,
-        `Result summary: ${summarizeJson(tool.result, 900)}`,
+        `Args: ${summarizeJson(tool.args, argsChars)}`,
+        `Result summary: ${summarizeJson(tool.result, resultChars)}`,
       ].join("\n"),
     )
     .join("\n\n---\n\n");
 
   const sources = context.sources
-    .slice(0, 4)
+    .slice(0, maxSources)
     .map((source, index) =>
       [
         `Source ${index + 1}: ${source.title}`,
         `Kind: ${source.kind}`,
         source.manual_id ? `Manual ID: ${source.manual_id}` : null,
         source.section_heading ? `Section: ${source.section_heading}` : null,
-        source.excerpt ? `Excerpt: ${source.excerpt}` : null,
+        source.excerpt ? `Excerpt: ${source.excerpt.slice(0, excerptChars)}` : null,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -1242,17 +1268,21 @@ export async function askRosieGroundedHelp(
   const initialMaxTokens =
     request.settings.response_style === "detailed"
       ? request.mode === "conversation"
-        ? 420
+        ? 320
         : 420
       : request.mode === "conversation"
-        ? 220
+        ? 180
         : 180;
   let completion = await runCompletion(initialMaxTokens);
   let answer = extractRosieCompletionAnswer(completion);
 
   if (!answer) {
     completion = await runCompletion(
-      request.settings.response_style === "detailed" ? 360 : 180,
+      request.settings.response_style === "detailed"
+        ? request.mode === "conversation"
+          ? 260
+          : 360
+        : 160,
       true,
     );
     answer = extractRosieCompletionAnswer(completion);
