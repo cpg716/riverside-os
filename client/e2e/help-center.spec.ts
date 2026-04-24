@@ -4,7 +4,7 @@
  *
  * Run:
  *   cd client
- *   E2E_BASE_URL="http://localhost:5173" E2E_API_BASE="http://127.0.0.1:3000" npm run test:e2e -- e2e/help-center.spec.ts --workers=1
+ *   E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npm run test:e2e -- e2e/help-center.spec.ts --workers=1
  */
 import { expect, test } from "@playwright/test";
 import {
@@ -13,9 +13,6 @@ import {
   signInToBackOffice,
 } from "./helpers/backofficeSignIn";
 import { enterPosShell } from "./helpers/openPosRegister";
-
-const base = () =>
-  (process.env.E2E_BASE_URL ?? "http://localhost:5173").replace(/\/$/, "");
 
 async function openSettingsHelpCenterManager(
   page: Parameters<typeof test>[0]["page"],
@@ -79,7 +76,7 @@ async function openSettingsRosiePanel(
 
 test("opens Help from Back Office header", async ({ page }) => {
   await signInToBackOffice(page);
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
   await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();
   await expect(page.getByTestId("help-center-search")).toBeVisible();
@@ -88,7 +85,7 @@ test("opens Help from Back Office header", async ({ page }) => {
 
 test("opens Help from POS top bar", async ({ page }) => {
   await signInToBackOffice(page);
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await enterPosShell(page);
   await page.getByTestId("help-center-trigger").click();
   await expect(page.getByRole("dialog", { name: /help/i })).toBeVisible();
@@ -99,7 +96,7 @@ test("help search lists Results after query (Meilisearch or local fallback)", as
   page,
 }) => {
   await signInToBackOffice(page);
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
   await page.getByTestId("help-center-search").fill("checkout");
   await expect(page.getByText("Results").first()).toBeVisible({
@@ -192,7 +189,7 @@ test("Ask ROSIE sends grounded Help request and renders source chips", async ({
     });
   });
 
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
   await page.getByTestId("help-center-ask-rosie-tab").click();
   await page.getByTestId("help-center-ask-rosie-input").fill("how do I close the register");
@@ -275,7 +272,7 @@ test("Top Bar ROSIE opens voice-first Conversation Mode with grounded context", 
     });
   });
 
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-ask-rosie-trigger").click();
   await expect(page.getByTestId("help-center-rosie-conversation-tab")).toBeVisible();
   await expect(page.getByText(/Mode: Conversation/i)).toBeVisible();
@@ -476,7 +473,7 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
     });
   });
 
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
   await page.getByTestId("help-center-ask-rosie-tab").click();
   await page.getByTestId("help-center-ask-rosie-mic").click();
@@ -572,7 +569,7 @@ test("Ask ROSIE narrates approved reporting tool results", async ({ page }) => {
     });
   });
 
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
   await page.getByTestId("help-center-ask-rosie-tab").click();
   await page.getByTestId("help-center-ask-rosie-input").fill("show me best sellers for last week");
@@ -652,7 +649,7 @@ test("Ask ROSIE narrates approved operational tool results", async ({ page }) =>
     });
   });
 
-  await page.goto(base(), { waitUntil: "domcontentloaded" });
+  await page.goto("/", { waitUntil: "domcontentloaded" });
   await page.getByTestId("help-center-trigger").click();
   await page.getByTestId("help-center-ask-rosie-tab").click();
   await page
