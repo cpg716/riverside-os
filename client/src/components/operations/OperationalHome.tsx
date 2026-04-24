@@ -1046,11 +1046,11 @@ export default function OperationalHome({
                   key={item.id}
                   className={`rounded-2xl border px-4 py-3 ${
                     item.tone === "good"
-                      ? "border-emerald-200 bg-emerald-50"
+                      ? "border-app-success/16 bg-app-success/10"
                       : item.tone === "warn"
-                        ? "border-amber-200 bg-amber-50"
+                        ? "border-app-warning/16 bg-app-warning/10"
                         : item.tone === "danger"
-                          ? "border-rose-200 bg-rose-50"
+                          ? "border-app-danger/16 bg-app-danger/10"
                           : "border-app-border bg-app-surface-2"
                   }`}
                 >
@@ -1081,9 +1081,9 @@ export default function OperationalHome({
                   key={issue.id}
                   className={`rounded-2xl border px-4 py-3 ${
                     issue.tone === "danger"
-                      ? "border-rose-200 bg-rose-50"
+                      ? "border-app-danger/16 bg-app-danger/10"
                       : issue.tone === "warn"
-                        ? "border-amber-200 bg-amber-50"
+                        ? "border-app-warning/16 bg-app-warning/10"
                         : "border-app-border bg-app-surface-2"
                   }`}
                 >
@@ -1111,11 +1111,11 @@ export default function OperationalHome({
                 key={item.id}
                 className={`rounded-2xl border px-4 py-3 ${
                   item.tone === "good"
-                    ? "border-emerald-200 bg-emerald-50"
+                    ? "border-app-success/16 bg-app-success/10"
                     : item.tone === "warn"
-                      ? "border-amber-200 bg-amber-50"
+                      ? "border-app-warning/16 bg-app-warning/10"
                       : item.tone === "danger"
-                        ? "border-rose-200 bg-rose-50"
+                        ? "border-app-danger/16 bg-app-danger/10"
                         : "border-app-border bg-app-surface-2"
                 }`}
               >
