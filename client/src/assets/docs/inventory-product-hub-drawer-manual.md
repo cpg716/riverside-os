@@ -32,7 +32,7 @@ Use Product Hub when you need to:
 
 - Open the correct product from **Inventory List** or another inventory surface.
 - Confirm whether you want tags for all variations or only selected variations.
-- If the quantity should match a shipment you just received, use **Receiving Bay** first so the received quantity is staged correctly there.
+- If the quantity should match a shipment you just received, use **Receive Stock** first so the received quantity is staged correctly there.
 
 ## What the inventory truth panel means
 
@@ -81,7 +81,7 @@ The Product Hub panel is a visibility surface. It uses current server-computed v
 
 - Use **Inventory Control Board** when you want the fastest browse-to-print path.
 - Use **Variations Workspace** for matrix selection and selected-variation printing.
-- Use **Receiving Bay** when a PO or direct invoice should drive the tag quantity.
+- Use **Receive Stock** when a PO or direct invoice should drive the tag quantity.
 
 ## Rule reminders
 

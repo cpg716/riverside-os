@@ -381,7 +381,7 @@ export default function VendorHub() {
         <>
           <div className="grid gap-4 sm:grid-cols-3">
              <DashboardStatsCard
-               title="Active Pipeline"
+               title="Open POs"
                value={hub.active_po_count.toString()}
                icon={Package}
              />
@@ -501,8 +501,8 @@ export default function VendorHub() {
           <div className="w-full max-w-md overflow-hidden rounded-[40px] border border-app-border bg-app-surface shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-300">
             <div className="relative h-32 bg-emerald-600 p-8 flex items-center justify-between">
                <div className="relative z-10 text-white">
-                 <h3 className="text-2xl font-black uppercase tracking-tight">Consolidate</h3>
-                 <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Vendor Master Merge</p>
+                 <h3 className="text-2xl font-black uppercase tracking-tight">Merge Vendors</h3>
+                 <p className="text-[10px] font-black uppercase tracking-widest opacity-80">Clean up duplicate vendor records</p>
                </div>
                <div className="relative z-10 h-16 w-16 rounded-[24px] bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white">
                  <Merge size={32} />
@@ -513,12 +513,12 @@ export default function VendorHub() {
 
             <div className="p-8">
               <p className="mb-8 text-xs font-bold text-app-text-muted leading-relaxed">
-                This action will move <span className="text-emerald-600 font-black">ALL</span> products, historical POs, brands, and promotions from the selected source into the active master record.
+                This action will move products, historical POs, optional brand links, and promotions from the selected duplicate into the vendor you are keeping.
               </p>
 
               <div className="space-y-6">
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Master Record (Keeping)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Vendor to Keep</label>
                   <div className="rounded-2xl border border-emerald-500/20 bg-emerald-50/50 px-4 py-4 text-sm font-black text-emerald-700 ring-1 ring-emerald-500/10">
                     <Building2 size={16} className="inline mr-2 opacity-50 align-text-bottom" />
                     {vendors.find(v => v.id === vendorId)?.name || 'Unknown'}
@@ -526,7 +526,7 @@ export default function VendorHub() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Source Record (Removing)</label>
+                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Duplicate to Remove</label>
                   <div className="relative">
                     <select 
                       value={sourceVendorId}
@@ -557,7 +557,7 @@ export default function VendorHub() {
                    onClick={() => void handleMerge()}
                    className="flex-1 py-4 bg-emerald-600 rounded-2xl text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/30 hover:brightness-110 disabled:opacity-50 transition-all active:scale-95 border-b-4 border-emerald-800"
                  >
-                   {merging ? 'Merging...' : 'Execute Merge'}
+                   {merging ? 'Merging...' : 'Merge Vendors'}
                  </button>
               </div>
             </div>

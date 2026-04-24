@@ -2,7 +2,7 @@
 id: inventory-purchase-order-panel
 title: "Purchase Order Panel (inventory)"
 order: 1023
-summary: "Create purchase orders or direct invoices, submit standard POs, and open Receiving Bay with validated vendor and line rules."
+summary: "Create purchase orders or direct invoices, submit standard POs, and open Receive Stock with checked vendor and line rules."
 source: client/src/components/inventory/PurchaseOrderPanel.tsx
 last_scanned: 2026-04-20
 tags: inventory-purchase-order-panel, inventory, purchase-orders, vendors
@@ -16,7 +16,7 @@ _Linked component: `client/src/components/inventory/PurchaseOrderPanel.tsx`._
 
 ## What this is
 
-Use **Purchase Orders** to build standard vendor orders or direct-invoice receipts before moving into **Receiving Bay**.
+Use **Purchase Orders** to build standard vendor orders or direct-invoice receipts before moving into **Receive Stock**.
 
 ## How to use it
 
@@ -25,7 +25,7 @@ Use **Purchase Orders** to build standard vendor orders or direct-invoice receip
 3. Use **Direct Invoice** when merchandise arrived with invoice paperwork but no pre-built PO.
 4. Add lines with a valid SKU, quantity greater than zero, and a non-negative unit cost.
 5. For standard POs, click **Submit PO** before receiving.
-6. Open **Receiving Bay** to post stock from the finalized receipt.
+6. Open **Receive Stock** to post stock from the finalized receipt.
 
 ## Validation rules
 
@@ -37,4 +37,4 @@ Use **Purchase Orders** to build standard vendor orders or direct-invoice receip
 ## Tips
 
 - If the system says a SKU belongs to a different primary vendor, check the product hub before forcing procurement through the wrong supplier.
-- Direct invoices skip the separate submit step, but they still enforce the same line and vendor validation.
+- Direct invoices skip the separate submit step, but they still require the same line and vendor checks.

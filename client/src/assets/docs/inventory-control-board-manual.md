@@ -31,7 +31,7 @@ Use this board when you need to:
 
 - Confirm you are working with the correct product and variation before printing.
 - Use the Zebra LP2844 retail price-tag stock that matches your station.
-- Treat this board as a browse-and-review surface. If the product arrived on a PO or direct invoice and you want the received quantity to drive the tag count, use **Receiving Bay** instead.
+- Treat this board as a browse-and-review surface. If the product arrived on a PO or direct invoice and you want the received quantity to drive the tag count, use **Receive Stock** instead.
 
 ## How to use it
 
@@ -62,7 +62,7 @@ Use this board when you need to:
 ## Related workflows
 
 - Use **Product Hub Drawer** when you want to print from the product detail surface instead of the browse list.
-- Use **Receiving Bay** when the correct tag quantity should come from what was actually received on a PO or direct invoice.
+- Use **Receive Stock** when the correct tag quantity should come from what was actually received on a PO or direct invoice.
 
 ## Workflow notes
 

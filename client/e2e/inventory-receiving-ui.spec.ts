@@ -41,7 +41,54 @@ async function openInventoryPurchaseOrders(page: Parameters<typeof test>[0]["pag
   });
 }
 
+async function openInventoryReceiveStock(page: Parameters<typeof test>[0]["page"]) {
+  await openBackofficeSidebarTab(page, "inventory");
+  await expect(
+    page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
+  ).toBeVisible({ timeout: 15_000 });
+  const receiveStockButton = page.getByRole("button", {
+    name: /^receive stock$/i,
+  });
+  await expect(receiveStockButton).toBeVisible({ timeout: 15_000 });
+  await receiveStockButton.click({ force: true });
+  await expect(page.getByText(/start with the vendor paperwork in hand/i)).toBeVisible({
+    timeout: 20_000,
+  });
+}
+
 test.describe("Inventory receiving operator verification", () => {
+  test.describe.configure({ mode: "serial" });
+  test.setTimeout(90_000);
+
+  test("Receive Stock sidebar entry shows the next action and can open a ready document", async ({
+    page,
+    request,
+  }) => {
+    const suffix = uniqueSuffix("ui-receive-tab");
+    const vendor = await createVendor(request, suffix);
+    const product = await createSingleVariantProduct(request, suffix);
+    const directInvoice = await createDirectInvoicePurchaseOrder(request, vendor.id);
+    await addPurchaseOrderLine(request, directInvoice.id, product.variantId, 1);
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openInventoryReceiveStock(page);
+
+    await expect(page.getByText(/choose an open purchase order/i)).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/create a direct invoice/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(page.getByText(/standalone|offline/i)).toHaveCount(0);
+
+    const invoiceRow = page.locator("tr").filter({ hasText: directInvoice.po_number }).first();
+    await expect(invoiceRow).toBeVisible({ timeout: 20_000 });
+    await invoiceRow.getByRole("button", { name: /receive/i }).click();
+    await expect(page.getByRole("heading", { name: /receive stock/i })).toBeVisible({
+      timeout: 20_000,
+    });
+  });
+
   test("standard PO can be submitted, staged without stock mutation, and then received", async ({
     page,
     request,
@@ -65,13 +112,13 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(submitButton).toBeVisible({ timeout: 10_000 });
     await submitButton.click();
 
-    await expect(poRow).toContainText(/submitted/i, { timeout: 20_000 });
+    await expect(poRow).toContainText(/ready to receive/i, { timeout: 20_000 });
 
     const receiveButton = poRow.getByRole("button", { name: /receive/i });
     await expect(receiveButton).toBeVisible({ timeout: 10_000 });
     await receiveButton.click();
 
-    await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /receive stock/i })).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.getByText(/^step 1$/i).first()).toBeVisible({ timeout: 10_000 });
@@ -98,7 +145,7 @@ test.describe("Inventory receiving operator verification", () => {
     await page.getByRole("button", { name: /confirm & post/i }).click({ force: true });
     await receiveResponse;
 
-    await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeHidden({
+    await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({
       timeout: 20_000,
     });
     await expect(poRow).toContainText(/closed/i, { timeout: 20_000 });
@@ -110,7 +157,7 @@ test.describe("Inventory receiving operator verification", () => {
       .toBe(stockBefore.stock_on_hand + 1);
   });
 
-  test("direct invoice receiving opens without raw ID entry and completes through Receiving Bay", async ({
+  test("direct invoice receiving opens without raw ID entry and completes through Receive Stock", async ({
     page,
     request,
   }) => {
@@ -132,12 +179,12 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByText(/line pointer/i)).toHaveCount(0);
     await expect(page.getByRole("button", { name: /^submit po$/i })).toHaveCount(0);
 
-    const openReceivingButton = page.getByRole("button", { name: /^open receiving bay$/i });
+    const openReceivingButton = page.getByRole("button", { name: /^open receive stock$/i });
     await expect(openReceivingButton).toBeVisible({ timeout: 10_000 });
     await expect(openReceivingButton).toBeEnabled();
     await openReceivingButton.click();
 
-    await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeVisible({
+    await expect(page.getByRole("heading", { name: /receive stock/i })).toBeVisible({
       timeout: 20_000,
     });
     await expect(page.getByText(/^check paperwork$/i).first()).toBeVisible({ timeout: 10_000 });
@@ -161,7 +208,7 @@ test.describe("Inventory receiving operator verification", () => {
     await page.getByRole("button", { name: /confirm & post/i }).click({ force: true });
     await receiveResponse;
 
-    await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeHidden({
+    await expect(page.getByRole("heading", { name: /receive stock/i })).toBeHidden({
       timeout: 20_000,
     });
     await expect(invoiceRow).toContainText(/closed/i, { timeout: 20_000 });

@@ -39,7 +39,7 @@ Each subsection is job-based:
 
 - **Receive Stock** opens the purchase-order-backed workflow directly. It is not a separate manual stock-adjustment path.
 - Standard POs must be **drafted**, lined, and **submitted** before receiving can begin.
-- Direct invoices skip the separate submit step but still land in the same **Receiving Bay** final posting path.
+- Direct invoices skip the separate submit step but still land in the same **Receive Stock** final posting path.
 - Inventory guidance in this workspace now assumes **Counterpoint sync** is the authoritative pre-launch inventory source.
 
 ## Tips

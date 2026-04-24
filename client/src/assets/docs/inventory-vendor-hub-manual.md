@@ -30,9 +30,9 @@ Use **Vendors** to create and maintain vendor records, review vendor codes and b
 
 - Vendor names and vendor codes must be unique across ROS.
 - Merge requires different source and target vendors.
-- Merge moves products, purchase orders, vendor brands, and mapped supplier items onto the target vendor before retiring the source record.
+- Merge moves products, purchase orders, optional brand links, and mapped vendor items onto the vendor you keep before retiring the duplicate.
 
 ## Tips
 
-- Treat **vendor code** as the integration key for Counterpoint-linked suppliers.
+- Treat **vendor code** as the integration key for Counterpoint-linked vendors.
 - Merge duplicates before building new POs so receiving and reporting stay attached to one supplier record.

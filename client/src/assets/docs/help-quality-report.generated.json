@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-23T20:57:16.189Z",
+  "generated_at": "2026-04-24T15:25:30.911Z",
   "standard_version": "help-manual-standard-v1",
   "published_manual_count": 54,
   "draft_manual_count": 111,
@@ -1402,7 +1402,7 @@
     },
     {
       "id": "inventory-product-master-form",
-      "title": "Product Master Form (inventory)",
+      "title": "Add Item (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-product-master-form-manual.md",
       "required_buckets": [
@@ -1439,7 +1439,7 @@
           "present": false
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 5,
       "placeholder_hits": [],
       "errors": [],
       "warnings": [
@@ -1494,7 +1494,7 @@
     },
     {
       "id": "inventory-receiving-bay",
-      "title": "Receiving Bay (inventory)",
+      "title": "Receive Stock (inventory)",
       "status": "approved",
       "source_path": "client/src/assets/docs/inventory-receiving-bay-manual.md",
       "required_buckets": [

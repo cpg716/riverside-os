@@ -208,7 +208,7 @@ export default function UniversalImporter() {
   return (
     <div className="mx-auto max-w-5xl overflow-y-auto px-6 py-12 lg:px-12 no-scrollbar animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="mb-12 px-4">
-        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Data Ingestion Engine</h3>
+        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">CSV Import</h3>
         <h2 className="text-3xl font-black tracking-tight text-app-text">Catalog CSV Mapper</h2>
       </div>
       {step === "mode" && (
@@ -269,7 +269,7 @@ export default function UniversalImporter() {
             }}
             className="mb-6 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-accent transition-colors"
           >
-            <ArrowRight size={14} className="rotate-180" /> Back to engine select
+            <ArrowRight size={14} className="rotate-180" /> Back to import type
           </button>
           <div className="group relative flex flex-col items-center justify-center rounded-[4rem] border-4 border-dashed border-app-border/40 bg-app-surface/20 p-20 transition-all hover:border-app-accent-2/60 hover:bg-app-accent-2/5 backdrop-blur-md">
             <input
@@ -286,7 +286,7 @@ export default function UniversalImporter() {
             </h2>
               <p className="mt-3 text-sm font-bold tracking-tight text-app-text-muted">
               {rows.length > 0
-                ? `${rows.length.toLocaleString()} rows detected · Ready for logic mapping`
+                ? `${rows.length.toLocaleString()} rows detected · Ready for field matching`
                 : `Choose the vendor or source file`}
             </p>
           </div>
@@ -304,8 +304,8 @@ export default function UniversalImporter() {
            </button>
           
            <DashboardGridCard 
-             title="Attribute Mapping"
-             subtitle="Bind CSV headers to Riverside logic"
+             title="Column Matching"
+             subtitle="Match CSV headers to Riverside fields"
              icon={Table}
            >
             <div className="space-y-4">
@@ -341,7 +341,7 @@ export default function UniversalImporter() {
               
               <div className="rounded-2xl border border-dotted border-app-border bg-app-surface/20 p-6">
                 <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text opacity-60">
-                  Global Taxonomy Fallback
+                  Category Fallback
                 </label>
                 <select
                   value={categoryId}
@@ -363,7 +363,7 @@ export default function UniversalImporter() {
                 onClick={() => setStep("review")}
                 className="mt-6 flex w-full h-14 items-center justify-center gap-3 rounded-2xl bg-app-accent text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-95 transition-all disabled:opacity-40"
               >
-                Proceed to reconciliation <ArrowRight size={16} />
+                Review Import <ArrowRight size={16} />
               </button>
             </div>
            </DashboardGridCard>
@@ -371,7 +371,7 @@ export default function UniversalImporter() {
           <div className="space-y-8">
             <div className="flex flex-col justify-center rounded-[3rem] border border-app-border/40 bg-app-bg/20 p-10 backdrop-blur-md">
               <div className="mb-6 flex items-center gap-3 font-black uppercase tracking-[0.3em] text-app-accent-2 text-[10px]">
-                <ShieldCheck size={20} /> Logic engine hint
+                <ShieldCheck size={20} /> Matching hint
               </div>
               <div className="space-y-6 text-sm leading-relaxed text-app-text-muted">
                 <p>
@@ -381,7 +381,7 @@ export default function UniversalImporter() {
                 </p>
                 <p>
                   The <strong className="text-app-text font-black">category</strong> binding
-                  drives tax-exempt logic and POS organization. If the source file lacks a category column, 
+                  drives tax rules and POS organization. If the source file lacks a category column,
                   the global fallback will be applied to all imported entities.
                 </p>
                 <div className="p-5 rounded-2xl bg-emerald-500/5 border border-emerald-500/20">
@@ -412,7 +412,7 @@ export default function UniversalImporter() {
             }
             className="relative z-10 mb-10 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-white transition-colors"
           >
-            <ArrowRight size={14} className="rotate-180" /> Back to logic
+	            <ArrowRight size={14} className="rotate-180" /> Back to field matching
           </button>
 
           <div className="relative z-10 mb-12 flex flex-wrap items-end justify-between gap-6">
@@ -472,7 +472,7 @@ export default function UniversalImporter() {
             <div className="space-y-6">
               <div className="flex items-center gap-3">
                  <div className="w-1.5 h-6 rounded-full bg-app-accent-2 shadow-[0_0_12px_rgba(var(--app-accent-2),0.5)]" />
-                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Logic Map Registry</h3>
+	                 <h3 className="text-xs font-black uppercase tracking-[0.2em]">Field Matches</h3>
               </div>
               <div className="grid grid-cols-2 gap-4">
                  {Object.entries(mapping).map(([k, v]) => (

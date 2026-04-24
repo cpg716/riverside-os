@@ -462,7 +462,17 @@ export default function ProductHubDrawer({
 
   const subtitle = (
     <div className="flex items-center gap-2">
-      <span>{hub?.product?.brand ?? "Product template hub"}</span>
+      <span>
+        {hub?.product?.primary_vendor_name
+          ? `Vendor: ${hub.product.primary_vendor_name}`
+          : "No vendor assigned"}
+      </span>
+      {hub?.product?.brand && (
+        <>
+          <span className="text-app-text-muted/30">·</span>
+          <span>Brand: {hub.product.brand}</span>
+        </>
+      )}
       {hub?.product?.nuorder_product_id && (
         <>
           <span className="text-app-text-muted/30">·</span>
@@ -482,7 +492,7 @@ export default function ProductHubDrawer({
     ? [
         ["Vendor", catalogAnalysis.parsed_fields.vendor],
         ["Brand", catalogAnalysis.parsed_fields.brand],
-        ["Supplier code", catalogAnalysis.parsed_fields.supplier_code],
+        ["Vendor code", catalogAnalysis.parsed_fields.supplier_code],
         ["Product type", catalogAnalysis.parsed_fields.product_type],
         ["Color", catalogAnalysis.parsed_fields.color],
         ["Size", catalogAnalysis.parsed_fields.size],
@@ -1011,11 +1021,14 @@ export default function ProductHubDrawer({
                           {currentParentTitle || "—"}
                         </p>
                         <p className="mt-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Current brand / supplier code
+                          Current vendor / optional brand
                         </p>
                         <p className="mt-2 text-xs text-app-text-muted">
-                          {(hub.product.brand ?? "No brand")} ·{" "}
-                          {hub.product.nuorder_product_id ?? "No supplier code"}
+                          {hub.product.primary_vendor_name ?? "No vendor assigned"} ·{" "}
+                          {hub.product.brand ?? "No brand label"}
+                        </p>
+                        <p className="mt-1 text-[10px] font-semibold text-app-text-muted">
+                          Vendor code: {hub.product.nuorder_product_id ?? "not set"}
                         </p>
                       </div>
 

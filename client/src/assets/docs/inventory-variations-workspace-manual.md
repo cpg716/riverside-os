@@ -47,7 +47,7 @@ Use this workspace when you need to:
 
 - The print button changes meaning based on selection. Check whether it says `Print selected tags` or `Print all tags` before confirming.
 - A quantity of `0` skips a variation even if it was selected.
-- Printing from this workspace uses the same Zebra LP2844 retail price-tag path as Inventory List and Receiving Bay.
+- Printing from this workspace uses the same Zebra LP2844 retail price-tag path as Inventory List and Receive Stock.
 - If a variation’s price or label looks wrong, correct the product data before printing floor tags.
 
 ## What happens next
@@ -60,4 +60,4 @@ Use this workspace when you need to:
 
 - Use **Product Hub Drawer** for the broader product overview and General-tab tag action.
 - Use **Inventory Control Board** for the fastest browse-to-print workflow.
-- Use **Receiving Bay** when received quantities should prefill the print batch.
+- Use **Receive Stock** when received quantities should prefill the print batch.

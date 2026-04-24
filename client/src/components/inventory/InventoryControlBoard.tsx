@@ -1300,7 +1300,7 @@ export default function InventoryControlBoard({
           {discoveryBtn(unlabeledOnly, "Missing Labels", () =>
             setUnlabeledOnly(!unlabeledOnly),
           )}
-          {discoveryBtn(highValueOnly, "High Asset Value", () =>
+          {discoveryBtn(highValueOnly, "High Value", () =>
             setHighValueOnly(!highValueOnly),
           )}
           {discoveryBtn(webOnly, "On web", () => setWebOnly(!webOnly))}
@@ -1368,10 +1368,10 @@ export default function InventoryControlBoard({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                Catalog Completeness
+                Item Readiness
               </p>
               <p className="mt-1 text-sm font-semibold text-app-text">
-                Visible templates missing core catalog identity fields in the current inventory view.
+                Visible items missing fields that help with purchasing, selling, or reporting.
               </p>
             </div>
             <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1380,9 +1380,9 @@ export default function InventoryControlBoard({
           </div>
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             {[
-              ["Brand missing", catalogQualitySummary.missingBrand],
               ["Category missing", catalogQualitySummary.missingCategory],
-              ["Primary vendor missing", catalogQualitySummary.missingPrimaryVendor],
+              ["Vendor missing", catalogQualitySummary.missingPrimaryVendor],
+              ["Optional brand blank", catalogQualitySummary.missingBrand],
             ].map(([label, value]) => (
               <div
                 key={label}

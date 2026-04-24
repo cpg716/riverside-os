@@ -511,7 +511,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           <div className="flex min-w-0 flex-col">
             <div className="flex items-center gap-3">
               <h2 className="text-xl font-black uppercase italic tracking-tighter">
-                Receiving Bay
+                Receive Stock
               </h2>
               {useVendorUpc && (
                 <span className="rounded-full bg-violet-600/30 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-violet-300">
@@ -528,7 +528,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               </button>
             </div>
             <p className="text-[10px] font-bold uppercase tracking-widest text-white/55">
-              Verify invoice · {detail.po_number} · {detail.vendor_name} ·{" "}
+              Vendor paperwork · {detail.po_number} · {detail.vendor_name} ·{" "}
               <span className="text-white/75">{detail.status}</span>
               {detail.po_kind && (
                 <>
@@ -578,7 +578,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                   onKeyDown={handleScanInputKeyDown}
                   disabled={receivingClosed}
                   className="w-full rounded-xl border border-white/20 bg-black/30 py-2.5 pl-9 pr-4 font-mono text-sm text-white placeholder:text-white/40 outline-none transition-all focus:ring-2 focus:ring-app-accent-2 disabled:opacity-50"
-                  placeholder="Scan UPC or SKU…"
+                  placeholder="Scan UPC or SKU..."
                   autoComplete="off"
                 />
               </form>
@@ -616,7 +616,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       {/* Camera scanner overlay */}
       {scanMode === "camera" && !receivingClosed && (
         <CameraScanner
-          label="Receiving Bay — Camera Scan"
+          label="Receive Stock - Camera Scan"
           onScan={handleCameraScan}
           onClose={() => setScanMode("laser")}
         />
@@ -746,7 +746,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                   Ordered
                 </th>
                 <th className="bg-app-accent-2/15 px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-app-accent-2">
-                  Prev. recv.
+                  Previously received
                 </th>
                 <th className="bg-app-accent-2/15 px-6 py-4 text-center text-[10px] font-black uppercase tracking-widest text-app-accent-2">
                   Receiving now
@@ -855,16 +855,16 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
           <div className="flex-1 rounded-2xl border border-app-border bg-app-surface-2 p-4">
             <div className="mb-4 flex items-center justify-between">
               <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                <Landmark size={14} /> Routing rules (QBO)
+                <Landmark size={14} /> Accounting labels
               </span>
               <div className="flex items-center gap-1 rounded bg-app-accent-2/15 px-2 py-0.5 text-[9px] font-bold uppercase text-app-accent-2">
-                <ShieldCheck size={10} /> COGS_FREIGHT on receipt
+                <ShieldCheck size={10} /> Freight recorded on receipt
               </div>
             </div>
             <div className="grid gap-6 sm:grid-cols-2">
               <div>
                 <p className="mb-1 text-[9px] font-bold uppercase text-app-text-muted">
-                  Inventory (asset / receive)
+                  Inventory receiving account
                 </p>
                 <p className="text-xs font-black tracking-tight text-app-text">
                   {invGlLabel}
@@ -872,7 +872,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               </div>
               <div>
                 <p className="mb-1 text-[9px] font-bold uppercase text-app-text-muted">
-                  Inbound freight GL
+                  Inbound freight account
                 </p>
                 <p className="text-xs font-black tracking-tight text-app-accent-2">
                   {freightGlLabel}

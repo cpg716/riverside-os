@@ -698,7 +698,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             {sessions.length === 0 ? (
               <div className="py-12 flex flex-col items-center justify-center opacity-40 text-center">
                 <ClipboardList className="mb-3" size={32} />
-                <p className="text-[10px] font-black uppercase tracking-[0.3em]">No registry history</p>
+                <p className="text-[10px] font-black uppercase tracking-[0.3em]">No count history</p>
               </div>
             ) : (
               <table className="w-full text-left text-xs">

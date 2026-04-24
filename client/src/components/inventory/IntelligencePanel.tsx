@@ -87,7 +87,7 @@ const IntelligencePanel = () => {
 
   return (
     <div className="space-y-10 animate-in fade-in slide-in-from-bottom-6 duration-1000">
-      {/* Engine Overview Header */}
+      {/* Stock guidance overview */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <DashboardStatsCard
           title="Active Alerts"
@@ -103,10 +103,10 @@ const IntelligencePanel = () => {
           color="green"
         />
         <DashboardStatsCard
-          title="Clearance Ops"
+          title="Markdown Review"
           value={clearances.length}
           icon={Percent}
-          trend={{ value: clearances.length, label: "Capital ops", isUp: false }}
+          trend={{ value: clearances.length, label: "Slow movers", isUp: false }}
           color="orange"
         />
       </div>
@@ -192,7 +192,7 @@ const RecommendationCard = ({
           </div>
           <div className="flex flex-col items-end">
             <div className="text-[9px] font-black text-app-text-muted uppercase tracking-widest opacity-40 mb-2">
-              Engine Confidence
+              Suggestion confidence
             </div>
             <div className="flex items-center gap-3">
               <div className="w-24 h-2 bg-app-bg shadow-inner rounded-full overflow-hidden border border-app-border/40">

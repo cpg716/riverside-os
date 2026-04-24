@@ -105,16 +105,16 @@ export default function ProductMasterForm({
   const submitProduct = async () => {
     if (!name.trim() || rows.length === 0) return;
     if (baseRetailCents < 0) {
-      toast("Benchmark retail must be non-negative.", "error");
+      toast("Retail price must be zero or higher.", "error");
       return;
     }
     if (baseCostCents < 0) {
-      toast("Average acquisition cost must be non-negative.", "error");
+      toast("Cost must be zero or higher.", "error");
       return;
     }
     if (hasInvalidGeneratedRows) {
       toast(
-        "Each generated SKU must be present and start with non-negative stock.",
+        "Each SKU needs a code and starting stock of zero or higher.",
         "error",
       );
       return;
@@ -242,7 +242,7 @@ export default function ProductMasterForm({
                     Item Details
                   </h2>
                   <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-                    Name, category, and optional brand
+                    Name and category first. Brand can be added later if needed.
                   </p>
                 </div>
                 <div className="h-12 w-12 rounded-2xl bg-violet-100 flex items-center justify-center text-violet-600">
@@ -259,17 +259,6 @@ export default function ProductMasterForm({
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Italian Wool Suit (Super 120s)"
-                    className="ui-input h-14 text-sm font-bold"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Brand (optional)
-                  </label>
-                  <input
-                    value={brand}
-                    onChange={(e) => setBrand(e.target.value)}
-                    placeholder="Optional label, e.g. Riverside Private Label"
                     className="ui-input h-14 text-sm font-bold"
                   />
                 </div>
@@ -300,6 +289,20 @@ export default function ProductMasterForm({
                     placeholder="Describe fit, fabric, care, or selling notes..."
                     className="ui-input h-14 py-3 text-sm font-bold resize-none"
                   />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
+                    Brand (optional)
+                  </label>
+                  <input
+                    value={brand}
+                    onChange={(e) => setBrand(e.target.value)}
+                    placeholder="Leave blank unless the label matters for reports or tags"
+                    className="ui-input h-14 text-sm font-bold"
+                  />
+                  <p className="px-1 text-[10px] font-semibold text-app-text-muted">
+                    Vendor is handled on purchase orders and product details; brand is only a descriptive label.
+                  </p>
                 </div>
               </div>
 
@@ -402,7 +405,7 @@ export default function ProductMasterForm({
                         <Globe size={14} /> Global Storefront Sync
                       </span>
                       <span className="text-[10px] text-app-text-muted font-bold mt-0.5 leading-tight">
-                        Mark all generated SKUs as published in the online
+                        Mark all new SKUs as published in the online
                         boutique.
                       </span>
                     </div>
@@ -415,13 +418,13 @@ export default function ProductMasterForm({
                   onClick={() => setStep("shell")}
                   className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text transition-all"
                 >
-                  Back to Identity
+                  Back to Item Details
                 </button>
                 <button
                   onClick={() => setStep("matrix")}
                   className="ui-btn-primary px-10 py-4 h-auto rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
                 >
-                        Build Size / Option List
+                  Build Size / Option List
                 </button>
               </div>
             </section>
@@ -441,7 +444,7 @@ export default function ProductMasterForm({
                 onClick={() => setStep("financials")}
                 className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text transition-all"
               >
-                Back to Financials
+                Back to Pricing
               </button>
             </div>
           )}

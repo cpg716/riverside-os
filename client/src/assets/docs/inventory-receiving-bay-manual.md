@@ -1,6 +1,6 @@
 ---
 id: inventory-receiving-bay
-title: "Receiving Bay (inventory)"
+title: "Receive Stock (inventory)"
 order: 1024
 summary: "Stage inbound quantities from submitted POs or direct invoices, then post stock exactly once from the final receipt action."
 source: client/src/components/inventory/ReceivingBay.tsx
@@ -8,7 +8,7 @@ last_scanned: 2026-04-21
 tags: inventory-receiving-bay, inventory, receiving, purchase-orders
 ---
 
-# Receiving Bay (inventory)
+# Receive Stock (inventory)
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/inventory/ReceivingBay.tsx`._
@@ -16,7 +16,7 @@ _Linked component: `client/src/components/inventory/ReceivingBay.tsx`._
 
 ## What this is
 
-Use **Receiving Bay** to finish inbound receipts for either:
+Use **Receive Stock** to finish inbound receipts for either:
 
 - a **submitted standard purchase order**, or
 - a **direct invoice** created from **Purchase Orders**
@@ -40,8 +40,8 @@ Use this workflow when you need to:
 
 ## How to use it
 
-1. Open **Purchase Orders** and choose the submitted PO or direct invoice you want to receive.
-2. In **Receiving Bay**, scan SKU or vendor UPC, or type the received quantity directly into the worksheet.
+1. Open **Receive Stock** or **Purchase Orders** and choose the submitted PO or direct invoice you want to receive.
+2. In **Receive Stock**, scan SKU or vendor UPC, or type the received quantity directly into the worksheet.
 3. Review invoice number, freight, and unit cost before posting.
 4. Use **Review price tags** when you want Riverside to prefill the tag batch from `qty_receiving`.
 5. In the retail price-tag dialog, confirm or adjust the quantity for each received variation.
@@ -55,7 +55,7 @@ Use this workflow when you need to:
 - Standard POs and direct invoices share the same final posting logic.
 - Replaying the same receipt cannot double-post stock.
 
-## Matching and validation
+## Matching and checks
 
 - If the vendor is configured to use **vendor UPC**, the scanner checks vendor UPC first and then falls back to SKU.
 - Standard POs cannot be received while still in **draft**.

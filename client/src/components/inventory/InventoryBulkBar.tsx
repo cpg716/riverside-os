@@ -109,7 +109,7 @@ export default function InventoryBulkBar({
               />
             </div>
             <p className="mt-1 text-[9px] font-medium text-app-text-muted">
-              Enter filters the board to the matched SKU. Live stock posts only from Receiving Bay.
+              Enter filters the board to the matched SKU. Live stock posts only from Receive Stock.
             </p>
           </div>
 
@@ -206,16 +206,16 @@ export default function InventoryBulkBar({
               Mass assign
             </h2>
             <p className="mt-1 text-xs text-app-text-muted">
-              Update every selected template. At least one field is required.
+              Update every selected item. Category is usually the operational field; brand is optional.
             </p>
 
             <label className="mt-4 block text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-              Brand
+              Brand (optional)
             </label>
             <input
               value={massBrand}
               onChange={(e) => setMassBrand(e.target.value)}
-              placeholder="e.g. Eton"
+              placeholder="Optional label, e.g. Eton"
               className="ui-input mt-1 w-full"
             />
 
@@ -227,7 +227,7 @@ export default function InventoryBulkBar({
               onChange={(e) => setMassCategoryId(e.target.value)}
               className="ui-input mt-1 w-full"
             >
-              <option value="">— Pick a category (optional if brand set) —</option>
+              <option value="">Pick a category</option>
               {categories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}

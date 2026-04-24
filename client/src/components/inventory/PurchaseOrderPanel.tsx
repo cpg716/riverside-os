@@ -35,6 +35,27 @@ interface Vendor {
 
 const baseUrl = getBaseUrl();
 
+function purchaseOrderTypeLabel(kind?: string): string {
+  return kind === "direct_invoice" ? "Direct invoice" : "Purchase order";
+}
+
+function purchaseOrderStatusLabel(status: string): string {
+  switch (status) {
+    case "draft":
+      return "Draft";
+    case "submitted":
+      return "Ready to receive";
+    case "partially_received":
+      return "Partially received";
+    case "closed":
+      return "Closed";
+    case "cancelled":
+      return "Cancelled";
+    default:
+      return status.replace(/_/g, " ");
+  }
+}
+
 export default function PurchaseOrderPanel({
   initialPoId,
   onInitialPoConsumed,
@@ -203,6 +224,10 @@ export default function PurchaseOrderPanel({
     (selected.po_kind === "direct_invoice"
       ? true
       : selected.status !== "draft");
+  const canReceiveOrder = (order: PurchaseOrder) =>
+    order.status !== "cancelled" &&
+    order.status !== "closed" &&
+    (order.po_kind === "direct_invoice" ? true : order.status !== "draft");
 
   return (
     <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
@@ -240,18 +265,29 @@ export default function PurchaseOrderPanel({
           </select>
           <button
             type="button"
+            disabled={!vendorId}
             onClick={createDraft}
-            className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all"
+            className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all"
           >
             <Plus size={14} /> New PO
           </button>
           <button
             type="button"
+            disabled={!vendorId}
             onClick={() => void createDirectInvoice()}
-            className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent-2/10 border border-app-accent-2/20 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-accent-2/20 transition-all active:scale-95"
+            className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent-2/10 border border-app-accent-2/20 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-accent-2/20 disabled:opacity-40 transition-all active:scale-95"
           >
             <Sparkles size={14} /> Direct Invoice
           </button>
+        </div>
+        <div className="mb-6 rounded-2xl border border-app-border bg-app-surface/30 px-5 py-4">
+          <p className="text-sm font-black text-app-text">
+            To receive stock, choose an open purchase order below and click Receive.
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
+            If the shipment arrived without an order, select the vendor and create a Direct Invoice.
+            If there is no vendor yet, add the vendor in Vendors first.
+          </p>
         </div>
         <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
           <div className="overflow-x-auto">
@@ -266,7 +302,18 @@ export default function PurchaseOrderPanel({
                 </tr>
               </thead>
               <tbody className="divide-y divide-app-border/40">
-                {orders.map((o) => (
+                {orders.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="px-6 py-12 text-center">
+                      <p className="text-sm font-black text-app-text">
+                        No purchase orders or direct invoices yet.
+                      </p>
+                      <p className="mt-2 text-xs font-semibold text-app-text-muted">
+                        Select a vendor above, then create a New PO or Direct Invoice to begin receiving.
+                      </p>
+                    </td>
+                  </tr>
+                ) : orders.map((o) => (
                   <tr
                     key={o.id}
                     className={`group cursor-pointer transition-all ${
@@ -278,7 +325,7 @@ export default function PurchaseOrderPanel({
                     <td className="px-6 py-4 font-bold text-app-text">{o.vendor_name}</td>
                     <td className="px-6 py-4">
                       <span className="rounded-lg bg-app-surface-2 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                        {o.po_kind ?? "standard"}
+                        {purchaseOrderTypeLabel(o.po_kind)}
                       </span>
                     </td>
                     <td className="px-6 py-4">
@@ -296,7 +343,7 @@ export default function PurchaseOrderPanel({
                            o.status === 'closed' ? 'bg-emerald-500' :
                            'bg-red-500'
                          }`} />
-                         {o.status}
+                         {purchaseOrderStatusLabel(o.status)}
                        </span>
                     </td>
                     <td className="px-6 py-4 text-right">
@@ -317,9 +364,10 @@ export default function PurchaseOrderPanel({
                         ) : null}
                         <button
                           type="button"
-                          disabled={selectedPo !== o.id || !canOpenReceiving}
+                          disabled={!canReceiveOrder(o)}
                           onClick={(e) => {
                             e.stopPropagation();
+                            setSelectedPo(o.id);
                             setReceivingPoId(o.id);
                           }}
                           className="inline-flex h-8 items-center gap-2 rounded-xl bg-emerald-600 px-4 text-[9px] font-black uppercase tracking-widest text-white shadow-lg shadow-emerald-600/20 hover:brightness-110 disabled:opacity-0 transition-all active:scale-95"
@@ -337,8 +385,8 @@ export default function PurchaseOrderPanel({
       </DashboardGridCard>
 
       <DashboardGridCard 
-        title="Line Builder"
-        subtitle={selected ? `Active Context: ${selected.po_number}` : "Select a PO to add receipt lines"}
+        title="PO Lines"
+        subtitle={selected ? `Adding items to ${selected.po_number}` : "Select a purchase order before adding items"}
         icon={Sparkles}
       >
         <div className="grid gap-6 md:grid-cols-[1fr_1fr_120px_160px]">
@@ -392,7 +440,7 @@ export default function PurchaseOrderPanel({
                 Receipt Posting
               </p>
               <p className="text-sm font-bold text-app-text">
-                Final stock posts only from the Receiving Bay overlay.
+                Final stock posts only from Receive Stock.
               </p>
               <p className="text-xs text-app-text-muted">
                 Standard purchase orders must be submitted before receiving. Direct invoices can open receiving immediately.
@@ -414,7 +462,7 @@ export default function PurchaseOrderPanel({
                 onClick={() => setReceivingPoId(selectedPo)}
                 className="h-12 rounded-2xl bg-emerald-600 px-5 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-600/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
               >
-                Open Receiving Bay
+                Open Receive Stock
               </button>
             </div>
           </div>
@@ -453,7 +501,7 @@ export default function PurchaseOrderPanel({
             </table>
           </div>
           <p className="mt-2 text-[10px] text-amber-700 italic">
-            Note: These items are not in the master catalog and must be sourced manually for specific wedding orders.
+            Note: These items are not in the item list and must be sourced manually for specific wedding orders.
           </p>
         </section>
       )}
