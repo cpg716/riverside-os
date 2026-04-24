@@ -815,11 +815,10 @@ export default function HelpCenterDrawer({
           },
         ]);
       }
-      if (
+      const shouldSpeakResponse =
         rosieSettings.voice_enabled &&
-        rosieSettings.speak_responses &&
-        voiceCapabilities.text_to_speech_supported
-      ) {
+        (mode === "conversation" || rosieSettings.speak_responses);
+      if (shouldSpeakResponse) {
         const speechText = markdownToSpeechText(answer);
         if (speechText) {
           speechPlaybackRef.current = speakRosieText(speechText, {
@@ -883,7 +882,6 @@ export default function HelpCenterDrawer({
     rosieQuestion,
     rosieSettings,
     stopRosieSpeaking,
-    voiceCapabilities.text_to_speech_supported,
   ]);
 
   const startRosieListening = useCallback(() => {
@@ -900,7 +898,7 @@ export default function HelpCenterDrawer({
       );
       return;
     }
-    if (!voiceCapabilities.speech_to_text_supported) {
+    if (activeRosieMode !== "conversation" && !voiceCapabilities.speech_to_text_supported) {
       setRosieStatus(
         "Voice input is unavailable because this workstation could not reach the host ROSIE speech stack. Use the text box to ask ROSIE.",
       );
@@ -1095,7 +1093,9 @@ export default function HelpCenterDrawer({
                   -&gt; ROSIE to use Help Mode or Conversation Mode.
                 </p>
               ) : null}
-              {rosieSettings.enabled && !voiceCapabilities.speech_to_text_supported ? (
+              {drawerMode !== "conversation" &&
+              rosieSettings.enabled &&
+              !voiceCapabilities.speech_to_text_supported ? (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
                   Voice input is only shown when this workstation can reach the host ROSIE speech stack.
                 </p>
@@ -1320,7 +1320,7 @@ export default function HelpCenterDrawer({
                 >
                   {rosieSettings.voice_enabled &&
                   rosieSettings.microphone_enabled &&
-                  voiceCapabilities.speech_to_text_supported ? (
+                  (conversationModeActive || voiceCapabilities.speech_to_text_supported) ? (
                     <button
                       type="button"
                       data-testid="help-center-ask-rosie-mic"
