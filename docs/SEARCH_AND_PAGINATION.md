@@ -48,7 +48,7 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
 The **`oos_low_only`** / low-stock **filter** here is independent of **notification** opt-in: admin morning low-stock alerts use **`products.track_low_stock`** and **`product_variants.track_low_stock`** (product hub) plus **`reorder_point`** — see **`docs/PLAN_NOTIFICATION_CENTER.md`**.  
 Older builds applied a fixed row cap **before** substring filtering, which hid most SKUs in very large catalogs from Back Office search and POS (**Register** cart) Meilisearch; that pattern is removed.
 
-**Indexes (migrations 81–82):** `idx_order_items_variant_id`, `idx_order_items_product_id` support efficient aggregates for popularity ranking.
+**Indexes (migrations 81–82, 160):** `idx_order_items_variant_id`, `idx_order_items_product_id`, `idx_product_variants_product_id`, `idx_purchase_order_lines_variant_id`, `idx_transaction_lines_product_transaction`, and `idx_transactions_booked_status_id` support efficient search hydration, popularity ranking, variant counts, and last-vendor lookups.
 
 **Query parameters** (see `InventoryBoardQuery` in `server/src/api/products.rs`):
 

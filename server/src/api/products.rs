@@ -1146,6 +1146,27 @@ pub async fn list_control_board(
         qb.push(
             r#"
               AND o.status <> 'cancelled'::order_status
+        "#,
+        );
+        if let Some(ids) = &meili_variant_ids {
+            if !ids.is_empty() {
+                qb.push(
+                    r#"
+              AND oi.product_id IN (
+                  SELECT pv_search.product_id
+                  FROM product_variants pv_search
+                  WHERE pv_search.id = ANY("#,
+                );
+                qb.push_bind(ids.clone());
+                qb.push(
+                    r#")
+              )
+        "#,
+                );
+            }
+        }
+        qb.push(
+            r#"
             GROUP BY oi.product_id
         ) st ON st.product_id = p.id
         "#,
