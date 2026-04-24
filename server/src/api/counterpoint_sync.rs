@@ -195,6 +195,23 @@ async fn cp_complete_request(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn cp_run_start(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<counterpoint_sync::SyncCursorIn>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<serde_json::Value>)> {
+    validate_sync_token(&state, &headers)?;
+    counterpoint_sync::begin_sync_run(&state.db, payload.entity.trim(), payload.cursor.as_deref())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": e.to_string() })),
+            )
+        })?;
+    Ok(Json(json!({ "ok": true })))
+}
+
 async fn cp_customers(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1224,6 +1241,7 @@ pub fn router() -> Router<AppState> {
         Router::new()
             .route("/health", get(cp_health))
             .route("/heartbeat", post(cp_heartbeat))
+            .route("/run-start", post(cp_run_start))
             .route("/request/ack", post(cp_ack_request))
             .route("/ack-request", post(cp_ack_request))
             .route("/request/complete", post(cp_complete_request))

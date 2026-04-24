@@ -699,7 +699,8 @@ pub async fn record_sync_run(
                 cursor_value = EXCLUDED.cursor_value,
                 last_ok_at = NOW(),
                 last_error = NULL,
-                records_processed = EXCLUDED.records_processed,
+                records_processed = COALESCE(counterpoint_sync_runs.records_processed, 0)
+                    + COALESCE(EXCLUDED.records_processed, 0),
                 updated_at = NOW()
             "#,
         )
@@ -724,6 +725,29 @@ pub async fn record_sync_run(
         .execute(pool)
         .await?;
     }
+    Ok(())
+}
+
+pub async fn begin_sync_run(
+    pool: &PgPool,
+    entity: &str,
+    cursor: Option<&str>,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        r#"
+        INSERT INTO counterpoint_sync_runs (entity, cursor_value, records_processed, updated_at)
+        VALUES ($1, $2, 0, NOW())
+        ON CONFLICT (entity) DO UPDATE SET
+            cursor_value = EXCLUDED.cursor_value,
+            records_processed = 0,
+            last_error = NULL,
+            updated_at = NOW()
+        "#,
+    )
+    .bind(entity)
+    .bind(cursor)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -1492,7 +1516,7 @@ pub async fn build_counterpoint_inventory_verification_report(
     .fetch_all(pool)
     .await?;
 
-    let vendor_link_rows: Vec<(Uuid, Option<String>, Option<String>)> = sqlx::query_as(
+    let vendor_link_rows: Vec<(Option<Uuid>, Option<String>, Option<String>)> = sqlx::query_as(
         r#"
         SELECT
             vsi.variant_id,
@@ -1507,6 +1531,9 @@ pub async fn build_counterpoint_inventory_verification_report(
 
     let mut vendor_links_by_variant: HashMap<Uuid, Vec<CounterpointRosVendorLink>> = HashMap::new();
     for (variant_id, vendor_name, vendor_code) in vendor_link_rows {
+        let Some(variant_id) = variant_id else {
+            continue;
+        };
         vendor_links_by_variant
             .entry(variant_id)
             .or_default()
@@ -5904,6 +5931,61 @@ mod tests {
             "counterpoint_item_key_singleton",
         ));
         assert!(!is_parent_row_fallback_artifact(&csv_row, &ros_row, "sku"));
+    }
+
+    #[tokio::test]
+    async fn counterpoint_sync_run_counts_accumulate_within_run_and_reset_on_new_run() {
+        let pool = connect_test_db().await;
+        let entity = format!("counterpoint-run-test-{}", Uuid::new_v4().simple());
+
+        begin_sync_run(&pool, &entity, Some("batch-0"))
+            .await
+            .expect("begin first run");
+        record_sync_run(&pool, &entity, Some("batch-1"), true, Some(217), None)
+            .await
+            .expect("record first batch");
+        record_sync_run(&pool, &entity, Some("batch-2"), true, Some(232), None)
+            .await
+            .expect("record second batch");
+
+        let first_total: i32 = sqlx::query_scalar(
+            "SELECT records_processed FROM counterpoint_sync_runs WHERE entity = $1",
+        )
+        .bind(&entity)
+        .fetch_one(&pool)
+        .await
+        .expect("load accumulated total");
+        assert_eq!(first_total, 449);
+
+        begin_sync_run(&pool, &entity, Some("batch-0"))
+            .await
+            .expect("begin second run");
+        let reset_total: i32 = sqlx::query_scalar(
+            "SELECT records_processed FROM counterpoint_sync_runs WHERE entity = $1",
+        )
+        .bind(&entity)
+        .fetch_one(&pool)
+        .await
+        .expect("load reset total");
+        assert_eq!(reset_total, 0);
+
+        record_sync_run(&pool, &entity, Some("batch-1"), true, Some(542), None)
+            .await
+            .expect("record first batch of second run");
+        let second_total: i32 = sqlx::query_scalar(
+            "SELECT records_processed FROM counterpoint_sync_runs WHERE entity = $1",
+        )
+        .bind(&entity)
+        .fetch_one(&pool)
+        .await
+        .expect("load second total");
+        assert_eq!(second_total, 542);
+
+        sqlx::query("DELETE FROM counterpoint_sync_runs WHERE entity = $1")
+            .bind(&entity)
+            .execute(&pool)
+            .await
+            .expect("cleanup sync run row");
     }
 
     #[tokio::test]

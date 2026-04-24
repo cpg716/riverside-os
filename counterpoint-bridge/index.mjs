@@ -1343,6 +1343,19 @@ async function sendHeartbeat(phase, currentEntity) {
   }
 }
 
+async function signalRunStart(entity, cursor = null) {
+  try {
+    await rosFetch(
+      "/api/sync/counterpoint/run-start",
+      { entity, cursor },
+      "POST",
+      bridgeIngestHeaders(),
+    );
+  } catch (e) {
+    console.warn(`[${entity}] could not reset ROS run counter before sync:`, e?.message ?? e);
+  }
+}
+
 /** Same matrix key convention as IM_INV_CELL / catalog (parent|dim1|dim2|dim3). */
 function cpMatrixItemKey(parentItemNo, d1, d2, d3) {
   const p = String(parentItemNo ?? "").trim();
@@ -2945,6 +2958,7 @@ async function waitForDiscoverClose() {
 async function runSyncEntity(entityLabel, fn) {
   const t0 = Date.now();
   try {
+    await signalRunStart(entityLabel, null);
     const result = await fn();
     const count = typeof result === 'number' ? result : (BRIDGE_STATE.entityStats[entityLabel]?.recordCount ?? 0);
     const dur = Date.now() - t0;
