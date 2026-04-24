@@ -137,6 +137,9 @@ impl IntoResponse for CustomerError {
 const CUSTOMER_LIFECYCLE_ACTIVE_DAYS: i64 = 90;
 const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 4;
 const ADDRESS_LOOKUP_MAX_RESULTS: usize = 5;
+const ADDRESS_LOOKUP_STORE_LAT: &str = "42.9056";
+const ADDRESS_LOOKUP_STORE_LON: &str = "-78.7048";
+const ADDRESS_LOOKUP_STORE_POSTAL: &str = "14043";
 const CENSUS_ADDRESS_LOOKUP_URL: &str =
     "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress";
 const PHOTON_ADDRESS_LOOKUP_URL: &str = "https://photon.komoot.io/api/";
@@ -240,6 +243,64 @@ fn title_case_address(value: &str) -> String {
         .join(" ")
 }
 
+fn normalize_us_state(value: &str) -> String {
+    match value.trim().to_ascii_uppercase().as_str() {
+        "ALABAMA" | "AL" => "AL",
+        "ALASKA" | "AK" => "AK",
+        "ARIZONA" | "AZ" => "AZ",
+        "ARKANSAS" | "AR" => "AR",
+        "CALIFORNIA" | "CA" => "CA",
+        "COLORADO" | "CO" => "CO",
+        "CONNECTICUT" | "CT" => "CT",
+        "DELAWARE" | "DE" => "DE",
+        "DISTRICT OF COLUMBIA" | "DC" => "DC",
+        "FLORIDA" | "FL" => "FL",
+        "GEORGIA" | "GA" => "GA",
+        "HAWAII" | "HI" => "HI",
+        "IDAHO" | "ID" => "ID",
+        "ILLINOIS" | "IL" => "IL",
+        "INDIANA" | "IN" => "IN",
+        "IOWA" | "IA" => "IA",
+        "KANSAS" | "KS" => "KS",
+        "KENTUCKY" | "KY" => "KY",
+        "LOUISIANA" | "LA" => "LA",
+        "MAINE" | "ME" => "ME",
+        "MARYLAND" | "MD" => "MD",
+        "MASSACHUSETTS" | "MA" => "MA",
+        "MICHIGAN" | "MI" => "MI",
+        "MINNESOTA" | "MN" => "MN",
+        "MISSISSIPPI" | "MS" => "MS",
+        "MISSOURI" | "MO" => "MO",
+        "MONTANA" | "MT" => "MT",
+        "NEBRASKA" | "NE" => "NE",
+        "NEVADA" | "NV" => "NV",
+        "NEW HAMPSHIRE" | "NH" => "NH",
+        "NEW JERSEY" | "NJ" => "NJ",
+        "NEW MEXICO" | "NM" => "NM",
+        "NEW YORK" | "NY" => "NY",
+        "NORTH CAROLINA" | "NC" => "NC",
+        "NORTH DAKOTA" | "ND" => "ND",
+        "OHIO" | "OH" => "OH",
+        "OKLAHOMA" | "OK" => "OK",
+        "OREGON" | "OR" => "OR",
+        "PENNSYLVANIA" | "PA" => "PA",
+        "RHODE ISLAND" | "RI" => "RI",
+        "SOUTH CAROLINA" | "SC" => "SC",
+        "SOUTH DAKOTA" | "SD" => "SD",
+        "TENNESSEE" | "TN" => "TN",
+        "TEXAS" | "TX" => "TX",
+        "UTAH" | "UT" => "UT",
+        "VERMONT" | "VT" => "VT",
+        "VIRGINIA" | "VA" => "VA",
+        "WASHINGTON" | "WA" => "WA",
+        "WEST VIRGINIA" | "WV" => "WV",
+        "WISCONSIN" | "WI" => "WI",
+        "WYOMING" | "WY" => "WY",
+        other => other,
+    }
+    .to_string()
+}
+
 fn build_census_street_line(parts: &CensusAddressComponents) -> String {
     [
         parts.from_address.as_deref(),
@@ -264,7 +325,7 @@ fn map_census_address_match(
     let parts = address_match.address_components?;
     let address_line1 = build_census_street_line(&parts);
     let city = parts.city?.trim().to_string();
-    let state = parts.state?.trim().to_ascii_uppercase();
+    let state = normalize_us_state(parts.state?.trim());
     let postal_code = parts.zip?.trim().to_string();
     if address_line1.is_empty() || city.is_empty() || state.is_empty() || postal_code.is_empty() {
         return None;
@@ -318,7 +379,7 @@ fn map_photon_feature(feature: PhotonFeature, index: usize) -> Option<AddressSug
 
     let address_line1 = title_case_address(&address_line1);
     let city = title_case_address(city);
-    let state = state.to_ascii_uppercase();
+    let state = normalize_us_state(state);
     let label = format!("{address_line1}, {city}, {state} {postal_code}");
     Some(AddressSuggestion {
         id: format!(
@@ -1084,14 +1145,22 @@ async fn get_address_suggestions(
         return Ok(Json(Vec::new()));
     }
 
+    let photon_query = if query.chars().any(|c| c.is_ascii_digit()) {
+        query.to_string()
+    } else {
+        format!("{query} {ADDRESS_LOOKUP_STORE_POSTAL}")
+    };
+    let photon_limit = ADDRESS_LOOKUP_MAX_RESULTS.to_string();
     let photon_res = state
         .http_client
         .get(PHOTON_ADDRESS_LOOKUP_URL)
         .header(reqwest::header::USER_AGENT, ADDRESS_LOOKUP_USER_AGENT)
         .query(&[
-            ("q", query),
-            ("limit", &ADDRESS_LOOKUP_MAX_RESULTS.to_string()),
+            ("q", photon_query.as_str()),
+            ("limit", photon_limit.as_str()),
             ("lang", "en"),
+            ("lat", ADDRESS_LOOKUP_STORE_LAT),
+            ("lon", ADDRESS_LOOKUP_STORE_LON),
         ])
         .send()
         .await;
@@ -1125,12 +1194,13 @@ async fn get_address_suggestions(
         }
     }
 
+    let census_query = format!("{query} {ADDRESS_LOOKUP_STORE_POSTAL}");
     let res = state
         .http_client
         .get(CENSUS_ADDRESS_LOOKUP_URL)
         .header(reqwest::header::USER_AGENT, ADDRESS_LOOKUP_USER_AGENT)
         .query(&[
-            ("address", query),
+            ("address", census_query.as_str()),
             ("benchmark", "Public_AR_Current"),
             ("format", "json"),
         ])

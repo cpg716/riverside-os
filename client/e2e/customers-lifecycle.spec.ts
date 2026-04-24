@@ -153,9 +153,7 @@ async function fillRequiredCustomerFields(page: Page) {
   await page.getByLabel(/first name/i).fill(`Address${unique}`);
   await page.getByLabel(/last name/i).fill("Autocomplete");
   await page.getByPlaceholder("(555) 000-0000").first().fill("(555) 111-2222");
-  await page
-    .getByRole("textbox", { name: /email \(optional\)/i })
-    .fill(`address-${unique}@example.com`);
+  await page.getByRole("textbox", { name: /^email$/i }).fill(`address-${unique}@example.com`);
 }
 
 test("add customer accepts manual address entry without suggestions", async ({
@@ -210,17 +208,18 @@ test("add customer address suggestion fills city state and ZIP", async ({
 }) => {
   await mockCustomerWorkspaceBasics(page);
   await page.route("**/api/customers/address-suggestions*", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250));
     await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify([
         {
           id: "suggestion-1",
-          label: "4600 Silver Hill Rd, Washington, DC 20233",
-          address_line1: "4600 Silver Hill Rd",
-          city: "Washington",
-          state: "DC",
-          postal_code: "20233",
+          label: "4600 Broadway, Buffalo, NY 14225",
+          address_line1: "4600 Broadway",
+          city: "Buffalo",
+          state: "NEW YORK",
+          postal_code: "14225",
         },
       ]),
     });
@@ -228,17 +227,18 @@ test("add customer address suggestion fills city state and ZIP", async ({
 
   await openAddCustomerDrawer(page);
   await fillRequiredCustomerFields(page);
-  await page.getByLabel(/address line 1/i).fill("4600 Silver Hill");
+  await page.getByLabel(/address line 1/i).fill("4600 Broadway");
+  await expect(page.getByText(/searching addresses near 14043/i)).toBeVisible();
   await page
-    .getByRole("button", { name: /4600 silver hill rd/i })
+    .getByRole("button", { name: /4600 broadway/i })
     .click();
 
   await expect(page.getByLabel(/address line 1/i)).toHaveValue(
-    "4600 Silver Hill Rd",
+    "4600 Broadway",
   );
-  await expect(page.getByLabel(/^city$/i)).toHaveValue("Washington");
-  await expect(page.getByLabel(/^state$/i)).toHaveValue("DC");
-  await expect(page.getByLabel(/postal code/i)).toHaveValue("20233");
+  await expect(page.getByLabel(/^city$/i)).toHaveValue("Buffalo");
+  await expect(page.getByLabel(/^state$/i)).toHaveValue("NY");
+  await expect(page.getByLabel(/zip/i)).toHaveValue("14225");
 });
 
 test("failed address lookup keeps add customer form usable", async ({

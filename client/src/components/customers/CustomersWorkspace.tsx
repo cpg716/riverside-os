@@ -22,9 +22,7 @@ import {
   UserPlus,
   Activity,
   Clock,
-  Mail,
   MapPin,
-  Phone,
   ShieldCheck,
   X as CloseIcon,
 } from "lucide-react";
@@ -1753,12 +1751,70 @@ const EMPTY_ADD_CUSTOMER_FORM: AddCustomerForm = {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const STATE_RE = /^[A-Za-z]{2}$/;
 const POSTAL_RE = /^\d{5}(?:-\d{4})?$/;
+const STATE_ABBREVIATIONS: Record<string, string> = {
+  ALABAMA: "AL",
+  ALASKA: "AK",
+  ARIZONA: "AZ",
+  ARKANSAS: "AR",
+  CALIFORNIA: "CA",
+  COLORADO: "CO",
+  CONNECTICUT: "CT",
+  DELAWARE: "DE",
+  "DISTRICT OF COLUMBIA": "DC",
+  FLORIDA: "FL",
+  GEORGIA: "GA",
+  HAWAII: "HI",
+  IDAHO: "ID",
+  ILLINOIS: "IL",
+  INDIANA: "IN",
+  IOWA: "IA",
+  KANSAS: "KS",
+  KENTUCKY: "KY",
+  LOUISIANA: "LA",
+  MAINE: "ME",
+  MARYLAND: "MD",
+  MASSACHUSETTS: "MA",
+  MICHIGAN: "MI",
+  MINNESOTA: "MN",
+  MISSISSIPPI: "MS",
+  MISSOURI: "MO",
+  MONTANA: "MT",
+  NEBRASKA: "NE",
+  NEVADA: "NV",
+  "NEW HAMPSHIRE": "NH",
+  "NEW JERSEY": "NJ",
+  "NEW MEXICO": "NM",
+  "NEW YORK": "NY",
+  "NORTH CAROLINA": "NC",
+  "NORTH DAKOTA": "ND",
+  OHIO: "OH",
+  OKLAHOMA: "OK",
+  OREGON: "OR",
+  PENNSYLVANIA: "PA",
+  "RHODE ISLAND": "RI",
+  "SOUTH CAROLINA": "SC",
+  "SOUTH DAKOTA": "SD",
+  TENNESSEE: "TN",
+  TEXAS: "TX",
+  UTAH: "UT",
+  VERMONT: "VT",
+  VIRGINIA: "VA",
+  WASHINGTON: "WA",
+  "WEST VIRGINIA": "WV",
+  WISCONSIN: "WI",
+  WYOMING: "WY",
+};
 
 function formatPhoneInput(raw: string): string {
   const d = raw.replace(/\D/g, "").slice(0, 10);
   if (d.length <= 3) return d;
   if (d.length <= 6) return `(${d.slice(0, 3)}) ${d.slice(3)}`;
   return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+function normalizeStateInput(raw: string): string {
+  const upper = raw.trim().toUpperCase();
+  return STATE_ABBREVIATIONS[upper] ?? upper.slice(0, 2);
 }
 
 interface DuplicateCandidateRow {
@@ -2150,16 +2206,8 @@ export function AddCustomerDrawer({
         isOpen={isOpen}
         onClose={onClose}
         title="Add Customer"
-        subtitle={
-          <span className="flex flex-wrap items-center gap-2">
-            <span>Create a clean customer profile.</span>
-            <span className="rounded-full border border-app-warning/35 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
-              Duplicate review before save
-            </span>
-          </span>
-        }
+        subtitle="Name, contact, address, dates, notes, and preferences."
         panelMaxClassName="max-w-5xl"
-        titleClassName="uppercase italic"
         footer={
           <div className="flex gap-3">
             <button
@@ -2182,7 +2230,7 @@ export function AddCustomerDrawer({
       >
         <form
           id="add-customer-form"
-          className="space-y-6"
+          className="space-y-3"
           onSubmit={(e) => void handleSubmit(e)}
         >
           {err ? (
@@ -2191,87 +2239,26 @@ export function AddCustomerDrawer({
             </p>
           ) : null}
 
-          <div className="overflow-hidden rounded-xl border border-app-border bg-app-text text-app-surface shadow-[0_18px_45px_-30px_rgba(0,0,0,0.65)]">
-            <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-surface/65">
-                  Customer Add Hub
-                </p>
-                <p className="mt-1 text-lg font-black uppercase italic tracking-tight text-white">
-                  Capture once, review matches, keep contact data current.
-                </p>
-              </div>
-              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-app-accent/35 bg-app-accent/20 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">
-                <ShieldCheck size={13} />
-                Guided intake
-              </span>
-            </div>
-            <div className="grid grid-cols-1 divide-y divide-white/10 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
-              <div className="flex items-center gap-3 px-4 py-3">
-                <UserPlus size={18} className="text-app-accent" />
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-surface/60">
-                    1. Identity
-                  </p>
-                  <p className="text-sm font-black text-white">
-                    Name and profile
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 px-4 py-3">
-                <Phone size={18} className="text-app-success" />
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-surface/60">
-                    2. Contact
-                  </p>
-                  <p className="text-sm font-black text-white">
-                    Phone, email, SMS
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3 px-4 py-3">
-                <ShieldCheck size={18} className="text-app-warning" />
-                <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-surface/60">
-                    3. Review
-                  </p>
-                  <p className="text-sm font-black text-white">
-                    Duplicate guard
-                  </p>
-                </div>
-              </div>
-            </div>
-          </div>
-
           {(dupLoading || nameNeedsPhoneReview || dupCandidates.length > 0) && (
             <div
-              className="rounded-xl border border-app-warning/35 bg-app-surface shadow-sm ring-1 ring-app-warning/15"
+              className="rounded-lg border border-app-warning/35 bg-app-warning/10 p-3"
               data-testid="crm-duplicate-candidates"
             >
-              <div className="flex items-start justify-between gap-3 border-b border-app-border bg-app-surface-2 px-4 py-3">
-                <div className="min-w-0">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
-                    Customer match review
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                    Compare the profile before creating a new customer so phone,
-                    email, and marketing contact details stay current.
-                  </p>
-                </div>
-                <span className="shrink-0 rounded-full border border-app-warning/40 bg-app-warning/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
-                  Review
-                </span>
+              <div className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                <ShieldCheck size={14} />
+                Duplicate review
               </div>
-              <div className="p-4">
-                {dupLoading ? (
-                  <p className="text-xs text-app-text-muted">Checking…</p>
-                ) : nameNeedsPhoneReview ? (
-                  <p className="rounded-lg border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
+              {dupLoading ? (
+                <p className="text-xs font-semibold text-app-text-muted">
+                  Checking customer matches...
+                </p>
+              ) : nameNeedsPhoneReview ? (
+                <p className="rounded-lg border border-app-warning/30 bg-app-surface px-3 py-2 text-xs font-semibold text-app-text">
                   This name already exists. Enter a phone number first so we can
                   check for a direct phone match before showing same-name
                   profiles.
-                  </p>
-                ) : (
+                </p>
+              ) : (
                 <ul className="space-y-2 text-xs text-app-text">
                   {dupCandidates.map((c) => (
                     <li
@@ -2322,29 +2309,18 @@ export function AddCustomerDrawer({
                     </li>
                   ))}
                 </ul>
-                )}
-                {!dupLoading && dupCandidates.length > 0 ? (
-                  <p className="mt-3 text-[10px] font-semibold text-app-text-muted">
+              )}
+              {!dupLoading && dupCandidates.length > 0 ? (
+                <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
                   If this is the same person, review the existing profile and
                   update contact details there instead of creating a duplicate.
-                  </p>
-                ) : null}
-              </div>
+                </p>
+              ) : null}
             </div>
           )}
 
-          <section
-            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
-            aria-labelledby="add-cust-identity"
-          >
-            <h3
-              id="add-cust-identity"
-              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
-            >
-              <UserPlus size={15} className="text-app-accent" />
-              Identity
-            </h3>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <section className="rounded-xl border border-app-border bg-app-surface p-3 shadow-sm">
+            <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-4">
               <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 First name *
                 <input
@@ -2375,254 +2351,168 @@ export function AddCustomerDrawer({
                   </span>
                 ) : null}
               </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Phone
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
+                  onChange={(e) => set("phone", formatPhoneInput(e.target.value))}
+                  className="ui-input mt-1 w-full text-sm"
+                  placeholder="(555) 000-0000"
+                />
+                {touched.phone && errors.phone ? (
+                  <span className="mt-1 block text-[11px] font-semibold text-red-600">
+                    {errors.phone}
+                  </span>
+                ) : null}
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Email
+                <input
+                  type="email"
+                  value={form.email}
+                  onBlur={() => setTouched((t) => ({ ...t, email: true }))}
+                  onChange={(e) => set("email", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                  placeholder="customer@email.com"
+                />
+                {touched.email && errors.email ? (
+                  <span className="mt-1 block text-[11px] font-semibold text-red-600">
+                    {errors.email}
+                  </span>
+                ) : null}
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted xl:col-span-2">
+                Company
+                <input
+                  value={form.company_name}
+                  onChange={(e) => set("company_name", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                  placeholder="Business or organization"
+                />
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Date of birth
+                <input
+                  type="date"
+                  value={form.date_of_birth}
+                  onChange={(e) => set("date_of_birth", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                />
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Wedding / anniversary
+                <input
+                  type="date"
+                  value={form.anniversary_date}
+                  onChange={(e) => set("anniversary_date", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                />
+              </label>
             </div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Company (optional)
-              <input
-                value={form.company_name}
-                onChange={(e) => set("company_name", e.target.value)}
-                className="ui-input mt-1 w-full text-sm"
-                placeholder="Business or organization"
-              />
-            </label>
           </section>
 
           <section
-            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
-            aria-labelledby="add-cust-contact"
+            className="space-y-2 rounded-xl border border-app-border bg-app-surface p-3 shadow-sm"
+            aria-labelledby="add-cust-address"
           >
             <h3
-              id="add-cust-contact"
-              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
+              id="add-cust-address"
+              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted"
             >
-              <Mail size={15} className="text-app-success" />
-              Contact
+              <MapPin size={15} className="text-app-info" />
+              Address
             </h3>
-            <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Phones (primary required when provided; optional secondary)
-              </p>
-              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
-                <input
-                  value={form.phone_primary_label}
-                  onChange={(e) => set("phone_primary_label", e.target.value)}
-                  className="ui-input text-sm"
-                  placeholder="Primary label"
-                />
-                <div>
-                  <input
-                    type="tel"
-                    value={form.phone}
-                    onBlur={() => setTouched((t) => ({ ...t, phone: true }))}
-                    onChange={(e) =>
-                      set("phone", formatPhoneInput(e.target.value))
-                    }
-                    className="ui-input w-full text-sm"
-                    placeholder="(555) 000-0000"
-                  />
-                  {touched.phone && errors.phone ? (
-                    <span className="mt-1 block text-[11px] font-semibold text-red-600">
-                      {errors.phone}
-                    </span>
-                  ) : null}
-                </div>
-                <input
-                  value={form.phone_secondary_label}
-                  onChange={(e) => set("phone_secondary_label", e.target.value)}
-                  className="ui-input text-sm"
-                  placeholder="Secondary label"
-                />
-                <input
-                  type="tel"
-                  value={form.phone_secondary}
-                  onChange={(e) =>
-                    set("phone_secondary", formatPhoneInput(e.target.value))
-                  }
-                  className="ui-input text-sm"
-                  placeholder="(555) 000-0000"
-                />
-              </div>
-            </div>
-            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Email (optional)
-              <input
-                type="email"
-                value={form.email}
-                onBlur={() => setTouched((t) => ({ ...t, email: true }))}
-                onChange={(e) => set("email", e.target.value)}
-                className="ui-input mt-1 w-full text-sm"
-                placeholder="customer@email.com"
+            <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1.4fr_0.9fr_0.9fr_96px_120px]">
+              <AddressAutocompleteInput
+                value={form.address_line1}
+                onChange={(value) => set("address_line1", value)}
+                onSelectAddress={(suggestion) => {
+                  setForm((f) => ({
+                    ...f,
+                    address_line1: suggestion.address_line1,
+                    city: suggestion.city,
+                    state: normalizeStateInput(suggestion.state),
+                    postal_code: suggestion.postal_code,
+                  }));
+                  setTouched((t) => ({ ...t, state: true, postal: true }));
+                }}
               />
-              {touched.email && errors.email ? (
-                <span className="mt-1 block text-[11px] font-semibold text-red-600">
-                  {errors.email}
-                </span>
-              ) : null}
-            </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Address line 2
+                <input
+                  value={form.address_line2}
+                  onChange={(e) => set("address_line2", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                  placeholder="Suite, unit"
+                />
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                City
+                <input
+                  value={form.city}
+                  onChange={(e) => set("city", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                />
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                State
+                <input
+                  value={form.state}
+                  onBlur={() => setTouched((t) => ({ ...t, state: true }))}
+                  onChange={(e) => set("state", normalizeStateInput(e.target.value))}
+                  className="ui-input mt-1 w-full text-sm"
+                  maxLength={2}
+                />
+                {touched.state && errors.state ? (
+                  <span className="mt-1 block text-[11px] font-semibold text-red-600">
+                    {errors.state}
+                  </span>
+                ) : null}
+              </label>
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                ZIP / postal code
+                <input
+                  value={form.postal_code}
+                  onBlur={() => setTouched((t) => ({ ...t, postal: true }))}
+                  onChange={(e) => set("postal_code", e.target.value)}
+                  className="ui-input mt-1 w-full text-sm"
+                />
+                {touched.postal && errors.postal ? (
+                  <span className="mt-1 block text-[11px] font-semibold text-red-600">
+                    {errors.postal}
+                  </span>
+                ) : null}
+              </label>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-app-border bg-app-surface p-3 shadow-sm">
             <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               Notes
               <textarea
                 value={form.notes}
                 onChange={(e) => set("notes", e.target.value)}
-                rows={4}
+                rows={2}
                 className="ui-input mt-1 w-full resize-none text-sm"
-                placeholder="Fitting notes, preferences…"
+                placeholder="Fitting notes, preferences..."
               />
             </label>
           </section>
 
           <section
-            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
-            aria-labelledby="add-cust-address"
-          >
-            <h3
-              id="add-cust-address"
-              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
-            >
-              <MapPin size={15} className="text-app-info" />
-              Address
-            </h3>
-            <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Optional mailing address
-              </p>
-              <div className="mt-2 space-y-3">
-                <AddressAutocompleteInput
-                  value={form.address_line1}
-                  onChange={(value) => set("address_line1", value)}
-                  onSelectAddress={(suggestion) => {
-                    setForm((f) => ({
-                      ...f,
-                      address_line1: suggestion.address_line1,
-                      city: suggestion.city,
-                      state: suggestion.state,
-                      postal_code: suggestion.postal_code,
-                    }));
-                    setTouched((t) => ({ ...t, state: true, postal: true }));
-                  }}
-                />
-                <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Address line 2
-                  <input
-                    value={form.address_line2}
-                    onChange={(e) => set("address_line2", e.target.value)}
-                    className="ui-input mt-1 w-full text-sm"
-                    placeholder="Suite, unit, floor"
-                  />
-                </label>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    City
-                    <input
-                      value={form.city}
-                      onChange={(e) => set("city", e.target.value)}
-                      className="ui-input mt-1 w-full text-sm"
-                    />
-                  </label>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    State
-                    <input
-                      value={form.state}
-                      onBlur={() => setTouched((t) => ({ ...t, state: true }))}
-                      onChange={(e) =>
-                        set("state", e.target.value.toUpperCase())
-                      }
-                      className="ui-input mt-1 w-full text-sm"
-                      maxLength={2}
-                    />
-                    {touched.state && errors.state ? (
-                      <span className="mt-1 block text-[11px] font-semibold text-red-600">
-                        {errors.state}
-                      </span>
-                    ) : null}
-                  </label>
-                  <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Postal code
-                    <input
-                      value={form.postal_code}
-                      onBlur={() => setTouched((t) => ({ ...t, postal: true }))}
-                      onChange={(e) => set("postal_code", e.target.value)}
-                      className="ui-input mt-1 w-full text-sm"
-                    />
-                    {touched.postal && errors.postal ? (
-                      <span className="mt-1 block text-[11px] font-semibold text-red-600">
-                        {errors.postal}
-                      </span>
-                    ) : null}
-                  </label>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <details className="rounded-xl border border-app-border bg-app-surface-2 p-3 [&_summary::-webkit-details-marker]:hidden">
-            <summary className="cursor-pointer select-none text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Advanced — dates and custom fields
-            </summary>
-            <div className="mt-3 space-y-3">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Date of birth
-                  <input
-                    type="date"
-                    value={form.date_of_birth}
-                    onChange={(e) => set("date_of_birth", e.target.value)}
-                    className="ui-input mt-1 w-full text-sm"
-                  />
-                </label>
-                <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Wedding / anniversary
-                  <input
-                    type="date"
-                    value={form.anniversary_date}
-                    onChange={(e) => set("anniversary_date", e.target.value)}
-                    className="ui-input mt-1 w-full text-sm"
-                  />
-                </label>
-              </div>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                {([1, 2, 3, 4] as const).map((n) => (
-                  <label
-                    key={n}
-                    className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
-                  >
-                    Custom field {n}
-                    <input
-                      value={
-                        form[
-                          `custom_field_${n}` as keyof AddCustomerForm
-                        ] as string
-                      }
-                      onChange={(e) =>
-                        set(
-                          `custom_field_${n}` as keyof AddCustomerForm,
-                          e.target.value,
-                        )
-                      }
-                      className="ui-input mt-1 w-full text-sm"
-                    />
-                  </label>
-                ))}
-              </div>
-            </div>
-          </details>
-
-          <section
-            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
+            className="space-y-2 rounded-xl border border-app-border bg-app-surface p-3 shadow-sm"
             aria-labelledby="add-cust-prefs"
           >
             <h3
               id="add-cust-prefs"
-              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
+              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-app-text-muted"
             >
               <ShieldCheck size={15} className="text-app-warning" />
               Preferences
             </h3>
-            <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Marketing (optional)
-              </p>
-              <div className="mt-2 flex flex-wrap gap-3">
+            <div className="flex flex-wrap gap-3">
                 <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-app-text">
                   <input
                     type="checkbox"
@@ -2656,7 +2546,6 @@ export function AddCustomerDrawer({
                   />
                   Operational SMS (pickup / alterations)
                 </label>
-              </div>
             </div>
             <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3">
               <input
@@ -2675,6 +2564,34 @@ export function AddCustomerDrawer({
               </div>
             </label>
           </section>
+
+          <details className="rounded-xl border border-app-border bg-app-surface-2 p-3 [&_summary::-webkit-details-marker]:hidden">
+            <summary className="cursor-pointer select-none text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Custom fields
+            </summary>
+            <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {([1, 2, 3, 4] as const).map((n) => (
+                <label
+                  key={n}
+                  className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                >
+                  Custom field {n}
+                  <input
+                    value={
+                      form[`custom_field_${n}` as keyof AddCustomerForm] as string
+                    }
+                    onChange={(e) =>
+                      set(
+                        `custom_field_${n}` as keyof AddCustomerForm,
+                        e.target.value,
+                      )
+                    }
+                    className="ui-input mt-1 w-full text-sm"
+                  />
+                </label>
+              ))}
+            </div>
+          </details>
         </form>
       </DetailDrawer>
 
