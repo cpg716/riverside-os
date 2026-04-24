@@ -435,14 +435,6 @@ type BrowserSpeechRecognition = {
 
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
-type BrowserSpeechSynthesisVoice = {
-  voiceURI: string;
-  name: string;
-  lang: string;
-  localService: boolean;
-  default: boolean;
-};
-
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
@@ -450,63 +442,7 @@ declare global {
   }
 }
 
-let activeSpeechUtterance: SpeechSynthesisUtterance | null = null;
 let activeTauriSpeechPoller: number | null = null;
-
-async function ensureBrowserSpeechSynthesisReady(): Promise<void> {
-  if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
-    return;
-  }
-  const existing = window.speechSynthesis.getVoices();
-  if (existing.length > 0) return;
-
-  await new Promise<void>((resolve) => {
-    let resolved = false;
-    const finish = () => {
-      if (resolved) return;
-      resolved = true;
-      window.speechSynthesis.onvoiceschanged = null;
-      resolve();
-    };
-    const timeout = window.setTimeout(finish, 1200);
-    window.speechSynthesis.onvoiceschanged = () => {
-      window.clearTimeout(timeout);
-      finish();
-    };
-    try {
-      window.speechSynthesis.getVoices();
-    } catch {
-      window.clearTimeout(timeout);
-      finish();
-    }
-  });
-}
-
-function getBrowserSpeechSynthesisVoices(): BrowserSpeechSynthesisVoice[] {
-  if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
-    return [];
-  }
-  return window.speechSynthesis.getVoices() as BrowserSpeechSynthesisVoice[];
-}
-
-function pickBrowserSpeechSynthesisVoice(
-  requestedVoice: RosieSettings["selected_voice"] | undefined,
-): BrowserSpeechSynthesisVoice | null {
-  const voices = getBrowserSpeechSynthesisVoices();
-  if (voices.length === 0) return null;
-
-  const preferredEnglishVoices = voices.filter((voice) =>
-    voice.lang.toLowerCase().startsWith("en"),
-  );
-  const candidateVoices =
-    preferredEnglishVoices.length > 0 ? preferredEnglishVoices : voices;
-  const normalizedVoice = normalizeRosieVoice(requestedVoice);
-  const voiceIndex = Number.parseInt(normalizedVoice, 10);
-  if (!Number.isFinite(voiceIndex) || candidateVoices.length === 0) {
-    return candidateVoices[0] ?? null;
-  }
-  return candidateVoices[voiceIndex % candidateVoices.length] ?? candidateVoices[0] ?? null;
-}
 
 function getSpeechRecognitionConstructor():
   | BrowserSpeechRecognitionConstructor
@@ -525,9 +461,7 @@ function getBrowserRosieVoiceCapabilities(): RosieVoiceCapabilities {
 
   return {
     speech_to_text_supported: getSpeechRecognitionConstructor() != null,
-    text_to_speech_supported:
-      typeof window.speechSynthesis !== "undefined" &&
-      typeof window.SpeechSynthesisUtterance !== "undefined",
+    text_to_speech_supported: false,
   };
 }
 
@@ -795,14 +729,7 @@ export function stopRosieSpeechPlayback(): void {
 
   if (isTauri()) {
     void invoke("rosie_tts_stop").catch(() => {});
-    return;
   }
-
-  if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
-    return;
-  }
-  activeSpeechUtterance = null;
-  window.speechSynthesis.cancel();
 }
 
 export function speakRosieText(
@@ -867,84 +794,9 @@ export function speakRosieText(
     };
   }
 
-  if (typeof window === "undefined" || typeof window.speechSynthesis === "undefined") {
-    throw new Error("Voice output is unavailable on this workstation.");
-  }
-  if (typeof window.SpeechSynthesisUtterance === "undefined") {
-    throw new Error("Voice output is unavailable on this workstation.");
-  }
-
-  stopRosieSpeechPlayback();
-
-  const utterance = new window.SpeechSynthesisUtterance(text);
-  utterance.rate =
-    typeof options?.rate === "number" && options.rate >= 0.8 && options.rate <= 1.2
-      ? options.rate
-      : 1;
-  let stopped = false;
-  let startTimeout: number | null = null;
-  const clearStartTimeout = () => {
-    if (startTimeout != null && typeof window !== "undefined") {
-      window.clearTimeout(startTimeout);
-      startTimeout = null;
-    }
-  };
-  utterance.onstart = () => {
-    clearStartTimeout();
-    activeSpeechUtterance = utterance;
-    options?.on_start?.();
-  };
-  utterance.onend = () => {
-    clearStartTimeout();
-    if (activeSpeechUtterance === utterance) {
-      activeSpeechUtterance = null;
-    }
-    options?.on_end?.();
-  };
-  utterance.onerror = () => {
-    clearStartTimeout();
-    if (activeSpeechUtterance === utterance) {
-      activeSpeechUtterance = null;
-    }
-    options?.on_error?.("ROSIE could not play voice output on this workstation.");
-  };
-
-  void ensureBrowserSpeechSynthesisReady()
-    .then(() => {
-      if (stopped) return;
-      const selectedBrowserVoice = pickBrowserSpeechSynthesisVoice(options?.voice);
-      if (selectedBrowserVoice) {
-        utterance.voice = selectedBrowserVoice as SpeechSynthesisVoice;
-        utterance.lang = selectedBrowserVoice.lang;
-      }
-      window.speechSynthesis.cancel();
-      window.speechSynthesis.resume();
-      startTimeout = window.setTimeout(() => {
-        if (stopped || activeSpeechUtterance === utterance) return;
-        window.speechSynthesis.cancel();
-        options?.on_error?.(
-          "ROSIE voice output did not start. Check browser audio permissions or try the desktop app.",
-        );
-      }, 1500);
-      window.speechSynthesis.speak(utterance);
-    })
-    .catch(() => {
-      if (!stopped) {
-        options?.on_error?.("ROSIE could not prepare voice output on this workstation.");
-      }
-    });
-
-  return {
-    stop: () => {
-      stopped = true;
-      clearStartTimeout();
-      if (activeSpeechUtterance === utterance) {
-        activeSpeechUtterance = null;
-      }
-      window.speechSynthesis.cancel();
-      options?.on_end?.();
-    },
-  };
+  throw new Error(
+    "ROSIE voice output is only available in the Riverside desktop runtime.",
+  );
 }
 
 export async function rosieChatCompletions(

@@ -54,6 +54,7 @@ export default function RosieSettingsPanel() {
     localRuntimeStatus != null &&
     activeTtsEngine !== "kokoro" &&
     activeTtsEngine !== "unavailable";
+  const desktopVoiceRuntimeAvailable = localRuntimeStatus != null;
 
   useEffect(() => {
     saveLocalRosieSettings(localSettings);
@@ -460,6 +461,7 @@ export default function RosieSettingsPanel() {
               </p>
               <p className="mt-2 text-sm font-medium text-app-text-muted">
                 Enables ROSIE voice input/output controls for this workstation.
+                Voice replies run only through the Riverside desktop runtime.
               </p>
             </div>
             <input
@@ -478,7 +480,8 @@ export default function RosieSettingsPanel() {
                 Speak Responses
               </p>
               <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Speaks the normal text response after ROSIE finishes answering.
+                Speaks the normal text response after ROSIE finishes answering
+                when the desktop voice runtime is available.
               </p>
             </div>
             <input
@@ -505,18 +508,22 @@ export default function RosieSettingsPanel() {
               <p>
                 TTS engine status:{" "}
                 <strong className="text-app-text">
-                  {kokoroVoiceControlsAvailable
+                  {!desktopVoiceRuntimeAvailable
+                    ? "Desktop runtime required"
+                    : kokoroVoiceControlsAvailable
                     ? "Using Kokoro speaker IDs"
                     : ttsFallbackActive
-                      ? "Using fallback speech engine"
+                      ? "Using native desktop fallback"
                       : "TTS unavailable"}
                 </strong>
               </p>
               <p className="mt-2">
-                {kokoroVoiceControlsAvailable
+                {!desktopVoiceRuntimeAvailable
+                  ? "This browser session is outside the Riverside desktop runtime, so ROSIE voice replies are unavailable here."
+                  : kokoroVoiceControlsAvailable
                   ? "This workstation is on the approved Kokoro path, so speaker selection and preview use real Kokoro voices."
                   : ttsFallbackActive
-                    ? "This workstation is not currently using Kokoro. Spoken replies may still work, but speaker selection is disabled because fallback speech does not map cleanly to Kokoro speaker IDs."
+                    ? "This workstation is not currently using Kokoro. Spoken replies may still work through the native desktop fallback, but speaker selection is disabled because that path does not map cleanly to Kokoro speaker IDs."
                     : "Speech output is currently unavailable on this workstation."}
               </p>
             </div>
