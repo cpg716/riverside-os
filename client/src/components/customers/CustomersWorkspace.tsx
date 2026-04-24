@@ -22,6 +22,10 @@ import {
   UserPlus,
   Activity,
   Clock,
+  Mail,
+  MapPin,
+  Phone,
+  ShieldCheck,
   X as CloseIcon,
 } from "lucide-react";
 import type { Customer } from "../pos/CustomerSelector";
@@ -2146,8 +2150,8 @@ export function AddCustomerDrawer({
         isOpen={isOpen}
         onClose={onClose}
         title="Add Customer"
-        subtitle="Capture identity, contact, address, and communication preferences."
-        panelMaxClassName="max-w-4xl"
+        subtitle="Create a clean customer profile with duplicate review before save."
+        panelMaxClassName="max-w-5xl"
         footer={
           <div className="flex gap-3">
             <button
@@ -2170,7 +2174,7 @@ export function AddCustomerDrawer({
       >
         <form
           id="add-customer-form"
-          className="space-y-8"
+          className="space-y-6"
           onSubmit={(e) => void handleSubmit(e)}
         >
           {err ? (
@@ -2179,68 +2183,87 @@ export function AddCustomerDrawer({
             </p>
           ) : null}
 
-          <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm">
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  Identity
-                </p>
-                <p className="mt-1 text-sm font-black text-app-text">
-                  Name first
-                </p>
+          <div className="overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-sm">
+            <div className="border-b border-app-border bg-app-surface-2 px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                Customer intake
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-text">
+                Same data capture, tuned for fast review and cleaner contact
+                quality.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 divide-y divide-app-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+              <div className="flex items-center gap-3 px-4 py-3">
+                <UserPlus size={18} className="text-app-accent" />
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    Identity
+                  </p>
+                  <p className="text-sm font-black text-app-text">
+                    Name and profile
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  Contact
-                </p>
-                <p className="mt-1 text-sm font-black text-app-text">
-                  Phone and email
-                </p>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <Phone size={18} className="text-app-success" />
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    Contact
+                  </p>
+                  <p className="text-sm font-black text-app-text">
+                    Phone, email, SMS
+                  </p>
+                </div>
               </div>
-              <div className="rounded-xl border border-app-border bg-app-surface px-3 py-2">
-                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                  Quality check
-                </p>
-                <p className="mt-1 text-sm font-black text-app-text">
-                  Duplicate review
-                </p>
+              <div className="flex items-center gap-3 px-4 py-3">
+                <ShieldCheck size={18} className="text-app-warning" />
+                <div>
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                    Review
+                  </p>
+                  <p className="text-sm font-black text-app-text">
+                    Duplicate guard
+                  </p>
+                </div>
               </div>
             </div>
           </div>
 
           {(dupLoading || nameNeedsPhoneReview || dupCandidates.length > 0) && (
             <div
-              className="rounded-2xl border border-amber-400/30 bg-amber-50/80 p-4 shadow-sm ring-1 ring-amber-500/10 dark:bg-amber-500/10"
+              className="rounded-xl border border-app-warning/35 bg-app-surface shadow-sm ring-1 ring-app-warning/15"
               data-testid="crm-duplicate-candidates"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+              <div className="flex items-start justify-between gap-3 border-b border-app-border bg-app-surface-2 px-4 py-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
                     Customer match review
                   </p>
-                  <p className="mt-1 text-xs font-semibold text-app-text">
+                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
                     Compare the profile before creating a new customer so phone,
                     email, and marketing contact details stay current.
                   </p>
                 </div>
-                <span className="rounded-full border border-amber-400/40 bg-white/70 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700 dark:bg-black/10 dark:text-amber-200">
+                <span className="shrink-0 rounded-full border border-app-warning/40 bg-app-warning/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
                   Review
                 </span>
               </div>
-              {dupLoading ? (
-                <p className="mt-2 text-xs text-app-text-muted">Checking…</p>
-              ) : nameNeedsPhoneReview ? (
-                <p className="mt-3 rounded-xl border border-amber-400/30 bg-white/70 px-3 py-2 text-xs font-semibold text-app-text dark:bg-black/10">
+              <div className="p-4">
+                {dupLoading ? (
+                  <p className="text-xs text-app-text-muted">Checking…</p>
+                ) : nameNeedsPhoneReview ? (
+                  <p className="rounded-lg border border-app-warning/30 bg-app-warning/10 px-3 py-2 text-xs font-semibold text-app-text">
                   This name already exists. Enter a phone number first so we can
                   check for a direct phone match before showing same-name
                   profiles.
-                </p>
-              ) : (
-                <ul className="mt-3 space-y-2 text-xs text-app-text">
+                  </p>
+                ) : (
+                <ul className="space-y-2 text-xs text-app-text">
                   {dupCandidates.map((c) => (
                     <li
                       key={c.id}
-                      className="rounded-xl border border-app-border bg-app-surface px-3 py-2 shadow-sm"
+                      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2"
                     >
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
@@ -2253,7 +2276,7 @@ export function AddCustomerDrawer({
                             {c.customer_code}
                           </p>
                         </div>
-                        <span className="rounded-full bg-amber-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                        <span className="rounded-full bg-app-warning/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
                           {duplicateReasonLabel(c.match_reason)}
                         </span>
                       </div>
@@ -2286,21 +2309,26 @@ export function AddCustomerDrawer({
                     </li>
                   ))}
                 </ul>
-              )}
-              {!dupLoading && dupCandidates.length > 0 ? (
-                <p className="mt-3 text-[10px] font-semibold text-app-text-muted">
+                )}
+                {!dupLoading && dupCandidates.length > 0 ? (
+                  <p className="mt-3 text-[10px] font-semibold text-app-text-muted">
                   If this is the same person, review the existing profile and
                   update contact details there instead of creating a duplicate.
-                </p>
-              ) : null}
+                  </p>
+                ) : null}
+              </div>
             </div>
           )}
 
-          <section className="space-y-3" aria-labelledby="add-cust-identity">
+          <section
+            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
+            aria-labelledby="add-cust-identity"
+          >
             <h3
               id="add-cust-identity"
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
+              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
             >
+              <UserPlus size={15} className="text-app-accent" />
               Identity
             </h3>
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -2346,11 +2374,15 @@ export function AddCustomerDrawer({
             </label>
           </section>
 
-          <section className="space-y-3" aria-labelledby="add-cust-contact">
+          <section
+            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
+            aria-labelledby="add-cust-contact"
+          >
             <h3
               id="add-cust-contact"
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
+              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
             >
+              <Mail size={15} className="text-app-success" />
               Contact
             </h3>
             <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
@@ -2426,11 +2458,15 @@ export function AddCustomerDrawer({
             </label>
           </section>
 
-          <section className="space-y-3" aria-labelledby="add-cust-address">
+          <section
+            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
+            aria-labelledby="add-cust-address"
+          >
             <h3
               id="add-cust-address"
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
+              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
             >
+              <MapPin size={15} className="text-app-info" />
               Address
             </h3>
             <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
@@ -2558,11 +2594,15 @@ export function AddCustomerDrawer({
             </div>
           </details>
 
-          <section className="space-y-3" aria-labelledby="add-cust-prefs">
+          <section
+            className="space-y-3 rounded-xl border border-app-border bg-app-surface p-4 shadow-sm"
+            aria-labelledby="add-cust-prefs"
+          >
             <h3
               id="add-cust-prefs"
-              className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
+              className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted"
             >
+              <ShieldCheck size={15} className="text-app-warning" />
               Preferences
             </h3>
             <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">

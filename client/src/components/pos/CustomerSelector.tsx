@@ -89,6 +89,25 @@ export default function CustomerSelector({
   const [addDraft, setAddDraft] = useState<PosCustomerDraft>({});
 
   const baseUrl = getBaseUrl();
+  const trimmedQuery = query.trim();
+  const queryPhoneDigits = trimmedQuery.replace(/\D/g, "");
+  const queryHasExactCustomerMatch =
+    trimmedQuery.length >= 2 &&
+    results.some((customer) => {
+      const fullName = `${customer.first_name} ${customer.last_name}`
+        .trim()
+        .toLowerCase();
+      const email = (customer.email ?? "").trim().toLowerCase();
+      const phoneDigits = (customer.phone ?? "").replace(/\D/g, "");
+      const normalizedQuery = trimmedQuery.toLowerCase();
+      return (
+        fullName === normalizedQuery ||
+        email === normalizedQuery ||
+        (queryPhoneDigits.length >= 7 && phoneDigits === queryPhoneDigits)
+      );
+    });
+  const showAddFromSearch =
+    trimmedQuery.length >= 2 && !searchBusy && !queryHasExactCustomerMatch;
 
   useEffect(() => {
     if (query.trim().length < 2) {
@@ -358,7 +377,7 @@ export default function CustomerSelector({
           />
 
           {query.trim().length >= 2 && (
-            <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-[min(70vh,28rem)] overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-xl shadow-black/20">
+            <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-[min(70vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38]">
                <div className="max-h-[min(65vh,26rem)] overflow-y-auto no-scrollbar">
                {showWalkInOption && (
                  <button
@@ -395,10 +414,7 @@ export default function CustomerSelector({
                      : `Search by wedding party`}
                  </button>
                </div>
-               {searchBusy && (
-                 <div className="p-3 text-sm text-app-text-muted">Searching\u2026</div>
-               )}
-               {!searchBusy && results.length === 0 && (
+               {showAddFromSearch && (
                  <button
                    type="button"
                    onClick={() => {
@@ -416,10 +432,13 @@ export default function CustomerSelector({
                        Add customer
                      </div>
                      <div className="truncate text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-                       Start profile from "{query.trim()}"
+                       Start profile from "{trimmedQuery}"
                      </div>
                    </div>
                  </button>
+               )}
+               {searchBusy && (
+                 <div className="p-3 text-sm text-app-text-muted">Searching\u2026</div>
                )}
                {!searchBusy && results.length === 0 && (
                  <div className="p-3 text-sm text-app-text-muted">
