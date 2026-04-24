@@ -207,7 +207,7 @@ function FilterChip({
   onRemove: () => void;
 }) {
   return (
-    <span className="inline-flex items-center gap-1.5 rounded-lg border border-app-border bg-app-surface/50 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text shadow-sm backdrop-blur-sm">
+    <span className="inline-flex items-center gap-1.5 rounded-lg border border-app-border/70 bg-app-surface px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text shadow-sm">
       {label}
       <button
         type="button"
@@ -1021,7 +1021,7 @@ export default function InventoryControlBoard({
       className={`relative overflow-hidden rounded-xl border px-3.5 py-1.5 text-[9px] font-black uppercase tracking-[0.15em] transition-all duration-300 active:scale-95 ${
         active
           ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
-          : "border-app-border bg-app-surface/40 text-app-text-muted hover:border-app-accent/50 hover:bg-app-surface-2 hover:text-app-text"
+          : "border-app-border/70 bg-app-surface text-app-text-muted shadow-sm hover:border-app-accent/40 hover:bg-app-surface-2 hover:text-app-text"
       }`}
     >
       <span className="relative z-10">{label}</span>
@@ -1227,20 +1227,20 @@ export default function InventoryControlBoard({
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search product, SKU, or variation..."
-              className="w-full h-12 bg-app-surface/20 border border-app-border/40 rounded-2xl pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/50 focus:outline-none focus:ring-2 focus:ring-app-accent/50 focus:border-app-accent transition-all"
+              className="ui-input h-12 w-full rounded-2xl border-app-border/70 bg-app-surface pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/60 shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
               aria-busy={boardRefreshing}
             />
           </div>
           {!isPosSurface ? (
             <div className="flex shrink-0 items-center gap-2">
-              <div className="flex items-center gap-1 rounded-2xl border border-app-border/40 bg-app-surface/20 p-1 backdrop-blur-md">
+              <div className="flex items-center gap-1 rounded-2xl border border-app-border/70 bg-app-surface p-1 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setGroupByPrimaryVendor(!groupByPrimaryVendor)}
                   className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all ${
                     groupByPrimaryVendor
                       ? "bg-app-accent text-white shadow-lg"
-                      : "text-app-text-muted hover:text-app-text hover:bg-app-surface/40"
+                      : "text-app-text-muted hover:text-app-text hover:bg-app-surface-2"
                   }`}
                 >
                   Stack by Vendor
@@ -1254,7 +1254,7 @@ export default function InventoryControlBoard({
           <select
             value={vendorId}
             onChange={(e) => setVendorId(e.target.value)}
-            className="h-11 min-w-[14rem] rounded-2xl border border-app-border/40 bg-app-surface/20 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text outline-none transition-all focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
+            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 bg-app-surface px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
           >
             <option value="">All vendors</option>
             {vendors.map((vendor) => (
@@ -1269,7 +1269,7 @@ export default function InventoryControlBoard({
               setQuickPick(null);
               setCategoryId(e.target.value);
             }}
-            className="h-11 min-w-[14rem] rounded-2xl border border-app-border/40 bg-app-surface/20 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text outline-none transition-all focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
+            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 bg-app-surface px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
           >
             <option value="">All categories</option>
             {categories.map((category) => (
@@ -1360,7 +1360,7 @@ export default function InventoryControlBoard({
           )}
         </div>
 
-        <div className="rounded-2xl border border-app-border/40 bg-app-surface/20 px-4 py-4 backdrop-blur-md">
+        <div className="rounded-2xl border border-app-border/60 bg-app-surface-2/80 px-4 py-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
