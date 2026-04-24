@@ -35,6 +35,43 @@ interface UseCartCheckoutProps {
   ensurePosTokenForSession: () => Promise<string | null>;
 }
 
+export function buildCheckoutPaymentSplits(
+  applied: AppliedPaymentLine[],
+  depositCents: number,
+): { paymentSplits: CheckoutPaymentSplitPayload[]; unallocatedDepositCents: number } {
+  let remainingDepositAllocationCents = Math.max(0, depositCents);
+  const paymentSplits: CheckoutPaymentSplitPayload[] = applied.map((p) => {
+    const split: CheckoutPaymentSplitPayload = {
+      payment_method: p.method,
+      amount: centsToFixed2(p.amountCents),
+    };
+    if (remainingDepositAllocationCents > 0) {
+      const depositForSplitCents = Math.min(remainingDepositAllocationCents, p.amountCents);
+      if (depositForSplitCents > 0) {
+        split.applied_deposit_amount = centsToFixed2(depositForSplitCents);
+        remainingDepositAllocationCents -= depositForSplitCents;
+      }
+    }
+    const subtype = normalizeGiftCardSubType(p.sub_type);
+    if (subtype) split.sub_type = subtype;
+    if (p.method === "gift_card" && p.gift_card_code) {
+      split.gift_card_code = p.gift_card_code;
+    }
+    if (p.method === "check" && p.metadata?.check_number) {
+      split.check_number = p.metadata.check_number;
+    }
+    if (p.metadata) {
+      split.metadata = p.metadata;
+    }
+    return split;
+  });
+
+  return {
+    paymentSplits,
+    unallocatedDepositCents: remainingDepositAllocationCents,
+  };
+}
+
 export function useCartCheckout({
   sessionId,
   baseUrl,
@@ -95,35 +132,28 @@ export function useCartCheckout({
     setCheckoutBusy(true);
 
     try {
-      const payment_splits: CheckoutPaymentSplitPayload[] = applied.map((p) => {
-        const split: CheckoutPaymentSplitPayload = {
-          payment_method: p.method,
-          amount: centsToFixed2(p.amountCents),
-        };
-        const subtype = normalizeGiftCardSubType(p.sub_type);
-        if (subtype) split.sub_type = subtype;
-        if (p.method === "gift_card" && p.gift_card_code)
-          split.gift_card_code = p.gift_card_code;
-        if (p.method === "check" && p.metadata?.check_number)
-          split.check_number = p.metadata.check_number;
-        
-        // Pass other metadata (Stripe, etc.) if present
-        if (p.metadata) {
-          split.metadata = p.metadata;
-        }
-
-        return split;
-      });
+      const { paymentSplits: payment_splits, unallocatedDepositCents } =
+        buildCheckoutPaymentSplits(applied, ledgerSignals.appliedDepositAmountCents);
 
       const tenderPaidCents = applied.reduce((s, p) => s + p.amountCents, 0);
       const ledgerCents = Math.max(0, ledgerSignals.appliedDepositAmountCents);
-      const totalAccountedCents = tenderPaidCents + ledgerCents;
 
-      // Validate totals
-      if (totalAccountedCents > totals.collectTotalCents) {
-         toast(`Accounted total $${centsToFixed2(totalAccountedCents)} is more than the amount due $${centsToFixed2(totals.collectTotalCents)}.`, "error");
-         setCheckoutBusy(false);
-         return;
+      // Deposit is a protocol on collected tender, not extra money on top of it.
+      if (tenderPaidCents > totals.collectTotalCents) {
+        toast(
+          `Tender total $${centsToFixed2(tenderPaidCents)} is more than the amount due $${centsToFixed2(totals.collectTotalCents)}.`,
+          "error",
+        );
+        setCheckoutBusy(false);
+        return;
+      }
+      if (ledgerCents > 0 && unallocatedDepositCents > 0) {
+        toast(
+          "Deposit amount cannot exceed the tender collected today. Reduce the deposit or add matching payment.",
+          "error",
+        );
+        setCheckoutBusy(false);
+        return;
       }
 
       const checkoutClientId = newCheckoutClientId();
@@ -149,7 +179,6 @@ export function useCartCheckout({
         stripe_payment_method_id: options?.stripe_payment_method_id ?? null,
         actor_name: op.fullName.trim() || cashierName?.trim() || null,
         payment_splits,
-        applied_deposit_amount: ledgerCents > 0 ? centsToFixed2(ledgerCents) : undefined,
         is_tax_exempt: ledgerSignals.isTaxExempt,
         tax_exempt_reason: ledgerSignals.isTaxExempt ? (ledgerSignals.taxExemptReason ?? "Other") : undefined,
         rounding_adjustment: ledgerSignals.roundingAdjustmentCents ? centsToFixed2(ledgerSignals.roundingAdjustmentCents) : undefined,

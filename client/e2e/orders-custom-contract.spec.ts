@@ -796,6 +796,68 @@ test.describe("Orders custom vs special contract", () => {
     expect(depositDetail.financial_summary?.total_applied_deposit_amount).toBe("50.00");
   });
 
+  test("odd-cent special orders accept a partial deposit without false overage drift", async ({
+    request,
+  }) => {
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const fixture = await seedOrderFixture(
+      request,
+      "single_valid",
+      "Orders Odd Cent Deposit",
+    );
+
+    const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: null,
+        customer_id: fixture.customer.id,
+        wedding_member_id: null,
+        payment_method: "cash",
+        total_price: "87.99",
+        amount_paid: "44.00",
+        checkout_client_id: crypto.randomUUID(),
+        items: [
+          {
+            product_id: fixture.product.product_id,
+            variant_id: fixture.product.variant_id,
+            fulfillment: "special_order",
+            quantity: 1,
+            unit_price: "80.45",
+            unit_cost: fixture.product.cost_price,
+            state_tax: "5.63",
+            local_tax: "1.91",
+            price_override_reason: "deposit_rounding_regression_guard",
+          },
+        ],
+        payment_splits: [
+          {
+            payment_method: "cash",
+            amount: "44.00",
+            applied_deposit_amount: "44.00",
+          },
+        ],
+      },
+      failOnStatusCode: false,
+    });
+
+    expect(checkoutRes.status()).toBe(200);
+    const checkout = (await checkoutRes.json()) as CheckoutResponse;
+    const detail = await fetchTransactionDetail(request, checkout.transaction_id);
+
+    expect(String(detail.status).toLowerCase()).toBe("open");
+    expect(detail.amount_paid).toBe("44.00");
+    expect(detail.financial_summary?.total_applied_deposit_amount).toBe("44.00");
+    expect(Number.parseFloat(detail.balance_due ?? "0")).toBeCloseTo(43.99, 2);
+  });
+
   test("transaction items endpoint supports review before and after pickup", async ({
     request,
   }) => {
