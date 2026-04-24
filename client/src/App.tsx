@@ -1481,7 +1481,7 @@ function AppShell({
           setHelpDrawerOpen(true);
         }}
         onOpenRosie={() => {
-          setHelpDrawerMode("ask");
+          setHelpDrawerMode("conversation");
           setHelpDrawerOpen(true);
         }}
         onOpenBugReport={() => setBugReportOpen(true)}

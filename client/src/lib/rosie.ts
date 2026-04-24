@@ -81,6 +81,17 @@ export type RosieGroundedHelpResponse = {
   completion: RosieChatCompletionResponse;
 };
 
+export type RosieConversationRequest = {
+  question: string;
+  history?: RosieChatMessage[];
+  settings: Pick<RosieSettings, "enabled" | "response_style">;
+};
+
+export type RosieConversationResponse = {
+  answer: string;
+  completion: RosieChatCompletionResponse;
+};
+
 export type RosieToolResult = {
   tool_name:
     | "help_search"
@@ -974,7 +985,7 @@ export async function rosieChatCompletions(
     settings?: RosieSettings;
   },
 ): Promise<RosieChatCompletionResponse> {
-    const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
+  const settings = normalizeRosieSettings(options?.settings ?? loadLocalRosieSettings());
 
   if (!settings.enabled) {
     throw new Error("ROSIE is disabled for this workstation.");
@@ -1027,6 +1038,66 @@ export async function rosieChatCompletions(
   }
 
   return json as RosieChatCompletionResponse;
+}
+
+function buildConversationSystemPrompt(
+  request: RosieConversationRequest,
+): string {
+  return [
+    "You are ROSIE (RiversideOS Intelligence Engine) in Conversation Mode.",
+    "This mode is conversational only: no Help Center grounding, no operational tools, no hidden routes, and no live business data are available.",
+    "Be useful for drafting, planning, explaining concepts, and thinking through operational questions at a general level.",
+    "If the user asks for store procedures, policy, exact reporting numbers, orders, customers, inventory, weddings, transactions, or any auditable operational fact, say that this mode is not grounded and ask them to use Help Mode for governed guidance.",
+    "Do not claim you searched manuals or ran tools.",
+    request.settings.response_style === "detailed"
+      ? "Response style: detailed but practical."
+      : "Response style: concise and practical.",
+    "Do not output a thinking process, reasoning trace, or hidden analysis.",
+    "Answer with the final response only.",
+    "Use markdown for readability.",
+  ].join(" ");
+}
+
+export async function askRosieConversation(
+  request: RosieConversationRequest,
+  options?: {
+    headers?: Record<string, string>;
+  },
+): Promise<RosieConversationResponse> {
+  const history = (request.history ?? [])
+    .filter((message) => message.role === "user" || message.role === "assistant")
+    .slice(-8);
+  const completion = await rosieChatCompletions(
+    {
+      model: "local",
+      temperature: 0.4,
+      max_tokens: request.settings.response_style === "detailed" ? 520 : 260,
+      messages: [
+        {
+          role: "system",
+          content: buildConversationSystemPrompt(request),
+        },
+        ...history,
+        {
+          role: "user",
+          content: request.question,
+        },
+      ],
+    },
+    {
+      headers: options?.headers,
+    },
+  );
+  const answer = completion.choices?.[0]?.message?.content?.trim();
+
+  if (!answer) {
+    throw new Error("ROSIE returned an empty Conversation Mode response.");
+  }
+
+  return {
+    answer,
+    completion,
+  };
 }
 
 function buildGroundedHelpSystemPrompt(
