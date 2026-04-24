@@ -261,7 +261,7 @@ export const VariationsList: React.FC<VariationsListProps> = ({
 
   return (
     <div className="flex flex-col gap-4 animate-in fade-in duration-500 h-[640px]">
-      <div className="flex items-center gap-3 rounded-[24px] border border-app-border bg-app-surface/40 p-2 shadow-xl backdrop-blur-2xl ring-1 ring-white/10 shrink-0">
+      <div className="flex items-center gap-3 rounded-[24px] border border-app-border/70 bg-app-surface p-2 shadow-xl shrink-0">
         <div className="relative flex-1">
           <Search className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted opacity-50" />
           <input
@@ -286,8 +286,8 @@ export const VariationsList: React.FC<VariationsListProps> = ({
         </div>
       </div>
 
-      <div className="relative flex-1 overflow-hidden rounded-[32px] border border-app-border/50 bg-app-surface shadow-2xl ring-1 ring-black/5 flex flex-col">
-        <div className="flex items-center bg-app-surface-2/90 backdrop-blur-xl border-b border-app-border/50 h-12 px-5 sticky top-0 z-20 shrink-0">
+      <div className="relative flex-1 overflow-hidden rounded-[32px] border border-app-border/60 bg-app-surface shadow-2xl ring-1 ring-black/5 flex flex-col">
+        <div className="flex items-center bg-app-surface-2 border-b border-app-border/50 h-12 px-5 sticky top-0 z-20 shrink-0">
           <div className="w-14">
             <button
               onClick={isAllSelected ? onDeselectAll : onSelectAll}

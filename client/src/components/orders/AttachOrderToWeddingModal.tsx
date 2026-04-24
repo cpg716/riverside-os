@@ -154,7 +154,7 @@ export default function AttachOrderToWeddingModal({
               <select
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
-                className="ui-input w-full text-sm font-bold bg-white/50 backdrop-blur-sm"
+                className="ui-input w-full text-sm font-bold bg-app-surface"
               >
                 <option>Groom</option>
                 <option>Groomsman</option>
@@ -175,7 +175,7 @@ export default function AttachOrderToWeddingModal({
                     value={partySearch}
                     onChange={(e) => setPartySearch(e.target.value)}
                     placeholder="Search by party name or groom..."
-                    className="ui-input w-full pl-10 text-sm font-bold bg-white/50 backdrop-blur-sm"
+                    className="ui-input w-full pl-10 text-sm font-bold bg-app-surface"
                   />
                 </div>
 
@@ -213,7 +213,7 @@ export default function AttachOrderToWeddingModal({
                     value={newGroomName}
                     onChange={(e) => setNewGroomName(e.target.value)}
                     placeholder="Enter groom's full name..."
-                    className="ui-input w-full text-sm font-bold bg-white/50 backdrop-blur-sm"
+                    className="ui-input w-full text-sm font-bold bg-app-surface"
                     required
                   />
                 </div>
@@ -223,7 +223,7 @@ export default function AttachOrderToWeddingModal({
                     type="date"
                     value={newEventDate}
                     onChange={(e) => setNewEventDate(e.target.value)}
-                    className="ui-input w-full text-sm font-bold bg-white/50 backdrop-blur-sm"
+                    className="ui-input w-full text-sm font-bold bg-app-surface"
                     required
                   />
                 </div>
@@ -233,7 +233,7 @@ export default function AttachOrderToWeddingModal({
                     value={newPartyName}
                     onChange={(e) => setNewPartyName(e.target.value)}
                     placeholder="e.g. Smith Wedding"
-                    className="ui-input w-full text-sm font-bold bg-white/50 backdrop-blur-sm"
+                    className="ui-input w-full text-sm font-bold bg-app-surface"
                   />
                 </div>
               </div>

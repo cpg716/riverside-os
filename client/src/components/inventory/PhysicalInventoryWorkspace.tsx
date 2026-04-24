@@ -596,7 +596,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                           className={`flex-1 h-14 rounded-2xl border text-[10px] font-black uppercase tracking-widest transition-all ${
                             newScope === s
                               ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
-                              : "border-app-border bg-app-surface/40 text-app-text-muted hover:border-app-text/40"
+                              : "border-app-border/70 bg-app-surface text-app-text-muted shadow-sm hover:border-app-text/30 hover:bg-app-surface-2"
                           }`}
                         >
                           {s === "full" ? "Full Catalog" : "Taxonomy Filter"}
@@ -612,7 +612,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                          type="button"
                          onClick={() => setNewExcludeReserved(!newExcludeReserved)}
                          className={`h-14 rounded-2xl border text-[9px] font-black uppercase tracking-widest transition-all ${
-                           newExcludeReserved ? "border-amber-500/50 bg-amber-500/10 text-amber-600" : "border-app-border bg-app-surface/20 text-app-text-muted"
+                           newExcludeReserved ? "border-amber-500/50 bg-amber-500/10 text-amber-600" : "border-app-border/70 bg-app-surface text-app-text-muted shadow-sm"
                          }`}
                        >
                          Reserved
@@ -621,7 +621,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                          type="button"
                          onClick={() => setNewExcludeLayaway(!newExcludeLayaway)}
                          className={`h-14 rounded-2xl border text-[9px] font-black uppercase tracking-widest transition-all ${
-                           newExcludeLayaway ? "border-amber-500/50 bg-amber-500/10 text-amber-600" : "border-app-border bg-app-surface/20 text-app-text-muted"
+                           newExcludeLayaway ? "border-amber-500/50 bg-amber-500/10 text-amber-600" : "border-app-border/70 bg-app-surface text-app-text-muted shadow-sm"
                          }`}
                        >
                          Layaway
@@ -644,7 +644,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                             )
                           }
                           className={`px-4 py-3 rounded-xl border text-[10px] font-bold text-left transition-all ${
-                            newCatIds.includes(c.id) ? "border-app-accent bg-app-accent/10 text-app-text" : "border-app-border bg-app-surface/40 text-app-text-muted hover:bg-app-surface/60"
+                            newCatIds.includes(c.id) ? "border-app-accent bg-app-accent/10 text-app-text" : "border-app-border/70 bg-app-surface text-app-text-muted shadow-sm hover:bg-app-surface-2"
                           }`}
                         >
                           {c.name}
@@ -660,7 +660,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                     value={newNotes}
                     onChange={(e) => setNewNotes(e.target.value)}
                     rows={2}
-                    className="w-full bg-app-surface/40 shadow-inner border border-app-border rounded-2xl px-5 py-4 text-xs font-bold focus:ring-2 focus:ring-app-accent/20 transition-all outline-none resize-none"
+                    className="ui-input w-full rounded-2xl px-5 py-4 text-xs font-bold focus:ring-4 focus:ring-app-accent/10 resize-none"
                     placeholder="Reference period or specific instruction..."
                   />
                 </div>
@@ -678,7 +678,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   <button
                     type="button"
                     onClick={() => setShowNewSession(false)}
-                    className="h-14 px-8 rounded-2xl border border-app-border bg-app-surface/40 text-[11px] font-black uppercase tracking-[0.2em] text-app-text-muted hover:bg-app-surface-2 transition-all"
+                    className="h-14 px-8 rounded-2xl border border-app-border/70 bg-app-surface text-[11px] font-black uppercase tracking-[0.2em] text-app-text-muted shadow-sm hover:bg-app-surface-2 transition-all"
                   >
                     Cancel
                   </button>
@@ -694,7 +694,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
           subtitle="Manage active and historical takes"
           icon={Settings}
         >
-          <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
+          <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
             {sessions.length === 0 ? (
               <div className="py-12 flex flex-col items-center justify-center opacity-40 text-center">
                 <ClipboardList className="mb-3" size={32} />
@@ -702,7 +702,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               </div>
             ) : (
               <table className="w-full text-left text-xs">
-                <thead className="bg-app-surface/40 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   <tr>
                     <th className="px-6 py-4">Internal Serial</th>
                     <th className="px-6 py-4">Scope</th>
@@ -714,7 +714,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 </thead>
                 <tbody className="divide-y divide-app-border/40">
                   {sessions.map((s) => (
-                    <tr key={s.id} className="group hover:bg-app-surface/20 transition-colors">
+                    <tr key={s.id} className="group hover:bg-app-surface-2/60 transition-colors">
                       <td className="px-6 py-4 font-mono font-black text-app-accent">{s.session_number}</td>
                       <td className="px-6 py-4 font-bold text-app-text-muted capitalize">{s.scope}</td>
                       <td className="px-6 py-4"><StatusBadge status={s.status} /></td>
@@ -768,7 +768,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             <h2 className="text-2xl font-black tracking-tight text-app-text">Counting Phase · <span className="text-app-accent">#{activeSession.session_number}</span></h2>
           </div>
           <div className="flex items-center gap-4">
-            <div className="flex h-12 overflow-hidden rounded-[20px] border border-app-border/40 bg-app-surface shadow-xl shadow-black/5 p-1 backdrop-blur-md">
+            <div className="flex h-12 overflow-hidden rounded-[20px] border border-app-border/60 bg-app-surface shadow-xl shadow-black/5 p-1">
               {(["laser", "camera"] as const).map((m) => (
                 <button
                   key={m}
@@ -853,7 +853,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                    />
                  </div>
 
-                 <div className="flex items-center gap-4 p-5 rounded-2xl bg-app-surface-2/40 border border-app-border/40">
+                 <div className="flex items-center gap-4 rounded-2xl border border-app-border/60 bg-app-surface-2 px-5 py-5 shadow-sm">
                    <AlertCircle className="text-app-text-muted opacity-40" size={18} />
                    <p className="text-[11px] font-bold text-app-text-muted leading-relaxed">
                      Scanning automatically increments the count by <span className="text-app-accent">1</span>. To adjust large quantities, use the manual edit tool in Review phase.
@@ -874,13 +874,13 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 value={scanSearch}
                 onChange={(e) => setScanSearch(e.target.value)}
                 placeholder="Filter active feed..."
-                className="w-full h-10 rounded-xl bg-app-surface/40 border border-app-border/40 pl-10 pr-4 text-xs font-bold outline-none focus:ring-2 focus:ring-app-accent/20 transition-all"
+                className="ui-input h-10 w-full rounded-xl border-app-border/70 bg-app-surface pl-10 pr-4 text-xs font-bold focus:ring-4 focus:ring-app-accent/10"
               />
             </div>
-            <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
+            <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-xs">
-                  <thead className="bg-app-surface/40 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                  <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                     <tr>
                       <th className="px-6 py-4">Resource</th>
                       <th className="px-6 py-4">SKU/Serial</th>
@@ -890,7 +890,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   </thead>
                   <tbody className="divide-y divide-app-border/40">
                     {filteredCounts.map((c) => (
-                      <tr key={c.id} className="group hover:bg-app-surface/20 transition-colors">
+                      <tr key={c.id} className="group hover:bg-app-surface-2/60 transition-colors">
                         <td className="px-6 py-4">
                           <p className="font-black uppercase italic tracking-tighter text-app-text group-hover:text-app-accent transition-colors">{c.product_name}</p>
                           <p className="text-[10px] text-app-text-muted opacity-60">{c.variation_label}</p>
@@ -1033,13 +1033,13 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
               value={reviewSearch}
               onChange={(e) => setReviewSearch(e.target.value)}
               placeholder="Filter audit log..."
-              className="w-full h-10 rounded-xl bg-app-surface/40 border border-app-border/40 pl-10 pr-4 text-xs font-bold outline-none focus:ring-2 focus:ring-app-accent/20 transition-all"
+              className="ui-input h-10 w-full rounded-xl border-app-border/70 bg-app-surface pl-10 pr-4 text-xs font-bold focus:ring-4 focus:ring-app-accent/10"
             />
           </div>
-          <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
+          <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
-                <thead className="bg-app-surface/40 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   <tr>
                     <th className="px-6 py-4">Resource Identity</th>
                     <th className="px-6 py-4 text-center">Expected</th>
@@ -1051,7 +1051,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 </thead>
                 <tbody className="divide-y divide-app-border/40">
                   {filteredReview.map((r) => (
-                    <tr key={r.variant_id} className="group hover:bg-app-surface/20 transition-colors">
+                    <tr key={r.variant_id} className="group hover:bg-app-surface-2/60 transition-colors">
                       <td className="px-6 py-4">
                         <p className="font-black uppercase italic tracking-tighter text-app-text group-hover:text-app-accent transition-colors">{r.product_name}</p>
                         <p className="text-[10px] text-app-text-muted opacity-60">{r.sku} · {r.variation_label}</p>
