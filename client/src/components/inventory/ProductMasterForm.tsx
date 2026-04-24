@@ -162,7 +162,7 @@ export default function ProductMasterForm({
       setTrackLowStockTemplate(false);
       setPublishVariantsToWeb(false);
       onCreated?.();
-      toast("Catalog synchronization successful. Matrix generated.", "success");
+      toast("Item added to inventory.", "success");
     } catch (e) {
       toast(
         e instanceof Error ? e.message : "Failed to create product",
@@ -205,28 +205,28 @@ export default function ProductMasterForm({
         <StepIndicator
           id="shell"
           current={step}
-          label="Identity"
+          label="Item Details"
           icon={Sparkles}
         />
         <div className="h-4 w-px bg-app-border" />
         <StepIndicator
           id="financials"
           current={step}
-          label="Revenue"
+          label="Pricing"
           icon={DollarSign}
         />
         <div className="h-4 w-px bg-app-border" />
         <StepIndicator
           id="matrix"
           current={step}
-          label="Configuration"
+          label="Options"
           icon={Settings2}
         />
         <div className="h-4 w-px bg-app-border" />
         <StepIndicator
           id="review"
           current={step}
-          label="Validation"
+          label="Review"
           icon={CheckCircle2}
         />
       </nav>
@@ -239,10 +239,10 @@ export default function ProductMasterForm({
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-black italic tracking-tighter text-app-text uppercase">
-                    Catalog Identity
+                    Item Details
                   </h2>
                   <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-                    Base template definition and branding
+                    Name, category, and optional brand
                   </p>
                 </div>
                 <div className="h-12 w-12 rounded-2xl bg-violet-100 flex items-center justify-center text-violet-600">
@@ -264,25 +264,25 @@ export default function ProductMasterForm({
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Brand Portfolio
+                    Brand (optional)
                   </label>
                   <input
                     value={brand}
                     onChange={(e) => setBrand(e.target.value)}
-                    placeholder="e.g. Riverside Private Label"
+                    placeholder="Optional label, e.g. Riverside Private Label"
                     className="ui-input h-14 text-sm font-bold"
                   />
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Classification
+                    Category
                   </label>
                   <select
                     value={categoryId}
                     onChange={(e) => setCategoryId(e.target.value)}
                     className="ui-input h-14 text-sm font-bold"
                   >
-                    <option value="">Select global category...</option>
+                    <option value="">Select category...</option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name}
@@ -292,12 +292,12 @@ export default function ProductMasterForm({
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                    Asset Description
+                    Item Description
                   </label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="Describe textures, fits, and special care instructions..."
+                    placeholder="Describe fit, fabric, care, or selling notes..."
                     className="ui-input h-14 py-3 text-sm font-bold resize-none"
                   />
                 </div>
@@ -309,7 +309,7 @@ export default function ProductMasterForm({
                   disabled={!canContinueToFinancials}
                   className="ui-btn-primary px-10 py-4 h-auto rounded-2xl text-[10px] font-black uppercase tracking-widest disabled:opacity-30 transition-all"
                 >
-                  Configure Revenue & Space
+                  Continue to Pricing
                 </button>
               </div>
             </section>
@@ -321,10 +321,10 @@ export default function ProductMasterForm({
               <div className="mb-6 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-black italic tracking-tighter text-app-text uppercase">
-                    Financial Architecture
+                    Pricing
                   </h2>
                   <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-                    Pricing targets and channel visibility
+                    Retail price, cost, and optional item rules
                   </p>
                 </div>
                 <div className="h-12 w-12 rounded-2xl bg-emerald-100 flex items-center justify-center text-emerald-600">
@@ -336,7 +336,7 @@ export default function ProductMasterForm({
                 <div className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1 italic">
-                      Benchmark Retail (USD)
+                      Retail Price (USD)
                     </label>
                     <input
                       value={baseRetail}
@@ -348,7 +348,7 @@ export default function ProductMasterForm({
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1 italic">
-                      Average Acquisition Cost (USD)
+                      Cost (USD)
                     </label>
                     <input
                       value={baseCost}
@@ -362,7 +362,7 @@ export default function ProductMasterForm({
 
                 <div className="space-y-3 bg-app-surface-2 rounded-3xl p-6 border border-app-border">
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2">
-                    Automated Rules
+                    Optional Rules
                   </h4>
                   <label className="flex items-start gap-4 p-3 rounded-2xl bg-app-surface border border-app-border/40 cursor-pointer group hover:border-app-accent/40 transition-all">
                     <div className="pt-1">
@@ -421,7 +421,7 @@ export default function ProductMasterForm({
                   onClick={() => setStep("matrix")}
                   className="ui-btn-primary px-10 py-4 h-auto rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all"
                 >
-                  Construct Configuration Matrix
+                        Build Size / Option List
                 </button>
               </div>
             </section>
@@ -452,10 +452,10 @@ export default function ProductMasterForm({
               <div className="mb-8 flex items-center justify-between">
                 <div>
                   <h2 className="text-2xl font-black italic tracking-tighter text-app-border uppercase">
-                    Final Validation
+                    Review Item
                   </h2>
                   <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">
-                    Reviewing {rows.length} SKU definitions for commit
+                    Reviewing {rows.length} SKU{rows.length === 1 ? "" : "s"} before saving
                   </p>
                 </div>
                 <div className="h-12 w-12 rounded-2xl bg-amber-100 flex items-center justify-center text-amber-600">
@@ -472,10 +472,10 @@ export default function ProductMasterForm({
                           SKU Code
                         </th>
                         <th className="px-6 py-4 font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                          Matrix Position
+                          Option
                         </th>
                         <th className="px-6 py-4 text-right font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                          Initial SOH
+                          Starting Stock
                         </th>
                       </tr>
                     </thead>
@@ -510,11 +510,10 @@ export default function ProductMasterForm({
                   </div>
                   <div>
                     <p className="text-xs font-black uppercase tracking-widest text-emerald-900">
-                      Master Form Ready
+                      Ready to Save
                     </p>
                     <p className="text-[10px] font-bold text-emerald-700/80">
-                      Non-negative pricing, valid categories, and unique SKUs are
-                      required before these models can be committed.
+                      Prices, category, and SKUs are checked before the item is saved.
                     </p>
                   </div>
                 </div>
@@ -525,8 +524,8 @@ export default function ProductMasterForm({
                   className="h-14 px-8 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-500/30 hover:brightness-110 active:scale-95 transition-all disabled:opacity-50"
                 >
                   {busy
-                    ? "Committing Models..."
-                    : `Sync ${rows.length} Definitions`}
+                    ? "Saving Item..."
+                    : `Create ${rows.length} SKU${rows.length === 1 ? "" : "s"}`}
                 </button>
               </div>
 
@@ -535,7 +534,7 @@ export default function ProductMasterForm({
                   onClick={() => setStep("matrix")}
                   className="px-6 py-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-app-text transition-all"
                 >
-                  Refine Matrix
+                  Edit Options
                 </button>
               </div>
             </section>
@@ -554,7 +553,7 @@ export default function ProductMasterForm({
 
             <div className="space-y-1.5 p-4 rounded-2xl bg-app-surface-2 border border-app-border/40">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text mb-1">
-                Taxation Logic
+                Tax Rule
               </p>
               <div className="flex items-center gap-2">
                 <span
@@ -563,19 +562,18 @@ export default function ProductMasterForm({
                 <span className="text-[10px] font-bold text-app-text leading-tight">
                   {categoryBadge?.is_clothing_footwear
                     ? "Clothing Exemption detected. NY sales under $110 will be tax-free."
-                    : "General merchandise rules apply to this classification."}
+                    : "General merchandise rules apply to this category."}
                 </span>
               </div>
             </div>
 
             <div className="space-y-1.5 p-4 rounded-2xl bg-app-surface-2 border border-app-border/40 mt-4">
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text mb-1">
-                Matrix Engine
+                Size / Option Builder
               </p>
               <p className="text-[10px] font-bold text-app-text-muted leading-relaxed">
-                Constructor creates a Cartesian product of all attributes. 3
-                Sizes x 3 Colors = 9 SKUs. Riverside OS automatically generates
-                sequential SKU codes using the template prefix.
+                Add the sizes, colors, fits, or other options staff sell at the
+                register. Riverside OS creates one SKU for each combination.
               </p>
             </div>
           </section>
@@ -588,10 +586,9 @@ export default function ProductMasterForm({
               </h4>
             </div>
             <p className="text-[11px] font-medium leading-relaxed opacity-90">
-              Every product creation is logged with the current staff ID and a
-              system correlation ID. Ensure your descriptions are
-              customer-friendly as they will propogate to the Online Store and
-              printed receipts.
+              Every item creation is logged with the current staff member.
+              Keep descriptions customer-friendly because they may appear in
+              the Online Store and on printed receipts.
             </p>
           </section>
         </aside>

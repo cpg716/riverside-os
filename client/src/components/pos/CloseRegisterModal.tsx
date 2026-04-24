@@ -306,7 +306,7 @@ export default function CloseRegisterModal({
         : null;
 
     return (
-      <div className="space-y-3 rounded-2xl border border-app-border bg-app-surface-2 p-4">
+      <div className="ui-panel ui-tint-neutral space-y-3 p-4">
         <div className="grid gap-2 sm:grid-cols-2">
           {REGISTER_CLOSE_STEPS.map((stepItem, index) => {
             const isCurrent = stepItem.id === currentStep;
@@ -318,8 +318,8 @@ export default function CloseRegisterModal({
                   isCurrent
                     ? "border-app-accent bg-app-accent/10 text-app-text"
                     : isComplete
-                      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-                      : "border-app-border bg-app-surface text-app-text-muted"
+                      ? "ui-tint-success text-app-success"
+                      : "ui-tint-neutral text-app-text-muted"
                 }`}
               >
                 <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
@@ -335,7 +335,7 @@ export default function CloseRegisterModal({
             );
           })}
         </div>
-        <div className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-xs text-app-text-muted">
+        <div className="ui-metric-cell ui-tint-info px-3 py-3 text-xs text-app-text-muted">
           <p className="text-[10px] font-black uppercase tracking-widest">
             Current stage
           </p>
@@ -426,7 +426,7 @@ export default function CloseRegisterModal({
               Blind count: use the denomination helper (recommended) or enter a total. System expected cash is hidden until next step.
             </p>
 
-            <div className="ui-panel bg-app-surface p-4">
+            <div className="ui-panel ui-tint-neutral p-4">
               <p className="mb-3 text-[10px] font-black uppercase text-app-text-muted tracking-widest">Denomination counter</p>
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {DENOMS.map((d) => (
@@ -447,7 +447,7 @@ export default function CloseRegisterModal({
             </div>
 
             <form onSubmit={handleBlindCountSubmit} className="space-y-4">
-              <div className="ui-panel p-4 bg-app-surface">
+              <div className="ui-panel ui-tint-neutral p-4">
                 <label className="mb-2 block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Or Full Drawer Total ($)</label>
                 <input type="number" step="0.01" value={fullDrawerTotal} onChange={e => setFullDrawerTotal(e.target.value)} className="ui-input w-full p-4 text-center font-mono text-2xl" placeholder="---" />
               </div>
@@ -580,7 +580,7 @@ export default function CloseRegisterModal({
         <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
           {renderWorkflowSummary("report")}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
-            <div className="rounded-xl border border-app-accent/20 bg-app-accent/5 p-4 text-xs text-app-text-muted">
+            <div className="ui-panel ui-tint-accent p-4 text-xs text-app-text-muted">
               <p className="font-black uppercase tracking-widest text-[10px] text-app-text mb-1">
                 One physical drawer
               </p>
@@ -590,17 +590,17 @@ export default function CloseRegisterModal({
               </p>
             </div>
           ) : null}
-          <div className={`rounded-2xl border-2 p-5 ${isOff ? "border-app-danger/20 bg-app-danger/5" : "border-app-success/20 bg-app-success/5"}`}>
+          <div className={`ui-panel p-5 ${isOff ? "ui-tint-danger" : "ui-tint-success"}`}>
             <h3 className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted border-b border-app-border pb-2">Cash Drawer Audit</h3>
             <div className="space-y-2.5 text-sm">
               <div className="flex justify-between text-app-text-muted font-medium"><span>Opening Float:</span><span className="font-mono">${centsToFixed2(openingCents)}</span></div>
               <div className="flex justify-between text-app-text-muted font-medium"><span>Cash Sales:</span><span className="font-mono text-app-success">+ ${centsToFixed2(cashSalesCents)}</span></div>
-              <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-orange-500">${centsToFixed2(netAdjCents)}</span></div>
+              <div className="flex justify-between text-app-text-muted font-medium"><span>Net adjustments:</span><span className="font-mono text-app-warning">${centsToFixed2(netAdjCents)}</span></div>
               <div className="flex justify-between pt-3 border-t border-app-border font-black text-app-text uppercase text-xs"><span>Expected Cash:</span><span className="font-mono">${centsToFixed2(expectedCents)}</span></div>
               <div className="flex justify-between pt-1 font-black text-app-accent text-lg"><span>Actual Counted:</span><span className="font-mono">${centsToFixed2(actualCents)}</span></div>
             </div>
             {isOff && (
-              <div className="mt-4 p-4 rounded-xl bg-app-danger/10 border border-app-danger/20">
+              <div className="ui-panel ui-tint-danger mt-4 p-4">
                 <div className="flex justify-between text-app-danger font-black text-xs uppercase tracking-widest">
                   <span>Discrepancy ({discrepancyCents < 0 ? "Short" : "Over"}):</span>
                   <span className="font-mono">${centsToFixed2(Math.abs(discrepancyCents))}</span>
@@ -623,7 +623,7 @@ export default function CloseRegisterModal({
               <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Tender breakdown (all lanes)</h3>
               <div className="ui-panel overflow-hidden border-app-border/40">
                 <table className="w-full text-xs">
-                  <thead className="bg-app-surface border-b border-app-border text-app-text-muted"><tr><th className="px-3 py-2">Method</th><th className="px-3 py-2 text-center">Txs</th><th className="px-3 py-2 text-right">Total</th></tr></thead>
+                  <thead className="bg-app-surface-2 border-b border-app-border text-app-text-muted"><tr><th className="px-3 py-2">Method</th><th className="px-3 py-2 text-center">Txs</th><th className="px-3 py-2 text-right">Total</th></tr></thead>
                   <tbody className="divide-y divide-app-border/30">
                     {recon.tenders.map(t => (
                       <tr key={t.payment_method} className="hover:bg-app-surface/40 transition-colors"><td className="px-3 py-2 font-bold capitalize">{t.payment_method}</td><td className="px-3 py-2 text-center">{t.tx_count}</td><td className="px-3 py-2 text-right font-mono font-bold">${centsToFixed2(parseMoneyToCents(t.total_amount))}</td></tr>
@@ -639,7 +639,7 @@ export default function CloseRegisterModal({
                 <div className="grid gap-4 sm:grid-cols-2">
                   {recon.tenders_by_lane!.map((row) => (
                     <div key={row.register_lane} className="ui-panel overflow-hidden border-app-border/40">
-                      <p className="border-b border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      <p className="border-b border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                         Register #{row.register_lane}
                       </p>
                       <table className="w-full text-xs">
@@ -679,7 +679,7 @@ export default function CloseRegisterModal({
               <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Payments (shift)</h3>
               <div className="ui-panel max-h-48 overflow-auto border-app-border/40">
                 <table className="w-full text-[10px]">
-                  <thead className="sticky top-0 bg-app-surface text-app-text-muted">
+                  <thead className="sticky top-0 bg-app-surface-2 text-app-text-muted">
                     <tr>
                       <th className="px-2 py-2 text-left">Time</th>
                       <th className="px-2 py-2 text-left">Reg</th>
@@ -714,8 +714,8 @@ export default function CloseRegisterModal({
               <textarea value={notes} onChange={e => setNotes(e.target.value)} className="ui-input w-full p-4 h-24 resize-none text-sm" placeholder={needsNote ? "REQUIRED: Managerial note for discrepancy..." : "Optional shift notes..."} />
             </div>
             <div>
-              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-emerald-500/80">Daily Context (Momentum View)</label>
-              <textarea value={closingComments} onChange={e => setClosingComments(e.target.value)} className="ui-input w-full p-4 h-24 resize-none text-sm border-emerald-500/20" placeholder="e.g. Blizzard kept people home, Parade blocked street..." />
+              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-success">Daily Context (Momentum View)</label>
+              <textarea value={closingComments} onChange={e => setClosingComments(e.target.value)} className="ui-input w-full p-4 h-24 resize-none text-sm border-app-success/20" placeholder="e.g. Blizzard kept people home, Parade blocked street..." />
             </div>
           </div>
         </div>

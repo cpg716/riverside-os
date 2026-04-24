@@ -165,7 +165,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-workspace",
     title: "Inventory Workspace (inventory)",
-    summary: "Back Office inventory hub for control board, product setup, procurement, receiving, vendors, import, and physical count.",
+    summary: "Back Office inventory hub for item lookup, product setup, purchase orders, receiving, vendors, import, and physical count.",
     markdown: manual_15_raw,
     tags: ["inventory-workspace","inventory","back-office","operations"],
   },
@@ -193,7 +193,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-purchase-order-panel",
     title: "Purchase Order Panel (inventory)",
-    summary: "Create draft purchase orders, submit standard POs, and open Receiving Bay with validated vendor and line rules.",
+    summary: "Create purchase orders or direct invoices, submit standard POs, and open Receiving Bay with validated vendor and line rules.",
     markdown: manual_19_raw,
     tags: ["inventory-purchase-order-panel","inventory","purchase-orders","vendors"],
   },
@@ -214,7 +214,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "inventory-vendor-hub",
     title: "Vendor Hub (inventory)",
-    summary: "Review vendor health, brand links, and merge duplicate suppliers without losing PO history.",
+    summary: "Create and edit vendors, review vendor health, manage optional brand links, and merge duplicates without losing PO history.",
     markdown: manual_22_raw,
     tags: ["inventory-vendor-hub","inventory","vendors","procurement"],
   },

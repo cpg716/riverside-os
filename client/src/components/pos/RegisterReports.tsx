@@ -470,7 +470,7 @@ export default function RegisterReports({
   };
 
   return (
-    <div className="flex flex-1 flex-col bg-app-surface p-4 sm:p-6">
+    <div className="flex flex-1 flex-col bg-app-bg p-4 sm:p-6">
       <ReceiptSummaryModal
         transactionId={receiptOrderId}
         onClose={() => setReceiptOrderId(null)}
@@ -495,13 +495,13 @@ export default function RegisterReports({
           </div>
         </div>
         <div className="flex gap-1 rounded-2xl border border-app-border bg-app-surface-2 p-1 shadow-inner">
-          <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "dashboard" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+          <button type="button" onClick={() => setView("dashboard")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "dashboard" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}>
             Dashboard
           </button>
-          <button type="button" onClick={() => setView("activity")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "activity" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+          <button type="button" onClick={() => setView("activity")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "activity" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}>
             Activity
           </button>
-          <button type="button" onClick={() => setView("z-reports")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "z-reports" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:text-app-text"}`}>
+          <button type="button" onClick={() => setView("z-reports")} className={`rounded-xl px-4 py-2 text-sm font-bold transition-all ${view === "z-reports" ? "bg-app-surface text-app-accent shadow-sm" : "text-app-text-muted hover:bg-app-surface/60 hover:text-app-text"}`}>
             Z-Reports
           </button>
         </div>
@@ -566,7 +566,7 @@ export default function RegisterReports({
       )}
 
       {/* Content Area */}
-      <div className="flex flex-1 flex-col rounded-[24px] border border-app-border bg-app-surface-2/50 shadow-[0_20px_50px_-32px_rgba(0,0,0,0.35)]">
+      <div className="ui-card ui-tint-neutral flex flex-1 flex-col rounded-[24px]">
 
         {/* Dashboard View */}
         {view === "dashboard" && (
@@ -587,37 +587,37 @@ export default function RegisterReports({
 
               {/* Booked Summary - First and Default */}
               {summaryBooked && (
-                <div className="rounded-xl border border-app-success/20 bg-app-success/6 p-3">
+                <div className="ui-panel ui-tint-success p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     <DollarSign className="h-3 w-3 text-app-success" />
                     <span className="text-[10px] font-black uppercase tracking-wider text-app-success">Booked (Sale)</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
-                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                    <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="text-[9px] font-black uppercase text-app-success">Sales #</div>
                       <p className="text-lg font-black text-app-text">{summaryBooked.sales_count}</p>
                     </div>
-                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                    <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="text-[9px] font-black uppercase text-app-success">Sales $</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</p>
                     </div>
-                    <div className="rounded-lg border border-app-warning/20 bg-app-warning/10 p-2">
+                    <div className="ui-metric-cell ui-tint-warning p-2">
                       <div className="text-[9px] font-black uppercase text-app-warning">Tax</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</p>
                     </div>
-                    <div className="rounded-lg border border-app-danger/20 bg-app-danger/10 p-2">
+                    <div className="ui-metric-cell ui-tint-danger p-2">
                       <div className="text-[9px] font-black uppercase text-app-danger">Fees</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.stripe_fees_total))}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                    <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[9px] font-black uppercase text-app-info">Cash Taken</span>
                         <span className="text-lg font-black text-app-text">${summaryBooked.cash_collected}</span>
                       </div>
                     </div>
-                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                    <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="flex items-center justify-between">
                         <span className="text-[9px] font-black uppercase text-app-success">Deposits Taken</span>
                         <span className="text-lg font-black text-app-text">${summaryBooked.deposits_collected}</span>
@@ -629,25 +629,25 @@ export default function RegisterReports({
 
               {/* Fulfilled Summary */}
               {summary && (
-                <div className="rounded-xl border border-app-info/20 bg-app-info/6 p-3">
+                <div className="ui-panel ui-tint-info p-3">
                   <div className="flex items-center gap-1.5 mb-2">
                     <Truck className="h-3 w-3 text-app-info" />
                     <span className="text-[10px] font-black uppercase tracking-wider text-app-info">Fulfilled</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
-                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                    <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="text-[9px] font-black uppercase text-app-info">Orders</div>
                       <p className="text-lg font-black text-app-text">{summary.pickup_count || 0}</p>
                     </div>
-                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                    <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="text-[9px] font-black uppercase text-app-info">Revenue</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
                     </div>
-                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                    <div className="ui-metric-cell ui-tint-info p-2">
                       <div className="text-[9px] font-black uppercase text-app-info">Tax</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</p>
                     </div>
-                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                    <div className="ui-metric-cell ui-tint-success p-2">
                       <div className="text-[9px] font-black uppercase text-app-success">Net</div>
                       <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
                     </div>
@@ -657,19 +657,19 @@ export default function RegisterReports({
 
               {/* Additional Metrics - Compact */}
               <div className="grid grid-cols-4 gap-2">
-                <div className="rounded-lg border border-app-border bg-app-surface p-2">
+                <div className="ui-metric-cell ui-tint-neutral p-2">
                   <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Calendar className="h-2.5 w-2.5" />Appts</div>
                   <p className="text-base font-black">{summaryBooked?.appointment_count || 0}</p>
                 </div>
-                <div className="rounded-lg border border-app-border bg-app-surface p-2">
+                <div className="ui-metric-cell ui-tint-info p-2">
                   <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Globe className="h-2.5 w-2.5" />Online</div>
                   <p className="text-base font-black">{summaryBooked?.online_order_count || 0}</p>
                 </div>
-                <div className="rounded-lg border border-app-border bg-app-surface p-2">
+                <div className="ui-metric-cell ui-tint-accent p-2">
                   <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Heart className="h-2.5 w-2.5" />Weddings</div>
                   <p className="text-base font-black">{summaryBooked?.new_wedding_parties_count || 0}</p>
                 </div>
-                <div className="rounded-lg border border-app-border bg-app-surface p-2">
+                <div className="ui-metric-cell ui-tint-warning p-2">
                   <div className="flex items-center gap-1 text-[9px] font-black uppercase text-app-text-muted"><Package className="h-2.5 w-2.5" />Orders</div>
                   <p className="text-base font-black">{summaryBooked?.special_order_sale_count || 0}</p>
                 </div>
@@ -717,11 +717,11 @@ export default function RegisterReports({
                   {group.activities.map((row) => (
                     <div 
                       key={row.id} 
-                      className="group relative flex flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-sm transition-all mb-4"
+                      className="ui-card ui-tint-neutral group relative mb-4 flex flex-col transition-all"
                     >
                       <div className="flex flex-col lg:flex-row lg:items-stretch divide-y lg:divide-y-0 lg:divide-x divide-app-border">
                         {/* 1. Transaction Overview (Left) */}
-                        <div className="p-5 lg:w-1/4 flex flex-col justify-between bg-app-surface-2/20">
+                        <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                           <div>
                             <div className="flex items-center gap-2 mb-3">
                                <span className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-widest ring-1 shadow-sm ${kindPill(row.kind)}`}>
@@ -738,7 +738,7 @@ export default function RegisterReports({
                                  <span className="truncate">{row.customer_name || "Walk-in Customer"}</span>
                                </h4>
                                <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                                 {row.customer_code && <span className="ui-pill text-[8px] font-black tracking-widest bg-app-surface text-app-text-muted">#{row.customer_code}</span>}
+                                 {row.customer_code && <span className="ui-pill bg-app-surface-3 text-[8px] font-black tracking-widest text-app-text-muted">#{row.customer_code}</span>}
                                  {row.wedding_party_name && (
                                    <button 
                                      type="button" 
@@ -754,7 +754,7 @@ export default function RegisterReports({
                                </div>
                                <div className="mt-3 flex items-center gap-1.5 flex-wrap">
                                   <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || row.order_id?.slice(0, 8)}</span>
-                                  {row.is_takeaway && <span className="text-[8px] font-black bg-orange-500/10 text-orange-600 px-1.5 py-0.5 rounded uppercase leading-none">Takeaway</span>}
+                                  {row.is_takeaway && <span className="rounded bg-app-warning/10 px-1.5 py-0.5 text-[8px] font-black uppercase leading-none text-app-warning">Takeaway</span>}
                                   {row.channel === 'web' && <span className="text-[8px] font-black bg-app-info/10 text-app-info px-1.5 py-0.5 rounded uppercase flex items-center gap-1 leading-none"><Globe size={8}/> Online</span>}
                                </div>
                             </div>
@@ -795,9 +795,9 @@ export default function RegisterReports({
                                        <td className="py-2.5 text-center align-top font-black text-app-text tracking-tighter tabular-nums">${it.price}</td>
                                        <td className="py-2.5 text-right align-top">
                                           <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tight ${
-                                             it.fulfillment === 'takeaway' ? 'bg-orange-500/10 text-orange-600' :
+                                             it.fulfillment === 'takeaway' ? 'bg-app-warning/10 text-app-warning' :
                                              it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'bg-app-info/10 text-app-info' :
-                                             it.fulfillment === 'layaway' ? 'bg-purple-500/10 text-purple-600' : it.fulfillment === 'pickup' ? 'bg-app-success/10 text-app-success' :
+                                             it.fulfillment === 'layaway' ? 'bg-app-accent/10 text-app-accent' : it.fulfillment === 'pickup' ? 'bg-app-success/10 text-app-success' :
                                              'bg-app-surface-2 text-app-text-muted font-bold'
                                           }`}>
                                              {it.fulfillment === 'takeaway' ? 'TAKEN' : it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'ORDERED' : it.fulfillment === 'layaway' ? 'LAYAWAY' : it.fulfillment === 'pickup' ? 'PICKUP' : it.fulfillment?.toUpperCase() || 'UNKNOWN'}
@@ -815,7 +815,7 @@ export default function RegisterReports({
                         </div>
 
                         {/* 3. Financial Breakdown (Right) */}
-                        <div className="p-5 lg:w-1/4 bg-app-surface-2/10 flex flex-col justify-between">
+                        <div className="flex flex-col justify-between bg-app-surface-2/60 p-5 lg:w-1/4">
                            <div className="space-y-3">
                               <div className="flex flex-col items-end gap-0.5">
                                  <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">Sales Total (Booked)</span>
@@ -854,7 +854,7 @@ export default function RegisterReports({
               ))}
               {/* Grand Total */}
               {reportBasis === "booked" ? summaryBooked && (
-                <div className="mt-4 flex items-center justify-between rounded-xl border border-app-success/20 bg-app-success/6 px-4 py-3">
+                <div className="ui-panel ui-tint-success mt-4 flex items-center justify-between px-4 py-3">
                   <span className="text-sm font-black uppercase text-app-success">Daily Total ({summaryBooked.activities.length} transactions)</span>
                   <div className="text-right">
                     <span className="text-xs font-black text-app-text-muted">Subtotal: ${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</span>
@@ -863,7 +863,7 @@ export default function RegisterReports({
                   </div>
                 </div>
               ) : summary && (
-                <div className="mt-4 flex items-center justify-between rounded-xl border border-app-info/20 bg-app-info/6 px-4 py-3">
+                <div className="ui-panel ui-tint-info mt-4 flex items-center justify-between px-4 py-3">
                   <span className="text-sm font-black uppercase text-app-info">Daily Total ({summary.activities.length} transactions)</span>
                   <div className="text-right">
                     <span className="text-xs font-black text-app-text-muted">Subtotal: ${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</span>
@@ -884,7 +884,7 @@ export default function RegisterReports({
             </div>
           ) : (
             <div className="flex flex-col">
-              <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface/80 px-4 py-3 sm:px-6">
+              <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-2 px-4 py-3 sm:px-6">
                 <div className="flex gap-1 rounded-xl border border-app-border bg-app-surface-2 p-1">
                   {[
                     { id: "recent" as const, label: "Recent" },
@@ -908,7 +908,7 @@ export default function RegisterReports({
                   </div>
                 )}
               </div>
-              <div className="border-b border-app-border bg-app-surface-2/40 px-4 py-4 sm:px-6">
+              <div className="border-b border-app-border bg-app-surface-2 px-4 py-4 sm:px-6">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
@@ -926,7 +926,7 @@ export default function RegisterReports({
                     ].map(([label, value]) => (
                       <div
                         key={label}
-                        className="rounded-xl border border-app-border bg-app-surface px-3 py-3 text-center"
+                        className="ui-metric-cell ui-tint-neutral px-3 py-3 text-center"
                       >
                         <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                           {label}
@@ -948,7 +948,7 @@ export default function RegisterReports({
                     </p>
                   </div>
                 ) : null}
-                <div className="mt-3 rounded-xl border border-app-border bg-app-surface px-4 py-3 text-sm text-app-text-muted">
+                <div className="ui-panel ui-tint-info mt-3 px-4 py-3 text-sm text-app-text-muted">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
                     Shared drawer rule
                   </p>
@@ -974,7 +974,7 @@ export default function RegisterReports({
                       return (
                         <div
                           key={group.tillCloseGroupId}
-                          className="rounded-2xl border border-app-border bg-app-surface px-4 py-4"
+                          className="ui-card ui-tint-neutral px-4 py-4"
                         >
                           <div className="flex items-start justify-between gap-3">
                             <div>
@@ -1004,7 +1004,7 @@ export default function RegisterReports({
                             {group.sessions.map((session) => (
                               <div
                                 key={session.session_id}
-                                className="flex items-center justify-between gap-3 rounded-xl border border-app-border/70 bg-app-surface-2/60 px-3 py-3"
+                                className="ui-metric-cell ui-tint-neutral flex items-center justify-between gap-3 px-3 py-3"
                               >
                                 <div>
                                   <p className="text-sm font-black text-app-text">
@@ -1046,7 +1046,7 @@ export default function RegisterReports({
               ) : (
                 <ul className="flex flex-col divide-y divide-app-border overflow-y-auto">
                   {zLogs.map((session) => (
-                    <li key={session.id} className="flex items-center gap-4 px-4 py-4 sm:px-6 hover:bg-app-surface/50">
+                    <li key={session.id} className="flex items-center gap-4 px-4 py-4 sm:px-6 hover:bg-app-surface-2/70">
                       <div className="flex-1">
                         <p className="text-xs font-bold text-app-text-muted">
                           Register #{session.register_lane} · Session #{session.register_ordinal}
@@ -1069,7 +1069,7 @@ export default function RegisterReports({
                       </div>
                       <div className="text-right">
                         <p className="mb-1">
-                          <span className="rounded-full border border-app-border bg-app-surface px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          <span className="rounded-full border border-app-border bg-app-surface-3 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                             Z-close anchor
                           </span>
                         </p>

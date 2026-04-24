@@ -23,31 +23,36 @@ interface DashboardStatsCardProps {
 
 const colorMap = {
   blue: {
-    icon: "bg-app-info/6 text-app-info ring-1 ring-app-info/12",
+    card: "ui-tint-info",
+    icon: "bg-app-info/10 text-app-info ring-1 ring-app-info/16",
     chart: "#2f7dd1",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   green: {
-    icon: "bg-app-success/6 text-app-success ring-1 ring-app-success/12",
+    card: "ui-tint-success",
+    icon: "bg-app-success/10 text-app-success ring-1 ring-app-success/16",
     chart: "#16956a",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   orange: {
-    icon: "bg-app-warning/6 text-app-warning ring-1 ring-app-warning/12",
+    card: "ui-tint-warning",
+    icon: "bg-app-warning/10 text-app-warning ring-1 ring-app-warning/16",
     chart: "#b7791f",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   rose: {
-    icon: "bg-app-danger/6 text-app-danger ring-1 ring-app-danger/12",
+    card: "ui-tint-danger",
+    icon: "bg-app-danger/10 text-app-danger ring-1 ring-app-danger/16",
     chart: "#cf5b5b",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   purple: {
-    icon: "bg-app-accent/6 text-app-accent ring-1 ring-app-accent/12",
+    card: "ui-tint-accent",
+    icon: "bg-app-accent/10 text-app-accent ring-1 ring-app-accent/16",
     chart: "#a855f7",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
@@ -68,7 +73,8 @@ export default function DashboardStatsCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-app-border/60 bg-[color-mix(in_srgb,var(--app-surface)_94%,var(--app-surface-2))] p-6 shadow-[0_16px_30px_-22px_rgba(15,23,42,0.18)] transition-all hover:shadow-[0_18px_34px_-22px_rgba(15,23,42,0.22)]",
+        "ui-card relative p-6 transition-all hover:-translate-y-0.5",
+        styles.card,
         className,
       )}
     >

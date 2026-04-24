@@ -156,7 +156,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
           <IntegrationBrandLogo
             brand="podium"
             kind="wordmark"
-            className="inline-flex rounded-2xl border border-app-border bg-white px-4 py-2 shadow-sm"
+            className="inline-flex rounded-2xl border border-app-border bg-app-surface px-4 py-2 shadow-sm"
             imageClassName="h-10 w-auto object-contain"
           />
         </div>
@@ -164,10 +164,10 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
         <p className="text-sm text-app-text-muted mt-2 font-medium">Coordinate operational SMS, HTML email templates, and web chat widgets.</p>
       </header>
 
-      <section className="ui-card p-8 max-w-4xl border-violet-500/20 bg-gradient-to-br from-violet-500/5 to-transparent shadow-xl">
+      <section className="ui-card ui-tint-accent p-8 max-w-4xl shadow-xl">
         {!podiumSms.credentials_configured && (
-          <div className="mb-8 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-6 text-sm">
-            <h4 className="font-black uppercase tracking-widest text-amber-800 dark:text-amber-200 flex items-center gap-2">
+          <div className="ui-panel ui-tint-warning mb-8 p-6 text-sm">
+            <h4 className="font-black uppercase tracking-widest text-app-warning flex items-center gap-2">
               <Info className="h-4 w-4" />
               Environment Provisioning Required
             </h4>
@@ -176,7 +176,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
             </p>
             <button
                onClick={() => void startPodiumOAuthConnect()}
-               className="mt-6 ui-btn-secondary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest border-violet-400 text-violet-800 hover:bg-violet-500 hover:text-white transition-all shadow-lg shadow-violet-500/10"
+               className="mt-6 ui-btn-secondary px-6 py-2.5 text-[10px] font-black uppercase tracking-widest border-app-accent/40 text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-lg shadow-app-accent/10"
             >
                Authorize via Podium Portal
             </button>
@@ -191,7 +191,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                 { label: "Inbox Sync", val: podiumReadiness.inbound_inbox_preview_enabled ? "Enabled" : "Disabled" },
                 { label: "Email Engine", val: podiumReadiness.email_send_enabled ? "Active" : "Ready" },
               ].map(stat => (
-                <div key={stat.label} className="rounded-xl border border-app-border bg-app-surface-2/40 p-3">
+                <div key={stat.label} className="ui-metric-cell ui-tint-neutral p-3">
                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">{stat.label}</p>
                    <p className="text-xs font-black text-app-text truncate">{stat.val}</p>
                 </div>
@@ -201,7 +201,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
 
         <div className="flex flex-wrap items-center justify-between gap-4 mb-10 pb-10 border-b border-app-border/40">
            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-white shadow-xl shadow-violet-600/20 ring-1 ring-black/5">
+              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-app-surface shadow-xl shadow-app-accent/20 ring-1 ring-app-border">
                  <IntegrationBrandLogo
                    brand="podium"
                    kind="icon"
@@ -221,7 +221,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                 { key: 'email_send_enabled', label: "Email Active" },
               ].map(toggle => (
                 <label key={toggle.key} className="flex items-center gap-2 cursor-pointer group">
-                   <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms[toggle.key as keyof PodiumSmsConfig] ? 'bg-violet-600 border-violet-600 text-white' : 'border-app-border group-hover:border-violet-600'}`}>
+                   <div className={`h-4 w-4 rounded-md border-2 flex items-center justify-center transition-all ${podiumSms[toggle.key as keyof PodiumSmsConfig] ? 'bg-app-accent border-app-accent text-white' : 'border-app-border group-hover:border-app-accent'}`}>
                       {podiumSms[toggle.key as keyof PodiumSmsConfig] && <CheckCircle2 size={10} />}
                    </div>
                    <input 
@@ -250,13 +250,13 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                          <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">{key.replace(/_/g, ' ')}</span>
                          <button 
                            onClick={() => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [key]: def}})}
-                           className="text-[8px] font-black uppercase tracking-widest text-violet-600 hover:text-violet-800 transition-colors"
+                           className="text-[8px] font-black uppercase tracking-widest text-app-accent hover:text-app-text transition-colors"
                          >
                            Reset
                          </button>
                       </div>
                       <textarea 
-                        className="ui-input w-full min-h-[100px] p-4 text-xs font-medium leading-relaxed bg-app-bg/50 border-app-border/60 focus:bg-white dark:focus:bg-slate-900" 
+                        className="ui-input w-full min-h-[100px] p-4 text-xs font-medium leading-relaxed border-app-border/60"
                         value={podiumSms.templates[key]}
                         onChange={e => setPodiumSms({...podiumSms, templates: {...podiumSms.templates, [key]: e.target.value}})}
                       />
@@ -270,9 +270,9 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
               <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text mb-6">HTML Email System</h4>
               <div className="space-y-8">
                  {PODIUM_EMAIL_UI_BLOCKS.map(block => (
-                   <div key={block.label} className="ui-card p-6 bg-app-bg/20 space-y-4">
+                   <div key={block.label} className="ui-card ui-tint-neutral p-6 space-y-4">
                       <div className="flex justify-between items-center">
-                         <span className="text-[10px] font-black uppercase tracking-widest text-violet-600">{block.label} Configuration</span>
+                         <span className="text-[10px] font-black uppercase tracking-widest text-app-accent">{block.label} Configuration</span>
                          <button 
                             onClick={() => setPodiumSms({
                               ...podiumSms, 
@@ -290,13 +290,13 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
                       <div className="grid gap-4">
                          <input 
                            placeholder="Email Subject"
-                           className="ui-input w-full px-4 py-3 text-xs font-bold bg-app-bg" 
+                           className="ui-input w-full px-4 py-3 text-xs font-bold"
                            value={podiumSms.email_templates[block.subjectKey]}
                            onChange={e => setPodiumSms({...podiumSms, email_templates: {...podiumSms.email_templates, [block.subjectKey]: e.target.value}})}
                          />
                          <textarea 
                            placeholder="HTML Source Code"
-                           className="ui-input w-full min-h-[160px] p-4 font-mono text-[10px] leading-relaxed bg-app-bg" 
+                           className="ui-input w-full min-h-[160px] p-4 font-mono text-[10px] leading-relaxed"
                            value={podiumSms.email_templates[block.htmlKey]}
                            onChange={e => setPodiumSms({...podiumSms, email_templates: {...podiumSms.email_templates, [block.htmlKey]: e.target.value}})}
                          />
@@ -314,7 +314,7 @@ const PodiumSettingsPanel: React.FC<PodiumSettingsPanelProps> = ({ baseUrl }) =>
               </p>
               <textarea 
                  placeholder="<script>... podium.widget ...</script>"
-                 className="ui-input w-full min-h-[120px] p-4 font-mono text-[10px] bg-indigo-50/10" 
+                 className="ui-input w-full min-h-[120px] p-4 font-mono text-[10px]"
                  value={podiumSms.storefront_webchat_snippet}
                  onChange={e => setPodiumSms({...podiumSms, storefront_webchat_snippet: e.target.value})}
               />

@@ -89,15 +89,15 @@ interface ReadinessCheck {
 
 function readinessTone(status: ReadinessStatus): string {
   if (status === "ready") {
-    return "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200";
+    return "ui-tint-success text-app-success";
   }
   if (status === "warning") {
-    return "border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-200";
+    return "ui-tint-warning text-app-warning";
   }
   if (status === "error") {
-    return "border-app-danger/25 bg-app-danger/10 text-app-danger";
+    return "ui-tint-danger text-app-danger";
   }
-  return "border-app-border/60 bg-app-surface-2/70 text-app-text-muted";
+  return "ui-tint-neutral text-app-text-muted";
 }
 
 function ReadinessIcon({ status }: { status: ReadinessStatus }) {
@@ -892,7 +892,7 @@ export default function RegisterOverlay({
             </div>
           ) : null}
 
-          <div className="rounded-[24px] border border-app-border/40 bg-app-surface/60 p-5 shadow-inner">
+          <div className="ui-panel ui-tint-neutral p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
@@ -981,7 +981,7 @@ export default function RegisterOverlay({
                 </p>
               </div>
 
-              <div className="ui-panel bg-app-bg/40 p-6 space-y-6 rounded-[24px] border-app-border/20 shadow-inner">
+              <div className="ui-panel ui-tint-neutral p-6 space-y-6 rounded-[24px] border-app-border/20 shadow-inner">
                 <div className="space-y-2">
                   <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted block text-center">
                     Staff Member
@@ -1033,7 +1033,7 @@ export default function RegisterOverlay({
 
                 <div className="space-y-4">
                   {/* Register Selection */}
-                  <div className="ui-panel bg-app-bg/40 p-5 rounded-[20px] border-app-border/20 shadow-sm">
+                  <div className="ui-panel ui-tint-neutral p-5 rounded-[20px] border-app-border/20 shadow-sm">
                     <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-3 block">
                       Physical Register Number
                     </label>
@@ -1065,7 +1065,7 @@ export default function RegisterOverlay({
                   </div>
 
                   {/* Opening Float */}
-                  <div className="ui-panel bg-app-bg/40 p-5 rounded-[20px] border-app-border/20 shadow-sm">
+                  <div className="ui-panel ui-tint-neutral p-5 rounded-[20px] border-app-border/20 shadow-sm">
                     <label className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-3 block">
                       Opening Cash Float ($)
                     </label>
@@ -1120,7 +1120,7 @@ export default function RegisterOverlay({
                     ) : (
                       <>
                         Open Terminal Session
-                        <span className="text-xs opacity-60 font-mono px-2 py-0.5 rounded-lg bg-black/20">
+                        <span className="text-xs opacity-70 font-mono px-2 py-0.5 rounded-lg bg-app-surface-3">
                           Lane {registerLane}
                         </span>
                       </>

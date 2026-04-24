@@ -194,9 +194,9 @@ export default function RegisterGiftCardLoadModal({
         tabIndex={-1}
         className="ui-modal flex max-h-[90vh] w-[min(44rem,calc(100vw-1.25rem))] max-w-none flex-col overflow-hidden outline-none"
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-app-border/70 bg-gradient-to-r from-emerald-600/[0.08] via-app-surface to-app-surface px-5 py-4">
+        <div className="flex shrink-0 items-center justify-between border-b border-app-border/70 bg-app-surface-2 px-5 py-4">
           <div className="flex items-center gap-3">
-            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-600/30">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-app-success text-white shadow-lg shadow-app-success/20">
               <CreditCard className="h-5 w-5" aria-hidden />
             </div>
             <div>
@@ -257,7 +257,7 @@ export default function RegisterGiftCardLoadModal({
                   type="button"
                   disabled={busy}
                   onClick={clearAmount}
-                  className="col-span-3 flex h-11 items-center justify-center rounded-xl bg-red-500/10 text-xs font-black uppercase tracking-widest text-red-600 transition-colors hover:bg-red-500/20"
+                  className="col-span-3 flex h-11 items-center justify-center rounded-xl bg-app-danger/10 text-xs font-black uppercase tracking-widest text-app-danger transition-colors hover:bg-app-danger/15"
                 >
                   Clear amount
                 </button>
@@ -304,7 +304,7 @@ export default function RegisterGiftCardLoadModal({
               </p>
             </div>
 
-            <div className="flex min-h-[8.5rem] flex-1 flex-col rounded-2xl border-2 border-app-border/80 bg-app-surface-2/60 p-4 shadow-inner">
+            <div className="ui-panel ui-tint-success flex min-h-[8.5rem] flex-1 flex-col p-4">
               <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                 Card data (before checkout)
               </p>
@@ -314,7 +314,7 @@ export default function RegisterGiftCardLoadModal({
                   <span className="text-xs font-bold">Looking up card…</span>
                 </div>
               ) : previewError ? (
-                <p className="text-sm font-bold text-red-600">{previewError}</p>
+                <p className="text-sm font-bold text-app-danger">{previewError}</p>
               ) : cardCode.trim().length < 4 ? (
                 <p className="text-xs leading-relaxed text-app-text-muted">
                   Enter at least 4 characters of the code to see gift card
@@ -334,7 +334,7 @@ export default function RegisterGiftCardLoadModal({
                     <dt className="shrink-0 font-black uppercase tracking-wide text-app-text-muted">
                       Status
                     </dt>
-                    <dd className="text-right font-bold text-emerald-700 dark:text-emerald-400">
+                    <dd className="text-right font-bold text-app-success">
                       New code — activates on paid checkout
                     </dd>
                   </div>
@@ -366,7 +366,7 @@ export default function RegisterGiftCardLoadModal({
                     </dd>
                   </div>
                   {previewRow.card_kind.toLowerCase() !== "purchased" ? (
-                    <p className="rounded-lg bg-amber-500/15 px-2 py-1.5 text-xs font-bold text-amber-900 dark:text-amber-200">
+                    <p className="ui-panel ui-tint-warning px-2 py-1.5 text-xs font-bold text-app-text">
                       This code is not a purchased gift card. Use Back Office to
                       manage this card type — register load only supports
                       purchased cards.
@@ -397,12 +397,12 @@ export default function RegisterGiftCardLoadModal({
                     <dt className="font-black uppercase tracking-wide text-app-text-muted">
                       Load amount
                     </dt>
-                    <dd className="text-right text-lg font-black tabular-nums text-emerald-700 dark:text-emerald-400">
+                    <dd className="text-right text-lg font-black tabular-nums text-app-success">
                       {loadAmountLabel}
                     </dd>
                   </div>
                   {previewRow.card_status.toLowerCase() === "void" ? (
-                    <p className="pt-2 text-xs font-bold text-red-600">
+                    <p className="pt-2 text-xs font-bold text-app-danger">
                       This card is void — it cannot be loaded.
                     </p>
                   ) : null}

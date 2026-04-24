@@ -319,7 +319,7 @@ const EXPECTED_COUNTERPOINT_MIGRATION_FLOOR = "2018-01-01";
 const tabBtn = (active: boolean) =>
   `px-3 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg border transition-colors ${
     active
-      ? "border-orange-500/40 bg-orange-500/15 text-orange-700 dark:text-orange-300"
+      ? "border-app-warning/40 bg-app-warning/15 text-app-warning"
       : "border-app-border text-app-text-muted hover:bg-app-surface/40"
   }`;
 
@@ -1042,8 +1042,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
   const shellClass =
     variant === "workspace"
-      ? "rounded-2xl border border-app-border bg-app-surface p-6 sm:p-8 shadow-sm"
-      : "ui-card p-8 max-w-6xl border-orange-500/20 bg-gradient-to-br from-orange-500/5 to-transparent";
+      ? "ui-card ui-tint-warning p-6 sm:p-8"
+      : "ui-card ui-tint-warning p-8 max-w-6xl";
 
   return (
     <section
@@ -1058,13 +1058,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
           {bridgeOnline && bridgeLive ? (
             <>
               {/* Run Control */}
-              <div className="rounded-xl border border-app-border bg-app-surface-2/50 p-4 mb-4">
+              <div className="ui-panel ui-tint-neutral p-4 mb-4">
                 <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
                   <div className="flex items-center gap-3">
                     <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${
                       bridgeLive.isSyncing
-                        ? "bg-orange-500/20 text-orange-500"
-                        : "bg-emerald-500/15 text-emerald-500"
+                        ? "bg-app-warning/20 text-app-warning"
+                        : "bg-app-success/15 text-app-success"
                     }`}>
                       {bridgeLive.isSyncing ? (
                         <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
@@ -1075,11 +1075,11 @@ export default function CounterpointSyncSettingsPanel(props?: {
                     <div>
                       <p className="text-sm font-black uppercase tracking-widest">
                         {bridgeLive.isSyncing ? (
-                          <span className="text-orange-500">
+                          <span className="text-app-warning">
                             Importing{bridgeLive.currentEntity ? ` — ${bridgeLive.currentEntity.replace(/_/g, " ")}` : ""}
                           </span>
                         ) : (
-                          <span className="text-emerald-500">Bridge Idle</span>
+                          <span className="text-app-success">Bridge Idle</span>
                         )}
                       </p>
 	                      <p className="text-[10px] text-app-text-muted mt-0.5">
@@ -1101,7 +1101,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       type="button"
                       disabled={bridgeLive.abortRequested}
                       onClick={() => void stopBridgeSync()}
-                      className="px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors disabled:opacity-50"
+                      className="px-5 py-2.5 text-[10px] font-black uppercase tracking-widest inline-flex items-center gap-2 rounded-xl border border-app-danger/30 bg-app-danger/10 text-app-danger hover:bg-app-danger/20 transition-colors disabled:opacity-50"
                     >
                       <Square className="h-3.5 w-3.5" aria-hidden />
                       {bridgeLive.abortRequested ? "Stopping…" : "Stop Import"}
@@ -1119,8 +1119,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 </div>
 
                 {!bridgeLive.isSyncing && bridgeLive.lastRun && (
-                  <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3 mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-red-600">
+                  <div className="ui-panel ui-tint-danger p-3 mb-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
                       Post-sign-off retirement reminder
                     </p>
                     <p className="mt-1 text-xs text-app-text-muted">
@@ -1133,23 +1133,23 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                 {/* Summary stats */}
 	                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-	                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+	                  <div className="ui-metric-cell ui-tint-info p-3 text-center">
 	                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Bridge Rows Last Run</p>
 	                    <p className="text-lg font-black text-app-accent tabular-nums">{fmtNum(bridgeLive.totalRecordsLastRun || 0)}</p>
 	                  </div>
-                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                  <div className="ui-metric-cell ui-tint-neutral p-3 text-center">
                     <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Duration</p>
                     <p className="text-lg font-black text-app-text tabular-nums">{fmtDuration(bridgeLive.lastRunDurationMs)}</p>
                   </div>
-                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                  <div className="ui-metric-cell ui-tint-success p-3 text-center">
                     <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Entities OK</p>
-                    <p className="text-lg font-black text-emerald-500 tabular-nums">
+                    <p className="text-lg font-black text-app-success tabular-nums">
                       {Object.values(bridgeLive.entityStats || {}).filter(s => s.lastSync && !s.error).length}
                     </p>
                   </div>
-                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+                  <div className="ui-metric-cell ui-tint-danger p-3 text-center">
                     <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Errors</p>
-                    <p className={`text-lg font-black tabular-nums ${Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length ? "text-red-500" : "text-app-text-muted"}`}>
+                    <p className={`text-lg font-black tabular-nums ${Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length ? "text-app-danger" : "text-app-text-muted"}`}>
                       {Object.values(bridgeLive.entityStats || {}).filter(s => s.error).length}
                     </p>
                   </div>
@@ -1158,8 +1158,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
               {migrationPreflight && (
                 <>
-                  <div className="rounded-xl border border-orange-500/30 bg-orange-500/10 p-4 mb-4">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-orange-700 dark:text-orange-200">
+                  <div className="ui-panel ui-tint-warning p-4 mb-4">
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
                       One-time migration mode
                     </p>
                     <p className="text-xs text-app-text mt-2 leading-relaxed">
@@ -1425,8 +1425,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
 
                     <div className="mt-4 space-y-2 text-xs">
                       {signoffBlockers.length > 0 ? (
-                        <div className="rounded-lg border border-red-500/20 bg-red-500/5 p-3">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-red-600">
+                        <div className="ui-metric-cell ui-tint-danger p-3">
+                          <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
                             Sign-off blockers
                           </p>
                           <div className="mt-2 space-y-1 text-app-text-muted">
@@ -1436,8 +1436,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           </div>
                         </div>
                       ) : (
-	                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-	                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+	                      <div className="ui-metric-cell ui-tint-success p-3">
+	                        <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
 	                          No automatic blockers detected
 	                        </p>
 	                        <p className="mt-2 text-app-text-muted">
@@ -1449,8 +1449,8 @@ export default function CounterpointSyncSettingsPanel(props?: {
 	                      </div>
                       )}
 
-                      <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
-                        <p className="text-[10px] font-black uppercase tracking-widest text-amber-700 dark:text-amber-300">
+                      <div className="ui-metric-cell ui-tint-warning p-3">
+                        <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
                           Limits and caveats
                         </p>
                         <div className="mt-2 space-y-1 text-app-text-muted">

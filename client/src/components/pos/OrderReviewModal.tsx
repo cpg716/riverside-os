@@ -197,7 +197,7 @@ export default function OrderReviewModal({
                 onClick={() => setIsRush(!isRush)}
                 className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-3 text-sm font-bold transition-colors ${
                   isRush
-                    ? "border-red-500/50 bg-red-500/15 text-red-600"
+                    ? "border-app-danger/50 bg-app-danger/15 text-app-danger"
                     : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-border"
                 }`}
               >
@@ -213,7 +213,7 @@ export default function OrderReviewModal({
                 }}
                 className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-3 text-sm font-bold transition-colors ${
                   needByDate
-                    ? "border-amber-500/50 bg-amber-500/15 text-amber-600"
+                    ? "border-app-warning/50 bg-app-warning/15 text-app-warning"
                     : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-border"
                 }`}
               >
@@ -233,7 +233,7 @@ export default function OrderReviewModal({
                 onClick={() => setFulfillment("pickup")}
                 className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-3 text-sm font-bold transition-colors ${
                   fulfillment === "pickup"
-                    ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-600"
+                    ? "border-app-success/50 bg-app-success/15 text-app-success"
                     : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-border"
                 }`}
               >
@@ -246,7 +246,7 @@ export default function OrderReviewModal({
                 onClick={() => setFulfillment("ship")}
                 className={`flex flex-1 items-center justify-center gap-2 rounded-xl border py-3 text-sm font-bold transition-colors ${
                   fulfillment === "ship"
-                    ? "border-blue-500/50 bg-blue-500/15 text-blue-600"
+                    ? "border-app-info/50 bg-app-info/15 text-app-info"
                     : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-border"
                 }`}
               >
@@ -257,7 +257,7 @@ export default function OrderReviewModal({
 
             {/* Shipping Address Form */}
             {fulfillment === "ship" && (
-              <div className="mt-4 rounded-xl border border-app-border bg-app-surface-2 p-4 space-y-3">
+              <div className="ui-panel ui-tint-info mt-4 p-4 space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-wider text-app-text-muted">Shipping Address</h4>
                 
                 <input
@@ -308,7 +308,7 @@ export default function OrderReviewModal({
                     type="checkbox"
                     checked={saveCardForBalance}
                     onChange={(e) => setSaveCardForBalance(e.target.checked)}
-                    className="h-5 w-5 rounded border-app-border accent-emerald-500"
+                    className="h-5 w-5 rounded border-app-border accent-app-success"
                   />
                   <div className="flex-1">
                     <p className="text-sm font-bold text-app-text">Save card for balance + shipping</p>
@@ -326,7 +326,7 @@ export default function OrderReviewModal({
                         onClick={() => setSelectedCardId(card.stripe_payment_method_id)}
                         className={`flex w-full items-center gap-3 rounded-lg border p-3 text-left transition-colors ${
                           selectedCardId === card.stripe_payment_method_id
-                            ? "border-emerald-500 bg-emerald-500/10"
+                            ? "border-app-success bg-app-success/10"
                             : "border-app-border bg-app-surface hover:border-app-border/80"
                         }`}
                       >
@@ -338,7 +338,7 @@ export default function OrderReviewModal({
                           <p className="text-xs text-app-text-muted">•••• {card.last4}</p>
                         </div>
                         {selectedCardId === card.stripe_payment_method_id && (
-                          <Check size={18} className="text-emerald-500" />
+                          <Check size={18} className="text-app-success" />
                         )}
                       </button>
                     ))}

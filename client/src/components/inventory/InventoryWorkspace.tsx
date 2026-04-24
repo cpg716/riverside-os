@@ -47,28 +47,28 @@ interface InventoryWorkspaceProps {
 
 const SECTION_META: Record<InventorySection, { title: string; subtitle: string }> = {
   list: {
-    title: "Inventory Control",
-    subtitle: "High-density catalog discovery and multi-variant stock control.",
+    title: "Inventory List",
+    subtitle: "Look up items, review stock, and open product details.",
   },
   purchase_orders: {
     title: "Purchase Orders",
-    subtitle: "Manage supplier procurement, draft orders, and tracking.",
+    subtitle: "Build vendor orders, add invoice lines, and send items to receiving.",
   },
   receiving: {
-    title: "Receiving Bay",
-    subtitle: "Receive submitted purchase orders and direct invoices into inventory.",
+    title: "Receive Stock",
+    subtitle: "Post received items from submitted purchase orders or direct vendor invoices.",
   },
   vendors: {
-    title: "Vendor Manager",
-    subtitle: "Consolidate suppliers, manage brands, and merge duplicates.",
+    title: "Vendors",
+    subtitle: "Create, update, and clean up vendor records used for ordering and receiving.",
   },
   add: {
-    title: "Add Inventory",
-    subtitle: "Onboard new product templates and generate base SKUs.",
+    title: "Add Item",
+    subtitle: "Create a new item and its sellable SKUs.",
   },
   categories: {
     title: "Categories",
-    subtitle: "Organize taxonomy, tax rules, and web-branch mapping.",
+    subtitle: "Organize item groups, tax rules, and default size or color options.",
   },
   discount_events: {
     title: "Promotions",
@@ -88,11 +88,11 @@ const SECTION_META: Record<InventorySection, { title: string; subtitle: string }
   },
   rtv: {
     title: "Return to Vendor",
-    subtitle: "Track inventory egress for credits and supplier claims.",
+    subtitle: "Track stock sent back for vendor credits and claims.",
   },
   intelligence: {
-    title: "Inventory Brain v2",
-    subtitle: "AI-driven stock-out predictions and replenishment guidance.",
+    title: "Stock Guidance",
+    subtitle: "Review reorder and markdown suggestions with plain-language reasons.",
   },
 };
 
@@ -212,7 +212,7 @@ export default function InventoryWorkspace({
                   icon={INVENTORY_ICON}
                 />
                 <DashboardStatsCard
-                  title="Suppliers"
+                  title="Vendors"
                   value={globalStats.active_vendors.toString()}
                   icon={VENDOR_ICON}
                   color="purple"
@@ -242,29 +242,40 @@ export default function InventoryWorkspace({
             </div>
           )}
           {!isPosSurface && section === "receiving" && (
-            <div className="flex flex-col items-center justify-center p-12 py-24 animate-in zoom-in-95 duration-1000">
-              <div className="relative group max-w-2xl w-full p-16 rounded-[40px] border-2 border-app-border bg-app-surface shadow-2xl text-center space-y-10 overflow-hidden">
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-32 w-32 rounded-3xl bg-app-bg border-4 border-app-border shadow-3xl text-app-accent flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-700">
-                  <SHIPPING_ICON size={48} strokeWidth={2.5} />
-                  <div className="absolute inset-0 bg-app-accent/20 rounded-[32px] blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
+            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+              <div className="rounded-[28px] border border-app-border bg-app-surface p-6 shadow-sm">
+                <div className="flex flex-wrap items-start justify-between gap-4">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-app-surface-2 text-app-accent">
+                      <SHIPPING_ICON size={24} strokeWidth={2.5} />
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                        Receive Stock
+                      </p>
+                      <h3 className="mt-1 text-xl font-black tracking-tight text-app-text">
+                        Start with the vendor paperwork in hand.
+                      </h3>
+                      <p className="mt-2 max-w-3xl text-sm font-semibold leading-relaxed text-app-text-muted">
+                        Pick an existing purchase order, or create a direct invoice when
+                        merchandise arrived without a pre-built order. Standard purchase
+                        orders still need to be submitted before stock can be posted.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSection("purchase_orders")}
+                    className="inline-flex h-11 items-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+                  >
+                    Purchase Orders <ArrowUpRight size={14} strokeWidth={3} />
+                  </button>
                 </div>
-                
-                <div className="space-y-4">
-                  <p className="text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 italic">Logistics Protocols</p>
-                  <h3 className="text-4xl font-black italic tracking-tighter text-app-text uppercase leading-none">Standalone Ingress Offline</h3>
-                  <div className="h-1.5 w-20 bg-app-accent mx-auto rounded-full" />
-                  <p className="text-sm font-semibold text-app-text-muted leading-relaxed uppercase tracking-[0.15em] opacity-60 px-6">
-                    Registry integrity requires a procurement baseline. Please enter the Procurement Hub to authorize an inbound shipment.
-                  </p>
-                </div>
-
-                <button 
-                  onClick={() => setSection("purchase_orders")}
-                  className="group relative flex h-20 w-full items-center justify-center gap-6 bg-app-accent border-b-4 border-app-accent/60 rounded-[30px] px-12 text-[12px] font-black uppercase tracking-[0.3em] text-white shadow-xl hover:brightness-110 active:translate-y-1 active:border-b-0 transition-all italic"
-                >
-                  Enter Procurement Hub <ArrowUpRight size={24} strokeWidth={3} className="group-hover:translate-x-1 group-hover:-translate-y-1 transition-transform" />
-                </button>
               </div>
+              <PurchaseOrderPanel
+                initialPoId={procurementDeepLinkPoId ?? null}
+                onInitialPoConsumed={onProcurementDeepLinkConsumed}
+              />
             </div>
           )}
           

@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
-import { Building2, Clock3, Package, Plus, Search, Trash2, Wallet, ShieldCheck, Merge, TrendingUp } from "lucide-react";
+import { Building2, Clock3, Edit3, Package, Plus, Search, Trash2, Wallet, ShieldCheck, Merge, TrendingUp } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -42,6 +42,24 @@ interface VendorBrandRow {
   created_at: string;
 }
 
+interface VendorFormState {
+  name: string;
+  email: string;
+  phone: string;
+  account_number: string;
+  payment_terms: string;
+  vendor_code: string;
+}
+
+const EMPTY_VENDOR_FORM: VendorFormState = {
+  name: "",
+  email: "",
+  phone: "",
+  account_number: "",
+  payment_terms: "",
+  vendor_code: "",
+};
+
 function formatMoney(v: string): string {
   return formatUsdFromCents(parseMoneyToCents(v));
 }
@@ -57,6 +75,10 @@ export default function VendorHub() {
   const [brandInput, setBrandInput] = useState("");
   const [loadErr, setLoadErr] = useState<string | null>(null);
   const [vendorSearch, setVendorSearch] = useState("");
+  const [vendorForm, setVendorForm] = useState<VendorFormState>(EMPTY_VENDOR_FORM);
+  const [editingVendorId, setEditingVendorId] = useState<string | null>(null);
+  const [showVendorForm, setShowVendorForm] = useState(false);
+  const [savingVendor, setSavingVendor] = useState(false);
 
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deletingBrandId, setDeletingBrandId] = useState<string | null>(null);
@@ -65,26 +87,30 @@ export default function VendorHub() {
   const [sourceVendorId, setSourceVendorId] = useState("");
   const [merging, setMerging] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
+  const refreshVendors = useCallback(async (preferredVendorId?: string) => {
       const res = await fetch(apiUrl(baseUrl, "/api/vendors"), {
         headers: backofficeHeaders() as Record<string, string>,
       });
-      if (!res.ok || cancelled) {
-        if (!cancelled) setVendors([]);
+      if (!res.ok) {
+        setVendors([]);
         return;
       }
       const data = (await res.json()) as Vendor[];
       const list = Array.isArray(data) ? data : [];
-      if (cancelled) return;
       setVendors(list);
-      setVendorId((cur) => cur || list[0]?.id || "");
+      setVendorId((cur) => preferredVendorId || cur || list[0]?.id || "");
+  }, [baseUrl, backofficeHeaders]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      if (cancelled) return;
+      await refreshVendors();
     })();
     return () => {
       cancelled = true;
     };
-  }, [baseUrl, backofficeHeaders]);
+  }, [refreshVendors]);
 
   const loadHub = useCallback(async () => {
     if (!vendorId) return;
@@ -201,6 +227,76 @@ export default function VendorHub() {
     }
   };
 
+  const openCreateVendor = () => {
+    setEditingVendorId(null);
+    setVendorForm(EMPTY_VENDOR_FORM);
+    setShowVendorForm(true);
+  };
+
+  const openEditVendor = () => {
+    const vendor = vendors.find((v) => v.id === vendorId);
+    if (!vendor) return;
+    setEditingVendorId(vendor.id);
+    setVendorForm({
+      name: vendor.name ?? "",
+      email: vendor.email ?? "",
+      phone: vendor.phone ?? "",
+      account_number: vendor.account_number ?? "",
+      payment_terms: vendor.payment_terms ?? "",
+      vendor_code: vendor.vendor_code ?? "",
+    });
+    setShowVendorForm(true);
+  };
+
+  const saveVendor = async () => {
+    const name = vendorForm.name.trim();
+    if (!name) {
+      toast("Enter a vendor name first.", "info");
+      return;
+    }
+
+    setSavingVendor(true);
+    try {
+      const payload = {
+        name,
+        email: vendorForm.email.trim() || null,
+        phone: vendorForm.phone.trim() || null,
+        account_number: vendorForm.account_number.trim() || null,
+        payment_terms: vendorForm.payment_terms.trim() || null,
+        vendor_code: vendorForm.vendor_code.trim() || null,
+      };
+      const res = await fetch(
+        editingVendorId
+          ? apiUrl(baseUrl, `/api/vendors/${editingVendorId}`)
+          : apiUrl(baseUrl, "/api/vendors"),
+        {
+          method: editingVendorId ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not save vendor");
+      }
+      const saved = (await res.json()) as Vendor;
+      toast(editingVendorId ? "Vendor updated" : "Vendor created", "success");
+      setShowVendorForm(false);
+      setEditingVendorId(null);
+      setVendorForm(EMPTY_VENDOR_FORM);
+      await refreshVendors(saved.id);
+      void loadHub();
+      void loadBrands();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Could not save vendor", "error");
+    } finally {
+      setSavingVendor(false);
+    }
+  };
+
   const leadLabel =
     hub?.avg_lead_time_days != null && Number.isFinite(hub.avg_lead_time_days)
       ? `${hub.avg_lead_time_days.toFixed(1)} days (submit → first receipt)`
@@ -255,6 +351,19 @@ export default function VendorHub() {
                 ))
             )}
           </select>
+          <button
+            onClick={openCreateVendor}
+            className="flex h-10 items-center gap-2 rounded-xl bg-app-accent px-4 text-[10px] font-black uppercase tracking-widest text-white shadow-sm transition-all hover:brightness-110 active:scale-95"
+          >
+            <Plus size={14} /> New Vendor
+          </button>
+          <button
+            onClick={openEditVendor}
+            disabled={!vendorId}
+            className="flex h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent disabled:opacity-40 transition-all active:scale-95 shadow-sm"
+          >
+            <Edit3 size={14} /> Edit
+          </button>
           <button
             onClick={() => setShowMergeModal(true)}
             className="flex h-10 items-center gap-2 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-accent hover:text-app-accent transition-all active:scale-95 shadow-sm"
@@ -324,15 +433,15 @@ export default function VendorHub() {
       )}
 
       <DashboardGridCard 
-        title="Brand Portfolio"
-        subtitle={`${brands.length} active links`}
+        title="Optional Brand Links"
+        subtitle={`${brands.length} brand link${brands.length === 1 ? "" : "s"}`}
         icon={TrendingUp}
       >
         <div className="flex flex-wrap gap-3 mb-6">
           <input
             value={brandInput}
             onChange={(e) => setBrandInput(e.target.value)}
-            placeholder="Link a brand name..."
+            placeholder="Optional brand name..."
             className="flex-1 h-12 bg-app-surface shadow-inner border border-app-border rounded-2xl px-6 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 focus:border-app-accent transition-all"
           />
           <button
@@ -340,14 +449,14 @@ export default function VendorHub() {
             onClick={() => void addBrand()}
             className="flex items-center gap-2 rounded-2xl bg-app-accent px-8 py-2 text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 transition-all active:scale-95"
           >
-            <Plus size={14} /> Link Brand
+            <Plus size={14} /> Add Brand
           </button>
         </div>
         <div className="rounded-[28px] border border-app-border/40 bg-app-bg/10 overflow-hidden backdrop-blur-md">
           <ul className="divide-y divide-app-border/40">
             {brands.length === 0 ? (
               <li className="px-6 py-8 text-xs font-bold text-app-text-muted opacity-40 text-center uppercase tracking-widest">
-                No linked brands yet.
+                No optional brand links yet.
               </li>
             ) : (
               brands.map((b) => (
@@ -377,7 +486,7 @@ export default function VendorHub() {
       <ConfirmationModal
         isOpen={showDeleteConfirm}
         title="Remove Brand Link?"
-        message="Are you sure you want to remove this brand from the vendor portfolio? This action cannot be undone."
+        message="Remove this optional brand link from the vendor? This does not delete products or purchase orders."
         confirmLabel="Remove Link"
         variant="danger"
         onConfirm={() => void handleConfirmDelete()}
@@ -451,6 +560,68 @@ export default function VendorHub() {
                    {merging ? 'Merging...' : 'Execute Merge'}
                  </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showVendorForm && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
+          <div className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-300">
+            <div className="border-b border-app-border bg-app-surface-2 px-8 py-6">
+              <h3 className="text-xl font-black tracking-tight text-app-text">
+                {editingVendorId ? "Edit Vendor" : "New Vendor"}
+              </h3>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                Vendor name is required. Codes, account numbers, and terms are optional but help receiving and integrations stay clear.
+              </p>
+            </div>
+            <div className="grid gap-4 p-8 sm:grid-cols-2">
+              {[
+                ["name", "Vendor Name", "e.g. Michael Kors"],
+                ["vendor_code", "Vendor Code", "Optional Counterpoint code"],
+                ["email", "Email", "orders@example.com"],
+                ["phone", "Phone", "(555) 123-4567"],
+                ["account_number", "Account Number", "Optional vendor account"],
+                ["payment_terms", "Payment Terms", "Net 30"],
+              ].map(([key, label, placeholder]) => (
+                <label key={key} className="space-y-1.5">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    {label}
+                  </span>
+                  <input
+                    value={vendorForm[key as keyof VendorFormState]}
+                    onChange={(e) =>
+                      setVendorForm((prev) => ({
+                        ...prev,
+                        [key]: e.target.value,
+                      }))
+                    }
+                    placeholder={placeholder}
+                    className="ui-input h-12 text-sm font-bold"
+                  />
+                </label>
+              ))}
+            </div>
+            <div className="flex justify-end gap-3 border-t border-app-border bg-app-surface-2 px-8 py-5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowVendorForm(false);
+                  setEditingVendorId(null);
+                }}
+                className="h-11 rounded-2xl bg-app-surface px-5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all hover:text-app-text active:scale-95"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={savingVendor || !vendorForm.name.trim()}
+                onClick={() => void saveVendor()}
+                className="h-11 rounded-2xl bg-app-accent px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 transition-all hover:brightness-110 disabled:opacity-40 active:scale-95"
+              >
+                {savingVendor ? "Saving..." : "Save Vendor"}
+              </button>
             </div>
           </div>
         </div>

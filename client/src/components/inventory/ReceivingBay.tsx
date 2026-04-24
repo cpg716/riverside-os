@@ -161,13 +161,13 @@ type ReceivingWorkflowStep = {
 const RECEIVING_WORKFLOW_STEPS: ReceivingWorkflowStep[] = [
   {
     id: "verify",
-    label: "Verify PO",
-    hint: "Confirm you opened the correct vendor invoice and scan against this PO.",
+    label: "Check paperwork",
+    hint: "Confirm this is the right vendor invoice or purchase order.",
   },
   {
     id: "count",
     label: "Count & invoice",
-    hint: "Enter receiving quantities, invoice number, and freight from the paperwork in hand.",
+    hint: "Enter received quantities, invoice number, and freight from the paperwork in hand.",
   },
   {
     id: "post",
@@ -309,7 +309,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       const idx = matchLine(sku);
       if (idx === -1) {
         playScanError();
-        showFeedback({ type: "error", message: `Not found in PO: ${sku}` });
+        showFeedback({ type: "error", message: `Not on this purchase order: ${sku}` });
         return;
       }
 
@@ -484,7 +484,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   if (!detail) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 font-sans text-sm font-bold text-white">
-        Loading purchase order…
+        Loading purchase order...
       </div>
     );
   }
@@ -660,8 +660,8 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
               </p>
               <p className="mt-1 font-semibold leading-relaxed">
                 {costAlertLines.length === 1
-                  ? "One line differs from its prior effective cost by more than 5%."
-                  : `${costAlertLines.length} lines differ from their prior effective cost by more than 5%.`}{" "}
+                    ? "One line is more than 5% different from its prior cost."
+                  : `${costAlertLines.length} lines are more than 5% different from their prior costs.`}{" "}
                 Posting will use the invoice cost shown here for receipt valuation and downstream accounting.
               </p>
               <p className="mt-2 font-semibold leading-relaxed">

@@ -176,7 +176,7 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
       onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
       className={cn(
         "group cursor-pointer transition-all duration-150 hover:bg-app-surface-2 focus-within:bg-app-surface-2",
-        isSelected ? "border-l-4 border-app-success bg-app-surface-2" : "border-l-4 border-transparent bg-app-surface"
+        isSelected ? "border-l-4 border-app-success bg-app-success/8" : "border-l-4 border-transparent"
       )}
     >
         <td className="px-6 py-4">
@@ -784,7 +784,7 @@ export default function OrdersWorkspace({
                   Open visibility into orders that still need booking details, payment follow-up, or aging review.
                 </p>
               </div>
-              <span className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 {orderIntegritySummary.visibleOrders} visible orders
               </span>
             </div>
@@ -797,7 +797,7 @@ export default function OrdersWorkspace({
               ].map(([label, value]) => (
                 <div
                   key={label}
-                  className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+                  className="ui-metric-cell px-3 py-3"
                 >
                   <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                     {label}
@@ -831,7 +831,7 @@ export default function OrdersWorkspace({
                       "rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all",
                       active
                         ? "border-app-success/20 bg-app-success/10 text-app-success"
-                        : "border-app-border bg-app-surface text-app-text-muted hover:bg-app-surface-2 hover:text-app-text",
+                        : "border-app-border bg-app-surface-3 text-app-text-muted hover:bg-app-surface hover:text-app-text",
                     )}
                     aria-pressed={active}
                   >
@@ -843,7 +843,7 @@ export default function OrdersWorkspace({
           </div>
 
           {/* Header Filters Area */}
-          <div className="flex flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-8 py-5">
+          <div className="flex flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-3 px-8 py-5">
             <div className="relative group flex-1 min-w-[300px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-disabled group-focus-within:text-app-accent transition-all" size={18} />
               <input
@@ -851,7 +851,7 @@ export default function OrdersWorkspace({
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="SEARCH ORDERS (By name, phone number, Order #, etc)"
                 
-                className="w-full h-11 rounded-xl border border-app-border bg-app-surface px-11 text-[11px] font-black uppercase tracking-wider transition-all focus:border-app-accent/40 focus:ring-4 focus:ring-app-accent/5 outline-none shadow-soft-sm"
+                className="ui-input w-full h-11 px-11 text-[11px] font-black uppercase tracking-wider shadow-sm focus:border-app-accent"
               />
             </div>
             
@@ -859,7 +859,7 @@ export default function OrdersWorkspace({
               <select
                 value={kindFilter}
                 onChange={(e) => setKindFilter(e.target.value)}
-                className="h-11 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest transition-all focus:border-app-accent/40 outline-none shadow-soft-sm hover:bg-app-bg"
+                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
               >
                 <option value="all">Kind: All</option>
                 <option value="special_order">Order</option>
@@ -869,7 +869,7 @@ export default function OrdersWorkspace({
               <select
                 value={paymentFilter}
                 onChange={(e) => setPaymentFilter(e.target.value)}
-                className="h-11 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest transition-all focus:border-app-accent/40 outline-none shadow-soft-sm hover:bg-app-bg"
+                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
               >
                 <option value="all">Payment: All</option>
                 <option value="paid">Paid</option>
@@ -879,7 +879,7 @@ export default function OrdersWorkspace({
               <select
                 value={salespersonFilter}
                 onChange={(e) => setSalespersonFilter(e.target.value)}
-                className="h-11 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest transition-all focus:border-app-accent/40 outline-none shadow-soft-sm hover:bg-app-bg"
+                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
               >
                 <option value="all">Staff: All</option>
                 {salespersonOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
@@ -902,7 +902,7 @@ export default function OrdersWorkspace({
                     setDateTo("");
                   }
                 }}
-                className="h-11 rounded-xl border border-app-border bg-app-surface px-4 text-[10px] font-black uppercase tracking-widest transition-all focus:border-app-accent/40 outline-none shadow-soft-sm hover:bg-app-bg"
+                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
               >
                 <option value="all">Date: Always</option>
                 <option value="today">Today</option>
@@ -915,7 +915,7 @@ export default function OrdersWorkspace({
           {/* Wide Table Implementation */}
           <div className="flex-1 custom-scrollbar">
             <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-2">
+              <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>

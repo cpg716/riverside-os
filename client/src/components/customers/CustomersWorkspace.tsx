@@ -922,6 +922,7 @@ export default function CustomersWorkspace({
               color: "text-app-info",
               bg: "bg-app-info/8",
               border: "border-app-info/16",
+              tint: "ui-tint-info",
             },
             {
               label: "VIP Premium",
@@ -930,6 +931,7 @@ export default function CustomersWorkspace({
               color: "text-app-warning",
               bg: "bg-app-warning/8",
               border: "border-app-warning/16",
+              tint: "ui-tint-warning",
             },
             {
               label: "Balance Recovery",
@@ -938,6 +940,7 @@ export default function CustomersWorkspace({
               color: "text-app-danger",
               bg: "bg-app-danger/8",
               border: "border-app-danger/16",
+              tint: "ui-tint-danger",
             },
             {
               label: "Occasions (30d)",
@@ -946,14 +949,15 @@ export default function CustomersWorkspace({
               color: "text-app-accent",
               bg: "bg-app-accent/8",
               border: "border-app-accent/16",
+              tint: "ui-tint-accent",
             },
           ].map((stat, i) => (
             <div
               key={i}
-              className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} bg-app-surface p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)]`}
+              className={`ui-card flex min-w-[200px] flex-1 items-center gap-4 p-4 ${stat.tint}`}
             >
               <div
-                className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-app-border/60 bg-app-surface shadow-sm"
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${stat.border} ${stat.bg} shadow-sm`}
               >
                 <stat.icon size={24} className={stat.color} />
               </div>
@@ -970,7 +974,7 @@ export default function CustomersWorkspace({
         </div>
 
         <div className="px-4 sm:px-6">
-          <div className="overflow-hidden rounded-[20px] border border-app-border bg-app-surface px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)]">
+          <div className="ui-card ui-tint-warning px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
@@ -980,7 +984,7 @@ export default function CustomersWorkspace({
                   Visible CRM rows missing the phone or email Riverside already uses for a complete customer profile.
                 </p>
               </div>
-              <span className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 {customerQualitySummary.visibleCustomers} customers in view
               </span>
             </div>
@@ -992,7 +996,7 @@ export default function CustomersWorkspace({
               ].map(([label, value]) => (
                 <div
                   key={label}
-                  className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+                  className="ui-metric-cell px-3 py-3"
                 >
                   <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                     {label}
@@ -1007,7 +1011,7 @@ export default function CustomersWorkspace({
         </div>
 
         <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
-          <div className="flex flex-col overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_18px_36px_rgba(15,23,42,0.08),0_3px_8px_rgba(15,23,42,0.05)]">
+          <div className="ui-card flex flex-col">
             {/* Toolbar */}
             <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-5 py-4">
               <div className="relative group min-w-[300px] flex-1">
@@ -1019,7 +1023,7 @@ export default function CustomersWorkspace({
                   value={_q}
                   onChange={(e) => _setQ(e.target.value)}
                   placeholder="Search name, code, company, contact..."
-                  className="ui-input w-full border-app-border bg-app-surface pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
+                  className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
                 />
               </div>
 
@@ -1084,7 +1088,7 @@ export default function CustomersWorkspace({
             </div>
 
             {/* Filter Row */}
-            <div className="flex shrink-0 items-center justify-between border-b border-app-border/50 bg-app-surface-2/70 px-5 py-2.5 backdrop-blur-sm">
+            <div className="flex shrink-0 items-center justify-between border-b border-app-border bg-app-surface-3 px-5 py-2.5">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">
                   Quick Filters
@@ -1163,7 +1167,7 @@ export default function CustomersWorkspace({
             >
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-app-surface-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors">
+                  <tr className="bg-app-surface-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors">
                     <th className="w-12 px-5 py-4 border-b border-app-border">
                       <input
                         type="checkbox"
@@ -1204,7 +1208,7 @@ export default function CustomersWorkspace({
                     return (
                       <tr
                         key={r.id}
-                        className={`group transition-all hover:bg-app-accent/[0.03] ${selected.has(r.id) ? "bg-app-accent/[0.04]" : ""}`}
+                        className={`group transition-all hover:bg-app-accent/[0.04] ${selected.has(r.id) ? "bg-app-accent/[0.08]" : ""}`}
                       >
                         <td className="px-5 py-4 align-middle">
                           <input
@@ -2081,27 +2085,27 @@ function AddCustomerDrawer({
           onSubmit={(e) => void handleSubmit(e)}
         >
           {err ? (
-            <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-600">
+            <p className="rounded-lg border border-app-danger/20 bg-app-danger/10 px-3 py-2 text-sm font-semibold text-app-danger">
               {err}
             </p>
           ) : null}
 
           {(dupLoading || dupCandidates.length > 0) && (
             <div
-              className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-3"
+              className="ui-panel ui-tint-warning px-3 py-3"
               data-testid="crm-duplicate-candidates"
             >
-              <p className="text-[10px] font-black uppercase tracking-widest text-amber-900">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-warning">
                 Possible existing customers
               </p>
               {dupLoading ? (
-                <p className="mt-2 text-xs text-amber-800">Checking…</p>
+                <p className="mt-2 text-xs text-app-text-muted">Checking…</p>
               ) : (
-                <ul className="mt-2 space-y-2 text-xs text-amber-950">
+                <ul className="mt-2 space-y-2 text-xs text-app-text">
                   {dupCandidates.map((c) => (
                     <li
                       key={c.id}
-                      className="rounded-lg border border-amber-200/80 bg-app-surface/90 px-2 py-1.5 dark:border-amber-800/50 dark:bg-app-surface-2/80"
+                      className="ui-metric-cell ui-tint-neutral px-2 py-1.5"
                     >
                       <span className="font-mono font-bold">
                         {c.customer_code}
@@ -2110,11 +2114,11 @@ function AddCustomerDrawer({
                       {[c.first_name, c.last_name].filter(Boolean).join(" ") ||
                         "(no name)"}
                       {c.email ? (
-                        <span className="block text-[10px] text-amber-800">
+                        <span className="block text-[10px] text-app-text-muted">
                           {c.email}
                         </span>
                       ) : null}
-                      <span className="block text-[10px] font-semibold uppercase tracking-tight text-amber-700">
+                      <span className="block text-[10px] font-semibold uppercase tracking-tight text-app-warning">
                         {c.match_reason.replace(/_/g, " ")}
                       </span>
                     </li>
@@ -2122,7 +2126,7 @@ function AddCustomerDrawer({
                 </ul>
               )}
               {!dupLoading && dupCandidates.length > 0 ? (
-                <p className="mt-2 text-[10px] font-semibold text-amber-900">
+                <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
                   Open an existing profile in Customers if this is the same
                   person; merge tools live under customer admin when you have
                   access.

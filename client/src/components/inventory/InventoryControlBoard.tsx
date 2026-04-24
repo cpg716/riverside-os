@@ -1231,13 +1231,13 @@ export default function InventoryControlBoard({
               value={searchInput}
               onChange={(e) => setSearchInput(e.target.value)}
               placeholder="Search product, SKU, or variation..."
-              className="ui-input h-12 w-full rounded-2xl border-app-border/70 bg-app-surface pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/60 shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
+              className="ui-input ui-tint-info h-12 w-full rounded-2xl border-app-border/70 pl-12 pr-4 text-sm font-semibold placeholder:text-app-text-muted/60 shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
               aria-busy={boardRefreshing}
             />
           </div>
           {!isPosSurface ? (
             <div className="flex shrink-0 items-center gap-2">
-              <div className="flex items-center gap-1 rounded-2xl border border-app-border/70 bg-app-surface p-1 shadow-sm">
+              <div className="flex items-center gap-1 rounded-2xl border border-app-border/70 bg-app-surface-2 p-1 shadow-sm">
                 <button
                   type="button"
                   onClick={() => setGroupByPrimaryVendor(!groupByPrimaryVendor)}
@@ -1258,7 +1258,7 @@ export default function InventoryControlBoard({
           <select
             value={vendorId}
             onChange={(e) => setVendorId(e.target.value)}
-            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 bg-app-surface px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
+            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
           >
             <option value="">All vendors</option>
             {vendors.map((vendor) => (
@@ -1273,7 +1273,7 @@ export default function InventoryControlBoard({
               setQuickPick(null);
               setCategoryId(e.target.value);
             }}
-            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 bg-app-surface px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
+            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
           >
             <option value="">All categories</option>
             {categories.map((category) => (
@@ -1317,8 +1317,8 @@ export default function InventoryControlBoard({
                 onClick={() => toggleQuickPick(id as NonNullable<QuickPick>)}
                 className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
                   quickPick === id
-                    ? "border-violet-500 bg-violet-600 text-white shadow-lg shadow-violet-600/20"
-                    : "border-app-border bg-app-surface text-app-text-muted hover:border-app-input-border"
+                    ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
+                    : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border hover:bg-app-surface"
                 }`}
               >
                 {label}
@@ -1364,7 +1364,7 @@ export default function InventoryControlBoard({
           )}
         </div>
 
-        <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-4 shadow-sm">
+        <div className="ui-card ui-tint-warning px-4 py-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
@@ -1374,7 +1374,7 @@ export default function InventoryControlBoard({
                 Visible templates missing core catalog identity fields in the current inventory view.
               </p>
             </div>
-            <span className="rounded-full border border-app-border bg-app-surface px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               {catalogQualitySummary.templatesVisible} templates visible
             </span>
           </div>
@@ -1386,7 +1386,7 @@ export default function InventoryControlBoard({
             ].map(([label, value]) => (
               <div
                 key={label}
-                className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+                className="ui-metric-cell ui-tint-neutral px-3 py-3"
               >
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                   {label}
@@ -1400,7 +1400,7 @@ export default function InventoryControlBoard({
         </div>
       </div>
 
-      <div className="flex flex-col overflow-hidden rounded-[28px] border border-app-border bg-app-surface shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
+      <div className="ui-card ui-tint-neutral flex flex-col">
         <div 
           className="min-w-[1000px] outline-none"
           onFocus={() => setTableFocus(true)}
@@ -1453,7 +1453,7 @@ export default function InventoryControlBoard({
                   type="button"
                   disabled={boardLoadingMore}
                   onClick={() => void loadMoreBoard()}
-                  className="rounded-2xl border border-app-border bg-app-surface px-10 py-4 text-xs font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:shadow-2xl active:scale-95 disabled:opacity-50 shadow-xl"
+                  className="rounded-2xl border border-app-border bg-app-surface px-10 py-4 text-xs font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:bg-app-surface-2 hover:shadow-2xl active:scale-95 disabled:opacity-50 shadow-xl"
                 >
                   {boardLoadingMore ? "Loading Inventory..." : "Load More Inventory"}
                 </button>

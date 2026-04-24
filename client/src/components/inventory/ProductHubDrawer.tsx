@@ -466,7 +466,7 @@ export default function ProductHubDrawer({
       {hub?.product?.nuorder_product_id && (
         <>
           <span className="text-app-text-muted/30">·</span>
-          <span className="inline-flex items-center gap-1 text-indigo-600 dark:text-indigo-400 font-black uppercase tracking-widest text-[10px]">
+          <span className="inline-flex items-center gap-1 text-app-info font-black uppercase tracking-widest text-[10px]">
             <ShoppingBag size={10} /> NuORDER {hub.product?.nuorder_product_id}
           </span>
         </>
@@ -568,7 +568,7 @@ export default function ProductHubDrawer({
                   In stock: {totalStock} units
                 </span>
                 {hub.product.is_clothing_footwear ? (
-                  <span className="rounded-lg bg-emerald-50 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                  <span className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
                     Clothing / footwear tax class
                   </span>
                 ) : null}
@@ -595,7 +595,7 @@ export default function ProductHubDrawer({
                 </div>
               </label>
 
-              <section className="rounded-2xl border border-app-border bg-app-surface p-4">
+              <section className="ui-panel ui-tint-info p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
@@ -606,7 +606,7 @@ export default function ProductHubDrawer({
                       promised to open orders and are not available for walk-in sale.
                     </p>
                   </div>
-                  <div className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2 text-right">
+                  <div className="ui-metric-cell ui-tint-neutral px-3 py-2 text-right">
                     <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                       Last physical count
                     </p>
@@ -617,7 +617,7 @@ export default function ProductHubDrawer({
                 </div>
 
                 <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                  <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                       On hand
                     </p>
@@ -625,7 +625,7 @@ export default function ProductHubDrawer({
                       {hub.stats.total_units_on_hand}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                  <div className="ui-metric-cell ui-tint-warning px-4 py-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                       Reserved in store
                     </p>
@@ -633,7 +633,7 @@ export default function ProductHubDrawer({
                       {hub.stats.total_reserved_units}
                     </p>
                   </div>
-                  <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                  <div className="ui-metric-cell ui-tint-success px-4 py-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                       Available now
                     </p>
@@ -642,7 +642,7 @@ export default function ProductHubDrawer({
                     </p>
                   </div>
                   {hub.can_view_procurement ? (
-                    <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
+                    <div className="ui-metric-cell ui-tint-info px-4 py-3">
                       <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                         On order
                       </p>
@@ -653,7 +653,7 @@ export default function ProductHubDrawer({
                   ) : null}
                 </div>
 
-                <div className="mt-3 rounded-2xl border border-app-border bg-app-surface-2/70 px-4 py-3">
+                <div className="ui-panel ui-tint-neutral mt-3 px-4 py-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                     How inventory rules work
                   </p>
@@ -771,7 +771,7 @@ export default function ProductHubDrawer({
                 ].map(([k, v]) => (
                   <div
                     key={k}
-                    className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3"
+                    className="ui-metric-cell ui-tint-neutral px-4 py-3"
                   >
                     <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                       {k}
@@ -792,7 +792,7 @@ export default function ProductHubDrawer({
                 ))}
               </div>
 
-              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <section className="ui-panel ui-tint-neutral p-5">
                 <h3 className="mb-1 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                   Employee sale price
                 </h3>
@@ -868,7 +868,7 @@ export default function ProductHubDrawer({
                 </div>
               </section>
 
-              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <section className="ui-panel ui-tint-accent p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
@@ -890,7 +890,7 @@ export default function ProductHubDrawer({
                 </div>
 
                 {catalogAnalysisError ? (
-                  <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  <div className="ui-panel ui-tint-warning mt-4 px-4 py-3 text-sm text-app-text">
                     {catalogAnalysisError}
                   </div>
                 ) : null}
@@ -911,7 +911,7 @@ export default function ProductHubDrawer({
                         {parsedCatalogFields.map(([label, value]) => (
                           <div
                             key={label}
-                            className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                            className="ui-metric-cell ui-tint-neutral px-3 py-2"
                           >
                             <dt className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                               {label}
@@ -936,7 +936,7 @@ export default function ProductHubDrawer({
                           {catalogAnalysis.issues_detected.map((issue) => (
                             <li
                               key={issue}
-                              className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                              className="ui-metric-cell ui-tint-warning px-3 py-2"
                             >
                               {issue}
                             </li>
@@ -966,7 +966,7 @@ export default function ProductHubDrawer({
                 ) : null}
               </section>
 
-              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <section className="ui-panel ui-tint-accent p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
@@ -988,7 +988,7 @@ export default function ProductHubDrawer({
                 </div>
 
                 {catalogSuggestionError ? (
-                  <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                  <div className="ui-panel ui-tint-warning mt-4 px-4 py-3 text-sm text-app-text">
                     {catalogSuggestionError}
                   </div>
                 ) : null}
@@ -1003,7 +1003,7 @@ export default function ProductHubDrawer({
                     </div>
 
                     <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-xl border border-app-border bg-app-surface-2/80 px-4 py-3">
+                      <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
                         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                           Current parent title
                         </p>
@@ -1019,7 +1019,7 @@ export default function ProductHubDrawer({
                         </p>
                       </div>
 
-                      <div className="rounded-xl border border-emerald-500/20 bg-emerald-500/5 px-4 py-3">
+                      <div className="ui-metric-cell ui-tint-success px-4 py-3">
                         <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                           Suggested parent title
                         </p>

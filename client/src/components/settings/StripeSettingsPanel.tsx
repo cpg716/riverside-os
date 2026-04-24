@@ -110,69 +110,69 @@ const StripeSettingsPanel: React.FC = () => {
 
       {/* Summary Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="ui-card p-6 border-emerald-500/20 bg-emerald-500/5 relative overflow-hidden group">
-          <TrendingUp className="absolute -bottom-4 -right-4 h-24 w-24 text-emerald-500 opacity-[0.05] pointer-events-none" />
+        <div className="ui-card ui-tint-success group relative overflow-hidden p-6">
+          <TrendingUp className="absolute -bottom-4 -right-4 h-24 w-24 text-app-success opacity-[0.05] pointer-events-none" />
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-emerald-500 text-white">
+            <div className="p-2 rounded-lg bg-app-success text-white">
               <DollarSign size={16} strokeWidth={3} />
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-emerald-800">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-success">
               Gross Processed
             </span>
           </div>
-          <p className="text-3xl font-black tabular-nums text-emerald-900 tracking-tighter">
+          <p className="text-3xl font-black tabular-nums text-app-text tracking-tighter">
             ${data?.total_processed || "0.00"}
           </p>
-          <p className="text-[9px] font-bold uppercase text-emerald-700/60 mt-2">
+          <p className="text-[9px] font-bold uppercase text-app-text-muted mt-2">
             Cumulative merchant volume
           </p>
         </div>
 
-        <div className="ui-card p-6 border-red-500/20 bg-red-500/5 relative overflow-hidden group">
-          <Percent className="absolute -bottom-4 -right-4 h-24 w-24 text-red-500 opacity-[0.05] pointer-events-none" />
+        <div className="ui-card ui-tint-danger group relative overflow-hidden p-6">
+          <Percent className="absolute -bottom-4 -right-4 h-24 w-24 text-app-danger opacity-[0.05] pointer-events-none" />
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-red-500 text-white">
+            <div className="p-2 rounded-lg bg-app-danger text-white">
               <Percent size={16} strokeWidth={3} />
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-red-800">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-danger">
               Merchant Fees
             </span>
           </div>
-          <p className="text-3xl font-black tabular-nums text-red-900 tracking-tighter">
+          <p className="text-3xl font-black tabular-nums text-app-text tracking-tighter">
             ${data?.total_fees || "0.00"}
           </p>
-          <p className="text-[9px] font-bold uppercase text-red-700/60 mt-2">
+          <p className="text-[9px] font-bold uppercase text-app-text-muted mt-2">
             Automated fee reconciliation
           </p>
         </div>
 
-        <div className="ui-card p-6 border-indigo-500/20 bg-indigo-500/5 relative overflow-hidden group">
-          <Zap className="absolute -bottom-4 -right-4 h-24 w-24 text-indigo-500 opacity-[0.05] pointer-events-none" />
+        <div className="ui-card ui-tint-info group relative overflow-hidden p-6">
+          <Zap className="absolute -bottom-4 -right-4 h-24 w-24 text-app-info opacity-[0.05] pointer-events-none" />
           <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 rounded-lg bg-indigo-500 text-white">
+            <div className="p-2 rounded-lg bg-app-info text-white">
               <Shield size={16} strokeWidth={3} />
             </div>
-            <span className="text-[10px] font-black uppercase tracking-widest text-indigo-800">
+            <span className="text-[10px] font-black uppercase tracking-widest text-app-info">
               Net Settled
             </span>
           </div>
-          <p className="text-3xl font-black tabular-nums text-indigo-900 tracking-tighter">
+          <p className="text-3xl font-black tabular-nums text-app-text tracking-tighter">
             ${data?.net_amount || "0.00"}
           </p>
-          <p className="text-[9px] font-bold uppercase text-indigo-700/60 mt-2">
+          <p className="text-[9px] font-bold uppercase text-app-text-muted mt-2">
             Total recognized revenue
           </p>
         </div>
       </div>
 
       {/* Transaction List */}
-      <section className="ui-card overflow-hidden">
-        <div className="p-6 border-b border-app-border flex items-center justify-between bg-app-surface/30">
+      <section className="ui-card ui-tint-neutral overflow-hidden">
+        <div className="p-6 border-b border-app-border flex items-center justify-between bg-app-surface-2">
           <div className="flex items-center gap-3">
             <IntegrationBrandLogo
               brand="stripe"
               kind="icon"
-              className="inline-flex rounded-xl bg-white p-1 shadow-sm ring-1 ring-black/5"
+              className="inline-flex rounded-xl bg-app-surface p-1 shadow-sm ring-1 ring-app-border"
               imageClassName="h-6 w-6 object-contain"
             />
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
@@ -184,7 +184,7 @@ const StripeSettingsPanel: React.FC = () => {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-app-text-muted" />
               <input
                 placeholder="Filter Intents..."
-                className="h-9 w-48 pl-9 pr-4 rounded-lg bg-app-bg/50 border border-app-border text-[10px] font-black uppercase tracking-widest focus:ring-1 focus:ring-indigo-500 outline-none"
+                className="h-9 w-48 pl-9 pr-4 rounded-lg bg-app-surface border border-app-border text-[10px] font-black uppercase tracking-widest focus:ring-1 focus:ring-app-info outline-none"
               />
             </div>
           </div>
@@ -193,7 +193,7 @@ const StripeSettingsPanel: React.FC = () => {
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead>
-              <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
+              <tr className="bg-app-surface-3 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
                 <th className="px-6 py-4">Status / Date</th>
                 <th className="px-6 py-4">Method & Intent</th>
                 <th className="px-6 py-4 text-right">Gross</th>
@@ -216,13 +216,13 @@ const StripeSettingsPanel: React.FC = () => {
                 data?.transactions.map((tx) => (
                   <tr
                     key={tx.id}
-                    className="group hover:bg-app-surface/20 transition-colors"
+                    className="group hover:bg-app-surface-2/70 transition-colors"
                   >
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
                           <div
-                            className={`h-1.5 w-1.5 rounded-full ${tx.status === "success" ? "bg-emerald-500 animate-pulse shadow-[0_0_5px_#10b981]" : "bg-red-500"}`}
+                            className={`h-1.5 w-1.5 rounded-full ${tx.status === "success" ? "bg-app-success animate-pulse shadow-[0_0_5px_color-mix(in_srgb,var(--app-success)_70%,transparent)]" : "bg-app-danger"}`}
                           />
                           <span className="text-[10px] font-black uppercase text-app-text tracking-widest">
                             {tx.status}
@@ -243,7 +243,7 @@ const StripeSettingsPanel: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-0.5">
                         <div className="flex items-center gap-2">
-                          <CreditCard size={12} className="text-indigo-500" />
+                          <CreditCard size={12} className="text-app-info" />
                           <span className="text-[10px] font-black uppercase text-app-text truncate max-w-[120px]">
                             {tx.card_brand || "Standard Card"} ••••{" "}
                             {tx.card_last4 || "****"}
@@ -260,12 +260,12 @@ const StripeSettingsPanel: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <span className="text-[11px] font-bold tabular-nums text-red-600">
+                      <span className="text-[11px] font-bold tabular-nums text-app-danger">
                         -${tx.merchant_fee}
                       </span>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <span className="text-[11px] font-black tabular-nums text-emerald-700">
+                      <span className="text-[11px] font-black tabular-nums text-app-success">
                         ${tx.net_amount}
                       </span>
                     </td>
@@ -274,7 +274,7 @@ const StripeSettingsPanel: React.FC = () => {
                         href={`https://dashboard.stripe.com/payments/${tx.stripe_intent_id}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="p-2 rounded-lg hover:bg-indigo-500 hover:text-white text-app-text-muted transition-all inline-flex opacity-0 group-hover:opacity-100"
+                        className="p-2 rounded-lg hover:bg-app-info hover:text-white text-app-text-muted transition-all inline-flex opacity-0 group-hover:opacity-100"
                         title="View in Stripe Dashboard"
                       >
                         <ExternalLink size={14} />
@@ -289,7 +289,7 @@ const StripeSettingsPanel: React.FC = () => {
       </section>
 
       {/* Integration Info Section */}
-      <section className="ui-card p-10 border-indigo-500/20 bg-gradient-to-br from-indigo-500/5 to-transparent relative overflow-hidden">
+      <section className="ui-card ui-tint-info p-10 relative overflow-hidden">
         <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
           <div className="w-24 h-24 bg-[#635bff] text-white rounded-3xl flex items-center justify-center shadow-2xl shadow-indigo-600/20 ring-4 ring-indigo-500/10">
             <Shield size={40} />
@@ -306,10 +306,10 @@ const StripeSettingsPanel: React.FC = () => {
               phone orders.
             </p>
             <div className="flex flex-wrap justify-center md:justify-start gap-4 pt-2">
-              <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-indigo-600 ring-1 ring-indigo-500/20 italic">
+              <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-app-info ring-1 ring-app-info/20 italic">
                 Validated integration
               </span>
-              <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-emerald-600 ring-1 ring-emerald-500/20 italic">
+              <span className="px-3 py-1 rounded-full bg-app-surface text-[9px] font-bold uppercase tracking-widest text-app-success ring-1 ring-app-success/20 italic">
                 Auto-Reconcile active
               </span>
             </div>

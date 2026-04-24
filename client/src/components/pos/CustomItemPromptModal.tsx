@@ -261,7 +261,7 @@ export default function CustomItemPromptModal({
 
         <div className="space-y-4 p-6">
           {knownSubtype ? (
-            <div className="space-y-1.5 rounded-2xl border border-app-border bg-app-surface-2 p-4">
+            <div className="ui-panel ui-tint-accent space-y-1.5 p-4">
               <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 Custom Type
               </label>
@@ -307,7 +307,7 @@ export default function CustomItemPromptModal({
                   onClick={() => setTaxCategory(cat)}
                   className={`flex-1 rounded-lg border px-2 py-1.5 text-[9px] font-black uppercase tracking-widest transition-all ${
                     taxCategory === cat
-                      ? "border-emerald-500 bg-emerald-500/10 text-emerald-600"
+                      ? "border-app-success bg-app-success/10 text-app-success"
                       : "border-app-border bg-app-surface-2 text-app-text-muted"
                   }`}
                 >
@@ -331,7 +331,7 @@ export default function CustomItemPromptModal({
             />
           </div>
 
-          <div className="rounded-2xl border border-amber-200/70 bg-amber-50/60 p-3 text-[11px] font-semibold text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
+          <div className="ui-panel ui-tint-warning p-3 text-[11px] font-semibold text-app-text">
             Actual vendor cost is entered when the custom garment is received.
           </div>
 
@@ -349,7 +349,7 @@ export default function CustomItemPromptModal({
           </div>
 
           {knownSubtype?.vendorFormFamily === "hart_schaffner_marx" && (
-            <div className="space-y-3 rounded-2xl border border-app-border bg-app-surface-2 p-4">
+            <div className="ui-panel ui-tint-neutral space-y-3 p-4">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   HSM Form Details

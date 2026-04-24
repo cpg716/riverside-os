@@ -389,13 +389,13 @@ function readinessSummary(
 function badgeClassName(kind: "success" | "info" | "warning" | "neutral" | "rose") {
   switch (kind) {
     case "success":
-      return "border-emerald-500/20 bg-emerald-500/10 text-emerald-700";
+      return "border-app-success/20 bg-app-success/10 text-app-success";
     case "info":
-      return "border-sky-500/20 bg-sky-500/10 text-sky-700";
+      return "border-app-info/20 bg-app-info/10 text-app-info";
     case "warning":
-      return "border-amber-500/20 bg-amber-500/10 text-amber-700";
+      return "border-app-warning/20 bg-app-warning/10 text-app-warning";
     case "rose":
-      return "border-rose-500/20 bg-rose-500/10 text-rose-700";
+      return "border-app-danger/20 bg-app-danger/10 text-app-danger";
     default:
       return "border-app-border bg-app-surface-2 text-app-text-muted";
   }
@@ -454,7 +454,7 @@ function mapOrderActionButtons(
         <button
           type="button"
           onClick={orderActions.onCancel}
-          className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-rose-600"
+          className="rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-danger"
         >
           Cancel Order
         </button>
@@ -750,17 +750,17 @@ export default function TransactionDetailDrawer({
             ))}
           </div>
         ) : errorMessage ? (
-          <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 p-5 text-sm font-semibold text-rose-700">
+          <div className="ui-panel ui-tint-danger p-5 text-sm font-semibold text-app-danger">
             {errorMessage}
           </div>
         ) : !detail ? (
-          <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-6 text-sm text-app-text-muted">
+          <div className="ui-panel ui-tint-neutral p-6 text-sm text-app-text-muted">
             Order detail is unavailable.
           </div>
         ) : (
           <div className="space-y-5">
             <section className="grid gap-4 lg:grid-cols-2">
-              <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
+              <div className="ui-panel ui-tint-info p-4">
                 <div className="flex items-center gap-2">
                   <RECEIPT_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
@@ -780,7 +780,7 @@ export default function TransactionDetailDrawer({
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Balance Due
                     </p>
-                    <p className="mt-1 text-xl font-black text-amber-600">
+                    <p className="mt-1 text-xl font-black text-app-warning">
                       {fmtMoney(detail.balance_due)}
                     </p>
                   </div>
@@ -788,7 +788,7 @@ export default function TransactionDetailDrawer({
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Paid
                     </p>
-                    <p className="mt-1 text-sm font-black text-emerald-700">
+                    <p className="mt-1 text-sm font-black text-app-success">
                       {fmtMoney(detail.amount_paid)}
                     </p>
                   </div>
@@ -819,14 +819,14 @@ export default function TransactionDetailDrawer({
                     </span>
                   </div>
                   {detail.is_tax_exempt ? (
-                    <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-[11px] font-semibold text-amber-800">
+                    <div className="ui-panel ui-tint-warning p-3 text-[11px] font-semibold text-app-text">
                       Tax exempt{detail.tax_exempt_reason ? `: ${detail.tax_exempt_reason}` : ""}
                     </div>
                   ) : null}
                 </div>
               </div>
 
-              <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
+              <div className="ui-panel ui-tint-neutral p-4">
                 <div className="flex items-center gap-2">
                   <ORDERS_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
@@ -875,7 +875,7 @@ export default function TransactionDetailDrawer({
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Fulfilled
                     </p>
-                    <p className="mt-1 text-sm font-black text-emerald-700">
+                    <p className="mt-1 text-sm font-black text-app-success">
                       {summary?.fulfilled ?? 0}
                     </p>
                   </div>
@@ -883,7 +883,7 @@ export default function TransactionDetailDrawer({
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Still Open
                     </p>
-                    <p className="mt-1 text-sm font-black text-amber-700">
+                    <p className="mt-1 text-sm font-black text-app-warning">
                       {summary?.pending ?? 0}
                     </p>
                   </div>
@@ -912,7 +912,7 @@ export default function TransactionDetailDrawer({
                     </p>
                   </div>
                 </div>
-                <div className="mt-3 rounded-xl border border-sky-500/15 bg-sky-500/5 p-3">
+                <div className="ui-panel ui-tint-info mt-3 p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Mode Cue
                   </p>

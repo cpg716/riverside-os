@@ -88,7 +88,7 @@ function CategoryVariationAxisEditor({
         return;
       }
       onSaved();
-      toast("Category matrix defaults updated", "success");
+      toast("Category option defaults updated", "success");
     } finally {
       setSaving(false);
     }
@@ -101,19 +101,19 @@ function CategoryVariationAxisEditor({
     >
       <div className="flex items-center gap-2 text-app-text-muted">
          <Settings2 size={16} className="opacity-40" />
-         <span className="text-[10px] font-black uppercase tracking-widest leading-none">Matrix Defaults</span>
+         <span className="text-[10px] font-black uppercase tracking-widest leading-none">Default Options</span>
       </div>
       <div className="flex flex-1 flex-wrap gap-3">
           <input
             value={row}
             onChange={(e) => setRow(e.target.value)}
-            placeholder="Default Row Key (e.g. Size)"
+            placeholder="Default option type, e.g. Size"
             className="ui-input h-10 min-w-[160px] flex-1 text-xs font-bold"
           />
           <input
             value={col}
             onChange={(e) => setCol(e.target.value)}
-            placeholder="Default Col Key (e.g. Color)"
+            placeholder="Second option type, e.g. Color"
             className="ui-input h-10 min-w-[160px] flex-1 text-xs font-bold"
           />
       </div>
@@ -234,7 +234,7 @@ export default function CategoryManager() {
       setCreateIsClothing(false);
       setCreateMatrixRow("");
       setCreateMatrixCol("");
-      toast("Category added to global registry", "success");
+      toast("Category added", "success");
       await refresh();
     } finally {
       setCreating(false);
@@ -293,7 +293,7 @@ export default function CategoryManager() {
                  {node.name}
                </h4>
                <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-widest opacity-60">
-                  {node.children.length} Nested Classifications
+                  {node.children.length} subcategor{node.children.length === 1 ? "y" : "ies"}
                </p>
              </div>
           </div>
@@ -358,8 +358,8 @@ export default function CategoryManager() {
     <div className="flex h-full flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
       <div className="flex items-center justify-between px-2">
         <div>
-          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Taxonomy Engine</h3>
-          <h2 className="text-2xl font-black tracking-tight text-app-text">Global Category Registry</h2>
+          <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Item Groups</h3>
+          <h2 className="text-2xl font-black tracking-tight text-app-text">Categories</h2>
         </div>
         <button 
            onClick={() => void refresh()}
@@ -373,7 +373,7 @@ export default function CategoryManager() {
       <section className="rounded-[2.5rem] border border-app-border bg-app-surface p-8 shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
          <div className="grid gap-6 md:grid-cols-[1fr_240px_180px_180px_160px]">
             <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Classification Name</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Category Name</label>
                 <input
                     value={createName}
                     onChange={(e) => setCreateName(e.target.value)}
@@ -382,13 +382,13 @@ export default function CategoryManager() {
                 />
             </div>
             <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Parent Node</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Parent Category</label>
                 <select
                     value={createParentId}
                     onChange={(e) => setCreateParentId(e.target.value)}
                     className="w-full h-12 bg-app-surface border border-app-border rounded-2xl px-5 text-sm font-bold focus:ring-2 focus:ring-app-accent/20 transition-all"
                 >
-                    <option value="">Top-Level Asset</option>
+                    <option value="">Top-Level Category</option>
                     {flat.map((c) => (
                     <option key={c.id} value={c.id}>
                         {c.name}
@@ -397,7 +397,7 @@ export default function CategoryManager() {
                 </select>
             </div>
             <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Row Data</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Default Option</label>
                 <input
                     value={createMatrixRow}
                     onChange={(e) => setCreateMatrixRow(e.target.value)}
@@ -406,7 +406,7 @@ export default function CategoryManager() {
                 />
             </div>
             <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Col Data</label>
+                <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Second Option</label>
                 <input
                     value={createMatrixCol}
                     onChange={(e) => setCreateMatrixCol(e.target.value)}
@@ -430,7 +430,7 @@ export default function CategoryManager() {
                     onClick={() => void createCategory()}
                     className="h-12 rounded-2xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 disabled:opacity-20 transition-all active:scale-95"
                 >
-                    {creating ? "Saving..." : "Commit Entry"}
+                    {creating ? "Saving..." : "Add Category"}
                 </button>
             </div>
          </div>
@@ -447,7 +447,7 @@ export default function CategoryManager() {
           ) : tree.length === 0 ? (
             <div className="flex flex-col items-center py-20 opacity-20">
                <FolderTree size={64} />
-               <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">Empty Classification Tree</p>
+               <p className="mt-4 text-[10px] font-black uppercase tracking-[0.3em]">No categories yet</p>
             </div>
           ) : (
             tree.map((node) => (

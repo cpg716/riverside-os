@@ -124,28 +124,28 @@ function fmtTs(v: string | null): string {
 
 function severityClass(severity: string): string {
   if (severity === "critical") {
-    return "bg-red-500/20 text-red-300 border border-red-500/40";
+    return "bg-app-danger/12 text-app-danger border border-app-danger/30";
   }
   if (severity === "warning") {
-    return "bg-amber-500/20 text-amber-300 border border-amber-500/40";
+    return "bg-app-warning/12 text-app-warning border border-app-warning/30";
   }
-  return "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40";
+  return "bg-app-success/12 text-app-success border border-app-success/30";
 }
 
 function statusClass(status: string): string {
-  if (status === "open") return "bg-red-500/20 text-red-200";
-  if (status === "acked") return "bg-amber-500/20 text-amber-200";
-  return "bg-emerald-500/20 text-emerald-200";
+  if (status === "open") return "bg-app-danger/12 text-app-danger";
+  if (status === "acked") return "bg-app-warning/12 text-app-warning";
+  return "bg-app-success/12 text-app-success";
 }
 
 function infoBadgeClass(severity: string): string {
   if (severity === "warning") {
-    return "bg-amber-500/20 text-amber-200 border border-amber-500/40";
+    return "bg-app-warning/12 text-app-warning border border-app-warning/30";
   }
   if (severity === "critical") {
-    return "bg-red-500/20 text-red-200 border border-red-500/40";
+    return "bg-app-danger/12 text-app-danger border border-app-danger/30";
   }
-  return "bg-sky-500/20 text-sky-200 border border-sky-500/40";
+  return "bg-app-info/12 text-app-info border border-app-info/30";
 }
 
 export default function RosDevCenterPanel({
@@ -452,7 +452,7 @@ export default function RosDevCenterPanel({
           </h3>
         </div>
         <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
-          <div className="rounded-xl border border-app-border bg-app-surface p-4">
+          <div className="ui-metric-cell ui-tint-info p-4">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-black text-app-text">API Base</p>
@@ -470,7 +470,7 @@ export default function RosDevCenterPanel({
                         : "desktop fallback"}
                 </p>
               </div>
-              <span className="rounded-full border border-sky-500/40 bg-sky-500/20 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-sky-200">
+              <span className="rounded-full border border-app-info/30 bg-app-info/12 px-2 py-1 text-[10px] font-black uppercase tracking-wider text-app-info">
                 client
               </span>
             </div>
@@ -479,7 +479,7 @@ export default function RosDevCenterPanel({
           {(runtimeDiagnostics?.items ?? []).map((item) => (
             <div
               key={item.key}
-              className="rounded-xl border border-app-border bg-app-surface p-4"
+              className="ui-metric-cell ui-tint-neutral p-4"
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -516,7 +516,7 @@ export default function RosDevCenterPanel({
         </div>
         <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
           {(overview?.integrations ?? []).map((item) => (
-            <div key={item.key} className="rounded-xl border border-app-border bg-app-surface p-4">
+            <div key={item.key} className="ui-metric-cell ui-tint-neutral p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-black text-app-text">{item.title}</p>
@@ -568,7 +568,7 @@ export default function RosDevCenterPanel({
                   </td>
                   <td className="py-2 text-xs text-app-text-muted">{fmtTs(s.last_seen_at)}</td>
                   <td className="py-2">
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${s.online ? "bg-emerald-500/20 text-emerald-200" : "bg-red-500/20 text-red-200"}`}>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${s.online ? "bg-app-success/12 text-app-success" : "bg-app-danger/12 text-app-danger"}`}>
                       {s.online ? "Online" : "Offline"}
                     </span>
                   </td>
@@ -595,7 +595,7 @@ export default function RosDevCenterPanel({
         </div>
         <div className="space-y-3">
           {openAlerts.map((a) => (
-            <div key={a.id} className="rounded-xl border border-app-border bg-app-surface p-4">
+            <div key={a.id} className="ui-metric-cell ui-tint-neutral p-4">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <p className="font-black text-app-text">{a.title}</p>
@@ -625,7 +625,7 @@ export default function RosDevCenterPanel({
             </div>
           ))}
           {!openAlerts.length && (
-            <p className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+            <p className="ui-panel ui-tint-success px-4 py-3 text-sm text-app-success">
               No open/acked alerts right now.
             </p>
           )}
@@ -768,10 +768,10 @@ export default function RosDevCenterPanel({
         </div>
         <div className="space-y-2">
           {auditRows.slice(0, 15).map((row) => (
-            <div key={row.id} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
+            <div key={row.id} className="ui-metric-cell ui-tint-neutral px-3 py-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="text-sm font-black text-app-text">{row.action_key}</div>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${row.result_ok ? "bg-emerald-500/20 text-emerald-200" : "bg-red-500/20 text-red-200"}`}>
+                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${row.result_ok ? "bg-app-success/12 text-app-success" : "bg-app-danger/12 text-app-danger"}`}>
                   {row.result_ok ? "Success" : "Failed"}
                 </span>
               </div>
@@ -840,7 +840,7 @@ export default function RosDevCenterPanel({
 
         <div className="space-y-2">
           {bugsOverview.slice(0, 15).map((b) => (
-            <div key={b.id} className="rounded-lg border border-app-border bg-app-surface px-3 py-2">
+            <div key={b.id} className="ui-metric-cell ui-tint-neutral px-3 py-2">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <p className="text-sm font-black text-app-text">{b.summary}</p>
@@ -848,7 +848,7 @@ export default function RosDevCenterPanel({
                     {b.staff_name} | {fmtTs(b.created_at)}
                   </p>
                 </div>
-                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${b.status === "pending" ? "bg-amber-500/20 text-amber-200" : "bg-emerald-500/20 text-emerald-200"}`}>
+                <span className={`rounded-full px-2 py-1 text-[10px] font-black uppercase tracking-wider ${b.status === "pending" ? "bg-app-warning/12 text-app-warning" : "bg-app-success/12 text-app-success"}`}>
                   {b.status}
                 </span>
               </div>

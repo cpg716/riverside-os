@@ -94,8 +94,8 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
     <section className="rounded-[2.5rem] border border-app-border bg-app-surface p-8 shadow-sm">
       <div className="mb-6 flex items-center justify-between">
          <div>
-           <h2 className="text-2xl font-black italic tracking-tighter text-app-text uppercase">Matrix Constructor</h2>
-           <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">Define axes and attributes for combinatorial SKU generation</p>
+           <h2 className="text-2xl font-black italic tracking-tighter text-app-text uppercase">Size / Option Builder</h2>
+           <p className="text-xs font-bold text-app-text-muted mt-1 uppercase tracking-widest">Enter the options staff sell, such as size, color, fit, or model</p>
          </div>
          <div className="h-12 w-12 rounded-2xl bg-app-accent-2/10 flex items-center justify-center text-app-accent-2">
             <Settings2 size={24} />
@@ -151,7 +151,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
                 className="flex flex-col items-center justify-center rounded-3xl border-2 border-dashed border-app-border bg-app-surface-2/40 py-8 text-app-text-muted hover:border-app-accent-2 hover:bg-app-accent-2/5 hover:text-app-accent-2 transition-all group"
             >
                 <Plus size={24} className="mb-2 group-hover:scale-110 transition-transform" />
-                <span className="text-[10px] font-black uppercase tracking-widest">Add Attribute Axis</span>
+                <span className="text-[10px] font-black uppercase tracking-widest">Add Option Type</span>
             </button>
         )}
       </div>
@@ -160,7 +160,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
         <div className="flex flex-wrap items-center gap-6">
             <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-1">
-                    <Hash size={10} /> SKU Template Prefix
+                    <Hash size={10} /> SKU Prefix
                 </label>
                 <input
                     value={skuPrefix}
@@ -170,7 +170,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
             </div>
             <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1 flex items-center gap-1">
-                    <Box size={10} /> Initial SOH (Standard)
+                    <Box size={10} /> Starting Stock
                 </label>
                 <input
                     type="number"
@@ -186,7 +186,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
             <div className="text-right">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Projections</p>
                 <p className="text-lg font-black text-app-text leading-tight italic">
-                   {combos.length === 0 ? "0 Variants" : `${combos.length} Discrete SKUs`}
+                   {combos.length === 0 ? "0 SKUs" : `${combos.length} SKUs`}
                 </p>
             </div>
             <button
@@ -196,7 +196,7 @@ export default function VariationsBuilder({ onGenerated }: VariationsBuilderProp
                 className="h-14 px-10 rounded-2xl bg-app-accent text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all disabled:opacity-20 flex items-center gap-2 group"
             >
                 <Zap size={16} className="group-hover:animate-pulse" />
-                Materialize Matrix
+                Create SKU List
             </button>
         </div>
       </div>

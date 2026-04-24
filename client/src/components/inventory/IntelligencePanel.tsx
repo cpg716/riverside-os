@@ -57,8 +57,8 @@ const IntelligencePanel = () => {
         toast("Failed to fetch intelligence data", "error");
       }
     } catch (err) {
-      console.error("Intelligence fetch failed:", err);
-      toast("Connection error to backend decision engine", "error");
+      console.error("Stock guidance fetch failed:", err);
+      toast("Could not load stock guidance right now.", "error");
     } finally {
       setLoading(false);
     }
@@ -76,7 +76,7 @@ const IntelligencePanel = () => {
           <div className="absolute inset-0 bg-app-accent/20 blur-2xl rounded-full" />
         </div>
         <p className="font-black text-app-text tracking-[0.3em] text-[10px] uppercase">
-          Booting Decision Engine v2.1...
+          Loading stock guidance...
         </p>
       </div>
     );

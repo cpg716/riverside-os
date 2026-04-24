@@ -179,12 +179,12 @@ function SummaryPill({
 }) {
   const toneClass =
     tone === "good"
-      ? "border-app-success/16 bg-app-success/10 text-app-text"
+      ? "ui-tint-success text-app-text"
       : tone === "warn"
-        ? "border-app-warning/16 bg-app-warning/10 text-app-text"
+        ? "ui-tint-warning text-app-text"
         : tone === "danger"
-          ? "border-app-danger/16 bg-app-danger/10 text-app-text"
-          : "border-app-border bg-app-surface-2 text-app-text";
+          ? "ui-tint-danger text-app-text"
+          : "ui-tint-neutral text-app-text";
 
   return (
     <div className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${toneClass}`}>
@@ -266,8 +266,7 @@ function WeatherDashboardWidget({
     return (
       <div
         className={cn(
-          "relative min-w-[280px] max-w-[420px] flex-1 overflow-hidden rounded-2xl border border-app-border bg-app-surface/90 px-4 py-3 shadow-sm",
-          "bg-gradient-to-r from-app-surface to-app-surface/60"
+          "ui-card relative min-w-[280px] max-w-[420px] flex-1 px-4 py-3"
         )}
       >
         <div className="relative z-10 flex items-center justify-between gap-4">
@@ -301,7 +300,7 @@ function WeatherDashboardWidget({
             </div>
           </div>
 
-          <div className="hidden shrink-0 items-center gap-3 rounded-xl border border-app-border bg-app-bg/50 px-3 py-2 lg:flex">
+          <div className="hidden shrink-0 items-center gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 lg:flex">
             <div>
               <p className="text-[8px] font-black uppercase tracking-[0.16em] text-app-text-muted">Tomorrow</p>
               <p className="mt-1 text-sm font-black text-app-text">{tomorrow.temp_high.toFixed(0)}°</p>
@@ -321,8 +320,7 @@ function WeatherDashboardWidget({
   return (
     <div
       className={cn(
-        "relative rounded-2xl border border-app-border bg-app-surface p-6 shadow-sm overflow-hidden",
-        "bg-gradient-to-br from-app-surface to-app-surface/50"
+        "ui-card relative p-6"
       )}
     >
       <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
@@ -357,7 +355,7 @@ function WeatherDashboardWidget({
           </div>
         </div>
 
-        <div className="flex items-center gap-8 px-6 py-4 rounded-xl bg-app-bg/50 border border-app-border w-full md:w-auto">
+        <div className="flex items-center gap-8 px-6 py-4 rounded-xl bg-app-surface-2 border border-app-border w-full md:w-auto">
           <div>
             <p className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted mb-1">Tomorrow</p>
             <div className="flex items-center gap-3">
@@ -1037,7 +1035,7 @@ export default function OperationalHome({
           </div>
           <div className="mt-4 space-y-3">
             {todayDecisionTakeaways.length === 0 ? (
-              <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3 text-sm font-semibold text-app-text-muted shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)]">
+              <div className="ui-panel px-4 py-3 text-sm font-semibold text-app-text-muted">
                 Today&apos;s reporting feeds have not posted enough activity yet to summarize movement.
               </div>
             ) : (
@@ -1051,7 +1049,7 @@ export default function OperationalHome({
                         ? "border-app-warning/16 bg-app-warning/10"
                         : item.tone === "danger"
                           ? "border-app-danger/16 bg-app-danger/10"
-                          : "border-app-border bg-app-surface-2"
+                          : "border-app-border bg-app-surface-3"
                   }`}
                 >
                   <p className="text-xs font-black text-app-text">{item.label}</p>
@@ -1084,7 +1082,7 @@ export default function OperationalHome({
                       ? "border-app-danger/16 bg-app-danger/10"
                       : issue.tone === "warn"
                         ? "border-app-warning/16 bg-app-warning/10"
-                        : "border-app-border bg-app-surface-2"
+                        : "border-app-border bg-app-surface-3"
                   }`}
                 >
                   <p className="text-xs font-black text-app-text">
@@ -1116,7 +1114,7 @@ export default function OperationalHome({
                       ? "border-app-warning/16 bg-app-warning/10"
                       : item.tone === "danger"
                         ? "border-app-danger/16 bg-app-danger/10"
-                        : "border-app-border bg-app-surface-2"
+                        : "border-app-border bg-app-surface-3"
                 }`}
               >
                 <p className="text-xs font-black text-app-text">{item.label}</p>
@@ -1153,7 +1151,7 @@ export default function OperationalHome({
                         else if (item.kind === "task") setTaskDrawerId(item.taskId);
                         else openDrawer();
                       }}
-                      className="flex items-center justify-between p-4 rounded-xl border border-app-border bg-app-bg/50 hover:bg-app-bg transition-all"
+                      className="flex items-center justify-between p-4 rounded-xl border border-app-border bg-app-surface-2 hover:bg-app-surface-3 transition-all"
                     >
                       <div className="flex items-center gap-4">
                         <div className={cn(

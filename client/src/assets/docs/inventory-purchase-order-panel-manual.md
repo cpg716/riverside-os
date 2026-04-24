@@ -2,7 +2,7 @@
 id: inventory-purchase-order-panel
 title: "Purchase Order Panel (inventory)"
 order: 1023
-summary: "Create draft purchase orders, submit standard POs, and open Receiving Bay with validated vendor and line rules."
+summary: "Create purchase orders or direct invoices, submit standard POs, and open Receiving Bay with validated vendor and line rules."
 source: client/src/components/inventory/PurchaseOrderPanel.tsx
 last_scanned: 2026-04-20
 tags: inventory-purchase-order-panel, inventory, purchase-orders, vendors
@@ -21,8 +21,8 @@ Use **Purchase Orders** to build standard vendor orders or direct-invoice receip
 ## How to use it
 
 1. Select the correct **vendor** before creating a document.
-2. Use **Draft PO** for a standard order that will be submitted to the vendor.
-3. Use **Invoice** for a direct vendor invoice that will be received immediately.
+2. Use **New PO** for a standard order that will be submitted to the vendor.
+3. Use **Direct Invoice** when merchandise arrived with invoice paperwork but no pre-built PO.
 4. Add lines with a valid SKU, quantity greater than zero, and a non-negative unit cost.
 5. For standard POs, click **Submit PO** before receiving.
 6. Open **Receiving Bay** to post stock from the finalized receipt.

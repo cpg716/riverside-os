@@ -2,7 +2,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Json, Router,
 };
 use serde::{Deserialize, Serialize};
@@ -125,15 +125,24 @@ async fn validate_create_vendor_payload(
     pool: &sqlx::PgPool,
     payload: &CreateVendorRequest,
 ) -> Result<(), VendorError> {
+    validate_vendor_payload(pool, payload, None).await
+}
+
+async fn validate_vendor_payload(
+    pool: &sqlx::PgPool,
+    payload: &CreateVendorRequest,
+    existing_vendor_id: Option<Uuid>,
+) -> Result<(), VendorError> {
     let name = payload.name.trim();
     if name.is_empty() {
         return Err(VendorError::InvalidPayload("name is required".to_string()));
     }
 
     let duplicate_name: Option<String> = sqlx::query_scalar(
-        "SELECT name FROM vendors WHERE lower(trim(name)) = lower(trim($1)) LIMIT 1",
+        "SELECT name FROM vendors WHERE lower(trim(name)) = lower(trim($1)) AND ($2::uuid IS NULL OR id <> $2) LIMIT 1",
     )
     .bind(name)
+    .bind(existing_vendor_id)
     .fetch_optional(pool)
     .await?;
     if let Some(existing_name) = duplicate_name {
@@ -145,9 +154,10 @@ async fn validate_create_vendor_payload(
 
     if let Some(vendor_code) = trimmed_opt(payload.vendor_code.as_deref()) {
         let duplicate_code: Option<String> = sqlx::query_scalar(
-            "SELECT vendor_code FROM vendors WHERE vendor_code IS NOT NULL AND lower(trim(vendor_code)) = lower(trim($1)) LIMIT 1",
+            "SELECT vendor_code FROM vendors WHERE vendor_code IS NOT NULL AND lower(trim(vendor_code)) = lower(trim($1)) AND ($2::uuid IS NULL OR id <> $2) LIMIT 1",
         )
         .bind(vendor_code)
+        .bind(existing_vendor_id)
         .fetch_optional(pool)
         .await?;
         if let Some(existing_code) = duplicate_code {
@@ -165,6 +175,7 @@ pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_vendors).post(create_vendor))
         .route("/merge", post(merge_vendors))
+        .route("/{vendor_id}", patch(update_vendor))
         .route("/{vendor_id}/hub", get(get_vendor_hub))
         .route("/{vendor_id}/brands", get(list_brands).post(add_brand))
         .route("/{vendor_id}/brands/{brand_id}", delete(delete_brand))
@@ -229,6 +240,56 @@ async fn create_vendor(
     .bind(trimmed_opt(payload.vendor_code.as_deref()))
     .fetch_one(&state.db)
     .await?;
+
+    spawn_meilisearch_vendor_upsert(&state, v.id);
+
+    Ok(Json(json!({
+        "id": v.id,
+        "name": v.name,
+        "email": v.email,
+        "phone": v.phone,
+        "account_number": v.account_number,
+        "payment_terms": v.payment_terms,
+        "vendor_code": v.vendor_code,
+        "nuorder_brand_id": v.nuorder_brand_id,
+        "is_active": v.is_active,
+    })))
+}
+
+async fn update_vendor(
+    State(state): State<AppState>,
+    Path(vendor_id): Path<Uuid>,
+    headers: HeaderMap,
+    Json(payload): Json<CreateVendorRequest>,
+) -> Result<Json<serde_json::Value>, VendorError> {
+    require_v(&state, &headers, CATALOG_EDIT).await?;
+    validate_vendor_payload(&state.db, &payload, Some(vendor_id)).await?;
+    let updated = sqlx::query_as::<_, Vendor>(
+        r#"
+        UPDATE vendors
+        SET name = $2,
+            email = $3,
+            phone = $4,
+            account_number = $5,
+            payment_terms = $6,
+            vendor_code = $7
+        WHERE id = $1 AND is_active = TRUE
+        RETURNING id, name, email, phone, account_number, payment_terms, vendor_code, nuorder_brand_id, is_active
+        "#,
+    )
+    .bind(vendor_id)
+    .bind(payload.name.trim())
+    .bind(trimmed_opt(payload.email.as_deref()))
+    .bind(trimmed_opt(payload.phone.as_deref()))
+    .bind(trimmed_opt(payload.account_number.as_deref()))
+    .bind(trimmed_opt(payload.payment_terms.as_deref()))
+    .bind(trimmed_opt(payload.vendor_code.as_deref()))
+    .fetch_optional(&state.db)
+    .await?;
+
+    let Some(v) = updated else {
+        return Err(VendorError::NotFound);
+    };
 
     spawn_meilisearch_vendor_upsert(&state, v.id);
 

@@ -108,7 +108,7 @@ export default function MeilisearchSettingsPanel() {
     <div className="space-y-10">
       <header className="mb-2">
         <div className="flex flex-wrap items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-emerald-500/25 bg-white">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-success/25 bg-app-surface">
             <IntegrationBrandLogo
               brand="meilisearch"
               kind="icon"
@@ -121,7 +121,7 @@ export default function MeilisearchSettingsPanel() {
               <IntegrationBrandLogo
                 brand="meilisearch"
                 kind="wordmark"
-                className="inline-flex rounded-2xl border border-emerald-500/20 bg-white px-4 py-2 shadow-sm"
+                className="inline-flex rounded-2xl border border-app-success/20 bg-app-surface px-4 py-2 shadow-sm"
                 imageClassName="h-8 w-auto object-contain"
               />
             </div>
@@ -137,10 +137,10 @@ export default function MeilisearchSettingsPanel() {
         </div>
       </header>
 
-      <section className="ui-card p-8 max-w-5xl border-emerald-500/20 bg-gradient-to-br from-emerald-500/5 to-transparent">
+      <section className="ui-card ui-tint-success p-8 max-w-5xl">
         <div className="flex flex-wrap items-start justify-between gap-4 mb-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white ring-1 ring-black/5">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-app-surface ring-1 ring-app-border">
               <IntegrationBrandLogo
                 brand="meilisearch"
                 kind="icon"
@@ -191,8 +191,8 @@ export default function MeilisearchSettingsPanel() {
         </div>
 
         {meiliConfigured === false && (
-          <div className="mb-8 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
-            <p className="font-bold text-amber-800 dark:text-amber-200 uppercase tracking-widest text-[10px] mb-1">
+          <div className="ui-panel ui-tint-warning mb-8 px-4 py-3 text-xs text-app-text-muted leading-relaxed">
+            <p className="font-bold text-app-warning uppercase tracking-widest text-[10px] mb-1">
               Server environment required
             </p>
             Meilisearch reindex stays disabled until{" "}
@@ -210,13 +210,13 @@ export default function MeilisearchSettingsPanel() {
         {meiliConfigured && (
           <div className="mb-8 space-y-8">
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+              <div className="ui-metric-cell ui-tint-neutral p-3">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted mb-1">
                   Index Health
                 </p>
                 <div className="flex items-center gap-2">
                   <div
-                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-emerald-500 animate-pulse" : meiliIndices.every((i) => i.is_success) ? "bg-emerald-500" : "bg-rose-500"} shadow-[0_0_8px_rgba(16,185,129,0.5)]`}
+                    className={`h-2 w-2 rounded-full ${isIndexing ? "bg-app-success animate-pulse" : meiliIndices.every((i) => i.is_success) ? "bg-app-success" : "bg-app-danger"} shadow-[0_0_8px_color-mix(in_srgb,var(--app-success)_60%,transparent)]`}
                   />
                   <span className="text-sm font-black text-app-text">
                     {isIndexing
@@ -329,7 +329,7 @@ export default function MeilisearchSettingsPanel() {
                 return (
                   <div
                     key={idx.index_name}
-                    className={`p-4 rounded-xl border ${isIndexing ? "border-emerald-500/20 bg-emerald-500/5 animate-pulse-subtle" : idx.is_success ? (isStale ? "border-amber-500/20 bg-amber-500/5" : "border-emerald-500/20 bg-emerald-500/5") : "border-rose-500/20 bg-rose-500/5"} transition-all group relative overflow-hidden`}
+                    className={`ui-metric-cell p-4 ${isIndexing ? "ui-tint-success animate-pulse-subtle" : idx.is_success ? (isStale ? "ui-tint-warning" : "ui-tint-success") : "ui-tint-danger"} transition-all group relative overflow-hidden`}
                   >
                     <div className="flex items-center justify-between gap-3 mb-2">
                       <div className="flex flex-col min-w-0">
@@ -340,29 +340,29 @@ export default function MeilisearchSettingsPanel() {
                           {displayLabel}
                         </span>
                         {isIndexing ? (
-                          <span className="text-[8px] font-black text-emerald-500 uppercase tracking-tighter flex items-center gap-1">
+                          <span className="text-[8px] font-black text-app-success uppercase tracking-tighter flex items-center gap-1">
                             <RefreshCw className="h-2 w-2 animate-spin" />
                             Indexing...
                           </span>
                         ) : (
                           !hasRun && (
-                            <span className="text-[8px] font-black text-rose-500 uppercase tracking-tighter">
+                            <span className="text-[8px] font-black text-app-danger uppercase tracking-tighter">
                               Sync Required
                             </span>
                           )
                         )}
                       </div>
                       {isIndexing ? (
-                        <RefreshCw className="h-4 w-4 text-emerald-500 animate-spin opacity-50" />
+                        <RefreshCw className="h-4 w-4 text-app-success animate-spin opacity-50" />
                       ) : idx.is_success ? (
                         isStale ? (
-                          <History className="h-4 w-4 text-amber-500 animate-pulse" />
+                          <History className="h-4 w-4 text-app-warning animate-pulse" />
                         ) : (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                          <CheckCircle2 className="h-4 w-4 text-app-success" />
                         )
                       ) : (
-                        <div className="h-4 w-4 flex items-center justify-center rounded-full bg-rose-500/10">
-                          <Info className="h-3 w-3 text-rose-500" />
+                        <div className="h-4 w-4 flex items-center justify-center rounded-full bg-app-danger/10">
+                          <Info className="h-3 w-3 text-app-danger" />
                         </div>
                       )}
                     </div>
@@ -391,12 +391,12 @@ export default function MeilisearchSettingsPanel() {
                         </span>
                       </div>
                       {!isIndexing && !idx.is_success && idx.error_message && (
-                        <div className="mt-2 text-[8px] font-bold text-rose-600 dark:text-rose-400 bg-rose-500/10 p-2 rounded-lg border border-rose-500/10 break-words leading-tight">
+                        <div className="mt-2 text-[8px] font-bold text-app-danger bg-app-danger/10 p-2 rounded-lg border border-app-danger/10 break-words leading-tight">
                           {idx.error_message}
                         </div>
                       )}
                       {idx.is_success && isStale && (
-                        <div className="mt-2 text-[8px] font-black uppercase tracking-[0.05em] text-amber-600 dark:text-amber-400 bg-amber-500/10 p-2 rounded-lg border border-amber-500/10">
+                        <div className="mt-2 text-[8px] font-black uppercase tracking-[0.05em] text-app-warning bg-app-warning/10 p-2 rounded-lg border border-app-warning/10">
                           Warning: Data stale (24h+)
                         </div>
                       )}

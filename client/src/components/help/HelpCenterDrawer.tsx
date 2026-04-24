@@ -1256,7 +1256,7 @@ export default function HelpCenterDrawer({
                 }`}
               >
                 {rosieStatus ? (
-                  <p className="mb-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+                  <p className="ui-panel ui-tint-warning mb-3 px-3 py-2 text-xs font-medium text-app-text">
                     {rosieStatus}
                   </p>
                 ) : null}

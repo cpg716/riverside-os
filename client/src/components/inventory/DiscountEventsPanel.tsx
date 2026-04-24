@@ -478,7 +478,7 @@ export default function DiscountEventsPanel() {
               </div>
               <div className="space-y-1.5">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted ml-1">
-                  Targeting Logic
+                  Applies To
                 </label>
                 <select
                   className="ui-input h-12 text-xs font-bold"
@@ -504,7 +504,7 @@ export default function DiscountEventsPanel() {
                 onClick={createEvent}
                 className="w-full h-14 rounded-2xl bg-app-accent text-white text-[10px] font-black uppercase tracking-[0.2em] shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 transition-all mt-4"
               >
-                Initialize Strategic Event
+                Create Promotion
               </button>
             </div>
           </section>
@@ -516,7 +516,7 @@ export default function DiscountEventsPanel() {
                 <div className="flex items-center gap-3 opacity-90">
                   <Settings2 size={20} />
                   <h4 className="text-[10px] font-black uppercase tracking-[0.2em]">
-                    Resource Targeting
+                    Promotion Scope
                   </h4>
                 </div>
                 <button onClick={() => setSel(null)}>
@@ -543,13 +543,13 @@ export default function DiscountEventsPanel() {
                   }}
                 >
                   <option className="text-app-text" value="variants">
-                    Discrete Variant List
+                    Selected SKUs
                   </option>
                   <option className="text-app-text" value="category">
-                    Global Category Binding
+                    Whole Category
                   </option>
                   <option className="text-app-text" value="vendor">
-                    Vendor Asset Direct
+                    Primary Vendor
                   </option>
                 </select>
 
@@ -560,7 +560,7 @@ export default function DiscountEventsPanel() {
                     onChange={(e) => setEditCategoryId(e.target.value)}
                   >
                     <option className="text-app-text" value="">
-                      Select Classification...
+                      Select Category...
                     </option>
                     {categories.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -577,7 +577,7 @@ export default function DiscountEventsPanel() {
                     onChange={(e) => setEditVendorId(e.target.value)}
                   >
                     <option className="text-app-text" value="">
-                      Select Vendor Entity...
+                      Select Vendor...
                     </option>
                     {promoVendors.map((v) => (
                       <option key={v.id} value={v.id}>
@@ -633,7 +633,7 @@ export default function DiscountEventsPanel() {
                   onClick={patchSelectedScope}
                   className="w-full h-14 bg-white text-violet-600 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:brightness-110 active:scale-95 transition-all"
                 >
-                  Sync Targeting Logic
+                  Save Scope
                 </button>
               </div>
             </section>
@@ -648,9 +648,9 @@ export default function DiscountEventsPanel() {
             </div>
             <p className="text-[10px] font-bold text-app-text-muted leading-relaxed">
               Promotion events are automatically applied at POS based on the
-              checkout timestamp. Global Category & Vendor bindings are
-              computationally efficient but check your overlapping prompts in
-              the Checkout Configuration.
+              checkout timestamp. Category and vendor scopes are helpful for
+              broad promotions, but review overlapping promotions before the
+              sale starts.
             </p>
           </section>
         </aside>
