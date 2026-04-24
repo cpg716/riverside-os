@@ -128,6 +128,7 @@ export default function PosSidebar({
                   <button
                     type="button"
                     onClick={() => onTabChange(tab.id)}
+                    onDoubleClick={() => onToggleCollapse()}
                     aria-label={tab.label}
                     aria-current={isActive ? "page" : undefined}
                     className={`ui-touch-target group relative flex cursor-pointer items-center gap-2.5 rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
