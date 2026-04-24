@@ -255,7 +255,9 @@ test("Top Bar ROSIE opens Conversation Mode without Help tool grounding", async 
     timeout: 15_000,
   });
   await expect(
-    page.getByText("Grounding: none. Tools: none. Conversation Mode response."),
+    page.getByText(
+      "Grounding: none. Tools: none. Conversation Mode response. Switch to Help Mode for store data.",
+    ),
   ).toBeVisible();
   expect(toolContextCalled).toBe(false);
 });

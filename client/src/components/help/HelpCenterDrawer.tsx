@@ -1015,7 +1015,7 @@ export default function HelpCenterDrawer({
               }`}
             >
               <Bot size={14} aria-hidden />
-              Help Mode
+              Help Mode (grounded)
             </button>
             <button
               type="button"
@@ -1028,7 +1028,7 @@ export default function HelpCenterDrawer({
               }`}
             >
               <MessagesSquare size={14} aria-hidden />
-              Conversation
+              Conversation (no store data)
             </button>
           </div>
           {drawerMode === "browse" ? (
@@ -1088,18 +1088,18 @@ export default function HelpCenterDrawer({
             <div className="space-y-2">
               <p className="text-sm font-medium text-app-text-muted">
                 {drawerMode === "conversation"
-                  ? "Talk with ROSIE without Help Center grounding or operational tools."
+                  ? "Talk with ROSIE for drafting, wording, and general thinking. This mode cannot see store data."
                   : "Ask ROSIE for grounded Help Center guidance using visible manuals and your store playbook when available."}
               </p>
               <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
                 {drawerMode === "conversation"
-                  ? "Mode: Conversation. Grounding: none. Tools: none. Use Help Mode when you need governed manuals, policy, reports, or operational facts."
-                  : "Mode: Help. Grounding: Help Center, store playbook, and approved operational tool results when available."}
+                  ? "Mode: Conversation. Grounding: none. Tools: none. For policies, sales, inventory, transactions, or wedding order status, switch to Help Mode."
+                  : "Mode: Help. Grounding: Help Center, store playbook, and approved operational tool results when available. Source chips show what ROSIE used."}
               </p>
               {!rosieSettings.enabled ? (
                 <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
                   ROSIE is disabled for this workstation. Turn it on in Settings
-                  -&gt; ROSIE to use Ask ROSIE.
+                  -&gt; ROSIE to use Help Mode or Conversation Mode.
                 </p>
               ) : null}
               {rosieSettings.enabled && !voiceCapabilities.speech_to_text_supported ? (
@@ -1124,8 +1124,8 @@ export default function HelpCenterDrawer({
                     </p>
                     <p className="mt-2 text-sm text-app-text-muted">
                       {activeRosieMode === "conversation"
-                        ? "Conversation Mode can help draft, explain, and think through ideas, but it does not search manuals or run tools."
-                        : "ROSIE is grounded to Help search results, manual sections, and your store playbook when it is available."}
+                        ? "Conversation Mode can help draft, explain, and think through ideas, but it does not search manuals, run reports, or inspect orders. Switch to Help Mode for governed store answers."
+                        : "ROSIE is grounded to Help search results, manual sections, and your store playbook when available. Ask the question the way an operator would, then use source chips to open the referenced guidance."}
                     </p>
                   </div>
                 ) : (
@@ -1154,8 +1154,8 @@ export default function HelpCenterDrawer({
                         {message.role === "assistant" && !message.error ? (
                           <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[11px] font-medium text-app-text-muted">
                             {message.transparency === "conversation"
-                              ? "Grounding: none. Tools: none. Conversation Mode response."
-                              : "Grounding: governed Help context. Tools: approved ROSIE context only when returned below."}
+                              ? "Grounding: none. Tools: none. Conversation Mode response. Switch to Help Mode for store data."
+                              : "Grounding: governed Help context. Tools: approved ROSIE context only when returned below. Source chips show what was used."}
                           </p>
                         ) : null}
                         {message.sources && message.sources.length > 0 && rosieSettings.show_citations ? (
@@ -1379,7 +1379,7 @@ export default function HelpCenterDrawer({
                       rosieListening
                         ? "Listening for your question…"
                         : activeRosieMode === "conversation"
-                          ? "Start a conversational ROSIE thread…"
+                          ? "Ask for drafting or general help. For store data, switch to Help Mode…"
                           : "Ask about a workflow, policy, or how to use this screen…"
                     }
                     className="ui-input min-h-24 flex-1 resize-none text-sm"
@@ -1502,7 +1502,7 @@ export function RosieTriggerButton({
       data-testid="help-center-ask-rosie-trigger"
       className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
       aria-label="Open ROSIE Conversation"
-      title="ROSIE Conversation"
+      title="ROSIE Conversation (no store data)"
     >
       <Bot size={18} strokeWidth={2} aria-hidden />
     </button>
