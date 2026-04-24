@@ -34,12 +34,16 @@ export type RosieChatCompletionResponse = {
   object?: string;
   created?: number;
   model?: string;
+  answer?: string;
+  content?: string;
+  response?: string;
   choices?: Array<{
     index?: number;
     finish_reason?: string | null;
+    text?: string;
     message?: {
       role?: string;
-      content?: string;
+      content?: string | Array<{ type?: string; text?: string }>;
     };
   }>;
   usage?: Record<string, unknown>;
@@ -1167,6 +1171,34 @@ async function fetchRosieToolContext(
   return json as RosieToolContextResponse;
 }
 
+function extractRosieCompletionAnswer(
+  completion: RosieChatCompletionResponse,
+): string {
+  for (const value of [completion.answer, completion.content, completion.response]) {
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  for (const choice of completion.choices ?? []) {
+    const content = choice.message?.content;
+    if (typeof content === "string" && content.trim()) {
+      return content.trim();
+    }
+    if (Array.isArray(content)) {
+      const text = content
+        .map((part) => part.text)
+        .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
+        .join("\n")
+        .trim();
+      if (text) return text;
+    }
+    if (typeof choice.text === "string" && choice.text.trim()) {
+      return choice.text.trim();
+    }
+  }
+  return "";
+}
+
 export async function askRosieGroundedHelp(
   request: RosieGroundedHelpRequest,
   options?: {
@@ -1210,24 +1242,24 @@ export async function askRosieGroundedHelp(
   const initialMaxTokens =
     request.settings.response_style === "detailed"
       ? request.mode === "conversation"
-        ? 640
+        ? 420
         : 420
       : request.mode === "conversation"
-        ? 320
+        ? 220
         : 180;
   let completion = await runCompletion(initialMaxTokens);
-  let answer = completion.choices?.[0]?.message?.content?.trim();
+  let answer = extractRosieCompletionAnswer(completion);
 
   if (!answer) {
     completion = await runCompletion(
-      request.settings.response_style === "detailed" ? 560 : 260,
+      request.settings.response_style === "detailed" ? 360 : 180,
       true,
     );
-    answer = completion.choices?.[0]?.message?.content?.trim();
+    answer = extractRosieCompletionAnswer(completion);
   }
 
   if (!answer) {
-    throw new Error("ROSIE returned an empty Help Center response.");
+    throw new Error("ROSIE did not return a usable answer. Try again in Conversation Mode.");
   }
 
   return {
