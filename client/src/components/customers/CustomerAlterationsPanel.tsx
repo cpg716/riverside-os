@@ -26,6 +26,8 @@ type AlterationRow = {
   created_at: string;
 };
 
+const STATUS_FILTERS = ["all", "intake", "in_work", "ready", "picked_up"] as const;
+
 export default function CustomerAlterationsPanel({
   apiAuth,
   highlightAlterationId,
@@ -130,6 +132,7 @@ export default function CustomerAlterationsPanel({
 
   const getStatusColor = (status: string) => {
     switch (status) {
+      case "intake": return "text-sky-600 bg-sky-500/10 border-sky-500/20";
       case "in_work": return "text-amber-600 bg-amber-500/10 border-amber-500/20";
       case "ready": return "text-emerald-600 bg-emerald-500/10 border-emerald-500/20";
       case "picked_up": return "text-app-text-muted bg-app-surface-3 border-app-border";
@@ -148,10 +151,13 @@ export default function CustomerAlterationsPanel({
             </p>
           </div>
           <h2 className="text-3xl font-black text-app-text tracking-tight">Alterations Hub</h2>
+          <p className="mt-2 max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
+            Standalone tailoring queue for intake, status, due dates, and notes. Register checkout-linked alteration revenue is handled separately.
+          </p>
         </div>
         
         <div className="flex gap-2 bg-app-surface-2 p-1 rounded-2xl border border-app-border shadow-inner">
-           {["all", "in_work", "ready", "picked_up"].map(f => (
+           {STATUS_FILTERS.map(f => (
              <button
                key={f}
                type="button"
@@ -177,7 +183,7 @@ export default function CustomerAlterationsPanel({
                  <UserPlus size={20} />
                </div>
                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
-                 New Work Order
+                 New Standalone Job
                </h3>
             </div>
 

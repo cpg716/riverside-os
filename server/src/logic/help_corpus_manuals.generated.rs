@@ -9,6 +9,8 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("remote-access", "client/src/assets/docs/remote-access-manual.md"),
     ("settings-backups", "client/src/assets/docs/settings-backups-manual.md"),
     ("stripe-payments", "client/src/assets/docs/stripe-payments-manual.md"),
+    ("alterations-workspace", "client/src/assets/docs/alterations-workspace-manual.md"),
+    ("customers-customer-alterations-panel", "client/src/assets/docs/customers-customer-alterations-panel-manual.md"),
     ("customers-customer-relationship-hub-drawer", "client/src/assets/docs/customers-customer-relationship-hub-drawer-manual.md"),
     ("customers-workspace", "client/src/assets/docs/customers-workspace-manual.md"),
     ("customers-podium-messaging-inbox-section", "client/src/assets/docs/customers-podium-messaging-inbox-section-manual.md"),

@@ -59,6 +59,19 @@ pub struct PatchAlterationBody {
     pub notes: Option<String>,
 }
 
+const VALID_ALTERATION_STATUSES: &[&str] = &["intake", "in_work", "ready", "picked_up"];
+
+fn normalize_alteration_status(status: &str) -> Result<&str, AlterationError> {
+    let trimmed = status.trim();
+    if VALID_ALTERATION_STATUSES.contains(&trimmed) {
+        return Ok(trimmed);
+    }
+    Err(AlterationError::BadRequest(format!(
+        "invalid status '{trimmed}'. Expected one of: {}",
+        VALID_ALTERATION_STATUSES.join(", ")
+    )))
+}
+
 #[derive(Debug, thiserror::Error)]
 enum AlterationError {
     #[error("database: {0}")]
@@ -167,7 +180,7 @@ async fn create_alteration(
     headers: HeaderMap,
     Json(body): Json<CreateAlterationBody>,
 ) -> Result<Json<AlterationOrderRow>, AlterationError> {
-    let _staff = require_manage(&state, &headers).await?;
+    let staff = require_manage(&state, &headers).await?;
 
     let ok: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM customers WHERE id = $1)")
         .bind(body.customer_id)
@@ -178,6 +191,8 @@ async fn create_alteration(
             "customer not found".to_string(),
         ));
     }
+
+    let mut tx = state.db.begin().await?;
 
     let id: Uuid = sqlx::query_scalar(
         r#"
@@ -198,7 +213,26 @@ async fn create_alteration(
             .filter(|s| !s.is_empty()),
     )
     .bind(body.linked_transaction_id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    let detail = json!({
+        "customer_id": body.customer_id,
+        "wedding_member_id": body.wedding_member_id,
+        "due_at": body.due_at.map(|d| d.to_rfc3339()),
+        "notes_set": body.notes.as_ref().map(|n| !n.trim().is_empty()).unwrap_or(false),
+        "linked_transaction_id": body.linked_transaction_id,
+    });
+    sqlx::query(
+        r#"
+        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
+        VALUES ($1, $2, 'create', $3)
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(SqlxJson(detail))
+    .execute(&mut *tx)
     .await?;
 
     let row = sqlx::query_as::<_, AlterationOrderRow>(
@@ -212,9 +246,11 @@ async fn create_alteration(
         "#,
     )
     .bind(id)
-    .fetch_optional(&state.db)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AlterationError::NotFound)?;
+
+    tx.commit().await?;
 
     Ok(Json(row))
 }
@@ -227,10 +263,20 @@ async fn patch_alteration(
 ) -> Result<Json<AlterationOrderRow>, AlterationError> {
     let staff = require_manage(&state, &headers).await?;
 
+    let normalized_status = body
+        .status
+        .as_deref()
+        .map(normalize_alteration_status)
+        .transpose()?;
+
+    let notes_trimmed = body.notes.as_ref().map(|n| n.trim().to_string());
+
+    let mut tx = state.db.begin().await?;
+
     let prev_status: Option<String> =
-        sqlx::query_scalar("SELECT status::text FROM alteration_orders WHERE id = $1")
+        sqlx::query_scalar("SELECT status::text FROM alteration_orders WHERE id = $1 FOR UPDATE")
             .bind(id)
-            .fetch_optional(&state.db)
+            .fetch_optional(&mut *tx)
             .await?;
 
     if prev_status.is_none() {
@@ -244,30 +290,27 @@ async fn patch_alteration(
         ));
     }
 
-    if let Some(ref s) = body.status {
-        let t = s.trim();
-        if !t.is_empty() {
-            sqlx::query("UPDATE alteration_orders SET status = $1::alteration_status, updated_at = now() WHERE id = $2")
-                .bind(t)
-                .bind(id)
-                .execute(&state.db)
-                .await?;
-        }
+    if let Some(status) = normalized_status {
+        sqlx::query("UPDATE alteration_orders SET status = $1::alteration_status, updated_at = now() WHERE id = $2")
+            .bind(status)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
     }
 
     if body.due_at.is_some() {
         sqlx::query("UPDATE alteration_orders SET due_at = $1, updated_at = now() WHERE id = $2")
             .bind(body.due_at)
             .bind(id)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await?;
     }
 
-    if let Some(ref n) = body.notes {
+    if let Some(ref n) = notes_trimmed {
         sqlx::query("UPDATE alteration_orders SET notes = $1, updated_at = now() WHERE id = $2")
             .bind(n)
             .bind(id)
-            .execute(&state.db)
+            .execute(&mut *tx)
             .await?;
     }
 
@@ -282,8 +325,27 @@ async fn patch_alteration(
         "#,
     )
     .bind(id)
-    .fetch_one(&state.db)
+    .fetch_one(&mut *tx)
     .await?;
+
+    let detail = json!({
+        "status": normalized_status,
+        "due_at": body.due_at.map(|d| d.to_rfc3339()),
+        "notes_set": body.notes.is_some(),
+    });
+    sqlx::query(
+        r#"
+        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
+        VALUES ($1, $2, 'patch', $3)
+        "#,
+    )
+    .bind(id)
+    .bind(staff.id)
+    .bind(SqlxJson(detail))
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
 
     if row.status == "ready" && prev_status.as_deref() != Some("ready") {
         let pool = state.db.clone();
@@ -301,22 +363,29 @@ async fn patch_alteration(
         });
     }
 
-    let detail = json!({
-        "status": body.status,
-        "due_at": body.due_at.map(|d| d.to_rfc3339()),
-        "notes_set": body.notes.is_some(),
-    });
-    sqlx::query(
-        r#"
-        INSERT INTO alteration_activity (alteration_id, staff_id, action, detail)
-        VALUES ($1, $2, 'patch', $3)
-        "#,
-    )
-    .bind(id)
-    .bind(staff.id)
-    .bind(SqlxJson(detail))
-    .execute(&state.db)
-    .await?;
-
     Ok(Json(row))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalize_alteration_status;
+
+    #[test]
+    fn normalize_alteration_status_accepts_known_values() {
+        for status in ["intake", "in_work", "ready", "picked_up"] {
+            assert_eq!(normalize_alteration_status(status).unwrap(), status);
+        }
+    }
+
+    #[test]
+    fn normalize_alteration_status_trims_known_values() {
+        assert_eq!(normalize_alteration_status(" ready ").unwrap(), "ready");
+    }
+
+    #[test]
+    fn normalize_alteration_status_rejects_unknown_values() {
+        let err = normalize_alteration_status("finished").unwrap_err();
+        assert!(err.to_string().contains("invalid status"));
+        assert!(err.to_string().contains("intake"));
+    }
 }

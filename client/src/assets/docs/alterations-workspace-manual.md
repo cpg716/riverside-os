@@ -2,11 +2,11 @@
 id: alterations-workspace
 title: "Alterations Workspace (alterations)"
 order: 1000
-summary: "Draft maintainer scaffold for client/src/components/alterations/AlterationsWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Standalone alterations queue for customer-linked tailoring intake, due dates, notes, and status movement."
 source: client/src/components/alterations/AlterationsWorkspace.tsx
 last_scanned: 2026-04-23
 tags: alterations-workspace, component, auto-scaffold
-status: draft
+status: approved
 ---
 
 # Alterations Workspace (alterations)
@@ -17,42 +17,42 @@ _Linked component: `client/src/components/alterations/AlterationsWorkspace.tsx`.
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+The Alterations workspace is a standalone tailoring work queue shared by Back Office and POS. It tracks customer, target due date, notes, and status.
+
+It does not create Register cart lines, collect payment, print tickets/barcodes, or automatically link a job to a transaction line.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use it to intake a tailoring job, review active work, move work from **Intake** to **In Work**, mark work **Ready**, or close it as **Picked Up**.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Confirm you have **alterations.manage**.
+- Confirm the customer exists in Riverside OS.
+- Confirm any price, rush fee, or payment handling outside this queue.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open **Alterations**.
+2. Use **All**, **Intake**, **In Work**, **Ready**, or **Picked Up** to filter the queue.
+3. For a new job, select the customer, add a target due date if known, enter notes, and create the job.
+4. For an existing job, change status only when the physical work actually moved.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Marking a job **Ready** may notify the customer.
+- This queue does not replace Register payment or transaction handling.
+- Keep notes operational and customer-safe.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+The queue refreshes and the job remains visible under the matching status filter.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
+- `docs/staff/alterations-back-office.md`
+- `docs/staff/pos-alterations.md`
 
 ## Screenshots
 
-Add PNGs under `../images/help/alterations-workspace/` and replace this example with governed screenshots.
-
-![Example](../images/help/alterations-workspace/example.png)
-
+Screenshots are not currently embedded for this workflow.

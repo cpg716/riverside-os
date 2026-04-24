@@ -10,14 +10,16 @@
 
 ## What this screen is for
 
-Use **Alterations** from POS when you are **at the register** with a customer and need to **check status**, **add a quick note**, or **move a job** without walking to the back-office queue on another machine.
+Use **Alterations** from POS when you are **at the register** with a customer and need to **check status**, **intake a standalone tailoring job**, or **move a job** without walking to the back-office queue on another machine.
+
+This screen is a standalone alterations queue. It does **not** add alteration charges to the Register cart, create alteration service lines, or automatically link tailoring work to checkout revenue.
 
 ## How to use this screen
 
 1. Open POS mode with an **active register session** if your store requires it for POS navigation.
 2. Tap **Alterations** in the left rail.
-3. Use **search or the queue list** (as your build shows) to find the job — customer name, ticket number, or due date your SOP defines.
-4. Open the job to see **status**, **due date**, and **notes**. Save changes only when you are sure; some edits notify the tailor or manager.
+3. Use the queue filters (**All**, **Intake**, **In Work**, **Ready**, **Picked Up**) to narrow the list.
+4. Review **customer**, **status**, **due date**, and **notes**. Save status changes only when you are sure; marking a job **Ready** may notify the customer.
 
 ## Common tasks
 
@@ -29,9 +31,9 @@ Use **Alterations** from POS when you are **at the register** with a customer an
 
 ### Hand off to the tailor with a note
 
-1. Open the job.
-2. Add or edit the **note** field with **who called**, **what was promised**, and **your initials**.
-3. Save; confirm a success toast appears.
+1. For a new standalone job, select the customer, set a target due date if known, and enter the tailoring instructions in **Job Notes**.
+2. For an existing job, use the visible note to confirm context before changing status.
+3. Confirm a success toast appears after creating the job or changing status.
 
 ### Something was mis-tagged at intake
 
@@ -40,7 +42,7 @@ Use **Alterations** from POS when you are **at the register** with a customer an
 
 ## Helping a coworker
 
-- Ask: **“Do you have a ticket number or customer last name?”**
+- Ask: **“Do you have the customer name or due date?”**
 - If they cannot find the job: try **All Orders** or **Customers** for the receipt, then return to **Alterations** with the correct spelling.
 
 ## Common issues and fixes
@@ -54,7 +56,7 @@ Use **Alterations** from POS when you are **at the register** with a customer an
 
 ## When to get a manager
 
-- Changing **pricing** or **rush fees** on alteration orders if not in your role.
+- Any customer-facing promise about **price**, **rush fees**, or cart charges. This screen does not collect alteration payment.
 - **Lost item** or **damage** claims.
 - Any instruction to **delete** history or alter **completed** jobs without audit trail.
 
@@ -64,4 +66,4 @@ Use **Alterations** from POS when you are **at the register** with a customer an
 
 - [alterations-back-office.md](alterations-back-office.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-24

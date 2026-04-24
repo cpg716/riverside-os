@@ -210,6 +210,13 @@ struct TestSupportTransactionArtifacts {
     rms_records: Vec<corecard::RmsChargeRecordDetail>,
 }
 
+#[derive(Debug, Serialize)]
+struct TestSupportAlterationActivityRow {
+    action: String,
+    staff_id: Option<Uuid>,
+    detail: Value,
+}
+
 async fn ensure_e2e_catalog(state: &AppState) -> Result<SeedProductSummary, TestSupportError> {
     sqlx::query(
         "INSERT INTO categories (id, name, is_clothing_footwear) VALUES ($1::uuid, 'E2E RMS Services', false) ON CONFLICT (id) DO NOTHING",
@@ -747,6 +754,37 @@ async fn get_transaction_artifacts(
     }))
 }
 
+async fn get_alteration_activity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(alteration_id): Path<Uuid>,
+) -> Result<Json<Vec<TestSupportAlterationActivityRow>>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let rows = sqlx::query_as::<_, (String, Option<Uuid>, Value)>(
+        r#"
+        SELECT action, staff_id, detail
+        FROM alteration_activity
+        WHERE alteration_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(alteration_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(
+        rows.into_iter()
+            .map(
+                |(action, staff_id, detail)| TestSupportAlterationActivityRow {
+                    action,
+                    staff_id,
+                    detail,
+                },
+            )
+            .collect(),
+    ))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/rms/seed-fixture", post(post_seed_fixture))
@@ -754,5 +792,9 @@ pub fn router() -> Router<AppState> {
         .route(
             "/rms/transaction/{transaction_id}",
             get(get_transaction_artifacts),
+        )
+        .route(
+            "/alterations/{alteration_id}/activity",
+            get(get_alteration_activity),
         )
 }

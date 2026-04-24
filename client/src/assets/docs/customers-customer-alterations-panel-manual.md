@@ -2,11 +2,11 @@
 id: customers-customer-alterations-panel
 title: "Customer Alterations Panel (customers)"
 order: 1002
-summary: "Draft maintainer scaffold for client/src/components/customers/CustomerAlterationsPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Shared alterations queue panel for standalone tailoring intake, due dates, notes, and status movement."
 source: client/src/components/customers/CustomerAlterationsPanel.tsx
 last_scanned: 2026-04-23
 tags: customers-customer-alterations-panel, component, auto-scaffold
-status: draft
+status: approved
 ---
 
 # Customer Alterations Panel (customers)
@@ -17,42 +17,42 @@ _Linked component: `client/src/components/customers/CustomerAlterationsPanel.tsx
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+This panel powers the shared Alterations queue in Back Office and POS. It is a standalone tailoring tracker for customer, due date, notes, and status.
+
+It does not add alteration charges to the Register cart, print tickets/barcodes, or link jobs to SKU/order-line revenue.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use it when staff need to create a standalone alteration job or move a job through **Intake**, **In Work**, **Ready**, and **Picked Up**.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Confirm the staff member has **alterations.manage**.
+- Confirm the customer record exists.
+- Confirm any pricing/payment questions outside this queue.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Select the relevant filter: **All**, **Intake**, **In Work**, **Ready**, or **Picked Up**.
+2. To create a job, select a customer, enter a due date if known, add job notes, and create the standalone job.
+3. To update a job, press the matching status button.
+4. Confirm the success toast and refreshed queue.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Marking a job **Ready** may send the configured alteration-ready customer message.
+- Status changes are audit-tracked.
+- This panel is not a Register checkout/payment surface.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+The job appears in the queue under its current status.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
+- `docs/staff/alterations-back-office.md`
+- `docs/staff/pos-alterations.md`
 
 ## Screenshots
 
-Add PNGs under `../images/help/customers-customer-alterations-panel/` and replace this example with governed screenshots.
-
-![Example](../images/help/customers-customer-alterations-panel/example.png)
-
+Screenshots are not currently embedded for this workflow.
