@@ -1,7 +1,11 @@
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { parseMoneyToCents } from "../src/lib/money";
 import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
-import { openBackofficeSidebarTab, signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  openBackofficeSidebarTab,
+  selectBackofficeStaffMember,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 import {
   apiBase,
   ensureSessionAuth,
@@ -121,8 +125,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
     await expect(cashierDialog).toBeVisible({ timeout: 20_000 });
-    await cashierDialog.getByRole("button", { name: /select staff member/i }).first().click();
-    await cashierDialog.getByRole("button", { name: /Chris Garcia/i }).click();
+    await selectBackofficeStaffMember(cashierDialog);
     for (const digit of "1234") {
       await cashierDialog.getByTestId(`pin-key-${digit}`).click();
     }
@@ -202,8 +205,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
     await expect(cashierDialog).toBeVisible({ timeout: 20_000 });
-    await cashierDialog.getByRole("button", { name: /select staff member/i }).first().click();
-    await cashierDialog.getByRole("button", { name: /Chris Garcia/i }).click();
+    await selectBackofficeStaffMember(cashierDialog);
     for (const digit of "1234") {
       await cashierDialog.getByTestId(`pin-key-${digit}`).click();
     }
@@ -235,8 +237,7 @@ test.describe("Orders detail drawer and POS handoff", () => {
 
     const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
     await expect(cashierDialog).toBeVisible({ timeout: 20_000 });
-    await cashierDialog.getByRole("button", { name: /select staff member/i }).first().click();
-    await cashierDialog.getByRole("button", { name: /Chris Garcia/i }).click();
+    await selectBackofficeStaffMember(cashierDialog);
     for (const digit of "1234") {
       await cashierDialog.getByTestId(`pin-key-${digit}`).click();
     }

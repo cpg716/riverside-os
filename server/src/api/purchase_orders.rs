@@ -1273,7 +1273,12 @@ async fn create_backorder_from_short_lines(
             r#"
             INSERT INTO purchase_orders (po_number, vendor_id, status, po_kind, notes, split_from_po_id)
             VALUES (
-                CONCAT('BO-', TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS')),
+                CONCAT(
+                    'BO-',
+                    TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS-MS'),
+                    '-',
+                    LPAD((FLOOR(random() * 1000))::int::text, 3, '0')
+                ),
                 $1,
                 'draft',
                 'standard',

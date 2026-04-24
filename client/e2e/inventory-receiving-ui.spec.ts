@@ -75,9 +75,9 @@ test.describe("Inventory receiving operator verification", () => {
       timeout: 20_000,
     });
     await expect(page.getByText(/^step 1$/i).first()).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/verify po/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/count & invoice/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/post inventory/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^verify po$/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^count & invoice$/i).first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^post inventory$/i).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/next: count & invoice/i)).toBeVisible({ timeout: 10_000 });
 
     const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();
@@ -140,7 +140,7 @@ test.describe("Inventory receiving operator verification", () => {
     await expect(page.getByRole("heading", { name: /receiving bay/i })).toBeVisible({
       timeout: 20_000,
     });
-    await expect(page.getByText(/verify po/i)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByText(/^verify po$/i).first()).toBeVisible({ timeout: 10_000 });
     await expect(page.getByText(/next: count & invoice/i)).toBeVisible({ timeout: 10_000 });
 
     const receivingRow = page.locator("tr").filter({ hasText: product.sku }).first();

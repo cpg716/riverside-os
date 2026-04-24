@@ -1,6 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { parseMoneyToCents } from "../src/lib/money";
-import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
+import { centsToFixed2, parseMoneyToCents } from "../src/lib/money";
+import {
+  calculateNysErieTaxForUnit,
+  calculateNysErieTaxStringsForUnit,
+  type TaxCategory,
+} from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
@@ -26,6 +30,7 @@ type ControlBoardRow = {
   product_id: string;
   variant_id: string;
   sku: string;
+  tax_category?: string;
   retail_price: string;
   cost_price: string;
   state_tax: string;
@@ -215,6 +220,7 @@ async function fetchCatalogPricing(
     return {
       product_id: body.product_id,
       variant_id: body.variant_id,
+      tax_category: body.tax_category,
       sku: body.sku,
       retail_price: body.standard_retail_price,
       cost_price: body.unit_cost,
@@ -266,6 +272,21 @@ async function seedOrderFixture(
   customerLabel: string,
 ): Promise<SeedFixtureResponse> {
   return seedRmsFixture(request, fixture, customerLabel);
+}
+
+function findUnitPriceCentsForTargetTotal(
+  category: TaxCategory,
+  targetTotalCents: number,
+): number {
+  for (let unitPriceCents = 1; unitPriceCents < targetTotalCents; unitPriceCents += 1) {
+    const { stateTaxCents, localTaxCents } = calculateNysErieTaxForUnit(category, unitPriceCents);
+    if (unitPriceCents + stateTaxCents + localTaxCents === targetTotalCents) {
+      return unitPriceCents;
+    }
+  }
+  throw new Error(
+    `Could not derive an odd-cent unit price for category ${category} and total ${targetTotalCents}`,
+  );
 }
 
 async function checkoutOrder(
@@ -806,6 +827,11 @@ test.describe("Orders custom vs special contract", () => {
       "single_valid",
       "Orders Odd Cent Deposit",
     );
+    const pricing = await fetchCatalogPricing(request, fixture.product.sku);
+    const taxCategory = ((pricing.tax_category ?? "other").toLowerCase() as TaxCategory);
+    const unitPriceCents = findUnitPriceCentsForTargetTotal(taxCategory, 8799);
+    const { stateTax, localTax } = calculateNysErieTaxStringsForUnit(taxCategory, unitPriceCents);
+    const unitPrice = centsToFixed2(unitPriceCents);
 
     const checkoutRes = await request.post(`${apiBase()}/api/transactions/checkout`, {
       headers: {
@@ -830,10 +856,10 @@ test.describe("Orders custom vs special contract", () => {
             variant_id: fixture.product.variant_id,
             fulfillment: "special_order",
             quantity: 1,
-            unit_price: "80.45",
-            unit_cost: fixture.product.cost_price,
-            state_tax: "5.63",
-            local_tax: "1.91",
+            unit_price: unitPrice,
+            unit_cost: fixture.product.unit_cost,
+            state_tax: stateTax,
+            local_tax: localTax,
             price_override_reason: "deposit_rounding_regression_guard",
           },
         ],
