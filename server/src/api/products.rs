@@ -437,6 +437,7 @@ fn control_board_ilike_pattern(raw: &str) -> String {
 pub struct InventoryControlRow {
     pub variant_id: Uuid,
     pub product_id: Uuid,
+    pub total_variant_count: i64,
     pub sku: String,
     pub barcode: Option<String>,
     pub product_name: String,
@@ -1075,6 +1076,7 @@ pub async fn list_control_board(
         SELECT
             pv.id AS variant_id,
             p.id AS product_id,
+            variant_totals.total_variant_count,
             pv.sku,
             pv.barcode,
             p.name AS product_name,
@@ -1110,6 +1112,11 @@ pub async fn list_control_board(
         r#"
         FROM product_variants pv
         JOIN products p ON p.id = pv.product_id
+        LEFT JOIN LATERAL (
+            SELECT COUNT(*)::bigint AS total_variant_count
+            FROM product_variants pv_total
+            WHERE pv_total.product_id = p.id
+        ) variant_totals ON true
         LEFT JOIN categories c ON c.id = p.category_id
         LEFT JOIN vendors pvendor ON pvendor.id = p.primary_vendor_id
         LEFT JOIN LATERAL (

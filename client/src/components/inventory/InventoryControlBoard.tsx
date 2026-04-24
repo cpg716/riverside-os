@@ -79,6 +79,7 @@ interface Vendor {
 interface BoardRow {
   variant_id: string;
   product_id: string;
+  total_variant_count: number;
   sku: string;
   product_name: string;
   brand: string | null;
@@ -129,6 +130,7 @@ interface ProductListRow {
   cost_min: number;
   cost_max: number;
   variant_count: number;
+  loaded_variant_count: number;
   unlabeled_count: number;
   category_name?: string | null;
   variant_rows: BoardRow[];
@@ -446,6 +448,7 @@ export default function InventoryControlBoard({
       {
         variant_id: maintenanceTarget.variantId,
         product_id: "",
+        total_variant_count: 1,
         sku: maintenanceTarget.sku,
         product_name: maintenanceTarget.sku,
         brand: null,
@@ -651,7 +654,8 @@ export default function InventoryControlBoard({
         retail_max: Number.isFinite(rMaxC) ? rMaxC / 100 : 0,
         cost_min: Number.isFinite(cMinC) ? cMinC / 100 : 0,
         cost_max: Number.isFinite(cMaxC) ? cMaxC / 100 : 0,
-        variant_count: variants.length,
+        variant_count: Math.max(first.total_variant_count ?? variants.length, variants.length),
+        loaded_variant_count: variants.length,
         unlabeled_count: unlabeled,
         variant_rows: variants,
         available_stock_total: availSum,
