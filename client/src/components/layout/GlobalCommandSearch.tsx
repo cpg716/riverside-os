@@ -14,6 +14,7 @@ import { twMerge } from "tailwind-merge";
 import type { Customer } from "../pos/CustomerSelector";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import type { SidebarTabId } from "./sidebarSections";
 
 function cn(...inputs: Array<string | false | null | undefined>) {
@@ -223,6 +224,11 @@ export default function GlobalCommandSearch({
     setOpen(false);
     resetSearch();
   }, [resetSearch]);
+
+  const { dialogRef, titleId } = useDialogAccessibility(open, {
+    onEscape: closePalette,
+    initialFocusRef: inputRef,
+  });
 
   const resultEntries = useMemo<SearchResultEntry[]>(
     () => [
@@ -709,21 +715,32 @@ export default function GlobalCommandSearch({
             className="absolute inset-0 cursor-default"
             onClick={closePalette}
           />
-          <div className="relative z-[111] flex max-h-[min(88vh,56rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-app-border bg-app-surface shadow-[0_30px_80px_-24px_rgba(15,23,42,0.35)] animate-in fade-in zoom-in-95 duration-200">
+          <div
+            ref={dialogRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby={titleId}
+            className="relative z-[111] flex max-h-[min(88vh,56rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-app-border bg-app-surface shadow-[0_30px_80px_-24px_rgba(15,23,42,0.35)] animate-in fade-in zoom-in-95 duration-200"
+          >
             <div className="border-b border-app-border bg-[color-mix(in_srgb,var(--app-surface)_88%,var(--app-surface-2))] px-4 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
                   <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-text-muted">
                     Universal Search
                   </p>
-                  <p className="mt-1 text-sm font-semibold text-app-text">
+                  <p id={titleId} className="mt-1 text-sm font-semibold text-app-text">
                     Jump across Riverside without leaving your place.
                   </p>
                 </div>
-                <div className="hidden items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:flex">
+                <button
+                  type="button"
+                  onClick={closePalette}
+                  className="hidden items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-colors hover:bg-app-surface-2 hover:text-app-text sm:flex"
+                  aria-label="Close universal search"
+                >
                   <span>Esc</span>
                   <span className="opacity-40">close</span>
-                </div>
+                </button>
               </div>
 
               <div className="relative mt-4">
