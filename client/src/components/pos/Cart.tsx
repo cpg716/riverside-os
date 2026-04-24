@@ -476,6 +476,7 @@ export default function Cart({
     primarySalespersonId,
     disbursementMembers,
     posShipping,
+    pendingAlterationIntakes,
     pickupConfirmed,
     totals,
     toast,
@@ -1294,7 +1295,7 @@ export default function Cart({
                   {pendingAlterationIntakes.length === 1 ? "" : "s"} attached to current cart
                 </span>
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Checkout linkage pending later phase
+                  Will link to checkout
                 </span>
               </div>
             </div>

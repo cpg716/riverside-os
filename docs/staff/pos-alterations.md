@@ -12,7 +12,7 @@
 
 Use **Alterations** from POS when you are **at the register** with a customer and need to **check status**, **intake a standalone tailoring job**, or **move a job** without walking to the back-office queue on another machine.
 
-This screen is a standalone alterations queue. It can now record the garment/source, work requested, optional SKU/reference text, and whether a charge was noted. It does **not** add alteration charges to the Register cart, create alteration service lines, or automatically link tailoring work to checkout revenue.
+This screen shares the same alterations queue as Back Office. It can record the garment/source, work requested, optional SKU/reference text, and whether a charge was noted. Free alterations started from a current Register cart item are linked to the checkout transaction when the sale completes. It does **not** add alteration charges to the Register cart or create alteration service lines yet.
 
 ## How to use this screen
 

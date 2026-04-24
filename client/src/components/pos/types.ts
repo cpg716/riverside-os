@@ -83,6 +83,19 @@ export interface PendingAlterationIntake {
   created_at: string;
 }
 
+export interface CheckoutAlterationIntakePayload {
+  client_line_id: string;
+  source_type: "current_cart_item";
+  item_description: string;
+  work_requested: string;
+  source_product_id?: string | null;
+  source_variant_id?: string | null;
+  source_sku?: string | null;
+  charge_amount?: string | null;
+  due_at?: string | null;
+  notes?: string | null;
+}
+
 export type GiftCardType =
   | "paid_liability"
   | "loyalty_giveaway"
@@ -173,6 +186,7 @@ export interface CheckoutPayload {
   total_price: string;
   amount_paid: string;
   items: unknown[];
+  alteration_intakes?: CheckoutAlterationIntakePayload[];
   actor_name?: string | null;
   payment_splits?: CheckoutPaymentSplitPayload[] | null;
   applied_deposit_amount?: string;

@@ -12,7 +12,7 @@
 
 The **Work queue** is the **system of record** for standalone alteration jobs: intake → in progress → ready → picked up. POS **Alterations** uses the same queue as Back Office.
 
-This area tracks tailoring work orders attached to garments. New jobs can now record the item being altered, source type, work requested, optional SKU/reference text, and optional charge note. It still does **not** create Register cart lines, collect alteration payment, print alteration tickets/barcodes, or automatically link work to checkout revenue.
+This area tracks tailoring work orders attached to garments. New jobs can now record the item being altered, source type, work requested, optional SKU/reference text, and optional charge note. Free alterations started from a current Register cart item now link to the completed checkout transaction. The queue still does **not** create Register charge lines, collect alteration payment, or print alteration tickets/barcodes.
 
 ## Work queue
 
@@ -36,7 +36,7 @@ This area tracks tailoring work orders attached to garments. New jobs can now re
 
 1. Use this queue to record whether an alteration is free/included or has an optional charge note.
 2. Handle actual **price**, **rush fee**, or payment collection through the approved Register/payment workflow outside this queue.
-3. Register toolbar intake and checkout-linked alteration charges are not built yet.
+3. Register toolbar intake can link free current-cart alterations at checkout; checkout-linked alteration charges are not built yet.
 
 ## POS coordination
 

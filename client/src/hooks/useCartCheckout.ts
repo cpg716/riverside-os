@@ -9,7 +9,8 @@ import {
   type CheckoutPaymentSplitPayload,
   type CartTotals,
   type PosShippingSelection,
-  type PosOrderOptions
+  type PosOrderOptions,
+  type PendingAlterationIntake
 } from "../components/pos/types";
 import { parseMoneyToCents, centsToFixed2 } from "../lib/money";
 import { newCheckoutClientId, normalizeGiftCardSubType } from "../lib/posUtils";
@@ -27,6 +28,7 @@ interface UseCartCheckoutProps {
   primarySalespersonId: string;
   disbursementMembers: WeddingMember[];
   posShipping: PosShippingSelection | null;
+  pendingAlterationIntakes: PendingAlterationIntake[];
   pickupConfirmed: boolean;
   totals: CartTotals; 
   toast: (msg: string, type?: "success" | "error" | "info") => void;
@@ -83,6 +85,7 @@ export function useCartCheckout({
   primarySalespersonId,
   disbursementMembers,
   posShipping,
+  pendingAlterationIntakes,
   pickupConfirmed,
   totals,
   toast,
@@ -158,6 +161,38 @@ export function useCartCheckout({
 
       const checkoutClientId = newCheckoutClientId();
       const primaryTrim = primarySalespersonId.trim();
+      const currentCartAlterationIntakes = pendingAlterationIntakes.filter(
+        (intake) => intake.source_type === "current_cart_item",
+      );
+      if (currentCartAlterationIntakes.length > 0) {
+        if (!selectedCustomer?.id) {
+          toast("Select a customer before checking out with alteration intake.", "error");
+          setCheckoutBusy(false);
+          return;
+        }
+        const activeLineIds = new Set(lines.map((line) => line.cart_row_id));
+        for (const intake of currentCartAlterationIntakes) {
+          if (intake.source_type !== "current_cart_item") {
+            toast("Only current-cart alteration intake can be checked out in this phase.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+          if (!intake.cart_row_id || !activeLineIds.has(intake.cart_row_id)) {
+            toast("An alteration intake references an item that is no longer in the cart.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+          const chargeCents =
+            intake.charge_amount && intake.charge_amount.trim()
+              ? parseMoneyToCents(intake.charge_amount)
+              : 0;
+          if (chargeCents > 0) {
+            toast("Paid alteration charges are not available in checkout yet.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+        }
+      }
 
       const payload: CheckoutPayload = {
         session_id: sessionId,
@@ -187,6 +222,7 @@ export function useCartCheckout({
           const unitCents = parseMoneyToCents(l.standard_retail_price);
           const origCents = l.original_unit_price != null ? parseMoneyToCents(l.original_unit_price) : unitCents;
           return {
+            client_line_id: l.cart_row_id,
             product_id: l.product_id, 
             variant_id: l.variant_id, 
             fulfillment: pickupConfirmed ? "takeaway" : (l.fulfillment ?? "takeaway"),
@@ -207,6 +243,18 @@ export function useCartCheckout({
             ...(l.gift_card_load_code?.trim() ? { gift_card_load_code: l.gift_card_load_code.trim().toUpperCase() } : {}),
           };
         }),
+        alteration_intakes: currentCartAlterationIntakes.map((intake) => ({
+          client_line_id: intake.cart_row_id!,
+          source_type: "current_cart_item",
+          item_description: intake.item_description,
+          work_requested: intake.work_requested,
+          source_product_id: intake.source_product_id ?? null,
+          source_variant_id: intake.source_variant_id ?? null,
+          source_sku: intake.source_sku ?? null,
+          charge_amount: intake.charge_amount ?? null,
+          due_at: intake.due_at ?? null,
+          notes: intake.notes ?? null,
+        })),
         wedding_disbursements: disbursementMembers.length > 0 ? disbursementMembers.map(m => ({
           wedding_member_id: m.id,
           amount: centsToFixed2(parseMoneyToCents(m.balance_due || "0")),
@@ -246,7 +294,7 @@ export function useCartCheckout({
     }
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember, 
-    cashierName, primarySalespersonId, disbursementMembers, posShipping, 
+    cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes,
     pickupConfirmed, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
   ]);
 

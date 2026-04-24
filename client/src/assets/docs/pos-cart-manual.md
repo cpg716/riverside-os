@@ -19,7 +19,7 @@ _Linked component: `client/src/components/pos/Cart.tsx`._
 
 The Register cart is the selling surface for active sale lines, customer context, payment entry, and sale tools. The toolbar includes separate actions for Wedding, Alteration, Exchange, Layaway, Gift Card, Park Sale, Clear Sale, Options, and Orders.
 
-The **Alteration** action starts intake for garment work orders. It does not sell alteration-only items, does not add alteration charges to checkout in this phase, and does not replace the shared Alterations queue.
+The **Alteration** action starts intake for garment work orders. Current-cart free alterations are linked to the sale when checkout completes. Alteration-only scanned, past-purchase, or custom items still save directly to the shared Alterations queue and are not sold again.
 
 ## When to use it
 
@@ -36,17 +36,18 @@ Use this screen when helping a customer at the Register, adding sale lines, revi
 1. Add sale lines through product search or scanner when the customer is buying items.
 2. Use toolbar actions as separate commands; **Exchange** and **Layaway** are independent actions.
 3. To start alteration intake, select the customer, choose **Alteration**, choose the item source, enter work requested, and save.
-4. Continue checkout only for actual sale items. Alteration checkout linkage is handled in a later workflow phase.
+4. Continue checkout only for actual sale items. Free current-cart alteration intakes link to the transaction when checkout completes.
 
 ## What to watch for
 
 - Alteration intake requires a customer.
 - Scanned/entered alteration-only items are lookup-only and are not added to the cart.
 - Optional alteration charge notes do not create Register charge lines yet.
+- Paid alteration checkout is not active yet; current-cart checkout linkage is for free/included alteration work only.
 
 ## What happens next
 
-Sale items remain in the Register cart. Standalone alteration intakes are saved to the shared Alterations queue; current-cart alteration drafts remain attached to the cart for later checkout-linkage work.
+Sale items remain in the Register cart. Standalone alteration intakes are saved to the shared Alterations queue immediately. Current-cart free alteration drafts stay attached to the cart and become linked alteration work orders when checkout succeeds.
 
 ## Related workflows
 

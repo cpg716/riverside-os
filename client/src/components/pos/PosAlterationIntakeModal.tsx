@@ -319,7 +319,7 @@ export default function PosAlterationIntakeModal({
         notes: noteValue,
         created_at: new Date().toISOString(),
       });
-      toast("Alteration intake saved with this cart item. Checkout linkage comes in a later phase.", "success");
+      toast("Alteration intake saved with this cart item. It will link when checkout completes.", "success");
       onClose();
       return;
     }
