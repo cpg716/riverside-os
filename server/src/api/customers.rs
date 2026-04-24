@@ -25,7 +25,9 @@ use crate::auth::permissions::{
     POS_RMS_CHARGE_USE, STORE_CREDIT_MANAGE,
 };
 use crate::logic::corecard;
-use crate::logic::customer_duplicate_candidates::find_duplicate_candidates;
+use crate::logic::customer_duplicate_candidates::{
+    find_duplicate_candidates, DuplicateCandidateParams,
+};
 use crate::logic::customer_hub::{days_since_last_visit, fetch_hub_stats};
 use crate::logic::customer_measurements;
 use crate::logic::customer_merge;
@@ -1057,13 +1059,15 @@ async fn get_duplicate_candidates(
     require_customer_access(&state, &headers).await?;
     let rows = find_duplicate_candidates(
         &state.db,
-        q.email.as_deref(),
-        q.phone.as_deref(),
-        q.first_name.as_deref(),
-        q.last_name.as_deref(),
-        q.postal_code.as_deref(),
-        q.exclude_customer_id,
-        q.limit,
+        DuplicateCandidateParams {
+            email: q.email.as_deref(),
+            phone: q.phone.as_deref(),
+            first_name: q.first_name.as_deref(),
+            last_name: q.last_name.as_deref(),
+            postal_code: q.postal_code.as_deref(),
+            exclude_customer_id: q.exclude_customer_id,
+            limit: q.limit,
+        },
     )
     .await?;
     Ok(Json(rows))

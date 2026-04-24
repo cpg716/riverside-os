@@ -52,27 +52,34 @@ type CustomerSlim = (
     Option<String>,
 );
 
+pub struct DuplicateCandidateParams<'a> {
+    pub email: Option<&'a str>,
+    pub phone: Option<&'a str>,
+    pub first_name: Option<&'a str>,
+    pub last_name: Option<&'a str>,
+    pub postal_code: Option<&'a str>,
+    pub exclude_customer_id: Option<Uuid>,
+    pub limit: i64,
+}
+
 /// Find likely duplicates for create-time UX. Excludes `exclude_id` when present.
 pub async fn find_duplicate_candidates(
     pool: &PgPool,
-    email: Option<&str>,
-    phone: Option<&str>,
-    first_name: Option<&str>,
-    last_name: Option<&str>,
-    postal_code: Option<&str>,
-    exclude_customer_id: Option<Uuid>,
-    limit: i64,
+    params: DuplicateCandidateParams<'_>,
 ) -> Result<Vec<DuplicateCandidateRow>, sqlx::Error> {
-    let lim = limit.clamp(1, 50);
-    let ne = email.and_then(normalize_email);
-    let np = phone.and_then(normalize_phone);
-    let nf = first_name
+    let lim = params.limit.clamp(1, 50);
+    let ne = params.email.and_then(normalize_email);
+    let np = params.phone.and_then(normalize_phone);
+    let nf = params
+        .first_name
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
-    let nl = last_name
+    let nl = params
+        .last_name
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
-    let nz = postal_code
+    let nz = params
+        .postal_code
         .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty());
 
@@ -83,7 +90,7 @@ pub async fn find_duplicate_candidates(
     let mut out: Vec<DuplicateCandidateRow> = Vec::new();
 
     if let Some(ref em) = ne {
-        let rows: Vec<CustomerSlim> = if let Some(ex) = exclude_customer_id {
+        let rows: Vec<CustomerSlim> = if let Some(ex) = params.exclude_customer_id {
             sqlx::query_as(
                 r#"
                 SELECT id, customer_code, first_name, last_name, email, phone,
@@ -148,7 +155,7 @@ pub async fn find_duplicate_candidates(
     }
 
     if let Some(ref digits) = np {
-        let rows: Vec<CustomerSlim> = if let Some(ex) = exclude_customer_id {
+        let rows: Vec<CustomerSlim> = if let Some(ex) = params.exclude_customer_id {
             sqlx::query_as(
                 r#"
                 SELECT id, customer_code, first_name, last_name, email, phone,
@@ -216,7 +223,7 @@ pub async fn find_duplicate_candidates(
     }
 
     if let (Some(ref fnl), Some(ref lnl)) = (&nf, &nl) {
-        let rows: Vec<CustomerSlim> = if let Some(ex) = exclude_customer_id {
+        let rows: Vec<CustomerSlim> = if let Some(ex) = params.exclude_customer_id {
             sqlx::query_as(
                 r#"
                 SELECT id, customer_code, first_name, last_name, email, phone,
