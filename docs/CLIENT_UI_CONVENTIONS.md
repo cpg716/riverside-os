@@ -43,7 +43,8 @@ Riverside OS utilize a persistent, touch-friendly Top Bar that remains visible a
 - **Top Bar Branding**: Redundant logos are removed from the `GlobalTopBar`. The sidebar rail is the sole authority for visual identity.
 - **Full Identity**: The full logo-with-name (`riverside_logo.jpg`) is reserved for unauthenticated entry points like the `BackofficeSignInGate`.
 - **Access Toggles**: Standard staff session is indicated by **Staff Access** (green icon). Privileged status for overrides is indicated by **Manager Access** (crown icon).
-- **Universal Search**: Centered lookup for Customers and Products, accessible from any operational section.
+- **Universal Search**: A compact Top Bar utility trigger for cross-workspace jump navigation. Keep the persistent chrome calm; the full search experience lives in the overlay, not as a dominant always-expanded field.
+- **Shell-Aware Search Treatment**: Back Office may use a small labeled trigger with shortcut hinting, while POS should use the tighter tactical variant so the header does not collapse under operational controls.
 - **Global Actions**: Quick access to Bug Reporting, Help Center, Theme Toggle (Sun/Moon), and Notifications.
 - **Breadcrumbs**: Dynamic navigation path on the left for quick context-switching and section exits.
 - **Shell-Specific Data**: Right-side injection slot for shell-specific status (e.g., POS Register Balance).

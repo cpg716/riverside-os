@@ -22,6 +22,9 @@ Open the register per SOP. [register-tab-back-office.md](register-tab-back-offic
 **Complete Sale is grayed out.**  
 [ERROR-AND-TOAST-GUIDE.md](ERROR-AND-TOAST-GUIDE.md) → symptom table; detail: [pos-register-cart.md](pos-register-cart.md)
 
+**I know the customer / SKU / party, but not which section to open.**  
+[universal-search.md](universal-search.md)
+
 **Search finds nothing.**  
 Use **SKU** first; POS Inventory needs **2+** search characters. [pos-register-cart.md](pos-register-cart.md), [pos-inventory.md](pos-inventory.md)
 

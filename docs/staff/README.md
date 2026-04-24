@@ -51,6 +51,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | RMS Charge exceptions | [rms-charge-exceptions.md](rms-charge-exceptions.md) |
 | RMS Charge reconciliation | [rms-charge-reconciliation.md](rms-charge-reconciliation.md) |
 | Customers | [customers-back-office.md](customers-back-office.md) |
+| Universal Search | [universal-search.md](universal-search.md) |
 | Transactions | [transactions-back-office.md](transactions-back-office.md) |
 | Inventory (all BO subsections) | [inventory-back-office.md](inventory-back-office.md) |
 | Alterations (BO) | [alterations-back-office.md](alterations-back-office.md) |
