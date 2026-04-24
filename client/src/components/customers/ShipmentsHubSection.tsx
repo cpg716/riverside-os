@@ -526,9 +526,13 @@ export default function ShipmentsHubSection({
           {loading ? (
             <p className="p-6 text-sm text-app-text-muted">Loading…</p>
           ) : items.length === 0 ? (
-            <p className="p-6 text-sm text-app-text-muted">
-              No shipments found.
-            </p>
+            <div className="flex flex-col items-center justify-center p-8 text-center text-app-text-muted">
+              <Package size={40} className="mb-3 opacity-70" />
+              <p className="text-sm font-black uppercase tracking-widest italic">No shipments found</p>
+              <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
+                Shippo labels and handoff activity will appear here once a shipment is created or synced.
+              </p>
+            </div>
           ) : (
             <table className="w-full min-w-[640px] text-left text-sm">
               <thead className="sticky top-0 border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">

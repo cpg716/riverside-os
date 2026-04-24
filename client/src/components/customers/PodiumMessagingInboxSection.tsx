@@ -86,7 +86,13 @@ export default function PodiumMessagingInboxSection({
       {loading ? (
         <p className="text-sm text-app-text-muted">Loading…</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-app-text-muted">No Podium conversations yet.</p>
+        <div className="flex flex-1 flex-col items-center justify-center rounded-xl border border-app-border/60 bg-app-surface px-6 py-10 text-center text-app-text-muted">
+          <MessageSquare size={40} className="mb-3 opacity-70" />
+          <p className="text-sm font-black uppercase tracking-widest italic text-app-text">No Podium conversations yet</p>
+          <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
+            New inbound messages and replies will land here after the first synced customer conversation.
+          </p>
+        </div>
       ) : (
         <div className="flex-1 rounded-xl border border-app-border bg-app-surface">
           <ul className="divide-y divide-app-border">

@@ -951,9 +951,12 @@ export default function OrdersWorkspace({
             </table>
 
             {transactionRows.length === 0 && (
-              <div className="flex flex-col items-center justify-center p-16 text-app-text-muted">
-                <Search size={48} className="mb-4" />
+              <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
+                <Search size={48} className="mb-4 opacity-70" />
                 <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
+                <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
+                  Try a broader search or clear one of the active filters to bring orders back into view.
+                </p>
               </div>
             )}
           </div>

@@ -6,18 +6,18 @@
   color-scheme: light;
   --app-bg: #f3f0ea;
   --app-surface: #ffffff;
-  --app-surface-2: #f7f3ee;
+  --app-surface-2: #f8f4ef;
   /* Nudge darker than surface-2 so tertiary panels and recessed zones separate cleanly. */
-  --app-surface-3: #eee7de;
+  --app-surface-3: #ede5dc;
   --app-text: #111827;
   --app-text-muted: #5b6472;
   --app-text-disabled: #8f98a7;
-  --app-border: #dde1e7;
+  --app-border: #e3e7ec;
   --app-accent: #cf54e4; /* softened fuchsia */
   --app-accent-2: #0ea5e9; /* Sky-500 */
   --app-success: #1f8d68;
   --app-warning: #ab7a33;
-  --app-danger: #c66767;
+  --app-danger: #c87979;
   --app-info: #467fc5;
   --app-shell: #f0ebe4;
   --app-rail: #ffffff;
@@ -205,10 +205,10 @@ html[data-theme="dark"] :where(
 
   /* Shared primitive classes to reduce one-off styling drift across surfaces. */
   .ui-card {
-    border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
-    background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-2));
+    border: 1px solid color-mix(in srgb, var(--app-border) 68%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 94%, var(--app-surface-2));
     color: var(--app-text);
-    @apply rounded-2xl shadow-[0_14px_28px_-22px_rgba(15,23,42,0.18)];
+    @apply rounded-2xl shadow-[0_16px_30px_-24px_rgba(15,23,42,0.16)];
   }
 
   .ui-input {
@@ -245,7 +245,7 @@ html[data-theme="dark"] :where(
   }
 
   .ui-btn-secondary {
-    border: 1px solid var(--app-border);
+    border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
     background: var(--app-surface);
     color: var(--app-text);
     @apply min-h-11 touch-manipulation rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors disabled:opacity-50;
@@ -261,14 +261,14 @@ html[data-theme="dark"] :where(
   }
 
   .ui-table-shell {
-    border: 1px solid color-mix(in srgb, var(--app-border) 74%, transparent);
-    background: color-mix(in srgb, var(--app-surface) 93%, var(--app-surface-2));
+    border: 1px solid color-mix(in srgb, var(--app-border) 66%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 94%, var(--app-surface-2));
     @apply overflow-hidden rounded-2xl shadow-sm;
   }
 
   .ui-filter-row {
-    border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
-    background: color-mix(in srgb, var(--app-surface-2) 84%, var(--app-surface));
+    border: 1px solid color-mix(in srgb, var(--app-border) 64%, transparent);
+    background: color-mix(in srgb, var(--app-surface-2) 82%, var(--app-surface));
     @apply flex flex-wrap items-center gap-2 rounded-2xl p-3;
   }
 
@@ -289,7 +289,7 @@ html[data-theme="dark"] :where(
   }
 
   .ui-toolbar {
-    border: 1px solid color-mix(in srgb, var(--app-border) 72%, transparent);
+    border: 1px solid color-mix(in srgb, var(--app-border) 64%, transparent);
     background: color-mix(in srgb, var(--app-surface) 90%, var(--app-surface-2));
     @apply flex flex-wrap items-center gap-2 rounded-2xl p-3;
   }
@@ -310,7 +310,7 @@ html[data-theme="dark"] :where(
     background: var(--app-rail);
   }
   .ui-panel {
-    border: 1px solid color-mix(in srgb, var(--app-border) 70%, transparent);
+    border: 1px solid color-mix(in srgb, var(--app-border) 62%, transparent);
     background: color-mix(in srgb, var(--app-surface-2) 82%, var(--app-surface-3));
     @apply rounded-2xl;
   }
@@ -336,7 +336,7 @@ html[data-theme="dark"] :where(
     @apply flex min-h-0 flex-col gap-4;
   }
   .ui-control-chip {
-    border: 1px solid color-mix(in srgb, var(--app-border) 78%, transparent);
+    border: 1px solid color-mix(in srgb, var(--app-border) 68%, transparent);
     background: var(--app-surface-2);
     color: var(--app-text-muted);
     @apply inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors;
@@ -396,7 +396,7 @@ html[data-theme="dark"] :where(
   }
 
   .ui-status-danger {
-    background: color-mix(in srgb, var(--app-danger) 8%, var(--app-surface));
+    background: color-mix(in srgb, var(--app-danger) 6%, var(--app-surface));
     color: color-mix(in srgb, var(--app-danger) 82%, var(--app-text));
   }
 

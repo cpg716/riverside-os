@@ -68,7 +68,7 @@ export default function DashboardStatsCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-app-border bg-[color-mix(in_srgb,var(--app-surface)_90%,var(--app-surface-2))] p-6 shadow-[0_12px_26px_-20px_rgba(15,23,42,0.24)] transition-all hover:border-app-accent/15 hover:shadow-[0_16px_32px_-22px_rgba(15,23,42,0.3)]",
+        "relative overflow-hidden rounded-2xl border border-app-border/70 bg-[color-mix(in_srgb,var(--app-surface)_91%,var(--app-surface-2))] p-6 shadow-[0_12px_26px_-20px_rgba(15,23,42,0.22)] transition-all hover:shadow-[0_16px_32px_-22px_rgba(15,23,42,0.26)]",
         className,
       )}
     >
@@ -120,7 +120,7 @@ export default function DashboardStatsCard({
       </div>
 
       {/* Subtle glassmorphic background reflection effect */}
-      <div className="absolute -right-4 -top-4 size-24 rounded-full bg-app-accent/5 blur-3xl" />
+      <div className="absolute -right-4 -top-4 size-24 rounded-full bg-app-accent/3 blur-3xl" />
     </div>
   );
 }
