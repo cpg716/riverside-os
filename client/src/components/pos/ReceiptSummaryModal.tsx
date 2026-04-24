@@ -20,6 +20,7 @@ import {
 } from "../../lib/printerBridge";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
 import { useToast } from "../ui/ToastProviderLogic";
+import type { OrderPaymentCartLine } from "./types";
 
 export interface ReceiptSummaryModalProps {
   transactionId: string | null;
@@ -29,6 +30,7 @@ export interface ReceiptSummaryModalProps {
   registerSessionId?: string | null;
   /** Required: POS + staff merged headers for `/api/transactions/*`. */
   getAuthHeaders: () => Record<string, string>;
+  orderPaymentLines?: OrderPaymentCartLine[];
 }
 
 type OrderCustomer = {
@@ -79,6 +81,7 @@ export default function ReceiptSummaryModal({
   baseUrl,
   registerSessionId,
   getAuthHeaders,
+  orderPaymentLines = [],
 }: ReceiptSummaryModalProps) {
   const { toast } = useToast();
   const [printing, setPrinting] = useState(false);
@@ -767,6 +770,28 @@ export default function ReceiptSummaryModal({
                 <p className="mt-1 text-xs font-bold text-app-text">
                   {loadedGiftCards.join(", ")}
                 </p>
+              </div>
+            ) : null}
+            {orderPaymentLines.length > 0 ? (
+              <div className="mt-3 rounded-xl border border-violet-500/20 bg-violet-500/10 px-3 py-2 text-left">
+                <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
+                  Existing order payments
+                </p>
+                <div className="mt-2 space-y-1">
+                  {orderPaymentLines.map((line) => (
+                    <div
+                      key={line.cart_row_id}
+                      className="flex items-baseline justify-between gap-3 text-xs font-bold text-app-text"
+                    >
+                      <span className="min-w-0 truncate">
+                        Payment on {line.target_display_id}
+                      </span>
+                      <span className="shrink-0 tabular-nums">
+                        ${line.amount} · remaining ${line.projected_balance_after}
+                      </span>
+                    </div>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>

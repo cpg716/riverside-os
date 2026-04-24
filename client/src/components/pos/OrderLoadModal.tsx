@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { X, Package, Clock, AlertCircle, ArrowRight } from "lucide-react";
+import { X, Package, Clock, AlertCircle, ArrowRight, CreditCard } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
-import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
-interface CustomerOrder {
+export interface CustomerOrder {
   id: string;
+  customer_id?: string | null;
   display_id: string;
   booked_at: string;
   status: string;
@@ -41,6 +42,7 @@ interface OrderLoadModalProps {
   apiAuth: () => Record<string, string>;
   onClose: () => void;
   onCopyOrder: (order: CustomerOrder, items: OrderItem[]) => void;
+  onMakePayment?: (order: CustomerOrder, amountCents: number) => void;
 }
 
 export default function OrderLoadModal({
@@ -51,12 +53,15 @@ export default function OrderLoadModal({
   apiAuth,
   onClose,
   onCopyOrder,
+  onMakePayment,
 }: OrderLoadModalProps) {
   const { toast } = useToast();
   const [orders, setOrders] = useState<CustomerOrder[]>([]);
   const [loading, setLoading] = useState(false);
   const [selectedOrderItems, setSelectedOrderItems] = useState<OrderItem[]>([]);
   const [viewingItemsOrderId, setViewingItemsOrderId] = useState<string | null>(null);
+  const [paymentOrder, setPaymentOrder] = useState<CustomerOrder | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
 
   const fetchOrderItems = async (orderId: string) => {
     const res = await fetch(`${baseUrl}/api/transactions/${orderId}/items`, {
@@ -166,6 +171,34 @@ export default function OrderLoadModal({
     }
   };
 
+  const openPaymentEntry = (order: CustomerOrder) => {
+    const dueCents = parseMoneyToCents(order.balance_due);
+    if (dueCents <= 0) {
+      toast("That order does not have a balance due.", "info");
+      return;
+    }
+    setPaymentOrder(order);
+    setPaymentAmount(centsToFixed2(dueCents));
+  };
+
+  const submitPaymentEntry = () => {
+    if (!paymentOrder) return;
+    const amountCents = parseMoneyToCents(paymentAmount);
+    const dueCents = parseMoneyToCents(paymentOrder.balance_due);
+    if (amountCents <= 0) {
+      toast("Enter an order payment amount greater than $0.00.", "error");
+      return;
+    }
+    if (amountCents > dueCents) {
+      toast("Order payment cannot be more than the balance due.", "error");
+      return;
+    }
+    onMakePayment?.(paymentOrder, amountCents);
+    setPaymentOrder(null);
+    setPaymentAmount("");
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -246,21 +279,34 @@ export default function OrderLoadModal({
                       {lifecycleNote(order)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 gap-1">
+                  <div className="flex shrink-0 flex-col gap-1">
+                    {onMakePayment && parseMoneyToCents(order.balance_due) > 0 ? (
+                      <button
+                        type="button"
+                        data-testid={`pos-order-make-payment-${order.display_id}`}
+                        onClick={() => openPaymentEntry(order)}
+                        className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-violet-500/40 bg-violet-50 px-3 text-xs font-bold text-violet-700 transition-all hover:bg-violet-600 hover:text-white"
+                      >
+                        <CreditCard size={14} />
+                        Make Payment
+                      </button>
+                    ) : null}
                     <button
+                      type="button"
                       onClick={() => {
                         void loadOrderItems(order.id);
                       }}
-                      className="flex h-9 items-center gap-1 rounded-lg border-2 border-blue-500/40 bg-blue-50 px-3 text-xs font-bold text-blue-700 transition-all hover:bg-blue-500 hover:text-white"
+                      className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-blue-500/40 bg-blue-50 px-3 text-xs font-bold text-blue-700 transition-all hover:bg-blue-500 hover:text-white"
                     >
                       Review
                       <ArrowRight size={14} />
                     </button>
                     <button
+                      type="button"
                       onClick={() => {
                         void copyOrderItems(order);
                       }}
-                      className="flex h-9 items-center gap-1 rounded-lg border-2 border-emerald-600/40 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-all hover:bg-emerald-600 hover:text-white"
+                      className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-emerald-600/40 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-all hover:bg-emerald-600 hover:text-white"
                     >
                       Copy to Register
                     </button>
@@ -342,6 +388,69 @@ export default function OrderLoadModal({
           )}
         </div>
       </div>
+      {paymentOrder ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+          <div
+            className="w-full max-w-sm rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+            data-testid="pos-order-payment-entry-modal"
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
+                  Existing Order Payment
+                </p>
+                <h3 className="text-lg font-black text-app-text">
+                  {paymentOrder.display_id}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPaymentOrder(null)}
+                className="rounded-lg p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                aria-label="Close order payment entry"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2/60 p-3 text-sm">
+              <div className="flex justify-between gap-3 text-app-text-muted">
+                <span>Balance due</span>
+                <span className="font-black tabular-nums text-app-text">
+                  {formatCurrency(paymentOrder.balance_due)}
+                </span>
+              </div>
+            </div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Payment amount
+            </label>
+            <input
+              data-testid="pos-order-payment-amount"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+              inputMode="decimal"
+              autoFocus
+              className="mt-1 w-full rounded-xl border border-app-border bg-app-surface px-3 py-3 text-2xl font-black tabular-nums text-app-text outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
+            />
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPaymentOrder(null)}
+                className="flex-1 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-black uppercase tracking-widest text-app-text"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="pos-order-payment-add-to-cart"
+                onClick={submitPaymentEntry}
+                className="flex-1 rounded-xl border-b-4 border-violet-800 bg-violet-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-violet-600/25 active:translate-y-0.5 active:border-b-2"
+              >
+                Add Payment
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

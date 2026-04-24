@@ -104,6 +104,28 @@ export interface CheckoutAlterationIntakePayload {
   notes?: string | null;
 }
 
+export interface OrderPaymentCartLine {
+  line_type: "order_payment";
+  cart_row_id: string;
+  target_transaction_id: string;
+  target_display_id: string;
+  customer_id: string;
+  customer_name: string;
+  amount: string;
+  balance_before: string;
+  projected_balance_after: string;
+}
+
+export interface CheckoutOrderPaymentPayload {
+  client_line_id: string;
+  target_transaction_id: string;
+  target_display_id: string;
+  customer_id: string;
+  amount: string;
+  balance_before: string;
+  projected_balance_after: string;
+}
+
 export type GiftCardType =
   | "paid_liability"
   | "loyalty_giveaway"
@@ -195,6 +217,7 @@ export interface CheckoutPayload {
   amount_paid: string;
   items: unknown[];
   alteration_intakes?: CheckoutAlterationIntakePayload[];
+  order_payments?: CheckoutOrderPaymentPayload[];
   actor_name?: string | null;
   payment_splits?: CheckoutPaymentSplitPayload[] | null;
   applied_deposit_amount?: string;
@@ -268,6 +291,7 @@ export interface CartTotals {
   totalPieces: number;
   taxCents: number;
   orderTotalCents: number;
+  orderPaymentCents: number;
   collectTotalCents: number;
   shippingCents: number;
   takeawayDueCents: number;

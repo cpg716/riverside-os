@@ -19,6 +19,8 @@ import {
   Package,
   ScanSearch,
   Scissors,
+  CreditCard,
+  Pencil,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -52,7 +54,7 @@ import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import { newCartRowId, scanPayloadToResolvedItem } from "../../lib/posUtils";
 import { customOrderItemTypeForSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
-import OrderLoadModal from "./OrderLoadModal";
+import OrderLoadModal, { type CustomerOrder } from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
 import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
@@ -72,7 +74,8 @@ import {
   type AppliedPaymentLine,
   type CheckoutOperatorContext,
   type PosOrderOptions,
-  type PendingAlterationIntake
+  type PendingAlterationIntake,
+  type OrderPaymentCartLine
 } from "./types";
 import { PosRegisterLiveClock } from "./cart/PosRegisterLiveClock";
 import { PosSearchResultList, type SearchResult } from "./cart/PosSearchResultList";
@@ -233,6 +236,10 @@ export default function Cart({
     intakes: PendingAlterationIntake[];
   } | null>(null);
   const [pendingAlterationIntakes, setPendingAlterationIntakes] = useState<PendingAlterationIntake[]>([]);
+  const [orderPaymentLines, setOrderPaymentLines] = useState<OrderPaymentCartLine[]>([]);
+  const [editingOrderPaymentLine, setEditingOrderPaymentLine] = useState<OrderPaymentCartLine | null>(null);
+  const [editingOrderPaymentAmount, setEditingOrderPaymentAmount] = useState("");
+  const [lastReceiptOrderPaymentLines, setLastReceiptOrderPaymentLines] = useState<OrderPaymentCartLine[]>([]);
   const [customerProfileHubOpen, setCustomerProfileHubOpen] = useState(false);
   const [checkoutOrderOptions, setCheckoutOrderOptions] = useState<PosOrderOptions | null>(null);
   const [cashAdjustOpen, setCashAdjustOpen] = useState(false);
@@ -326,12 +333,19 @@ export default function Cart({
     clearCart();
     setPendingAlterationIntakes([]);
     setEditingAlterationIntake(null);
+    setOrderPaymentLines([]);
+    setEditingOrderPaymentLine(null);
+    setEditingOrderPaymentAmount("");
   }, [clearCart]);
 
   useEffect(() => {
     const customerId = selectedCustomer?.id ?? null;
     setPendingAlterationIntakes((prev) => {
       const next = customerId ? prev.filter((intake) => intake.customer_id === customerId) : [];
+      return next.length === prev.length ? prev : next;
+    });
+    setOrderPaymentLines((prev) => {
+      const next = customerId ? prev.filter((line) => line.customer_id === customerId) : [];
       return next.length === prev.length ? prev : next;
     });
   }, [selectedCustomer?.id]);
@@ -492,6 +506,81 @@ export default function Cart({
     setSourceRemovalPrompt(null);
   }, [removeLine, setLines, sourceRemovalPrompt]);
 
+  const addOrderPaymentLine = useCallback((order: CustomerOrder, amountCents: number) => {
+    if (!selectedCustomer) {
+      toast("Select a customer before adding an order payment.", "error");
+      return;
+    }
+    const orderCustomerId = order.customer_id ?? selectedCustomer.id;
+    if (orderCustomerId !== selectedCustomer.id) {
+      toast("That order belongs to a different customer. Select the matching customer first.", "error");
+      return;
+    }
+    const balanceCents = parseMoneyToCents(order.balance_due);
+    if (amountCents <= 0) {
+      toast("Enter an order payment amount greater than $0.00.", "error");
+      return;
+    }
+    if (amountCents > balanceCents) {
+      toast("Order payment cannot be more than the balance due.", "error");
+      return;
+    }
+    const nextLine: OrderPaymentCartLine = {
+      line_type: "order_payment",
+      cart_row_id: newCartRowId(),
+      target_transaction_id: order.id,
+      target_display_id: order.display_id,
+      customer_id: selectedCustomer.id,
+      customer_name: `${selectedCustomer.first_name} ${selectedCustomer.last_name}`.trim(),
+      amount: centsToFixed2(amountCents),
+      balance_before: centsToFixed2(balanceCents),
+      projected_balance_after: centsToFixed2(Math.max(0, balanceCents - amountCents)),
+    };
+    setOrderPaymentLines((prev) => {
+      const existing = prev.find((line) => line.target_transaction_id === order.id);
+      if (!existing) return [...prev, nextLine];
+      toast(`Updated payment amount for ${order.display_id}.`, "info");
+      return prev.map((line) =>
+        line.target_transaction_id === order.id
+          ? { ...nextLine, cart_row_id: line.cart_row_id }
+          : line,
+      );
+    });
+    toast(`Payment for ${order.display_id} added to this sale.`, "success");
+  }, [selectedCustomer, toast]);
+
+  const openOrderPaymentEdit = useCallback((line: OrderPaymentCartLine) => {
+    setEditingOrderPaymentLine(line);
+    setEditingOrderPaymentAmount(line.amount);
+  }, []);
+
+  const saveOrderPaymentEdit = useCallback(() => {
+    if (!editingOrderPaymentLine) return;
+    const amountCents = parseMoneyToCents(editingOrderPaymentAmount);
+    const balanceCents = parseMoneyToCents(editingOrderPaymentLine.balance_before);
+    if (amountCents <= 0) {
+      toast("Enter an order payment amount greater than $0.00.", "error");
+      return;
+    }
+    if (amountCents > balanceCents) {
+      toast("Order payment cannot be more than the balance due.", "error");
+      return;
+    }
+    setOrderPaymentLines((prev) =>
+      prev.map((line) =>
+        line.cart_row_id === editingOrderPaymentLine.cart_row_id
+          ? {
+              ...line,
+              amount: centsToFixed2(amountCents),
+              projected_balance_after: centsToFixed2(Math.max(0, balanceCents - amountCents)),
+            }
+          : line,
+      ),
+    );
+    setEditingOrderPaymentLine(null);
+    setEditingOrderPaymentAmount("");
+  }, [editingOrderPaymentAmount, editingOrderPaymentLine, toast]);
+
   const keepAlterationsAsCustomAndRemoveSource = useCallback(() => {
     if (!sourceRemovalPrompt) return;
     const attachedIds = new Set(sourceRemovalPrompt.intakes.map((intake) => intake.id));
@@ -562,11 +651,15 @@ export default function Cart({
     disbursementMembers.forEach((m) => {
       disbCents += parseMoneyToCents(m.balance_due || "0");
     });
+    const orderPaymentCents = orderPaymentLines.reduce(
+      (sum, line) => sum + parseMoneyToCents(line.amount),
+      0,
+    );
 
     const taxCents = res.stateTaxCents + res.localTaxCents;
     const shipCents = posShipping?.amount_cents ?? 0;
     const orderTotalCents = res.subtotalCents + taxCents + shipCents;
-    const collectTotalCents = orderTotalCents + disbCents;
+    const collectTotalCents = orderTotalCents + disbCents + orderPaymentCents;
 
     return {
       subtotalCents: res.subtotalCents,
@@ -575,12 +668,13 @@ export default function Cart({
       totalPieces: res.totalPieces,
       taxCents,
       orderTotalCents,
+      orderPaymentCents,
       collectTotalCents,
       shippingCents: shipCents,
       takeawayDueCents: res.takeawayDueCents + shipCents,
       totalCents: collectTotalCents,
     };
-  }, [lines, disbursementMembers, posShipping]);
+  }, [lines, disbursementMembers, orderPaymentLines, posShipping]);
 
   const isRmsPaymentCart = useMemo(() => lines.some(l => rmsPaymentMeta && l.sku === rmsPaymentMeta.sku), [lines, rmsPaymentMeta]);
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
@@ -618,6 +712,7 @@ export default function Cart({
     disbursementMembers,
     posShipping,
     pendingAlterationIntakes,
+    orderPaymentLines,
     pickupConfirmed,
     totals,
     toast,
@@ -679,6 +774,7 @@ export default function Cart({
     primarySalespersonId,
     checkoutOperator,
     pendingAlterationIntakes,
+    orderPaymentLines,
     setLines,
     setSelectedCustomer,
     setActiveWeddingMember,
@@ -687,6 +783,7 @@ export default function Cart({
     setPrimarySalespersonId,
     setCheckoutOperator,
     setPendingAlterationIntakes,
+    setOrderPaymentLines,
     clearCart: clearCartAndAlterations,
   });
 
@@ -1493,6 +1590,71 @@ export default function Cart({
              </div>
           )}
 
+          {orderPaymentLines.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <div className="flex items-center gap-3 px-2">
+                <div className="h-px flex-1 bg-gradient-to-r from-violet-500/35 to-transparent" />
+                <span className="text-[10px] font-black uppercase tracking-[0.3em] text-violet-600">
+                  Existing Order Payments
+                </span>
+                <div className="h-px flex-1 bg-gradient-to-l from-violet-500/35 to-transparent" />
+              </div>
+              {orderPaymentLines.map((line) => (
+                <div
+                  key={line.cart_row_id}
+                  data-testid="pos-order-payment-cart-line"
+                  className="group relative flex items-center justify-between gap-4 rounded-2xl border border-violet-500/20 bg-violet-500/8 p-4 shadow-sm"
+                >
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-violet-600 text-white shadow-lg shadow-violet-600/20">
+                      <CreditCard size={18} />
+                    </div>
+                    <div className="min-w-0">
+                      <h4 className="truncate text-sm font-black text-app-text">
+                        Payment on {line.target_display_id}
+                      </h4>
+                      <p className="text-[10px] font-bold text-app-text-muted">
+                        Remaining after payment: ${line.projected_balance_after}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-3">
+                    <div className="text-right">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        Applying
+                      </p>
+                      <p className="text-xl font-black italic tabular-nums text-violet-700">
+                        ${line.amount}
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      data-testid="pos-order-payment-edit"
+                      onClick={() => openOrderPaymentEdit(line)}
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-app-border bg-app-surface text-app-text transition-colors hover:border-violet-500/40 hover:bg-violet-50 hover:text-violet-700"
+                      aria-label={`Edit payment on ${line.target_display_id}`}
+                    >
+                      <Pencil size={15} />
+                    </button>
+                    <button
+                      type="button"
+                      data-testid="pos-order-payment-remove"
+                      onClick={() =>
+                        setOrderPaymentLines((prev) =>
+                          prev.filter((candidate) => candidate.cart_row_id !== line.cart_row_id),
+                        )
+                      }
+                      className="flex h-9 w-9 items-center justify-center rounded-xl border border-app-danger/30 bg-app-danger/10 text-app-danger transition-colors hover:bg-app-danger hover:text-white"
+                      aria-label={`Remove payment on ${line.target_display_id}`}
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
           {disbursementMembers.length > 0 && (
              <div className="space-y-3">
                 <div className="flex items-center gap-3 px-2">
@@ -1662,6 +1824,12 @@ export default function Cart({
                   </button>
                 </div>
               )}
+              {totals.orderPaymentCents > 0 ? (
+                <div className="col-span-2 flex items-baseline justify-between gap-2 rounded-lg bg-violet-500/8 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-violet-700">
+                  <span>Existing order payments</span>
+                  <span className="tabular-nums">${centsToFixed2(totals.orderPaymentCents)}</span>
+                </div>
+              ) : null}
             </div>
           </div>
         </div>
@@ -1731,6 +1899,7 @@ export default function Cart({
         <div className="shrink-0 border-t border-app-border/70 bg-app-surface/95 p-2.5 shadow-[0_-10px_40px_-18px_rgba(0,0,0,0.15)] backdrop-blur-sm">
            <button 
              type="button" 
+             data-testid="pos-pay-button"
              disabled={lines.length === 0 || checkoutBusy} 
              onClick={() => {
                if (lines.length === 0) return toast("Add at least one item before checking out.", "error");
@@ -1795,6 +1964,76 @@ export default function Cart({
         </div>
       </aside>
 
+      {editingOrderPaymentLine ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+          <div
+            className="w-full max-w-sm rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+            data-testid="pos-order-payment-edit-modal"
+          >
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
+                  Edit Order Payment
+                </p>
+                <h3 className="text-lg font-black text-app-text">
+                  {editingOrderPaymentLine.target_display_id}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingOrderPaymentLine(null);
+                  setEditingOrderPaymentAmount("");
+                }}
+                className="rounded-lg p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                aria-label="Close order payment edit"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="mb-4 rounded-xl border border-app-border bg-app-surface-2/60 p-3 text-sm">
+              <div className="flex justify-between gap-3 text-app-text-muted">
+                <span>Balance before payment</span>
+                <span className="font-black tabular-nums text-app-text">
+                  ${editingOrderPaymentLine.balance_before}
+                </span>
+              </div>
+            </div>
+            <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Payment amount
+            </label>
+            <input
+              data-testid="pos-order-payment-edit-amount"
+              value={editingOrderPaymentAmount}
+              onChange={(e) => setEditingOrderPaymentAmount(e.target.value)}
+              inputMode="decimal"
+              autoFocus
+              className="mt-1 w-full rounded-xl border border-app-border bg-app-surface px-3 py-3 text-2xl font-black tabular-nums text-app-text outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20"
+            />
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingOrderPaymentLine(null);
+                  setEditingOrderPaymentAmount("");
+                }}
+                className="flex-1 rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-xs font-black uppercase tracking-widest text-app-text"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="pos-order-payment-edit-save"
+                onClick={saveOrderPaymentEdit}
+                className="flex-1 rounded-xl border-b-4 border-violet-800 bg-violet-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-violet-600/25 active:translate-y-0.5 active:border-b-2"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <PosShippingModal
         open={shippingModalOpen}
         onClose={() => setShippingModalOpen(false)}
@@ -1828,7 +2067,10 @@ export default function Cart({
         profileBlocksCheckout={false}
         onOpenProfileGate={() => {}}
         busy={checkoutBusy}
-        onFinalize={(applied, op, ledger) => executeCheckout(applied, op, ledger, checkoutOrderOptions || undefined)}
+        onFinalize={async (applied, op, ledger) => {
+          setLastReceiptOrderPaymentLines(orderPaymentLines);
+          await executeCheckout(applied, op, ledger, checkoutOrderOptions || undefined);
+        }}
         allowStoreCredit={!!selectedCustomer}
         appliedPayments={checkoutAppliedPayments}
         onAppliedPaymentsChange={setCheckoutAppliedPayments}
@@ -2544,11 +2786,13 @@ export default function Cart({
           onClose={() => {
             setLastTransactionId(null);
             setCheckoutOperator(null);
+            setLastReceiptOrderPaymentLines([]);
             onSaleCompleted?.();
           }}
           baseUrl={baseUrl}
           registerSessionId={sessionId}
           getAuthHeaders={apiAuth}
+          orderPaymentLines={lastReceiptOrderPaymentLines}
         />
       )}
 
@@ -2574,6 +2818,7 @@ export default function Cart({
             customerName={`${selectedCustomer.first_name} ${selectedCustomer.last_name}`}
             baseUrl={baseUrl}
             apiAuth={apiAuth}
+            onMakePayment={addOrderPaymentLine}
             onCopyOrder={(order, items) => {
               void (async () => {
                 try {

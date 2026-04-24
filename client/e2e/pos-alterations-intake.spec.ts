@@ -32,6 +32,22 @@ const PRODUCT = {
   tax_category: "clothing",
 };
 
+const OPEN_ORDER = {
+  id: "99999999-9999-4999-8999-999999999999",
+  customer_id: CUSTOMER.id,
+  display_id: "TXN-ORDER-PAY",
+  booked_at: new Date().toISOString(),
+  status: "open",
+  total_price: "150.00",
+  amount_paid: "25.00",
+  balance_due: "125.00",
+  order_kind: "special_order",
+  is_rush: false,
+  need_by_date: null,
+  wedding_member_id: null,
+  party_name: null,
+};
+
 async function openPosRegisterSurface(page: Page): Promise<void> {
   await signInToBackOffice(page);
 
@@ -327,7 +343,7 @@ test.describe("POS alteration intake", () => {
       });
     });
 
-    await page.getByRole("button", { name: /pay/i }).first().click();
+    await page.getByTestId("pos-pay-button").click();
     const drawer = page.getByRole("dialog", { name: /checkout/i });
     await expect(drawer).toBeVisible({ timeout: 20_000 });
     await drawer.getByRole("button", { name: /^Cash$/i }).click();
@@ -368,6 +384,89 @@ test.describe("POS alteration intake", () => {
     await page.getByRole("button", { name: "Alterations" }).click();
     await expect(page.getByText("Hem sleeves")).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("TXN-ALT-P3")).toBeVisible();
+  });
+
+  test("existing order payment can be added, edited, removed, and sent at checkout", async ({
+    page,
+  }) => {
+    await selectCustomer(page);
+    await addProductToCart(page);
+    await selectDefaultSalesperson(page);
+
+    await page.route("**/api/transactions?customer_id=*", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ items: [OPEN_ORDER] }),
+      });
+    });
+
+    await page.getByTitle("View previous orders for this customer").click();
+    await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
+    const paymentModal = page.getByTestId("pos-order-payment-entry-modal");
+    await expect(paymentModal).toBeVisible();
+    await expect(paymentModal.getByTestId("pos-order-payment-amount")).toHaveValue("125.00");
+    await paymentModal.getByTestId("pos-order-payment-amount").fill("40.00");
+    await paymentModal.getByTestId("pos-order-payment-add-to-cart").click();
+
+    const orderPaymentLine = page.getByTestId("pos-order-payment-cart-line");
+    await expect(orderPaymentLine).toContainText(OPEN_ORDER.display_id);
+    await expect(orderPaymentLine).toContainText("$40.00");
+    await expect(orderPaymentLine).toContainText("85.00");
+
+    await orderPaymentLine.getByTestId("pos-order-payment-edit").click();
+    const editModal = page.getByTestId("pos-order-payment-edit-modal");
+    await editModal.getByTestId("pos-order-payment-edit-amount").fill("60.00");
+    await editModal.getByTestId("pos-order-payment-edit-save").click();
+    await expect(orderPaymentLine).toContainText("$60.00");
+    await expect(orderPaymentLine).toContainText("65.00");
+
+    await orderPaymentLine.getByTestId("pos-order-payment-remove").click();
+    await expect(page.getByTestId("pos-order-payment-cart-line")).toHaveCount(0);
+
+    await page.getByTitle("View previous orders for this customer").click();
+    await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
+    await page.getByTestId("pos-order-payment-amount").fill("40.00");
+    await page.getByTestId("pos-order-payment-add-to-cart").click();
+
+    let checkoutBody: Record<string, unknown> | null = null;
+    await page.route("**/api/transactions/checkout", async (route) => {
+      checkoutBody = route.request().postDataJSON() as Record<string, unknown>;
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          transaction_id: "66666666-6666-4666-8666-666666666666",
+          transaction_display_id: "TXN-ORDER-PAY-CHECKOUT",
+          status: "paid",
+        }),
+      });
+    });
+
+    await page.getByTestId("pos-pay-button").click();
+    const drawer = page.getByRole("dialog", { name: /checkout/i });
+    await expect(drawer).toBeVisible({ timeout: 20_000 });
+    await drawer.getByRole("button", { name: /^Cash$/i }).click();
+    await drawer.getByRole("button", { name: /pay balance/i }).click();
+    await drawer.getByRole("button", { name: /add payment/i }).click();
+    await drawer.getByTestId("pos-finalize-checkout").click();
+
+    expect(checkoutBody).toMatchObject({
+      customer_id: CUSTOMER.id,
+      order_payments: [
+        {
+          client_line_id: expect.any(String),
+          target_transaction_id: OPEN_ORDER.id,
+          target_display_id: OPEN_ORDER.display_id,
+          customer_id: CUSTOMER.id,
+          amount: "40.00",
+          balance_before: "125.00",
+          projected_balance_after: "85.00",
+        },
+      ],
+    });
+    const checkoutItems = (checkoutBody?.items ?? []) as Array<Record<string, unknown>>;
+    expect(checkoutItems.some((item) => item.line_type === "order_payment")).toBe(false);
   });
 
   test("custom item intake creates an alteration cart line without selling a garment", async ({ page }) => {

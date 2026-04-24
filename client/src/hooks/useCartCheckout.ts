@@ -10,7 +10,8 @@ import {
   type CartTotals,
   type PosShippingSelection,
   type PosOrderOptions,
-  type PendingAlterationIntake
+  type PendingAlterationIntake,
+  type OrderPaymentCartLine
 } from "../components/pos/types";
 import { parseMoneyToCents, centsToFixed2 } from "../lib/money";
 import { newCheckoutClientId, normalizeGiftCardSubType } from "../lib/posUtils";
@@ -29,6 +30,7 @@ interface UseCartCheckoutProps {
   disbursementMembers: WeddingMember[];
   posShipping: PosShippingSelection | null;
   pendingAlterationIntakes: PendingAlterationIntake[];
+  orderPaymentLines: OrderPaymentCartLine[];
   pickupConfirmed: boolean;
   totals: CartTotals; 
   toast: (msg: string, type?: "success" | "error" | "info") => void;
@@ -86,6 +88,7 @@ export function useCartCheckout({
   disbursementMembers,
   posShipping,
   pendingAlterationIntakes,
+  orderPaymentLines,
   pickupConfirmed,
   totals,
   toast,
@@ -118,6 +121,10 @@ export function useCartCheckout({
     }
     if (!navigator.onLine && posShipping) {
       toast("Shipping requires an online connection. Clear shipping or try again when online.", "error");
+      return;
+    }
+    if (!navigator.onLine && orderPaymentLines.length > 0) {
+      toast("Order payments require an online connection. Remove the order payment or try again when online.", "error");
       return;
     }
 
@@ -161,6 +168,36 @@ export function useCartCheckout({
 
       const checkoutClientId = newCheckoutClientId();
       const primaryTrim = primarySalespersonId.trim();
+      if (orderPaymentLines.length > 0) {
+        if (!selectedCustomer?.id) {
+          toast("Select a customer before checking out with an order payment.", "error");
+          setCheckoutBusy(false);
+          return;
+        }
+        const targetIds = new Set<string>();
+        const clientLineIds = new Set<string>();
+        for (const line of orderPaymentLines) {
+          const amountCents = parseMoneyToCents(line.amount);
+          const balanceCents = parseMoneyToCents(line.balance_before);
+          if (amountCents <= 0 || amountCents > balanceCents) {
+            toast("Review the order payment amount before checkout.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+          if (line.customer_id !== selectedCustomer.id) {
+            toast("Order payments must belong to the selected customer.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+          if (targetIds.has(line.target_transaction_id) || clientLineIds.has(line.cart_row_id)) {
+            toast("Only one payment line per existing order is allowed.", "error");
+            setCheckoutBusy(false);
+            return;
+          }
+          targetIds.add(line.target_transaction_id);
+          clientLineIds.add(line.cart_row_id);
+        }
+      }
       const alterationLines = lines.filter((line) => line.line_type === "alteration_service");
       if (pendingAlterationIntakes.length > 0 || alterationLines.length > 0) {
         if (!selectedCustomer?.id) {
@@ -282,6 +319,15 @@ export function useCartCheckout({
           due_at: intake.due_at ?? null,
           notes: intake.notes ?? null,
         })),
+        order_payments: orderPaymentLines.length > 0 ? orderPaymentLines.map((line) => ({
+          client_line_id: line.cart_row_id,
+          target_transaction_id: line.target_transaction_id,
+          target_display_id: line.target_display_id,
+          customer_id: line.customer_id,
+          amount: line.amount,
+          balance_before: line.balance_before,
+          projected_balance_after: line.projected_balance_after,
+        })) : undefined,
         wedding_disbursements: disbursementMembers.length > 0 ? disbursementMembers.map(m => ({
           wedding_member_id: m.id,
           amount: centsToFixed2(parseMoneyToCents(m.balance_due || "0")),
@@ -321,7 +367,7 @@ export function useCartCheckout({
     }
   }, [
     sessionId, baseUrl, apiAuth, lines, selectedCustomer, activeWeddingMember, 
-    cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes,
+    cashierName, primarySalespersonId, disbursementMembers, posShipping, pendingAlterationIntakes, orderPaymentLines,
     pickupConfirmed, totals, toast, clearCart, onSaleCompleted, ensurePosTokenForSession
   ]);
 

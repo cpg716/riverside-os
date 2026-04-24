@@ -6,6 +6,7 @@ import {
   type CartLineItem,
   type FulfillmentKind,
   type PendingAlterationIntake,
+  type OrderPaymentCartLine,
 } from "../components/pos/types";
 import { type PosShippingSelection } from "../components/pos/PosShippingModal";
 
@@ -19,6 +20,7 @@ interface PersistedSale {
   primarySalespersonId?: string;
   checkoutOperator?: { staffId: string; fullName: string };
   pendingAlterationIntakes?: PendingAlterationIntake[];
+  orderPaymentLines?: OrderPaymentCartLine[];
 }
 
 interface UseCartPersistenceProps {
@@ -31,6 +33,7 @@ interface UseCartPersistenceProps {
   primarySalespersonId: string;
   checkoutOperator: { staffId: string; fullName: string } | null;
   pendingAlterationIntakes?: PendingAlterationIntake[];
+  orderPaymentLines?: OrderPaymentCartLine[];
   setLines: (lines: CartLineItem[]) => void;
   setSelectedCustomer: (customer: Customer | null) => void;
   setActiveWeddingMember: (member: WeddingMember | null) => void;
@@ -39,6 +42,7 @@ interface UseCartPersistenceProps {
   setPrimarySalespersonId: (id: string) => void;
   setCheckoutOperator: (operator: { staffId: string; fullName: string } | null) => void;
   setPendingAlterationIntakes?: (intakes: PendingAlterationIntake[]) => void;
+  setOrderPaymentLines?: (lines: OrderPaymentCartLine[]) => void;
   clearCart: () => void;
 }
 
@@ -52,6 +56,7 @@ export function useCartPersistence({
   primarySalespersonId,
   checkoutOperator,
   pendingAlterationIntakes = [],
+  orderPaymentLines = [],
   setLines,
   setSelectedCustomer,
   setActiveWeddingMember,
@@ -60,6 +65,7 @@ export function useCartPersistence({
   setPrimarySalespersonId,
   setCheckoutOperator,
   setPendingAlterationIntakes,
+  setOrderPaymentLines,
   clearCart,
 }: UseCartPersistenceProps) {
   const [saleHydrated, setSaleHydrated] = useState(false);
@@ -126,6 +132,7 @@ export function useCartPersistence({
               });
             }
             setPendingAlterationIntakes?.(saved.pendingAlterationIntakes || []);
+            setOrderPaymentLines?.(saved.orderPaymentLines || []);
           }
         } else if (saved && saved.sessionId !== sessionId) {
           clearCart();
@@ -148,6 +155,7 @@ export function useCartPersistence({
     setPrimarySalespersonId, 
     setCheckoutOperator,
     setPendingAlterationIntakes,
+    setOrderPaymentLines,
   ]);
 
   // Persist to disk on change
@@ -163,6 +171,7 @@ export function useCartPersistence({
       primarySalespersonId: primarySalespersonId || undefined,
       checkoutOperator: checkoutOperator || undefined,
       pendingAlterationIntakes: pendingAlterationIntakes.length > 0 ? pendingAlterationIntakes : undefined,
+      orderPaymentLines: orderPaymentLines.length > 0 ? orderPaymentLines : undefined,
     };
     void localforage.setItem("ros_pos_active_sale", sale);
   }, [
@@ -176,6 +185,7 @@ export function useCartPersistence({
     primarySalespersonId,
     checkoutOperator,
     pendingAlterationIntakes,
+    orderPaymentLines,
   ]);
 
   return { saleHydrated };
