@@ -1474,6 +1474,7 @@ function AppShell({
           enterBackofficeShell("alterations");
           setAlterationsDeepLinkId(alterationId);
         }}
+        searchVariant={posMode ? "pos" : "backoffice"}
         onToggleSidebar={() => setSidebarCollapsed(!sidebarCollapsed)}
         isRegisterOpen={isRegisterOpen}
         onOpenHelp={() => {

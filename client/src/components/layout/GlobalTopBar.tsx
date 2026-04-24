@@ -48,6 +48,7 @@ interface GlobalTopBarProps {
   onSearchOpenShipment?: (shipmentId: string) => void;
   onSearchOpenWeddingParty?: (partyId: string) => void;
   onSearchOpenAlteration?: (alterationId: string) => void;
+  searchVariant?: "backoffice" | "pos";
   /** Toggles the responsive sidebar. */
   onToggleSidebar?: () => void;
   /** When false, show optional Back Office "Switch staff" (register not required for BO). */
@@ -73,6 +74,7 @@ export default function GlobalTopBar({
   onSearchOpenShipment,
   onSearchOpenWeddingParty,
   onSearchOpenAlteration,
+  searchVariant = "backoffice",
   onToggleSidebar,
   isRegisterOpen = false,
   onOpenHelp,
@@ -178,6 +180,7 @@ export default function GlobalTopBar({
         onSearchOpenWeddingParty={onSearchOpenWeddingParty}
         onSearchOpenAlteration={onSearchOpenAlteration}
         onNavigateToTab={onNavigateToTab}
+        variant={searchVariant}
       />
 
       <div className="ml-auto flex min-w-0 shrink-0 items-center justify-end gap-2 sm:gap-3 lg:min-w-[400px]">

@@ -100,6 +100,7 @@ interface GlobalCommandSearchProps {
   onSearchOpenWeddingParty?: (partyId: string) => void;
   onSearchOpenAlteration?: (alterationId: string) => void;
   onNavigateToTab?: (tab: SidebarTabId, section?: string) => void;
+  variant?: "backoffice" | "pos";
 }
 
 function looksLikeSku(q: string): boolean {
@@ -184,6 +185,7 @@ export default function GlobalCommandSearch({
   onSearchOpenWeddingParty,
   onSearchOpenAlteration,
   onNavigateToTab,
+  variant = "backoffice",
 }: GlobalCommandSearchProps) {
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
@@ -229,6 +231,8 @@ export default function GlobalCommandSearch({
     onEscape: closePalette,
     initialFocusRef: inputRef,
   });
+
+  const isPosVariant = variant === "pos";
 
   const resultEntries = useMemo<SearchResultEntry[]>(
     () => [
@@ -677,31 +681,57 @@ export default function GlobalCommandSearch({
 
   return (
     <>
-      <div className="order-3 flex w-full min-w-0 items-center justify-center lg:order-none lg:flex-1">
+      <div
+        className={cn(
+          "order-3 flex min-w-0 items-center",
+          isPosVariant
+            ? "w-auto justify-start lg:order-none lg:flex-none"
+            : "w-full justify-center lg:order-none lg:flex-none",
+        )}
+      >
         <button
           type="button"
           onClick={() => openPalette()}
           onMouseEnter={() => setCommandHintVisible(true)}
           onMouseLeave={() => setCommandHintVisible(false)}
-          className="group relative flex w-full max-w-xl items-center gap-3 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-4 py-3 text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995] lg:max-w-2xl"
+          className={cn(
+            "group relative flex items-center text-left shadow-sm transition-all duration-150 hover:border-app-accent/20 hover:bg-app-surface hover:shadow-md active:scale-[0.995]",
+            isPosVariant
+              ? "gap-2 rounded-2xl border border-app-border/70 bg-app-surface-2/95 px-3 py-2.5"
+              : "w-full max-w-[16rem] gap-3 rounded-2xl border border-app-border/70 bg-app-surface-2/90 px-3.5 py-2.5 lg:w-[15rem]",
+          )}
           aria-label="Open universal search"
         >
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-app-surface text-app-text-muted shadow-sm transition-colors group-hover:text-app-text">
-            <Search size={18} aria-hidden />
+          <div
+            className={cn(
+              "flex shrink-0 items-center justify-center rounded-xl bg-app-surface text-app-text-muted shadow-sm transition-colors group-hover:text-app-text",
+              isPosVariant ? "h-9 w-9" : "h-9 w-9",
+            )}
+          >
+            <Search size={17} aria-hidden />
           </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-bold text-app-text">Search anywhere in Riverside</p>
+          <div className={cn("min-w-0", isPosVariant ? "hidden xl:block" : "flex-1")}>
+            <p className="truncate text-sm font-bold text-app-text">
+              {isPosVariant ? "Jump Search" : "Search"}
+            </p>
             <p className="truncate text-xs text-app-text-muted">
-              Customers, orders, inventory, weddings, shipments, alterations
+              {isPosVariant
+                ? "Customers, orders, SKU, weddings"
+                : "Jump to customers, orders, inventory, and more"}
             </p>
           </div>
-          <div className="hidden shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm sm:flex">
+          <div
+            className={cn(
+              "shrink-0 items-center gap-1 rounded-xl border border-app-border/70 bg-app-surface px-2.5 py-1.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted shadow-sm",
+              isPosVariant ? "hidden 2xl:flex" : "hidden sm:flex",
+            )}
+          >
             <Command size={12} aria-hidden />
             <span>K</span>
           </div>
           {commandHintVisible ? (
             <div className="pointer-events-none absolute -bottom-10 right-0 hidden rounded-lg bg-app-text px-2.5 py-1 text-[10px] font-bold text-app-surface shadow-lg lg:block">
-              Global jump search
+              {isPosVariant ? "Quick entity jump" : "Global jump search"}
             </div>
           ) : null}
         </button>
