@@ -146,7 +146,7 @@ const PRESETS: { id: PresetId; label: string }[] = [
 function kindPill(kind: string): string {
   switch (kind) {
     case "pickup":
-      return "bg-sky-500/15 text-sky-900 dark:text-sky-100 ring-sky-500/25";
+      return "bg-app-info/10 text-app-info ring-app-info/25";
     default:
       return "bg-app-surface-2 text-app-text-muted ring-app-border";
   }
@@ -553,14 +553,14 @@ export default function RegisterReports({
             To
             <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="ui-input rounded-xl px-3 py-2 text-sm font-semibold" />
           </label>
-          <button type="button" onClick={() => { fetchSummary("booked"); fetchSummary("fulfilled"); }} className="rounded-xl bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_rgb(6,95,70)] transition hover:bg-emerald-500">
+          <button type="button" onClick={() => { fetchSummary("booked"); fetchSummary("fulfilled"); }} className="rounded-xl bg-app-success px-4 py-2 text-sm font-black text-white shadow-[0_4px_0_0_color-mix(in_srgb,var(--app-success)_58%,black)] transition hover:brightness-105">
             Apply
           </button>
         </div>
       )}
 
       {!sessionId && view !== "z-reports" && (
-        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-app-text">
+        <div className="mb-4 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
           <span className="font-bold">Store-wide view.</span> Managers with register.reports see every lane.
         </div>
       )}
@@ -577,7 +577,7 @@ export default function RegisterReports({
           ) : (
             <div className="flex flex-col gap-2 p-3">
               <div className="flex gap-2 mb-2">
-                <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-1.5 border-emerald-500/30 px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-500 hover:text-white">
+                <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-1.5 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
                   <Printer size={12} />Print
                 </button>
                 <button type="button" onClick={handleExportCSV} className="ui-btn-secondary flex items-center gap-1.5 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface">
@@ -587,40 +587,40 @@ export default function RegisterReports({
 
               {/* Booked Summary - First and Default */}
               {summaryBooked && (
-                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
+                <div className="rounded-xl border border-app-success/20 bg-app-success/6 p-3">
                   <div className="flex items-center gap-1.5 mb-2">
-                    <DollarSign className="h-3 w-3 text-emerald-600" />
-                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-700">Booked (Sale)</span>
+                    <DollarSign className="h-3 w-3 text-app-success" />
+                    <span className="text-[10px] font-black uppercase tracking-wider text-app-success">Booked (Sale)</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
-                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-emerald-600">Sales #</div>
-                      <p className="text-lg font-black text-emerald-700">{summaryBooked.sales_count}</p>
+                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-success">Sales #</div>
+                      <p className="text-lg font-black text-app-text">{summaryBooked.sales_count}</p>
                     </div>
-                    <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-emerald-600">Sales $</div>
-                      <p className="text-lg font-black text-emerald-700">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</p>
+                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-success">Sales $</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</p>
                     </div>
-                    <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-amber-600">Tax</div>
-                      <p className="text-lg font-black text-amber-600">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</p>
+                    <div className="rounded-lg border border-app-warning/20 bg-app-warning/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-warning">Tax</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.sales_tax_total))}</p>
                     </div>
-                    <div className="rounded-lg border border-rose-500/30 bg-rose-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-rose-600">Fees</div>
-                      <p className="text-lg font-black text-rose-600">${centsToFixed2(parseMoneyToCents(summaryBooked.stripe_fees_total))}</p>
+                    <div className="rounded-lg border border-app-danger/20 bg-app-danger/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-danger">Fees</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summaryBooked.stripe_fees_total))}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mt-2">
-                    <div className="rounded-lg border border-blue-500/30 bg-blue-500/10 p-2">
+                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase text-blue-700">Cash Taken</span>
-                        <span className="text-lg font-black text-blue-700">${summaryBooked.cash_collected}</span>
+                        <span className="text-[9px] font-black uppercase text-app-info">Cash Taken</span>
+                        <span className="text-lg font-black text-app-text">${summaryBooked.cash_collected}</span>
                       </div>
                     </div>
-                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2">
+                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
                       <div className="flex items-center justify-between">
-                        <span className="text-[9px] font-black uppercase text-emerald-700">Deposits Taken</span>
-                        <span className="text-lg font-black text-emerald-700">${summaryBooked.deposits_collected}</span>
+                        <span className="text-[9px] font-black uppercase text-app-success">Deposits Taken</span>
+                        <span className="text-lg font-black text-app-text">${summaryBooked.deposits_collected}</span>
                       </div>
                     </div>
                   </div>
@@ -629,27 +629,27 @@ export default function RegisterReports({
 
               {/* Fulfilled Summary */}
               {summary && (
-                <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-3">
+                <div className="rounded-xl border border-app-info/20 bg-app-info/6 p-3">
                   <div className="flex items-center gap-1.5 mb-2">
-                    <Truck className="h-3 w-3 text-sky-600" />
-                    <span className="text-[10px] font-black uppercase tracking-wider text-sky-700">Fulfilled</span>
+                    <Truck className="h-3 w-3 text-app-info" />
+                    <span className="text-[10px] font-black uppercase tracking-wider text-app-info">Fulfilled</span>
                   </div>
                   <div className="grid grid-cols-4 gap-2">
-                    <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-sky-600">Orders</div>
-                      <p className="text-lg font-black text-sky-700">{summary.pickup_count || 0}</p>
+                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-info">Orders</div>
+                      <p className="text-lg font-black text-app-text">{summary.pickup_count || 0}</p>
                     </div>
-                    <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-sky-600">Revenue</div>
-                      <p className="text-lg font-black text-sky-700">${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
+                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-info">Revenue</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</p>
                     </div>
-                    <div className="rounded-lg border border-sky-500/20 bg-sky-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-sky-600">Tax</div>
-                      <p className="text-lg font-black text-sky-700">${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</p>
+                    <div className="rounded-lg border border-app-info/20 bg-app-info/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-info">Tax</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.sales_tax_total))}</p>
                     </div>
-                    <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2">
-                      <div className="text-[9px] font-black uppercase text-emerald-700">Net</div>
-                      <p className="text-lg font-black text-emerald-700">${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
+                    <div className="rounded-lg border border-app-success/20 bg-app-success/10 p-2">
+                      <div className="text-[9px] font-black uppercase text-app-success">Net</div>
+                      <p className="text-lg font-black text-app-text">${centsToFixed2(parseMoneyToCents(summary.net_sales))}</p>
                     </div>
                   </div>
                 </div>
@@ -695,7 +695,7 @@ export default function RegisterReports({
           ) : (
             <div className="flex flex-col gap-4 p-3 sm:p-4">
               <div className="flex justify-end gap-2 mb-2">
-                <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-2 border-emerald-500/30 px-3 py-1.5 text-xs font-black text-emerald-700 hover:bg-emerald-500 hover:text-white">
+                <button type="button" onClick={handlePrint} className="ui-btn-secondary flex items-center gap-2 border-app-success/20 px-3 py-1.5 text-xs font-black text-app-success hover:bg-app-success hover:text-white">
                   <Printer size={12} />Print
                 </button>
                 <button type="button" onClick={handleExportCSV} className="ui-btn-secondary flex items-center gap-2 border-app-border px-3 py-1.5 text-xs font-black text-app-text hover:bg-app-surface">
@@ -746,7 +746,7 @@ export default function RegisterReports({
                                        e.stopPropagation();
                                        if (row.wedding_party_id && onOpenWeddingParty) onOpenWeddingParty(row.wedding_party_id);
                                      }}
-                                     className="flex items-center gap-1 rounded bg-rose-500/5 px-2 py-0.5 text-[9px] font-black text-rose-600 ring-1 ring-rose-500/20 hover:bg-rose-500/10 transition-colors uppercase"
+                                     className="flex items-center gap-1 rounded bg-app-danger/6 px-2 py-0.5 text-[9px] font-black text-app-danger ring-1 ring-app-danger/20 hover:bg-app-danger/10 transition-colors uppercase"
                                    >
                                      <Heart size={10} /> {row.wedding_party_name}
                                    </button>
@@ -755,7 +755,7 @@ export default function RegisterReports({
                                <div className="mt-3 flex items-center gap-1.5 flex-wrap">
                                   <span className="font-mono text-[10px] font-black text-app-text uppercase tracking-tighter bg-app-surface-2 px-1.5 py-0.5 rounded">#{row.short_id || row.order_id?.slice(0, 8)}</span>
                                   {row.is_takeaway && <span className="text-[8px] font-black bg-orange-500/10 text-orange-600 px-1.5 py-0.5 rounded uppercase leading-none">Takeaway</span>}
-                                  {row.channel === 'web' && <span className="text-[8px] font-black bg-sky-500/10 text-sky-600 px-1.5 py-0.5 rounded uppercase flex items-center gap-1 leading-none"><Globe size={8}/> Online</span>}
+                                  {row.channel === 'web' && <span className="text-[8px] font-black bg-app-info/10 text-app-info px-1.5 py-0.5 rounded uppercase flex items-center gap-1 leading-none"><Globe size={8}/> Online</span>}
                                </div>
                             </div>
                           </div>
@@ -796,8 +796,8 @@ export default function RegisterReports({
                                        <td className="py-2.5 text-right align-top">
                                           <span className={`px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-tight ${
                                              it.fulfillment === 'takeaway' ? 'bg-orange-500/10 text-orange-600' :
-                                             it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'bg-sky-500/10 text-sky-600' :
-                                             it.fulfillment === 'layaway' ? 'bg-purple-500/10 text-purple-600' : it.fulfillment === 'pickup' ? 'bg-emerald-500/10 text-emerald-600' :
+                                             it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'bg-app-info/10 text-app-info' :
+                                             it.fulfillment === 'layaway' ? 'bg-purple-500/10 text-purple-600' : it.fulfillment === 'pickup' ? 'bg-app-success/10 text-app-success' :
                                              'bg-app-surface-2 text-app-text-muted font-bold'
                                           }`}>
                                              {it.fulfillment === 'takeaway' ? 'TAKEN' : it.fulfillment === 'special_order' || it.fulfillment === 'custom' ? 'ORDERED' : it.fulfillment === 'layaway' ? 'LAYAWAY' : it.fulfillment === 'pickup' ? 'PICKUP' : it.fulfillment?.toUpperCase() || 'UNKNOWN'}
@@ -825,8 +825,8 @@ export default function RegisterReports({
                               </div>
                               
                               <div className="flex flex-col items-end gap-0.5 pt-2 border-t border-app-border/40">
-                                 <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600">Deposits Taken / Trans. Total</span>
-                                 <span className="text-base font-black text-emerald-700 tabular-nums leading-none tracking-tighter">
+                                 <span className="text-[9px] font-black uppercase tracking-widest text-app-success">Deposits Taken / Trans. Total</span>
+                                 <span className="text-base font-black text-app-text tabular-nums leading-none tracking-tighter">
                                    ${row.transaction_total || "0.00"}
                                  </span>
                                  <div className="flex items-center gap-1 text-[9px] font-bold text-app-text-muted mt-1 opacity-60">
@@ -854,21 +854,21 @@ export default function RegisterReports({
               ))}
               {/* Grand Total */}
               {reportBasis === "booked" ? summaryBooked && (
-                <div className="mt-4 flex items-center justify-between rounded-xl border-2 border-emerald-500 bg-emerald-500/5 px-4 py-3">
-                  <span className="text-sm font-black uppercase text-emerald-700">Daily Total ({summaryBooked.activities.length} transactions)</span>
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-app-success/20 bg-app-success/6 px-4 py-3">
+                  <span className="text-sm font-black uppercase text-app-success">Daily Total ({summaryBooked.activities.length} transactions)</span>
                   <div className="text-right">
                     <span className="text-xs font-black text-app-text-muted">Subtotal: ${centsToFixed2(parseMoneyToCents(summaryBooked.sales_subtotal_no_tax))}</span>
                     <span className="mx-2">|</span>
-                    <span className="text-sm font-black text-emerald-700">Total: {summaryBooked.amount_label}</span>
+                    <span className="text-sm font-black text-app-text">Total: {summaryBooked.amount_label}</span>
                   </div>
                 </div>
               ) : summary && (
-                <div className="mt-4 flex items-center justify-between rounded-xl border-2 border-sky-500 bg-sky-500/5 px-4 py-3">
-                  <span className="text-sm font-black uppercase text-sky-700">Daily Total ({summary.activities.length} transactions)</span>
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-app-info/20 bg-app-info/6 px-4 py-3">
+                  <span className="text-sm font-black uppercase text-app-info">Daily Total ({summary.activities.length} transactions)</span>
                   <div className="text-right">
                     <span className="text-xs font-black text-app-text-muted">Subtotal: ${centsToFixed2(parseMoneyToCents(summary.sales_subtotal_no_tax))}</span>
                     <span className="mx-2">|</span>
-                    <span className="text-sm font-black text-sky-700">Total: {summary.amount_label}</span>
+                    <span className="text-sm font-black text-app-text">Total: {summary.amount_label}</span>
                   </div>
                 </div>
               )}
@@ -904,7 +904,7 @@ export default function RegisterReports({
                     <input type="date" value={customFromZ} onChange={(e) => setCustomFromZ(e.target.value)} className="ui-input rounded-lg px-3 py-2 text-sm" />
                     <span className="text-app-text-muted">to</span>
                     <input type="date" value={customToZ} onChange={(e) => setCustomToZ(e.target.value)} className="ui-input rounded-lg px-3 py-2 text-sm" />
-                    <button type="button" onClick={() => void fetchZLogs()} className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500">Apply</button>
+                    <button type="button" onClick={() => void fetchZLogs()} className="rounded-lg bg-app-success px-4 py-2 text-sm font-bold text-white hover:brightness-105">Apply</button>
                   </div>
                 )}
               </div>
@@ -939,7 +939,7 @@ export default function RegisterReports({
                   </div>
                 </div>
                 {coordinationSummary.pendingCloses > 0 ? (
-                  <div className="mt-3 rounded-xl border border-amber-300 bg-amber-100/90 px-4 py-3 text-sm text-amber-900">
+                  <div className="mt-3 rounded-xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-sm text-app-text">
                     <p className="text-[10px] font-black uppercase tracking-widest">
                       Pending close in progress
                     </p>
@@ -993,8 +993,8 @@ export default function RegisterReports({
                             <span
                               className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
                                 isReconciling
-                                  ? "border-amber-300 bg-amber-100/90 text-amber-900"
-                                  : "border-sky-200 bg-sky-50 text-sky-900"
+                                  ? "border-app-warning/20 bg-app-warning/10 text-app-warning"
+                                  : "border-app-info/20 bg-app-info/10 text-app-info"
                               }`}
                             >
                               {isReconciling ? "Closing now" : "Open"}
@@ -1077,7 +1077,7 @@ export default function RegisterReports({
                         <p className="text-xs text-app-text-muted">Exp. cash ${centsToFixed2(parseMoneyToCents(session.expected_cash ?? "0"))}</p>
                         {session.discrepancy &&
                         Math.abs(parseMoneyToCents(session.discrepancy)) > 0 ? (
-                          <p className="text-xs font-black text-amber-600">
+                          <p className="text-xs font-black text-app-warning">
                             Discrepancy ${centsToFixed2(parseMoneyToCents(session.discrepancy))}
                           </p>
                         ) : null}
