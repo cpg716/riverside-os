@@ -241,6 +241,11 @@ function fmtTimeAgo(iso: string | null | undefined): string {
   return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function formatFreshnessLabel(iso: string | null | undefined): string {
+  if (!iso) return "No bridge run summary yet";
+  return `Fresh as of ${fmtTimeAgo(iso)}`;
+}
+
 function formatEntityLabel(entity: string): string {
   return (
     ENTITY_DISPLAY.find((entry) => entry.key === entity)?.label ??
@@ -913,7 +918,7 @@ export default function CounterpointSyncSettingsPanel(props?: {
     migrationPreflight?.staging_enabled
       ? "ROS landed counts may reflect Apply timing instead of the exact bridge send moment when staging is enabled."
       : null,
-    "ROS landed counts come from `counterpoint_sync_runs.records_processed` and can include skipped/existing rows, so this is a migration proof summary, not a full business reconciliation."
+    "ROS landed counts come from `counterpoint_sync_runs.records_processed` and can include skipped or already-existing rows, so treat this as import proof, not full business reconciliation."
   ].filter((item): item is string => !!item);
   const resetScopeRows = resetPreview?.reset_scope ?? [];
   const resetTotalRows = resetScopeRows.reduce((sum, row) => sum + row.count, 0);
@@ -1077,13 +1082,20 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           <span className="text-emerald-500">Bridge Idle</span>
                         )}
                       </p>
-                      <p className="text-[10px] text-app-text-muted mt-0.5">
-                        {bridgeLive.lastRun ? `Last run: ${fmtTimeAgo(bridgeLive.lastRun)}` : "No runs yet"}
-                        {bridgeLive.lastRunDurationMs ? ` · ${fmtDuration(bridgeLive.lastRunDurationMs)}` : ""}
-                        {bridgeLive.totalRecordsLastRun ? ` · ${fmtNum(bridgeLive.totalRecordsLastRun)} records` : ""}
-                      </p>
-                    </div>
-                  </div>
+	                      <p className="text-[10px] text-app-text-muted mt-0.5">
+	                        {formatFreshnessLabel(bridgeLive.lastRun)}
+	                        {bridgeLive.lastRunDurationMs ? ` · ${fmtDuration(bridgeLive.lastRunDurationMs)}` : ""}
+	                        {bridgeLive.totalRecordsLastRun ? ` · ${fmtNum(bridgeLive.totalRecordsLastRun)} records` : ""}
+	                      </p>
+                        <p className="text-[10px] text-app-text-muted mt-1">
+                          {bridgeLive.isSyncing
+                            ? "The bridge is actively importing. Riverside landed counts update after each entity finishes."
+                            : Object.values(bridgeLive.entityStats || {}).some((stat) => !!stat?.error)
+                              ? "The latest visible bridge run includes errors. Review the failed entity rows and recent bridge events before rerunning."
+                              : "Use the bridge run summary for import progress. Use ROS landed counts below as proof that rows were applied."}
+                        </p>
+	                    </div>
+	                  </div>
                   {bridgeLive.isSyncing ? (
                     <button
                       type="button"
@@ -1120,11 +1132,11 @@ export default function CounterpointSyncSettingsPanel(props?: {
                 )}
 
                 {/* Summary stats */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
-                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Total Records</p>
-                    <p className="text-lg font-black text-app-accent tabular-nums">{fmtNum(bridgeLive.totalRecordsLastRun || 0)}</p>
-                  </div>
+	                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+	                  <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
+	                    <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Bridge Rows Last Run</p>
+	                    <p className="text-lg font-black text-app-accent tabular-nums">{fmtNum(bridgeLive.totalRecordsLastRun || 0)}</p>
+	                  </div>
                   <div className="rounded-lg bg-app-bg/60 border border-app-border p-3 text-center">
                     <p className="text-[8px] font-black uppercase tracking-widest text-app-text-muted">Duration</p>
                     <p className="text-lg font-black text-app-text tabular-nums">{fmtDuration(bridgeLive.lastRunDurationMs)}</p>
@@ -1385,10 +1397,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
                         </p>
                         <p className="mt-1 font-bold text-app-text tabular-nums">{fmtNum(latestRunEntities.length)}</p>
                       </div>
-                      <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                          Missing ROS proof
-                        </p>
+	                    <div className="rounded-lg border border-app-border bg-app-bg/60 p-3">
+	                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+	                        Missing ROS landed proof
+	                      </p>
                         <p
                           className={`mt-1 font-bold tabular-nums ${
                             entitiesMissingRosProof > 0 ? "text-red-500" : "text-emerald-600"
@@ -1424,15 +1436,17 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           </div>
                         </div>
                       ) : (
-                        <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
-                          <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
-                            No automatic blockers detected
-                          </p>
-                          <p className="mt-2 text-app-text-muted">
-                            The built-in proof surfaces do not show pending staging, unresolved issues,
-                            or missing ROS landed counts for the latest visible entity set.
-                          </p>
-                        </div>
+	                      <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+	                        <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
+	                          No automatic blockers detected
+	                        </p>
+	                        <p className="mt-2 text-app-text-muted">
+	                          The built-in proof surfaces do not show pending staging, unresolved issues,
+	                          or missing ROS landed counts for the latest visible entity set. You can treat
+                          this as a clean import signal, then confirm business totals in the downstream
+                          workspace that uses the imported data.
+	                        </p>
+	                      </div>
                       )}
 
                       <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
@@ -1451,13 +1465,13 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       <table className="w-full min-w-[860px] text-left text-xs">
                         <thead>
                           <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
-                            <th className="px-4 py-2">Entity</th>
-                            <th className="px-4 py-2 text-right">Bridge rows</th>
-                            <th className="px-4 py-2">Bridge time</th>
-                            <th className="px-4 py-2 text-right">ROS landed</th>
-                            <th className="px-4 py-2">ROS last OK</th>
-                            <th className="px-4 py-2">Comparison</th>
-                            <th className="px-4 py-2">Notes</th>
+	                            <th className="px-4 py-2">Entity</th>
+	                            <th className="px-4 py-2 text-right">Bridge rows sent</th>
+	                            <th className="px-4 py-2">Bridge time</th>
+	                            <th className="px-4 py-2 text-right">ROS rows landed</th>
+	                            <th className="px-4 py-2">Last landed OK</th>
+	                            <th className="px-4 py-2">Comparison</th>
+	                            <th className="px-4 py-2">Notes</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-app-border">
@@ -1509,10 +1523,10 @@ export default function CounterpointSyncSettingsPanel(props?: {
                       <tr className="bg-app-bg/50 text-[10px] uppercase font-black tracking-widest text-app-text-muted border-b border-app-border">
                         <th className="px-4 py-2 w-6"></th>
                         <th className="px-4 py-2">Entity</th>
-                        <th className="px-4 py-2 text-right">Records</th>
-                        <th className="px-4 py-2 text-right">Duration</th>
-                        <th className="px-4 py-2">Last sync</th>
-                        <th className="px-4 py-2">Status</th>
+	                            <th className="px-4 py-2 text-right">Bridge rows</th>
+	                            <th className="px-4 py-2 text-right">Duration</th>
+	                            <th className="px-4 py-2">Latest bridge update</th>
+	                            <th className="px-4 py-2">Status</th>
                         <th className="px-4 py-2 w-16"></th>
                       </tr>
                     </thead>
@@ -1557,11 +1571,16 @@ export default function CounterpointSyncSettingsPanel(props?: {
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-500">
                                   <Loader2 className="h-3 w-3 animate-spin" /> Running
                                 </span>
-                              ) : hasError ? (
-                                <span className="text-[10px] font-bold text-red-500 max-w-[200px] truncate block" title={stat?.error ?? ""}>
-                                  {stat?.error?.slice(0, 60)}
-                                </span>
-                              ) : isDone ? (
+	                              ) : hasError ? (
+	                                <div className="max-w-[220px]">
+	                                  <span className="text-[10px] font-bold text-red-500 max-w-[200px] truncate block" title={stat?.error ?? ""}>
+	                                    {stat?.error?.slice(0, 60)}
+	                                  </span>
+	                                  <p className="mt-1 text-[9px] text-app-text-muted">
+	                                    Fix the source issue, then rerun this entity only.
+	                                  </p>
+	                                </div>
+	                              ) : isDone ? (
                                 <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-500">
                                   <CheckCircle2 className="h-3 w-3" /> OK
                                 </span>
@@ -2252,9 +2271,12 @@ export default function CounterpointSyncSettingsPanel(props?: {
                           {issue.external_key && (
                             <span className="ml-2 font-mono text-[10px] text-app-text-muted">{issue.external_key}</span>
                           )}
-                          <p className="text-app-text-muted mt-0.5">{issue.message}</p>
-                          <p className="text-[10px] text-app-text-muted mt-0.5">{formatDate(issue.created_at)}</p>
-                        </div>
+	                          <p className="text-app-text-muted mt-0.5">{issue.message}</p>
+	                          <p className="text-[10px] text-app-text-muted mt-0.5">{formatDate(issue.created_at)}</p>
+                              <p className="text-[10px] text-app-text-muted mt-1">
+                                Review the matching entity row and recent bridge events before dismissing or rerunning.
+                              </p>
+	                        </div>
                         <button
                           type="button"
                           onClick={() => void resolveIssue(issue.id)}
@@ -2271,9 +2293,9 @@ export default function CounterpointSyncSettingsPanel(props?: {
           ) : loading ? (
             <p className="text-sm font-medium text-app-text-muted">Loading…</p>
           ) : (
-            <p className="text-sm font-bold text-app-text">
-              Could not load Counterpoint sync status. Check permissions or network.
-            </p>
+	            <p className="text-sm font-bold text-app-text">
+	              Could not load Counterpoint sync status. Verify your permissions, confirm the bridge PC is reachable, and refresh again.
+	            </p>
           )}
         </>
       )}
