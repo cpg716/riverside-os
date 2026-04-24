@@ -21,7 +21,6 @@ import { resolveHelpImageSrc } from "../../lib/help/helpImages";
 import { stripYamlFrontMatter } from "../../lib/help/helpFrontMatter";
 import {
   askRosieGroundedHelp,
-  askRosieConversation,
   getRosieVoiceCapabilities,
   loadLocalRosieSettings,
   speakRosieText,
@@ -29,7 +28,6 @@ import {
   stopRosieSpeechPlayback,
   type RosieGroundedHelpRequest,
   type RosieHelpGroundingSource,
-  type RosieChatMessage,
   type RosieSettings,
   type RosieVoiceCapabilities,
   type RosieSpeechPlayback,
@@ -76,7 +74,7 @@ type RosiChatEntry = {
   role: "user" | "assistant";
   content: string;
   sources?: RosieHelpGroundingSource[];
-  transparency?: "grounded-help" | "conversation";
+  transparency?: "grounded-help" | "grounded-conversation";
   error?: boolean;
 };
 
@@ -775,48 +773,31 @@ export default function HelpCenterDrawer({
     }
 
     try {
-      let answer = "";
+      const groundedRequest: RosieGroundedHelpRequest = {
+        question,
+        mode,
+        settings: {
+          enabled: rosieSettings.enabled,
+          response_style: rosieSettings.response_style,
+          show_citations: rosieSettings.show_citations,
+        },
+      };
+      const result = await askRosieGroundedHelp(groundedRequest, {
+        headers: apiAuth() as Record<string, string>,
+      });
+      const answer = result.answer;
       if (mode === "conversation") {
-        const history: RosieChatMessage[] = rosieConversationMessages.map((message) => ({
-          role: message.role,
-          content: message.content,
-        }));
-        const result = await askRosieConversation(
-          {
-            question,
-            history,
-            settings: {
-              enabled: rosieSettings.enabled,
-              response_style: rosieSettings.response_style,
-            },
-          },
-          {
-            headers: apiAuth() as Record<string, string>,
-          },
-        );
-        answer = result.answer;
         setRosieConversationMessages((prev) => [
           ...prev,
           {
             id: `assistant-${Date.now()}`,
             role: "assistant",
             content: result.answer,
-            transparency: "conversation",
+            sources: result.sources,
+            transparency: "grounded-conversation",
           },
         ]);
       } else {
-        const groundedRequest: RosieGroundedHelpRequest = {
-          question,
-          settings: {
-            enabled: rosieSettings.enabled,
-            response_style: rosieSettings.response_style,
-            show_citations: rosieSettings.show_citations,
-          },
-        };
-        const result = await askRosieGroundedHelp(groundedRequest, {
-          headers: apiAuth() as Record<string, string>,
-        });
-        answer = result.answer;
         setRosieMessages((prev) => [
           ...prev,
           {
@@ -892,7 +873,6 @@ export default function HelpCenterDrawer({
     activeRosieMode,
     apiAuth,
     rosieBusy,
-    rosieConversationMessages,
     rosieConversationQuestion,
     rosieQuestion,
     rosieSettings,
@@ -1015,7 +995,7 @@ export default function HelpCenterDrawer({
               }`}
             >
               <Bot size={14} aria-hidden />
-              Help Mode (grounded)
+              Help Mode
             </button>
             <button
               type="button"
@@ -1028,7 +1008,7 @@ export default function HelpCenterDrawer({
               }`}
             >
               <MessagesSquare size={14} aria-hidden />
-              Conversation (no store data)
+              Conversation (voice)
             </button>
           </div>
           {drawerMode === "browse" ? (
@@ -1088,12 +1068,12 @@ export default function HelpCenterDrawer({
             <div className="space-y-2">
               <p className="text-sm font-medium text-app-text-muted">
                 {drawerMode === "conversation"
-                  ? "Talk with ROSIE for drafting, wording, and general thinking. This mode cannot see store data."
+                  ? "Talk with ROSIE using the same governed RiversideOS intelligence, store context, and approved tools."
                   : "Ask ROSIE for grounded Help Center guidance using visible manuals and your store playbook when available."}
               </p>
               <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
                 {drawerMode === "conversation"
-                  ? "Mode: Conversation. Grounding: none. Tools: none. For policies, sales, inventory, transactions, or wedding order status, switch to Help Mode."
+                  ? "Mode: Conversation. Grounding: RiversideOS Help, store playbook, and approved operational tool results when available. Voice input and speech output follow ROSIE settings."
                   : "Mode: Help. Grounding: Help Center, store playbook, and approved operational tool results when available. Source chips show what ROSIE used."}
               </p>
               {!rosieSettings.enabled ? (
@@ -1124,7 +1104,7 @@ export default function HelpCenterDrawer({
                     </p>
                     <p className="mt-2 text-sm text-app-text-muted">
                       {activeRosieMode === "conversation"
-                        ? "Conversation Mode can help draft, explain, and think through ideas, but it does not search manuals, run reports, or inspect orders. Switch to Help Mode for governed store answers."
+                        ? "Conversation Mode is ROSIE as a voice-first assistant. Ask about workflows, store data, reports, customers, inventory, or wedding orders; ROSIE will use the same governed paths and show sources when available."
                         : "ROSIE is grounded to Help search results, manual sections, and your store playbook when available. Ask the question the way an operator would, then use source chips to open the referenced guidance."}
                     </p>
                   </div>
@@ -1153,8 +1133,8 @@ export default function HelpCenterDrawer({
                         )}
                         {message.role === "assistant" && !message.error ? (
                           <p className="mt-3 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[11px] font-medium text-app-text-muted">
-                            {message.transparency === "conversation"
-                              ? "Grounding: none. Tools: none. Conversation Mode response. Switch to Help Mode for store data."
+                            {message.transparency === "grounded-conversation"
+                              ? "Grounding: governed RiversideOS context. Tools: approved ROSIE context only when returned below. Voice behavior follows ROSIE settings."
                               : "Grounding: governed Help context. Tools: approved ROSIE context only when returned below. Source chips show what was used."}
                           </p>
                         ) : null}
@@ -1379,7 +1359,7 @@ export default function HelpCenterDrawer({
                       rosieListening
                         ? "Listening for your question…"
                         : activeRosieMode === "conversation"
-                          ? "Ask for drafting or general help. For store data, switch to Help Mode…"
+                          ? "Talk to ROSIE about RiversideOS workflows, reports, customers, inventory, or wedding orders…"
                           : "Ask about a workflow, policy, or how to use this screen…"
                     }
                     className="ui-input min-h-24 flex-1 resize-none text-sm"
@@ -1502,7 +1482,7 @@ export function RosieTriggerButton({
       data-testid="help-center-ask-rosie-trigger"
       className={`relative inline-flex touch-manipulation items-center justify-center rounded-lg border border-app-border bg-app-surface-2 p-2 text-app-text shadow-sm transition-colors hover:bg-app-border/20 ${className}`.trim()}
       aria-label="Open ROSIE Conversation"
-      title="ROSIE Conversation (no store data)"
+      title="ROSIE Conversation"
     >
       <Bot size={18} strokeWidth={2} aria-hidden />
     </button>

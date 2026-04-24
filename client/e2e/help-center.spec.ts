@@ -113,9 +113,11 @@ test("Ask ROSIE sends grounded Help request and renders source chips", async ({
   await signInToBackOffice(page);
   await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
     const body = route.request().postDataJSON() as {
+      mode?: string;
       question?: string;
       settings?: { enabled?: boolean; response_style?: string; show_citations?: boolean };
     };
+    expect(body.mode).toBe("help");
     expect(body.question).toBe("how do I close the register");
     expect(body.settings?.enabled).toBe(true);
     expect(body.settings?.response_style).toBe("concise");
@@ -204,17 +206,46 @@ test("Ask ROSIE sends grounded Help request and renders source chips", async ({
   ).toBeVisible({ timeout: 15_000 });
 });
 
-test("Top Bar ROSIE opens Conversation Mode without Help tool grounding", async ({
+test("Top Bar ROSIE opens voice-first Conversation Mode with grounded context", async ({
   page,
 }) => {
   await signInToBackOffice(page);
   let toolContextCalled = false;
   await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
     toolContextCalled = true;
+    const body = route.request().postDataJSON() as {
+      mode?: string;
+      question?: string;
+    };
+    expect(body.mode).toBe("conversation");
+    expect(body.question).toBe("show me today’s sales");
     await route.fulfill({
-      status: 500,
+      status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ error: "Conversation Mode should not request tool context" }),
+      body: JSON.stringify({
+        question: body.question,
+        settings: {
+          enabled: true,
+          response_style: "concise",
+          show_citations: true,
+        },
+        sources: [
+          {
+            kind: "report",
+            title: "Report — sales today",
+            excerpt: "today sales via approved reporting path",
+            content: "{\"total_sales\":\"1250.00\"}",
+            report_spec_id: "sales_today",
+          },
+        ],
+        tool_results: [
+          {
+            tool_name: "reporting_run",
+            args: { spec_id: "sales_today" },
+            result: { data: { total_sales: "1250.00" } },
+          },
+        ],
+      }),
     });
   });
   await page.route("**/api/help/rosie/v1/chat/completions", async (route) => {
@@ -223,9 +254,11 @@ test("Top Bar ROSIE opens Conversation Mode without Help tool grounding", async 
     };
     const systemPrompt = body.messages?.find((message) => message.role === "system")?.content ?? "";
     const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
-    expect(systemPrompt).toContain("Conversation Mode");
-    expect(systemPrompt).toContain("no Help Center grounding");
-    expect(userPrompt).toBe("help me phrase a customer handoff note");
+    expect(systemPrompt).toContain("full conversational assistant for Riverside OS staff");
+    expect(systemPrompt).toContain("approved operational tool results");
+    expect(systemPrompt).toContain("A reporting_run result is present");
+    expect(userPrompt).toContain("User question: show me today’s sales");
+    expect(userPrompt).toContain("Tool 1: reporting_run");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -234,7 +267,7 @@ test("Top Bar ROSIE opens Conversation Mode without Help tool grounding", async 
           {
             message: {
               role: "assistant",
-              content: "Here is a concise handoff note you can adapt.",
+              content: "Today’s approved sales report shows $1,250.00 in sales.",
             },
           },
         ],
@@ -248,18 +281,17 @@ test("Top Bar ROSIE opens Conversation Mode without Help tool grounding", async 
   await expect(page.getByText(/Mode: Conversation/i)).toBeVisible();
   await page
     .getByTestId("help-center-rosie-conversation-input")
-    .fill("help me phrase a customer handoff note");
+    .fill("show me today’s sales");
   await page.getByTestId("help-center-ask-rosie-send").click();
 
-  await expect(page.getByText(/concise handoff note/i)).toBeVisible({
+  await expect(page.getByText(/1,250\.00 in sales/i)).toBeVisible({
     timeout: 15_000,
   });
   await expect(
-    page.getByText(
-      "Grounding: none. Tools: none. Conversation Mode response. Switch to Help Mode for store data.",
-    ),
+    page.getByText(/Grounding: governed RiversideOS context/i),
   ).toBeVisible();
-  expect(toolContextCalled).toBe(false);
+  await expect(page.getByText(/Report — sales today/i)).toBeVisible();
+  expect(toolContextCalled).toBe(true);
 });
 
 test("Ask ROSIE voice input reuses the normal text flow and can stop host voice output", async ({

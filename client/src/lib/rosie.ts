@@ -71,6 +71,7 @@ export type RosieHelpGroundingSource = {
 
 export type RosieGroundedHelpRequest = {
   question: string;
+  mode?: "help" | "conversation";
   settings: Pick<RosieSettings, "enabled" | "response_style" | "show_citations">;
 };
 
@@ -78,17 +79,6 @@ export type RosieGroundedHelpResponse = {
   answer: string;
   sources: RosieHelpGroundingSource[];
   tool_results: RosieToolResult[];
-  completion: RosieChatCompletionResponse;
-};
-
-export type RosieConversationRequest = {
-  question: string;
-  history?: RosieChatMessage[];
-  settings: Pick<RosieSettings, "enabled" | "response_style">;
-};
-
-export type RosieConversationResponse = {
-  answer: string;
   completion: RosieChatCompletionResponse;
 };
 
@@ -1040,78 +1030,28 @@ export async function rosieChatCompletions(
   return json as RosieChatCompletionResponse;
 }
 
-function buildConversationSystemPrompt(
-  request: RosieConversationRequest,
-): string {
-  return [
-    "You are ROSIE (RiversideOS Intelligence Engine) in Conversation Mode.",
-    "This mode is conversational only: no Help Center grounding, no operational tools, no hidden routes, and no live business data are available.",
-    "Be useful for drafting, planning, explaining concepts, and thinking through operational questions at a general level.",
-    "If the user asks for store procedures, policy, exact reporting numbers, orders, customers, inventory, weddings, transactions, or any auditable operational fact, start by saying: \"This is Conversation Mode, so I cannot see store data or governed sources. Switch to Help Mode for that.\" Then give only safe general framing if useful.",
-    "Do not claim you searched manuals or ran tools.",
-    request.settings.response_style === "detailed"
-      ? "Response style: detailed but practical."
-      : "Response style: concise and practical.",
-    "Do not output a thinking process, reasoning trace, or hidden analysis.",
-    "Answer with the final response only.",
-    "Use markdown for readability.",
-  ].join(" ");
-}
-
-export async function askRosieConversation(
-  request: RosieConversationRequest,
-  options?: {
-    headers?: Record<string, string>;
-  },
-): Promise<RosieConversationResponse> {
-  const history = (request.history ?? [])
-    .filter((message) => message.role === "user" || message.role === "assistant")
-    .slice(-8);
-  const completion = await rosieChatCompletions(
-    {
-      model: "local",
-      temperature: 0.4,
-      max_tokens: request.settings.response_style === "detailed" ? 520 : 260,
-      messages: [
-        {
-          role: "system",
-          content: buildConversationSystemPrompt(request),
-        },
-        ...history,
-        {
-          role: "user",
-          content: request.question,
-        },
-      ],
-    },
-    {
-      headers: options?.headers,
-    },
-  );
-  const answer = completion.choices?.[0]?.message?.content?.trim();
-
-  if (!answer) {
-    throw new Error("ROSIE returned an empty Conversation Mode response.");
-  }
-
-  return {
-    answer,
-    completion,
-  };
-}
-
 function buildGroundedHelpSystemPrompt(
   request: RosieGroundedHelpRequest,
   context: RosieToolContextResponse,
 ): string {
+  const conversationMode = request.mode === "conversation";
   return [
-    "You are ROSIE (RiversideOS Intelligence Engine) inside the Riverside OS Help Center.",
-    "Answer only from the provided structured Help Center, reporting, and approved operational tool results.",
+    conversationMode
+      ? "You are ROSIE (RiversideOS Intelligence Engine), the full conversational assistant for Riverside OS staff."
+      : "You are ROSIE (RiversideOS Intelligence Engine) inside the Riverside OS Help Center.",
+    conversationMode
+      ? "Answer from the provided RiversideOS Help Center, store playbook, reporting results, and approved operational tool results."
+      : "Answer Help Center and workflow questions from the provided structured Help Center and store playbook.",
     "Use reporting numbers only when they appear in a reporting_run tool result.",
     "Use order, customer, wedding, or inventory data only when they appear in the provided operational tool results.",
     "Do not use SQL, hidden routes, non-approved tools, or any imaginary data beyond the provided results.",
     "Do not infer missing business data or recompute values that are not explicitly returned.",
-    "If the provided grounding is not enough, say that clearly and direct the user to Browse or Search in Help Center.",
+    conversationMode
+      ? "If the provided grounding is not enough, say what ROSIE could not access and suggest the exact kind of lookup, report, customer, order, wedding, or inventory context needed."
+      : "If the provided grounding is not enough, say that clearly and direct the user to Browse or Search in Help Center.",
+    conversationMode
+      ? "ROSIE should help staff with RiversideOS usage and accessible store data, while preserving every permission boundary enforced by the returned tool results."
+      : "Keep the answer focused on Help Center guidance rather than acting like a broad data assistant.",
     "Store playbook guidance should override generic manual guidance when the two differ.",
     context.tool_results.some((tool) => tool.tool_name === "reporting_run")
       ? "A reporting_run result is present. Narrate only the returned report JSON and keep the answer tightly scoped to that approved report."
@@ -1261,7 +1201,13 @@ export async function askRosieGroundedHelp(
     );
 
   const initialMaxTokens =
-    request.settings.response_style === "detailed" ? 420 : 180;
+    request.settings.response_style === "detailed"
+      ? request.mode === "conversation"
+        ? 640
+        : 420
+      : request.mode === "conversation"
+        ? 320
+        : 180;
   let completion = await runCompletion(initialMaxTokens);
   let answer = completion.choices?.[0]?.message?.content?.trim();
 

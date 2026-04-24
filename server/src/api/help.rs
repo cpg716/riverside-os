@@ -31,6 +31,7 @@ use crate::logic::meilisearch_search::{help_search_hits, HelpSearchHit};
 use crate::logic::rosie_intelligence::{self, RosieIntelligencePack};
 use crate::logic::rosie_speech;
 use crate::middleware;
+use crate::models::DbStaffRole;
 
 fn build_rosie_upstream_client() -> Result<reqwest::Client, reqwest::Error> {
     reqwest::Client::builder()
@@ -163,7 +164,13 @@ struct RosieToolContextSettings {
 #[derive(Debug, Clone, Deserialize)]
 struct RosieToolContextRequest {
     question: String,
+    #[serde(default = "default_rosie_tool_context_mode")]
+    mode: String,
     settings: RosieToolContextSettings,
+}
+
+fn default_rosie_tool_context_mode() -> String {
+    "help".to_string()
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -584,6 +591,7 @@ mod tests {
     fn base_request(question: String) -> RosieToolContextRequest {
         RosieToolContextRequest {
             question,
+            mode: "conversation".to_string(),
             settings: RosieToolContextSettings {
                 enabled: true,
                 response_style: "concise".to_string(),
@@ -686,6 +694,15 @@ mod tests {
             .tool_results
             .iter()
             .any(|tool| tool.tool_name == "inventory_variant_intelligence"));
+        let inventory_result = response
+            .tool_results
+            .iter()
+            .find(|tool| tool.tool_name == "inventory_variant_intelligence")
+            .expect("inventory tool result");
+        assert!(
+            inventory_result.result.get("unit_cost").is_none(),
+            "ROSIE must not expose inventory cost to non-admin staff"
+        );
     }
 
     #[tokio::test]
@@ -1043,6 +1060,46 @@ fn map_hit(h: HelpSearchHit) -> HelpSearchHitOut {
 
 fn sanitize_excerpt(text: &str, max: usize) -> String {
     excerpt_from_body(text, max)
+}
+
+fn scrub_sensitive_economics_for_non_admin(value: &mut Value) {
+    match value {
+        Value::Object(object) => {
+            const SENSITIVE_KEYS: &[&str] = &[
+                "unit_cost",
+                "cost",
+                "cost_price",
+                "base_cost",
+                "cost_override",
+                "cost_of_goods",
+                "gross_margin",
+                "margin",
+                "margin_percent",
+                "average_margin",
+                "profit",
+                "profit_margin",
+            ];
+            for key in SENSITIVE_KEYS {
+                object.remove(*key);
+            }
+            for child in object.values_mut() {
+                scrub_sensitive_economics_for_non_admin(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                scrub_sensitive_economics_for_non_admin(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn rosie_sanitize_tool_result_for_viewer(mut result: Value, viewer: &HelpViewer) -> Value {
+    if !viewer.is_admin {
+        scrub_sensitive_economics_for_non_admin(&mut result);
+    }
+    result
 }
 
 fn question_tokens(question: &str) -> impl Iterator<Item = String> + '_ {
@@ -1505,6 +1562,7 @@ async fn load_help_reindex_time(pool: &sqlx::PgPool) -> Option<chrono::DateTime<
 
 struct HelpViewer {
     pos_only_mode: bool,
+    is_admin: bool,
     staff_perms: HashSet<String>,
 }
 
@@ -1547,12 +1605,14 @@ async fn resolve_help_viewer(
             })?;
         return Ok(HelpViewer {
             pos_only_mode: false,
+            is_admin: auth.role == DbStaffRole::Admin,
             staff_perms,
         });
     }
 
     Ok(HelpViewer {
         pos_only_mode: true,
+        is_admin: false,
         staff_perms: HashSet::new(),
     })
 }
@@ -1910,6 +1970,7 @@ async fn rosie_tool_context(
     let mut sources = Vec::<RosieToolGroundingSourceOut>::new();
     let mut tool_results = Vec::<RosieToolResultOut>::new();
     let question = body.question.trim();
+    let conversation_mode = body.mode.trim().eq_ignore_ascii_case("conversation");
     if question.is_empty() {
         return Err((
             axum::http::StatusCode::BAD_REQUEST,
@@ -2053,225 +2114,234 @@ async fn rosie_tool_context(
         });
     }
 
-    if let Some(reporting_request) = infer_reporting_request(question) {
-        let reporting_result = insights::rosie_reporting_run(&state, &headers, reporting_request)
-            .await
-            .map_err(axum::response::IntoResponse::into_response)?;
-        sources.push(RosieToolGroundingSourceOut {
-            kind: "report".to_string(),
-            title: format!("Report — {}", reporting_result.spec_id.replace('_', " ")),
-            excerpt: format!(
-                "{} via {}",
-                reporting_result.spec_id, reporting_result.route
-            ),
-            content: sanitize_excerpt(&reporting_result.data.to_string(), 1200),
-            manual_id: None,
-            manual_title: None,
-            section_slug: None,
-            section_heading: None,
-            anchor_id: None,
-            report_spec_id: Some(reporting_result.spec_id.clone()),
-            report_route: Some(reporting_result.route.to_string()),
-            route: Some(reporting_result.route.to_string()),
-            entity_id: None,
-        });
-        tool_results.push(RosieToolResultOut {
-            tool_name: "reporting_run".to_string(),
-            args: serde_json::json!({
-                "spec_id": reporting_result.spec_id,
-                "params": reporting_result.params,
-            }),
-            result: serde_json::json!({
-                "route": reporting_result.route,
-                "required_permission": reporting_result.required_permission,
-                "data": reporting_result.data,
-            }),
-        });
-    }
+    if conversation_mode {
+        if let Some(reporting_request) = infer_reporting_request(question) {
+            let reporting_result =
+                insights::rosie_reporting_run(&state, &headers, reporting_request)
+                    .await
+                    .map_err(axum::response::IntoResponse::into_response)?;
+            sources.push(RosieToolGroundingSourceOut {
+                kind: "report".to_string(),
+                title: format!("Report — {}", reporting_result.spec_id.replace('_', " ")),
+                excerpt: format!(
+                    "{} via {}",
+                    reporting_result.spec_id, reporting_result.route
+                ),
+                content: sanitize_excerpt(&reporting_result.data.to_string(), 1200),
+                manual_id: None,
+                manual_title: None,
+                section_slug: None,
+                section_heading: None,
+                anchor_id: None,
+                report_spec_id: Some(reporting_result.spec_id.clone()),
+                report_route: Some(reporting_result.route.to_string()),
+                route: Some(reporting_result.route.to_string()),
+                entity_id: None,
+            });
+            tool_results.push(RosieToolResultOut {
+                tool_name: "reporting_run".to_string(),
+                args: serde_json::json!({
+                    "spec_id": reporting_result.spec_id,
+                    "params": reporting_result.params,
+                }),
+                result: serde_json::json!({
+                    "route": reporting_result.route,
+                    "required_permission": reporting_result.required_permission,
+                    "data": reporting_result.data,
+                }),
+            });
+        }
 
-    for (tool_name, args) in infer_operational_tool_requests(question, &headers) {
-        match tool_name.as_str() {
-            "order_summary" => {
-                let transaction_id = args
-                    .get("transaction_id")
-                    .and_then(Value::as_str)
-                    .and_then(|value| Uuid::parse_str(value).ok())
-                    .ok_or_else(|| {
-                        (
-                            axum::http::StatusCode::BAD_REQUEST,
-                            Json(serde_json::json!({
-                                "error": "order_summary requires transaction_id",
-                            })),
-                        )
-                            .into_response()
-                    })?;
-                let register_session_id = args
-                    .get("register_session_id")
-                    .and_then(Value::as_str)
-                    .and_then(|value| Uuid::parse_str(value).ok());
-                let result = transactions::rosie_order_summary(
-                    &state,
-                    &headers,
-                    transaction_id,
-                    register_session_id,
-                )
-                .await?;
-                let display_id = result
-                    .get("transaction_display_id")
-                    .and_then(Value::as_str)
-                    .unwrap_or("transaction");
-                sources.push(RosieToolGroundingSourceOut {
-                    kind: "order".to_string(),
-                    title: format!("Order Summary — {display_id}"),
-                    excerpt: format!("Read from /api/transactions/{transaction_id}"),
-                    content: sanitize_excerpt(&result.to_string(), 1200),
-                    manual_id: None,
-                    manual_title: None,
-                    section_slug: None,
-                    section_heading: None,
-                    anchor_id: None,
-                    report_spec_id: None,
-                    report_route: None,
-                    route: Some(format!("/api/transactions/{transaction_id}")),
-                    entity_id: Some(transaction_id.to_string()),
-                });
-                tool_results.push(RosieToolResultOut {
-                    tool_name,
-                    args,
-                    result,
-                });
-            }
-            "customer_hub_snapshot" => {
-                let customer_id = args
-                    .get("customer_id")
-                    .and_then(Value::as_str)
-                    .and_then(|value| Uuid::parse_str(value).ok())
-                    .ok_or_else(|| {
-                        (
-                            axum::http::StatusCode::BAD_REQUEST,
-                            Json(serde_json::json!({
-                                "error": "customer_hub_snapshot requires customer_id",
-                            })),
-                        )
-                            .into_response()
-                    })?;
-                let result =
-                    customers::rosie_customer_hub_snapshot(&state, &headers, customer_id).await?;
-                let customer_name = format!(
-                    "{} {}",
-                    result
-                        .get("first_name")
+        for (tool_name, args) in infer_operational_tool_requests(question, &headers) {
+            match tool_name.as_str() {
+                "order_summary" => {
+                    let transaction_id = args
+                        .get("transaction_id")
                         .and_then(Value::as_str)
-                        .unwrap_or("Customer"),
-                    result
-                        .get("last_name")
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                        .ok_or_else(|| {
+                            (
+                                axum::http::StatusCode::BAD_REQUEST,
+                                Json(serde_json::json!({
+                                    "error": "order_summary requires transaction_id",
+                                })),
+                            )
+                                .into_response()
+                        })?;
+                    let register_session_id = args
+                        .get("register_session_id")
                         .and_then(Value::as_str)
-                        .unwrap_or("")
-                )
-                .trim()
-                .to_string();
-                sources.push(RosieToolGroundingSourceOut {
-                    kind: "customer".to_string(),
-                    title: format!(
-                        "Customer Hub — {}",
-                        if customer_name.is_empty() {
-                            "Customer"
-                        } else {
-                            customer_name.as_str()
-                        }
-                    ),
-                    excerpt: format!("Read from /api/customers/{customer_id}/hub"),
-                    content: sanitize_excerpt(&result.to_string(), 1200),
-                    manual_id: None,
-                    manual_title: None,
-                    section_slug: None,
-                    section_heading: None,
-                    anchor_id: None,
-                    report_spec_id: None,
-                    report_route: None,
-                    route: Some(format!("/api/customers/{customer_id}/hub")),
-                    entity_id: Some(customer_id.to_string()),
-                });
-                tool_results.push(RosieToolResultOut {
-                    tool_name,
-                    args,
-                    result,
-                });
+                        .and_then(|value| Uuid::parse_str(value).ok());
+                    let result = transactions::rosie_order_summary(
+                        &state,
+                        &headers,
+                        transaction_id,
+                        register_session_id,
+                    )
+                    .await?;
+                    let result = rosie_sanitize_tool_result_for_viewer(result, &viewer);
+                    let display_id = result
+                        .get("transaction_display_id")
+                        .and_then(Value::as_str)
+                        .unwrap_or("transaction");
+                    sources.push(RosieToolGroundingSourceOut {
+                        kind: "order".to_string(),
+                        title: format!("Order Summary — {display_id}"),
+                        excerpt: format!("Read from /api/transactions/{transaction_id}"),
+                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        manual_id: None,
+                        manual_title: None,
+                        section_slug: None,
+                        section_heading: None,
+                        anchor_id: None,
+                        report_spec_id: None,
+                        report_route: None,
+                        route: Some(format!("/api/transactions/{transaction_id}")),
+                        entity_id: Some(transaction_id.to_string()),
+                    });
+                    tool_results.push(RosieToolResultOut {
+                        tool_name,
+                        args,
+                        result,
+                    });
+                }
+                "customer_hub_snapshot" => {
+                    let customer_id = args
+                        .get("customer_id")
+                        .and_then(Value::as_str)
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                        .ok_or_else(|| {
+                            (
+                                axum::http::StatusCode::BAD_REQUEST,
+                                Json(serde_json::json!({
+                                    "error": "customer_hub_snapshot requires customer_id",
+                                })),
+                            )
+                                .into_response()
+                        })?;
+                    let result =
+                        customers::rosie_customer_hub_snapshot(&state, &headers, customer_id)
+                            .await?;
+                    let result = rosie_sanitize_tool_result_for_viewer(result, &viewer);
+                    let customer_name = format!(
+                        "{} {}",
+                        result
+                            .get("first_name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("Customer"),
+                        result
+                            .get("last_name")
+                            .and_then(Value::as_str)
+                            .unwrap_or("")
+                    )
+                    .trim()
+                    .to_string();
+                    sources.push(RosieToolGroundingSourceOut {
+                        kind: "customer".to_string(),
+                        title: format!(
+                            "Customer Hub — {}",
+                            if customer_name.is_empty() {
+                                "Customer"
+                            } else {
+                                customer_name.as_str()
+                            }
+                        ),
+                        excerpt: format!("Read from /api/customers/{customer_id}/hub"),
+                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        manual_id: None,
+                        manual_title: None,
+                        section_slug: None,
+                        section_heading: None,
+                        anchor_id: None,
+                        report_spec_id: None,
+                        report_route: None,
+                        route: Some(format!("/api/customers/{customer_id}/hub")),
+                        entity_id: Some(customer_id.to_string()),
+                    });
+                    tool_results.push(RosieToolResultOut {
+                        tool_name,
+                        args,
+                        result,
+                    });
+                }
+                "wedding_actions" => {
+                    let days = args.get("days").and_then(Value::as_i64);
+                    let result = weddings::rosie_wedding_actions(&state, &headers, days).await?;
+                    let result = rosie_sanitize_tool_result_for_viewer(result, &viewer);
+                    sources.push(RosieToolGroundingSourceOut {
+                        kind: "wedding".to_string(),
+                        title: "Wedding Actions".to_string(),
+                        excerpt: format!(
+                            "Read from /api/weddings/actions{}",
+                            days.map(|value| format!("?days={value}"))
+                                .unwrap_or_default()
+                        ),
+                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        manual_id: None,
+                        manual_title: None,
+                        section_slug: None,
+                        section_heading: None,
+                        anchor_id: None,
+                        report_spec_id: None,
+                        report_route: None,
+                        route: Some(
+                            days.map(|value| format!("/api/weddings/actions?days={value}"))
+                                .unwrap_or_else(|| "/api/weddings/actions".to_string()),
+                        ),
+                        entity_id: None,
+                    });
+                    tool_results.push(RosieToolResultOut {
+                        tool_name,
+                        args,
+                        result,
+                    });
+                }
+                "inventory_variant_intelligence" => {
+                    let variant_id = args
+                        .get("variant_id")
+                        .and_then(Value::as_str)
+                        .and_then(|value| Uuid::parse_str(value).ok())
+                        .ok_or_else(|| {
+                            (
+                                axum::http::StatusCode::BAD_REQUEST,
+                                Json(serde_json::json!({
+                                    "error": "inventory_variant_intelligence requires variant_id",
+                                })),
+                            )
+                                .into_response()
+                        })?;
+                    let result = inventory::rosie_inventory_variant_intelligence(
+                        &state, &headers, variant_id,
+                    )
+                    .await?;
+                    let result = rosie_sanitize_tool_result_for_viewer(result, &viewer);
+                    let sku = result
+                        .get("sku")
+                        .and_then(Value::as_str)
+                        .unwrap_or("variant");
+                    sources.push(RosieToolGroundingSourceOut {
+                        kind: "inventory".to_string(),
+                        title: format!("Inventory Intelligence — {sku}"),
+                        excerpt: format!("Read from /api/inventory/intelligence/{variant_id}"),
+                        content: sanitize_excerpt(&result.to_string(), 1200),
+                        manual_id: None,
+                        manual_title: None,
+                        section_slug: None,
+                        section_heading: None,
+                        anchor_id: None,
+                        report_spec_id: None,
+                        report_route: None,
+                        route: Some(format!("/api/inventory/intelligence/{variant_id}")),
+                        entity_id: Some(variant_id.to_string()),
+                    });
+                    tool_results.push(RosieToolResultOut {
+                        tool_name,
+                        args,
+                        result,
+                    });
+                }
+                _ => {}
             }
-            "wedding_actions" => {
-                let days = args.get("days").and_then(Value::as_i64);
-                let result = weddings::rosie_wedding_actions(&state, &headers, days).await?;
-                sources.push(RosieToolGroundingSourceOut {
-                    kind: "wedding".to_string(),
-                    title: "Wedding Actions".to_string(),
-                    excerpt: format!(
-                        "Read from /api/weddings/actions{}",
-                        days.map(|value| format!("?days={value}"))
-                            .unwrap_or_default()
-                    ),
-                    content: sanitize_excerpt(&result.to_string(), 1200),
-                    manual_id: None,
-                    manual_title: None,
-                    section_slug: None,
-                    section_heading: None,
-                    anchor_id: None,
-                    report_spec_id: None,
-                    report_route: None,
-                    route: Some(
-                        days.map(|value| format!("/api/weddings/actions?days={value}"))
-                            .unwrap_or_else(|| "/api/weddings/actions".to_string()),
-                    ),
-                    entity_id: None,
-                });
-                tool_results.push(RosieToolResultOut {
-                    tool_name,
-                    args,
-                    result,
-                });
-            }
-            "inventory_variant_intelligence" => {
-                let variant_id = args
-                    .get("variant_id")
-                    .and_then(Value::as_str)
-                    .and_then(|value| Uuid::parse_str(value).ok())
-                    .ok_or_else(|| {
-                        (
-                            axum::http::StatusCode::BAD_REQUEST,
-                            Json(serde_json::json!({
-                                "error": "inventory_variant_intelligence requires variant_id",
-                            })),
-                        )
-                            .into_response()
-                    })?;
-                let result =
-                    inventory::rosie_inventory_variant_intelligence(&state, &headers, variant_id)
-                        .await?;
-                let sku = result
-                    .get("sku")
-                    .and_then(Value::as_str)
-                    .unwrap_or("variant");
-                sources.push(RosieToolGroundingSourceOut {
-                    kind: "inventory".to_string(),
-                    title: format!("Inventory Intelligence — {sku}"),
-                    excerpt: format!("Read from /api/inventory/intelligence/{variant_id}"),
-                    content: sanitize_excerpt(&result.to_string(), 1200),
-                    manual_id: None,
-                    manual_title: None,
-                    section_slug: None,
-                    section_heading: None,
-                    anchor_id: None,
-                    report_spec_id: None,
-                    report_route: None,
-                    route: Some(format!("/api/inventory/intelligence/{variant_id}")),
-                    entity_id: Some(variant_id.to_string()),
-                });
-                tool_results.push(RosieToolResultOut {
-                    tool_name,
-                    args,
-                    result,
-                });
-            }
-            _ => {}
         }
     }
 
