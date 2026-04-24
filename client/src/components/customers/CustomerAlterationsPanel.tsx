@@ -9,6 +9,7 @@ import {
   Calendar as CalendarIcon,
   AlertTriangle,
   ClipboardList,
+  Search,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 
@@ -98,6 +99,29 @@ const formatCharge = (amount: string | number | null | undefined) => {
   }).format(parsed)}`;
 };
 
+const customerName = (row: AlterationRow) =>
+  `${row.customer_first_name ?? ""} ${row.customer_last_name ?? ""}`.trim() ||
+  "Unassigned customer";
+
+const rowMatchesSearch = (row: AlterationRow, search: string) => {
+  const needle = search.trim().toLowerCase();
+  if (!needle) return true;
+  return [
+    row.id,
+    customerName(row),
+    row.customer_code,
+    row.item_description,
+    row.work_requested,
+    row.notes,
+    row.source_sku,
+    row.linked_transaction_display_id,
+    row.source_transaction_id,
+    alterationSourceLabel(row),
+  ]
+    .filter(Boolean)
+    .some((value) => String(value).toLowerCase().includes(needle));
+};
+
 export default function CustomerAlterationsPanel({
   apiAuth,
   highlightAlterationId,
@@ -115,6 +139,7 @@ export default function CustomerAlterationsPanel({
   const [filter, setFilter] = useState<string>("all");
   const [dueFilter, setDueFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -199,8 +224,51 @@ export default function CustomerAlterationsPanel({
 
   const visibleRows = rows.filter((row) => {
     const statusMatches = filter === "all" || row.status === filter;
-    return statusMatches && matchesSourceFilter(row) && matchesDueFilter(row);
+    return statusMatches && matchesSourceFilter(row) && matchesDueFilter(row) && rowMatchesSearch(row, search);
   });
+
+  const summaryCards = [
+    {
+      id: "overdue",
+      label: "Overdue",
+      value: rows.filter((row) => isOverdue(row)).length,
+      tone: "border-red-500/20 bg-red-500/10 text-red-700",
+      onClick: () => {
+        setDueFilter("overdue");
+        setFilter("all");
+      },
+    },
+    {
+      id: "due_today",
+      label: "Due Today",
+      value: rows.filter((row) => isDueToday(row)).length,
+      tone: "border-amber-500/20 bg-amber-500/10 text-amber-700",
+      onClick: () => {
+        setDueFilter("due_today");
+        setFilter("all");
+      },
+    },
+    {
+      id: "ready",
+      label: "Ready for Pickup",
+      value: rows.filter((row) => row.status === "ready").length,
+      tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700",
+      onClick: () => {
+        setDueFilter("ready");
+        setFilter("all");
+      },
+    },
+    {
+      id: "open",
+      label: "Total Open",
+      value: rows.filter((row) => row.status !== "picked_up").length,
+      tone: "border-app-accent/20 bg-app-accent/10 text-app-accent",
+      onClick: () => {
+        setDueFilter("all");
+        setFilter("all");
+      },
+    },
+  ];
 
   const workbenchSections = [
     {
@@ -260,19 +328,19 @@ export default function CustomerAlterationsPanel({
       key={r.id}
       ref={(el) => { rowRefs.current[r.id] = el; }}
       data-testid="alteration-workbench-card"
-      className={`group relative flex flex-col gap-4 rounded-3xl border border-app-border bg-app-surface p-5 transition-all hover:shadow-2xl hover:shadow-black/5 hover:-translate-y-0.5 ${
+      className={`group relative flex min-w-0 flex-col gap-3 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-4 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/5 ${
         highlightAlterationId === r.id ? "ring-2 ring-app-accent shadow-2xl" : ""
       }`}
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-4">
-           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-app-surface-2 border border-app-border shadow-inner font-black text-app-text text-sm">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
+           <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-app-border bg-app-surface-2 text-sm font-black text-app-text shadow-inner">
               {r.customer_first_name?.[0]}{r.customer_last_name?.[0]}
            </div>
-           <div className="min-w-0">
-              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-50 mb-0.5">#{r.customer_code}</p>
-              <h4 className="font-black text-app-text text-lg leading-none truncate">
-                {r.customer_first_name} {r.customer_last_name}
+           <div className="min-w-0 flex-1">
+              <p className="mb-0.5 truncate font-mono text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60">#{r.customer_code ?? "NO-CODE"}</p>
+              <h4 className="line-clamp-2 break-words text-base font-black leading-tight text-app-text">
+                {customerName(r)}
               </h4>
               <div className="flex flex-wrap items-center gap-2 mt-1.5">
                  <div className={`px-2 py-0.5 rounded-lg border text-[9px] font-black uppercase tracking-widest ${getStatusColor(r.status)}`}>
@@ -296,57 +364,57 @@ export default function CustomerAlterationsPanel({
            </div>
         </div>
 
-        <div className="flex flex-col items-end gap-1 font-mono text-[10px] text-app-text-muted opacity-40">
+        <div className="hidden shrink-0 flex-col items-end gap-1 font-mono text-[10px] text-app-text-muted opacity-50 sm:flex">
            <span>ALT-{r.id.slice(0, 8).toUpperCase()}</span>
         </div>
       </div>
 
       {r.notes && (
-        <div className="rounded-xl bg-app-surface-2/60 border border-app-border/40 p-3 italic text-xs text-app-text/80 shadow-inner">
+        <div className="break-words rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs italic text-app-text/80 shadow-inner">
            {r.notes}
         </div>
       )}
 
-      <div className="grid gap-2 rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs shadow-inner sm:grid-cols-2">
-        <div>
+      <div className="grid gap-3 rounded-xl border border-app-border/40 bg-app-surface-2/60 p-3 text-xs shadow-inner sm:grid-cols-2">
+        <div className="min-w-0">
           <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
             Garment
           </p>
-          <p className="mt-1 font-bold text-app-text">
+          <p className="mt-1 break-words font-bold text-app-text">
             {r.item_description || "Garment not specified"}
           </p>
           {r.source_sku ? (
-            <p className="mt-0.5 font-mono text-[10px] text-app-text-muted">
+            <p className="mt-0.5 truncate font-mono text-[10px] text-app-text-muted">
               SKU {r.source_sku}
             </p>
           ) : null}
         </div>
-        <div>
+        <div className="min-w-0">
           <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
             Work Requested
           </p>
-          <p className="mt-1 font-bold text-app-text">
+          <p className="mt-1 break-words font-bold text-app-text">
             {r.work_requested || "Work details not specified"}
           </p>
         </div>
         {sourceContextLabel(r) ? (
-          <div className="sm:col-span-2 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+          <div className="break-words text-[10px] font-bold uppercase tracking-widest text-app-text-muted sm:col-span-2">
             {sourceContextLabel(r)}
           </div>
         ) : null}
       </div>
 
-      <div className="flex items-center justify-between border-t border-app-border/40 pt-4">
-         <p className="text-[9px] font-bold text-app-text-muted uppercase tracking-tighter">Created {new Date(r.created_at).toLocaleString()}</p>
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-app-border/40 pt-3">
+         <p className="text-[9px] font-bold uppercase tracking-tighter text-app-text-muted">Created {new Date(r.created_at).toLocaleString()}</p>
 
-         <div className="flex items-center gap-2">
+         <div className="flex flex-wrap items-center justify-end gap-2">
             {["in_work", "ready", "picked_up"].map((s) => (
               <button
                 key={s}
                 type="button"
                 disabled={busy || r.status === s}
                 onClick={() => void setStatus(r.id, s)}
-                className={`px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-tight transition-all border ${
+                className={`rounded-xl border px-3 py-1.5 text-[9px] font-black uppercase tracking-tight transition-all ${
                   r.status === s
                     ? "bg-app-accent text-white border-transparent"
                     : "bg-app-surface-2 border-app-border text-app-text hover:bg-app-accent hover:text-white"
@@ -361,9 +429,9 @@ export default function CustomerAlterationsPanel({
   );
 
   return (
-    <div className="ui-page flex min-h-0 flex-1 flex-col gap-6 p-6 overflow-hidden">
-      <div className="flex items-center justify-between">
-        <div>
+    <div className="ui-page flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
+      <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(640px,1.6fr)]">
+        <div className="min-w-0">
           <div className="flex items-center gap-2 mb-1">
             <Scissors size={14} className="text-app-accent opacity-60" />
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
@@ -376,8 +444,42 @@ export default function CustomerAlterationsPanel({
           </p>
         </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="flex gap-2 bg-app-surface-2 p-1 rounded-2xl border border-app-border shadow-inner">
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="grid gap-2 sm:grid-cols-4">
+            {summaryCards.map((card) => (
+              <button
+                key={card.id}
+                type="button"
+                data-testid={`alterations-summary-${card.id}`}
+                onClick={card.onClick}
+                className={`min-w-0 rounded-2xl border px-3 py-2.5 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-all hover:-translate-y-0.5 hover:shadow-lg ${card.tone}`}
+              >
+                <p className="truncate text-[9px] font-black uppercase tracking-widest opacity-80">
+                  {card.label}
+                </p>
+                <p className="mt-0.5 text-xl font-black tabular-nums">
+                  {card.value}
+                </p>
+              </button>
+            ))}
+          </div>
+
+          <div className="flex flex-wrap gap-2 rounded-2xl border border-app-border bg-app-surface-2 p-2 shadow-inner">
+            <div className="relative min-w-[260px] flex-1">
+              <Search
+                size={16}
+                className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-disabled"
+              />
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                data-testid="alterations-search"
+                placeholder="SEARCH ALTERATIONS"
+                className="ui-input h-10 w-full rounded-xl pl-10 text-[10px] font-black uppercase tracking-widest"
+                aria-label="Search alterations"
+              />
+            </div>
+            <div className="flex flex-wrap gap-2">
              {DUE_FILTERS.map(f => (
                <button
                  key={f.value}
@@ -393,8 +495,9 @@ export default function CustomerAlterationsPanel({
                  {f.label}
                </button>
              ))}
+            </div>
           </div>
-          <div className="flex justify-end gap-2">
+          <div className="flex flex-wrap justify-end gap-2">
             <select
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
@@ -426,9 +529,8 @@ export default function CustomerAlterationsPanel({
       </div>
 
       <div className="min-h-0 flex-1">
-        {/* List View */}
-        <section className="flex h-full min-h-0 flex-col bg-app-surface-2/40 rounded-[40px] border border-app-border/40 p-6 shadow-inner ring-1 ring-black/[0.02]">
-          <div className="flex items-center justify-between mb-4 px-2">
+        <section className="flex h-full min-h-0 flex-col rounded-3xl border border-app-border/40 bg-app-surface-2/40 p-4 shadow-inner ring-1 ring-black/[0.02]">
+          <div className="mb-3 flex items-center justify-between px-2">
              <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
                Garment Workbench ({visibleRows.length})
              </h3>
@@ -437,7 +539,7 @@ export default function CustomerAlterationsPanel({
              </p>
           </div>
           
-          <div className="flex-1 overflow-y-auto pr-2 -mr-2 space-y-4">
+          <div className="-mr-2 flex-1 overflow-y-auto pr-2">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24 gap-4 opacity-40">
                 <Loader2 size={32} className="animate-spin text-app-accent" />
@@ -449,24 +551,25 @@ export default function CustomerAlterationsPanel({
                 <p className="text-sm font-black uppercase tracking-widest text-center">No garment work matched these filters.</p>
               </div>
             ) : (
-              workbenchSections.map((section) => {
+              <div className="grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+                {workbenchSections.map((section) => {
                 const Icon = section.icon;
                 return (
                   <section
                     key={section.id}
                     data-testid={`alteration-workbench-section-${section.id}`}
-                    className="rounded-3xl border border-app-border/60 bg-app-surface/70 p-4 shadow-sm"
+                    className="flex h-[min(42vh,520px)] min-h-[240px] min-w-0 flex-col rounded-2xl border border-app-border/60 bg-app-surface/80 p-4 shadow-sm"
                   >
-                    <div className="mb-3 flex items-center justify-between gap-3">
-                      <div className="flex items-center gap-3">
-                        <div className={`flex h-9 w-9 items-center justify-center rounded-2xl border ${section.tone}`}>
+                    <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl border ${section.tone}`}>
                           <Icon size={17} />
                         </div>
-                        <div>
-                          <h4 className="text-sm font-black uppercase tracking-widest text-app-text">
+                        <div className="min-w-0">
+                          <h4 className="truncate text-sm font-black uppercase tracking-widest text-app-text">
                             {section.title}
                           </h4>
-                          <p className="text-[10px] font-semibold text-app-text-muted">
+                          <p className="line-clamp-2 text-[10px] font-semibold leading-snug text-app-text-muted">
                             {section.subtitle}
                           </p>
                         </div>
@@ -476,7 +579,7 @@ export default function CustomerAlterationsPanel({
                       </span>
                     </div>
                     {section.rows.length > 0 ? (
-                      <div className="space-y-3">
+                      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
                         {section.rows.map(renderAlterationCard)}
                       </div>
                     ) : (
@@ -486,7 +589,8 @@ export default function CustomerAlterationsPanel({
                     )}
                   </section>
                 );
-              })
+                })}
+              </div>
             )}
           </div>
         </section>

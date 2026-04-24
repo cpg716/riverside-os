@@ -2,7 +2,7 @@
 id: alterations-workspace
 title: "Alterations Workspace (alterations)"
 order: 1000
-summary: "Garment-based alterations workbench for source labels, work requested, optional charge notes, due-date attention, and status movement after Register intake."
+summary: "Garment-based alterations workbench with overdue, due-today, ready pickup, total-open cards, search, source labels, and status movement after Register intake."
 source: client/src/components/alterations/AlterationsWorkspace.tsx
 last_scanned: 2026-04-23
 tags: alterations-workspace, component, auto-scaffold
@@ -19,13 +19,13 @@ _Linked component: `client/src/components/alterations/AlterationsWorkspace.tsx`.
 
 The Alterations workspace is a garment-based tailoring workbench shared by Back Office and POS. It tracks customer, item being altered, source label, work requested, optional charge note, target due date, notes, and status after alteration intake is created from the Register.
 
-It groups work into **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work**. Existing order details appear only as source context when the garment came from a transaction line.
+It starts with summary cards for **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**, then lays the workbench out as section cards for **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work**. Existing order details appear only as source context when the garment came from a transaction line.
 
 It does not create new alteration jobs, create Register cart lines, collect payment, print tickets/barcodes, or act as an orders dashboard.
 
 ## When to use it
 
-Use it to review active garment work by due/status/source, move work from **Intake** to **In Work**, mark work **Ready**, or close it as **Picked Up**.
+Use it to review active garment work by due/status/source, search for a customer or garment, move work from **Intake** to **In Work**, mark work **Ready**, or close it as **Picked Up**.
 
 ## Before you start
 
@@ -36,7 +36,7 @@ Use it to review active garment work by due/status/source, move work from **Inta
 ## Steps
 
 1. Open **Alterations**.
-2. Use due filters, source filters, or status filters to narrow the garment workbench.
+2. Use the summary cards, search, due filters, source filters, or status filters to narrow the garment workbench.
 3. For an existing job, read the customer, garment, source label, work requested, due date, and charge note.
 4. Change status only when the physical work actually moved.
 

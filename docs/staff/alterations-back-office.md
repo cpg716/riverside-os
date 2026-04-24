@@ -12,14 +12,14 @@
 
 The **Work queue** is the **system of record** for garment-based alteration jobs: intake → in progress → ready → picked up. POS **Alterations** uses the same queue as Back Office.
 
-This area tracks tailoring work orders attached to garments. The workbench groups attention by **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work** so staff can work the garment, not hunt by order. Alteration intake starts from the Register, where staff select the customer and source garment before checkout creates the work order. The queue still does **not** create Register charge lines, collect alteration payment, or print alteration tickets/barcodes.
+This area tracks tailoring work orders attached to garments. The workbench starts with cards for **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**, then groups attention by **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work** so staff can work the garment, not hunt by order. Alteration intake starts from the Register, where staff select the customer and source garment before checkout creates the work order. The queue still does **not** create Register charge lines, collect alteration payment, or print alteration tickets/barcodes.
 
 ## Work queue
 
 ### Work the queue
 
 1. **Alterations** → **Work queue** → review the workbench section that needs attention.
-2. Use the due, source, and status filters to isolate the garment work.
+2. Use the summary cards, search, due, source, and status filters to isolate the garment work.
 3. Read the customer, garment, work requested, charge note, due date, and source context.
 4. Move the status only when the physical garment actually moved.
 5. Start new alteration intake from the Register.

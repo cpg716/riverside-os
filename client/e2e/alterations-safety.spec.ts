@@ -346,7 +346,18 @@ test.describe("Alterations safety", () => {
     });
 
     await signInToBackOffice(page, { persistSession: true });
+    await openBackofficeSidebarTab(page, "home");
+    await expect(page.getByTestId("operations-alterations-section")).toContainText("Overdue");
+    await expect(page.getByTestId("operations-alterations-section")).toContainText(
+      "Charcoal tuxedo pants",
+    );
+
     await openBackofficeSidebarTab(page, "alterations");
+
+    await expect(page.getByTestId("alterations-summary-overdue")).toContainText("1");
+    await expect(page.getByTestId("alterations-summary-due_today")).toContainText("1");
+    await expect(page.getByTestId("alterations-summary-ready")).toContainText("1");
+    await expect(page.getByTestId("alterations-summary-open")).toContainText("5");
 
     await expect(page.getByTestId("alteration-workbench-section-overdue")).toContainText(
       "Charcoal tuxedo pants",
@@ -392,6 +403,13 @@ test.describe("Alterations safety", () => {
     await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
     await expect(page.getByTestId("alteration-workbench-section-due_today")).toContainText(
       "Current sale suit jacket",
+    );
+
+    await page.getByTestId("alterations-source-filter").selectOption("all");
+    await page.getByTestId("alterations-search").fill("vest");
+    await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
+    await expect(page.getByTestId("alteration-workbench-section-in_work")).toContainText(
+      "Open order vest",
     );
   });
 });

@@ -2,7 +2,7 @@
 id: customers-customer-alterations-panel
 title: "Customer Alterations Panel (customers)"
 order: 1002
-summary: "Shared garment-based alterations workbench for source labels, work requested, optional charge notes, due dates, notes, and status movement after Register intake."
+summary: "Shared garment-based alterations workbench with summary cards, search, source labels, optional charge notes, due dates, and status movement after Register intake."
 source: client/src/components/customers/CustomerAlterationsPanel.tsx
 last_scanned: 2026-04-23
 tags: customers-customer-alterations-panel, component, auto-scaffold
@@ -19,11 +19,13 @@ _Linked component: `client/src/components/customers/CustomerAlterationsPanel.tsx
 
 This panel powers the shared Alterations queue in Back Office and POS. It is a garment-based tailoring workbench for customer, item/source details, work requested, optional charge note, due date, notes, and status.
 
+The top cards show **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**. Search can narrow the workbench by customer, garment, work requested, SKU, alteration ID, or source transaction.
+
 It does not create new alteration jobs, add alteration charges to the Register cart, print tickets/barcodes, or act as an orders dashboard. New alteration intake starts from the Register.
 
 ## When to use it
 
-Use it when staff need to review garment work by due/status/source or move a job through **Intake**, **In Work**, **Ready**, and **Picked Up**.
+Use it when staff need to review garment work by due/status/source, search for a garment, or move a job through **Intake**, **In Work**, **Ready**, and **Picked Up**.
 
 ## Before you start
 
@@ -33,7 +35,7 @@ Use it when staff need to review garment work by due/status/source or move a job
 
 ## Steps
 
-1. Select the relevant due, source, or status filter.
+1. Select a summary card or use search, due, source, or status filters.
 2. Review the customer, garment, source label, work requested, due date, and optional charge note.
 3. To update a job, press the matching status button.
 4. Confirm the success toast and refreshed queue.

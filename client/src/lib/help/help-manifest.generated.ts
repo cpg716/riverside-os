@@ -111,14 +111,14 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "alterations-workspace",
     title: "Alterations Workspace (alterations)",
-    summary: "Garment-based alterations workbench for source labels, work requested, optional charge notes, due-date attention, and status movement after Register intake.",
+    summary: "Garment-based alterations workbench with overdue, due-today, ready pickup, total-open cards, search, source labels, and status movement after Register intake.",
     markdown: manual_7_raw,
     tags: ["alterations-workspace","component","auto-scaffold"],
   },
   {
     id: "customers-customer-alterations-panel",
     title: "Customer Alterations Panel (customers)",
-    summary: "Shared garment-based alterations workbench for source labels, work requested, optional charge notes, due dates, notes, and status movement after Register intake.",
+    summary: "Shared garment-based alterations workbench with summary cards, search, source labels, optional charge notes, due dates, and status movement after Register intake.",
     markdown: manual_8_raw,
     tags: ["customers-customer-alterations-panel","component","auto-scaffold"],
   },
@@ -293,7 +293,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "operations-operational-home",
     title: "Operations Home",
-    summary: "Use Operations for the store dashboard, daily sales, pickup queue, Podium inbox, and review tracking.",
+    summary: "Use Operations for the store dashboard, alterations snapshot, daily sales, pickup queue, Podium inbox, and review tracking.",
     markdown: manual_33_raw,
     tags: ["operations","dashboard","daily-sales","pickup-queue","podium-inbox","reviews"],
   },

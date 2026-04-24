@@ -4,13 +4,13 @@
 
 **Where in ROS:** Back Office → sidebar **Operations**. Subsections: **Dashboard**, **Daily Sales**, **Pickup Queue**, **Podium Inbox**, **Reviews**.
 
-**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **orders.view** for Pickup Queue. Weather often needs no special permission.
+**Related permissions:** **weddings.view** for wedding/compass blocks and the activity feed. **notifications.view** for bell. **tasks.complete** for task widgets. **customers.hub_view** for Podium Inbox. **reviews.view** for Reviews. **register.reports** for Daily Sales. **orders.view** for Pickup Queue. **alterations.manage** for the alterations snapshot. Weather often needs no special permission.
 
 ---
 
 ## How to use this area
 
-**Operations Hub** is the **start-of-day** screen when you are in Back Office (not POS). **Dashboard** pulls together **what needs attention** (Action Board, floor team, weather) plus **sales performance trends** and a **recent activity feed**.
+**Operations Hub** is the **start-of-day** screen when you are in Back Office (not POS). **Dashboard** pulls together **what needs attention** (Action Board, alterations, floor team, weather) plus **sales performance trends** and a **recent activity feed**.
 
 ## Dashboard
 
@@ -18,6 +18,7 @@
 2. Scan blocks **top to bottom**:
    - **Action Board** — ranked from weddings, tasks, and inbox (when your role allows).
    - **Performance Metrics** — real-time sales revenue visualized with trend sparklines.
+   - **Alterations** — overdue, due-today, ready pickup, and total open garment work from Register intake.
    - **Team on Floor** — from **Staff → Schedule** when configured.
    - **Task List** — opens checklist items for you (**tasks.complete**).
    - **Weather Hub** — customer and staffing context with condition signals.
@@ -25,6 +26,8 @@
 3. Use shortcuts to **POS**, **Orders**, or **Weddings** if tiles exist.
 
 **If a block is missing:** assume **permission** or **not configured** before assuming a bug.
+
+Use the full **Alterations Hub** when you need search, source filters, or status movement. The Operations block is the fast triage snapshot.
 
 ## Daily Sales
 

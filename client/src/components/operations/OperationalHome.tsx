@@ -9,6 +9,7 @@ import {
   Zap,
   ShieldCheck,
   Ruler,
+  Scissors,
   ShoppingBag,
   Sun,
   Cloud,
@@ -97,6 +98,18 @@ interface FulfillmentItem {
   balance_due: number;
 }
 
+interface AlterationOpsRow {
+  id: string;
+  customer_first_name: string | null;
+  customer_last_name: string | null;
+  status: string;
+  due_at: string | null;
+  item_description: string | null;
+  work_requested: string | null;
+  source_type: string | null;
+  created_at: string;
+}
+
 interface OperationalHomeProps {
   onOpenWeddingParty: (partyId: string) => void;
   onOpenTransactionInBackoffice: (orderId: string) => void;
@@ -156,6 +169,41 @@ function urgencyLabel(urgency: FulfillmentUrgency): string {
 
 function formatWholeNumber(value: number): string {
   return value.toLocaleString();
+}
+
+const startOfLocalDay = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate());
+
+function alterationCustomerName(row: AlterationOpsRow): string {
+  return `${row.customer_first_name ?? ""} ${row.customer_last_name ?? ""}`.trim() || "Unassigned customer";
+}
+
+function alterationSourceLabel(sourceType: string | null): string {
+  switch (sourceType) {
+    case "current_cart_item":
+      return "Current sale";
+    case "past_transaction_line":
+      return "Past purchase";
+    case "catalog_item":
+      return "Stock/catalog";
+    case "custom_item":
+      return "Custom/manual";
+    default:
+      return "Garment";
+  }
+}
+
+function isOpenAlteration(row: AlterationOpsRow): boolean {
+  return row.status !== "picked_up";
+}
+
+function isAlterationDueToday(row: AlterationOpsRow, now = new Date()): boolean {
+  if (!row.due_at || row.status === "ready" || row.status === "picked_up") return false;
+  return startOfLocalDay(new Date(row.due_at)).getTime() === startOfLocalDay(now).getTime();
+}
+
+function isAlterationOverdue(row: AlterationOpsRow, now = new Date()): boolean {
+  if (!row.due_at || row.status === "ready" || row.status === "picked_up") return false;
+  return startOfLocalDay(new Date(row.due_at)).getTime() < startOfLocalDay(now).getTime();
 }
 
 function percentDeltaLabel(current: number, previous: number): string | null {
@@ -437,6 +485,7 @@ export default function OperationalHome({
   const [salesHistory, setSalesHistory] = useState<{ value: number }[]>([]);
   const [todaySummary, setTodaySummary] = useState<RegisterDaySummary | null>(null);
   const [fulfillmentQueue, setFulfillmentQueue] = useState<FulfillmentItem[]>([]);
+  const [alterationsQueue, setAlterationsQueue] = useState<AlterationOpsRow[]>([]);
   const loadSalesHistory = useCallback(async () => {
     if (!permissionsLoaded || !hasPermission("insights.view")) return;
     try {
@@ -507,6 +556,27 @@ export default function OperationalHome({
   useEffect(() => {
     void loadFulfillmentQueue();
   }, [loadFulfillmentQueue, refreshSignal]);
+
+  const loadAlterationsQueue = useCallback(async () => {
+    if (!permissionsLoaded || !hasPermission("alterations.manage")) {
+      setAlterationsQueue([]);
+      return;
+    }
+    try {
+      const res = await fetch(`${baseUrl}/api/alterations`, {
+        headers: taskAuth(),
+      });
+      if (res.ok) {
+        setAlterationsQueue((await res.json()) as AlterationOpsRow[]);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [permissionsLoaded, hasPermission, taskAuth]);
+
+  useEffect(() => {
+    void loadAlterationsQueue();
+  }, [loadAlterationsQueue, refreshSignal]);
 
   const [notifPreview, setNotifPreview] = useState<NotificationRow[]>([]);
   const loadNotifPreview = useCallback(async () => {
@@ -637,6 +707,37 @@ export default function OperationalHome({
     return stats;
   }, [fulfillmentQueue]);
 
+  const alterationStats = useMemo(() => {
+    const stats = {
+      totalOpen: 0,
+      overdue: 0,
+      dueToday: 0,
+      ready: 0,
+    };
+    for (const item of alterationsQueue) {
+      if (isOpenAlteration(item)) stats.totalOpen += 1;
+      if (isAlterationOverdue(item)) stats.overdue += 1;
+      if (isAlterationDueToday(item)) stats.dueToday += 1;
+      if (item.status === "ready") stats.ready += 1;
+    }
+    return stats;
+  }, [alterationsQueue]);
+
+  const alterationAttentionRows = useMemo(
+    () =>
+      alterationsQueue
+        .filter((row) => isAlterationOverdue(row) || isAlterationDueToday(row) || row.status === "ready")
+        .sort((a, b) => {
+          const rank = (row: AlterationOpsRow) =>
+            isAlterationOverdue(row) ? 0 : isAlterationDueToday(row) ? 1 : row.status === "ready" ? 2 : 3;
+          const rankDelta = rank(a) - rank(b);
+          if (rankDelta !== 0) return rankDelta;
+          return new Date(a.due_at ?? a.created_at).getTime() - new Date(b.due_at ?? b.created_at).getTime();
+        })
+        .slice(0, 6),
+    [alterationsQueue],
+  );
+
   const topIssues = useMemo(() => {
     const items: {
       id: string;
@@ -658,6 +759,21 @@ export default function OperationalHome({
         id: "rush-orders",
         label: "Rush follow-up",
         detail: `${fulfillmentStats.rush} rush order${fulfillmentStats.rush === 1 ? "" : "s"} need quick attention.`,
+        tone: "warn",
+      });
+    }
+    if (alterationStats.overdue > 0) {
+      items.push({
+        id: "overdue-alterations",
+        label: "Alterations overdue",
+        detail: `${alterationStats.overdue} garment${alterationStats.overdue === 1 ? "" : "s"} are past the promised due date.`,
+        tone: "danger",
+      });
+    } else if (alterationStats.dueToday > 0) {
+      items.push({
+        id: "alterations-due-today",
+        label: "Alterations due today",
+        detail: `${alterationStats.dueToday} garment${alterationStats.dueToday === 1 ? "" : "s"} need tailoring follow-up today.`,
         tone: "warn",
       });
     }
@@ -689,6 +805,8 @@ export default function OperationalHome({
     return items.slice(0, 5);
   }, [
     activeNotifications.length,
+    alterationStats.dueToday,
+    alterationStats.overdue,
     fulfillmentStats.blocked,
     fulfillmentStats.rush,
     lowStockNotifications,
@@ -951,7 +1069,7 @@ export default function OperationalHome({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
          <DashboardStatsCard
            title="Today's Sales"
            value={todaySummary ? money(todaySummary.net_sales) : "$0.00"}
@@ -974,6 +1092,17 @@ export default function OperationalHome({
              label: "ready for pickup",
            }}
            color="purple"
+         />
+         <DashboardStatsCard
+           title="Alterations"
+           value={alterationStats.totalOpen}
+           icon={Scissors}
+           trend={{
+             value: alterationStats.ready,
+             isUp: true,
+             label: "ready for pickup",
+           }}
+           color="blue"
          />
          <DashboardStatsCard
            title="Low Stock Alerts"
@@ -1124,6 +1253,75 @@ export default function OperationalHome({
               </div>
             ))}
           </div>
+        </DashboardGridCard>
+      </div>
+
+      <div data-testid="operations-alterations-section">
+        <DashboardGridCard
+          title="Alterations"
+          subtitle="Garment work that needs tailoring attention or pickup movement"
+          icon={Scissors}
+        >
+          <div className="grid gap-3 md:grid-cols-4">
+            <SummaryPill label="Overdue" value={alterationStats.overdue} tone={alterationStats.overdue > 0 ? "danger" : "default"} />
+            <SummaryPill label="Due today" value={alterationStats.dueToday} tone={alterationStats.dueToday > 0 ? "warn" : "default"} />
+            <SummaryPill label="Ready pickup" value={alterationStats.ready} tone={alterationStats.ready > 0 ? "good" : "default"} />
+            <SummaryPill label="Total open" value={alterationStats.totalOpen} />
+          </div>
+          {alterationAttentionRows.length === 0 ? (
+            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-3 px-4 py-5 text-sm font-semibold text-app-text-muted">
+              No due, overdue, or ready alteration work is active right now.
+            </div>
+          ) : (
+            <div className="mt-4 grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
+              {alterationAttentionRows.map((row) => {
+                const isOverdue = isAlterationOverdue(row);
+                const isDueToday = isAlterationDueToday(row);
+                const statusLabel = isOverdue
+                  ? "Overdue"
+                  : isDueToday
+                    ? "Due today"
+                    : row.status === "ready"
+                      ? "Ready"
+                      : row.status.replace(/_/g, " ");
+                return (
+                  <div
+                    key={row.id}
+                    className="rounded-2xl border border-app-border bg-app-surface-3 px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)]"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-black text-app-text">
+                          {alterationCustomerName(row)}
+                        </p>
+                        <p className="mt-1 truncate text-xs font-semibold text-app-text-muted">
+                          {row.item_description || "Garment not specified"}
+                        </p>
+                      </div>
+                      <span
+                        className={`shrink-0 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${
+                          isOverdue
+                            ? "border-app-danger/20 bg-app-danger/10 text-app-danger"
+                            : isDueToday
+                              ? "border-app-warning/20 bg-app-warning/10 text-app-warning"
+                              : "border-app-success/20 bg-app-success/10 text-app-success"
+                        }`}
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                      {row.work_requested || "Work details not specified"}
+                    </p>
+                    <div className="mt-3 flex items-center justify-between gap-3 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      <span>{alterationSourceLabel(row.source_type)}</span>
+                      <span>{row.due_at ? new Date(row.due_at).toLocaleDateString() : "No due date"}</span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </DashboardGridCard>
       </div>
 
