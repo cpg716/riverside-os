@@ -2150,8 +2150,16 @@ export function AddCustomerDrawer({
         isOpen={isOpen}
         onClose={onClose}
         title="Add Customer"
-        subtitle="Create a clean customer profile with duplicate review before save."
+        subtitle={
+          <span className="flex flex-wrap items-center gap-2">
+            <span>Create a clean customer profile.</span>
+            <span className="rounded-full border border-app-warning/35 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
+              Duplicate review before save
+            </span>
+          </span>
+        }
         panelMaxClassName="max-w-5xl"
+        titleClassName="uppercase italic"
         footer={
           <div className="flex gap-3">
             <button
@@ -2183,24 +2191,29 @@ export function AddCustomerDrawer({
             </p>
           ) : null}
 
-          <div className="overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-sm">
-            <div className="border-b border-app-border bg-app-surface-2 px-4 py-3">
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                Customer intake
-              </p>
-              <p className="mt-1 text-sm font-semibold text-app-text">
-                Same data capture, tuned for fast review and cleaner contact
-                quality.
-              </p>
+          <div className="overflow-hidden rounded-xl border border-app-border bg-app-text text-app-surface shadow-[0_18px_45px_-30px_rgba(0,0,0,0.65)]">
+            <div className="flex flex-col gap-3 border-b border-white/10 px-4 py-4 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.24em] text-app-surface/65">
+                  Customer Add Hub
+                </p>
+                <p className="mt-1 text-lg font-black uppercase italic tracking-tight text-white">
+                  Capture once, review matches, keep contact data current.
+                </p>
+              </div>
+              <span className="inline-flex w-fit items-center gap-2 rounded-full border border-app-accent/35 bg-app-accent/20 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-white">
+                <ShieldCheck size={13} />
+                Guided intake
+              </span>
             </div>
-            <div className="grid grid-cols-1 divide-y divide-app-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            <div className="grid grid-cols-1 divide-y divide-white/10 sm:grid-cols-3 sm:divide-x sm:divide-y-0">
               <div className="flex items-center gap-3 px-4 py-3">
                 <UserPlus size={18} className="text-app-accent" />
                 <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Identity
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-surface/60">
+                    1. Identity
                   </p>
-                  <p className="text-sm font-black text-app-text">
+                  <p className="text-sm font-black text-white">
                     Name and profile
                   </p>
                 </div>
@@ -2208,10 +2221,10 @@ export function AddCustomerDrawer({
               <div className="flex items-center gap-3 px-4 py-3">
                 <Phone size={18} className="text-app-success" />
                 <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Contact
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-surface/60">
+                    2. Contact
                   </p>
-                  <p className="text-sm font-black text-app-text">
+                  <p className="text-sm font-black text-white">
                     Phone, email, SMS
                   </p>
                 </div>
@@ -2219,10 +2232,10 @@ export function AddCustomerDrawer({
               <div className="flex items-center gap-3 px-4 py-3">
                 <ShieldCheck size={18} className="text-app-warning" />
                 <div>
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    Review
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-surface/60">
+                    3. Review
                   </p>
-                  <p className="text-sm font-black text-app-text">
+                  <p className="text-sm font-black text-white">
                     Duplicate guard
                   </p>
                 </div>
