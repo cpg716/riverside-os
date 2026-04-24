@@ -119,6 +119,17 @@ pub struct WeddingDisbursement {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CheckoutOrderPayment {
+    pub client_line_id: String,
+    pub target_transaction_id: Uuid,
+    pub target_display_id: String,
+    pub customer_id: Uuid,
+    pub amount: Decimal,
+    pub balance_before: Decimal,
+    pub projected_balance_after: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CheckoutRequest {
     pub session_id: Uuid,
     pub operator_staff_id: Uuid,
@@ -141,11 +152,14 @@ pub struct CheckoutRequest {
     #[serde(default)]
     pub wedding_disbursements: Option<Vec<WeddingDisbursement>>,
     #[serde(default)]
+    pub order_payments: Vec<CheckoutOrderPayment>,
+    #[serde(default)]
     pub checkout_client_id: Option<Uuid>,
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
-    /// If set, the checkout is (at least partially) a payment against this existing transaction.
+    /// Legacy field is not safe for mixed current-sale + existing-order allocations.
+    /// Use `order_payments[]`.
     #[serde(default)]
     pub target_transaction_id: Option<Uuid>,
     #[serde(default)]
@@ -336,6 +350,294 @@ fn tender_sum_excluding_deposit_like(splits: &[ResolvedPaymentSplit]) -> Decimal
         s += sp.amount;
     }
     s.round_dp(2)
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedOrderPayment {
+    client_line_id: String,
+    target_transaction_id: Uuid,
+    target_display_id: String,
+    customer_id: Uuid,
+    amount: Decimal,
+    balance_before: Decimal,
+    projected_balance_after: Decimal,
+}
+
+#[derive(Debug, Clone)]
+struct ExistingOrderPaymentTarget {
+    target_transaction_id: Uuid,
+    display_id: String,
+    customer_id: Uuid,
+    balance_due: Decimal,
+    status: DbOrderStatus,
+    line_count: i64,
+}
+
+#[derive(Debug, Clone)]
+struct PaymentAllocationPlan {
+    payment_split_index: usize,
+    target_transaction_id: Uuid,
+    amount: Decimal,
+    metadata: Value,
+    check_number: Option<String>,
+    is_existing_order_payment: bool,
+}
+
+fn merge_metadata(mut base: Value, extra: Value) -> Value {
+    let mut object = base.as_object().cloned().unwrap_or_default();
+    if let Value::Object(extra_object) = extra {
+        for (key, value) in extra_object {
+            object.insert(key, value);
+        }
+    }
+    base = Value::Object(object);
+    base
+}
+
+fn validate_order_payment_shape(
+    checkout_customer_id: Option<Uuid>,
+    original_checkout_customer_id: Option<Uuid>,
+    order_payments: &[CheckoutOrderPayment],
+) -> Result<Vec<ResolvedOrderPayment>, CheckoutError> {
+    if order_payments.is_empty() {
+        return Ok(Vec::new());
+    }
+    let customer_id = checkout_customer_id.ok_or_else(|| {
+        CheckoutError::InvalidPayload(
+            "customer_id is required when checkout includes order_payments".to_string(),
+        )
+    })?;
+    let mut client_line_ids = HashSet::new();
+    let mut target_ids = HashSet::new();
+    let mut out = Vec::with_capacity(order_payments.len());
+    let tol = Decimal::new(2, 2);
+
+    for payment in order_payments {
+        let client_line_id = payment.client_line_id.trim();
+        if client_line_id.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "order_payments[].client_line_id is required".to_string(),
+            ));
+        }
+        if !client_line_ids.insert(client_line_id.to_string()) {
+            return Err(CheckoutError::InvalidPayload(
+                "duplicate order payment client_line_id is not supported".to_string(),
+            ));
+        }
+        if !target_ids.insert(payment.target_transaction_id) {
+            return Err(CheckoutError::InvalidPayload(
+                "duplicate order payment target_transaction_id is not supported".to_string(),
+            ));
+        }
+        if payment.customer_id != customer_id
+            && Some(payment.customer_id) != original_checkout_customer_id
+        {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment customer_id must match checkout customer_id".to_string(),
+            ));
+        }
+        let target_display_id = payment.target_display_id.trim();
+        if target_display_id.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "order_payments[].target_display_id is required".to_string(),
+            ));
+        }
+        let amount = payment.amount.round_dp(2);
+        if amount <= Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment amount must be positive".to_string(),
+            ));
+        }
+        let balance_before = payment.balance_before.round_dp(2);
+        let projected_balance_after = payment.projected_balance_after.round_dp(2);
+        if balance_before <= Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment balance_before must be positive".to_string(),
+            ));
+        }
+        if projected_balance_after < Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment projected_balance_after cannot be negative".to_string(),
+            ));
+        }
+        let expected_after = (balance_before - amount).round_dp(2);
+        if (expected_after - projected_balance_after).abs() > tol {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment projected_balance_after must equal balance_before minus amount"
+                    .to_string(),
+            ));
+        }
+        out.push(ResolvedOrderPayment {
+            client_line_id: client_line_id.to_string(),
+            target_transaction_id: payment.target_transaction_id,
+            target_display_id: target_display_id.to_string(),
+            customer_id,
+            amount,
+            balance_before,
+            projected_balance_after,
+        });
+    }
+
+    Ok(out)
+}
+
+fn validate_order_payment_against_target(
+    payment: &ResolvedOrderPayment,
+    target: &ExistingOrderPaymentTarget,
+) -> Result<(), CheckoutError> {
+    let tol = Decimal::new(2, 2);
+    if target.target_transaction_id != payment.target_transaction_id {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment target validation mismatch".to_string(),
+        ));
+    }
+    if target.customer_id != payment.customer_id {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment target belongs to a different customer".to_string(),
+        ));
+    }
+    if !matches!(
+        target.status,
+        DbOrderStatus::Open | DbOrderStatus::PendingMeasurement
+    ) {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment target transaction is not open".to_string(),
+        ));
+    }
+    if target.line_count <= 0 {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment target has no order lines".to_string(),
+        ));
+    }
+    if target.balance_due <= Decimal::ZERO {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment target has no balance due".to_string(),
+        ));
+    }
+    if payment.amount > target.balance_due + tol {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment amount cannot exceed current balance_due".to_string(),
+        ));
+    }
+    if (payment.balance_before - target.balance_due).abs() > tol {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment balance_before no longer matches current balance_due".to_string(),
+        ));
+    }
+    if (target.balance_due - payment.amount - payment.projected_balance_after).abs() > tol {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment projected balance no longer matches current balance_due".to_string(),
+        ));
+    }
+    if !target.display_id.trim().is_empty() && target.display_id.trim() != payment.target_display_id
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "order payment target_display_id does not match target transaction".to_string(),
+        ));
+    }
+
+    Ok(())
+}
+
+fn build_payment_allocation_plan(
+    payment_splits: &[ResolvedPaymentSplit],
+    current_transaction_id: Uuid,
+    current_transaction_allocation: Decimal,
+    order_payments: &[ResolvedOrderPayment],
+) -> Result<Vec<PaymentAllocationPlan>, CheckoutError> {
+    let mut current_remaining = current_transaction_allocation.round_dp(2);
+    let expected_total = (current_remaining
+        + order_payments
+            .iter()
+            .map(|payment| payment.amount)
+            .sum::<Decimal>())
+    .round_dp(2);
+    let mut order_index = 0usize;
+    let mut order_remaining = order_payments
+        .first()
+        .map(|payment| payment.amount.round_dp(2))
+        .unwrap_or(Decimal::ZERO);
+    let mut plan = Vec::new();
+
+    for (split_index, split) in payment_splits.iter().enumerate() {
+        let mut split_remaining = split.amount.round_dp(2);
+        if split_remaining <= Decimal::ZERO {
+            continue;
+        }
+
+        if current_remaining > Decimal::ZERO {
+            let amount = split_remaining.min(current_remaining).round_dp(2);
+            if amount > Decimal::ZERO {
+                plan.push(PaymentAllocationPlan {
+                    payment_split_index: split_index,
+                    target_transaction_id: current_transaction_id,
+                    amount,
+                    metadata: split.metadata.clone(),
+                    check_number: split.check_number.clone(),
+                    is_existing_order_payment: false,
+                });
+                split_remaining = (split_remaining - amount).round_dp(2);
+                current_remaining = (current_remaining - amount).round_dp(2);
+            }
+        }
+
+        while split_remaining > Decimal::ZERO && order_index < order_payments.len() {
+            if order_remaining <= Decimal::ZERO {
+                order_index += 1;
+                order_remaining = order_payments
+                    .get(order_index)
+                    .map(|payment| payment.amount.round_dp(2))
+                    .unwrap_or(Decimal::ZERO);
+                continue;
+            }
+            let payment = &order_payments[order_index];
+            let amount = split_remaining.min(order_remaining).round_dp(2);
+            if amount <= Decimal::ZERO {
+                break;
+            }
+            let metadata = merge_metadata(
+                split.metadata.clone(),
+                json!({
+                    "kind": "existing_order_payment",
+                    "client_line_id": payment.client_line_id,
+                    "target_transaction_id": payment.target_transaction_id,
+                    "target_display_id": payment.target_display_id,
+                    "customer_id": payment.customer_id,
+                    "balance_before": payment.balance_before.to_string(),
+                    "projected_balance_after": payment.projected_balance_after.to_string(),
+                    "applied_deposit_amount": amount.to_string()
+                }),
+            );
+            plan.push(PaymentAllocationPlan {
+                payment_split_index: split_index,
+                target_transaction_id: payment.target_transaction_id,
+                amount,
+                metadata,
+                check_number: split.check_number.clone(),
+                is_existing_order_payment: true,
+            });
+            split_remaining = (split_remaining - amount).round_dp(2);
+            order_remaining = (order_remaining - amount).round_dp(2);
+        }
+
+        if split_remaining > Decimal::ZERO {
+            return Err(CheckoutError::InvalidPayload(
+                "payment allocation plan has unallocated tender".to_string(),
+            ));
+        }
+    }
+
+    let allocated_total: Decimal = plan.iter().map(|allocation| allocation.amount).sum();
+    if current_remaining > Decimal::ZERO
+        || order_remaining > Decimal::ZERO
+        || allocated_total.round_dp(2) != expected_total
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "payment allocation plan does not cover requested order payments".to_string(),
+        ));
+    }
+
+    Ok(plan)
 }
 
 fn trimmed_non_empty(value: Option<&str>) -> Option<String> {
@@ -1203,14 +1505,24 @@ pub async fn execute_checkout(
     global_employee_markup: Decimal,
     mut payload: CheckoutRequest,
 ) -> Result<CheckoutDone, CheckoutError> {
-    if payload.items.is_empty()
-        && payload
-            .wedding_disbursements
-            .as_ref()
-            .is_none_or(|v| v.is_empty())
-    {
+    let has_wedding_disbursements = payload
+        .wedding_disbursements
+        .as_ref()
+        .is_some_and(|v| !v.is_empty());
+    if payload.items.is_empty() && !has_wedding_disbursements {
+        if !payload.order_payments.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "order_payments require a current sale in this phase".to_string(),
+            ));
+        }
         return Err(CheckoutError::InvalidPayload(
             "Cart cannot be empty (must have items or wedding payouts)".to_string(),
+        ));
+    }
+    if payload.target_transaction_id.is_some() {
+        return Err(CheckoutError::InvalidPayload(
+            "target_transaction_id checkout is no longer supported; use order_payments[]"
+                .to_string(),
         ));
     }
 
@@ -1219,6 +1531,11 @@ pub async fn execute_checkout(
         payload.customer_id =
             Some(crate::logic::customer_couple::resolve_effective_customer_id(pool, cid).await?);
     }
+    let order_payments = validate_order_payment_shape(
+        payload.customer_id,
+        customer_id_orig,
+        &payload.order_payments,
+    )?;
 
     for item in &payload.items {
         if item.quantity <= 0 {
@@ -1419,6 +1736,11 @@ pub async fn execute_checkout(
         {
             return Err(CheckoutError::InvalidPayload(
                 "RMS CHARGE PAYMENT does not support wedding disbursements".to_string(),
+            ));
+        }
+        if !order_payments.is_empty() {
+            return Err(CheckoutError::InvalidPayload(
+                "RMS CHARGE PAYMENT does not support existing order payments".to_string(),
             ));
         }
     }
@@ -1707,17 +2029,27 @@ pub async fn execute_checkout(
         .map(|d| d.amount)
         .sum::<Decimal>()
         .round_dp(2);
+    let order_payment_total: Decimal = order_payments
+        .iter()
+        .map(|payment| payment.amount)
+        .sum::<Decimal>()
+        .round_dp(2);
 
     if d_total > payload.amount_paid + tol {
         return Err(CheckoutError::InvalidPayload(
             "party disbursements cannot exceed amount collected".to_string(),
         ));
     }
+    if d_total + order_payment_total > payload.amount_paid + tol {
+        return Err(CheckoutError::InvalidPayload(
+            "party disbursements and order payments cannot exceed amount collected".to_string(),
+        ));
+    }
 
-    let amount_toward_order = (payload.amount_paid - d_total).round_dp(2);
+    let amount_toward_order = (payload.amount_paid - d_total - order_payment_total).round_dp(2);
     if amount_toward_order < Decimal::ZERO {
         return Err(CheckoutError::InvalidPayload(
-            "amount collected is less than party disbursements".to_string(),
+            "amount collected is less than party disbursements and order payments".to_string(),
         ));
     }
 
@@ -1840,6 +2172,51 @@ pub async fn execute_checkout(
         ));
     }
 
+    for payment in &order_payments {
+        let target: Option<(Uuid, String, Option<Uuid>, Decimal, DbOrderStatus)> = sqlx::query_as(
+            r#"
+            SELECT
+                o.id,
+                COALESCE(o.display_id, o.id::text) AS display_id,
+                o.customer_id,
+                o.balance_due,
+                o.status
+            FROM transactions o
+            WHERE o.id = $1
+            FOR UPDATE
+            "#,
+        )
+        .bind(payment.target_transaction_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((target_transaction_id, display_id, customer_id, balance_due, status)) = target
+        else {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment target transaction not found".to_string(),
+            ));
+        };
+        let customer_id = customer_id.ok_or_else(|| {
+            CheckoutError::InvalidPayload(
+                "order payment target transaction has no customer".to_string(),
+            )
+        })?;
+        let line_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*)::bigint FROM transaction_lines WHERE transaction_id = $1",
+        )
+        .bind(target_transaction_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        let target = ExistingOrderPaymentTarget {
+            target_transaction_id,
+            display_id,
+            customer_id,
+            balance_due: balance_due.round_dp(2),
+            status,
+            line_count,
+        };
+        validate_order_payment_against_target(payment, &target)?;
+    }
+
     let (order_fulfillment_method, order_ship_to, order_shipping_amt, pos_shippo_rate_object_id): (
         DbOrderFulfillmentMethod,
         Option<Json<serde_json::Value>>,
@@ -1932,7 +2309,7 @@ pub async fn execute_checkout(
     .bind(payload.operator_staff_id)
     .bind(payload.primary_salesperson_id)
     .bind(payload.total_price)
-    .bind(payload.amount_paid)
+    .bind(amount_toward_order)
     .bind(balance_due)
     .bind(weather_json)
     .bind(payload.checkout_client_id)
@@ -2539,6 +2916,13 @@ pub async fn execute_checkout(
     } else {
         DbTransactionCategory::RetailSale
     };
+    let allocation_plan = build_payment_allocation_plan(
+        &payment_splits,
+        transaction_id,
+        amount_toward_order,
+        &order_payments,
+    )?;
+    let mut order_payment_targets_to_recalc: HashSet<Uuid> = HashSet::new();
 
     if payload.amount_paid > Decimal::ZERO {
         if has_rms_charge || is_rms_payment_collection {
@@ -2782,22 +3166,29 @@ pub async fn execute_checkout(
 
             main_tx_ids.push(payment_tx_id);
 
-            // 3. Allocate to the Payer's order
-            sqlx::query(
-                r#"
-                INSERT INTO payment_allocations (
-                    transaction_id, target_transaction_id, amount_allocated, metadata, check_number
+            for allocation in allocation_plan
+                .iter()
+                .filter(|allocation| allocation.payment_split_index == main_tx_ids.len() - 1)
+            {
+                sqlx::query(
+                    r#"
+                    INSERT INTO payment_allocations (
+                        transaction_id, target_transaction_id, amount_allocated, metadata, check_number
+                    )
+                    VALUES ($1, $2, $3, $4, $5)
+                    "#,
                 )
-                VALUES ($1, $2, $3, $4, $5)
-                "#,
-            )
-            .bind(payment_tx_id)
-            .bind(transaction_id)
-            .bind(split.amount)
-            .bind(&split.metadata)
-            .bind(&split.check_number)
-            .execute(&mut *tx)
-            .await?;
+                .bind(payment_tx_id)
+                .bind(allocation.target_transaction_id)
+                .bind(allocation.amount)
+                .bind(&allocation.metadata)
+                .bind(&allocation.check_number)
+                .execute(&mut *tx)
+                .await?;
+                if allocation.is_existing_order_payment {
+                    order_payment_targets_to_recalc.insert(allocation.target_transaction_id);
+                }
+            }
         }
 
         // --- WEDDING DISBURSEMENT LOGIC ---
@@ -2997,15 +3388,21 @@ pub async fn execute_checkout(
         }
     }
 
-    if let Some(target_id) = payload.target_transaction_id {
+    for payment in &order_payments {
+        if !order_payment_targets_to_recalc.contains(&payment.target_transaction_id) {
+            return Err(CheckoutError::InvalidPayload(
+                "order payment was not allocated to its target transaction".to_string(),
+            ));
+        }
         sqlx::query("UPDATE transactions SET amount_paid = amount_paid + $1 WHERE id = $2")
-            .bind(payload.total_price)
-            .bind(target_id)
+            .bind(payment.amount)
+            .bind(payment.target_transaction_id)
             .execute(&mut *tx)
             .await
             .map_err(CheckoutError::Database)?;
 
-        transaction_recalc::recalc_transaction_totals(&mut tx, target_id).await?;
+        transaction_recalc::recalc_transaction_totals(&mut tx, payment.target_transaction_id)
+            .await?;
     }
 
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
@@ -3014,7 +3411,7 @@ pub async fn execute_checkout(
 
     let operator_staff_id = payload.operator_staff_id;
     let customer_id = payload.customer_id;
-    let amount_paid = payload.amount_paid;
+    let amount_paid = amount_toward_order;
     let total_price = payload.total_price;
     let session_id_for_log = payload.session_id;
 
@@ -3269,11 +3666,14 @@ where
 #[cfg(test)]
 mod tests {
     use super::{
-        apply_corecard_result_to_metadata, corecard_error_to_checkout, fetch_variant_pos_line_kind,
-        validate_checkout_alteration_intakes, CheckoutAlterationIntake, CheckoutItem,
+        apply_corecard_result_to_metadata, build_payment_allocation_plan,
+        corecard_error_to_checkout, fetch_variant_pos_line_kind,
+        validate_checkout_alteration_intakes, validate_order_payment_against_target,
+        validate_order_payment_shape, CheckoutAlterationIntake, CheckoutItem, CheckoutOrderPayment,
+        ExistingOrderPaymentTarget, ResolvedOrderPayment, ResolvedPaymentSplit,
     };
     use crate::logic::corecard::{CoreCardFailureCode, CoreCardHostMutationResult};
-    use crate::models::DbFulfillmentType;
+    use crate::models::{DbFulfillmentType, DbOrderStatus};
     use rust_decimal::Decimal;
     use serde_json::json;
     use sqlx::Connection;
@@ -3470,6 +3870,189 @@ mod tests {
         .unwrap();
         assert!(result.contains("cart-1"));
         assert!(result.contains("alt-line-1"));
+    }
+
+    fn order_payment_payload(
+        customer_id: Uuid,
+        target_transaction_id: Uuid,
+        amount: Decimal,
+        balance_before: Decimal,
+    ) -> CheckoutOrderPayment {
+        CheckoutOrderPayment {
+            client_line_id: format!("order-pay-{target_transaction_id}"),
+            target_transaction_id,
+            target_display_id: "TXN-12345".to_string(),
+            customer_id,
+            amount,
+            balance_before,
+            projected_balance_after: (balance_before - amount).round_dp(2),
+        }
+    }
+
+    fn target_snapshot(
+        customer_id: Uuid,
+        target_transaction_id: Uuid,
+        balance_due: Decimal,
+    ) -> ExistingOrderPaymentTarget {
+        ExistingOrderPaymentTarget {
+            target_transaction_id,
+            display_id: "TXN-12345".to_string(),
+            customer_id,
+            balance_due,
+            status: DbOrderStatus::Open,
+            line_count: 1,
+        }
+    }
+
+    fn resolved_split(amount: Decimal) -> ResolvedPaymentSplit {
+        ResolvedPaymentSplit {
+            method: "cash".to_string(),
+            amount,
+            gift_card_code: None,
+            metadata: json!({}),
+            stripe_intent_id: None,
+            check_number: None,
+            merchant_fee: Decimal::ZERO,
+            net_amount: amount,
+            card_brand: None,
+            card_last4: None,
+        }
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_shape_rejects_order_payment_only_customer_gap() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let err = validate_order_payment_shape(
+            None,
+            None,
+            &[order_payment_payload(
+                customer_id,
+                target_id,
+                Decimal::new(2500, 2),
+                Decimal::new(10000, 2),
+            )],
+        )
+        .unwrap_err();
+        assert!(err.to_string().contains("customer_id is required"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_shape_rejects_duplicate_targets() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let mut first = order_payment_payload(
+            customer_id,
+            target_id,
+            Decimal::new(2500, 2),
+            Decimal::new(10000, 2),
+        );
+        first.client_line_id = "line-a".to_string();
+        let mut second = order_payment_payload(
+            customer_id,
+            target_id,
+            Decimal::new(1500, 2),
+            Decimal::new(7500, 2),
+        );
+        second.client_line_id = "line-b".to_string();
+
+        let err =
+            validate_order_payment_shape(Some(customer_id), Some(customer_id), &[first, second])
+                .unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("duplicate order payment target_transaction_id"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_target_rejects_overpayment() {
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let payload = validate_order_payment_shape(
+            Some(customer_id),
+            Some(customer_id),
+            &[order_payment_payload(
+                customer_id,
+                target_id,
+                Decimal::new(12500, 2),
+                Decimal::new(12500, 2),
+            )],
+        )
+        .unwrap();
+        let mut target = target_snapshot(customer_id, target_id, Decimal::new(10000, 2));
+        target.display_id = payload[0].target_display_id.clone();
+        let err = validate_order_payment_against_target(&payload[0], &target).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("cannot exceed current balance_due"));
+    }
+
+    #[test]
+    fn transaction_checkout_order_payment_target_rejects_wrong_customer() {
+        let checkout_customer_id = Uuid::new_v4();
+        let other_customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let payload = validate_order_payment_shape(
+            Some(checkout_customer_id),
+            Some(checkout_customer_id),
+            &[order_payment_payload(
+                checkout_customer_id,
+                target_id,
+                Decimal::new(2500, 2),
+                Decimal::new(10000, 2),
+            )],
+        )
+        .unwrap();
+        let mut target = target_snapshot(other_customer_id, target_id, Decimal::new(10000, 2));
+        target.display_id = payload[0].target_display_id.clone();
+        let err = validate_order_payment_against_target(&payload[0], &target).unwrap_err();
+        assert!(err.to_string().contains("different customer"));
+    }
+
+    #[test]
+    fn transaction_checkout_allocation_plan_splits_current_sale_and_existing_order() {
+        let current_tx_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let order_payments = vec![ResolvedOrderPayment {
+            client_line_id: "order-pay-1".to_string(),
+            target_transaction_id: target_id,
+            target_display_id: "TXN-12345".to_string(),
+            customer_id,
+            amount: Decimal::new(4000, 2),
+            balance_before: Decimal::new(10000, 2),
+            projected_balance_after: Decimal::new(6000, 2),
+        }];
+
+        let plan = build_payment_allocation_plan(
+            &[resolved_split(Decimal::new(10000, 2))],
+            current_tx_id,
+            Decimal::new(6000, 2),
+            &order_payments,
+        )
+        .unwrap();
+
+        assert_eq!(plan.len(), 2);
+        assert_eq!(plan[0].target_transaction_id, current_tx_id);
+        assert_eq!(plan[0].amount, Decimal::new(6000, 2));
+        assert!(!plan[0].is_existing_order_payment);
+        assert_eq!(plan[1].target_transaction_id, target_id);
+        assert_eq!(plan[1].amount, Decimal::new(4000, 2));
+        assert!(plan[1].is_existing_order_payment);
+        assert_eq!(
+            plan[1]
+                .metadata
+                .get("kind")
+                .and_then(|value| value.as_str()),
+            Some("existing_order_payment")
+        );
+        assert_eq!(
+            plan[1]
+                .metadata
+                .get("applied_deposit_amount")
+                .and_then(|value| value.as_str()),
+            Some("40.00")
+        );
     }
 
     #[tokio::test]

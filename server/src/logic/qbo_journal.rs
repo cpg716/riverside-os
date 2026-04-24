@@ -1203,13 +1203,19 @@ pub async fn propose_daily_journal(
         }
     }
 
-    // 4.5. New Deposits: payments today for transactions NOT fulfilled today (liability increase).
+    // 4.5. New Deposits: deposit allocations today for transactions NOT fulfilled today
+    // (liability increase). Use allocation metadata instead of merchandise lines so
+    // existing-order payments collected in a mixed POS sale remain liability movement,
+    // not current merchandise revenue.
     let deposit_inflow: Decimal = sqlx::query_scalar(
         r#"
-        SELECT COALESCE(SUM(pt.amount), 0)::numeric(14,2)
-        FROM payment_transactions pt
-        INNER JOIN transactions o ON o.id = pt.transaction_id
+        SELECT COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0)::numeric(14,2)
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        INNER JOIN transactions o ON o.id = pa.target_transaction_id
         WHERE (pt.created_at AT TIME ZONE 'UTC')::date = $1::date
+          AND pa.amount_allocated > 0::numeric
+          AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
           AND (o.fulfilled_at IS NULL OR (o.fulfilled_at AT TIME ZONE 'UTC')::date > $1::date)
           AND o.status::text NOT IN ('cancelled')
         "#,
