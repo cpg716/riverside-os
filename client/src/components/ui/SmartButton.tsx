@@ -20,7 +20,7 @@ export default function SmartButton({
     accent:
       "text-app-accent bg-app-accent/10 border-app-accent/25 hover:bg-app-accent hover:text-white",
     emerald:
-      "text-emerald-600 bg-emerald-50 border-emerald-100 hover:bg-emerald-600 hover:text-white",
+      "text-app-success bg-app-success/10 border-app-success/20 hover:bg-app-success hover:text-white",
   };
 
   return (

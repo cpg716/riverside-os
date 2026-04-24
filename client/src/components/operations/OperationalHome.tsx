@@ -179,19 +179,19 @@ function SummaryPill({
 }) {
   const toneClass =
     tone === "good"
-      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      ? "border-app-success/16 bg-app-success/10 text-app-text"
       : tone === "warn"
-        ? "border-amber-200 bg-amber-50 text-amber-800"
+        ? "border-app-warning/16 bg-app-warning/10 text-app-text"
         : tone === "danger"
-          ? "border-rose-200 bg-rose-50 text-rose-800"
+          ? "border-app-danger/16 bg-app-danger/10 text-app-text"
           : "border-app-border bg-app-surface-2 text-app-text";
 
   return (
     <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
-      <p className="text-[10px] font-black uppercase tracking-widest opacity-75">
+      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
         {label}
       </p>
-      <p className="mt-1 text-lg font-black">{value}</p>
+      <p className="mt-1 text-lg font-black text-app-text">{value}</p>
     </div>
   );
 }

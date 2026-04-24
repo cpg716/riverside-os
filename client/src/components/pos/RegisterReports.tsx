@@ -175,12 +175,12 @@ function registerLifecycleLabel(status: string) {
 function registerLifecycleTone(status: string) {
   switch (status) {
     case "reconciling":
-      return "border-amber-300 bg-amber-100/90 text-amber-900";
+      return "border-app-warning/20 bg-app-warning/10 text-app-warning";
     case "closed":
-      return "border-emerald-300 bg-emerald-100/90 text-emerald-900";
+      return "border-app-success/20 bg-app-success/10 text-app-success";
     case "open":
     default:
-      return "border-sky-200 bg-sky-50 text-sky-900";
+      return "border-app-info/20 bg-app-info/10 text-app-info";
   }
 }
 

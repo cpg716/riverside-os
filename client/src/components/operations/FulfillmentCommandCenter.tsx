@@ -200,9 +200,9 @@ function StatCard({ label, count, icon, active, onClick }: {
 
 function QueueItem({ item, onClick }: { item: FulfillmentItem; onClick: () => void }) {
   const urgencyStyles = {
-    rush: "bg-red-500/10 text-red-600 border-red-500/20",
-    due_soon: "bg-amber-500/10 text-amber-600 border-amber-500/20",
-    ready: "bg-emerald-500/10 text-emerald-600 border-emerald-500/20",
+    rush: "bg-app-danger/10 text-app-danger border-app-danger/20",
+    due_soon: "bg-app-warning/10 text-app-warning border-app-warning/20",
+    ready: "bg-app-success/10 text-app-success border-app-success/20",
     blocked: "bg-app-surface-2 text-app-text-muted border-app-border",
     standard: "bg-app-surface-2 text-app-text-muted border-app-border",
   };

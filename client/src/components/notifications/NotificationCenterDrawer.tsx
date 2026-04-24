@@ -105,13 +105,13 @@ function severityLabel(severity: NotificationSeverity): string {
 function severityChipClassName(severity: NotificationSeverity): string {
   switch (severity) {
     case "announcement":
-      return "border-emerald-500/30 bg-emerald-500/10 text-emerald-700";
+      return "border-app-success/20 bg-app-success/10 text-app-success";
     case "system":
-      return "border-rose-500/35 bg-rose-500/10 text-rose-700";
+      return "border-app-danger/20 bg-app-danger/10 text-app-danger";
     case "urgent":
-      return "border-amber-500/35 bg-amber-500/10 text-amber-700";
+      return "border-app-warning/20 bg-app-warning/10 text-app-warning";
     case "action":
-      return "border-sky-500/30 bg-sky-500/10 text-sky-700";
+      return "border-app-info/20 bg-app-info/10 text-app-info";
     case "info":
     default:
       return "border-app-border bg-app-surface text-app-text-muted";
@@ -125,13 +125,13 @@ function severityIconClassName(
   if (expanded) {
     switch (severity) {
       case "announcement":
-        return "border-emerald-600 bg-emerald-600 text-white shadow-lg shadow-emerald-600/20";
+        return "border-app-success bg-app-success text-white shadow-lg shadow-app-success/20";
       case "system":
-        return "border-rose-600 bg-rose-600 text-white shadow-lg shadow-rose-600/20";
+        return "border-app-danger bg-app-danger text-white shadow-lg shadow-app-danger/20";
       case "urgent":
-        return "border-amber-500 bg-amber-500 text-white shadow-lg shadow-amber-500/20";
+        return "border-app-warning bg-app-warning text-white shadow-lg shadow-app-warning/20";
       case "action":
-        return "border-sky-600 bg-sky-600 text-white shadow-lg shadow-sky-600/20";
+        return "border-app-info bg-app-info text-white shadow-lg shadow-app-info/20";
       case "info":
       default:
         return "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20";
@@ -140,13 +140,13 @@ function severityIconClassName(
 
   switch (severity) {
     case "announcement":
-      return "border-emerald-500/20 bg-emerald-500/5 text-emerald-700 group-hover:border-emerald-500/40 group-hover:bg-emerald-500/10";
+      return "border-app-success/20 bg-app-success/6 text-app-success group-hover:border-app-success/35 group-hover:bg-app-success/10";
     case "system":
-      return "border-rose-500/20 bg-rose-500/5 text-rose-700 group-hover:border-rose-500/40 group-hover:bg-rose-500/10";
+      return "border-app-danger/20 bg-app-danger/6 text-app-danger group-hover:border-app-danger/35 group-hover:bg-app-danger/10";
     case "urgent":
-      return "border-amber-500/20 bg-amber-500/5 text-amber-700 group-hover:border-amber-500/40 group-hover:bg-amber-500/10";
+      return "border-app-warning/20 bg-app-warning/6 text-app-warning group-hover:border-app-warning/35 group-hover:bg-app-warning/10";
     case "action":
-      return "border-sky-500/20 bg-sky-500/5 text-sky-700 group-hover:border-sky-500/40 group-hover:bg-sky-500/10";
+      return "border-app-info/20 bg-app-info/6 text-app-info group-hover:border-app-info/35 group-hover:bg-app-info/10";
     case "info":
     default:
       return "border-app-border bg-app-surface text-app-text-muted group-hover:border-app-accent group-hover:bg-app-accent/5 group-hover:text-app-accent";
@@ -161,13 +161,13 @@ function rowSurfaceClassName(
   if (expanded) {
     switch (severity) {
       case "system":
-        return "border-rose-500/45 bg-rose-500/5 ring-4 ring-rose-500/10";
+        return "border-app-danger/35 bg-app-danger/6 ring-4 ring-app-danger/10";
       case "urgent":
-        return "border-amber-500/45 bg-amber-500/5 ring-4 ring-amber-500/10";
+        return "border-app-warning/35 bg-app-warning/6 ring-4 ring-app-warning/10";
       case "action":
-        return "border-sky-500/40 bg-sky-500/5 ring-4 ring-sky-500/10";
+        return "border-app-info/35 bg-app-info/6 ring-4 ring-app-info/10";
       case "announcement":
-        return "border-emerald-500/40 bg-emerald-500/5 ring-4 ring-emerald-500/10";
+        return "border-app-success/35 bg-app-success/6 ring-4 ring-app-success/10";
       case "info":
       default:
         return "border-app-accent/40 bg-app-surface ring-4 ring-app-accent/5";
@@ -177,13 +177,13 @@ function rowSurfaceClassName(
   if (!readAt) {
     switch (severity) {
       case "system":
-        return "border-rose-500/35 bg-rose-500/6 shadow-md hover:border-rose-500/50 hover:bg-rose-500/10";
+        return "border-app-danger/30 bg-app-danger/6 shadow-md hover:border-app-danger/40 hover:bg-app-danger/10";
       case "urgent":
-        return "border-amber-500/35 bg-amber-500/6 shadow-md hover:border-amber-500/50 hover:bg-amber-500/10";
+        return "border-app-warning/30 bg-app-warning/6 shadow-md hover:border-app-warning/40 hover:bg-app-warning/10";
       case "action":
-        return "border-sky-500/30 bg-sky-500/6 shadow-md hover:border-sky-500/45 hover:bg-sky-500/10";
+        return "border-app-info/30 bg-app-info/6 shadow-md hover:border-app-info/40 hover:bg-app-info/10";
       case "announcement":
-        return "border-emerald-500/25 bg-emerald-500/5 shadow-md hover:border-emerald-500/40 hover:bg-emerald-500/10";
+        return "border-app-success/25 bg-app-success/5 shadow-md hover:border-app-success/35 hover:bg-app-success/10";
       case "info":
       default:
         return "border-app-accent/25 bg-app-accent/5 shadow-md hover:border-app-accent/40 hover:bg-app-accent/10";
@@ -192,13 +192,13 @@ function rowSurfaceClassName(
 
   switch (severity) {
     case "system":
-      return "border-rose-500/15 bg-app-surface-2 hover:border-rose-500/30 hover:bg-rose-500/5";
+      return "border-app-danger/15 bg-app-surface-2 hover:border-app-danger/25 hover:bg-app-danger/5";
     case "urgent":
-      return "border-amber-500/15 bg-app-surface-2 hover:border-amber-500/30 hover:bg-amber-500/5";
+      return "border-app-warning/15 bg-app-surface-2 hover:border-app-warning/25 hover:bg-app-warning/5";
     case "action":
-      return "border-sky-500/15 bg-app-surface-2 hover:border-sky-500/30 hover:bg-sky-500/5";
+      return "border-app-info/15 bg-app-surface-2 hover:border-app-info/25 hover:bg-app-info/5";
     case "announcement":
-      return "border-emerald-500/15 bg-app-surface-2 hover:border-emerald-500/30 hover:bg-emerald-500/5";
+      return "border-app-success/15 bg-app-surface-2 hover:border-app-success/25 hover:bg-app-success/5";
     case "info":
     default:
       return "border-app-border bg-app-surface-2 hover:border-app-border-hover hover:bg-app-surface-3";

@@ -145,7 +145,7 @@ export default function ReviewsOperationsSection({
                       <td className="px-3 py-2.5">{customer}</td>
                       <td className="px-3 py-2.5">
                         {sent ? (
-                          <span className="ui-pill bg-emerald-500/15 text-emerald-800 dark:text-emerald-200">
+                          <span className="ui-pill bg-app-success/10 text-app-success">
                             Invite recorded
                           </span>
                         ) : suppressed ? (
