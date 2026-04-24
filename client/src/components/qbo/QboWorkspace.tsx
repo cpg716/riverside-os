@@ -155,11 +155,6 @@ export default function QboWorkspace({
   const [busy, setBusy] = useState(false);
   const { toast } = useToast();
 
-  const [clientId, setClientId] = useState("");
-  const [clientSecret, setClientSecret] = useState("");
-  const [realmId, setRealmId] = useState("");
-  const [useSandbox, setUseSandbox] = useState(true);
-
   const [proposeDate, setProposeDate] = useState(() =>
     new Date().toISOString().slice(0, 10),
   );
@@ -203,8 +198,6 @@ export default function QboWorkspace({
     if (cr.ok) {
       const pub = (await cr.json()) as CredentialsPublic;
       setCreds(pub);
-      setRealmId(pub.realm_id ?? "");
-      setUseSandbox(pub.use_sandbox);
     }
     if (st.ok) setStaging((await st.json()) as SyncLogRow[]);
   }, [backofficeHeaders]);
@@ -250,45 +243,22 @@ export default function QboWorkspace({
   const refreshAccountsOnly = async () => {
     setBusy(true);
     try {
-      await fetch(`${baseUrl}/api/qbo/accounts-cache/refresh`, {
+      const res = await fetch(`${baseUrl}/api/qbo/accounts-cache/refresh`, {
         method: "POST",
         headers: backofficeHeaders(),
       });
+      const j = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        count?: number;
+      };
+      if (!res.ok) throw new Error(j.error ?? "Refresh failed");
       await refreshCore();
-      toast("Account cache refreshed.", "success");
-    } catch {
-      toast("Refresh failed.", "error");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const saveCredentials = async () => {
-    setBusy(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/qbo/credentials`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          ...(backofficeHeaders() as Record<string, string>),
-        },
-        body: JSON.stringify({
-          client_id: clientId.trim() || null,
-          client_secret: clientSecret.trim() || null,
-          realm_id: realmId.trim() || null,
-          use_sandbox: useSandbox,
-        }),
-      });
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Save failed");
-      }
-      setClientSecret("");
-      setClientId("");
-      await refreshCore();
-      toast("Credentials saved.", "success");
+      toast(
+        `QBO account cache refreshed${typeof j.count === "number" ? ` (${j.count} accounts)` : ""}.`,
+        "success",
+      );
     } catch (e) {
-      toast(e instanceof Error ? e.message : "Save failed", "error");
+      toast(e instanceof Error ? e.message : "Refresh failed", "error");
     } finally {
       setBusy(false);
     }
@@ -565,71 +535,48 @@ export default function QboWorkspace({
         <div className="ui-section-stack">
           <div className="ui-card p-6">
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text-muted">
-              Developer credentials
+              Connection status
             </h3>
-            <p className="mt-2 text-xs text-app-text-muted">
-              OAuth client from Intuit Developer. Secrets are stored server-side
-              (encrypt in production). Realm ID is your QBO company id.
-            </p>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void saveCredentials();
-              }}
-              className="mt-4 space-y-3"
-            >
-              <label className="block text-[10px] font-black uppercase text-app-text-muted">
-                Realm ID (company)
-                <input
-                  value={realmId}
-                  onChange={(e) => setRealmId(e.target.value)}
-                  className="ui-input mt-1 w-full font-mono text-sm"
-                />
-              </label>
-              <label className="block text-[10px] font-black uppercase text-app-text-muted">
-                Client ID
-                <input
-                  value={clientId}
-                  onChange={(e) => setClientId(e.target.value)}
-                  placeholder={
-                    creds?.client_id_set
-                      ? `Saved (${creds?.client_id_masked ?? "set"})`
-                      : ""
-                  }
-                  className="ui-input mt-1 w-full font-mono text-sm"
-                />
-              </label>
-              <label className="block text-[10px] font-black uppercase text-app-text-muted">
-                Client secret
-                <input
-                  type="password"
-                  value={clientSecret}
-                  onChange={(e) => setClientSecret(e.target.value)}
-                  placeholder={creds?.has_client_secret ? "•••••••• (saved)" : ""}
-                  className="ui-input mt-1 w-full font-mono text-sm"
-                />
-              </label>
-              <label className="flex items-center gap-2 text-sm font-semibold text-app-text">
-                <input
-                  type="checkbox"
-                  checked={useSandbox}
-                  onChange={(e) => setUseSandbox(e.target.checked)}
-                />
-                Sandbox environment
-              </label>
-              <button
-                type="submit"
-                disabled={busy}
-                className="ui-btn-primary mt-5 w-full rounded-2xl py-3 disabled:opacity-50"
-              >
-                Save connection
-              </button>
-            </form>
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Credentials
+                </p>
+                <p className="mt-1 text-sm font-bold text-app-text">
+                  {creds?.client_id_set && creds.has_client_secret
+                    ? `Saved${creds.client_id_masked ? ` (${creds.client_id_masked})` : ""}`
+                    : "Missing"}
+                </p>
+                <p className="mt-2 text-xs text-app-text-muted">
+                  Enter or replace Client ID, Client Secret, Realm ID, and
+                  sandbox mode in Settings → Integrations → QuickBooks Online.
+                </p>
+              </div>
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  OAuth authorization
+                </p>
+                <p className="mt-1 text-sm font-bold text-app-text">
+                  {creds?.has_refresh_token ? "Authorized" : "Not authorized"}
+                </p>
+                <p className="mt-2 text-xs text-app-text-muted">
+                  If authorization is missing or expired, complete the Intuit
+                  OAuth callback for this company, then return here and refresh
+                  the account cache.
+                </p>
+              </div>
+            </div>
+            {!connectionReady ? (
+              <div className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-app-text">
+                Connection is incomplete. Save credentials in Settings first,
+                then authorize QuickBooks before mapping accounts.
+              </div>
+            ) : null}
             <button
               type="button"
               disabled={!connectionReady}
               onClick={() => setTab("mappings")}
-              className="ui-btn-secondary mt-2 w-full rounded-2xl py-3"
+              className="ui-btn-primary mt-4 w-full rounded-2xl py-3 disabled:opacity-50"
             >
               Continue to mappings
             </button>
@@ -641,8 +588,9 @@ export default function QboWorkspace({
                 Token lifecycle
               </h3>
               <p className="mt-2 text-xs text-app-text-muted">
-                After OAuth authorization stores a refresh token, this extends the
-                local expiry placeholder. Full Intuit token exchange ships next.
+                Use this after QuickBooks authorization is complete. If refresh
+                fails, re-check credentials in Settings and re-authorize the QBO
+                company.
               </p>
               <p className="mt-3 font-mono text-xs text-app-text">
                 Refresh token:{" "}
@@ -656,7 +604,7 @@ export default function QboWorkspace({
                 onClick={() => void refreshTokens()}
                 className="ui-btn-secondary mt-4 w-full py-3 disabled:opacity-50"
               >
-                Refresh access token (stub)
+                Refresh access token
               </button>
             </div>
             <div className="flex items-center gap-2 rounded-xl border border-app-border bg-[color-mix(in_srgb,var(--app-accent)_12%,var(--app-surface-2))] px-4 py-3">
@@ -681,9 +629,16 @@ export default function QboWorkspace({
               onClick={() => void refreshAccountsOnly()}
               className="ui-btn-primary flex items-center gap-2"
             >
-              <RefreshCw size={14} /> Refresh QBO accounts (demo list)
+              <RefreshCw size={14} /> Refresh QBO accounts
             </button>
           </div>
+          {accounts.length === 0 ? (
+            <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs font-semibold text-app-text">
+              No QuickBooks accounts are cached yet. Confirm credentials and
+              OAuth authorization on the Connection tab, then click Refresh QBO
+              accounts to load the live chart of accounts.
+            </div>
+          ) : null}
 
           <QboMappingMatrix
             categories={categories}

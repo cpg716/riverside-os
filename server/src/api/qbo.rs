@@ -253,6 +253,34 @@ struct IntegrationSecretsRow {
 }
 
 #[derive(Debug, Deserialize)]
+struct QboQueryResponse {
+    #[serde(rename = "QueryResponse")]
+    query_response: QboAccountQueryResponse,
+}
+
+#[derive(Debug, Deserialize)]
+struct QboAccountQueryResponse {
+    #[serde(rename = "Account", default)]
+    accounts: Vec<QboRemoteAccount>,
+}
+
+#[derive(Debug, Deserialize)]
+struct QboRemoteAccount {
+    #[serde(rename = "Id")]
+    id: String,
+    #[serde(rename = "Name")]
+    name: String,
+    #[serde(rename = "FullyQualifiedName")]
+    fully_qualified_name: Option<String>,
+    #[serde(rename = "AccountType")]
+    account_type: Option<String>,
+    #[serde(rename = "AcctNum")]
+    account_number: Option<String>,
+    #[serde(rename = "Active")]
+    active: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
 struct OAuthCallbackQuery {
     code: String,
     #[serde(rename = "realmId")]
@@ -703,37 +731,108 @@ async fn refresh_accounts_cache(
     require_staff_with_permission(&state, &headers, QBO_MAPPING_EDIT)
         .await
         .map_err(|_| QboError::Forbidden)?;
-    sqlx::query(
-        r#"
-        INSERT INTO qbo_accounts_cache (id, name, account_type, account_number, is_active)
-        VALUES
-            ('QBO-10000', '10000 · Cash Drawer', 'Bank', '10000', true),
-            ('QBO-10500', '10500 · Undeposited Funds', 'Other Current Asset', '10500', true),
-            ('QBO-11000', '11000 · Merchant Clearing', 'Other Current Asset', '11000', true),
-            ('QBO-11500', '11500 · Accounts Receivable', 'Accounts Receivable', '11500', true),
-            ('QBO-12000', '12000 · Inventory Asset', 'Other Current Asset', '12000', true),
-            ('QBO-20000', '20000 · Customer Deposits (Liability)', 'Other Current Liability', '20000', true),
-            ('QBO-21000', '21000 · Gift Card Liability', 'Other Current Liability', '21000', true),
-            ('QBO-22000', '22000 · Invoice Holding (Clearing)', 'Other Current Liability', '22000', true),
-            ('QBO-40000', '40000 · Revenue - Apparel', 'Income', '40000', true),
-            ('QBO-40500', '40500 · Revenue - Alterations', 'Income', '40500', true),
-            ('QBO-41000', '41000 · Revenue - Services', 'Income', '41000', true),
-            ('QBO-50000', '50000 · Cost of Goods Sold', 'Cost of Goods Sold', '50000', true),
-            ('QBO-51000', '51000 · COGS - Freight & Shipping', 'Cost of Goods Sold', '51000', true),
-            ('QBO-62000', '62000 · Shipping Expense', 'Expense', '62000', true),
-            ('QBO-63000', '63000 · Marketing / Loyalty Promo', 'Expense', '63000', true),
-            ('QBO-24000', '24000 · Sales Tax Payable', 'Other Current Liability', '24000', true)
-        ON CONFLICT (id) DO UPDATE
-        SET
-            name = EXCLUDED.name,
-            account_type = EXCLUDED.account_type,
-            account_number = EXCLUDED.account_number,
-            is_active = true,
-            refreshed_at = CURRENT_TIMESTAMP
-        "#,
-    )
-    .execute(&state.db)
-    .await?;
+    let integ = integration_row(&state.db).await?.ok_or_else(|| {
+        QboError::InvalidPayload(
+            "QuickBooks credentials are missing. Add them in Settings → Integrations → QuickBooks Online.".to_string(),
+        )
+    })?;
+    let realm_id = integ
+        .realm_id
+        .as_ref()
+        .or(Some(&integ.company_id))
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty() && *s != "pending")
+        .ok_or_else(|| {
+            QboError::InvalidPayload(
+                "QuickBooks Realm ID is missing. Add it in Settings → Integrations → QuickBooks Online.".to_string(),
+            )
+        })?;
+    if integ
+        .refresh_token
+        .as_ref()
+        .map(|s| s.trim().is_empty())
+        .unwrap_or(true)
+    {
+        return Err(QboError::InvalidPayload(
+            "QuickBooks is not authorized yet. Complete OAuth authorization before refreshing accounts.".to_string(),
+        ));
+    }
+    let access_token = match integ
+        .access_token
+        .as_ref()
+        .and_then(|s| decrypt_token(s))
+        .filter(|s| !s.trim().is_empty())
+    {
+        Some(token)
+            if integ
+                .token_expires_at
+                .map(|t| t > Utc::now())
+                .unwrap_or(false) =>
+        {
+            token
+        }
+        _ => refresh_access_token(&state.db, &integ).await?,
+    };
+
+    let query = "select * from Account where Active in (true, false) order by AcctNum, Name";
+    let url = format!(
+        "{}/v3/company/{}/query",
+        qbo_base_url(integ.use_sandbox),
+        realm_id
+    );
+    let res = state
+        .http_client
+        .get(url)
+        .bearer_auth(access_token)
+        .query(&[("query", query), ("minorversion", "73")])
+        .send()
+        .await
+        .map_err(|e| QboError::Conflict(format!("QBO accounts request failed: {e}")))?;
+    let status = res.status();
+    if !status.is_success() {
+        let body = res
+            .text()
+            .await
+            .unwrap_or_else(|_| "unknown QBO accounts error".to_string());
+        let _ = record_integration_failure(&state.db, "qbo_accounts_refresh", &body).await;
+        return Err(QboError::Conflict(format!(
+            "QuickBooks rejected the account refresh: {body}"
+        )));
+    }
+    let body = res
+        .json::<QboQueryResponse>()
+        .await
+        .map_err(|e| QboError::Conflict(format!("invalid QBO accounts response: {e}")))?;
+
+    let mut tx = state.db.begin().await?;
+    sqlx::query("UPDATE qbo_accounts_cache SET is_active = false")
+        .execute(&mut *tx)
+        .await?;
+    let mut count = 0_i64;
+    for account in body.query_response.accounts {
+        let name = account.fully_qualified_name.unwrap_or(account.name);
+        sqlx::query(
+            r#"
+            INSERT INTO qbo_accounts_cache (id, name, account_type, account_number, is_active)
+            VALUES ($1, $2, $3, $4, $5)
+            ON CONFLICT (id) DO UPDATE
+            SET
+                name = EXCLUDED.name,
+                account_type = EXCLUDED.account_type,
+                account_number = EXCLUDED.account_number,
+                is_active = EXCLUDED.is_active,
+                refreshed_at = CURRENT_TIMESTAMP
+            "#,
+        )
+        .bind(&account.id)
+        .bind(&name)
+        .bind(account.account_type.as_deref())
+        .bind(account.account_number.as_deref())
+        .bind(account.active.unwrap_or(true))
+        .execute(&mut *tx)
+        .await?;
+        count += 1;
+    }
 
     sqlx::query(
         r#"
@@ -742,10 +841,12 @@ async fn refresh_accounts_cache(
         WHERE is_active = true
         "#,
     )
-    .execute(&state.db)
+    .execute(&mut *tx)
     .await?;
+    tx.commit().await?;
+    let _ = record_integration_success(&state.db, "qbo_accounts_refresh").await;
 
-    Ok(Json(json!({ "status": "refreshed" })))
+    Ok(Json(json!({ "status": "refreshed", "count": count })))
 }
 
 async fn list_mappings(
