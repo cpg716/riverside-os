@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Building2, ChevronsUpDown, X, ShoppingBag } from "lucide-react";
+import { ChevronsUpDown, X, ShoppingBag } from "lucide-react";
 import DetailDrawer from "../layout/DetailDrawer";
 import { VariationsWorkspace, type HubVariant } from "./VariationsWorkspace";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -18,6 +18,9 @@ import {
   type RosieProductCatalogAnalysisResponse,
   type RosieProductCatalogSuggestionResponse,
 } from "../../lib/rosie";
+import { getAppIcon } from "../../lib/icons";
+
+const VENDOR_ICON = getAppIcon("vendor");
 
 type HubTab = "general" | "variations" | "history";
 
@@ -1118,7 +1121,7 @@ export default function ProductHubDrawer({
                 <dl className="grid gap-3 text-sm sm:grid-cols-2">
                   <div className="sm:col-span-2">
                     <dt className="mb-1.5 flex items-center gap-1.5 text-app-text-muted">
-                      <Building2 size={14} className="text-app-text-muted" />
+                      <VENDOR_ICON size={14} className="text-app-text-muted" />
                       Primary vendor
                     </dt>
                     <dd>

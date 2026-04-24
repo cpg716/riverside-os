@@ -68,6 +68,13 @@ Located in `client/src/components/ui/`, these components serve as the foundation
   - **Features**: Standardized header with Icon + Title + Subtitle; support for footer actions and scrolling lists.
   - **Usage**: Use for "Morning Compass", "Activity Feed", and "Floor Matrix" logic.
 
+## Icon system
+
+- Use **`lucide-react`** as the single icon library for operational UI.
+- Resolve staff-facing domain icons through **`client/src/lib/icons.ts`** instead of hardcoding navigation metaphors in each surface.
+- Default rail/action icons use the shared size rules from **`APP_ICON_SIZES`**; navigation icons use outline styling with a heavier stroke for the active state instead of mixing libraries or weights.
+- Reuse the same semantic mapping for the same concept across shells: for example **Orders**, **Inventory**, **Weddings**, **Gift Cards**, and **RMS Charge** should not change icons between Back Office, POS, drawers, and action entry points.
+
 ## Search and Lookup Components
 
 Riverside OS follows a **search-first administrative mandate**. Direct entry of UUIDs or SKUs is discouraged in favor of fuzzy-search components that provide immediate visual feedback.

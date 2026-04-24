@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState, useCallback } from "react";
-import { AlertCircle, Package, Building2, TrendingUp, Truck, ArrowUpRight } from "lucide-react";
+import { AlertCircle, TrendingUp, ArrowUpRight } from "lucide-react";
 import CategoryManager from "./CategoryManager";
 import InventoryControlBoard from "./InventoryControlBoard";
 import ProductMasterForm from "./ProductMasterForm";
@@ -16,6 +16,11 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { apiUrl } from "../../lib/apiUrl";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import { getAppIcon } from "../../lib/icons";
+
+const INVENTORY_ICON = getAppIcon("inventory");
+const SHIPPING_ICON = getAppIcon("shipping");
+const VENDOR_ICON = getAppIcon("vendor");
 
 type InventorySection =
   | "list"
@@ -204,12 +209,12 @@ export default function InventoryWorkspace({
                 <DashboardStatsCard
                   title="Replenishments"
                   value={(globalStats.oos_replenishment_skus || 0).toString()}
-                  icon={Package}
+                  icon={INVENTORY_ICON}
                 />
                 <DashboardStatsCard
                   title="Suppliers"
                   value={globalStats.active_vendors.toString()}
-                  icon={Building2}
+                  icon={VENDOR_ICON}
                   color="purple"
                 />
             </div>
@@ -240,7 +245,7 @@ export default function InventoryWorkspace({
             <div className="flex flex-col items-center justify-center p-12 py-24 animate-in zoom-in-95 duration-1000">
               <div className="relative group max-w-2xl w-full p-16 rounded-[40px] border-2 border-app-border bg-app-surface shadow-2xl text-center space-y-10 overflow-hidden">
                 <div className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-1/2 h-32 w-32 rounded-3xl bg-app-bg border-4 border-app-border shadow-3xl text-app-accent flex items-center justify-center group-hover:scale-110 group-hover:rotate-6 transition-all duration-700">
-                  <Truck size={48} strokeWidth={2.5} />
+                  <SHIPPING_ICON size={48} strokeWidth={2.5} />
                   <div className="absolute inset-0 bg-app-accent/20 rounded-[32px] blur-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
                 </div>
                 

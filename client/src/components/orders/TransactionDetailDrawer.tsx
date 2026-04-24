@@ -3,17 +3,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Clock,
   ExternalLink,
-  Heart,
   Mail,
   MapPin,
-  Package,
   Phone,
   Printer,
-  Receipt,
   ShieldCheck,
-  ShoppingCart,
   Trash2,
-  User,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -23,6 +18,13 @@ import {
   customVendorLabel,
   type CustomOrderDetails,
 } from "../../lib/customOrders";
+import { getAppIcon } from "../../lib/icons";
+
+const RECEIPT_ICON = getAppIcon("receipt");
+const REGISTER_ICON = getAppIcon("register");
+const ORDERS_ICON = getAppIcon("orders");
+const WEDDINGS_ICON = getAppIcon("weddings");
+const CUSTOMERS_ICON = getAppIcon("customers");
 import DetailDrawer from "../layout/DetailDrawer";
 import ReceiptSummaryModal from "../pos/ReceiptSummaryModal";
 import type { FulfillmentKind } from "../pos/types";
@@ -695,7 +697,6 @@ export default function TransactionDetailDrawer({
       </p>
     </div>
   ) : null;
-
   return (
     <>
       <DetailDrawer
@@ -722,7 +723,7 @@ export default function TransactionDetailDrawer({
                 onClick={() => orderActions.onOpenInRegister?.(detail.transaction_id)}
                 className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:bg-emerald-500 active:translate-y-0.5"
               >
-                <ShoppingCart size={16} />
+                <REGISTER_ICON size={16} />
                 Open in Register
               </button>
             ) : null}
@@ -761,7 +762,7 @@ export default function TransactionDetailDrawer({
             <section className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
                 <div className="flex items-center gap-2">
-                  <Receipt size={16} className="text-app-text-muted" />
+                  <RECEIPT_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
                     Financial Snapshot
                   </h3>
@@ -827,7 +828,7 @@ export default function TransactionDetailDrawer({
 
               <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
                 <div className="flex items-center gap-2">
-                  <Package size={16} className="text-app-text-muted" />
+                  <ORDERS_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
                     Fulfillment Snapshot
                   </h3>
@@ -941,7 +942,7 @@ export default function TransactionDetailDrawer({
             {detail.wedding_summary ? (
               <section className="rounded-2xl border border-rose-500/20 bg-rose-500/8 p-4">
                 <div className="flex items-center gap-2">
-                  <Heart size={16} className="text-rose-500" />
+                  <WEDDINGS_ICON size={16} className="text-rose-500" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-rose-700">
                     Wedding Link
                   </h3>
@@ -981,7 +982,7 @@ export default function TransactionDetailDrawer({
               <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <User size={16} className="text-app-text-muted" />
+                    <CUSTOMERS_ICON size={16} className="text-app-text-muted" />
                     <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
                       Customer
                     </h3>
@@ -1077,7 +1078,7 @@ export default function TransactionDetailDrawer({
             <section className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
-                  <Package size={16} className="text-app-text-muted" />
+                  <ORDERS_ICON size={16} className="text-app-text-muted" />
                   <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text">
                     Items ({detail.items.filter((item) => !item.is_internal).length})
                   </h3>

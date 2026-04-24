@@ -29,7 +29,10 @@ import type { Customer } from "../pos/CustomerSelector";
 import type { RosOpenRegisterFromWmDetail } from "../../lib/weddingPosBridge";
 import type { SidebarTabId } from "./sidebarSections";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
-import { LogOut, ShieldCheck, ShieldAlert, ShoppingCart } from "lucide-react";
+import { LogOut, ShieldCheck, ShieldAlert } from "lucide-react";
+import { getAppIcon, APP_ICON_SIZES } from "../../lib/icons";
+
+const REGISTER_ICON = getAppIcon("register");
 
 
 export interface SessionOpenedPayload {
@@ -224,7 +227,7 @@ export default function PosShell({
 
         {isRegisterOpen && registerLane != null && (
           <div className="px-4 h-8 flex items-center gap-2 rounded-full bg-app-surface-2 border border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted italic shadow-inner">
-            <ShoppingCart size={12} className="text-app-accent" /> Register #{registerLane}
+            <REGISTER_ICON size={APP_ICON_SIZES.badge} className="text-app-accent" /> Register #{registerLane}
           </div>
         )}
 

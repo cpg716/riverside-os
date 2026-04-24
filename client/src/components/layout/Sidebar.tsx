@@ -1,19 +1,5 @@
 import { useMemo } from "react";
 import {
-  LayoutDashboard,
-  Users,
-  LayoutGrid,
-  ShoppingCart,
-  Scissors,
-  Box,
-  Gem,
-  Gift,
-  Star,
-  Shield,
-  Landmark,
-  BarChart3,
-  CalendarClock,
-  Settings,
   ChevronRight,
   ChevronLeft,
 } from "lucide-react";
@@ -30,6 +16,7 @@ import { useNotificationCenterOptional } from "../../context/NotificationCenterC
 
 import type { SidebarTabId } from "./sidebarSections";
 import { SIDEBAR_SUB_SECTIONS } from "./sidebarSections";
+import { APP_NAV_ICON_NAMES, getAppIcon, getNavIconProps } from "../../lib/icons";
 
 interface SidebarProps {
   activeTab: SidebarTabId;
@@ -64,41 +51,41 @@ export default function Sidebar({
   const menuItems = useMemo(
     () =>
       [
-        { id: "home", label: "Operations", surface: "BackOffice", icon: LayoutGrid },
-        { id: "register", label: "POS", surface: "POS-Core", icon: ShoppingCart },
-        { id: "customers", label: "Customers", surface: "POS-Core", icon: Users },
+        { id: "home", label: "Operations", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.home) },
+        { id: "register", label: "POS", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.register) },
+        { id: "customers", label: "Customers", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.customers) },
         {
           id: "alterations",
           label: "Alterations",
           surface: "POS-Core",
-          icon: Scissors,
+          icon: getAppIcon(APP_NAV_ICON_NAMES.alterations),
         },
-        { id: "orders", label: "Orders", surface: "POS-Core", icon: ShoppingCart },
-        { id: "inventory", label: "Inventory", surface: "BackOffice", icon: Box },
-        { id: "weddings", label: "Weddings", surface: "BackOffice", icon: Gem },
-        { id: "gift-cards", label: "Gift Cards", surface: "BackOffice", icon: Gift },
-        { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: Star },
-        { id: "staff", label: "Staff", surface: "BackOffice", icon: Shield },
-        { id: "qbo", label: "QBO bridge", surface: "BackOffice", icon: Landmark },
-        { id: "reports", label: "Reports", surface: "BackOffice", icon: BarChart3 },
+        { id: "orders", label: "Orders", surface: "POS-Core", icon: getAppIcon(APP_NAV_ICON_NAMES.orders) },
+        { id: "inventory", label: "Inventory", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.inventory) },
+        { id: "weddings", label: "Weddings", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.weddings) },
+        { id: "gift-cards", label: "Gift Cards", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES["gift-cards"]) },
+        { id: "loyalty", label: "Loyalty", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.loyalty) },
+        { id: "staff", label: "Staff", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.staff) },
+        { id: "qbo", label: "QBO bridge", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.qbo) },
+        { id: "reports", label: "Reports", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.reports) },
         {
           id: "dashboard",
           label: "Insights",
           surface: "BackOffice",
-          icon: LayoutDashboard,
+          icon: getAppIcon(APP_NAV_ICON_NAMES.dashboard),
         },
         {
           id: "appointments",
           label: "Appointments",
           surface: "BackOffice",
-          icon: CalendarClock,
+          icon: getAppIcon(APP_NAV_ICON_NAMES.appointments),
         },
-        { id: "settings", label: "Settings", surface: "BackOffice", icon: Settings },
+        { id: "settings", label: "Settings", surface: "BackOffice", icon: getAppIcon(APP_NAV_ICON_NAMES.settings) },
       ] as {
         id: SidebarTabId;
         label: string;
         surface: WorkspaceSurface;
-        icon: typeof ShoppingCart;
+        icon: ReturnType<typeof getAppIcon>;
       }[],
     [],
   );
@@ -154,6 +141,8 @@ export default function Sidebar({
               ? "POS — selling & lane tools"
               : `${item.label} (${item.surface === "POS-Core" ? "POS" : "Back Office"})`;
 
+          const navIconProps = getNavIconProps(isActive);
+
           return (
             <div key={item.id}>
               <SidebarRailTooltip enabled={collapsed} label={tipLabel}>
@@ -181,8 +170,16 @@ export default function Sidebar({
                   {isActive && !collapsed && (
                     <span className="absolute left-0 top-2 bottom-2 w-1 rounded-r-full bg-app-accent" />
                   )}
-                  <span className="relative shrink-0">
-                    <Icon size={17} aria-hidden className={isActive ? "text-app-accent" : ""} />
+                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center">
+                    <Icon
+                      {...navIconProps}
+                      aria-hidden
+                      className={`transition-all duration-150 ${
+                        isActive
+                          ? "scale-105 text-app-accent"
+                          : "text-current group-hover:text-app-text"
+                      }`}
+                    />
                     {collapsed && item.id === "home" && showPodiumInboxDot ? (
                       <span
                         className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-app-surface bg-rose-600 px-0.5 text-[9px] font-black leading-none text-white"

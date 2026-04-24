@@ -10,16 +10,13 @@ import { useScanner } from "../../hooks/useScanner";
 import {
   Search,
   RotateCcw,
-  Users,
   X,
   ArrowLeftRight,
   Truck,
   UserCircle,
-  CreditCard,
   Clock,
   Zap,
   Package,
-  History,
   ScanSearch,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
@@ -85,6 +82,11 @@ import { useParkedSales } from "../../hooks/useParkedSales";
 import { deleteParkedSaleOnServer } from "../../lib/posParkedSales";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
 import { CartItemRow } from "./cart/CartItemRow";
+import { getAppIcon } from "../../lib/icons";
+
+const WEDDINGS_ICON = getAppIcon("weddings");
+const GIFT_CARDS_ICON = getAppIcon("giftCards");
+const ORDER_HISTORY_ICON = getAppIcon("orderHistory");
 
 interface OpenDepositPrompt {
   cents: number;
@@ -1015,7 +1017,7 @@ export default function Cart({
             <div className="flex items-center justify-between rounded-xl border border-app-accent/30 bg-app-accent/5 p-2 animate-in slide-in-from-top duration-300">
               <div className="flex min-w-0 items-center gap-2.5">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
-                  <Users size={14} />
+                  <WEDDINGS_ICON size={14} />
                 </div>
                 <div className="min-w-0">
                   <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-accent">
@@ -1157,7 +1159,7 @@ export default function Cart({
                 }}
                 className={`ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 px-3 transition-all active:scale-95 ${activeWeddingMember ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-accent"}`}
               >
-                <Users size={16} />
+                <WEDDINGS_ICON size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
                   {activeWeddingMember ? "Switch" : "Wedding"}
                 </span>
@@ -1198,7 +1200,7 @@ export default function Cart({
                 title="Enter load amount, then scan or type the card code"
                 className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-emerald-600/40 bg-emerald-50 px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-all hover:bg-emerald-600 hover:text-white"
               >
-                <CreditCard size={16} className="shrink-0" aria-hidden />
+                <GIFT_CARDS_ICON size={16} className="shrink-0" aria-hidden />
                 Gift Card
               </button>
               <button
@@ -1240,7 +1242,7 @@ export default function Cart({
                 title={selectedCustomer ? "View previous orders for this customer" : "Select a customer to view orders"}
                 className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-indigo-600/40 bg-indigo-50 px-3 text-[10px] font-black uppercase tracking-widest text-indigo-800 transition-all hover:bg-indigo-600 hover:text-white disabled:opacity-20"
               >
-                <History size={16} className="shrink-0" aria-hidden />
+                <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
                 Orders
               </button>
           </div>

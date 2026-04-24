@@ -15,8 +15,6 @@ import {
 } from "../../lib/money";
 import {
   Activity,
-  Heart,
-  Package,
   Search,
   RotateCcw,
 } from "lucide-react";
@@ -28,6 +26,10 @@ import TransactionDetailDrawer, {
 import DashboardGridCard from "../ui/DashboardGridCard";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { getAppIcon } from "../../lib/icons";
+
+const WEDDINGS_ICON = getAppIcon("weddings");
+const ORDERS_ICON = getAppIcon("orders");
 
 function cn(...inputs: (string | undefined | null | boolean)[]) {
   return twMerge(clsx(inputs));
@@ -187,7 +189,7 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
               <div>
                 <p className="text-[11px] font-bold text-app-text flex items-center gap-1.5">
                   {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
-                  {row.party_name && <Heart size={10} className="text-rose-500" />}
+                  {row.party_name && <WEDDINGS_ICON size={10} className="text-rose-500" />}
                 </p>
                 <div className="mt-0.5 flex flex-wrap items-center gap-2">
                   <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
@@ -764,7 +766,7 @@ export default function OrdersWorkspace({
         <DashboardGridCard 
           title={section === "open" ? "Open Orders" : "Closed Orders"}
           subtitle={`${totalCount} orders`}
-          icon={Package}
+          icon={ORDERS_ICON}
           className="flex-1"
           contentClassName="p-0 flex flex-col"
         >

@@ -1,4 +1,5 @@
-import { Gift, PlusCircle } from "lucide-react";
+import { PlusCircle } from "lucide-react";
+import { getAppIcon } from "../../lib/icons";
 
 interface QuickKeysProps {
   disabled?: boolean;
@@ -9,7 +10,7 @@ const ACTIONS = [
   {
     id: "gift-card",
     label: "Gift Card",
-    icon: Gift,
+    icon: getAppIcon("giftCards"),
     color: "text-purple-600 bg-[color-mix(in_srgb,var(--app-accent-secondary)_8%,var(--app-surface))] border-purple-200/20",
   },
   {
