@@ -712,7 +712,7 @@ export default function TransactionDetailDrawer({
               type="button"
               onClick={() => setShowReceiptModal(true)}
               disabled={!detail}
-              className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:bg-emerald-500 active:translate-y-0.5 disabled:opacity-50"
+              className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:bg-emerald-500 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Printer size={16} />
               Reprint Receipt
@@ -721,7 +721,7 @@ export default function TransactionDetailDrawer({
               <button
                 type="button"
                 onClick={() => orderActions.onOpenInRegister?.(detail.transaction_id)}
-                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:bg-emerald-500 active:translate-y-0.5"
+                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-emerald-800 bg-emerald-600 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:bg-emerald-500 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25"
               >
                 <REGISTER_ICON size={16} />
                 Open in Register
@@ -731,7 +731,7 @@ export default function TransactionDetailDrawer({
               <button
                 type="button"
                 onClick={() => onOpenTransactionInBackoffice(detail.transaction_id)}
-                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-accent/80 bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg hover:opacity-90 active:translate-y-0.5"
+                className="flex items-center justify-center gap-2 rounded-xl border-b-4 border-app-accent/80 bg-app-accent py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg transition-all duration-150 hover:opacity-90 active:translate-y-0.5 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/25"
               >
                 <ExternalLink size={16} />
                 Full Operations
@@ -1097,7 +1097,7 @@ export default function TransactionDetailDrawer({
                     <button
                       type="button"
                       onClick={() => orderActions.addBySku?.()}
-                      className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent"
+                      className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all duration-150 hover:border-app-accent/30 hover:bg-app-surface-2 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
                     >
                       Add
                     </button>

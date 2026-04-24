@@ -159,12 +159,12 @@ export default function Sidebar({
                       : undefined
                   }
                   aria-current={isActive ? "page" : undefined}
-                  className={`group relative flex w-full items-center gap-2.5 rounded-xl transition-all duration-150 ${
+                  className={`group relative flex w-full cursor-pointer items-center gap-2.5 rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
                     collapsed ? "ui-touch-target justify-center px-2 py-2.5" : "min-h-11 px-3 py-2.5"
                   } ${
                     isActive
-                      ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm"
-                      : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                      ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm active:scale-[0.99]"
+                      : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text hover:shadow-sm active:scale-[0.99]"
                   }`}
                 >
                   {isActive && !collapsed && (
@@ -212,7 +212,7 @@ export default function Sidebar({
                       key={sub.id}
                       type="button"
                       onClick={() => onSubSectionChange(sub.id)}
-                      className={`flex w-full items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                      className={`flex w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
                         activeSubSection === sub.id
                           ? "bg-app-surface-2 font-black text-app-accent"
                           : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
@@ -245,7 +245,7 @@ export default function Sidebar({
           <button
             type="button"
             onClick={onToggleCollapse}
-            className={`flex w-full items-center rounded-xl border border-app-border bg-app-surface-2 text-app-text-muted shadow-sm transition-all hover:bg-app-surface hover:text-app-text ${
+            className={`flex w-full cursor-pointer items-center rounded-xl border border-app-border bg-app-surface-2 text-app-text-muted shadow-sm transition-all duration-150 hover:bg-app-surface hover:text-app-text active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
               collapsed ? "ui-touch-target justify-center px-0" : "min-h-11 gap-3 px-4 py-3"
             }`}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}

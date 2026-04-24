@@ -171,7 +171,7 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
       onClick={onClick}
       onDoubleClick={() => actions.onOpenInRegister?.(row.transaction_id)}
       className={cn(
-        "cursor-pointer transition-all hover:bg-app-bg group",
+        "group cursor-pointer transition-all duration-150 hover:bg-app-bg focus-within:bg-app-bg/80",
         isSelected ? "bg-app-bg/80 border-l-4 border-emerald-500" : "bg-app-surface border-l-4 border-transparent"
       )}
     >
@@ -233,7 +233,7 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
           </p>
            <button 
              onClick={(e) => { e.stopPropagation(); actions.onOpenInRegister?.(row.transaction_id); }}
-             className="opacity-0 group-hover:opacity-100 transition-all px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-[9px] font-black uppercase tracking-widest"
+             className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-emerald-500 active:scale-95 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30"
            >
              Open
            </button>
@@ -747,7 +747,7 @@ export default function OrdersWorkspace({
               setDateFrom("");
               setDateTo("");
             }}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:text-rose-500 hover:bg-rose-500/5 transition-all"
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all duration-150 hover:bg-rose-500/5 hover:text-rose-500 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/20"
           >
             <RotateCcw size={14} />
             Reset

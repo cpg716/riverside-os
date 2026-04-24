@@ -529,10 +529,10 @@ export default function ProductHubDrawer({
       key={id}
       type="button"
       onClick={() => setTab(id)}
-      className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] transition-colors ${
+      className={`rounded-xl px-4 py-2 text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/25 active:scale-[0.99] ${
         tab === id
           ? "bg-app-accent text-white"
-          : "bg-app-surface-2 text-app-text-muted hover:text-app-text"
+          : "bg-app-surface-2 text-app-text-muted hover:bg-app-surface hover:text-app-text"
       }`}
     >
       {label}
@@ -574,7 +574,7 @@ export default function ProductHubDrawer({
                 ) : null}
               </div>
 
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4 transition-colors duration-150 hover:bg-app-surface-2">
                 <input
                   type="checkbox"
                   className="mt-1 h-4 w-4 rounded border-app-border"

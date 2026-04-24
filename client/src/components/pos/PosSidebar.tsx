@@ -130,12 +130,12 @@ export default function PosSidebar({
                     onClick={() => onTabChange(tab.id)}
                     aria-label={tab.label}
                     aria-current={isActive ? "page" : undefined}
-                    className={`ui-touch-target group relative flex items-center gap-2.5 rounded-xl transition-all duration-150 ${
+                    className={`ui-touch-target group relative flex cursor-pointer items-center gap-2.5 rounded-xl transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
                       collapsed ? "h-11 w-full justify-center" : "min-h-11 w-full px-3 py-3"
                     } ${
                       isActive
-                        ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm"
-                        : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
+                        ? "border border-app-border bg-app-surface-2 text-app-text shadow-sm active:scale-[0.99]"
+                        : "text-app-text-muted hover:bg-app-surface-2 hover:text-app-text hover:shadow-sm active:scale-[0.99]"
                     }`}
                   >
                     {isActive && !collapsed && (
@@ -163,7 +163,7 @@ export default function PosSidebar({
                         key={sub.id}
                         type="button"
                         onClick={() => onSubSectionChange?.(sub.id)}
-                        className={`flex w-full items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                        className={`flex w-full cursor-pointer items-center gap-1 rounded-lg px-2.5 py-1.5 text-left text-[11px] transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 ${
                           activeSubSection === sub.id
                             ? "bg-app-surface-2 font-black text-app-accent"
                             : "font-semibold text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
@@ -186,7 +186,7 @@ export default function PosSidebar({
           <button
             type="button"
             onClick={onToggleCollapse}
-            className={`flex w-full items-center rounded-xl bg-app-surface-2 text-app-text-muted transition-all hover:bg-app-surface hover:text-app-text border border-app-border shadow-sm touch-manipulation ${
+            className={`flex w-full cursor-pointer items-center rounded-xl bg-app-surface-2 text-app-text-muted transition-all duration-150 hover:bg-app-surface hover:text-app-text active:scale-[0.99] border border-app-border shadow-sm touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30 ${
               collapsed ? "ui-touch-target justify-center px-0" : "min-h-11 gap-3 px-4 py-3"
             }`}
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}

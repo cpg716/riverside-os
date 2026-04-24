@@ -1381,7 +1381,7 @@ export default function Cart({
                         type="button"
                         disabled={!selectedLineKey || !selectedDiscountEventId}
                         onClick={() => applyDiscountEventToSelectedLine()}
-                        className="ui-btn-secondary py-1 text-[9px] font-black uppercase tracking-widest"
+                        className="ui-btn-secondary py-1 text-[9px] font-black uppercase tracking-widest focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/25 disabled:cursor-not-allowed"
                       >
                         Apply
                       </button>
@@ -1399,7 +1399,7 @@ export default function Cart({
                         setShowVoidAllConfirm(true);
                       }
                     }}
-                    className="rounded-lg border border-red-500/35 bg-red-500/[0.06] px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-600 transition-colors hover:bg-red-500 hover:text-white"
+                    className="rounded-lg border border-red-500/35 bg-red-500/[0.06] px-2 py-1 text-[9px] font-black uppercase tracking-widest text-red-600 transition-all duration-150 hover:bg-red-500 hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/25"
                   >
                     Void all
                   </button>
@@ -1436,8 +1436,8 @@ export default function Cart({
                       {posShipping.label}
                     </span>
                     <span className="mt-0.5 flex flex-wrap gap-x-2">
-                      <button type="button" onClick={() => setShippingModalOpen(true)} className="text-[9px] font-bold text-app-accent underline">Edit</button>
-                      <button type="button" onClick={() => setPosShipping(null)} className="text-[9px] font-bold text-red-600 underline">Clear</button>
+                      <button type="button" onClick={() => setShippingModalOpen(true)} className="text-[9px] font-bold text-app-accent underline transition-colors duration-150 hover:text-app-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20">Edit</button>
+                      <button type="button" onClick={() => setPosShipping(null)} className="text-[9px] font-bold text-red-600 underline transition-colors duration-150 hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-red-500/20">Clear</button>
                     </span>
                   </div>
                   <span className="shrink-0 text-xs font-black tabular-nums">${centsToFixed2(posShipping.amount_cents)}</span>
@@ -1448,7 +1448,7 @@ export default function Cart({
                     type="button"
                     disabled={isRmsPaymentCart}
                     onClick={() => setShippingModalOpen(true)}
-                    className="inline-flex items-center gap-1 rounded-full border border-app-border/80 bg-app-surface-2/90 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent/40 hover:bg-app-accent/5 disabled:cursor-not-allowed disabled:opacity-35"
+                    className="inline-flex items-center gap-1 rounded-full border border-app-border/80 bg-app-surface-2/90 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text transition-all duration-150 hover:border-app-accent/40 hover:bg-app-accent/5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <Truck size={11} aria-hidden />
                     Shipping
@@ -1486,7 +1486,7 @@ export default function Cart({
                   type="button"
                   disabled={!selectedLineKey}
                   onClick={() => handleNumpadKey(key)}
-                  className={`flex items-center justify-center rounded-xl border-b-4 text-xl font-black transition-all active:scale-95 disabled:opacity-30 ${key === "CLEAR" ? "border-red-900/40 bg-red-600/10 text-red-600 hover:bg-red-600/20 active:translate-y-0.5" : "border-app-border/40 bg-app-surface-2/95 text-app-text hover:bg-app-surface active:translate-y-0.5"}`}
+                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-xl font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 ${key === "CLEAR" ? "border-red-900/40 bg-red-600/10 text-red-600 hover:bg-red-600/20 focus-visible:ring-red-500/20" : "border-app-border/40 bg-app-surface-2/95 text-app-text hover:bg-app-surface"}`}
                 >
                   {key}
                 </button>
@@ -1496,7 +1496,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("%")}
-                className="flex items-center justify-center rounded-xl bg-indigo-600 border-b-4 border-indigo-900 text-xl font-black text-white shadow-xl shadow-indigo-500/20 transition-all hover:bg-indigo-500 active:translate-y-0.5 active:scale-95 disabled:opacity-30"
+                className="flex cursor-pointer items-center justify-center rounded-xl bg-indigo-600 border-b-4 border-indigo-900 text-xl font-black text-white shadow-xl shadow-indigo-500/20 transition-all duration-150 hover:bg-indigo-500 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 %
               </button>
@@ -1504,7 +1504,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("$")}
-                className="flex items-center justify-center rounded-xl bg-indigo-600 border-b-4 border-indigo-900 text-xl font-black text-white shadow-xl shadow-indigo-500/20 transition-all hover:bg-indigo-500 active:translate-y-0.5 active:scale-95 disabled:opacity-30"
+                className="flex cursor-pointer items-center justify-center rounded-xl bg-indigo-600 border-b-4 border-indigo-900 text-xl font-black text-white shadow-xl shadow-indigo-500/20 transition-all duration-150 hover:bg-indigo-500 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/25 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 $
               </button>
@@ -1512,7 +1512,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("ENTER")}
-                className="flex items-center justify-center rounded-xl border-b-[6px] border-emerald-800 bg-emerald-600 text-base font-black uppercase tracking-widest text-white shadow-2xl shadow-emerald-500/25 transition-all hover:bg-emerald-500 active:translate-y-0.5 active:scale-95 active:border-b-2 disabled:opacity-30"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-[6px] border-emerald-800 bg-emerald-600 text-base font-black uppercase tracking-widest text-white shadow-2xl shadow-emerald-500/25 transition-all duration-150 hover:bg-emerald-500 active:translate-y-0.5 active:scale-95 active:border-b-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-35"
               >
                 Apply
               </button>
@@ -1573,7 +1573,7 @@ export default function Cart({
                  setCheckoutDrawerOpen(true);
                }
              }}
-             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all active:scale-[0.98] active:translate-y-0.5 shadow-2xl ${lines.length > 0 ? 'bg-emerald-600 border-emerald-800 text-white hover:bg-emerald-500 shadow-emerald-500/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
+             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/25 ${lines.length > 0 ? 'bg-emerald-600 border-emerald-800 text-white hover:bg-emerald-500 shadow-emerald-500/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
            >
              <div className="flex flex-col items-start pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
