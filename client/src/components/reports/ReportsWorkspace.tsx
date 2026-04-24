@@ -237,7 +237,7 @@ export default function ReportsWorkspace({
                       {r.description}
                     </span>
                     {r.adminOnly ? (
-                      <span className="mt-3 ui-chip w-fit bg-amber-500/15 text-[10px] font-black uppercase text-amber-900 dark:text-amber-100">
+                      <span className="mt-3 ui-chip w-fit bg-app-warning/10 text-[10px] font-black uppercase text-app-warning">
                         Admin only
                       </span>
                     ) : null}
@@ -345,7 +345,7 @@ export default function ReportsWorkspace({
           {loadErr ? (
             <div
               data-testid="reports-detail-error"
-              className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-800 dark:text-red-200"
+              className="rounded-xl border border-app-danger/20 bg-app-danger/10 px-4 py-3 text-sm font-semibold text-app-text"
             >
               {loadErr}
             </div>
@@ -421,7 +421,7 @@ export default function ReportsWorkspace({
                   typeof payload === "object" &&
                   "truncated" in payload &&
                   (payload as { truncated: boolean }).truncated ? (
-                  <p className="text-xs font-bold text-amber-800 dark:text-amber-200">
+                  <p className="text-xs font-bold text-app-warning">
                     Results truncated at 200 rows — narrow the range or use Metabase for full exports.
                   </p>
                 ) : null
@@ -456,7 +456,7 @@ export default function ReportsWorkspace({
                         rows: tableRows
                       });
                     }}
-                    className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl border-emerald-500/30 px-3 py-2 text-xs font-bold uppercase text-emerald-700 hover:bg-emerald-500 hover:text-white"
+                    className="ui-btn-secondary inline-flex items-center gap-2 rounded-xl border-app-success/20 px-3 py-2 text-xs font-bold uppercase text-app-success hover:bg-app-success hover:text-white"
                   >
                     <Printer className="h-4 w-4" aria-hidden />
                     Print Report
