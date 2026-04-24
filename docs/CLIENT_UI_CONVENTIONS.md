@@ -81,6 +81,7 @@ Located in `client/src/components/ui/`, these components serve as the foundation
 Riverside OS follows a **search-first administrative mandate**. Direct entry of UUIDs or SKUs is discouraged in favor of fuzzy-search components that provide immediate visual feedback.
 
 - **`CustomerSearchInput`**: The canonical component for customer lookups. Supports searching by Name, Customer Code, Phone, or Email. Used in Tasks, Appointments, Gift Cards, and Loyalty adjustments.
+- **`AddressAutocompleteInput`**: Optional helper for customer address entry. It queries the protected customer address-suggestions API, fills address line 1 / city / state / ZIP when staff select a suggestion, and must always preserve manual entry when lookup fails or returns no matches.
 - **`VariantSearchInput`**: The canonical component for product/variant lookups. Supports fuzzy SKU and Name matching. Used in Physical Inventory and Catalog management.
 - **Implementation Pattern**:
   - Components should generally be "optional-link" or "required-search" depending on the business logic.
