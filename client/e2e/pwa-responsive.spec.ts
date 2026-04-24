@@ -13,7 +13,7 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
     await signInToBackOffice(page);
     await expect(page.getByRole("button", { name: "Toggle menu" })).toBeVisible();
     await expect(
-      page.getByRole("combobox", { name: /universal search/i }),
+      page.getByRole("button", { name: /open universal search/i }),
     ).toBeVisible();
   });
 
@@ -47,6 +47,7 @@ test.describe("PWA layout — phone (375×667, iPhone 8 preset)", () => {
 
   test("search overlay stays usable on phone", async ({ page }) => {
     await signInToBackOffice(page);
+    await page.getByRole("button", { name: /open universal search/i }).click();
     const search = page.getByRole("combobox", { name: /universal search/i });
     await search.fill("suit");
     await expect(page.getByRole("listbox", { name: "Search results" })).toBeVisible();
@@ -60,7 +61,7 @@ test.describe("PWA layout — tablet (iPad Pro 11 preset)", () => {
     await signInToBackOffice(page);
     await expect(page.getByRole("button", { name: "Toggle menu" })).toBeVisible();
     await expect(
-      page.getByRole("combobox", { name: /universal search/i }),
+      page.getByRole("button", { name: /open universal search/i }),
     ).toBeVisible();
   });
 

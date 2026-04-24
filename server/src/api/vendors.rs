@@ -210,7 +210,7 @@ async fn create_vendor(
         r#"
         INSERT INTO vendors (name, email, phone, account_number, payment_terms, vendor_code)
         VALUES ($1, $2, $3, $4, $5, $6)
-        RETURNING id, name, email, phone, account_number, payment_terms, vendor_code, nuorder_brand_id as "nuorder_brand_id?", is_active
+        RETURNING id, name, email, phone, account_number, payment_terms, vendor_code, nuorder_brand_id, is_active
         "#,
     )
     .bind(name)

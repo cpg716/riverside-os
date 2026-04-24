@@ -295,7 +295,12 @@ async fn create_draft_po(
         r#"
         INSERT INTO purchase_orders (po_number, vendor_id, expected_at, notes, po_kind)
         VALUES (
-            CONCAT('PO-', TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS')),
+            CONCAT(
+                'PO-',
+                TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS-MS'),
+                '-',
+                LPAD((FLOOR(random() * 1000))::int::text, 3, '0')
+            ),
             $1,
             $2::timestamptz,
             $3,
@@ -329,7 +334,12 @@ async fn create_direct_invoice_draft(
         r#"
         INSERT INTO purchase_orders (po_number, vendor_id, notes, po_kind)
         VALUES (
-            CONCAT('DIR-', TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS')),
+            CONCAT(
+                'DIR-',
+                TO_CHAR(NOW(), 'YYYYMMDD-HH24MISS-MS'),
+                '-',
+                LPAD((FLOOR(random() * 1000))::int::text, 3, '0')
+            ),
             $1,
             'Direct vendor invoice / fill-in receipt',
             'direct_invoice'
