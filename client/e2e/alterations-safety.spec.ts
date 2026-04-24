@@ -233,7 +233,7 @@ test.describe("Alterations safety", () => {
     await expect(intakeFilter).toBeVisible({ timeout: 20_000 });
     await intakeFilter.click();
     await expect(intakeFilter).toHaveClass(/bg-app-accent/);
-    await expect(page.getByText("Item Source")).toBeVisible();
-    await expect(page.getByText("Work Requested")).toBeVisible();
+    await expect(page.getByText("Item Source", { exact: true })).toBeVisible();
+    await expect(page.getByText("Work Requested", { exact: true })).toBeVisible();
   });
 });

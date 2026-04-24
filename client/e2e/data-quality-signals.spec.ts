@@ -1,13 +1,16 @@
 import { expect, test, type Page, type Locator } from "@playwright/test";
 
-import { signInToBackOffice } from "./helpers/backofficeSignIn";
+import {
+  openBackofficeSidebarTab,
+  signInToBackOffice,
+} from "./helpers/backofficeSignIn";
 
-async function openWorkspace(page: Page, label: RegExp, readyTarget: Locator) {
-  const button = page
-    .getByRole("navigation", { name: "Main Navigation" })
-    .getByRole("button", { name: label });
-  await expect(button).toBeVisible({ timeout: 15_000 });
-  await button.click();
+async function openWorkspace(
+  page: Page,
+  tab: "customers" | "inventory",
+  readyTarget: Locator,
+) {
+  await openBackofficeSidebarTab(page, tab);
   await expect(readyTarget).toBeVisible({
     timeout: 30_000,
   });
@@ -145,16 +148,16 @@ test("workspace quality summaries expose lightweight completeness signals", asyn
 
   await openWorkspace(
     page,
-    /^inventory(\s+bo)?$/i,
-    page.getByText("Catalog Completeness"),
+    "inventory",
+    page.getByText("Item Readiness"),
   );
-  await expect(page.getByText("Catalog Completeness")).toBeVisible();
-  await expect(page.getByText("Brand missing")).toBeVisible();
-  await expect(page.getByText("Primary vendor missing")).toBeVisible();
+  await expect(page.getByText("Item Readiness")).toBeVisible();
+  await expect(page.getByText("Optional brand blank")).toBeVisible();
+  await expect(page.getByText("Vendor missing")).toBeVisible();
 
   await openWorkspace(
     page,
-    /customers/i,
+    "customers",
     page.getByText("Customer Completeness"),
   );
   await expect(page.getByText("Customer Completeness")).toBeVisible();

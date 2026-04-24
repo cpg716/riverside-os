@@ -84,9 +84,9 @@ test.describe("Inventory receiving operator verification", () => {
     const invoiceRow = page.locator("tr").filter({ hasText: directInvoice.po_number }).first();
     await expect(invoiceRow).toBeVisible({ timeout: 20_000 });
     await invoiceRow.getByRole("button", { name: /receive/i }).click();
-    await expect(page.getByRole("heading", { name: /receive stock/i })).toBeVisible({
-      timeout: 20_000,
-    });
+    await expect(
+      page.getByRole("heading", { name: /^receive stock$/i }).first(),
+    ).toBeVisible({ timeout: 20_000 });
   });
 
   test("standard PO can be submitted, staged without stock mutation, and then received", async ({
