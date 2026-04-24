@@ -24,13 +24,24 @@ function requireOrSkip(condition: boolean, message: string): void {
 type AlterationRow = {
   id: string;
   customer_id: string;
+  customer_first_name?: string | null;
+  customer_last_name?: string | null;
+  customer_code?: string | null;
   status: string;
+  due_at?: string | null;
+  notes?: string | null;
+  linked_transaction_id?: string | null;
+  linked_transaction_display_id?: string | null;
   source_type?: string | null;
   item_description?: string | null;
   work_requested?: string | null;
+  source_transaction_id?: string | null;
+  source_transaction_line_id?: string | null;
   source_sku?: string | null;
   charge_amount?: string | number | null;
   intake_channel?: string;
+  source_snapshot?: Record<string, unknown> | null;
+  created_at?: string;
 };
 
 type AlterationActivityRow = {
@@ -235,5 +246,152 @@ test.describe("Alterations safety", () => {
     await expect(intakeFilter).toHaveClass(/bg-app-accent/);
     await expect(page.getByText("Item Source", { exact: true })).toBeVisible();
     await expect(page.getByText("Work Requested", { exact: true })).toBeVisible();
+  });
+
+  test("garment workbench groups by due status and labels source garments", async ({
+    page,
+  }) => {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(today.getDate() - 1);
+    const future = new Date(today);
+    future.setDate(today.getDate() + 3);
+    const isoAtNoon = (date: Date) =>
+      new Date(date.getFullYear(), date.getMonth(), date.getDate(), 12, 0, 0).toISOString();
+    const base = {
+      customer_id: "11111111-1111-4111-8111-111111111111",
+      customer_first_name: "Avery",
+      customer_last_name: "Tailor",
+      customer_code: "ALT-WB",
+      notes: null,
+      linked_transaction_id: null,
+      linked_transaction_display_id: null,
+      source_transaction_id: null,
+      source_transaction_line_id: null,
+      charge_amount: null,
+      intake_channel: "standalone",
+      source_snapshot: null,
+      created_at: today.toISOString(),
+    };
+    const rows: AlterationRow[] = [
+      {
+        ...base,
+        id: "11111111-1111-4111-8111-111111111101",
+        status: "in_work",
+        due_at: isoAtNoon(yesterday),
+        source_type: "past_transaction_line",
+        item_description: "Charcoal tuxedo pants",
+        work_requested: "Hem pants",
+        source_sku: "PAST-PANTS",
+        source_transaction_id: "22222222-2222-4222-8222-222222222222",
+        source_transaction_line_id: "33333333-3333-4333-8333-333333333333",
+        linked_transaction_display_id: "TXN-PAST",
+      },
+      {
+        ...base,
+        id: "11111111-1111-4111-8111-111111111102",
+        status: "intake",
+        due_at: isoAtNoon(today),
+        source_type: "current_cart_item",
+        item_description: "Current sale suit jacket",
+        work_requested: "Shorten sleeves",
+        source_sku: "CURR-JACKET",
+      },
+      {
+        ...base,
+        id: "11111111-1111-4111-8111-111111111103",
+        status: "ready",
+        due_at: isoAtNoon(future),
+        source_type: "catalog_item",
+        item_description: "Stock navy blazer",
+        work_requested: "Press and tag",
+        source_sku: "STOCK-BLAZER",
+        charge_amount: "15.00",
+      },
+      {
+        ...base,
+        id: "11111111-1111-4111-8111-111111111104",
+        status: "intake",
+        due_at: null,
+        source_type: "custom_item",
+        item_description: "Customer-owned gown",
+        work_requested: "Take in sides",
+      },
+      {
+        ...base,
+        id: "11111111-1111-4111-8111-111111111105",
+        status: "in_work",
+        due_at: isoAtNoon(future),
+        source_type: "past_transaction_line",
+        item_description: "Open order vest",
+        work_requested: "Let out back",
+        source_sku: "ORDER-VEST",
+        source_transaction_id: "44444444-4444-4444-8444-444444444444",
+        source_transaction_line_id: "55555555-5555-4555-8555-555555555555",
+        linked_transaction_display_id: "TXN-ORDER",
+        source_snapshot: { fulfillment: "special_order" },
+      },
+    ];
+
+    await page.route("**/api/alterations", async (route) => {
+      if (route.request().method() !== "GET") {
+        await route.fallback();
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(rows),
+      });
+    });
+
+    await signInToBackOffice(page, { persistSession: true });
+    await openBackofficeSidebarTab(page, "alterations");
+
+    await expect(page.getByTestId("alteration-workbench-section-overdue")).toContainText(
+      "Charcoal tuxedo pants",
+    );
+    await expect(page.getByTestId("alteration-workbench-section-due_today")).toContainText(
+      "Current sale suit jacket",
+    );
+    await expect(page.getByTestId("alteration-workbench-section-ready")).toContainText(
+      "Stock navy blazer",
+    );
+    await expect(page.getByTestId("alteration-workbench-section-intake")).toContainText(
+      "Customer-owned gown",
+    );
+    await expect(page.getByTestId("alteration-workbench-section-in_work")).toContainText(
+      "Open order vest",
+    );
+
+    const cards = page.getByTestId("alteration-workbench-card");
+    await expect(cards.filter({ hasText: "Current sale suit jacket" })).toContainText(
+      "Current sale",
+    );
+    await expect(cards.filter({ hasText: "Stock navy blazer" })).toContainText(
+      "Stock/catalog item",
+    );
+    await expect(cards.filter({ hasText: "Open order vest" })).toContainText("Existing order");
+    await expect(cards.filter({ hasText: "Charcoal tuxedo pants" })).toContainText(
+      "Past purchase",
+    );
+    await expect(cards.filter({ hasText: "Customer-owned gown" })).toContainText(
+      "Custom/manual item",
+    );
+    await expect(page.getByText(/Source TXN-ORDER \/ garment line/i)).toBeVisible();
+    await expect(page.getByText("Charge noted: $15.00")).toBeVisible();
+
+    await page.getByTestId("alterations-due-filter-ready").click();
+    await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
+    await expect(page.getByTestId("alteration-workbench-section-ready")).toContainText(
+      "Stock navy blazer",
+    );
+
+    await page.getByTestId("alterations-due-filter-all").click();
+    await page.getByTestId("alterations-source-filter").selectOption("current_cart_item");
+    await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
+    await expect(page.getByTestId("alteration-workbench-section-due_today")).toContainText(
+      "Current sale suit jacket",
+    );
   });
 });
