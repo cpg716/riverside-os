@@ -41,8 +41,11 @@ export type RosieChatCompletionResponse = {
     index?: number;
     finish_reason?: string | null;
     text?: string;
+    content?: string;
     message?: {
       role?: string;
+      text?: string;
+      reasoning_content?: string;
       content?: string | Array<{ type?: string; text?: string }>;
     };
   }>;
@@ -1206,6 +1209,9 @@ function extractRosieCompletionAnswer(
     }
   }
   for (const choice of completion.choices ?? []) {
+    if (typeof choice.content === "string" && choice.content.trim()) {
+      return choice.content.trim();
+    }
     const content = choice.message?.content;
     if (typeof content === "string" && content.trim()) {
       return content.trim();
@@ -1221,8 +1227,76 @@ function extractRosieCompletionAnswer(
     if (typeof choice.text === "string" && choice.text.trim()) {
       return choice.text.trim();
     }
+    if (typeof choice.message?.text === "string" && choice.message.text.trim()) {
+      return choice.message.text.trim();
+    }
+    if (
+      typeof choice.message?.reasoning_content === "string" &&
+      choice.message.reasoning_content.trim()
+    ) {
+      return choice.message.reasoning_content.trim();
+    }
   }
   return "";
+}
+
+function summarizeRosieFallbackValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+function buildRosieGroundedFallbackAnswer(
+  request: RosieGroundedHelpRequest,
+  context: RosieToolContextResponse,
+): string {
+  const reportTool = context.tool_results.find((tool) => tool.tool_name === "reporting_run");
+  if (reportTool) {
+    const summary = summarizeRosieFallbackValue(reportTool.result).slice(0, 420);
+    return [
+      "I found an approved RiversideOS report result, but the local model did not produce a final sentence.",
+      summary
+        ? `Here is the returned report context: ${summary}`
+        : "The report returned, but it did not include displayable summary data.",
+    ].join(" ");
+  }
+
+  const operationalTool = context.tool_results.find((tool) =>
+    [
+      "order_summary",
+      "customer_hub_snapshot",
+      "wedding_actions",
+      "inventory_variant_intelligence",
+    ].includes(tool.tool_name),
+  );
+  if (operationalTool) {
+    const summary = summarizeRosieFallbackValue(operationalTool.result).slice(0, 420);
+    return [
+      `I found approved ${operationalTool.tool_name.replaceAll("_", " ")} context, but the local model did not produce a final sentence.`,
+      summary
+        ? `Here is the returned operational context: ${summary}`
+        : "The tool returned, but it did not include displayable summary data.",
+    ].join(" ");
+  }
+
+  const source = context.sources.find((entry) => entry.excerpt.trim());
+  if (source) {
+    return [
+      request.mode === "conversation"
+        ? "I found grounded RiversideOS guidance, but the local model did not produce a final sentence."
+        : "I found grounded Help Center guidance, but the local model did not produce a final sentence.",
+      `${source.title}: ${source.excerpt.slice(0, 520)}`,
+    ].join(" ");
+  }
+
+  return request.mode === "conversation"
+    ? "I could not get a final answer from the local ROSIE model, and no approved RiversideOS context was returned for that question. Try asking again with a specific customer, order, report, wedding, or inventory item."
+    : "I could not get a final answer from the local ROSIE model, and no Help Center source was returned for that question. Try a more specific workflow or search term.";
 }
 
 export async function askRosieGroundedHelp(
@@ -1289,7 +1363,7 @@ export async function askRosieGroundedHelp(
   }
 
   if (!answer) {
-    throw new Error("ROSIE did not return a usable answer. Try again in Conversation Mode.");
+    answer = buildRosieGroundedFallbackAnswer(request, context);
   }
 
   return {
