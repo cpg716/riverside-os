@@ -133,6 +133,123 @@ impl IntoResponse for CustomerError {
 }
 
 const CUSTOMER_LIFECYCLE_ACTIVE_DAYS: i64 = 90;
+const ADDRESS_LOOKUP_MIN_QUERY_LEN: usize = 8;
+const ADDRESS_LOOKUP_MAX_RESULTS: usize = 5;
+const CENSUS_ADDRESS_LOOKUP_URL: &str =
+    "https://geocoding.geo.census.gov/geocoder/locations/onelineaddress";
+
+#[derive(Debug, Deserialize)]
+struct AddressSuggestionQuery {
+    q: String,
+}
+
+#[derive(Debug, Serialize)]
+struct AddressSuggestion {
+    id: String,
+    label: String,
+    address_line1: String,
+    city: String,
+    state: String,
+    postal_code: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct CensusAddressLookupResponse {
+    result: Option<CensusAddressLookupResult>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CensusAddressLookupResult {
+    #[serde(rename = "addressMatches")]
+    address_matches: Option<Vec<CensusAddressMatch>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CensusAddressMatch {
+    #[serde(rename = "addressComponents")]
+    address_components: Option<CensusAddressComponents>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CensusAddressComponents {
+    #[serde(rename = "fromAddress")]
+    from_address: Option<String>,
+    #[serde(rename = "preDirection")]
+    pre_direction: Option<String>,
+    #[serde(rename = "preType")]
+    pre_type: Option<String>,
+    #[serde(rename = "streetName")]
+    street_name: Option<String>,
+    #[serde(rename = "suffixType")]
+    suffix_type: Option<String>,
+    #[serde(rename = "suffixDirection")]
+    suffix_direction: Option<String>,
+    city: Option<String>,
+    state: Option<String>,
+    zip: Option<String>,
+}
+
+fn title_case_address(value: &str) -> String {
+    value
+        .split_whitespace()
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => {
+                    format!(
+                        "{}{}",
+                        first.to_uppercase(),
+                        chars.as_str().to_ascii_lowercase()
+                    )
+                }
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn build_census_street_line(parts: &CensusAddressComponents) -> String {
+    [
+        parts.from_address.as_deref(),
+        parts.pre_direction.as_deref(),
+        parts.pre_type.as_deref(),
+        parts.street_name.as_deref(),
+        parts.suffix_type.as_deref(),
+        parts.suffix_direction.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .map(str::trim)
+    .filter(|part| !part.is_empty())
+    .collect::<Vec<_>>()
+    .join(" ")
+}
+
+fn map_census_address_match(
+    address_match: CensusAddressMatch,
+    index: usize,
+) -> Option<AddressSuggestion> {
+    let parts = address_match.address_components?;
+    let address_line1 = build_census_street_line(&parts);
+    let city = parts.city?.trim().to_string();
+    let state = parts.state?.trim().to_ascii_uppercase();
+    let postal_code = parts.zip?.trim().to_string();
+    if address_line1.is_empty() || city.is_empty() || state.is_empty() || postal_code.is_empty() {
+        return None;
+    }
+    let address_line1 = title_case_address(&address_line1);
+    let city = title_case_address(&city);
+    let label = format!("{address_line1}, {city}, {state} {postal_code}");
+    Some(AddressSuggestion {
+        id: format!("{label}-{index}"),
+        label,
+        address_line1,
+        city,
+        state,
+        postal_code,
+    })
+}
 
 fn normalize_customer_lifecycle_filter(raw: Option<&str>) -> Option<&'static str> {
     match raw.map(str::trim).filter(|value| !value.is_empty()) {
@@ -867,6 +984,59 @@ async fn get_duplicate_candidates(
     )
     .await?;
     Ok(Json(rows))
+}
+
+async fn get_address_suggestions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<AddressSuggestionQuery>,
+) -> Result<Json<Vec<AddressSuggestion>>, CustomerError> {
+    require_customer_access(&state, &headers).await?;
+    let query = q.q.trim();
+    if query.len() < ADDRESS_LOOKUP_MIN_QUERY_LEN {
+        return Ok(Json(Vec::new()));
+    }
+
+    let res = state
+        .http_client
+        .get(CENSUS_ADDRESS_LOOKUP_URL)
+        .query(&[
+            ("address", query),
+            ("benchmark", "Public_AR_Current"),
+            ("format", "json"),
+        ])
+        .send()
+        .await;
+
+    let Ok(res) = res else {
+        tracing::warn!("customer address lookup request failed");
+        return Ok(Json(Vec::new()));
+    };
+    if !res.status().is_success() {
+        tracing::warn!(
+            status = %res.status(),
+            "customer address lookup returned non-success status"
+        );
+        return Ok(Json(Vec::new()));
+    }
+
+    let body = res.json::<CensusAddressLookupResponse>().await;
+    let Ok(body) = body else {
+        tracing::warn!("customer address lookup response was not valid JSON");
+        return Ok(Json(Vec::new()));
+    };
+
+    let suggestions = body
+        .result
+        .and_then(|result| result.address_matches)
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .filter_map(|(index, address_match)| map_census_address_match(address_match, index))
+        .take(ADDRESS_LOOKUP_MAX_RESULTS)
+        .collect();
+
+    Ok(Json(suggestions))
 }
 
 #[derive(Debug, Serialize, FromRow)]
@@ -1884,6 +2054,7 @@ async fn list_rms_charge_records(
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", post(create_customer))
+        .route("/address-suggestions", get(get_address_suggestions))
         .route("/duplicate-candidates", get(get_duplicate_candidates))
         .route("/duplicate-review-queue", get(list_duplicate_review_queue))
         .route(

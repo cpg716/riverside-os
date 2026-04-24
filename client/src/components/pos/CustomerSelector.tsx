@@ -4,6 +4,7 @@ import { apiUrl } from "../../lib/apiUrl";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX, Clock } from "lucide-react";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import { useToast } from "../ui/ToastProviderLogic";
 import type { WeddingMembership } from "./customerProfileTypes";
 
@@ -594,6 +595,40 @@ export default function CustomerSelector({
                   value={newCustomer.email}
                   onChange={(e) => setNewCustomer(p => ({ ...p, email: e.target.value }))}
                />
+               <AddressAutocompleteInput
+                  label="Address (optional)"
+                  value={newCustomer.address_line1}
+                  onChange={(value) => setNewCustomer(p => ({ ...p, address_line1: value }))}
+                  onSelectAddress={(suggestion) => setNewCustomer(p => ({
+                    ...p,
+                    address_line1: suggestion.address_line1,
+                    city: suggestion.city,
+                    state: suggestion.state,
+                    postal_code: suggestion.postal_code,
+                  }))}
+                  inputClassName="ui-input h-10 w-full px-3 text-sm font-bold"
+               />
+               <div className="grid grid-cols-[1fr_64px_88px] gap-2">
+                  <input
+                    placeholder="City"
+                    className="ui-input h-10 px-3 text-sm font-bold"
+                    value={newCustomer.city}
+                    onChange={(e) => setNewCustomer(p => ({ ...p, city: e.target.value }))}
+                  />
+                  <input
+                    placeholder="ST"
+                    className="ui-input h-10 px-3 text-sm font-bold uppercase"
+                    value={newCustomer.state}
+                    onChange={(e) => setNewCustomer(p => ({ ...p, state: e.target.value.toUpperCase() }))}
+                    maxLength={2}
+                  />
+                  <input
+                    placeholder="ZIP"
+                    className="ui-input h-10 px-3 text-sm font-bold tabular-nums"
+                    value={newCustomer.postal_code}
+                    onChange={(e) => setNewCustomer(p => ({ ...p, postal_code: e.target.value }))}
+                  />
+               </div>
                <button
                   type="submit"
                   disabled={loading}

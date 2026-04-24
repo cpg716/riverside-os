@@ -100,6 +100,195 @@ async function openCustomersWorkspace(page: Page) {
   ).toBeVisible({ timeout: 25_000 });
 }
 
+async function mockCustomerWorkspaceBasics(page: Page) {
+  await page.route("**/api/customers/groups", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([]),
+    });
+  });
+
+  await page.route("**/api/customers/pipeline-stats", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        total_customers: 0,
+        vip_customers: 0,
+        with_balance: 0,
+        upcoming_weddings: 0,
+      }),
+    });
+  });
+
+  await page.route("**/api/customers/browse*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([]),
+    });
+  });
+
+  await page.route("**/api/customers/duplicate-candidates*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([]),
+    });
+  });
+}
+
+async function openAddCustomerDrawer(page: Page) {
+  await signInToBackOffice(page);
+  await openCustomersWorkspace(page);
+  await page.getByRole("button", { name: /add customer/i }).last().click();
+  const drawer = page.getByRole("dialog", { name: /add customer/i });
+  await expect(drawer).toBeVisible();
+  return drawer;
+}
+
+async function fillRequiredCustomerFields(page: Page) {
+  const unique = Date.now().toString().slice(-6);
+  await page.getByLabel(/first name/i).fill(`Address${unique}`);
+  await page.getByLabel(/last name/i).fill("Autocomplete");
+  await page.getByPlaceholder("(555) 000-0000").first().fill("(555) 111-2222");
+  await page
+    .getByRole("textbox", { name: /email \(optional\)/i })
+    .fill(`address-${unique}@example.com`);
+}
+
+test("add customer accepts manual address entry without suggestions", async ({
+  page,
+}) => {
+  await mockCustomerWorkspaceBasics(page);
+  await page.route("**/api/customers/address-suggestions*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([]),
+    });
+  });
+
+  let payload: Record<string, unknown> | null = null;
+  await page.route("**/api/customers", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    payload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "33333333-3333-4333-8333-333333333333",
+        customer_code: "CUST-ADDR-MANUAL",
+      }),
+    });
+  });
+
+  await openAddCustomerDrawer(page);
+  await fillRequiredCustomerFields(page);
+  await page.getByLabel(/address line 1/i).fill("12 Manual Way");
+  await page.getByLabel(/^city$/i).fill("Buffalo");
+  await page.getByLabel(/^state$/i).fill("NY");
+  await page.getByLabel(/postal code/i).fill("14202");
+  await page.getByRole("button", { name: /create customer/i }).click();
+
+  await expect
+    .poll(() => payload?.address_line1)
+    .toBe("12 Manual Way");
+  expect(payload).toMatchObject({
+    city: "Buffalo",
+    state: "NY",
+    postal_code: "14202",
+  });
+});
+
+test("add customer address suggestion fills city state and ZIP", async ({
+  page,
+}) => {
+  await mockCustomerWorkspaceBasics(page);
+  await page.route("**/api/customers/address-suggestions*", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify([
+        {
+          id: "suggestion-1",
+          label: "4600 Silver Hill Rd, Washington, DC 20233",
+          address_line1: "4600 Silver Hill Rd",
+          city: "Washington",
+          state: "DC",
+          postal_code: "20233",
+        },
+      ]),
+    });
+  });
+
+  await openAddCustomerDrawer(page);
+  await fillRequiredCustomerFields(page);
+  await page.getByLabel(/address line 1/i).fill("4600 Silver Hill");
+  await page
+    .getByRole("button", { name: /4600 silver hill rd/i })
+    .click();
+
+  await expect(page.getByLabel(/address line 1/i)).toHaveValue(
+    "4600 Silver Hill Rd",
+  );
+  await expect(page.getByLabel(/^city$/i)).toHaveValue("Washington");
+  await expect(page.getByLabel(/^state$/i)).toHaveValue("DC");
+  await expect(page.getByLabel(/postal code/i)).toHaveValue("20233");
+});
+
+test("failed address lookup keeps add customer form usable", async ({
+  page,
+}) => {
+  await mockCustomerWorkspaceBasics(page);
+  await page.route("**/api/customers/address-suggestions*", async (route) => {
+    await route.fulfill({
+      status: 502,
+      contentType: "application/json",
+      body: JSON.stringify({ error: "lookup unavailable" }),
+    });
+  });
+
+  let payload: Record<string, unknown> | null = null;
+  await page.route("**/api/customers", async (route) => {
+    if (route.request().method() !== "POST") {
+      await route.continue();
+      return;
+    }
+    payload = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        id: "44444444-4444-4444-8444-444444444444",
+        customer_code: "CUST-ADDR-FAIL",
+      }),
+    });
+  });
+
+  await openAddCustomerDrawer(page);
+  await fillRequiredCustomerFields(page);
+  await page.getByLabel(/address line 1/i).fill("99 Offline Lookup Ln");
+  await expect(page.getByText(/manual entry is okay/i)).toBeVisible();
+  await page.getByLabel(/^city$/i).fill("Buffalo");
+  await page.getByLabel(/^state$/i).fill("NY");
+  await page.getByLabel(/postal code/i).fill("14203");
+  await page.getByRole("button", { name: /create customer/i }).click();
+
+  await expect
+    .poll(() => payload?.address_line1)
+    .toBe("99 Offline Lookup Ln");
+  expect(payload).toMatchObject({
+    city: "Buffalo",
+    state: "NY",
+    postal_code: "14203",
+  });
+});
+
 test("customer lifecycle filter and hub badge use the same explicit state", async ({
   page,
 }) => {

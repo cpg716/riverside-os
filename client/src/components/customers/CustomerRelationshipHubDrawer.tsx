@@ -27,6 +27,7 @@ import {
   serializeMeasurementPatch,
 } from "./CustomerMeasurementLogic";
 import ShipmentsHubSection from "./ShipmentsHubSection";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
 import {
@@ -2345,20 +2346,27 @@ export function CustomerRelationshipHubDrawer({
                         className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
                       />
                     </label>
-                    <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-2">
-                      Address line 1
-                      <input
-                        readOnly={!canHubEdit}
-                        value={profileDraft.address_line1}
-                        onChange={(e) =>
-                          setProfileDraft((d) => ({
-                            ...d,
-                            address_line1: e.target.value,
-                          }))
-                        }
-                        className="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
-                      />
-                    </label>
+                    <AddressAutocompleteInput
+                      value={profileDraft.address_line1}
+                      readOnly={!canHubEdit}
+                      className="sm:col-span-2"
+                      inputClassName="ui-input mt-1 w-full p-2.5 text-sm font-semibold text-app-text read-only:opacity-80"
+                      onChange={(value) =>
+                        setProfileDraft((d) => ({
+                          ...d,
+                          address_line1: value,
+                        }))
+                      }
+                      onSelectAddress={(suggestion) =>
+                        setProfileDraft((d) => ({
+                          ...d,
+                          address_line1: suggestion.address_line1,
+                          city: suggestion.city,
+                          state: suggestion.state,
+                          postal_code: suggestion.postal_code,
+                        }))
+                      }
+                    />
                     <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted sm:col-span-2">
                       Address line 2
                       <input

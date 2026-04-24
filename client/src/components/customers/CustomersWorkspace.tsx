@@ -35,6 +35,7 @@ import ShipmentsHubSection from "./ShipmentsHubSection";
 import LayawayWorkspace from "../pos/LayawayWorkspace";
 import DetailDrawer from "../layout/DetailDrawer";
 import FloatingBulkBar from "../ui/FloatingBulkBar";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -2277,15 +2278,20 @@ function AddCustomerDrawer({
                 Optional mailing address
               </p>
               <div className="mt-2 space-y-3">
-                <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Address line 1
-                  <input
-                    value={form.address_line1}
-                    onChange={(e) => set("address_line1", e.target.value)}
-                    className="ui-input mt-1 w-full text-sm"
-                    placeholder="123 Main St"
-                  />
-                </label>
+                <AddressAutocompleteInput
+                  value={form.address_line1}
+                  onChange={(value) => set("address_line1", value)}
+                  onSelectAddress={(suggestion) => {
+                    setForm((f) => ({
+                      ...f,
+                      address_line1: suggestion.address_line1,
+                      city: suggestion.city,
+                      state: suggestion.state,
+                      postal_code: suggestion.postal_code,
+                    }));
+                    setTouched((t) => ({ ...t, state: true, postal: true }));
+                  }}
+                />
                 <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Address line 2
                   <input

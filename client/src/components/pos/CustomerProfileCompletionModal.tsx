@@ -6,6 +6,7 @@ import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import type { CustomerProfile } from "./customerProfileTypes";
 
 const baseUrl = getBaseUrl();
@@ -169,14 +170,17 @@ export default function CustomerProfileCompletionModal({
               className="ui-input mt-1 w-full text-sm"
             />
           </label>
-          <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            Street address
-            <input
-              value={address_line1}
-              onChange={(e) => setAddressLine1(e.target.value)}
-              className="ui-input mt-1 w-full text-sm"
-            />
-          </label>
+          <AddressAutocompleteInput
+            label="Street address"
+            value={address_line1}
+            onChange={setAddressLine1}
+            onSelectAddress={(suggestion) => {
+              setAddressLine1(suggestion.address_line1);
+              setCity(suggestion.city);
+              setState(suggestion.state);
+              setPostalCode(suggestion.postal_code);
+            }}
+          />
           <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             Address line 2
             <input
