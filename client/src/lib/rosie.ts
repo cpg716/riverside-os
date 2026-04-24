@@ -45,7 +45,6 @@ export type RosieChatCompletionResponse = {
     message?: {
       role?: string;
       text?: string;
-      reasoning_content?: string;
       content?: string | Array<{ type?: string; text?: string }>;
     };
   }>;
@@ -464,6 +463,7 @@ type RosieRequestOptions = {
 
 let activeRosieSpeechPoller: number | null = null;
 let activeRosieSpeechAudio: HTMLAudioElement | null = null;
+let activeRosieSpeechUtterance: SpeechSynthesisUtterance | null = null;
 
 function getSpeechRecognitionConstructor():
   | BrowserSpeechRecognitionConstructor
@@ -500,7 +500,9 @@ async function fetchRosieVoiceJson<T>(
   const json = (await response.json().catch(() => ({}))) as T & { error?: string };
   if (!response.ok) {
     throw new Error(
-      typeof json.error === "string" ? json.error : `ROSIE voice request failed with HTTP ${response.status}`,
+      typeof json.error === "string"
+        ? json.error
+        : `ROSIE voice request to ${path} failed with HTTP ${response.status}`,
     );
   }
   return json;
@@ -840,6 +842,10 @@ export function stopRosieSpeechPlayback(options?: RosieRequestOptions): void {
     activeRosieSpeechAudio.src = "";
     activeRosieSpeechAudio = null;
   }
+  if (typeof window !== "undefined" && activeRosieSpeechUtterance) {
+    window.speechSynthesis.cancel();
+    activeRosieSpeechUtterance = null;
+  }
 
   void stopHostRosieSpeechPlayback(options).catch(() => {
     if (isTauri()) {
@@ -855,6 +861,37 @@ function audioBase64ToObjectUrl(audioBase64: string, mimeType: string): string {
     bytes[index] = binary.charCodeAt(index);
   }
   return URL.createObjectURL(new Blob([bytes], { type: mimeType }));
+}
+
+function speakRosieTextWithWorkstationFallback(
+  text: string,
+  callbacks: Pick<NonNullable<Parameters<typeof speakRosieText>[1]>, "on_start" | "on_end" | "on_error">,
+): boolean {
+  if (
+    typeof window === "undefined" ||
+    !("speechSynthesis" in window) ||
+    typeof window.SpeechSynthesisUtterance === "undefined"
+  ) {
+    return false;
+  }
+  window.speechSynthesis.cancel();
+  const utterance = new window.SpeechSynthesisUtterance(text);
+  activeRosieSpeechUtterance = utterance;
+  utterance.onstart = () => callbacks.on_start?.();
+  utterance.onend = () => {
+    if (activeRosieSpeechUtterance === utterance) {
+      activeRosieSpeechUtterance = null;
+    }
+    callbacks.on_end?.();
+  };
+  utterance.onerror = () => {
+    if (activeRosieSpeechUtterance === utterance) {
+      activeRosieSpeechUtterance = null;
+    }
+    callbacks.on_error?.("ROSIE could not play voice output on this workstation.");
+  };
+  window.speechSynthesis.speak(utterance);
+  return true;
 }
 
 export function speakRosieText(
@@ -931,6 +968,21 @@ export function speakRosieText(
   };
 
   void startSatellitePlayback().catch((error) => {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "ROSIE could not play voice output on this workstation.";
+    if (/\/voice\/synthesize failed with HTTP 405|HTTP 405/i.test(message)) {
+      if (
+        speakRosieTextWithWorkstationFallback(text, {
+          on_start: options?.on_start,
+          on_end: finishEnd,
+          on_error: options?.on_error,
+        })
+      ) {
+        return;
+      }
+    }
     if (isTauri()) {
       const tauriStopped = false;
       void invoke("rosie_tts_speak", {
@@ -1204,40 +1256,60 @@ function extractRosieCompletionAnswer(
   completion: RosieChatCompletionResponse,
 ): string {
   for (const value of [completion.answer, completion.content, completion.response]) {
-    if (typeof value === "string" && value.trim()) {
-      return value.trim();
+    const sanitized = sanitizeRosieAnswerText(value);
+    if (sanitized) {
+      return sanitized;
     }
   }
   for (const choice of completion.choices ?? []) {
-    if (typeof choice.content === "string" && choice.content.trim()) {
-      return choice.content.trim();
+    const choiceContent = sanitizeRosieAnswerText(choice.content);
+    if (choiceContent) {
+      return choiceContent;
     }
     const content = choice.message?.content;
-    if (typeof content === "string" && content.trim()) {
-      return content.trim();
+    const messageContent = sanitizeRosieAnswerText(content);
+    if (messageContent) {
+      return messageContent;
     }
     if (Array.isArray(content)) {
-      const text = content
+      const text = sanitizeRosieAnswerText(
+        content
         .map((part) => part.text)
         .filter((part): part is string => typeof part === "string" && part.trim().length > 0)
-        .join("\n")
-        .trim();
+          .join("\n"),
+      );
       if (text) return text;
     }
-    if (typeof choice.text === "string" && choice.text.trim()) {
-      return choice.text.trim();
+    const choiceText = sanitizeRosieAnswerText(choice.text);
+    if (choiceText) {
+      return choiceText;
     }
-    if (typeof choice.message?.text === "string" && choice.message.text.trim()) {
-      return choice.message.text.trim();
-    }
-    if (
-      typeof choice.message?.reasoning_content === "string" &&
-      choice.message.reasoning_content.trim()
-    ) {
-      return choice.message.reasoning_content.trim();
+    const messageText = sanitizeRosieAnswerText(choice.message?.text);
+    if (messageText) {
+      return messageText;
     }
   }
   return "";
+}
+
+function sanitizeRosieAnswerText(raw: unknown): string {
+  if (typeof raw !== "string") return "";
+  let text = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, " ")
+    .trim();
+  const finalAnswer = text.match(
+    /(?:^|\n)\s*(?:final answer|answer|response)\s*:\s*([\s\S]+)$/i,
+  );
+  if (finalAnswer?.[1]?.trim()) {
+    text = finalAnswer[1].trim();
+  }
+  text = text
+    .replace(
+      /^\s*(?:thinking process|analysis|reasoning|chain of thought)\s*:\s*[\s\S]*$/i,
+      "",
+    )
+    .trim();
+  return text;
 }
 
 function summarizeRosieFallbackValue(value: unknown): string {
