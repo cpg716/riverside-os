@@ -18,6 +18,7 @@ import {
   Zap,
   Package,
   ScanSearch,
+  Scissors,
 } from "lucide-react";
 import CustomerSelector, { type Customer } from "./CustomerSelector";
 import NexoCheckoutDrawer from "./NexoCheckoutDrawer";
@@ -53,6 +54,7 @@ import { customOrderItemTypeForSku } from "../../lib/customOrders";
 import CustomItemPromptModal from "./CustomItemPromptModal";
 import OrderLoadModal from "./OrderLoadModal";
 import OrderReviewModal from "./OrderReviewModal";
+import PosAlterationIntakeModal from "./PosAlterationIntakeModal";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 import PromptModal from "../ui/PromptModal";
 
@@ -69,7 +71,8 @@ import {
   type GiftCardLoadLineMeta,
   type AppliedPaymentLine,
   type CheckoutOperatorContext,
-  type PosOrderOptions
+  type PosOrderOptions,
+  type PendingAlterationIntake
 } from "./types";
 import { PosRegisterLiveClock } from "./cart/PosRegisterLiveClock";
 import { PosSearchResultList, type SearchResult } from "./cart/PosSearchResultList";
@@ -220,6 +223,8 @@ export default function Cart({
   const [measDrawerOpen, setMeasDrawerOpen] = useState(false);
   const [orderLoadOpen, setOrderLoadOpen] = useState(false);
   const [orderReviewOpen, setOrderReviewOpen] = useState(false);
+  const [alterationIntakeOpen, setAlterationIntakeOpen] = useState(false);
+  const [pendingAlterationIntakes, setPendingAlterationIntakes] = useState<PendingAlterationIntake[]>([]);
   const [customerProfileHubOpen, setCustomerProfileHubOpen] = useState(false);
   const [checkoutOrderOptions, setCheckoutOrderOptions] = useState<PosOrderOptions | null>(null);
   const [cashAdjustOpen, setCashAdjustOpen] = useState(false);
@@ -308,6 +313,26 @@ export default function Cart({
     baseUrl,
     apiAuth,
   });
+
+  useEffect(() => {
+    const activeCartRowIds = new Set(lines.map((line) => line.cart_row_id));
+    setPendingAlterationIntakes((prev) => {
+      const next = prev.filter(
+        (intake) =>
+          intake.source_type !== "current_cart_item" ||
+          (intake.cart_row_id ? activeCartRowIds.has(intake.cart_row_id) : false),
+      );
+      return next.length === prev.length ? prev : next;
+    });
+  }, [lines]);
+
+  useEffect(() => {
+    const customerId = selectedCustomer?.id ?? null;
+    setPendingAlterationIntakes((prev) => {
+      const next = customerId ? prev.filter((intake) => intake.customer_id === customerId) : [];
+      return next.length === prev.length ? prev : next;
+    });
+  }, [selectedCustomer?.id]);
 
   const handleNumpadKey = useCallback((key: string) => {
     if (key === "ENTER" && keypadMode === "price" && selectedLineKey) {
@@ -1147,7 +1172,7 @@ export default function Cart({
           </div>
 
           {/* Sale tools row */}
-          <div className="flex flex-wrap items-center gap-1.5 border-t border-app-border/50 pt-2">
+          <div className="flex flex-wrap items-center gap-2 border-t border-app-border/50 pt-2">
               <button
                 type="button"
                 onClick={() => {
@@ -1159,37 +1184,51 @@ export default function Cart({
                 <WEDDINGS_ICON size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
                   {activeWeddingMember ? "Switch" : "Wedding"}
+                  </span>
+                </button>
+              <button
+                type="button"
+                data-testid="pos-alteration-intake-trigger"
+                onClick={() => {
+                  if (!selectedCustomer) {
+                    toast("Select or create a customer before starting an alteration.", "error");
+                    return;
+                  }
+                  setAlterationIntakeOpen(true);
+                }}
+                title={selectedCustomer ? "Start alteration intake" : "Select a customer to start alteration intake"}
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-accent/40 bg-app-accent/5 px-3 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all hover:bg-app-accent hover:text-white active:scale-95"
+              >
+                <Scissors size={16} />
+                Alteration
+              </button>
+              <button
+                type="button"
+                data-testid="pos-exchange-wizard-trigger"
+                onClick={() => setExchangeWizardOpen(true)}
+                className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-border bg-app-surface-2 px-3 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
+              >
+                <ArrowLeftRight size={16} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  Exchange
                 </span>
               </button>
-              <div className="flex items-center gap-0.5 rounded-xl border-2 border-app-border bg-app-surface-2/80 p-0.5">
-                <button
-                  type="button"
-                  data-testid="pos-exchange-wizard-trigger"
-                  onClick={() => setExchangeWizardOpen(true)}
-                  className="ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 border-transparent bg-transparent px-3 text-app-text-muted transition-all hover:border-app-accent/40 hover:bg-app-surface hover:text-app-accent active:scale-95"
-                >
-                  <ArrowLeftRight size={16} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">
-                    Exchange
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLines(prev => prev.map(l => ({
-                      ...l,
-                      fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
-                    })));
-                  }}
-                  className={`ui-touch-target flex h-9 items-center justify-center gap-1.5 rounded-lg border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-transparent bg-transparent text-app-text-muted hover:border-app-warning/35 hover:bg-app-surface hover:text-app-warning"}`}
-                >
-                  <Clock size={16} />
-                  <span className="text-[10px] font-black uppercase tracking-widest">
-                    Layaway
-                  </span>
-                </button>
-              </div>
-              <div className="min-w-[4px] flex-1" aria-hidden="true" />
+              <button
+                type="button"
+                onClick={() => {
+                  setLines(prev => prev.map(l => ({
+                    ...l,
+                    fulfillment: l.fulfillment === 'layaway' ? 'takeaway' : 'layaway'
+                  })));
+                }}
+                className={`ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 px-3 transition-all active:scale-95 ${lines.some(l => l.fulfillment === 'layaway') ? "border-app-warning bg-app-warning/10 text-app-warning" : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-warning/35 hover:bg-app-surface hover:text-app-warning"}`}
+              >
+                <Clock size={16} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  Layaway
+                </span>
+              </button>
+              <div className="min-w-[8px] flex-1" aria-hidden="true" />
               <button
                 type="button"
                 data-testid="pos-action-gift-card"
@@ -1243,6 +1282,23 @@ export default function Cart({
                 Orders
               </button>
           </div>
+          {pendingAlterationIntakes.length > 0 ? (
+            <div
+              data-testid="pos-pending-alterations-summary"
+              className="rounded-xl border border-app-accent/25 bg-app-accent/10 px-3 py-2 text-xs font-bold text-app-text"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="flex items-center gap-2">
+                  <Scissors size={14} className="text-app-accent" />
+                  {pendingAlterationIntakes.length} alteration intake
+                  {pendingAlterationIntakes.length === 1 ? "" : "s"} attached to current cart
+                </span>
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Checkout linkage pending later phase
+                </span>
+              </div>
+            </div>
+          ) : null}
           </div>
         </div>
 
@@ -1897,6 +1953,21 @@ export default function Cart({
         onClose={() => setGiftCardLoadOpen(false)}
         getHeaders={apiAuth}
         onAddToCart={(code, amountCents) => addGiftCardLoadToCart(code, amountCents)}
+      />
+      <PosAlterationIntakeModal
+        open={alterationIntakeOpen}
+        customer={selectedCustomer}
+        cartLines={lines}
+        baseUrl={baseUrl}
+        apiAuth={apiAuth}
+        onClose={() => setAlterationIntakeOpen(false)}
+        onSavedStandalone={() => {
+          setAlterationIntakeOpen(false);
+        }}
+        onSavePending={(intake) => {
+          setPendingAlterationIntakes((prev) => [...prev, intake]);
+          setAlterationIntakeOpen(false);
+        }}
       />
       {measDrawerOpen && selectedCustomer ? (
         <PosCustomerMeasurementsDrawer

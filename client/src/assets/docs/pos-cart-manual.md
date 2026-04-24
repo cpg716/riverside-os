@@ -2,7 +2,7 @@
 id: pos-cart
 title: "Cart (pos)"
 order: 1050
-summary: "Draft maintainer scaffold for client/src/components/pos/Cart.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Register cart surface for sale lines, customer context, toolbar actions, and safe alteration intake handoff."
 source: client/src/components/pos/Cart.tsx
 last_scanned: 2026-04-23
 tags: pos-cart, component, auto-scaffold
@@ -17,42 +17,44 @@ _Linked component: `client/src/components/pos/Cart.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+The Register cart is the selling surface for active sale lines, customer context, payment entry, and sale tools. The toolbar includes separate actions for Wedding, Alteration, Exchange, Layaway, Gift Card, Park Sale, Clear Sale, Options, and Orders.
+
+The **Alteration** action starts intake for garment work orders. It does not sell alteration-only items, does not add alteration charges to checkout in this phase, and does not replace the shared Alterations queue.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this screen when helping a customer at the Register, adding sale lines, reviewing sale tools, or starting alteration intake tied to a selected customer.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Confirm the cashier is signed in.
+- Select or create the customer before using **Alteration**.
+- For alteration-only scanned or past-purchase items, use the Alteration intake modal. Do not add those garments to the sale.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Add sale lines through product search or scanner when the customer is buying items.
+2. Use toolbar actions as separate commands; **Exchange** and **Layaway** are independent actions.
+3. To start alteration intake, select the customer, choose **Alteration**, choose the item source, enter work requested, and save.
+4. Continue checkout only for actual sale items. Alteration checkout linkage is handled in a later workflow phase.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Alteration intake requires a customer.
+- Scanned/entered alteration-only items are lookup-only and are not added to the cart.
+- Optional alteration charge notes do not create Register charge lines yet.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+Sale items remain in the Register cart. Standalone alteration intakes are saved to the shared Alterations queue; current-cart alteration drafts remain attached to the cart for later checkout-linkage work.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
+- `docs/staff/pos-alterations.md`
+- `docs/staff/pos-register-cart.md`
 
 ## Screenshots
 
 Add PNGs under `../images/help/pos-cart/` and replace this example with governed screenshots.
 
 ![Example](../images/help/pos-cart/example.png)
-

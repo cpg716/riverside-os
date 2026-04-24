@@ -58,6 +58,31 @@ export interface CartLineItem extends ResolvedSkuItem {
   nominal_local_tax_rate?: number;
 }
 
+export type AlterationSourceType =
+  | "current_cart_item"
+  | "past_transaction_line"
+  | "catalog_item"
+  | "custom_item";
+
+export interface PendingAlterationIntake {
+  id: string;
+  customer_id: string;
+  customer_name: string;
+  source_type: AlterationSourceType;
+  cart_row_id?: string | null;
+  item_description: string;
+  work_requested: string;
+  source_product_id?: string | null;
+  source_variant_id?: string | null;
+  source_sku?: string | null;
+  source_transaction_id?: string | null;
+  source_transaction_line_id?: string | null;
+  charge_amount?: string | null;
+  due_at?: string | null;
+  notes?: string | null;
+  created_at: string;
+}
+
 export type GiftCardType =
   | "paid_liability"
   | "loyalty_giveaway"
