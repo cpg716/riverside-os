@@ -920,32 +920,32 @@ export default function CustomersWorkspace({
               count: pipelineStats?.total_customers,
               icon: Users,
               color: "text-app-info",
-              bg: "bg-app-info/10",
-              border: "border-app-info/20",
+              bg: "bg-app-info/8",
+              border: "border-app-info/16",
             },
             {
               label: "VIP Premium",
               count: pipelineStats?.vip_customers,
               icon: Gem,
               color: "text-app-warning",
-              bg: "bg-app-warning/10",
-              border: "border-app-warning/20",
+              bg: "bg-app-warning/8",
+              border: "border-app-warning/16",
             },
             {
               label: "Balance Recovery",
               count: pipelineStats?.with_balance,
               icon: Wallet,
               color: "text-app-danger",
-              bg: "bg-app-danger/10",
-              border: "border-app-danger/20",
+              bg: "bg-app-danger/8",
+              border: "border-app-danger/16",
             },
             {
               label: "Occasions (30d)",
               count: pipelineStats?.upcoming_weddings,
               icon: Heart,
               color: "text-app-accent",
-              bg: "bg-app-accent/10",
-              border: "border-app-accent/20",
+              bg: "bg-app-accent/8",
+              border: "border-app-accent/16",
             },
           ].map((stat, i) => (
             <div
@@ -1248,7 +1248,7 @@ export default function CustomersWorkspace({
                                 {customerLifecycleLabel(r.lifecycle_state)}
                               </span>
                               {!customerProfileComplete(r) ? (
-                                <span className="inline-flex items-center rounded-full border border-app-warning/20 bg-app-warning/10 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                                <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
                                   Profile incomplete
                                 </span>
                               ) : null}
@@ -1297,13 +1297,13 @@ export default function CustomersWorkspace({
                                 r.wedding_party_id &&
                                 onOpenWeddingParty(r.wedding_party_id)
                               }
-                              className="inline-flex items-center gap-2 rounded-full border border-app-danger/20 bg-app-danger/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger shadow-sm transition-all hover:bg-app-danger/15 active:scale-95"
+                              className="inline-flex items-center gap-2 rounded-full border border-app-danger/16 bg-app-danger/8 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger shadow-sm transition-all hover:bg-app-danger/12 active:scale-95"
                             >
                               <Heart size={10} fill="currentColor" />
                               {r.wedding_party_name || "Active Party"}
                             </button>
                           ) : r.wedding_soon ? (
-                            <div className="inline-flex items-center gap-2 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                            <div className="inline-flex items-center gap-2 rounded-full border border-app-warning/16 bg-app-warning/8 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
                               <Clock size={10} />
                               Party Soon
                             </div>

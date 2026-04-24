@@ -23,31 +23,31 @@ interface DashboardStatsCardProps {
 
 const colorMap = {
   blue: {
-    icon: "bg-app-info/12 text-app-info ring-1 ring-app-info/20",
+    icon: "bg-app-info/8 text-app-info ring-1 ring-app-info/15",
     chart: "#2f7dd1",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   green: {
-    icon: "bg-app-success/12 text-app-success ring-1 ring-app-success/20",
+    icon: "bg-app-success/8 text-app-success ring-1 ring-app-success/15",
     chart: "#16956a",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   orange: {
-    icon: "bg-app-warning/12 text-app-warning ring-1 ring-app-warning/20",
+    icon: "bg-app-warning/8 text-app-warning ring-1 ring-app-warning/15",
     chart: "#b7791f",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   rose: {
-    icon: "bg-app-danger/12 text-app-danger ring-1 ring-app-danger/20",
+    icon: "bg-app-danger/8 text-app-danger ring-1 ring-app-danger/15",
     chart: "#cf5b5b",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   purple: {
-    icon: "bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20",
+    icon: "bg-app-accent/8 text-app-accent ring-1 ring-app-accent/15",
     chart: "#a855f7",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",

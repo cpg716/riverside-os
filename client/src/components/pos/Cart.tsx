@@ -1286,12 +1286,12 @@ export default function Cart({
           {disbursementMembers.length > 0 && (
              <div className="space-y-3">
                 <div className="flex items-center gap-3 px-2">
-                  <div className="h-px flex-1 bg-gradient-to-r from-app-info/45 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-r from-app-info/30 to-transparent" />
                   <span className="text-[10px] font-black uppercase tracking-[0.3em] text-app-info">Wedding Party Disbursements</span>
-                  <div className="h-px flex-1 bg-gradient-to-l from-app-info/45 to-transparent" />
+                  <div className="h-px flex-1 bg-gradient-to-l from-app-info/30 to-transparent" />
                 </div>
                 {disbursementMembers.map(m => (
-                  <div key={m.id} className="group relative flex items-center justify-between gap-4 rounded-3xl border-2 border-app-info/20 bg-app-info/8 p-5 animate-in slide-in-from-left duration-300">
+                  <div key={m.id} className="group relative flex items-center justify-between gap-4 rounded-3xl border border-app-info/16 bg-app-info/6 p-5 animate-in slide-in-from-left duration-300">
                      <div className="flex items-center gap-4">
                         <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-info text-white font-black italic shadow-lg shadow-app-info/20">
                            {m.first_name[0]}{m.last_name[0]}
@@ -1302,7 +1302,7 @@ export default function Cart({
                         </div>
                      </div>
                      <div className="text-right">
-                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-60 mb-1">Applying Amount</p>
+                        <p className="mb-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted/80">Applying Amount</p>
                         <p className="text-xl font-black italic tracking-tighter text-app-info">
                           $
                           {centsToFixed2(parseMoneyToCents(m.balance_due || "0"))}
@@ -1310,7 +1310,7 @@ export default function Cart({
                      </div>
                      <button 
                        onClick={() => setDisbursementMembers(prev => prev.filter(p => p.id !== m.id))}
-                       className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-danger text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100"
+                    className="absolute -top-2 -right-2 flex h-6 w-6 items-center justify-center rounded-full bg-app-danger/90 text-white shadow-lg opacity-0 transition-opacity group-hover:opacity-100"
                      >
                        <X size={12} />
                      </button>
@@ -1347,7 +1347,7 @@ export default function Cart({
           <div className="rounded-2xl border border-app-border/60 bg-app-surface px-4 py-3 shadow-sm">
             <div className="mb-2 flex items-center justify-between gap-2 border-b border-app-border/40 pb-2">
               <div className="flex items-center gap-2">
-                <span className="inline-flex items-center gap-1 rounded-full bg-app-success/12 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-app-success ring-1 ring-app-success/15">
+                <span className="inline-flex items-center gap-1 rounded-full bg-app-success/8 px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-app-success ring-1 ring-app-success/12">
                   <Package size={11} className="shrink-0 opacity-90" aria-hidden />
                   {isRmsPaymentCart ? "R2S payment" : "Retail"}
                 </span>
@@ -1396,7 +1396,7 @@ export default function Cart({
                         setShowVoidAllConfirm(true);
                       }
                     }}
-                    className="rounded-lg border border-app-danger/35 bg-app-danger/10 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger transition-all duration-150 hover:bg-app-danger hover:text-white active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-danger/25"
+                    className="rounded-lg border border-app-danger/25 bg-app-danger/8 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-danger transition-all duration-150 hover:bg-app-danger/12 hover:text-app-text active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-danger/20"
                   >
                     Void all
                   </button>
@@ -1427,7 +1427,7 @@ export default function Cart({
                 </div>
               </div>
               {posShipping ? (
-                <div className="col-span-2 flex items-start justify-between gap-2 rounded-lg bg-app-info/10 px-2 py-1 ui-info-text">
+                <div className="col-span-2 flex items-start justify-between gap-2 rounded-lg bg-app-info/8 px-2 py-1 ui-info-text">
                   <div className="min-w-0 text-[9px] font-black uppercase leading-snug tracking-wide">
                     <span className="block normal-case font-bold text-app-text">
                       {posShipping.label}

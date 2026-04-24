@@ -349,7 +349,7 @@ export default function WeddingLookupDrawer({
                     onClick={() => groupPayMode && toggleMember(member.id)}
                     className={`flex flex-col p-4 rounded-[2rem] border transition-all cursor-pointer ${
                       isSelected && groupPayMode
-                        ? "border-app-success/35 bg-app-success/10 shadow-md"
+                        ? "border-app-success/20 bg-app-success/8 shadow-md"
                         : "border-app-border bg-app-surface-2"
                     }`}
                   >
@@ -432,7 +432,7 @@ function StatusPill({ active, label, icon }: { active: boolean; label: string; i
   return (
     <div className={`flex items-center justify-center gap-1.5 rounded-full py-1.5 px-3 text-[9px] font-black uppercase tracking-widest transition-colors ${
       active 
-        ? "border border-app-success/20 bg-app-success/10 text-app-success" 
+        ? "border border-app-success/16 bg-app-success/8 text-app-success" 
         : "border border-app-border bg-app-surface text-app-text-muted shadow-inner"
     }`}>
       {icon ? icon : active ? <CheckCircle2 size={10} /> : <Circle size={10} />}
