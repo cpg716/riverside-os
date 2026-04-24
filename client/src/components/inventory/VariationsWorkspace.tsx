@@ -59,6 +59,10 @@ function naturalSort(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 
+function fallbackRowLabel(variant: HubVariant): string {
+  return variant.variation_label?.trim() || variant.sku;
+}
+
 export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   productId,
   productTrackLowStock,
@@ -102,14 +106,26 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   const [mtNote, setMtNote] = useState("");
   const [submittingMt, setSubmittingMt] = useState(false);
 
+  const displayVariants = useMemo(() => {
+    const needle = localSearch.trim().toLowerCase();
+    if (!needle) return variants;
+    return variants.filter((variant) => {
+      const label = variant.variation_label?.toLowerCase() ?? "";
+      return (
+        variant.sku.toLowerCase().includes(needle) ||
+        label.includes(needle)
+      );
+    });
+  }, [variants, localSearch]);
+
   // Matrix Logic (Refined Axes Detection)
   const detectedAxes = useMemo(() => {
     const keys = new Set<string>();
-    for (const v of variants) {
+    for (const v of displayVariants) {
       Object.keys(v.variation_values).forEach((k) => keys.add(k));
     }
     return [...keys];
-  }, [variants]);
+  }, [displayVariants]);
 
   const rowAxis =
     matrixRowAxisKey || variationAxes[0] || detectedAxes[0] || "Attribute";
@@ -123,36 +139,63 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
   // For now, if colAxis is null, we'll still show a grid with "Standard" as column.
   const actualColAxis = colAxis || "Option";
 
+  const hasUsableMatrix = useMemo(() => {
+    if (displayVariants.length <= 1) return false;
+    const meaningfulRowValues = new Set<string>();
+    const meaningfulColValues = new Set<string>();
+
+    for (const variant of displayVariants) {
+      const rowValue = strVal(variant.variation_values[rowAxis]);
+      const colValue = strVal(variant.variation_values[actualColAxis]);
+      if (rowValue) meaningfulRowValues.add(rowValue);
+      if (colValue) meaningfulColValues.add(colValue);
+    }
+
+    return meaningfulRowValues.size > 1 || meaningfulColValues.size > 1;
+  }, [displayVariants, rowAxis, actualColAxis]);
+
+  const displayRowAxisLabel = hasUsableMatrix ? rowAxis : "Variation";
+  const displayColAxisLabel = hasUsableMatrix ? actualColAxis : "Default";
+
   const rowKeys = useMemo(() => {
     const set = new Set<string>();
-    for (const v of variants) {
-      const r = strVal(v.variation_values[rowAxis]);
-      if (r) set.add(r);
+    for (const v of displayVariants) {
+      if (hasUsableMatrix) {
+        const r = strVal(v.variation_values[rowAxis]);
+        if (r) set.add(r);
+      } else {
+        set.add(fallbackRowLabel(v));
+      }
     }
     const arr = [...set].sort(naturalSort);
     // If no row keys detected but we have variants, it means they might have a different key structure
     return arr.length > 0 ? arr : ["Standard"];
-  }, [variants, rowAxis]);
+  }, [displayVariants, hasUsableMatrix, rowAxis]);
 
   const colKeys = useMemo(() => {
     const set = new Set<string>();
-    for (const v of variants) {
+    if (!hasUsableMatrix) return ["Default"];
+    for (const v of displayVariants) {
       const c = strVal(v.variation_values[actualColAxis]);
       if (c) set.add(c);
     }
     const arr = [...set].sort(naturalSort);
     return arr.length > 0 ? arr : ["Default"];
-  }, [variants, actualColAxis]);
+  }, [displayVariants, hasUsableMatrix, actualColAxis]);
 
   const cellMap = useMemo(() => {
     const m = new Map<string, HubVariant>();
-    for (const v of variants) {
-      const r = strVal(v.variation_values[rowAxis]) || "Standard";
-      const c = strVal(v.variation_values[actualColAxis]) || "Default";
+    for (const v of displayVariants) {
+      const r = hasUsableMatrix
+        ? strVal(v.variation_values[rowAxis]) || "Standard"
+        : fallbackRowLabel(v);
+      const c = hasUsableMatrix
+        ? strVal(v.variation_values[actualColAxis]) || "Default"
+        : "Default";
       m.set(`${r}\0${c}`, v);
     }
     return m;
-  }, [variants, rowAxis, actualColAxis]);
+  }, [displayVariants, hasUsableMatrix, rowAxis, actualColAxis]);
 
   // API Call Handlers
   const patchVariant = useCallback(
@@ -295,7 +338,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               </button>
             </div>
             <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-              {variants.length} SKU{variants.length !== 1 ? "s" : ""} ·{" "}
+              {displayVariants.length} SKU{displayVariants.length !== 1 ? "s" : ""} ·{" "}
               {categoryName || "Uncategorized"}
             </p>
             {productTrackLowStock && (
@@ -333,7 +376,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
                   <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     <SlidersHorizontal size={14} />
                     <span>
-                      {rowAxis} \ {actualColAxis}
+                      {displayRowAxisLabel} \ {displayColAxisLabel}
                     </span>
                   </div>
                 </th>
@@ -411,7 +454,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         </div>
       ) : (
         <VariationsList
-          variants={variants}
+          variants={displayVariants}
           selectedIds={selectedIds}
           onToggleSelect={(id) =>
             setSelectedIds((prev) => {
@@ -421,7 +464,7 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               return next;
             })
           }
-          onSelectAll={() => setSelectedIds(new Set(variants.map((v) => v.id)))}
+          onSelectAll={() => setSelectedIds(new Set(displayVariants.map((v) => v.id)))}
           onDeselectAll={() => setSelectedIds(new Set())}
           onUpdateVariant={
             patchVariant as VariationsListProps["onUpdateVariant"]
