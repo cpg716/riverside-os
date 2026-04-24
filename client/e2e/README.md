@@ -31,6 +31,8 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx 
 E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" E2E_CORECARD_BASE="http://127.0.0.1:43400" npx playwright test e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1
 ```
 
+Normal local app development uses `npm run dev` at the repo root, which serves the UI on `http://localhost:5173` and the API on `http://127.0.0.1:3000`. That is a different stack from the deterministic Playwright default. If you want Playwright to target the normal dev stack instead, you must override both `E2E_BASE_URL` and `E2E_API_BASE` explicitly; otherwise use `npm run dev:e2e` or let Playwright auto-boot the dedicated `43173/43300` stack.
+
 Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default: **`E2E_BO_STAFF_CODE`** (default **1234**) — see migration **53** / **`docs/STAFF_PERMISSIONS.md`**.
 
 **Important local prerequisite:** Browser-based Playwright specs require a reachable UI at **`E2E_BASE_URL`** (default `http://localhost:43173`) and API at **`E2E_API_BASE`** (default `http://127.0.0.1:43300`). Local Playwright now auto-boots the deterministic stack for that dedicated pair unless **`E2E_AUTO_BOOT=0`** is set. To mirror that stack manually, run **`npm run dev:e2e`** at the repo root; it brings up Docker Postgres, reapplies migrations, seeds the standard E2E staff fixtures, and starts the Rust API plus Vite on the dedicated E2E ports so it does not collide with a normal `npm run dev` session or other local Vite projects. The Vite side uses `--strictPort`, so a port collision fails fast instead of silently serving the wrong app.
@@ -42,6 +44,8 @@ Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default:
 
 **Client script aliases:**
 - `npm run test:e2e:list` → list all tests
+- `npm run test:e2e:list:local` → same list command, called out explicitly for local deterministic E2E usage
+- `npm run test:e2e:local` → run the local deterministic E2E suite against the dedicated Playwright stack
 - `npm run test:e2e:release` → standard release gate (`--workers=1`)
 - `npm run test:e2e:visual` → visual suite enabled (`E2E_RUN_VISUAL=1`, `--workers=1`)
 - `npm run test:e2e:high-risk` → high-risk API regressions (tax audit, revenue basis aliases, help admin RBAC/payload shape, session route resilience)
@@ -54,6 +58,10 @@ Direct equivalents:
 - `npm run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1`
+
+**Root script aliases:**
+- `npm run dev` / `npm run dev:stack` → normal local app stack (`5173` UI / `3000` API)
+- `npm run dev:e2e` / `npm run dev:e2e:stack` → deterministic Playwright stack (`43173` UI / `43300` API)
 
 **API gates (margin-pivot 403):** run **`scripts/seed_e2e_non_admin_staff.sql`** against your DB (non-Admin **`5678`**, optional override **`E2E_NON_ADMIN_CODE`**). CI applies this automatically.
 
