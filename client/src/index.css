@@ -405,6 +405,85 @@ html[data-theme="dark"] :where(
     color: color-mix(in srgb, var(--app-info) 82%, var(--app-text));
   }
 
+  [data-theme="light"] .ui-card {
+    border-color: color-mix(in srgb, var(--app-border) 56%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 97%, var(--app-surface-2));
+    box-shadow:
+      0 18px 34px -28px rgba(15, 23, 42, 0.16),
+      0 1px 0 rgba(255, 255, 255, 0.55) inset;
+  }
+
+  [data-theme="light"] .ui-btn-secondary {
+    border-color: color-mix(in srgb, var(--app-border) 62%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 95%, var(--app-surface-2));
+    box-shadow:
+      0 10px 22px -20px rgba(15, 23, 42, 0.12),
+      0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  }
+
+  [data-theme="light"] .ui-btn-secondary:hover {
+    background: color-mix(in srgb, var(--app-surface-2) 90%, var(--app-surface));
+    border-color: color-mix(in srgb, var(--app-border) 68%, transparent);
+  }
+
+  [data-theme="light"] .ui-table-shell {
+    border-color: color-mix(in srgb, var(--app-border) 58%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 96%, var(--app-surface-2));
+    box-shadow:
+      0 16px 30px -28px rgba(15, 23, 42, 0.14),
+      0 1px 0 rgba(255, 255, 255, 0.5) inset;
+  }
+
+  [data-theme="light"] .ui-filter-row,
+  [data-theme="light"] .ui-toolbar {
+    border-color: color-mix(in srgb, var(--app-border) 58%, transparent);
+    box-shadow:
+      0 12px 24px -24px rgba(15, 23, 42, 0.12),
+      0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  }
+
+  [data-theme="light"] .ui-filter-row {
+    background: color-mix(in srgb, var(--app-surface-2) 70%, var(--app-surface));
+  }
+
+  [data-theme="light"] .ui-toolbar {
+    background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-2));
+  }
+
+  [data-theme="light"] .ui-panel {
+    border-color: color-mix(in srgb, var(--app-border) 54%, transparent);
+    background: color-mix(in srgb, var(--app-surface-2) 74%, var(--app-surface-3));
+    box-shadow:
+      0 12px 24px -24px rgba(15, 23, 42, 0.12),
+      0 1px 0 rgba(255, 255, 255, 0.45) inset;
+  }
+
+  [data-theme="light"] .ui-control-chip {
+    border-color: color-mix(in srgb, var(--app-border) 60%, transparent);
+    background: color-mix(in srgb, var(--app-surface) 92%, var(--app-surface-2));
+  }
+
+  [data-theme="light"] .ui-control-chip-active {
+    border-color: color-mix(in srgb, var(--app-accent) 24%, var(--app-border));
+    background: color-mix(in srgb, var(--app-accent) 6%, var(--app-surface));
+  }
+
+  [data-theme="light"] .ui-status-ok {
+    background: color-mix(in srgb, var(--app-success) 6%, var(--app-surface));
+  }
+
+  [data-theme="light"] .ui-status-warn {
+    background: color-mix(in srgb, var(--app-warning) 6%, var(--app-surface));
+  }
+
+  [data-theme="light"] .ui-status-danger {
+    background: color-mix(in srgb, var(--app-danger) 5%, var(--app-surface));
+  }
+
+  [data-theme="light"] .ui-status-info {
+    background: color-mix(in srgb, var(--app-info) 6%, var(--app-surface));
+  }
+
   /* Pro-Grade Fulfillment & Brand Pops */
   .bg-fulfillment-takeaway {
     background: var(--app-success);

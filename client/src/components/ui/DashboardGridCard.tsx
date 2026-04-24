@@ -31,14 +31,14 @@ export default function DashboardGridCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-2xl border border-app-border/70 bg-[color-mix(in_srgb,var(--app-surface)_94%,var(--app-surface-2))] shadow-[0_14px_28px_-22px_rgba(15,23,42,0.18)] transition-all",
+        "flex flex-col rounded-2xl border border-app-border/60 bg-[color-mix(in_srgb,var(--app-surface)_96%,var(--app-surface-2))] shadow-[0_18px_34px_-26px_rgba(15,23,42,0.16)] transition-all",
         className,
       )}
     >
-      <div className="flex items-center justify-between border-b border-app-border/70 bg-[color-mix(in_srgb,var(--app-surface-2)_84%,var(--app-surface))] px-6 py-4">
+      <div className="flex items-center justify-between border-b border-app-border/55 bg-[color-mix(in_srgb,var(--app-surface-2)_76%,var(--app-surface))] px-6 py-4">
         <div className="flex items-center gap-3">
           {Icon && (
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-accent/7 text-app-accent">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-accent/5 text-app-text-muted">
               <Icon size={18} />
             </div>
           )}
@@ -51,7 +51,7 @@ export default function DashboardGridCard({
         {actionLabel && (
           <button
             onClick={onAction}
-            className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-accent"
+            className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
           >
             {actionLabel}
           </button>

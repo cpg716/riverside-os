@@ -23,31 +23,31 @@ interface DashboardStatsCardProps {
 
 const colorMap = {
   blue: {
-    icon: "bg-app-info/8 text-app-info ring-1 ring-app-info/15",
+    icon: "bg-app-info/6 text-app-info ring-1 ring-app-info/12",
     chart: "#2f7dd1",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   green: {
-    icon: "bg-app-success/8 text-app-success ring-1 ring-app-success/15",
+    icon: "bg-app-success/6 text-app-success ring-1 ring-app-success/12",
     chart: "#16956a",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   orange: {
-    icon: "bg-app-warning/8 text-app-warning ring-1 ring-app-warning/15",
+    icon: "bg-app-warning/6 text-app-warning ring-1 ring-app-warning/12",
     chart: "#b7791f",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   rose: {
-    icon: "bg-app-danger/8 text-app-danger ring-1 ring-app-danger/15",
+    icon: "bg-app-danger/6 text-app-danger ring-1 ring-app-danger/12",
     chart: "#cf5b5b",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
   },
   purple: {
-    icon: "bg-app-accent/8 text-app-accent ring-1 ring-app-accent/15",
+    icon: "bg-app-accent/6 text-app-accent ring-1 ring-app-accent/12",
     chart: "#a855f7",
     trendUp: "text-app-success",
     trendDown: "text-app-danger",
@@ -68,7 +68,7 @@ export default function DashboardStatsCard({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-2xl border border-app-border/70 bg-[color-mix(in_srgb,var(--app-surface)_91%,var(--app-surface-2))] p-6 shadow-[0_12px_26px_-20px_rgba(15,23,42,0.22)] transition-all hover:shadow-[0_16px_32px_-22px_rgba(15,23,42,0.26)]",
+        "relative overflow-hidden rounded-2xl border border-app-border/60 bg-[color-mix(in_srgb,var(--app-surface)_94%,var(--app-surface-2))] p-6 shadow-[0_16px_30px_-22px_rgba(15,23,42,0.18)] transition-all hover:shadow-[0_18px_34px_-22px_rgba(15,23,42,0.22)]",
         className,
       )}
     >
@@ -120,7 +120,7 @@ export default function DashboardStatsCard({
       </div>
 
       {/* Subtle glassmorphic background reflection effect */}
-      <div className="absolute -right-4 -top-4 size-24 rounded-full bg-app-accent/3 blur-3xl" />
+      <div className="absolute -right-4 -top-4 size-24 rounded-full bg-app-accent/2 blur-3xl" />
     </div>
   );
 }
