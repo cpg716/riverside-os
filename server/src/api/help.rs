@@ -29,6 +29,7 @@ use crate::logic::help_manual_policy::{
 };
 use crate::logic::meilisearch_search::{help_search_hits, HelpSearchHit};
 use crate::logic::rosie_intelligence::{self, RosieIntelligencePack};
+use crate::logic::rosie_speech;
 use crate::middleware;
 
 fn build_rosie_upstream_client() -> Result<reqwest::Client, reqwest::Error> {
@@ -173,6 +174,34 @@ struct RosieProductCatalogAnalyzeRequest {
 #[derive(Debug, Clone, Deserialize)]
 struct RosieProductCatalogSuggestRequest {
     product_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+struct RosieVoiceTranscribeRequest {
+    audio_base64: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RosieVoiceTranscribeResponse {
+    transcript: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct RosieVoiceSpeakRequest {
+    text: String,
+    rate: Option<f32>,
+    voice: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct RosieVoiceMessageResponse {
+    message: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RosieVoiceStatusResponse {
+    speaking: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -337,6 +366,7 @@ mod tests {
             meilisearch: None,
             corecard_config: CoreCardConfig::from_env(),
             corecard_token_cache: Arc::new(tokio::sync::Mutex::new(CoreCardTokenCache::default())),
+            rosie_speech_state: Arc::new(tokio::sync::Mutex::new(None)),
             server_log_ring: ServerLogRing::new(32, 512),
         }
     }
@@ -1534,6 +1564,11 @@ pub fn router() -> Router<AppState> {
         .route("/manuals/{manual_id}", get(get_manual))
         .route("/rosie/v1/tool-context", post(rosie_tool_context))
         .route("/rosie/v1/chat/completions", post(rosie_chat_completions))
+        .route("/rosie/v1/runtime-status", get(rosie_runtime_status))
+        .route("/rosie/v1/voice/transcribe", post(rosie_voice_transcribe))
+        .route("/rosie/v1/voice/speak", post(rosie_voice_speak))
+        .route("/rosie/v1/voice/stop", post(rosie_voice_stop))
+        .route("/rosie/v1/voice/status", get(rosie_voice_status))
         .route(
             "/rosie/v1/intelligence/status",
             get(rosie_intelligence_status),
@@ -1749,6 +1784,113 @@ async fn rosie_chat_completions(
     })?;
 
     Ok((status, Json(payload)).into_response())
+}
+
+async fn rosie_runtime_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<rosie_speech::RosieHostRuntimeStatus>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let status = rosie_speech::runtime_status(&state.rosie_speech_state)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "rosie runtime status failed");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(status))
+}
+
+async fn rosie_voice_transcribe(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RosieVoiceTranscribeRequest>,
+) -> Result<Json<RosieVoiceTranscribeResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let transcript = rosie_speech::transcribe_wav(body.audio_base64.trim())
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "rosie voice transcribe failed");
+            (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(RosieVoiceTranscribeResponse { transcript }))
+}
+
+async fn rosie_voice_speak(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<RosieVoiceSpeakRequest>,
+) -> Result<Json<RosieVoiceMessageResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let text = body.text.trim();
+    if text.is_empty() {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "text is required" })),
+        )
+            .into_response());
+    }
+
+    let message = rosie_speech::start_tts(
+        &state.rosie_speech_state,
+        text,
+        body.rate,
+        body.voice.as_deref(),
+    )
+    .await
+    .map_err(|error| {
+        tracing::warn!(%error, "rosie voice speak failed");
+        (
+            axum::http::StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response()
+    })?;
+
+    Ok(Json(RosieVoiceMessageResponse { message }))
+}
+
+async fn rosie_voice_stop(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<RosieVoiceMessageResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let message = rosie_speech::stop_tts(&state.rosie_speech_state)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "rosie voice stop failed");
+            (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(RosieVoiceMessageResponse { message }))
+}
+
+async fn rosie_voice_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<RosieVoiceStatusResponse>, Response> {
+    let _viewer = resolve_help_viewer(&state, &headers).await?;
+    let speaking = rosie_speech::tts_status(&state.rosie_speech_state)
+        .await
+        .map_err(|error| {
+            tracing::warn!(%error, "rosie voice status failed");
+            (
+                axum::http::StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({ "error": error })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(RosieVoiceStatusResponse { speaking }))
 }
 
 async fn rosie_tool_context(

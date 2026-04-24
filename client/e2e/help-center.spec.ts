@@ -208,96 +208,9 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
   page,
 }) => {
   await page.addInitScript(() => {
-    function MockSpeechRecognition(this: {
-      continuous: boolean;
-      interimResults: boolean;
-      lang: string;
-      maxAlternatives: number;
-      onstart: null | (() => void);
-      onresult: null | ((event: unknown) => void);
-      onerror: null | ((event: { error?: string }) => void);
-      onend: null | (() => void);
-    }) {
-      this.continuous = false;
-      this.interimResults = true;
-      this.lang = "en-US";
-      this.maxAlternatives = 1;
-      this.onstart = null;
-      this.onresult = null;
-      this.onerror = null;
-      this.onend = null;
-    }
-
-    MockSpeechRecognition.prototype.start = function start() {
-      (
-        window as typeof window & { __rosieRecognitionStarted?: boolean }
-      ).__rosieRecognitionStarted = true;
-      this.onstart?.();
-      window.setTimeout(() => {
-        this.onresult?.({
-          resultIndex: 0,
-          results: [
-            {
-              isFinal: true,
-              length: 1,
-              0: { transcript: "how do I close the register" },
-            },
-          ],
-        });
-        this.onend?.();
-      }, 25);
-    };
-
-    MockSpeechRecognition.prototype.stop = function stop() {
-      this.onend?.();
-    };
-
-    Object.defineProperty(window, "webkitSpeechRecognition", {
-      configurable: true,
-      writable: true,
-      value: MockSpeechRecognition,
-    });
-    Object.defineProperty(window, "SpeechRecognition", {
-      configurable: true,
-      writable: true,
-      value: MockSpeechRecognition,
-    });
     (
-      window as typeof window & {
-        __ROSIE_TEST_HOST_TTS__?: {
-          supported: boolean;
-          speak: (
-            text: string,
-            options: {
-              onStart?: () => void;
-              onEnd?: () => void;
-            },
-          ) => { stop: () => void };
-          stop: () => void;
-        };
-        __rosieHostTtsStop?: () => void;
-      }
-    ).__ROSIE_TEST_HOST_TTS__ = {
-      supported: true,
-      speak(text, options) {
-        (window as typeof window & { __rosieSpokenText?: string }).__rosieSpokenText = text;
-        options.onStart?.();
-        const stop = () => {
-          (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled =
-            true;
-          options.onEnd?.();
-        };
-        (
-          window as typeof window & { __rosieHostTtsStop?: () => void }
-        ).__rosieHostTtsStop = stop;
-        return { stop };
-      },
-      stop() {
-        (
-          window as typeof window & { __rosieHostTtsStop?: () => void }
-        ).__rosieHostTtsStop?.();
-      },
-    };
+      window as typeof window & { __ROSIE_TEST_HOST_WAV_BASE64__?: string }
+    ).__ROSIE_TEST_HOST_WAV_BASE64__ = "UklGRiQAAABXQVZFZm10IBAAAAABAAEAIlYAAESsAAACABAAZGF0YQAAAAA=";
 
     window.localStorage.setItem(
       "ros.rosie.settings.v1",
@@ -317,6 +230,100 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
   });
 
   await signInToBackOffice(page);
+  let hostSpeaking = false;
+  await page.route("**/api/help/rosie/v1/runtime-status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        llm: {
+          runtime_name: "Host llama-server upstream",
+          provider: "llama.cpp",
+          base_url: "http://127.0.0.1:8080",
+          host: "127.0.0.1",
+          port: "8080",
+          model_name: "Gemma 4 E4B",
+          model_path: "/host/models/gemma.gguf",
+          model_present: true,
+          sidecar_binary_present: true,
+          running: true,
+        },
+        stt: {
+          engine_name: "SenseVoice Small via Sherpa-ONNX",
+          provider: "cpu",
+          active_engine: "sensevoice",
+          cli_path: "/host/bin/python",
+          cli_present: true,
+          model_name: "SenseVoice Small",
+          model_path: "/host/stt/model.int8.onnx",
+          model_present: true,
+          fallback_engine_name: "whisper.cpp",
+          fallback_cli_path: "/host/bin/whisper-cli",
+          fallback_cli_present: true,
+          fallback_model_path: "/host/stt/ggml-small.en.bin",
+          fallback_model_present: true,
+        },
+        tts: {
+          engine_name: "Kokoro-82M via Sherpa-ONNX",
+          provider: "cpu",
+          active_engine: "kokoro",
+          command_path: "/host/bin/python",
+          command_present: true,
+          model_name: "Kokoro-82M",
+          model_path: "/host/tts/model.onnx",
+          model_present: true,
+          fallback_engine_name: "Host speech command",
+          fallback_command_path: "/usr/bin/say",
+          fallback_command_present: true,
+          speaking: hostSpeaking,
+        },
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/voice/transcribe", async (route) => {
+    const body = route.request().postDataJSON() as { audio_base64?: string };
+    expect(typeof body.audio_base64).toBe("string");
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        transcript: "how do I close the register",
+      }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/voice/speak", async (route) => {
+    const body = route.request().postDataJSON() as {
+      text?: string;
+      voice?: string;
+    };
+    expect(body.text).toContain("Open the register reports workflow");
+    expect(body.voice).toBe("5");
+    hostSpeaking = true;
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "ROSIE TTS started" }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/voice/status", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ speaking: hostSpeaking }),
+    });
+  });
+  await page.route("**/api/help/rosie/v1/voice/stop", async (route) => {
+    hostSpeaking = false;
+    await page.evaluate(() => {
+      (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled =
+        true;
+    });
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({ message: "ROSIE TTS stopped" }),
+    });
+  });
   await page.route("**/api/help/rosie/v1/tool-context", async (route) => {
     const body = route.request().postDataJSON() as {
       question?: string;
@@ -384,17 +391,9 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop host voice 
   await page.getByTestId("help-center-ask-rosie-tab").click();
   await page.getByTestId("help-center-ask-rosie-mic").click();
 
-  await expect
-    .poll(
-      () =>
-        page.evaluate(
-          () =>
-            (
-              window as typeof window & { __rosieRecognitionStarted?: boolean }
-            ).__rosieRecognitionStarted === true,
-        ),
-    )
-    .toBe(true);
+  await expect(
+    page.getByTestId("help-center-ask-rosie-transcript-preview"),
+  ).toContainText(/how do I close the register/i, { timeout: 15_000 });
   await expect(
     page.getByTestId("help-center-ask-rosie-speaking"),
   ).toBeVisible({ timeout: 15_000 });

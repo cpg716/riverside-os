@@ -90,6 +90,8 @@ pub struct AppState {
     pub corecard_config: CoreCardConfig,
     /// Cached CoreCard bearer token for server-to-server requests.
     pub corecard_token_cache: std::sync::Arc<tokio::sync::Mutex<CoreCardTokenCache>>,
+    /// Shared host-machine ROSIE speech playback state for TTS start/stop/status.
+    pub rosie_speech_state: crate::logic::rosie_speech::RosieSpeechState,
     /// Recent API server `tracing` lines (shared with [`ServerLogRingLayer`](crate::observability::ServerLogRingLayer)).
     pub server_log_ring: ServerLogRing,
 }

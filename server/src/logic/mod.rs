@@ -64,6 +64,7 @@ pub mod register_staff_metrics;
 pub mod remote_access;
 pub mod report_basis;
 pub mod rosie_intelligence;
+pub mod rosie_speech;
 pub mod sales_commission;
 pub mod shipment;
 pub mod shippo;

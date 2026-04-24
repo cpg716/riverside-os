@@ -435,34 +435,19 @@ type BrowserSpeechRecognition = {
 
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
-type RosieTestHostTtsSession = {
-  stop?: () => void;
-};
-
-type RosieTestHostTtsHook = {
-  supported?: boolean;
-  speak: (
-    text: string,
-    options: {
-      rate: number;
-      voice: string;
-      onStart?: () => void;
-      onEnd?: () => void;
-      onError?: (message: string) => void;
-    },
-  ) => RosieTestHostTtsSession | void;
-  stop?: () => void;
-};
-
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
     webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
-    __ROSIE_TEST_HOST_TTS__?: RosieTestHostTtsHook;
+    __ROSIE_TEST_HOST_WAV_BASE64__?: string;
   }
 }
 
-let activeTauriSpeechPoller: number | null = null;
+type RosieRequestOptions = {
+  headers?: Record<string, string>;
+};
+
+let activeRosieSpeechPoller: number | null = null;
 
 function getSpeechRecognitionConstructor():
   | BrowserSpeechRecognitionConstructor
@@ -480,40 +465,59 @@ function getBrowserRosieVoiceCapabilities(): RosieVoiceCapabilities {
   }
 
   return {
-    speech_to_text_supported: getSpeechRecognitionConstructor() != null,
-    text_to_speech_supported:
-      window.__ROSIE_TEST_HOST_TTS__?.supported === true,
+    speech_to_text_supported:
+      navigator.mediaDevices?.getUserMedia != null ||
+      getSpeechRecognitionConstructor() != null,
+    text_to_speech_supported: false,
   };
 }
 
-function getRosieTestHostTtsHook(): RosieTestHostTtsHook | null {
-  if (typeof window === "undefined") return null;
-  return window.__ROSIE_TEST_HOST_TTS__ ?? null;
+function rosieVoiceApiUrl(path: string): string {
+  return `${getBaseUrl()}/api/help/rosie/v1${path}`;
 }
 
-export async function getRosieLocalRuntimeStatus():
-  Promise<RosieLocalRuntimeStatus | null> {
-  if (!isTauri()) return null;
+async function fetchRosieVoiceJson<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T> {
+  const response = await fetch(rosieVoiceApiUrl(path), init);
+  const json = (await response.json().catch(() => ({}))) as T & { error?: string };
+  if (!response.ok) {
+    throw new Error(
+      typeof json.error === "string" ? json.error : `ROSIE voice request failed with HTTP ${response.status}`,
+    );
+  }
+  return json;
+}
+
+export async function getRosieLocalRuntimeStatus(
+  options?: RosieRequestOptions,
+): Promise<RosieLocalRuntimeStatus | null> {
+  try {
+    return await fetchRosieVoiceJson<RosieLocalRuntimeStatus>("/runtime-status", {
+      headers: options?.headers,
+    });
+  } catch (error) {
+    if (!isTauri()) {
+      throw error;
+    }
+  }
+
   return invoke<RosieLocalRuntimeStatus>("rosie_local_runtime_status");
 }
 
-export async function getRosieVoiceCapabilities(): Promise<RosieVoiceCapabilities> {
-  if (!isTauri()) {
-    return getBrowserRosieVoiceCapabilities();
-  }
-
+export async function getRosieVoiceCapabilities(
+  options?: RosieRequestOptions,
+): Promise<RosieVoiceCapabilities> {
   try {
-    const runtime = await getRosieLocalRuntimeStatus();
+    const runtime = await getRosieLocalRuntimeStatus(options);
     return {
       speech_to_text_supported:
         runtime?.stt.active_engine !== "unavailable",
       text_to_speech_supported: runtime?.tts.active_engine !== "unavailable",
     };
   } catch {
-    return {
-      speech_to_text_supported: false,
-      text_to_speech_supported: false,
-    };
+    return getBrowserRosieVoiceCapabilities();
   }
 }
 
@@ -595,93 +599,145 @@ async function transcribeCapturedAudio(chunks: Float32Array[], sampleRate: numbe
     offset += chunk.length;
   }
   const wavPayload = encodeWav(merged, sampleRate);
-  return invoke<string>("rosie_transcribe_wav", {
-    audioBase64: arrayBufferToBase64(wavPayload),
+  return arrayBufferToBase64(wavPayload);
+}
+
+async function requestHostTranscription(
+  audioBase64: string,
+  options?: RosieRequestOptions,
+): Promise<string> {
+  const response = await fetchRosieVoiceJson<{ transcript: string }>("/voice/transcribe", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(options?.headers ?? {}),
+    },
+    body: JSON.stringify({
+      audio_base64: audioBase64,
+    }),
   });
+  return response.transcript;
+}
+
+function startHostRosieVoiceCapture(
+  callbacks: RosieVoiceCaptureCallbacks,
+  options?: RosieRequestOptions,
+): RosieVoiceCaptureSession {
+  if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+    throw new Error("Voice input is unavailable on this workstation.");
+  }
+
+  const seededWav = window.__ROSIE_TEST_HOST_WAV_BASE64__;
+  if (seededWav) {
+    let ended = false;
+    callbacks.on_start?.();
+    return {
+      stop: () => {
+        if (ended) return;
+        ended = true;
+        callbacks.on_end?.();
+        void requestHostTranscription(seededWav, options)
+          .then((transcript) => {
+            callbacks.on_final_transcript?.(transcript);
+          })
+          .catch((error) => {
+            callbacks.on_error?.(
+              error instanceof Error
+                ? error.message
+                : "ROSIE voice input could not transcribe that request.",
+            );
+          });
+      },
+    };
+  }
+
+  let ended = false;
+  let audioContext: AudioContext | null = null;
+  let processor: ScriptProcessorNode | null = null;
+  let source: MediaStreamAudioSourceNode | null = null;
+  let stream: MediaStream | null = null;
+  let chunks: Float32Array[] = [];
+
+  const finish = async () => {
+    if (ended) return;
+    ended = true;
+    try {
+      processor?.disconnect();
+      source?.disconnect();
+      stream?.getTracks().forEach((track) => track.stop());
+      await audioContext?.close();
+    } catch {
+      // noop
+    }
+    callbacks.on_end?.();
+    if (chunks.length === 0) {
+      callbacks.on_error?.("No speech was detected. Try again when you are ready.");
+      return;
+    }
+    try {
+      const audioBase64 = await transcribeCapturedAudio(
+        chunks,
+        audioContext?.sampleRate ?? 44100,
+      );
+      const transcript = await requestHostTranscription(audioBase64, options);
+      callbacks.on_final_transcript?.(transcript);
+    } catch (error) {
+      callbacks.on_error?.(
+        error instanceof Error
+          ? error.message
+          : "ROSIE voice input could not transcribe that request.",
+      );
+    } finally {
+      chunks = [];
+    }
+  };
+
+  void navigator.mediaDevices
+    .getUserMedia({ audio: true })
+    .then((mediaStream) => {
+      if (ended) {
+        mediaStream.getTracks().forEach((track) => track.stop());
+        return;
+      }
+      stream = mediaStream;
+      audioContext = new window.AudioContext();
+      source = audioContext.createMediaStreamSource(mediaStream);
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+      processor.onaudioprocess = (event) => {
+        const input = event.inputBuffer.getChannelData(0);
+        chunks.push(new Float32Array(input));
+      };
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      callbacks.on_start?.();
+    })
+    .catch((error) => {
+      ended = true;
+      callbacks.on_error?.(
+        error instanceof Error && /denied|not allowed|permission|secure/i.test(error.message)
+          ? "Microphone access was not granted for ROSIE voice input."
+          : "ROSIE voice input could not start on this workstation.",
+      );
+      callbacks.on_end?.();
+    });
+
+  return {
+    stop: () => {
+      void finish();
+    },
+  };
 }
 
 export function startRosieVoiceCapture(
   callbacks: RosieVoiceCaptureCallbacks,
+  options?: RosieRequestOptions,
 ): RosieVoiceCaptureSession {
-  if (isTauri()) {
-    if (typeof window === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-      throw new Error("Voice input is unavailable on this workstation.");
+  try {
+    return startHostRosieVoiceCapture(callbacks, options);
+  } catch (error) {
+    if (isTauri()) {
+      throw error;
     }
-
-    let ended = false;
-    let audioContext: AudioContext | null = null;
-    let processor: ScriptProcessorNode | null = null;
-    let source: MediaStreamAudioSourceNode | null = null;
-    let stream: MediaStream | null = null;
-    let chunks: Float32Array[] = [];
-
-    const finish = async () => {
-      if (ended) return;
-      ended = true;
-      try {
-        processor?.disconnect();
-        source?.disconnect();
-        stream?.getTracks().forEach((track) => track.stop());
-        await audioContext?.close();
-      } catch {
-        // noop
-      }
-      callbacks.on_end?.();
-      if (chunks.length === 0) {
-        callbacks.on_error?.("No speech was detected. Try again when you are ready.");
-        return;
-      }
-      try {
-        const transcript = await transcribeCapturedAudio(
-          chunks,
-          audioContext?.sampleRate ?? 44100,
-        );
-        callbacks.on_final_transcript?.(transcript);
-      } catch (error) {
-        callbacks.on_error?.(
-          error instanceof Error
-            ? error.message
-            : "ROSIE voice input could not transcribe that request.",
-        );
-      } finally {
-        chunks = [];
-      }
-    };
-
-    void navigator.mediaDevices
-      .getUserMedia({ audio: true })
-      .then((mediaStream) => {
-        if (ended) {
-          mediaStream.getTracks().forEach((track) => track.stop());
-          return;
-        }
-        stream = mediaStream;
-        audioContext = new window.AudioContext();
-        source = audioContext.createMediaStreamSource(mediaStream);
-        processor = audioContext.createScriptProcessor(4096, 1, 1);
-        processor.onaudioprocess = (event) => {
-          const input = event.inputBuffer.getChannelData(0);
-          chunks.push(new Float32Array(input));
-        };
-        source.connect(processor);
-        processor.connect(audioContext.destination);
-        callbacks.on_start?.();
-      })
-      .catch((error) => {
-        ended = true;
-        callbacks.on_error?.(
-          error instanceof Error && /denied|not allowed|permission/i.test(error.message)
-            ? "Microphone access was not granted for ROSIE voice input."
-            : "ROSIE voice input could not start on this workstation.",
-        );
-        callbacks.on_end?.();
-      });
-
-    return {
-      stop: () => {
-        void finish();
-      },
-    };
   }
 
   const RecognitionCtor = getSpeechRecognitionConstructor();
@@ -747,20 +803,28 @@ export function startRosieVoiceCapture(
   };
 }
 
-export function stopRosieSpeechPlayback(): void {
-  const testHostTts = getRosieTestHostTtsHook();
-  if (testHostTts) {
-    testHostTts.stop?.();
+async function stopHostRosieSpeechPlayback(options?: RosieRequestOptions): Promise<void> {
+  if (activeRosieSpeechPoller != null && typeof window !== "undefined") {
+    window.clearInterval(activeRosieSpeechPoller);
+    activeRosieSpeechPoller = null;
+  }
+  await fetchRosieVoiceJson<{ message: string }>("/voice/stop", {
+    method: "POST",
+    headers: options?.headers,
+  });
+}
+
+export function stopRosieSpeechPlayback(options?: RosieRequestOptions): void {
+  if (activeRosieSpeechPoller != null && typeof window !== "undefined") {
+    window.clearInterval(activeRosieSpeechPoller);
+    activeRosieSpeechPoller = null;
   }
 
-  if (activeTauriSpeechPoller != null && typeof window !== "undefined") {
-    window.clearInterval(activeTauriSpeechPoller);
-    activeTauriSpeechPoller = null;
-  }
-
-  if (isTauri()) {
-    void invoke("rosie_tts_stop").catch(() => {});
-  }
+  void stopHostRosieSpeechPlayback(options).catch(() => {
+    if (isTauri()) {
+      void invoke("rosie_tts_stop").catch(() => {});
+    }
+  });
 }
 
 export function speakRosieText(
@@ -768,103 +832,139 @@ export function speakRosieText(
   options?: {
     rate?: number;
     voice?: RosieSettings["selected_voice"];
+    headers?: Record<string, string>;
     on_start?: () => void;
     on_end?: () => void;
     on_error?: (message: string) => void;
   },
 ): RosieSpeechPlayback {
-  const testHostTts = getRosieTestHostTtsHook();
-  if (testHostTts) {
-    let ended = false;
-    const finishEnd = () => {
-      if (ended) return;
-      ended = true;
-      options?.on_end?.();
-    };
-    const session = testHostTts.speak(text, {
-      rate: typeof options?.rate === "number" ? options.rate : 1,
-      voice: options?.voice ?? "adam",
-      onStart: () => {
-        if (!ended) {
-          options?.on_start?.();
-        }
+  let ended = false;
+  let stopped = false;
+  const finishEnd = () => {
+    if (ended) return;
+    ended = true;
+    options?.on_end?.();
+  };
+
+  const startHostPlayback = async () => {
+    await fetchRosieVoiceJson<{ message: string }>("/voice/speak", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(options?.headers ?? {}),
       },
-      onEnd: finishEnd,
-      onError: (message) => {
-        if (ended) return;
-        ended = true;
-        options?.on_error?.(message);
-      },
+      body: JSON.stringify({
+        text,
+        rate: typeof options?.rate === "number" ? options.rate : 1,
+        voice: options?.voice ?? "adam",
+      }),
     });
 
-    return {
-      stop: () => {
-        if (ended) return;
-        if (typeof session?.stop === "function") {
-          session.stop();
-        } else {
-          testHostTts.stop?.();
-          finishEnd();
-        }
-      },
-    };
-  }
+    if (stopped) {
+      await stopHostRosieSpeechPlayback({ headers: options?.headers }).catch(() => {});
+      finishEnd();
+      return;
+    }
 
-  if (isTauri()) {
-    let stopped = false;
-    void invoke("rosie_tts_speak", {
-      text,
-      rate: typeof options?.rate === "number" ? options.rate : 1,
-      voice: options?.voice ?? "adam",
-    })
-      .then(() => {
-        if (stopped) return;
-        options?.on_start?.();
-        if (typeof window !== "undefined") {
-          activeTauriSpeechPoller = window.setInterval(() => {
-            void invoke<boolean>("rosie_tts_status")
-              .then((speaking) => {
-                if (speaking || stopped) return;
-                if (activeTauriSpeechPoller != null) {
-                  window.clearInterval(activeTauriSpeechPoller);
-                  activeTauriSpeechPoller = null;
-                }
-                options?.on_end?.();
-              })
-              .catch(() => {
-                if (activeTauriSpeechPoller != null) {
-                  window.clearInterval(activeTauriSpeechPoller);
-                  activeTauriSpeechPoller = null;
-                }
-                if (!stopped) {
-                  options?.on_error?.("ROSIE could not play voice output on this workstation.");
-                }
-              });
-          }, 300);
-        }
+    options?.on_start?.();
+    if (typeof window !== "undefined") {
+      activeRosieSpeechPoller = window.setInterval(() => {
+        void fetchRosieVoiceJson<{ speaking: boolean }>("/voice/status", {
+          headers: options?.headers,
+        })
+          .then(({ speaking }) => {
+            if (speaking || stopped) return;
+            if (activeRosieSpeechPoller != null) {
+              window.clearInterval(activeRosieSpeechPoller);
+              activeRosieSpeechPoller = null;
+            }
+            finishEnd();
+          })
+          .catch((error) => {
+            if (activeRosieSpeechPoller != null) {
+              window.clearInterval(activeRosieSpeechPoller);
+              activeRosieSpeechPoller = null;
+            }
+            if (!stopped && !ended) {
+              ended = true;
+              options?.on_error?.(
+                error instanceof Error
+                  ? error.message
+                  : "ROSIE could not play voice output on this workstation.",
+              );
+            }
+          });
+      }, 300);
+    }
+  };
+
+  void startHostPlayback().catch((error) => {
+    if (isTauri()) {
+      const tauriStopped = false;
+      void invoke("rosie_tts_speak", {
+        text,
+        rate: typeof options?.rate === "number" ? options.rate : 1,
+        voice: options?.voice ?? "adam",
       })
-      .catch((error) => {
-        if (!stopped) {
-          options?.on_error?.(
-            error instanceof Error
-              ? error.message
-              : "ROSIE could not play voice output on this workstation.",
-          );
-        }
-      });
+        .then(() => {
+          if (tauriStopped || stopped) return;
+          options?.on_start?.();
+          if (typeof window !== "undefined") {
+            activeRosieSpeechPoller = window.setInterval(() => {
+              void invoke<boolean>("rosie_tts_status")
+                .then((speaking) => {
+                  if (speaking || tauriStopped || stopped) return;
+                  if (activeRosieSpeechPoller != null) {
+                    window.clearInterval(activeRosieSpeechPoller);
+                    activeRosieSpeechPoller = null;
+                  }
+                  finishEnd();
+                })
+                .catch(() => {
+                  if (activeRosieSpeechPoller != null) {
+                    window.clearInterval(activeRosieSpeechPoller);
+                    activeRosieSpeechPoller = null;
+                  }
+                  if (!tauriStopped && !stopped && !ended) {
+                    ended = true;
+                    options?.on_error?.("ROSIE could not play voice output on this workstation.");
+                  }
+                });
+            }, 300);
+          }
+        })
+        .catch((tauriError) => {
+          if (!stopped && !ended) {
+            ended = true;
+            options?.on_error?.(
+              tauriError instanceof Error
+                ? tauriError.message
+                : "ROSIE could not play voice output on this workstation.",
+            );
+          }
+        });
 
-    return {
-      stop: () => {
-        stopped = true;
-        stopRosieSpeechPlayback();
-        options?.on_end?.();
-      },
-    };
-  }
+      return;
+    }
 
-  throw new Error(
-    "ROSIE voice output is only available in the Riverside desktop runtime.",
-  );
+    if (!ended) {
+      ended = true;
+      options?.on_error?.(
+        error instanceof Error
+          ? error.message
+          : "ROSIE could not play voice output on this workstation.",
+      );
+    }
+  });
+
+  return {
+    stop: () => {
+      if (stopped || ended) return;
+      stopped = true;
+      stopRosieSpeechPlayback({ headers: options?.headers });
+      finishEnd();
+    },
+  };
 }
 
 export async function rosieChatCompletions(

@@ -317,6 +317,7 @@ async fn launch_server_inner(
         corecard_token_cache: std::sync::Arc::new(tokio::sync::Mutex::new(
             crate::logic::corecard::CoreCardTokenCache::default(),
         )),
+        rosie_speech_state: std::sync::Arc::new(tokio::sync::Mutex::new(None)),
         server_log_ring: server_log_ring.clone(),
     };
 

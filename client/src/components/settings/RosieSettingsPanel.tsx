@@ -54,7 +54,7 @@ export default function RosieSettingsPanel() {
     localRuntimeStatus != null &&
     activeTtsEngine !== "kokoro" &&
     activeTtsEngine !== "unavailable";
-  const desktopVoiceRuntimeAvailable = localRuntimeStatus != null;
+  const hostVoiceRuntimeAvailable = localRuntimeStatus != null;
 
   useEffect(() => {
     saveLocalRosieSettings(localSettings);
@@ -126,7 +126,9 @@ export default function RosieSettingsPanel() {
   const loadLocalRuntime = useCallback(async () => {
     setLocalRuntimeBusy(true);
     try {
-      const status = await getRosieLocalRuntimeStatus();
+      const status = await getRosieLocalRuntimeStatus({
+        headers: backofficeHeaders() as Record<string, string>,
+      });
       setLocalRuntimeStatus(status);
     } catch {
       setLocalRuntimeStatus(null);
@@ -134,7 +136,7 @@ export default function RosieSettingsPanel() {
       setLocalRuntimeLoaded(true);
       setLocalRuntimeBusy(false);
     }
-  }, []);
+  }, [backofficeHeaders]);
 
   useEffect(() => {
     void loadLocalRuntime();
@@ -142,21 +144,22 @@ export default function RosieSettingsPanel() {
 
   useEffect(() => {
     return () => {
-      stopRosieSpeechPlayback();
+      stopRosieSpeechPlayback({ headers: backofficeHeaders() as Record<string, string> });
     };
-  }, []);
+  }, [backofficeHeaders]);
 
   const updateLocalSettings = (patch: Partial<RosieSettings>) => {
     setLocalSettings((prev) => mergeRosieSettings({ ...prev, ...patch }, null));
   };
 
   const testSelectedVoice = () => {
-    stopRosieSpeechPlayback();
+    stopRosieSpeechPlayback({ headers: backofficeHeaders() as Record<string, string> });
     setVoicePreviewSpeaking(false);
     try {
       speakRosieText(ROSIE_VOICE_TEST_SENTENCE, {
         rate: localSettings.speech_rate,
         voice: localSettings.selected_voice,
+        headers: backofficeHeaders() as Record<string, string>,
         on_start: () => setVoicePreviewSpeaking(true),
         on_end: () => setVoicePreviewSpeaking(false),
         on_error: (message) => {
@@ -175,7 +178,7 @@ export default function RosieSettingsPanel() {
   };
 
   const stopVoicePreview = () => {
-    stopRosieSpeechPlayback();
+    stopRosieSpeechPlayback({ headers: backofficeHeaders() as Record<string, string> });
     setVoicePreviewSpeaking(false);
   };
 
@@ -288,11 +291,11 @@ export default function RosieSettingsPanel() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
-                Local Runtime Status
+                Host Runtime Status
               </p>
               <p className="mt-2 text-sm font-medium text-app-text-muted">
-                Visibility into the pinned local LLM, speech-to-text, and
-                speech output path for this workstation.
+                Visibility into the host ROSIE LLM, speech-to-text, and
+                speech output path serving this workstation.
               </p>
             </div>
             <button
@@ -308,12 +311,11 @@ export default function RosieSettingsPanel() {
 
           {!localRuntimeLoaded ? (
             <p className="mt-4 text-sm font-medium text-app-text-muted">
-              Checking local ROSIE runtime…
+              Checking host ROSIE runtime…
             </p>
           ) : localRuntimeStatus == null ? (
             <p className="mt-4 text-sm font-medium text-app-text-muted">
-              This browser session is not running inside a local Tauri shell, so
-              workstation runtime status is unavailable here.
+              The host ROSIE runtime could not be reached from this workstation.
             </p>
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -461,7 +463,7 @@ export default function RosieSettingsPanel() {
               </p>
               <p className="mt-2 text-sm font-medium text-app-text-muted">
                 Enables ROSIE voice input/output controls for this workstation.
-                Voice replies run only through the Riverside desktop runtime.
+                Voice replies run through the shared host ROSIE runtime.
               </p>
             </div>
             <input
@@ -481,7 +483,7 @@ export default function RosieSettingsPanel() {
               </p>
               <p className="mt-2 text-sm font-medium text-app-text-muted">
                 Speaks the normal text response after ROSIE finishes answering
-                when the desktop voice runtime is available.
+                when the host voice runtime is available.
               </p>
             </div>
             <input
@@ -508,8 +510,8 @@ export default function RosieSettingsPanel() {
               <p>
                 TTS engine status:{" "}
                 <strong className="text-app-text">
-                  {!desktopVoiceRuntimeAvailable
-                    ? "Desktop runtime required"
+                  {!hostVoiceRuntimeAvailable
+                    ? "Host runtime unavailable"
                     : kokoroVoiceControlsAvailable
                     ? "Using Kokoro speaker IDs"
                     : ttsFallbackActive
@@ -518,12 +520,12 @@ export default function RosieSettingsPanel() {
                 </strong>
               </p>
               <p className="mt-2">
-                {!desktopVoiceRuntimeAvailable
-                  ? "This browser session is outside the Riverside desktop runtime, so ROSIE voice replies are unavailable here."
+                {!hostVoiceRuntimeAvailable
+                  ? "This workstation could not reach the host ROSIE voice runtime, so spoken replies are unavailable right now."
                   : kokoroVoiceControlsAvailable
-                  ? "This workstation is on the approved Kokoro path, so speaker selection and preview use real Kokoro voices."
+                  ? "The host machine is on the approved Kokoro path, so speaker selection and preview use real Kokoro voices."
                   : ttsFallbackActive
-                    ? "This workstation is not currently using Kokoro. Spoken replies may still work through the native desktop fallback, but speaker selection is disabled because that path does not map cleanly to Kokoro speaker IDs."
+                    ? "The host machine is not currently using Kokoro. Spoken replies may still work through the approved host fallback, but speaker selection is disabled because that path does not map cleanly to Kokoro speaker IDs."
                     : "Speech output is currently unavailable on this workstation."}
               </p>
             </div>

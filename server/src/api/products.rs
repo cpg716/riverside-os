@@ -3133,6 +3133,7 @@ mod tests {
             meilisearch: None,
             corecard_config: CoreCardConfig::from_env(),
             corecard_token_cache: Arc::new(tokio::sync::Mutex::new(CoreCardTokenCache::default())),
+            rosie_speech_state: Arc::new(tokio::sync::Mutex::new(None)),
             server_log_ring: ServerLogRing::new(32, 512),
         }
     }

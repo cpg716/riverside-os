@@ -410,7 +410,7 @@ export default function HelpCenterDrawer({
       voiceCaptureRef.current = null;
       speechPlaybackRef.current?.stop();
       speechPlaybackRef.current = null;
-      stopRosieSpeechPlayback();
+      stopRosieSpeechPlayback({ headers: apiAuth() as Record<string, string> });
       setRosieListening(false);
       setRosieSpeaking(false);
       setRosieTranscriptPreview("");
@@ -507,7 +507,9 @@ export default function HelpCenterDrawer({
   useEffect(() => {
     if (!isOpen) return;
     let cancelled = false;
-    void getRosieVoiceCapabilities().then((capabilities) => {
+    void getRosieVoiceCapabilities({
+      headers: apiAuth() as Record<string, string>,
+    }).then((capabilities) => {
       if (!cancelled) {
         setVoiceCapabilities(capabilities);
       }
@@ -515,7 +517,7 @@ export default function HelpCenterDrawer({
     return () => {
       cancelled = true;
     };
-  }, [isOpen]);
+  }, [isOpen, apiAuth]);
 
   useEffect(() => {
     return () => {
@@ -523,9 +525,9 @@ export default function HelpCenterDrawer({
       voiceCaptureRef.current = null;
       speechPlaybackRef.current?.stop();
       speechPlaybackRef.current = null;
-      stopRosieSpeechPlayback();
+      stopRosieSpeechPlayback({ headers: apiAuth() as Record<string, string> });
     };
-  }, []);
+  }, [apiAuth]);
 
   const allowedManualIds = useMemo(() => {
     if (manualList?.length) return new Set(manualList.map((m) => m.id));
@@ -712,9 +714,9 @@ export default function HelpCenterDrawer({
   const stopRosieSpeaking = useCallback(() => {
     speechPlaybackRef.current?.stop();
     speechPlaybackRef.current = null;
-    stopRosieSpeechPlayback();
+    stopRosieSpeechPlayback({ headers: apiAuth() as Record<string, string> });
     setRosieSpeaking(false);
-  }, []);
+  }, [apiAuth]);
 
   const submitRosieQuestion = useCallback(async (questionOverride?: string) => {
     const question = (questionOverride ?? rosieQuestion).trim();
@@ -769,6 +771,7 @@ export default function HelpCenterDrawer({
           speechPlaybackRef.current = speakRosieText(speechText, {
             rate: rosieSettings.speech_rate,
             voice: rosieSettings.selected_voice,
+            headers: apiAuth() as Record<string, string>,
             on_start: () => setRosieSpeaking(true),
             on_end: () => {
               speechPlaybackRef.current = null;
@@ -831,7 +834,7 @@ export default function HelpCenterDrawer({
     }
     if (!voiceCapabilities.speech_to_text_supported) {
       setRosieStatus(
-        "Voice input is unavailable on this workstation. Use the text box to ask ROSIE.",
+        "Voice input is unavailable because this workstation could not reach the host ROSIE speech stack. Use the text box to ask ROSIE.",
       );
       return;
     }
@@ -863,16 +866,19 @@ export default function HelpCenterDrawer({
           voiceCaptureRef.current = null;
           setRosieListening(false);
         },
+      }, {
+        headers: apiAuth() as Record<string, string>,
       });
     } catch (error) {
       setRosieListening(false);
       setRosieStatus(
         error instanceof Error
           ? error.message
-          : "Voice input is unavailable on this workstation.",
+          : "Voice input is unavailable because this workstation could not reach the host ROSIE speech stack.",
       );
     }
   }, [
+    apiAuth,
     rosieBusy,
     rosieSettings.enabled,
     rosieSettings.voice_enabled,
@@ -997,7 +1003,7 @@ export default function HelpCenterDrawer({
               ) : null}
               {rosieSettings.enabled && !voiceCapabilities.speech_to_text_supported ? (
                 <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-xs font-medium text-app-text-muted">
-                  Voice input is only shown when this workstation has the local ROSIE speech stack installed.
+                  Voice input is only shown when this workstation can reach the host ROSIE speech stack.
                 </p>
               ) : null}
             </div>
