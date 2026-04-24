@@ -562,7 +562,7 @@ export default function ProductHubDrawer({
       ) : (
         <>
           {tab === "general" && (
-            <div className="space-y-6">
+            <div className="space-y-5">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="rounded-full border border-app-accent/35 bg-app-accent/10 px-4 py-2 text-sm font-black uppercase italic tracking-tight text-app-accent shadow-app-accent/30">
                   In stock: {totalStock} units
@@ -595,7 +595,7 @@ export default function ProductHubDrawer({
                 </div>
               </label>
 
-              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+              <section className="rounded-2xl border border-app-border bg-app-surface p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
@@ -616,7 +616,7 @@ export default function ProductHubDrawer({
                   </div>
                 </div>
 
-                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                   <div className="rounded-2xl border border-app-border bg-app-surface-2/90 px-4 py-3">
                     <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                       On hand
@@ -653,7 +653,7 @@ export default function ProductHubDrawer({
                   ) : null}
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-2/70 px-4 py-3">
+                <div className="mt-3 rounded-2xl border border-app-border bg-app-surface-2/70 px-4 py-3">
                   <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                     How inventory rules work
                   </p>
@@ -672,7 +672,7 @@ export default function ProductHubDrawer({
                   </div>
                 </div>
 
-                <div className="mt-4 overflow-x-auto">
+                <div className="mt-3 overflow-x-auto">
                   <table className="min-w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-app-border text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -722,7 +722,7 @@ export default function ProductHubDrawer({
                   </table>
                 </div>
 
-                <div className="mt-4">
+                <div className="mt-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Recent inventory events
                   </p>

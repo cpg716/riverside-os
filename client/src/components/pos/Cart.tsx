@@ -1347,8 +1347,8 @@ export default function Cart({
 
         {/* ── Totals summary ── */}
         <div className="shrink-0 px-2.5 pt-2">
-          <div className="rounded-2xl border border-app-border/50 bg-app-surface/80 px-3 py-2 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
-            <div className="mb-1.5 flex items-center justify-between gap-2 border-b border-app-border/40 pb-1.5">
+          <div className="rounded-2xl border border-app-border/50 bg-app-surface/80 px-4 py-3 shadow-sm ring-1 ring-black/[0.04] dark:ring-white/[0.06]">
+            <div className="mb-2 flex items-center justify-between gap-2 border-b border-app-border/40 pb-2">
               <div className="flex items-center gap-2">
                 <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/[0.12] px-2 py-0.5 text-[9px] font-black uppercase tracking-wide text-emerald-700 ring-1 ring-emerald-600/15 dark:text-emerald-400 dark:ring-emerald-500/20">
                   <Package size={11} className="shrink-0 opacity-90" aria-hidden />
@@ -1406,7 +1406,7 @@ export default function Cart({
                 ) : null}
               </div>
             </div>
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-app-text-muted">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-app-text-muted">
               <div className="flex items-baseline justify-between gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                 <span>Subtotal</span>
                 <span className="tabular-nums font-bold text-app-text">${centsToFixed2(totals.subtotalCents)}</span>
@@ -1415,7 +1415,7 @@ export default function Cart({
                 <span>Items</span>
                 <span className="tabular-nums text-app-text">{totals.totalPieces}</span>
               </div>
-              <div className="col-span-2 space-y-1 pt-1 border-t border-app-border/30 mt-1">
+              <div className="col-span-2 mt-2 space-y-1.5 border-t border-app-border/30 pt-2">
                 <div className="flex items-baseline justify-between gap-2 text-[10px] uppercase tracking-wide opacity-60">
                   <span>NYS Tax</span>
                   <span className="tabular-nums font-bold text-app-text-muted">${centsToFixed2(totals.stateTaxCents)}</span>
@@ -1462,7 +1462,7 @@ export default function Cart({
         {/* ── Keypad — uses all remaining space ── */}
         <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-2 pt-2">
           {/* Display / mode hint */}
-          <div className="mb-1.5 shrink-0 rounded-xl border border-app-border/60 bg-app-surface-2/80 px-3 py-1.5">
+          <div className="mb-2 shrink-0 rounded-xl border border-app-border/60 bg-app-surface-2/80 px-3 py-2">
             <p className="text-[9px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
               {selectedLineKey
                 ? keypadMode === "qty"

@@ -175,13 +175,13 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
         isSelected ? "bg-app-bg/80 border-l-4 border-emerald-500" : "bg-app-surface border-l-4 border-transparent"
       )}
     >
-        <td className="px-6 py-5">
+        <td className="px-6 py-4">
            <p className="text-[11px] font-black tracking-tight text-app-text mb-1">{row.display_id}</p>
            <p className="text-[9px] font-bold text-app-text-muted opacity-60 uppercase tracking-widest italic">
              {new Date(row.booked_at).toLocaleDateString()}
            </p>
         </td>
-        <td className="px-6 py-5">
+        <td className="px-6 py-4">
            <div className="flex items-center gap-3">
               <div className="h-8 w-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600 text-[10px] font-black">
                 {row.customer_name?.[0] ?? row.counterpoint_customer_code?.[0] ?? "W"}
@@ -205,13 +205,13 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
               </div>
            </div>
         </td>
-        <td className="px-6 py-5 max-w-[300px]">
+        <td className="px-6 py-4 max-w-[300px]">
            <p className="text-[10px] font-bold text-app-text-muted italic opacity-80 truncate">
              {row.item_count} item{row.item_count === 1 ? "" : "s"}
              {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
            </p>
         </td>
-        <td className="px-6 py-5">
+        <td className="px-6 py-4">
            <span className={cn(
              "px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
              row.counterpoint_customer_code
@@ -221,13 +221,13 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
              {row.status}
            </span>
         </td>
-        <td className="px-6 py-5">
+        <td className="px-6 py-4">
           <p className="text-[11px] font-black text-app-text">{money(row.total_price)}</p>
           <p className="text-[9px] font-bold text-app-text-muted opacity-80 mt-1">
             Paid {money(row.amount_paid)}
           </p>
         </td>
-        <td className="px-6 py-5 text-right flex items-center justify-end gap-3">
+        <td className="px-6 py-4 text-right flex items-center justify-end gap-3">
           <p className={cn("text-[11px] font-black", parseMoneyToCents(row.balance_due) > 0 ? "text-amber-500" : "text-app-text-muted opacity-40")}>
             {money(row.balance_due)}
           </p>
@@ -839,7 +839,7 @@ export default function OrdersWorkspace({
           </div>
 
           {/* Header Filters Area */}
-          <div className="px-8 py-6 border-b border-app-border bg-app-bg/20 flex flex-wrap items-center gap-4">
+          <div className="px-8 py-5 border-b border-app-border bg-app-bg/20 flex flex-wrap items-center gap-4">
             <div className="relative group flex-1 min-w-[300px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-muted opacity-40 group-focus-within:text-app-accent group-focus-within:opacity-100 transition-all" size={18} />
               <input
@@ -947,7 +947,7 @@ export default function OrdersWorkspace({
             </table>
 
             {transactionRows.length === 0 && (
-              <div className="flex flex-col items-center justify-center p-20 opacity-30 italic">
+              <div className="flex flex-col items-center justify-center p-16 opacity-30 italic">
                 <Search size={48} className="mb-4" />
                 <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
               </div>

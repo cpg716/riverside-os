@@ -758,7 +758,7 @@ export default function TransactionDetailDrawer({
             Order detail is unavailable.
           </div>
         ) : (
-          <div className="space-y-6">
+          <div className="space-y-5">
             <section className="grid gap-4 lg:grid-cols-2">
               <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4">
                 <div className="flex items-center gap-2">
@@ -767,12 +767,12 @@ export default function TransactionDetailDrawer({
                     Financial Snapshot
                   </h3>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Total
                     </p>
-                    <p className="mt-1 text-lg font-black text-app-text">
+                    <p className="mt-1 text-xl font-black text-app-text">
                       {fmtMoney(detail.total_price)}
                     </p>
                   </div>
@@ -780,7 +780,7 @@ export default function TransactionDetailDrawer({
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Balance Due
                     </p>
-                    <p className="mt-1 text-lg font-black text-amber-600">
+                    <p className="mt-1 text-xl font-black text-amber-600">
                       {fmtMoney(detail.balance_due)}
                     </p>
                   </div>
@@ -801,7 +801,7 @@ export default function TransactionDetailDrawer({
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 space-y-2 border-t border-app-border/50 pt-4">
+                <div className="mt-3 space-y-2 border-t border-app-border/50 pt-3">
                   <div className="flex items-start justify-between gap-3 text-[11px]">
                     <span className="font-black uppercase tracking-widest text-app-text-muted">
                       Allocated Payments
@@ -833,7 +833,7 @@ export default function TransactionDetailDrawer({
                     Fulfillment Snapshot
                   </h3>
                 </div>
-                <div className="mt-4 flex flex-wrap gap-2">
+                <div className="mt-3 flex flex-wrap gap-2">
                   <span
                     className={`rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest ${badgeClassName("info")}`}
                   >
@@ -854,7 +854,7 @@ export default function TransactionDetailDrawer({
                     {readiness?.releaseLabel ?? "Review Release State"}
                   </span>
                 </div>
-                <div className="mt-4 grid grid-cols-2 gap-3">
+                <div className="mt-3 grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                       Mode
@@ -912,7 +912,7 @@ export default function TransactionDetailDrawer({
                     </p>
                   </div>
                 </div>
-                <div className="mt-4 rounded-xl border border-sky-500/15 bg-sky-500/5 p-3">
+                <div className="mt-3 rounded-xl border border-sky-500/15 bg-sky-500/5 p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Mode Cue
                   </p>
@@ -928,7 +928,7 @@ export default function TransactionDetailDrawer({
                     {readiness?.remainingWorkLabel}
                   </p>
                 </div>
-                <div className="mt-4 rounded-xl border border-app-border/70 bg-app-surface p-3">
+                <div className="mt-3 rounded-xl border border-app-border/70 bg-app-surface p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                     Lifecycle Note
                   </p>
