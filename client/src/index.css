@@ -208,7 +208,10 @@ html[data-theme="dark"] :where(
     border: 1px solid color-mix(in srgb, var(--app-border) 68%, transparent);
     background: color-mix(in srgb, var(--app-surface) 94%, var(--app-surface-2));
     color: var(--app-text);
-    @apply rounded-2xl shadow-[0_16px_30px_-24px_rgba(15,23,42,0.16)];
+    border-radius: 1rem;
+    overflow: hidden;
+    isolation: isolate;
+    @apply shadow-[0_16px_30px_-24px_rgba(15,23,42,0.16)];
   }
 
   .ui-input {
@@ -263,7 +266,10 @@ html[data-theme="dark"] :where(
   .ui-table-shell {
     border: 1px solid color-mix(in srgb, var(--app-border) 66%, transparent);
     background: color-mix(in srgb, var(--app-surface) 94%, var(--app-surface-2));
-    @apply overflow-hidden rounded-2xl shadow-sm;
+    border-radius: 1rem;
+    overflow: hidden;
+    isolation: isolate;
+    @apply shadow-sm;
   }
 
   .ui-filter-row {
@@ -312,7 +318,9 @@ html[data-theme="dark"] :where(
   .ui-panel {
     border: 1px solid color-mix(in srgb, var(--app-border) 62%, transparent);
     background: color-mix(in srgb, var(--app-surface-2) 82%, var(--app-surface-3));
-    @apply rounded-2xl;
+    border-radius: 1rem;
+    overflow: hidden;
+    isolation: isolate;
   }
   .ui-kpi-card {
     @apply rounded-2xl border p-4 text-left;
@@ -409,7 +417,8 @@ html[data-theme="dark"] :where(
     border-color: color-mix(in srgb, var(--app-border) 56%, transparent);
     background: color-mix(in srgb, var(--app-surface) 97%, var(--app-surface-2));
     box-shadow:
-      0 18px 34px -28px rgba(15, 23, 42, 0.16),
+      0 20px 38px -28px rgba(15, 23, 42, 0.18),
+      0 10px 18px -18px rgba(15, 23, 42, 0.08),
       0 1px 0 rgba(255, 255, 255, 0.55) inset;
   }
 
@@ -430,7 +439,8 @@ html[data-theme="dark"] :where(
     border-color: color-mix(in srgb, var(--app-border) 58%, transparent);
     background: color-mix(in srgb, var(--app-surface) 96%, var(--app-surface-2));
     box-shadow:
-      0 16px 30px -28px rgba(15, 23, 42, 0.14),
+      0 18px 34px -28px rgba(15, 23, 42, 0.16),
+      0 8px 16px -18px rgba(15, 23, 42, 0.07),
       0 1px 0 rgba(255, 255, 255, 0.5) inset;
   }
 
@@ -454,7 +464,8 @@ html[data-theme="dark"] :where(
     border-color: color-mix(in srgb, var(--app-border) 54%, transparent);
     background: color-mix(in srgb, var(--app-surface-2) 74%, var(--app-surface-3));
     box-shadow:
-      0 12px 24px -24px rgba(15, 23, 42, 0.12),
+      0 14px 28px -24px rgba(15, 23, 42, 0.14),
+      0 8px 16px -18px rgba(15, 23, 42, 0.06),
       0 1px 0 rgba(255, 255, 255, 0.45) inset;
   }
 
