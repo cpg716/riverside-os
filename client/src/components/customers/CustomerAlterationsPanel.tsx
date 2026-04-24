@@ -296,16 +296,6 @@ export default function CustomerAlterationsPanel({
       tone: "text-emerald-700 bg-emerald-500/10 border-emerald-500/20",
     },
     {
-      id: "intake",
-      title: "Intake / Not Started",
-      subtitle: "New alteration work that still needs tailor attention.",
-      icon: ClipboardList,
-      rows: visibleRows.filter(
-        (row) => row.status === "intake" && !isDueToday(row) && !isOverdue(row),
-      ),
-      tone: "text-sky-700 bg-sky-500/10 border-sky-500/20",
-    },
-    {
       id: "in_work",
       title: "In Work",
       subtitle: "Garments currently being altered.",
@@ -314,6 +304,16 @@ export default function CustomerAlterationsPanel({
         (row) => row.status === "in_work" && !isDueToday(row) && !isOverdue(row),
       ),
       tone: "text-violet-700 bg-violet-500/10 border-violet-500/20",
+    },
+    {
+      id: "intake",
+      title: "Intake / Not Started",
+      subtitle: "New alteration work that still needs tailor attention.",
+      icon: ClipboardList,
+      rows: visibleRows.filter(
+        (row) => row.status === "intake" && !isDueToday(row) && !isOverdue(row),
+      ),
+      tone: "text-sky-700 bg-sky-500/10 border-sky-500/20",
     },
   ];
 
@@ -554,11 +554,16 @@ export default function CustomerAlterationsPanel({
               <div className="grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-3">
                 {workbenchSections.map((section) => {
                 const Icon = section.icon;
+                const isIntakeSection = section.id === "intake";
                 return (
                   <section
                     key={section.id}
                     data-testid={`alteration-workbench-section-${section.id}`}
-                    className="flex h-[min(42vh,520px)] min-h-[240px] min-w-0 flex-col rounded-2xl border border-app-border/60 bg-app-surface/80 p-4 shadow-sm"
+                    className={`flex min-w-0 flex-col rounded-2xl border border-app-border/60 bg-app-surface/80 p-4 shadow-sm ${
+                      isIntakeSection
+                        ? "h-[min(63vh,780px)] min-h-[360px] xl:col-span-2 2xl:col-span-3"
+                        : "h-[min(42vh,520px)] min-h-[240px]"
+                    }`}
                   >
                     <div className="mb-3 flex min-w-0 items-start justify-between gap-3">
                       <div className="flex min-w-0 items-start gap-3">
