@@ -1435,7 +1435,7 @@ export default function NexoCheckoutDrawer({
                    {depositDisplayCents > 0 && (
                      <div className="flex flex-col gap-2">
                        <div className="flex items-center justify-between p-2.5 rounded-lg bg-indigo-500/10 border border-indigo-500/20">
-                          <span className="text-[10px] font-black uppercase italic text-indigo-200">Required Deposit</span>
+                          <span className="text-[10px] font-black uppercase italic text-indigo-200">Deposit Due Today</span>
                           <span className="text-[11px] font-black tabular-nums text-white opacity-90">${centsToFixed2(depositDisplayCents)}</span>
                        </div>
                        {onOpenSplitDeposit && (
@@ -1456,7 +1456,7 @@ export default function NexoCheckoutDrawer({
                 <div className="border-t border-white/5 pt-3 space-y-1.5 opacity-90">
                    {depositDisplayCents > 0 && depositDisplayCents !== amountDueCents && (
                      <div className="flex items-center justify-between text-zinc-500">
-                        <span className="text-[8px] font-black uppercase tracking-[0.15em]">Today's Target</span>
+                        <span className="text-[8px] font-black uppercase tracking-[0.15em]">Collect Now</span>
                         <span className="text-xs font-bold tabular-nums">${centsToFixed2(depositDisplayCents)}</span>
                      </div>
                    )}

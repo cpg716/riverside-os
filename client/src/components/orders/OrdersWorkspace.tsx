@@ -160,6 +160,10 @@ function orderKindLabel(kind: string) {
   }
 }
 
+function formatOrderStatusLabel(status: string) {
+  return status.replace(/_/g, " ");
+}
+
 function OrderTableRow({ row, isSelected, onClick, actions }: {
   row: TransactionRow;
   isSelected: boolean; 
@@ -218,7 +222,7 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
                ? "border-sky-500/20 bg-sky-500/10 text-sky-600"
                : "border-emerald-500/20 bg-emerald-500/10 text-emerald-600"
            )}>
-             {row.status}
+             {formatOrderStatusLabel(row.status)}
            </span>
         </td>
         <td className="px-6 py-4">
@@ -235,7 +239,7 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
              onClick={(e) => { e.stopPropagation(); actions.onOpenInRegister?.(row.transaction_id); }}
              className="rounded-lg bg-emerald-600 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-white opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 hover:bg-emerald-500 active:scale-95 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/30"
            >
-             Open
+             Register
            </button>
         </td>
       </tr>
