@@ -204,7 +204,7 @@ test("Ask ROSIE sends grounded Help request and renders source chips", async ({
   ).toBeVisible({ timeout: 15_000 });
 });
 
-test("Ask ROSIE voice input reuses the normal text flow and can stop voice output", async ({
+test("Ask ROSIE voice input reuses the normal text flow and can stop host voice output", async ({
   page,
 }) => {
   await page.addInitScript(() => {
@@ -252,23 +252,6 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop voice outpu
       this.onend?.();
     };
 
-    function MockSpeechSynthesisUtterance(
-      this: {
-        text: string;
-        rate: number;
-        onstart: null | (() => void);
-        onend: null | (() => void);
-        onerror: null | (() => void);
-      },
-      text: string,
-    ) {
-      this.text = text;
-      this.rate = 1;
-      this.onstart = null;
-      this.onend = null;
-      this.onerror = null;
-    }
-
     Object.defineProperty(window, "webkitSpeechRecognition", {
       configurable: true,
       writable: true,
@@ -279,26 +262,42 @@ test("Ask ROSIE voice input reuses the normal text flow and can stop voice outpu
       writable: true,
       value: MockSpeechRecognition,
     });
-    Object.defineProperty(window, "SpeechSynthesisUtterance", {
-      configurable: true,
-      writable: true,
-      value: MockSpeechSynthesisUtterance,
-    });
-    Object.defineProperty(window, "speechSynthesis", {
-      configurable: true,
-      writable: true,
-      value: {
-        speak(utterance: { text: string; onstart?: () => void }) {
-          (window as typeof window & { __rosieSpokenText?: string }).__rosieSpokenText =
-            utterance.text;
-          utterance.onstart?.();
-        },
-        cancel() {
+    (
+      window as typeof window & {
+        __ROSIE_TEST_HOST_TTS__?: {
+          supported: boolean;
+          speak: (
+            text: string,
+            options: {
+              onStart?: () => void;
+              onEnd?: () => void;
+            },
+          ) => { stop: () => void };
+          stop: () => void;
+        };
+        __rosieHostTtsStop?: () => void;
+      }
+    ).__ROSIE_TEST_HOST_TTS__ = {
+      supported: true,
+      speak(text, options) {
+        (window as typeof window & { __rosieSpokenText?: string }).__rosieSpokenText = text;
+        options.onStart?.();
+        const stop = () => {
           (window as typeof window & { __rosieSpeechCancelled?: boolean }).__rosieSpeechCancelled =
             true;
-        },
+          options.onEnd?.();
+        };
+        (
+          window as typeof window & { __rosieHostTtsStop?: () => void }
+        ).__rosieHostTtsStop = stop;
+        return { stop };
       },
-    });
+      stop() {
+        (
+          window as typeof window & { __rosieHostTtsStop?: () => void }
+        ).__rosieHostTtsStop?.();
+      },
+    };
 
     window.localStorage.setItem(
       "ros.rosie.settings.v1",
@@ -466,8 +465,8 @@ test("Ask ROSIE narrates approved reporting tool results", async ({ page }) => {
     const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
     expect(systemPrompt).toContain("A reporting_run result is present");
     expect(userPrompt).toContain("Tool 1: reporting_run");
-    expect(userPrompt).toContain("\"spec_id\": \"best_sellers\"");
-    expect(userPrompt).toContain("\"product_name\": \"Navy Suit\"");
+    expect(userPrompt).toContain("\"spec_id\":\"best_sellers\"");
+    expect(userPrompt).toContain("\"product_name\":\"Navy Suit\"");
     await route.fulfill({
       status: 200,
       contentType: "application/json",
@@ -546,7 +545,7 @@ test("Ask ROSIE narrates approved operational tool results", async ({ page }) =>
     const userPrompt = body.messages?.find((message) => message.role === "user")?.content ?? "";
     expect(systemPrompt).toContain("Approved operational tool results are present");
     expect(userPrompt).toContain("Tool 1: inventory_variant_intelligence");
-    expect(userPrompt).toContain("\"sku\": \"MTX-42R\"");
+    expect(userPrompt).toContain("\"sku\":\"MTX-42R\"");
     await route.fulfill({
       status: 200,
       contentType: "application/json",

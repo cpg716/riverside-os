@@ -435,10 +435,30 @@ type BrowserSpeechRecognition = {
 
 type BrowserSpeechRecognitionConstructor = new () => BrowserSpeechRecognition;
 
+type RosieTestHostTtsSession = {
+  stop?: () => void;
+};
+
+type RosieTestHostTtsHook = {
+  supported?: boolean;
+  speak: (
+    text: string,
+    options: {
+      rate: number;
+      voice: string;
+      onStart?: () => void;
+      onEnd?: () => void;
+      onError?: (message: string) => void;
+    },
+  ) => RosieTestHostTtsSession | void;
+  stop?: () => void;
+};
+
 declare global {
   interface Window {
     SpeechRecognition?: BrowserSpeechRecognitionConstructor;
     webkitSpeechRecognition?: BrowserSpeechRecognitionConstructor;
+    __ROSIE_TEST_HOST_TTS__?: RosieTestHostTtsHook;
   }
 }
 
@@ -461,8 +481,14 @@ function getBrowserRosieVoiceCapabilities(): RosieVoiceCapabilities {
 
   return {
     speech_to_text_supported: getSpeechRecognitionConstructor() != null,
-    text_to_speech_supported: false,
+    text_to_speech_supported:
+      window.__ROSIE_TEST_HOST_TTS__?.supported === true,
   };
+}
+
+function getRosieTestHostTtsHook(): RosieTestHostTtsHook | null {
+  if (typeof window === "undefined") return null;
+  return window.__ROSIE_TEST_HOST_TTS__ ?? null;
 }
 
 export async function getRosieLocalRuntimeStatus():
@@ -722,6 +748,11 @@ export function startRosieVoiceCapture(
 }
 
 export function stopRosieSpeechPlayback(): void {
+  const testHostTts = getRosieTestHostTtsHook();
+  if (testHostTts) {
+    testHostTts.stop?.();
+  }
+
   if (activeTauriSpeechPoller != null && typeof window !== "undefined") {
     window.clearInterval(activeTauriSpeechPoller);
     activeTauriSpeechPoller = null;
@@ -742,6 +773,43 @@ export function speakRosieText(
     on_error?: (message: string) => void;
   },
 ): RosieSpeechPlayback {
+  const testHostTts = getRosieTestHostTtsHook();
+  if (testHostTts) {
+    let ended = false;
+    const finishEnd = () => {
+      if (ended) return;
+      ended = true;
+      options?.on_end?.();
+    };
+    const session = testHostTts.speak(text, {
+      rate: typeof options?.rate === "number" ? options.rate : 1,
+      voice: options?.voice ?? "adam",
+      onStart: () => {
+        if (!ended) {
+          options?.on_start?.();
+        }
+      },
+      onEnd: finishEnd,
+      onError: (message) => {
+        if (ended) return;
+        ended = true;
+        options?.on_error?.(message);
+      },
+    });
+
+    return {
+      stop: () => {
+        if (ended) return;
+        if (typeof session?.stop === "function") {
+          session.stop();
+        } else {
+          testHostTts.stop?.();
+          finishEnd();
+        }
+      },
+    };
+  }
+
   if (isTauri()) {
     let stopped = false;
     void invoke("rosie_tts_speak", {
