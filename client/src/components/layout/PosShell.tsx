@@ -225,6 +225,22 @@ export default function PosShell({
             </button>
           )}
 
+        {isRegisterOpen && sessionId && registerLane === 1 && (
+          <button
+            type="button"
+            onClick={() => setShowCloseModal(true)}
+            className="h-10 px-4 rounded-xl border-2 border-app-warning/30 bg-app-warning/10 text-[9px] font-black uppercase tracking-widest italic text-app-warning hover:border-app-warning/50 hover:bg-app-warning/15 transition-all active:scale-95"
+          >
+            Close Register
+          </button>
+        )}
+
+        {isRegisterOpen && sessionId && registerLane != null && registerLane !== 1 && (
+          <div className="h-10 px-4 rounded-xl border border-app-border bg-app-surface-2 text-[9px] font-black uppercase tracking-widest italic text-app-text-muted flex items-center">
+            Close on Register #1
+          </div>
+        )}
+
         {isRegisterOpen && registerLane != null && (
           <div className="px-4 h-8 flex items-center gap-2 rounded-full bg-app-surface-2 border border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted italic shadow-inner">
             <REGISTER_ICON size={APP_ICON_SIZES.badge} className="text-app-accent" /> Register #{registerLane}
@@ -248,6 +264,7 @@ export default function PosShell({
     permissionsLoaded,
     hasPermission,
     registerLane,
+    setShowCloseModal,
     onExitPosMode,
     setSlotContent,
   ]);
