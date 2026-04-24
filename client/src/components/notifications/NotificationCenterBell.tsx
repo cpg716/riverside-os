@@ -18,7 +18,7 @@ export default function NotificationCenterBell({ className = "" }: Props) {
     >
       <Bell size={18} strokeWidth={2} aria-hidden />
       {unread > 0 ? (
-        <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-rose-600 px-1 text-[10px] font-black text-white">
+        <span className="absolute -right-1 -top-1 flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-app-danger px-1 text-[10px] font-black text-white">
           {unread > 99 ? "99+" : unread}
         </span>
       ) : null}

@@ -280,9 +280,9 @@ function WeatherDashboardWidget({
                 <span className="text-[9px] font-black uppercase tracking-[0.16em] text-app-text-muted">
                   Buffalo, NY
                 </span>
-                <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-amber-500" : "bg-emerald-500"}`} />
+                <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-app-warning" : "bg-app-success"}`} />
                 {forecast?.source === "mock" ? (
-                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                  <span className="rounded-full border border-app-warning/20 bg-app-warning/10 px-2 py-0.5 text-[8px] font-black uppercase tracking-widest text-app-warning">
                     Mock Weather
                   </span>
                 ) : null}
@@ -333,9 +333,9 @@ function WeatherDashboardWidget({
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Buffalo, NY</span>
-              <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-amber-500" : "bg-emerald-500"}`} />
+              <div className={`h-1.5 w-1.5 rounded-full ${forecast?.source === "mock" ? "bg-app-warning" : "bg-app-success"}`} />
               {forecast?.source === "mock" ? (
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200">
+                <span className="rounded-full border border-app-warning/20 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
                   Mock Weather
                 </span>
               ) : null}
@@ -350,7 +350,7 @@ function WeatherDashboardWidget({
               {today.temp_high.toFixed(0)}° / {today.temp_low.toFixed(0)}° · {today.precipitation_inches > 0 ? `${today.precipitation_inches}"` : "0"} Precip
             </p>
             {forecast?.source === "mock" ? (
-              <p className="text-[11px] font-medium text-amber-700 dark:text-amber-300">
+              <p className="text-[11px] font-medium text-app-warning">
                 Live weather is unavailable, so this dashboard is showing deterministic fallback conditions.
               </p>
             ) : null}
@@ -850,7 +850,7 @@ export default function OperationalHome({
             <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Synchronizing Ledger...</div>
           ) : !hasPermission("register.reports") ? (
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
-               <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+               <ShieldCheck size={64} className="text-app-danger opacity-20" />
                <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
                  Access restricted. Directive <span className="text-app-text">register.reports</span> is required to access the daily sales matrix.
                </p>
@@ -876,7 +876,7 @@ export default function OperationalHome({
             <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Podium Inbox...</div>
           ) : !hasPermission("customers.hub_view") ? (
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
-              <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+              <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
                 Access restricted. Directive <span className="text-app-text">customers.hub_view</span> is required for Podium inbox access.
               </p>
@@ -899,7 +899,7 @@ export default function OperationalHome({
             <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Opening Pickup Queue...</div>
           ) : !hasPermission("orders.view") ? (
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
-              <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+              <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
                 Access restricted. Directive <span className="text-app-text">orders.view</span> is required to monitor the pickup queue.
               </p>
@@ -923,7 +923,7 @@ export default function OperationalHome({
             <div className="p-10 text-[10px] font-black uppercase tracking-[0.5em] text-app-text-muted opacity-40 animate-pulse">Consulting Public Sentiment...</div>
           ) : !hasPermission("reviews.view") ? (
             <div className="p-12 flex flex-col items-center justify-center h-full text-center space-y-6">
-              <ShieldCheck size={64} className="text-rose-500 opacity-20" />
+              <ShieldCheck size={64} className="text-app-danger opacity-20" />
               <p className="text-sm font-black uppercase tracking-widest text-app-text-muted leading-relaxed max-w-md">
                 Access restricted. Directive <span className="text-app-text">reviews.view</span> is required to monitor social proof.
               </p>
@@ -948,7 +948,7 @@ export default function OperationalHome({
         </div>
         <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
         <div className="flex items-center gap-3">
-           <div className="h-2 w-2 rounded-full bg-emerald-500" />
+           <div className="h-2 w-2 rounded-full bg-app-success" />
            <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Live Dashboard Active</span>
         </div>
       </div>
@@ -1158,7 +1158,7 @@ export default function OperationalHome({
                       <div className="flex items-center gap-4">
                         <div className={cn(
                           "flex h-8 w-8 items-center justify-center rounded-lg border",
-                          item.tier === 'urgent' ? "bg-rose-500/10 border-rose-500/20 text-rose-500" : "bg-app-accent/10 border-app-accent/20 text-app-accent"
+                          item.tier === 'urgent' ? "bg-app-danger/10 border-app-danger/20 text-app-danger" : "bg-app-accent/10 border-app-accent/20 text-app-accent"
                         )}>
                            <Zap size={16} />
                         </div>
@@ -1233,7 +1233,7 @@ export default function OperationalHome({
                                </div>
                             </div>
                          </div>
-                         <div className={cn("h-2 w-2 rounded-full", staff.shift_label?.toLowerCase().includes("off") ? "bg-rose-500/30" : "bg-emerald-500")} />
+                         <div className={cn("h-2 w-2 rounded-full", staff.shift_label?.toLowerCase().includes("off") ? "bg-app-danger/30" : "bg-app-success")} />
                       </div>
                    ))
                  )}

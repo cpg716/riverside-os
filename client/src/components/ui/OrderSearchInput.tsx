@@ -140,7 +140,7 @@ export default function OrderSearchInput({
                          <span className="text-sm font-black text-app-text truncate">
                            {o.customer_name ?? "Guest Checkout"}
                          </span>
-                         <span className="text-[10px] font-black tabular-nums text-emerald-600 bg-emerald-500/10 px-1.5 py-0.5 rounded-md border border-emerald-500/20">
+                         <span className="text-[10px] font-black tabular-nums text-app-success bg-app-success/10 px-1.5 py-0.5 rounded-md border border-app-success/20">
                            ${formatMoney(parseMoney(o.total_price))}
                          </span>
                        </div>
@@ -149,12 +149,12 @@ export default function OrderSearchInput({
                            #{o.order_id.slice(0, 8)}
                          </span>
                          {o.party_name && (
-                           <span className="text-[9px] font-bold text-amber-600 truncate border-l border-app-border pl-2">
+                           <span className="text-[9px] font-bold text-app-warning truncate border-l border-app-border pl-2">
                              {o.party_name}
                            </span>
                          )}
                          <span className={`text-[9px] font-black uppercase px-1 rounded ml-auto ${
-                            o.status.toLowerCase() === "open" ? "text-blue-500" : "text-app-text-muted"
+                            o.status.toLowerCase() === "open" ? "text-app-info" : "text-app-text-muted"
                          }`}>
                            {o.status}
                          </span>

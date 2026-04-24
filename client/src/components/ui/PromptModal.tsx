@@ -153,7 +153,7 @@ export default function PromptModal({
                   onClick={() => handleNumpad(key)}
                   className={`flex h-14 min-h-[44px] touch-manipulation items-center justify-center rounded-2xl border border-app-border text-lg font-black transition-all ${
                     key === "BACK"
-                      ? "bg-red-500/10 text-red-500"
+                      ? "bg-app-danger/10 text-app-danger"
                       : "bg-app-surface text-app-text shadow-sm hover:bg-app-surface-2"
                   }`}
                 >
@@ -184,7 +184,7 @@ export default function PromptModal({
             type="button"
             disabled={submitBusy}
             onClick={() => void handleSubmit()}
-            className="flex-1 min-h-11 touch-manipulation rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-emerald-900/20 transition-all hover:brightness-110 active:translate-y-1 active:border-b-0 disabled:opacity-50"
+            className="flex-1 min-h-11 touch-manipulation rounded-xl border-b-4 border-app-success bg-app-success px-4 py-2 text-[10px] font-black uppercase tracking-[0.2em] text-white shadow-lg shadow-app-success/20 transition-all hover:brightness-110 active:translate-y-1 active:border-b-0 disabled:opacity-50"
           >
             {submitBusy ? "…" : confirmLabel}
           </button>

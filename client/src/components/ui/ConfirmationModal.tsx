@@ -37,15 +37,15 @@ export default function ConfirmationModal({
     switch (variant) {
       case 'danger':
         return {
-          icon: <AlertTriangle className="text-red-500" size={24} />,
-          button: "bg-red-600 border-red-800 shadow-red-900/20",
-          accent: "border-red-500/20 bg-red-500/5",
+          icon: <AlertTriangle className="text-app-danger" size={24} />,
+          button: "bg-app-danger border-app-danger shadow-app-danger/20",
+          accent: "border-app-danger/20 bg-app-danger/5",
         };
       case 'success':
         return {
-          icon: <Check className="text-emerald-500" size={24} />,
-          button: "bg-emerald-600 border-emerald-800 shadow-emerald-900/20",
-          accent: "border-emerald-500/20 bg-emerald-500/5",
+          icon: <Check className="text-app-success" size={24} />,
+          button: "bg-app-success border-app-success shadow-app-success/20",
+          accent: "border-app-success/20 bg-app-success/5",
         };
       default:
         return {

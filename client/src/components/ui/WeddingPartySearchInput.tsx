@@ -140,7 +140,7 @@ export default function WeddingPartySearchInput({
                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
                            {p.groom_name} {p.bride_name ? `& ${p.bride_name}` : ""}
                          </span>
-                         <span className="text-[10px] font-black text-amber-600 bg-amber-500/10 px-1.5 py-0.5 rounded-md border border-amber-500/20 ml-auto tabular-nums leading-none">
+                         <span className="text-[10px] font-black text-app-warning bg-app-warning/10 px-1.5 py-0.5 rounded-md border border-app-warning/20 ml-auto tabular-nums leading-none">
                             {new Date(p.event_date).toLocaleDateString()}
                          </span>
                        </div>
