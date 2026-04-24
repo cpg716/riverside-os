@@ -1102,7 +1102,7 @@ export default function InventoryControlBoard({
                 {row.product_name}
               </h3>
               {highValue && (
-                <span className="flex items-center gap-0.5 rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-amber-600 border border-amber-500/20">
+                <span className="flex items-center gap-0.5 rounded-full border border-app-warning/20 bg-app-warning/10 px-1.5 py-0.5 text-[7px] font-black uppercase tracking-widest text-app-warning">
                   <Gem size={7} /> ASSET
                 </span>
               )}
@@ -1129,7 +1129,7 @@ export default function InventoryControlBoard({
         {/* Inventory Velocity & SOH */}
         <div className="flex shrink-0 flex-[1.5] items-center gap-4">
           <div className="text-center min-w-[60px]">
-             <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-red-500' : low ? 'text-amber-500' : 'text-emerald-500'}`}>
+             <p className={`text-xl font-black tabular-nums tracking-tighter ${oos ? 'text-app-danger' : low ? 'text-app-warning' : 'text-app-success'}`}>
                {totalSoh}
              </p>
              <p className="text-[7px] font-black uppercase tracking-widest text-app-text-muted opacity-50">SOH UNITS</p>
@@ -1141,7 +1141,7 @@ export default function InventoryControlBoard({
             </div>
             <div className="h-1.5 overflow-hidden rounded-full bg-app-border/20">
               <div 
-                className={`h-full transition-all duration-700 ${oos ? 'bg-red-500/60' : low ? 'bg-amber-500/60' : 'bg-emerald-500/60'}`}
+                className={`h-full transition-all duration-700 ${oos ? 'bg-app-danger/60' : low ? 'bg-app-warning/60' : 'bg-app-success/60'}`}
                 style={{ width: `${Math.min(100, (totalSoh / 10) * 100)}%` }}
               />
             </div>
@@ -1152,7 +1152,7 @@ export default function InventoryControlBoard({
         <div className="flex shrink-0 flex-[1.5] items-center justify-end gap-6 border-l border-app-border/20 px-4">
            {renderPriceRange(row.retail_min, row.retail_max)}
            <div className="hidden 2xl:flex flex-col items-end min-w-[60px]">
-              <div className="flex items-center gap-0.5 text-emerald-500">
+              <div className="flex items-center gap-0.5 text-app-success">
                 <span className="font-mono text-[10px] font-black">+8%</span>
                 <ArrowUpRight size={10} />
               </div>
@@ -1163,12 +1163,12 @@ export default function InventoryControlBoard({
         {/* Channel Badges */}
         <div className="flex shrink-0 flex-1 flex-wrap gap-1.5 justify-end">
            {row.web_published_count > 0 && (
-             <div className="rounded-lg bg-emerald-500/5 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-emerald-600 border border-emerald-500/10 flex items-center gap-1">
+             <div className="flex items-center gap-1 rounded-lg border border-app-success/16 bg-app-success/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-success">
                <Globe size={9} /> WEB
              </div>
            )}
            {row.unlabeled_count > 0 && (
-             <div className="rounded-lg bg-red-500/5 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-red-600 border border-red-500/10">UNLABELED</div>
+             <div className="rounded-lg border border-app-danger/16 bg-app-danger/8 px-2 py-1 text-[8px] font-black uppercase tracking-widest text-app-danger">UNLABELED</div>
            )}
         </div>
 
@@ -1195,7 +1195,7 @@ export default function InventoryControlBoard({
                     openProductHub(row);
                   }
                 }}
-                className="p-1.5 rounded-xl border border-app-border bg-app-surface text-app-text-muted hover:text-emerald-500 hover:border-emerald-500 transition-all"
+                className="rounded-xl border border-app-border bg-app-surface p-1.5 text-app-text-muted transition-all hover:border-app-success hover:text-app-success"
                 title="Quick Adjust"
               >
                 <BarChart3 size={14} />
@@ -1364,7 +1364,7 @@ export default function InventoryControlBoard({
           )}
         </div>
 
-        <div className="rounded-2xl border border-app-border/60 bg-app-surface-2/80 px-4 py-4 shadow-sm">
+        <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-4 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
@@ -1400,7 +1400,7 @@ export default function InventoryControlBoard({
         </div>
       </div>
 
-      <div className="flex flex-col border border-app-border/40 bg-app-bg/10">
+      <div className="flex flex-col overflow-hidden rounded-[28px] border border-app-border bg-app-surface shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
         <div 
           className="min-w-[1000px] outline-none"
           onFocus={() => setTableFocus(true)}
@@ -1414,17 +1414,17 @@ export default function InventoryControlBoard({
                 const stats = groupStats(items);
                 return (
                   <Fragment key={v}>
-                    <div className="sticky top-0 z-20 flex items-center justify-between border-b border-violet-200 bg-violet-50/95 px-6 py-2 backdrop-blur-md">
+                    <div className="sticky top-0 z-20 flex items-center justify-between border-b border-app-accent/20 bg-app-accent/10 px-6 py-2">
                       <div className="flex items-center gap-3">
-                        <Building2 size={16} className="text-violet-400" />
-                        <span className="text-sm font-black uppercase tracking-tight text-violet-900 italic">
+                        <Building2 size={16} className="text-app-accent" />
+                        <span className="text-sm font-black uppercase tracking-tight text-app-accent italic">
                           {v}
                         </span>
-                        <span className="rounded-full bg-violet-200 px-2 py-0.5 text-[9px] font-black text-violet-500">
+                        <span className="rounded-full bg-app-accent/15 px-2 py-0.5 text-[9px] font-black text-app-accent">
                           {items.length} Templates
                         </span>
                       </div>
-                      <div className="text-[10px] font-bold uppercase tracking-widest text-violet-400">
+                      <div className="text-[10px] font-bold uppercase tracking-widest text-app-accent">
                         {stats.units} units ·{" "}
                         {money(stats.value)}{" "}
                         asset value
@@ -1448,7 +1448,7 @@ export default function InventoryControlBoard({
             ) : null}
 
             {boardHasMore && visibleProductRows.length > 0 ? (
-              <div className="flex justify-center border-t border-app-border py-8 bg-app-surface/30">
+              <div className="flex justify-center border-t border-app-border bg-app-surface-2 px-6 py-8">
                 <button
                   type="button"
                   disabled={boardLoadingMore}
@@ -1480,12 +1480,12 @@ export default function InventoryControlBoard({
 
       {/* Modern Filter Discovery Footer (Replacing legacy fixed stats) */}
       {!isPosSurface && (
-      <div className="border-t border-app-border/30 bg-app-surface/20 px-6 py-8">
+      <div className="border-t border-app-border bg-app-surface-2 px-6 py-8">
         <div className="flex flex-wrap items-center justify-between gap-6">
           <div className="flex items-center gap-4">
             <button
               onClick={() => void refresh()}
-              className="h-10 px-6 rounded-xl bg-app-accent/90 text-[10px] font-black uppercase tracking-widest text-white shadow-lg hover:brightness-110 active:scale-95 transition-all backdrop-blur-md"
+              className="h-10 rounded-xl bg-app-accent px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-lg hover:brightness-110 active:scale-95 transition-all"
             >
               Refresh Inventory
             </button>
@@ -1495,7 +1495,7 @@ export default function InventoryControlBoard({
             <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
               Inventory Synced Locally
             </span>
-            <div className="h-1 w-1 rounded-full bg-emerald-500 animate-pulse ml-2" />
+            <div className="ml-2 h-1 w-1 rounded-full bg-app-success animate-pulse" />
           </div>
         </div>
       </div>
@@ -1549,8 +1549,8 @@ export default function InventoryControlBoard({
             ) : null}
 
             {quickDecrementWarnings.length > 0 ? (
-              <div className="mb-4 rounded-3xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-left">
-                <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
+              <div className="mb-4 rounded-3xl border border-app-warning/20 bg-app-warning/10 px-4 py-3 text-left">
+                <p className="text-[9px] font-black uppercase tracking-widest text-app-warning">
                   Before you reduce stock
                 </p>
                 <div className="mt-2 space-y-2">
@@ -1577,10 +1577,10 @@ export default function InventoryControlBoard({
               <button
                 type="button"
                 onClick={() => void applyStockDelta(adjustRow, 1)}
-                className="flex flex-col items-center justify-center rounded-3xl border-2 border-emerald-500/30 bg-emerald-50 py-6 transition-all hover:border-emerald-500/50 hover:bg-app-surface"
+                className="flex flex-col items-center justify-center rounded-3xl border-2 border-app-success/20 bg-app-success/10 py-6 transition-all hover:border-app-success/35 hover:bg-app-surface"
               >
-                <span className="text-3xl font-black text-emerald-600">+1</span>
-                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-600/60 mt-1">
+                <span className="text-3xl font-black text-app-success">+1</span>
+                <span className="mt-1 text-[9px] font-black uppercase tracking-widest text-app-success/70">
                   Increment
                 </span>
               </button>
@@ -1601,7 +1601,7 @@ export default function InventoryControlBoard({
                     type: "damaged",
                   })
                 }
-                className="flex-1 rounded-xl border border-red-200 bg-red-50 py-3 text-[9px] font-black uppercase tracking-widest text-red-600 hover:bg-red-100"
+                className="flex-1 rounded-xl border border-app-danger/20 bg-app-danger/10 py-3 text-[9px] font-black uppercase tracking-widest text-app-danger hover:bg-app-danger/15"
               >
                 Damage…
               </button>
@@ -1641,8 +1641,8 @@ export default function InventoryControlBoard({
           <div className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300">
             <div className="ui-modal-header flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <div className={`rounded-xl border p-2 ${maintenanceTarget.type === 'damaged' ? "border-red-500/20 bg-red-500/5" : "border-app-accent/20 bg-app-accent/5"}`}>
-                   <Printer className={maintenanceTarget.type === 'damaged' ? "text-red-500" : "text-app-accent"} size={22} />
+                <div className={`rounded-xl border p-2 ${maintenanceTarget.type === 'damaged' ? "border-app-danger/20 bg-app-danger/10" : "border-app-accent/20 bg-app-accent/10"}`}>
+                   <Printer className={maintenanceTarget.type === 'damaged' ? "text-app-danger" : "text-app-accent"} size={22} />
                 </div>
                 <h3 className="text-lg font-black italic uppercase tracking-tight text-app-text">
                   {maintenanceTarget.type === 'damaged' ? "Mark as Damaged" : "Return to Vendor"}
@@ -1677,8 +1677,8 @@ export default function InventoryControlBoard({
               </div>
 
               {maintenanceWarnings.length > 0 ? (
-                <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-amber-700">
+                <div className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-3">
+                  <p className="text-[9px] font-black uppercase tracking-widest text-app-warning">
                     Adjustment warning
                   </p>
                   <div className="mt-2 space-y-2">

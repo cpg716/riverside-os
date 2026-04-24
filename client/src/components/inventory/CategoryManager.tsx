@@ -306,7 +306,7 @@ export default function CategoryManager() {
                     onClick={() => void toggleTaxRule(node)}
                     className={`mt-1 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-all ${
                         node.is_clothing_footwear
-                        ? "border-emerald-200 bg-emerald-100/50 text-emerald-600 shadow-sm"
+                        ? "border-app-success/20 bg-app-success/10 text-app-success shadow-sm"
                         : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40"
                     }`}
                 >
@@ -322,10 +322,10 @@ export default function CategoryManager() {
             <div className="h-10 w-px bg-app-border/40" />
 
             <div className="hidden xl:flex flex-col items-end">
-                <span className={`text-[9px] font-black uppercase tracking-widest leading-tight ${effectiveExempt ? 'text-emerald-600' : 'text-app-text-muted opacity-40'}`}>
+                <span className={`text-[9px] font-black uppercase tracking-widest leading-tight ${effectiveExempt ? 'text-app-success' : 'text-app-text-muted opacity-40'}`}>
                     Status
                 </span>
-                <span className={`text-[10px] font-black uppercase italic ${effectiveExempt ? 'text-emerald-500' : 'text-app-text-muted'}`}>
+                <span className={`text-[10px] font-black uppercase italic ${effectiveExempt ? 'text-app-success' : 'text-app-text-muted'}`}>
                     {effectiveExempt ? 'Tax-Protected' : 'Global Rate'}
                 </span>
             </div>
@@ -363,14 +363,14 @@ export default function CategoryManager() {
         </div>
         <button 
            onClick={() => void refresh()}
-           className="h-10 w-10 flex items-center justify-center rounded-xl bg-app-surface/40 border border-app-border text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all shadow-sm backdrop-blur-md active:scale-95"
+           className="h-10 w-10 flex items-center justify-center rounded-xl bg-app-surface border border-app-border text-app-text-muted hover:text-app-accent hover:border-app-accent transition-all shadow-sm active:scale-95"
         >
            <Zap size={18} />
         </button>
       </div>
 
       {/* Modernized Quick Create Registry Bar */}
-      <section className="rounded-[2.5rem] border border-app-border/40 bg-app-surface/20 p-8 shadow-inner backdrop-blur-md">
+      <section className="rounded-[2.5rem] border border-app-border bg-app-surface p-8 shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
          <div className="grid gap-6 md:grid-cols-[1fr_240px_180px_180px_160px]">
             <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Classification Name</label>
@@ -420,9 +420,9 @@ export default function CategoryManager() {
                         type="checkbox"
                         checked={createIsClothing}
                         onChange={(e) => setCreateIsClothing(e.target.checked)}
-                        className="h-5 w-5 rounded-lg border-app-border bg-app-surface text-emerald-500 transition-all"
+                        className="h-5 w-5 rounded-lg border-app-border bg-app-surface text-app-success transition-all"
                     />
-                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted group-hover:text-emerald-500 transition-colors">Tax Exempt</span>
+                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted group-hover:text-app-success transition-colors">Tax Exempt</span>
                  </label>
                  <button
                     type="button"
@@ -457,8 +457,8 @@ export default function CategoryManager() {
         </div>
 
         {/* AUDIT ASIDE */}
-        <aside className="flex flex-col min-h-0 overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-surface/20 shadow-inner backdrop-blur-md">
-          <div className="flex items-center justify-between border-b border-app-border/40 px-8 py-6 bg-app-surface/40 backdrop-blur-xl">
+        <aside className="flex min-h-0 flex-col overflow-hidden rounded-[2.5rem] border border-app-border bg-app-surface shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
+          <div className="flex items-center justify-between border-b border-app-border px-8 py-6 bg-app-surface-2">
             <div className="flex items-center gap-3 text-app-text-muted">
               <History size={18} className="text-app-accent" />
               <h4 className="text-[11px] font-black uppercase tracking-[0.2em]">Recent Changes</h4>
@@ -472,7 +472,7 @@ export default function CategoryManager() {
               </div>
             ) : (
               groupedAudit.map(([category, entries]) => (
-                <div key={category} className="rounded-[2.5rem] border border-app-border/40 bg-app-surface/40 p-6 shadow-sm backdrop-blur-md">
+                <div key={category} className="rounded-[2.5rem] border border-app-border bg-app-surface-2 p-6 shadow-sm">
                   <h5 className="mb-4 text-[11px] font-black uppercase tracking-widest text-app-text italic">
                     {category}
                   </h5>

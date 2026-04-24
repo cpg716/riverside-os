@@ -129,7 +129,7 @@ export default function ShippoSettingsPanel({
           <IntegrationBrandLogo
             brand="shippo"
             kind="wordmark"
-            className="inline-flex rounded-2xl border border-lime-500/20 bg-white px-4 py-2 shadow-sm"
+            className="inline-flex rounded-2xl border border-app-success/20 bg-app-surface px-4 py-2 shadow-sm"
             imageClassName="h-10 w-auto object-contain"
           />
         </div>
@@ -147,11 +147,11 @@ export default function ShippoSettingsPanel({
           e.preventDefault();
           void saveSettings();
         }}
-        className="ui-card max-w-5xl space-y-8 border-lime-500/20 bg-gradient-to-br from-lime-500/5 to-transparent p-8 shadow-xl"
+        className="ui-card max-w-5xl space-y-8 border-app-success/20 bg-app-surface p-8 shadow-xl"
       >
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-lime-500/15 text-lime-700 shadow-inner">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-app-success/10 text-app-success shadow-inner">
               <Truck className="h-7 w-7" aria-hidden />
             </div>
             <div>
@@ -169,7 +169,7 @@ export default function ShippoSettingsPanel({
             <span
               className={`ui-pill text-[10px] font-black uppercase tracking-widest ${
                 settings.api_token_configured
-                  ? "bg-emerald-500/10 text-emerald-600"
+                  ? "bg-app-success/10 text-app-success"
                   : "bg-app-surface-2 text-app-text-muted"
               }`}
             >
@@ -180,7 +180,7 @@ export default function ShippoSettingsPanel({
             <span
               className={`ui-pill text-[10px] font-black uppercase tracking-widest ${
                 settings.webhook_secret_configured
-                  ? "bg-sky-500/10 text-sky-600"
+                  ? "bg-app-info/10 text-app-info"
                   : "bg-app-surface-2 text-app-text-muted"
               }`}
             >
@@ -200,11 +200,11 @@ export default function ShippoSettingsPanel({
         </div>
 
         <div className="grid gap-4 md:grid-cols-2">
-          <label className="flex cursor-pointer items-center gap-4 rounded-2xl border border-app-border bg-app-surface-2/80 p-5 transition-all hover:border-lime-500/50">
+          <label className="flex cursor-pointer items-center gap-4 rounded-2xl border border-app-border bg-app-surface-2 p-5 transition-all hover:border-app-success/30">
             <div
               className={`flex h-6 w-6 items-center justify-center rounded-lg border-2 transition-all ${
                 settings.enabled
-                  ? "border-lime-500 bg-lime-500 text-white"
+                  ? "border-app-success bg-app-success text-white"
                   : "border-app-border"
               }`}
             >
@@ -223,11 +223,11 @@ export default function ShippoSettingsPanel({
             </span>
           </label>
 
-          <label className="flex cursor-pointer items-center gap-4 rounded-2xl border border-app-border bg-app-surface-2/80 p-5 transition-all hover:border-lime-500/50">
+          <label className="flex cursor-pointer items-center gap-4 rounded-2xl border border-app-border bg-app-surface-2 p-5 transition-all hover:border-app-success/30">
             <div
               className={`flex h-6 w-6 items-center justify-center rounded-lg border-2 transition-all ${
                 settings.live_rates_enabled
-                  ? "border-lime-500 bg-lime-500 text-white"
+                  ? "border-app-success bg-app-success text-white"
                   : "border-app-border"
               }`}
             >
@@ -250,12 +250,12 @@ export default function ShippoSettingsPanel({
           </label>
         </div>
 
-        <section className="space-y-4 rounded-2xl border border-app-border bg-app-surface/50 p-6">
+        <section className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-6">
           <div className="flex items-center gap-3">
             <IntegrationBrandLogo
               brand="shippo"
               kind="icon"
-              className="inline-flex rounded-xl bg-white p-1.5 shadow-sm ring-1 ring-black/5"
+              className="inline-flex rounded-xl bg-app-surface-2 p-1.5 shadow-sm ring-1 ring-app-border"
               imageClassName="h-6 w-6 object-contain"
             />
             <div>
@@ -305,9 +305,9 @@ export default function ShippoSettingsPanel({
           </div>
         </section>
 
-        <section className="space-y-4 rounded-2xl border border-app-border bg-app-surface/50 p-6">
+        <section className="space-y-4 rounded-2xl border border-app-border bg-app-surface p-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-lime-500/15 text-lime-700">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-app-success/10 text-app-success">
               <Package className="h-5 w-5" aria-hidden />
             </div>
             <div>

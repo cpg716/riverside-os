@@ -253,7 +253,7 @@ export default function RosieSettingsPanel() {
     <div className="space-y-10" data-testid="rosie-settings-panel">
       <header className="mb-2">
         <div className="flex flex-wrap items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-app-surface/70 text-app-accent">
+          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-border bg-app-surface-2 text-app-accent">
             <Bot className="h-7 w-7" aria-hidden />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
@@ -288,7 +288,7 @@ export default function RosieSettingsPanel() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+        <div className="mt-6 rounded-2xl border border-app-border bg-app-surface p-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
@@ -320,7 +320,7 @@ export default function RosieSettingsPanel() {
             </p>
           ) : (
             <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4 text-sm">
+              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm">
                 <p className="font-black uppercase tracking-widest text-app-text">LLM</p>
                 <p className="mt-2 font-medium text-app-text-muted">
                   Runtime: <span className="text-app-text">{localRuntimeStatus.llm.runtime_name}</span>
@@ -338,7 +338,7 @@ export default function RosieSettingsPanel() {
                   {localRuntimeStatus.llm.model_path ?? "No model path configured"}
                 </p>
               </div>
-              <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4 text-sm">
+              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm">
                 <p className="font-black uppercase tracking-widest text-app-text">Speech To Text</p>
                 <p className="mt-2 font-medium text-app-text-muted">
                   Engine: <span className="text-app-text">{localRuntimeStatus.stt.engine_name}</span>
@@ -356,7 +356,7 @@ export default function RosieSettingsPanel() {
                   {localRuntimeStatus.stt.model_path ?? "No STT model path configured"}
                 </p>
               </div>
-              <div className="rounded-2xl border border-app-border bg-app-surface-2/70 p-4 text-sm">
+              <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 text-sm">
                 <p className="font-black uppercase tracking-widest text-app-text">Speech Output</p>
                 <p className="mt-2 font-medium text-app-text-muted">
                   Engine: <span className="text-app-text">{localRuntimeStatus.tts.engine_name}</span>
@@ -379,7 +379,7 @@ export default function RosieSettingsPanel() {
         </div>
 
         <div className="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
                 Enable ROSIE
@@ -396,7 +396,7 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
                 Local First
@@ -416,7 +416,7 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
             <p className="text-sm font-black uppercase tracking-widest text-app-text">
               Response Style
             </p>
@@ -437,7 +437,7 @@ export default function RosieSettingsPanel() {
             </select>
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
                 Show Citations
@@ -457,7 +457,7 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
                 Voice Enabled
@@ -498,7 +498,7 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
                 Voice
@@ -507,7 +507,7 @@ export default function RosieSettingsPanel() {
                 Selects the spoken ROSIE voice preset for replies.
               </p>
             </div>
-            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface/70 p-4 text-xs font-medium text-app-text-muted">
+            <div className="mt-4 rounded-2xl border border-app-border bg-app-surface-2 p-4 text-xs font-medium text-app-text-muted">
               <p>
                 TTS engine status:{" "}
                 <strong className="text-app-text">
@@ -578,7 +578,7 @@ export default function RosieSettingsPanel() {
             </p>
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
             <p className="text-sm font-black uppercase tracking-widest text-app-text">
               Speech Rate
             </p>
@@ -599,7 +599,7 @@ export default function RosieSettingsPanel() {
             </select>
           </label>
 
-          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="flex items-center justify-between gap-4 rounded-2xl border border-app-border bg-app-surface p-5">
             <div>
               <p className="text-sm font-black uppercase tracking-widest text-app-text">
                 Microphone Enabled
@@ -619,7 +619,7 @@ export default function RosieSettingsPanel() {
             />
           </label>
 
-          <label className="rounded-2xl border border-app-border bg-app-surface/60 p-5">
+          <label className="rounded-2xl border border-app-border bg-app-surface p-5">
             <p className="text-sm font-black uppercase tracking-widest text-app-text">
               Microphone Mode
             </p>
@@ -693,7 +693,7 @@ export default function RosieSettingsPanel() {
             </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-app-border bg-app-surface/60 p-5 text-sm font-medium text-app-text-muted">
+          <div className="mt-6 rounded-2xl border border-app-border bg-app-surface p-5 text-sm font-medium text-app-text-muted">
             {!storeLoaded && "Loading store default…"}
             {storeLoaded && storeDefaults == null && (
               <span>No ROSIE store default has been saved yet.</span>

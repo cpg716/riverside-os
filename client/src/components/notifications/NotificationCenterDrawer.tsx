@@ -607,7 +607,7 @@ export default function NotificationCenterDrawer({
         </div>
 
         {tab === "inbox" && rows.length > 0 ? (
-          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-app-border bg-app-surface/80 px-6 py-3 backdrop-blur-sm">
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-app-border bg-app-surface-2 px-6 py-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
                 Quick cleanup
@@ -645,8 +645,8 @@ export default function NotificationCenterDrawer({
 
         {tab === "broadcast" ? (
           <div className="flex-1 overflow-y-auto pr-1">
-            <div className="rounded-xl border border-emerald-600/20 bg-emerald-600/5 p-4">
-              <p className="mb-4 text-[10px] font-black uppercase tracking-widest text-emerald-700">
+            <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-4">
+              <p className="mb-4 text-[10px] font-black uppercase tracking-widest text-app-success">
                 Send team announcement
               </p>
               <label className="mb-3 block text-[10px] font-bold uppercase text-app-text-muted">
@@ -701,7 +701,7 @@ export default function NotificationCenterDrawer({
                   </label>
 
                   {selectedStaff.length > 0 && (
-                    <div className="flex flex-wrap gap-2 rounded-xl border border-app-border bg-app-surface/50 p-3 shadow-inner">
+                    <div className="flex flex-wrap gap-2 rounded-xl border border-app-border bg-app-surface-2 p-3 shadow-inner">
                       {selectedStaff.map((s) => (
                         <div
                           key={s.id}
@@ -724,7 +724,7 @@ export default function NotificationCenterDrawer({
                                 prev.filter((p) => p.id !== s.id),
                               )
                             }
-                            className="ml-1 text-app-text-muted transition-colors hover:text-red-500"
+                            className="ml-1 text-app-text-muted transition-colors hover:text-app-danger"
                           >
                             <CloseIcon size={12} />
                           </button>
@@ -739,7 +739,7 @@ export default function NotificationCenterDrawer({
                 type="button"
                 disabled={sending}
                 onClick={() => void sendBroadcast()}
-                className="ui-btn-primary w-full bg-emerald-600 py-3 text-sm font-black uppercase tracking-widest hover:bg-emerald-700"
+                className="ui-btn-primary w-full bg-app-success py-3 text-sm font-black uppercase tracking-widest hover:brightness-110"
               >
                 {sending ? "Sending..." : "Send Announcement"}
               </button>
@@ -782,7 +782,7 @@ export default function NotificationCenterDrawer({
                 const meta = recencySectionMeta(group.bucket, tab);
                 return (
                   <section key={group.bucket} className="space-y-2">
-                    <div className="sticky top-0 z-10 -mx-1 flex items-center justify-between rounded-xl bg-app-bg/90 px-1 py-1 backdrop-blur-sm">
+                    <div className="sticky top-0 z-10 -mx-1 flex items-center justify-between rounded-xl bg-app-surface px-1 py-1">
                       <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
                           {meta.title}
@@ -908,7 +908,7 @@ export default function NotificationCenterDrawer({
                             </button>
 
                             {expanded && (
-                              <div className="bg-app-surface-2/50 px-4 pb-4">
+                              <div className="bg-app-surface-2 px-4 pb-4">
                                 <div className="mt-1 rounded-xl border border-app-border bg-app-surface p-3 shadow-inner">
                                   {isBundle && bundleItems ? (
                                     <div className="space-y-1">
@@ -957,14 +957,14 @@ export default function NotificationCenterDrawer({
                                       {isAnnouncement && (() => {
                                         const sender = parseBroadcastSender(r.deep_link);
                                         return sender ? (
-                                          <div className="flex items-center gap-3 rounded-lg bg-emerald-600/5 p-2 ring-1 ring-emerald-600/10">
+                                          <div className="flex items-center gap-3 rounded-lg bg-app-success/10 p-2 ring-1 ring-app-success/20">
                                             <img
                                               src={staffAvatarUrl(sender.avatarKey)}
                                               alt={sender.fullName}
                                               className="h-8 w-8 shrink-0 rounded-full border-2 border-white shadow-sm object-cover"
                                             />
                                             <div>
-                                              <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700">
+                                              <p className="text-[10px] font-black uppercase tracking-widest text-app-success">
                                                 Sender
                                               </p>
                                               <p className="text-xs font-bold text-app-text">
@@ -1006,7 +1006,7 @@ export default function NotificationCenterDrawer({
                               {!r.completed_at && isCompletable && (
                                 <button
                                   type="button"
-                                  className="h-6 px-3 text-[10px] font-bold text-emerald-600 hover:bg-emerald-600/5 rounded-md transition-colors"
+                              className="h-6 px-3 text-[10px] font-bold text-app-success hover:bg-app-success/10 rounded-md transition-colors"
                                   onClick={() => void markComplete(r.staff_notification_id)}
                                   aria-label={`Complete ${r.title}`}
                                 >

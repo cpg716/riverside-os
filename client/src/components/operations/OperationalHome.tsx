@@ -187,7 +187,7 @@ function SummaryPill({
           : "border-app-border bg-app-surface-2 text-app-text";
 
   return (
-    <div className={`rounded-2xl border px-4 py-3 ${toneClass}`}>
+    <div className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${toneClass}`}>
       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
         {label}
       </p>
@@ -1037,14 +1037,14 @@ export default function OperationalHome({
           </div>
           <div className="mt-4 space-y-3">
             {todayDecisionTakeaways.length === 0 ? (
-              <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-sm font-semibold text-app-text-muted">
+              <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3 text-sm font-semibold text-app-text-muted shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)]">
                 Today&apos;s reporting feeds have not posted enough activity yet to summarize movement.
               </div>
             ) : (
               todayDecisionTakeaways.map((item) => (
                 <div
                   key={item.id}
-                  className={`rounded-2xl border px-4 py-3 ${
+                    className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
                     item.tone === "good"
                       ? "border-app-success/16 bg-app-success/10"
                       : item.tone === "warn"
@@ -1079,7 +1079,7 @@ export default function OperationalHome({
               {topIssues.map((issue) => (
                 <div
                   key={issue.id}
-                  className={`rounded-2xl border px-4 py-3 ${
+                  className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
                     issue.tone === "danger"
                       ? "border-app-danger/16 bg-app-danger/10"
                       : issue.tone === "warn"
@@ -1109,7 +1109,7 @@ export default function OperationalHome({
             {decisionTakeaways.map((item) => (
               <div
                 key={item.id}
-                className={`rounded-2xl border px-4 py-3 ${
+                className={`rounded-2xl border px-4 py-3 shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] ${
                   item.tone === "good"
                     ? "border-app-success/16 bg-app-success/10"
                     : item.tone === "warn"

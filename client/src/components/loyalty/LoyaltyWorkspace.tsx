@@ -185,7 +185,7 @@ function SettingsPanel({
     <div className="flex flex-col lg:flex-row gap-6 min-h-[600px] animate-in slide-in-from-bottom-4 duration-700">
       {/* Configuration Column */}
       <div className="w-full lg:w-[400px] space-y-6">
-        <div className="ui-card bg-app-surface/60 backdrop-blur-3xl border-app-border/40 p-6 shadow-xl relative overflow-hidden group">
+        <div className="ui-card relative overflow-hidden border-app-border p-6 group">
           <div className="absolute top-0 left-0 w-1 h-full bg-amber-500 rounded-full" />
           <div className="flex items-center gap-3 mb-6">
             <div className="p-2 rounded-xl bg-amber-500/10 text-amber-600 ring-1 ring-amber-500/20">
@@ -199,7 +199,7 @@ function SettingsPanel({
               <label className="block space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted px-1">Unlock Points (Threshold)</span>
                 <div className="relative group">
-                   <input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input w-full bg-app-surface border-app-border/40 focus:border-amber-500/50 pl-10 transition-all font-black text-amber-600" />
+                   <input type="number" min="1" value={threshold} onChange={e => setThreshold(e.target.value)} className="ui-input w-full bg-app-surface border-app-border pl-10 transition-all font-black text-app-warning focus:border-app-warning/40" />
                    <Coins className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-app-text-muted opacity-40 group-focus-within:opacity-100 transition-opacity" />
                 </div>
               </label>
@@ -207,25 +207,25 @@ function SettingsPanel({
               <label className="block space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted px-1">Reward Value ($)</span>
                 <div className="relative group">
-                   <input type="number" min="0.01" step="0.01" value={reward} onChange={e => setReward(e.target.value)} className="ui-input w-full bg-app-surface border-app-border/40 focus:border-emerald-500/50 pl-10 transition-all font-black text-emerald-600" />
+                   <input type="number" min="0.01" step="0.01" value={reward} onChange={e => setReward(e.target.value)} className="ui-input w-full bg-app-surface border-app-border pl-10 transition-all font-black text-app-success focus:border-app-success/40" />
                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-black text-app-text-muted opacity-40 group-focus-within:opacity-100 transition-opacity">$</div>
                 </div>
               </label>
             </div>
 
-            <div className="p-4 rounded-2xl bg-black/5 dark:bg-white/5 border border-app-border/20 space-y-2">
+            <div className="rounded-2xl border border-app-border bg-app-surface-2 p-4 space-y-2">
                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   <span>Point Multiplier</span>
                   <span>{settings?.points_per_dollar || 1}x</span>
                </div>
                <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   <span>Reward ROI</span>
-                  <span className="text-emerald-500">{((parseFloat(reward) || 0) / (parseFloat(threshold) || 1) * 100).toFixed(1)}%</span>
+                  <span className="text-app-success">{((parseFloat(reward) || 0) / (parseFloat(threshold) || 1) * 100).toFixed(1)}%</span>
                </div>
             </div>
 
-            {err && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-[10px] font-black uppercase text-red-600 animate-shake">{err}</div>}
-            {saved && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase text-emerald-600">Program settings saved</div>}
+            {err && <div className="rounded-xl border border-app-danger/20 bg-app-danger/10 p-3 text-[10px] font-black uppercase text-app-danger animate-shake">{err}</div>}
+            {saved && <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-3 text-[10px] font-black uppercase text-app-success">Program settings saved</div>}
 
             <button 
               onClick={save} 
@@ -239,8 +239,8 @@ function SettingsPanel({
       </div>
 
       {/* Designer Column */}
-      <div className="flex-1 ui-card bg-app-surface/40 backdrop-blur-3xl border-app-border/40 p-0 shadow-xl flex flex-col overflow-hidden group">
-        <div className="flex items-center justify-between p-6 border-b border-app-border/30 bg-app-surface-2/20">
+      <div className="flex flex-1 flex-col overflow-hidden ui-card p-0 group">
+        <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-6">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-purple-500/10 text-purple-600 ring-1 ring-purple-500/20">
               <Mail className="h-5 w-5" />
@@ -251,7 +251,7 @@ function SettingsPanel({
             </div>
           </div>
           
-          <div className="flex items-center gap-1.5 p-1 rounded-xl bg-black/5 dark:bg-white/5">
+          <div className="flex items-center gap-1.5 rounded-xl bg-app-surface px-1 py-1">
             {["{{first_name}}", "{{reward_amount}}", "{{card_code}}"].map(tag => (
               <button 
                 key={tag}
@@ -351,12 +351,12 @@ function AdjustPanel() {
     <div className="flex flex-col lg:flex-row gap-6 animate-in fade-in slide-in-from-right-4 duration-700">
       {/* Entry Column */}
       <div className="w-full lg:w-[450px] space-y-6">
-        <div className="ui-card bg-app-surface/60 backdrop-blur-3xl border-app-border/40 p-6 shadow-xl relative overflow-hidden">
+        <div className="ui-card relative overflow-hidden border-app-border p-6">
           <div className="absolute top-0 right-0 p-4 opacity-[0.05] grayscale">
              <RefreshCw size={100} className={busy ? "animate-spin" : ""} />
           </div>
           <div className="flex items-center gap-3 mb-6">
-            <div className="p-2 rounded-xl bg-sky-500/10 text-sky-600 ring-1 ring-sky-500/20">
+            <div className="rounded-xl bg-app-info/10 p-2 text-app-info ring-1 ring-app-info/20">
               <RefreshCw className="h-5 w-5" />
             </div>
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">Points Adjustment</h3>
@@ -377,17 +377,17 @@ function AdjustPanel() {
                   setCustomerLabel(`${c.first_name} ${c.last_name}`.trim());
                 }}
                 placeholder="Search Member Registry…"
-                className="w-full bg-app-surface ring-1 ring-app-border/30 shadow-inner rounded-2xl"
+                className="w-full rounded-2xl bg-app-surface"
               />
               {customerId && (
-                <div className="mt-2 p-3 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 flex items-center justify-between group">
+                <div className="mt-2 flex items-center justify-between rounded-2xl border border-app-success/16 bg-app-success/8 p-3 group">
                   <div className="flex items-center gap-3">
-                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10 text-emerald-600 font-black text-[10px] ring-1 ring-emerald-500/20 uppercase">
+                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-success/10 text-app-success font-black text-[10px] ring-1 ring-app-success/20 uppercase">
                         {customerLabel?.[0] || 'C'}
                      </div>
-                     <p className="text-[11px] text-emerald-700 font-bold uppercase tracking-tight">{customerLabel}</p>
+                     <p className="text-[11px] text-app-success font-bold uppercase tracking-tight">{customerLabel}</p>
                   </div>
-                  <button type="button" onClick={() => setCustomerId("")} className="text-[9px] font-black uppercase text-app-text-muted hover:text-red-500 transition-colors px-2">Clear</button>
+                  <button type="button" onClick={() => setCustomerId("")} className="px-2 text-[9px] font-black uppercase text-app-text-muted transition-colors hover:text-app-danger">Clear</button>
                 </div>
               )}
             </div>
@@ -395,26 +395,26 @@ function AdjustPanel() {
             <div className="grid grid-cols-2 gap-4">
               <label className="block space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Delta (±)</span>
-                <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input w-full bg-app-surface font-black tabular-nums border-app-border/40" placeholder="0" />
+                <input type="number" value={delta} onChange={e => setDelta(e.target.value)} className="ui-input w-full bg-app-surface font-black tabular-nums border-app-border" placeholder="0" />
               </label>
               <label className="block space-y-2">
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Auth Badge</span>
-                <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input w-full bg-app-surface font-black border-app-border/40" placeholder="CASHIER CODE" />
+                <input value={badge} onChange={e => setBadge(e.target.value)} className="ui-input w-full bg-app-surface font-black border-app-border" placeholder="CASHIER CODE" />
               </label>
             </div>
 
             <label className="block space-y-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Internal Reason</span>
-              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="CSR Goodwill / Manual Ingestion" className="ui-input w-full bg-app-surface border-app-border/40" />
+              <input value={reason} onChange={e => setReason(e.target.value)} placeholder="CSR Goodwill / Manual Ingestion" className="ui-input w-full bg-app-surface border-app-border" />
             </label>
 
             <label className="block space-y-2">
               <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-1">Manager Security PIN</span>
-              <input type="password" value={pin} onChange={e => setPin(e.target.value)} className="ui-input w-full bg-app-surface border-app-border/40" placeholder="••••" />
+              <input type="password" value={pin} onChange={e => setPin(e.target.value)} className="ui-input w-full bg-app-surface border-app-border" placeholder="••••" />
             </label>
 
-            {err && <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-[10px] font-black uppercase text-red-600 animate-shake">{err}</div>}
-            {result && <div className="p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black uppercase text-emerald-600">{result}</div>}
+            {err && <div className="rounded-xl border border-app-danger/20 bg-app-danger/10 p-3 text-[10px] font-black uppercase text-app-danger animate-shake">{err}</div>}
+            {result && <div className="rounded-xl border border-app-success/20 bg-app-success/10 p-3 text-[10px] font-black uppercase text-app-success">{result}</div>}
 
             <button 
               type="submit" 
@@ -428,7 +428,7 @@ function AdjustPanel() {
       </div>
 
       {/* Audit History Column (only shows if customer selected) */}
-      <div className="flex-1 ui-card bg-app-surface/40 backdrop-blur-3xl border-app-border/40 p-6 shadow-xl flex flex-col min-h-[400px]">
+      <div className="flex min-h-[400px] flex-1 flex-col ui-card border-app-border p-6">
          <div className="flex items-center gap-3 mb-6">
             <div className="p-2 rounded-xl bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20">
                <LayoutDashboard size={18} />
@@ -444,7 +444,7 @@ function AdjustPanel() {
          ) : (
            <div className="space-y-3">
               {ledger.map((p) => (
-                <div key={p.id} className="flex items-center justify-between p-3 rounded-xl bg-app-surface-2/40 border border-app-border/30 hover:bg-app-surface transition-colors">
+                <div key={p.id} className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface-2 p-3 transition-colors hover:bg-app-surface">
                    <div className="flex flex-col">
                       <span className="text-[11px] font-black uppercase tracking-tight text-app-text">{p.activity_label}</span>
                       <span className="text-[10px] text-app-text-muted">{p.activity_detail}</span>
@@ -453,7 +453,7 @@ function AdjustPanel() {
                       </span>
                    </div>
                    <div className="flex flex-col items-end">
-                      <span className={`text-xs font-black tabular-nums ${p.delta_points > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      <span className={`text-xs font-black tabular-nums ${p.delta_points > 0 ? 'text-app-success' : 'text-app-danger'}`}>
                          {p.delta_points > 0 ? '+' : ''}{p.delta_points.toLocaleString()}
                       </span>
                       <span className="text-[9px] font-bold text-app-text-muted opacity-40">Balance: {p.balance_after.toLocaleString()}</span>
@@ -500,7 +500,7 @@ function EligibleList({
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
-      <div className="border-b border-app-border/50 px-6 py-5 bg-app-surface-2/10">
+      <div className="border-b border-app-border px-6 py-5 bg-app-surface-2">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-black tracking-tight text-app-text">Customers Ready for Reward</h2>
@@ -557,11 +557,11 @@ function EligibleList({
                 const pointsValue = c.loyalty_points.toLocaleString();
                 
                 return (
-                  <div key={c.id} className="group relative flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-0 rounded-[28px] bg-app-surface-2/40 border border-app-border/40 p-4 lg:p-0 hover:bg-app-surface hover:border-amber-500/30 hover:shadow-2xl hover:shadow-amber-500/5 transition-all duration-500">
+                  <div key={c.id} className="group relative flex flex-col gap-4 rounded-[28px] border border-app-border bg-app-surface lg:flex-row lg:items-center lg:gap-0 p-4 lg:p-0 transition-all duration-500 hover:border-app-warning/20 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)]">
                     {/* ID & Basic Info */}
                     <div className="lg:w-[1fr] lg:flex-1 lg:pl-6 lg:py-4">
                       <div className="flex items-center gap-4">
-                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-app-surface ring-1 ring-app-border border-b-4 border-app-border/50 text-[13px] font-black text-app-text group-hover:border-amber-500/30 group-hover:text-amber-600 transition-all duration-500">
+                        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-app-surface-2 ring-1 ring-app-border border-b-4 border-app-border/50 text-[13px] font-black text-app-text transition-all duration-500 group-hover:border-app-warning/30 group-hover:text-app-warning">
                            {c.first_name?.[0]}{c.last_name?.[0]}
                         </div>
                         <div className="min-w-0 flex flex-col">
@@ -575,13 +575,13 @@ function EligibleList({
                     <div className="lg:w-[2fr] lg:flex-1 lg:px-10">
                       <div className="flex items-center gap-6">
                          <div className="flex flex-col">
-                            <span className="text-2xl font-black text-amber-600 tabular-nums tracking-tighter leading-none">{pointsValue}</span>
+                            <span className="text-2xl font-black text-app-warning tabular-nums tracking-tighter leading-none">{pointsValue}</span>
                             <span className="text-[9px] font-black uppercase tracking-[0.15em] text-app-text-muted mt-1 opacity-60">Current balance</span>
                          </div>
                          <div className="h-8 w-px bg-app-border/30 mx-2 hidden lg:block" />
                          <div className="flex flex-col">
                             <div className="flex items-center gap-1.5">
-                               <span className={`text-[10px] font-black uppercase tracking-widest ${isMultiReward ? 'text-purple-600' : 'text-emerald-600'}`}>
+                               <span className={`text-[10px] font-black uppercase tracking-widest ${isMultiReward ? 'text-app-accent' : 'text-app-success'}`}>
                                   {isMultiReward ? "Two rewards ready" : "Reward ready"}
                                </span>
                                {isMultiReward && <Award size={14} className="text-purple-500 animate-pulse" />}
@@ -601,7 +601,7 @@ function EligibleList({
                              <span className="truncate max-w-[160px]">{c.email || "No email"}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[10px] font-bold text-app-text-muted">
-                             <TrendingUp size={14} className="text-emerald-500/50" />
+                             <TrendingUp size={14} className="text-app-success/50" />
                              <span>{[c.city, c.state].filter(Boolean).join(", ") || "Location not listed"}</span>
                           </div>
                        </div>
@@ -679,7 +679,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
 
   return (
     <div className="flex flex-1 flex-col bg-app-surface scale-in-center overflow-hidden">
-      <div className="border-b border-app-border/50 px-6 py-5 bg-app-surface-2/10 backdrop-blur-md">
+      <div className="border-b border-app-border px-6 py-5 bg-app-surface-2">
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-base font-black tracking-tight text-app-text">Reward Card History</h2>
@@ -711,15 +711,15 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
         ) : (
           <div className="flex flex-col gap-3">
             {issuances.map(row => (
-              <div key={row.reward_id} className="group flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-0 rounded-[24px] bg-app-surface-2/40 border border-app-border/40 p-5 hover:bg-app-surface hover:border-purple-500/30 transition-all duration-500">
+              <div key={row.reward_id} className="group flex flex-col gap-4 rounded-[24px] border border-app-border bg-app-surface p-5 transition-all duration-500 lg:flex-row lg:items-center lg:gap-0 hover:border-app-accent/20 hover:shadow-[0_16px_32px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)]">
                   {/* ID & Basic Info */}
                   <div className="lg:w-[1fr] lg:flex-1">
                     <div className="flex items-center gap-4">
-                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-purple-500/10 text-purple-600 font-black text-[12px] shadow-inner border border-purple-500/10">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent font-black text-[12px] shadow-inner border border-app-accent/10">
                          {row.first_name?.[0] || '?'}{row.last_name?.[0] || '?'}
                       </div>
                       <div className="min-w-0 flex flex-col">
-                         <span className="text-[14px] font-black text-app-text group-hover:text-purple-600 transition-colors truncate">
+                         <span className="truncate text-[14px] font-black text-app-text transition-colors group-hover:text-app-accent">
                            {row.first_name} {row.last_name}
                          </span>
                          <span className="text-[9px] font-black tracking-widest text-app-text-muted uppercase mt-0.5 opacity-60">
@@ -732,7 +732,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                 {/* Value & Ledger Info */}
                 <div className="lg:w-[1fr] lg:flex-1 lg:px-6">
                   <div className="flex flex-col">
-                     <span className="text-lg font-black text-emerald-600 tracking-tight leading-none">${centsToFixed2(parseMoneyToCents(row.reward_amount))}</span>
+                     <span className="text-lg font-black text-app-success tracking-tight leading-none">${centsToFixed2(parseMoneyToCents(row.reward_amount))}</span>
                      <span className="text-[9px] font-black uppercase tracking-[0.1em] text-app-text-muted mt-1 opacity-60">
                         {parseInt(String(row.points_deducted || '0')).toLocaleString()} pts deducted
                      </span>
@@ -745,7 +745,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                     <div className="flex flex-col gap-1">
                        <div className="flex items-center gap-2">
                           <Gift size={14} className="text-purple-500 opacity-40" />
-                          <code className="px-2 py-0.5 rounded-lg bg-purple-500/10 text-[10px] font-black text-purple-700 tracking-widest border border-purple-500/20">
+                          <code className="rounded-lg border border-app-accent/20 bg-app-accent/10 px-2 py-0.5 text-[10px] font-black text-app-accent tracking-widest">
                             {row.card_code}
                           </code>
                        </div>
@@ -754,8 +754,8 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
                   ) : (
                     <div className="flex flex-col gap-1">
                         <div className="flex items-center gap-2">
-                           <ShoppingCart size={14} className="text-emerald-500 opacity-40" />
-                           <span className="text-[10px] font-black uppercase tracking-tight text-emerald-600 italic">Direct Redemption</span>
+                           <ShoppingCart size={14} className="text-app-success opacity-40" />
+                           <span className="text-[10px] font-black uppercase tracking-tight text-app-success italic">Direct Redemption</span>
                         </div>
                         <span className="text-[8px] font-black uppercase tracking-widest text-app-text-muted ml-6 opacity-40">Applied to Sale</span>
                     </div>
@@ -842,17 +842,17 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
           { label: "Reward Cards Issued", val: stats?.lifetime_rewards_issued.toLocaleString() ?? "—", icon: Award, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", trend: "All time" },
           { label: "Recent Adjustments", val: stats?.active_30d_adjustments.toLocaleString() ?? "—", icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20", trend: "Last 30 days" },
         ].map((s, idx) => (
-          <div key={idx} className={`flex min-w-[240px] flex-1 items-center gap-5 rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-500`}>
+          <div key={idx} className={`relative flex min-w-[240px] flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} bg-app-surface p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] group transition-transform duration-500 hover:scale-[1.02]`}>
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
                <s.icon size={80} />
             </div>
-            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-white/40 shadow-xl dark:bg-black/20 border border-white/20`}>
+            <div className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-app-surface-2 shadow-sm border border-app-border`}>
               <s.icon size={26} className={s.color} />
             </div>
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted opacity-80">{s.label}</p>
-                <span className="text-[8px] font-black px-1.5 py-0.5 rounded-full bg-black/5 dark:bg-white/5 text-app-text-muted tabular-nums">{s.trend}</span>
+                <span className="rounded-full bg-app-surface-2 px-1.5 py-0.5 text-[8px] font-black text-app-text-muted tabular-nums">{s.trend}</span>
               </div>
               <p className="text-3xl font-black tabular-nums text-app-text tracking-tight">{s.val}</p>
             </div>

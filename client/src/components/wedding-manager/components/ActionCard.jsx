@@ -7,8 +7,8 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
 
     if (loading) {
         return (
-            <div className="bg-app-surface rounded-xl shadow-sm border border-app-border flex flex-col h-72 overflow-hidden">
-                <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${colorClass} bg-opacity-40`}>
+            <div className="flex h-72 flex-col overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)]">
+                <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${colorClass} bg-opacity-25`}>
                     <div className="flex items-center gap-3">
                         <Skeleton className="w-4 h-4" />
                         <Skeleton className="w-24 h-4" />
@@ -32,8 +32,8 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
     const textColorClass = colorClass.replace('bg-', 'text-').replace('50', '800');
 
     return (
-        <div className="bg-app-surface rounded-xl shadow-sm hover:shadow-lg transition-all duration-300 border border-app-border flex flex-col h-full animate-fade-in overflow-hidden cursor-default group/card">
-            <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${colorClass} bg-opacity-40`}>
+        <div className="group/card flex h-full cursor-default animate-fade-in flex-col overflow-hidden rounded-xl border border-app-border bg-app-surface shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-all duration-300 hover:-translate-y-px hover:shadow-[0_18px_36px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)]">
+            <div className={`px-5 py-4 border-b border-app-border/80 flex justify-between items-center ${colorClass} bg-opacity-25`}>
                 <div className="flex items-center gap-3">
                     <h3 className={`text-sm font-extrabold uppercase tracking-wide flex items-center gap-2 ${textColorClass}`}>
                         <Icon name={icon} size={18} />
@@ -42,7 +42,7 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
                     {actionAction && (
                         <button type="button"
                             onClick={(e) => { e.stopPropagation(); actionAction.onClick(); }}
-                            className="bg-app-surface hover:bg-app-surface-2/80 text-app-text border border-app-border hover:border-navy-300 p-1 px-2 rounded text-[10px] font-bold shadow-sm transition-all flex items-center gap-1"
+                            className="flex items-center gap-1 rounded border border-app-border bg-app-surface px-2 py-1 text-[10px] font-bold text-app-text shadow-sm transition-all hover:bg-app-surface-2"
                             title={actionAction.label}
                         >
                             <Icon name={actionAction.icon || 'List'} size={12} />
@@ -57,7 +57,7 @@ const ActionCard = ({ title, icon, colorClass, items, emptyMsg, renderItem, load
             <div className="p-0 overflow-y-auto max-h-[24rem] custom-scrollbar flex-1 bg-app-surface">
                 {list.length === 0 ? (
                     <div className="p-8 text-center flex flex-col items-center justify-center h-48 text-app-text-muted gap-3">
-                        <div className={`p-4 rounded-full ${colorClass} bg-opacity-20`}>
+                        <div className={`rounded-full p-4 ${colorClass} bg-opacity-15`}>
                             <Icon name="Check" size={24} className={textColorClass} />
                         </div>
                         <span className="text-base font-medium text-app-text-muted">{emptyMsg}</span>

@@ -751,12 +751,12 @@ export default function OrdersWorkspace({
               setDateFrom("");
               setDateTo("");
             }}
-            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all duration-150 hover:bg-rose-500/5 hover:text-rose-500 active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-500/20"
+            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all duration-150 hover:bg-app-danger/8 hover:text-app-danger active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-danger/20"
           >
             <RotateCcw size={14} />
             Reset
           </button>
-          <div className="flex items-center gap-2 px-4 py-2.5 rounded-2xl bg-emerald-500/5 border border-emerald-500/10 text-emerald-600 shadow-soft-xs">
+          <div className="flex items-center gap-2 rounded-2xl border border-app-success/16 bg-app-success/8 px-4 py-2.5 text-app-success shadow-soft-xs">
             <Activity size={14} className={section === "open" ? "animate-pulse" : ""} />
             <p className="text-[10px] font-black uppercase tracking-widest italic">
               {section === "open" ? "Open orders" : "Order history"}
@@ -774,7 +774,7 @@ export default function OrdersWorkspace({
           className="flex-1"
           contentClassName="p-0 flex flex-col"
         >
-          <div className="border-b border-app-border bg-app-surface-2/40 px-8 py-4">
+          <div className="border-b border-app-border bg-app-surface-2 px-8 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
@@ -843,7 +843,7 @@ export default function OrdersWorkspace({
           </div>
 
           {/* Header Filters Area */}
-          <div className="flex flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2/70 px-8 py-5">
+          <div className="flex flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-8 py-5">
             <div className="relative group flex-1 min-w-[300px]">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-disabled group-focus-within:text-app-accent transition-all" size={18} />
               <input
@@ -915,7 +915,7 @@ export default function OrdersWorkspace({
           {/* Wide Table Implementation */}
           <div className="flex-1 custom-scrollbar">
             <table className="w-full text-left border-collapse min-w-[1000px]">
-              <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-2/95 backdrop-blur-md">
+              <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-2">
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Customer</th>

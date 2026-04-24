@@ -1062,7 +1062,7 @@ export default function HelpCenterDrawer({
             <p className="text-xs text-app-text-muted">Loading manuals…</p>
           ) : null}
           {helpListSource === "static" ? (
-            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+            <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
               Using bundled manuals because the live help catalog is unavailable.
             </p>
           ) : null}
@@ -1070,7 +1070,7 @@ export default function HelpCenterDrawer({
             <p className="text-xs text-app-text-muted">Loading article…</p>
           ) : null}
           {searchFallbackActive ? (
-            <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+            <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
               Server search is unavailable, so results are coming from bundled manual content on this station.
             </p>
           ) : null}
@@ -1088,7 +1088,7 @@ export default function HelpCenterDrawer({
                   : "Mode: Help. Grounding: Help Center, store playbook, and approved operational tool results when available. Source chips show what ROSIE used."}
               </p>
               {!rosieSettings.enabled ? (
-                <p className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-900 dark:text-amber-100">
+                <p className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-xs font-medium text-app-warning">
                   ROSIE is disabled for this workstation. Turn it on in Settings
                   -&gt; ROSIE to use Help Mode or Conversation Mode.
                 </p>
@@ -1119,7 +1119,7 @@ export default function HelpCenterDrawer({
               >
                 {activeRosieMessages.length === 0 ? (
                   <div
-                    className={`border border-app-border bg-app-surface-2/60 ${
+                    className={`border border-app-border bg-app-surface-2 ${
                       conversationModeActive
                         ? "mx-auto mt-6 max-w-2xl rounded-3xl p-6 text-center"
                         : "rounded-2xl p-4"
@@ -1157,11 +1157,11 @@ export default function HelpCenterDrawer({
                               : "ml-8 border-app-accent/30 bg-app-accent/10"
                             : message.error
                               ? conversationModeActive
-                                ? "mr-auto max-w-[88%] border-amber-500/30 bg-amber-500/10"
-                                : "mr-8 border-amber-500/30 bg-amber-500/10"
+                                ? "mr-auto max-w-[88%] border-app-warning/20 bg-app-warning/10"
+                                : "mr-8 border-app-warning/20 bg-app-warning/10"
                               : conversationModeActive
-                                ? "mr-auto max-w-[88%] border-app-border bg-app-surface-2/70"
-                                : "mr-8 border-app-border bg-app-surface-2/60"
+                                ? "mr-auto max-w-[88%] border-app-border bg-app-surface-2"
+                                : "mr-8 border-app-border bg-app-surface-2"
                         }`}
                       >
                         <p
@@ -1227,7 +1227,7 @@ export default function HelpCenterDrawer({
                     ))}
                     {rosieBusy ? (
                       <div
-                        className={`rounded-2xl border border-app-border bg-app-surface-2/60 p-4 shadow-sm ${
+                        className={`rounded-2xl border border-app-border bg-app-surface-2 p-4 shadow-sm ${
                           conversationModeActive ? "mr-auto max-w-[88%]" : "mr-8"
                         }`}
                       >

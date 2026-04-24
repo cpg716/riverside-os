@@ -1302,7 +1302,7 @@ export function CustomerRelationshipHubDrawer({
                             onClick={() => {
                               setSelectedTransactionId(row.transaction_id);
                             }}
-                            className="rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-emerald-700 dark:text-emerald-400"
+                            className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                           >
                             {tab === "transactions"
                               ? "Open Transaction"
@@ -1366,13 +1366,13 @@ export function CustomerRelationshipHubDrawer({
                 Lifecycle: {customerLifecycleLabel(hub.stats.lifecycle_state)}
               </span>
               {hub.is_vip ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
+                <span className="inline-flex items-center gap-1 rounded-full border border-app-warning/20 bg-app-warning/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-warning">
                   <Sparkles size={12} aria-hidden />
                   VIP
                 </span>
               ) : null}
               {hub.customer_created_source === "online_store" ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-sky-900">
+                <span className="inline-flex items-center gap-1 rounded-full border border-app-info/20 bg-app-info/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-info">
                   Online signup
                 </span>
               ) : null}
@@ -1388,13 +1388,13 @@ export function CustomerRelationshipHubDrawer({
               ) : null}
               {storeCreditBal != null &&
               parseMoneyToCents(storeCreditBal) > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-violet-300 bg-violet-100/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-violet-900">
+                <span className="inline-flex items-center gap-1 rounded-full border border-app-accent/20 bg-app-accent/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-accent">
                   Store credit {fmtMoney(storeCreditBal)}
                 </span>
               ) : null}
               {openDepositBal != null &&
               parseMoneyToCents(openDepositBal) > 0 ? (
-                <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300 bg-emerald-100/90 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-900">
+                <span className="inline-flex items-center gap-1 rounded-full border border-app-success/20 bg-app-success/10 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
                   Deposit waiting {fmtMoney(openDepositBal)}
                 </span>
               ) : null}
@@ -1433,7 +1433,7 @@ export function CustomerRelationshipHubDrawer({
                   key={k}
                   className={`rounded-2xl border px-4 py-3 ${
                     k === "Profile" && hub.profile_complete
-                      ? "border-emerald-200 bg-emerald-50/80"
+                      ? "border-app-success/20 bg-app-success/10"
                       : k === "Lifecycle"
                         ? customerLifecycleBadgeClassName(
                             hub.stats.lifecycle_state,
@@ -1447,7 +1447,7 @@ export function CustomerRelationshipHubDrawer({
                   <p
                     className={`mt-1 text-lg font-black tabular-nums ${
                       k === "Profile" && hub.profile_complete
-                        ? "text-emerald-800"
+                        ? "text-app-success"
                         : "text-app-text"
                     }`}
                   >
@@ -1516,11 +1516,11 @@ export function CustomerRelationshipHubDrawer({
 
           {tab === "profile" && (
             <div className="space-y-6">
-              <section className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4">
-                <h3 className="text-[10px] font-black uppercase tracking-widest text-sky-900">
+              <section className="rounded-2xl border border-app-info/20 bg-app-info/10 p-4">
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-app-info">
                   Customer review and support follow-up
                 </h3>
-                <p className="mt-1 text-xs text-sky-900/80">
+                <p className="mt-1 text-xs text-app-text">
                   Use this hub to review the customer profile, notes, orders,
                   measurements, weddings, and message history. Use the RMS
                   Charge workspace when you need to verify linked financing
@@ -1528,7 +1528,7 @@ export function CustomerRelationshipHubDrawer({
                   reconciliation.
                 </p>
               </section>
-              <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+              <section className="rounded-2xl border border-app-border bg-app-surface-2 p-4">
                 <h3 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Joint account and customer notes
                 </h3>
@@ -1895,7 +1895,7 @@ export function CustomerRelationshipHubDrawer({
                                 ? "border-app-border bg-app-surface-2 text-app-text"
                                 : auto
                                   ? "border-app-border/60 bg-app-surface-2/50 text-app-text-muted"
-                                  : "border-emerald-800/30 bg-emerald-600/15 text-app-text"
+                                  : "border-app-success/20 bg-app-success/10 text-app-text"
                             }`}
                           >
                             <div className="mb-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1923,7 +1923,7 @@ export function CustomerRelationshipHubDrawer({
                   Reply SMS
                 </h3>
                 {!hub.phone ? (
-                  <p className="mb-2 text-xs font-semibold text-amber-800">
+                  <p className="mb-2 text-xs font-semibold text-app-warning">
                     Add a phone number on the Profile tab to reply by SMS.
                   </p>
                 ) : null}
@@ -1943,7 +1943,7 @@ export function CustomerRelationshipHubDrawer({
                     !smsReplyDraft.trim()
                   }
                   onClick={() => void sendPodiumSmsReply()}
-                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white border-b-8 border-emerald-800 disabled:opacity-40"
+                  className="rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
                 >
                   {smsReplyBusy ? "Sending…" : "Send SMS"}
                 </button>
@@ -1963,7 +1963,7 @@ export function CustomerRelationshipHubDrawer({
                   Podium credentials.
                 </p>
                 {!hub.email ? (
-                  <p className="mb-3 text-sm font-semibold text-amber-800">
+                  <p className="mb-3 text-sm font-semibold text-app-warning">
                     Add an email address on the Profile tab before sending.
                   </p>
                 ) : null}
@@ -1998,7 +1998,7 @@ export function CustomerRelationshipHubDrawer({
                     !podiumComposeHtml.trim()
                   }
                   onClick={() => void sendPodiumEmail()}
-                  className="rounded-xl bg-emerald-600 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white border-b-8 border-emerald-800 disabled:opacity-40"
+                  className="rounded-xl border-b-8 border-app-success bg-app-success px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-white disabled:opacity-40"
                 >
                   {podiumComposeBusy ? "Sending…" : "Send via Podium"}
                 </button>
@@ -2585,13 +2585,13 @@ export function CustomerRelationshipHubDrawer({
               {permissionsLoaded &&
               hasPermission("customers_duplicate_review") ? (
                 <section
-                  className="rounded-2xl border border-violet-200 bg-violet-50/50 p-4"
+                  className="rounded-2xl border border-app-accent/20 bg-app-accent/10 p-4"
                   data-testid="crm-hub-duplicate-review-enqueue"
                 >
-                  <h3 className="mb-2 text-[10px] font-black uppercase tracking-widest text-violet-900">
+                  <h3 className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-accent">
                     Duplicate review queue
                   </h3>
-                  <p className="mb-3 text-xs text-violet-950/90">
+                  <p className="mb-3 text-xs text-app-text">
                     Search for the twin record to mark them as a potential
                     duplicate pair for management review (merge stays a separate
                     step).

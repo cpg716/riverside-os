@@ -950,7 +950,7 @@ export default function CustomersWorkspace({
           ].map((stat, i) => (
             <div
               key={i}
-              className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} ${stat.bg} p-4 shadow-sm backdrop-blur-md`}
+              className={`flex min-w-[200px] flex-1 items-center gap-4 rounded-[20px] border ${stat.border} bg-app-surface p-4 shadow-[0_10px_24px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)]`}
             >
               <div
                 className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-app-border/60 bg-app-surface shadow-sm"
@@ -970,7 +970,7 @@ export default function CustomersWorkspace({
         </div>
 
         <div className="px-4 sm:px-6">
-          <div className="rounded-[20px] border border-app-border bg-app-surface-2/80 px-4 py-4 shadow-sm backdrop-blur-md">
+          <div className="overflow-hidden rounded-[20px] border border-app-border bg-app-surface px-4 py-4 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
@@ -1007,9 +1007,9 @@ export default function CustomersWorkspace({
         </div>
 
         <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
-          <div className="flex flex-col rounded-3xl border border-app-border bg-app-surface shadow-xl">
+          <div className="flex flex-col overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_18px_36px_rgba(15,23,42,0.08),0_3px_8px_rgba(15,23,42,0.05)]">
             {/* Toolbar */}
-            <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2/30 px-5 py-4 backdrop-blur-xl">
+            <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-5 py-4">
               <div className="relative group min-w-[300px] flex-1">
                 <Search
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors"
@@ -1163,7 +1163,7 @@ export default function CustomersWorkspace({
             >
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
-                  <tr className="bg-app-surface-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors backdrop-blur-xl">
+                  <tr className="bg-app-surface-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors">
                     <th className="w-12 px-5 py-4 border-b border-app-border">
                       <input
                         type="checkbox"
