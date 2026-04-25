@@ -665,7 +665,7 @@ fn validate_checkout_alteration_intakes(
     intakes: &[CheckoutAlterationIntake],
 ) -> Result<HashSet<String>, CheckoutError> {
     if intakes.is_empty() {
-        if items.iter().any(|item| is_alteration_service_item(item)) {
+        if items.iter().any(is_alteration_service_item) {
             return Err(CheckoutError::InvalidPayload(
                 "alteration service line requires matching alteration intake".to_string(),
             ));

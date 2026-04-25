@@ -234,18 +234,18 @@ test.describe("Alterations safety", () => {
     expect(body.error).toContain("intake");
   });
 
-  test("Intake filter is visible and usable in Back Office Alterations", async ({
+  test("status filter is visible and usable in Back Office Alterations", async ({
     page,
   }) => {
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "alterations");
 
-    const intakeFilter = page.getByRole("button", { name: /^intake$/i });
-    await expect(intakeFilter).toBeVisible({ timeout: 20_000 });
-    await intakeFilter.click();
-    await expect(intakeFilter).toHaveClass(/bg-app-accent/);
-    await expect(page.getByText("Item Source", { exact: true })).toBeVisible();
-    await expect(page.getByText("Work Requested", { exact: true })).toBeVisible();
+    const statusFilter = page.getByTestId("alterations-status-filter");
+    await expect(statusFilter).toBeVisible({ timeout: 20_000 });
+    await statusFilter.selectOption("intake");
+    await expect(statusFilter).toHaveValue("intake");
+    await expect(page.getByTestId("alteration-workbench-section-intake")).toBeVisible();
+    await expect(page.getByText("Intake / Not Started", { exact: true })).toBeVisible();
   });
 
   test("garment workbench groups by due status and labels source garments", async ({

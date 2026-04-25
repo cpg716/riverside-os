@@ -1246,9 +1246,30 @@ pub async fn reindex_all_meilisearch(
     record_sync_status(pool, INDEX_TASKS, true, task_batch.len() as i64, None).await;
 
     // 12. Alterations
+    #[derive(sqlx::FromRow)]
+    struct AlterationReindexRow {
+        id: Uuid,
+        customer_id: Uuid,
+        status: String,
+        customer_first_name: Option<String>,
+        customer_last_name: Option<String>,
+        customer_code: Option<String>,
+        customer_email: Option<String>,
+        customer_phone: Option<String>,
+        address_line1: Option<String>,
+        city: Option<String>,
+        state: Option<String>,
+        postal_code: Option<String>,
+        transaction_display_id: Option<String>,
+        item_description: Option<String>,
+        work_requested: Option<String>,
+        notes: Option<String>,
+        source_sku: Option<String>,
+    }
+
     let index_alterations = client.index(INDEX_ALTERATIONS);
     index_alterations.delete_all_documents().await?;
-    let mut alteration_stream = sqlx::query!(
+    let mut alteration_stream = sqlx::query_as::<_, AlterationReindexRow>(
         r#"
         SELECT
             a.id,
@@ -1271,7 +1292,7 @@ pub async fn reindex_all_meilisearch(
         FROM alteration_orders a
         LEFT JOIN customers c ON c.id = a.customer_id
         LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
-        "#
+        "#,
     )
     .fetch(pool);
     let mut alteration_batch = Vec::new();
@@ -1298,7 +1319,7 @@ pub async fn reindex_all_meilisearch(
             alteration_batch.push(AlterationDoc {
                 id: alteration_id_text,
                 customer_id: row.customer_id.to_string(),
-                status_open: row.status.as_deref() != Some("picked_up"),
+                status_open: row.status != "picked_up",
                 search_text,
             });
         }
