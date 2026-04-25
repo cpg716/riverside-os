@@ -47,7 +47,7 @@ Migration evidence:
 
 ## Findings
 
-### P1-001: Offline checkout replay can silently discard completed sales
+### P1-001: Offline checkout replay could silently discard completed sales
 
 **Status:** Remediated and covered by deterministic browser-storage E2E for 4xx retention plus register-close blocking. A future client unit harness can still add narrower success-dequeue coverage.
 
@@ -59,7 +59,7 @@ Queued checkouts previously were removed from local storage on any HTTP 4xx resp
 
 **Recommended fix:** Implemented. The queue now retains 4xx failures as blocked recovery rows and register close is blocked while pending/blocked checkout recovery exists.
 
-### P1-002: QBO sync does not block unbalanced staged journals
+### P1-002: QBO sync did not block unbalanced staged journals
 
 **Status:** Remediated and covered by QBO hardening unit tests plus QBO audit contract coverage.
 
@@ -71,7 +71,7 @@ The journal builder records `totals.balanced`, but approval and sync only check 
 
 **Recommended fix:** Block approval and sync when `payload.totals.balanced !== true`, or require an explicit privileged accounting override with immutable reason and a separate warning state. For go-live, use the strict block.
 
-### P1-003: QBO token storage uses reversible XOR with a default key
+### P1-003: QBO token storage used reversible XOR with a default key
 
 **Status:** Remediated for strict production / activation guard and new authenticated `v2:` token writes. Operational key-rotation drill remains a deployment gate.
 
@@ -83,7 +83,7 @@ QBO token encryption falls back to `riverside-dev-token-key-change-me` and uses 
 
 **Recommended fix:** In strict production, refuse startup or QBO activation unless `QBO_TOKEN_ENC_KEY` is present, long, and non-default. Replace XOR with authenticated encryption or delegate token storage to OS/keychain-backed secret storage for the Hybrid Host.
 
-### P1-004: Register reconciliation can fall back to hardcoded staff code `1234`
+### P1-004: Register reconciliation could fall back to hardcoded staff code `1234`
 
 **Status:** Remediated in code; broader register audit contract coverage now covers linked-lane lifecycle, close rules, and closed-token rejection. Missing-Staff-Access UI automation remains a lower-level coverage follow-up.
 
@@ -95,7 +95,7 @@ When `staffCode` is unavailable or not four digits, the close modal sends `1234`
 
 **Recommended fix:** Remove the fallback. If the authenticated staff code is unavailable, block reconciliation start and require re-authentication through the unified sign-in/PIN flow.
 
-### P1-005: Restore endpoint lacks server-side operational lockout
+### P1-005: Restore endpoint lacked server-side operational lockout
 
 **Status:** Remediated and covered by restore preflight unit tests. Hybrid Tauri host restore rehearsal remains a deployment gate.
 
@@ -107,7 +107,7 @@ Restore is admin-gated and documented as destructive, but the server does not en
 
 **Recommended fix:** Add server-side restore preflight checks: no open `register_sessions`, no reconciling sessions, no active checkout/write jobs, explicit environment target, and a fresh pre-restore backup. For Hybrid Host, require app restart guidance after restore.
 
-### P2-001: Backup path is process-working-directory relative
+### P2-001: Backup path was process-working-directory relative
 
 **Status:** Remediated with explicit `RIVERSIDE_BACKUP_DIR` strict-production validation and operator-facing diagnostics.
 
@@ -119,7 +119,7 @@ Backups write to `PathBuf::from("backups")`. In a packaged Hybrid Tauri Host, pr
 
 **Recommended fix:** Add explicit `RIVERSIDE_BACKUP_DIR`, surface it in Settings/ROS Dev Center, and refuse strict production backup scheduling if the directory is unset or unwritable.
 
-### P2-002: Post-close parked sale purge is outside the register close transaction
+### P2-002: Post-close parked sale purge was outside the register close transaction
 
 **Status:** Remediated and covered by `client/e2e/register-audit-contract.spec.ts`, which asserts Z-close purges server-backed parked sales and writes `purge_on_close` audit rows.
 
@@ -141,7 +141,7 @@ The POS golden path, tender UI smoke, tax-exempt checkout UI, and one exchange U
 
 **Status:** Implemented. POS shell/register/cart/cashier overlay now expose explicit readiness contracts, and CI no longer sets the quarantine flag. These specs are release gates again.
 
-### P2-004: QBO recognition uses UTC date in staging
+### P2-004: QBO recognition used UTC date in staging
 
 **Status:** Remediated and covered by `client/e2e/qbo-audit-contract.spec.ts`. QBO proposal and drilldown date cuts now use store-local business date via `reporting.effective_store_timezone()`, proposal payloads include `business_timezone`, and near-midnight UTC activity is asserted against the intended store business date.
 

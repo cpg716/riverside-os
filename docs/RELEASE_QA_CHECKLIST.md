@@ -104,6 +104,8 @@ npm run test:e2e:tender
 - `test:e2e:phase2` runs the Phase 2 finance/help lifecycle suite.
 - `test:e2e:tender` runs the deterministic tender contract suite.
 
+The standard release gate also includes the production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, and register close. The latest local production-hardening run on 2026-04-25 reported **181 passed, 7 skipped, 0 failed**.
+
 > If you see `ERR_CONNECTION_REFUSED` to `localhost:43173`, the dedicated E2E UI server is not running.
 > Local Playwright now auto-boots this same dedicated stack unless `E2E_AUTO_BOOT=0` is set.
 
@@ -121,6 +123,15 @@ For releases touching checkout, payments, taxes, reports, or Help Center admin f
    - Generate manifest
    - Reindex search
    - Permission gates (`help.manage`)
+
+For production/retail release candidates, also verify:
+
+1. **Offline recovery** keeps blocked checkout replay rows and blocks register close.
+2. **QBO staging** blocks unbalanced journals and uses store-local business-date cutoff.
+3. **Register close** purges server-backed parked sales with audit rows.
+4. **Inventory receiving/pickup/return** preserves stock truth and exact-once behavior.
+5. **Commission payouts** follow fulfillment timing and finalized payouts are immutable without explicit adjustment.
+6. **Backup restore** has a current non-production drill and migration ledger evidence.
 
 ---
 

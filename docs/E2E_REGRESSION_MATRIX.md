@@ -38,6 +38,13 @@ Helpers: **`client/e2e/helpers/backofficeSignIn.ts`** (`signInToBackOffice`, **`
 | **`high-risk-regressions.spec.ts`** | High-risk API regressions: route mount smoke (non-404), NYS tax audit auth/shape, sales-pivot basis alias stability (`booked`/`sale`/`completed`/`pickup`), Help Manager admin-op RBAC + payload shape, session endpoint auth behavior, non-admin permission boundaries | API-focused release hardening; seeded Admin (`1234`) and non-Admin (`5678`) recommended |
 | **`phase2-finance-and-help-lifecycle.spec.ts`** | Phase 2 release checks: Help manual policy lifecycle persistence/revert, Help admin policy RBAC boundaries, NYS tax + sales-pivot contract stability, payments/session auth-gate safety, non-admin boundary checks on sensitive analytics/help-admin routes | API-centric deterministic suite for finance/help lifecycle hardening; requires seeded Admin (`1234`) and recommended non-Admin (`5678`) |
 | **`tender-matrix-contract.spec.ts`** | Deterministic tender contract checks for checkout-critical payment intent modes (manual/MOTO, reader, saved-card failure behavior, credit-negative rejection), cancel-intent error contract, and session-safe auth expectations | API-centric tender hardening without hardware dependency; validates contract stability and guardrails while UI tender smoke remains in POS workflows |
+| **`checkout-tender-financial-contract.spec.ts`** | Missing check-number rejection, split tender allocation across current sale + existing balance, and cash rounding ledger/QBO impact | Production hardening audit contract; included in `npm run test:e2e:tender` and release gate |
+| **`tax-audit-contract.spec.ts`** | NYS/Erie clothing threshold, discount crossing, stale client tax rejection, return tax reversal, and QBO tax liability mapping | Production hardening audit contract |
+| **`commission-audit-contract.spec.ts`** | Fulfillment-based commission timing, rate specificity order, finalized payout immutability, and internal SPIFF receipt exclusion | Production hardening audit contract |
+| **`inventory-audit-contract.spec.ts`** | Order-style no-decrement checkout, pickup stock decrement, duplicate PO receipt retry, and return/restock refund truth | Production hardening audit contract |
+| **`offline-recovery-contract.spec.ts`** | 4xx checkout replay retention as blocked recovery and register close blocking while checkout recovery is pending/blocked | Production hardening audit contract |
+| **`qbo-audit-contract.spec.ts`** | Balanced staged proposal, mapped accounts, dedupe, staging visibility, drilldown tender linkage, one-time approval, and store-local business-date cutoff | Production hardening audit contract |
+| **`register-audit-contract.spec.ts`** | Register #1/till group lifecycle, closed-token rejection, and Z-close parked-sale purge/audit rows | Production hardening audit contract |
 
 ---
 
@@ -121,6 +128,7 @@ Local release gate remains the Vite path, but use **`E2E_BASE_URL=http://localho
 
 | Date | Change |
 |------|--------|
+| 2026-04-25 | Added production hardening audit contracts for checkout tender financials, tax, commission, inventory, offline recovery, QBO, and register close; latest local release gate reported **181 passed, 7 skipped, 0 failed**. |
 | 2026-04-08 | Initial matrix + **`playwright-e2e.yml`** CI; **`seed_e2e_non_admin_staff.sql`**; **`api-gates`**: best-sellers 401, margin **403** for non-Admin; visual baselines **skipped** on CI unless **`E2E_RUN_VISUAL=1`** |
 | 2026-04-08 | **`reports-workspace.spec.ts`**; matrix rows updated. **Operations** sidebar: **Dashboard** includes the former **Activity** content; deep link **`subsection=activity`** normalizes to **dashboard** (`App.tsx`). |
 | 2026-04-11 | Expanded **Help Center** coverage: `help-center.spec.ts` now includes **Help Center Manager** settings navigation and admin-op request checks (generate-manifest / reindex-search); `api-gates.spec.ts` now includes anonymous/non-admin/admin route gates and payload-shape checks for **`/api/help/admin/ops/*`**. |

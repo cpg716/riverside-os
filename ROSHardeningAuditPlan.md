@@ -1,5 +1,24 @@
 # Riverside OS Production Hardening Audit Plan
 
+## Current Execution Status — 2026-04-25
+
+This plan has now been executed as an AI/code hardening pass. The current source-of-truth outputs are:
+
+- [`docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`](docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md)
+- [`docs/PRODUCTION_HARDENING_FIX_PLAN.md`](docs/PRODUCTION_HARDENING_FIX_PLAN.md)
+- [`docs/PRODUCTION_COVERAGE_GAP_MATRIX.md`](docs/PRODUCTION_COVERAGE_GAP_MATRIX.md)
+- [`docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md`](docs/PRODUCTION_DEPLOYMENT_GO_NO_GO_CHECKLIST.md)
+
+Code-level P0/P1 audit findings identified in this pass are remediated or converted into explicit release gates. The latest local full release gate reported **181 passed, 7 skipped, 0 failed**.
+
+The remaining blockers are not hidden code-audit checklist items; they are release-environment signoffs:
+
+- Run `scripts/production_audit_probes.sql` against the RC/production database and reconcile or waive every P0/P1 result.
+- Complete the Hybrid Tauri host restore drill against a non-production database.
+- Complete hardware/register station drills on the intended register host and peripherals.
+- Complete QBO/accounting signoff for mappings, sync behavior, and store-local business-date policy.
+- Complete owner, store operations, hardware, and backup/restore signoff.
+
 ## Summary
 Run a serious deployment-readiness audit for the **Hybrid Tauri Host** production path, ending with a ranked **Audit + Fix Plan** and hard go/no-go gates before any retail deployment.
 
@@ -25,7 +44,7 @@ Success criteria:
 
 - **Register Reliability Audit**
   - Inspect register open/attach/close flows, Z reports, cash discrepancy handling, session grouping, shift handoff, and offline pending-sync close blockers.
-  - Treat quarantined POS UI tests as a release blocker unless stabilized or replaced by deterministic coverage.
+  - POS UI tests must remain part of the release gate. The prior quarantine has been removed after adding deterministic readiness contracts.
   - Verify cashier identity always uses authenticated staff identity first, with manager overrides logged.
 
 - **Inventory Truth Audit**
@@ -46,7 +65,7 @@ Success criteria:
 - **QuickBooks Audit**
   - Review staging-first QBO flow, account mappings, fallback warnings, journal balance checks, dedupe keys, sync logs, and retry behavior.
   - Verify journals for revenue, COGS, inventory assets, taxes, deposits, gift cards, loyalty, returns, shipping, RMS charges, merchant fees, and rounding.
-  - Confirm UTC/store-date cutoff behavior is documented and reconciled against QBO company timezone expectations.
+  - Confirm store-local business-date cutoff behavior is documented and reconciled against QBO company timezone expectations.
 
 - **Recovery Audit**
   - Verify local backup status, cloud backup health, restore procedure, migration ledger consistency, hybrid host restart behavior, and offline queue replay.
@@ -82,7 +101,7 @@ Success criteria:
      - `npm run test:e2e:phase2`
      - `npm run test:e2e:tender`
    - Add or repair tests for every P0/P1 issue before release approval.
-   - Stabilize or replace quarantined POS tests covering register open, checkout drawer, tender UI, and tax-exempt checkout.
+   - Keep formerly quarantined POS tests in the release gate and maintain the explicit readiness contracts that stabilized them.
 
 5. **Manual Retail Drill Plan**
    - On a hybrid Tauri host, run live-station rehearsals for:
@@ -117,7 +136,7 @@ Minimum release-blocking scenarios:
 - `Deployment Go/No-Go Checklist`
   - Hybrid Tauri host environment, hardware, Stripe, QBO, backups, restore drill, E2E, and human operational signoff.
 - `Coverage Gap Matrix`
-  - Existing automated coverage, quarantined tests, missing tests, and required additions before retail use.
+  - Existing automated coverage, remaining skips, missing tests, and required additions before retail use.
 
 ## Public Interfaces / Types
 No public API, database schema, or UI contract changes are assumed for the audit itself.

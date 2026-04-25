@@ -27,13 +27,13 @@ E2E_BASE_URL=http://localhost:5173 E2E_API_BASE=http://127.0.0.1:43300 E2E_AUTO_
 
 Result: 6 passed.
 
-The full local release E2E gate also passed after RMS workspace stabilization:
+The full local release E2E gate also passed after RMS workspace stabilization and the production hardening audit contracts:
 
 ```bash
-E2E_BASE_URL=http://localhost:5173 E2E_API_BASE=http://127.0.0.1:43300 E2E_CORECARD_BASE=http://127.0.0.1:43400 E2E_AUTO_BOOT=0 npm run test:e2e:release
+npm run test:e2e:release
 ```
 
-Result: 154 passed, 16 skipped, 0 failed.
+Result: 181 passed, 7 skipped, 0 failed.
 
 ## Residual Guidance
 

@@ -27,6 +27,9 @@ E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx 
 # Tender matrix deterministic contract suite (payment-intent modes/session-safe behavior)
 E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx playwright test e2e/tender-matrix-contract.spec.ts --workers=1
 
+# Production hardening audit contracts
+E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" npx playwright test e2e/checkout-tender-financial-contract.spec.ts e2e/tax-audit-contract.spec.ts e2e/commission-audit-contract.spec.ts e2e/inventory-audit-contract.spec.ts e2e/offline-recovery-contract.spec.ts e2e/qbo-audit-contract.spec.ts e2e/register-audit-contract.spec.ts --workers=1
+
 # RMS / CoreCard deterministic suite
 E2E_BASE_URL="http://localhost:43173" E2E_API_BASE="http://127.0.0.1:43300" E2E_CORECARD_BASE="http://127.0.0.1:43400" npx playwright test e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1
 ```
@@ -52,11 +55,13 @@ Config: [`playwright.config.ts`](../playwright.config.ts). Staff keypad default:
 - `npm run test:e2e:phase2` → Phase 2 lifecycle coverage (help manual policy persist/revert and finance-sensitive endpoint contract checks)
 - `npm run test:e2e:tender` → deterministic tender-matrix contract coverage (manual card, card-reader mode, saved-card invalid-ID handling, credit-negative validation, cancel contract, session-safe behavior)
 - `npm run test:e2e:rms` → deterministic RMS Charge / CoreCard suite with the fake CoreCard host and seeded RMS fixtures
+- Production hardening audit contracts live in `checkout-tender-financial-contract.spec.ts`, `tax-audit-contract.spec.ts`, `commission-audit-contract.spec.ts`, `inventory-audit-contract.spec.ts`, `offline-recovery-contract.spec.ts`, `qbo-audit-contract.spec.ts`, and `register-audit-contract.spec.ts`; they are included in the standard release gate.
 
 Direct equivalents:
 - `npm run test:e2e -- e2e/high-risk-regressions.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1`
+- `npm run test:e2e -- e2e/checkout-tender-financial-contract.spec.ts e2e/tax-audit-contract.spec.ts e2e/commission-audit-contract.spec.ts e2e/inventory-audit-contract.spec.ts e2e/offline-recovery-contract.spec.ts e2e/qbo-audit-contract.spec.ts e2e/register-audit-contract.spec.ts --workers=1`
 - `npm run test:e2e -- e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1`
 
 **Root script aliases:**

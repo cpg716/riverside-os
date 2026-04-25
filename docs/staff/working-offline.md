@@ -16,6 +16,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 
 - **Checkout queue** and similar offline-tolerant flows (see operational playbook) may let you **capture** sales when the API is temporarily unreachable, then **sync** when the connection returns.
 - When Riverside shows **Pending syncs**, those are completed POS sales still waiting to post once the device is back online.
+- If a sync cannot be safely replayed, Riverside keeps it as **blocked recovery** for manager review. Do not clear browser storage, refresh aggressively, or ring the same sale again.
 - **Do not** promise **inventory** or **pickup** dates you cannot verify live unless SOP says otherwise.
 
 ## What does not
@@ -46,6 +47,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
 | Sales stuck “pending sync” | Wait; move device to stronger Wi‑Fi | Manager — do not double-charge |
+| Checkout recovery blocked | Stop and call manager | Manager reviews/retries/exports; do not close register |
 | Duplicate charge fear | Compare **receipt #** on paper vs screen | Orders lead |
 | “Online only” error on BO | Expected | Wait for network |
 | Tailscale down | Check phone **cellular** | [REMOTE_ACCESS_GUIDE](../../REMOTE_ACCESS_GUIDE.md) owner |
@@ -54,6 +56,7 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 
 - **Any** customer dispute about **whether payment posted**.
 - Outage **longer than SOP threshold** (e.g. 30 minutes).
+- Register close is blocked because checkout recovery still has pending or blocked rows.
 
 ---
 
@@ -62,4 +65,4 @@ Read this **before** a storm or ISP outage. Know what you **can** promise custom
 - [../OFFLINE_OPERATIONAL_PLAYBOOK.md](../OFFLINE_OPERATIONAL_PLAYBOOK.md)
 - [../../REMOTE_ACCESS_GUIDE.md](../../REMOTE_ACCESS_GUIDE.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-25
