@@ -15,8 +15,8 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
 - **Indices:** 
   - `ros_products`, `ros_variants`, `ros_store_products`
   - `ros_customers`, `ros_wedding_parties`
-  - `ros_fulfillment_orders` (ORD logistics/orders)
-  - `ros_transactions` (TXN financial checkout records; older `ros_orders` status rows are retired)
+  - `ros_orders` (Back Office Orders workspace records: transaction-backed order work)
+  - `ros_transactions` (all TXN financial checkout records)
   - `ros_staff`, `ros_vendors`
   - `ros_tasks`, `ros_appointments`
   - `ros_alterations`
@@ -32,7 +32,7 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
 
 **Customer browse:** When **`q`** is set together with **`wedding_party_q`**, Meilisearch is **not** used for the name leg (existing SQL wedding-party filter remains).
 
-**Orders and transactions search:** fulfillment Orders (`ORD-…`) and financial Transactions (`TXN-…`) are separate Meilisearch indices. Checkout writes upsert the affected transaction document and any created fulfillment order document. The Settings dashboard shows both so staff can tell whether financial checkout search and logistical order search are current.
+**Orders and transactions search:** Back Office Orders and financial Transactions are separate Meilisearch indices. `ros_orders` tracks the order-style transaction records shown in the Orders workspace (special/custom/wedding/layaway/open-document work). `ros_transactions` tracks all financial checkout records. Checkout writes upsert the affected transaction document and, when that transaction has order-style lines, the matching Orders document. The Settings dashboard shows both so staff can tell whether order search and all-transaction search are current.
 
 **Alterations search:** `ros_alterations` indexes open and historical alteration work by customer name, phone digits, email, address/ZIP, garment description, work requested, notes, source SKU, and linked transaction display ID. Alterations Hub and universal search hydrate matched alteration rows from PostgreSQL after Meilisearch lookup, with PostgreSQL `ILIKE` fallback when the search service is unavailable.
 

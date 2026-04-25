@@ -165,7 +165,7 @@ pub async fn query_paged_transactions(
     let meili_transaction_ids: Option<Vec<Uuid>> = if let Some(st) = search_trim {
         if let Some(c) = meilisearch {
             let open_only = !q.show_closed;
-            match crate::logic::meilisearch_search::transaction_search_ids(c, st, open_only).await {
+            match crate::logic::meilisearch_search::order_search_ids(c, st, open_only).await {
                 Ok(ids) if !ids.is_empty() => Some(ids),
                 Ok(_) => None,
                 Err(e) => {

@@ -869,7 +869,6 @@ pub enum CheckoutDone {
         customer_id: Option<Uuid>,
         price_override_audit: Vec<Value>,
         alteration_order_ids: Vec<Uuid>,
-        fulfillment_order_ids: Vec<Uuid>,
         amount_paid: Decimal,
         total_price: Decimal,
     },
@@ -3513,7 +3512,6 @@ pub async fn execute_checkout(
         customer_id,
         price_override_audit,
         alteration_order_ids,
-        fulfillment_order_ids: fulfillment_order_id.into_iter().collect(),
         amount_paid,
         total_price,
     })

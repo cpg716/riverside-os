@@ -5,7 +5,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_STAFF,
+    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_ORDERS, INDEX_STAFF,
     INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS,
     INDEX_WEDDING_PARTIES,
 };
@@ -159,6 +159,22 @@ pub async fn transaction_search_ids(
     open_only: bool,
 ) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
     let index = client.index(INDEX_TRANSACTIONS);
+    let mut sq = index.search();
+    sq.with_query(query_text)
+        .with_limit(TRANSACTION_MEILI_HIT_CAP);
+    if open_only {
+        sq.with_filter("status_open = true");
+    }
+    let res = sq.execute::<IdHit>().await?;
+    Ok(parse_hit_ids(&res.hits))
+}
+
+pub async fn order_search_ids(
+    client: &Client,
+    query_text: &str,
+    open_only: bool,
+) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
+    let index = client.index(INDEX_ORDERS);
     let mut sq = index.search();
     sq.with_query(query_text)
         .with_limit(TRANSACTION_MEILI_HIT_CAP);

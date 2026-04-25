@@ -5,15 +5,14 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS,
-    INDEX_FULFILLMENT_ORDERS, INDEX_HELP, INDEX_STAFF, INDEX_STORE_PRODUCTS, INDEX_TASKS,
-    INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
+    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_HELP,
+    INDEX_ORDERS, INDEX_STAFF, INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS,
+    INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
 };
 use crate::logic::meilisearch_documents::{
     augment_search_with_phone_digits, build_alteration_search_text, build_customer_search_text,
-    variant_doc_from_row, AlterationDoc, AppointmentDoc, CategoryDoc, CustomerDoc,
-    FulfillmentOrderDoc, StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc,
-    WeddingPartyDoc,
+    variant_doc_from_row, AlterationDoc, AppointmentDoc, CategoryDoc, CustomerDoc, OrderDoc,
+    StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc, WeddingPartyDoc,
 };
 use futures_util::StreamExt;
 
@@ -523,11 +522,7 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
     }
 }
 
-pub async fn upsert_fulfillment_order_document(
-    client: &Client,
-    pool: &PgPool,
-    fulfillment_order_id: Uuid,
-) {
+pub async fn upsert_order_document(client: &Client, pool: &PgPool, transaction_id: Uuid) {
     #[derive(sqlx::FromRow)]
     struct Row {
         id: Uuid,
@@ -539,48 +534,56 @@ pub async fn upsert_fulfillment_order_document(
         party_name: Option<String>,
         transaction_display_ids: Option<String>,
         item_blob: Option<String>,
+        is_order: bool,
+        status_open: bool,
     }
 
     let row = sqlx::query_as::<_, Row>(
         r#"
         SELECT
-            fo.id,
-            fo.display_id,
-            fo.status,
+            o.id,
+            COALESCE(o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
+            o.status::text AS status,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
-            wp.party_name,
-            string_agg(DISTINCT t.display_id, ' ') AS transaction_display_ids,
+            NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
+            string_agg(DISTINCT o.display_id, ' ') AS transaction_display_ids,
             string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob
-        FROM fulfillment_orders fo
-        LEFT JOIN customers c ON c.id = fo.customer_id
-        LEFT JOIN wedding_parties wp ON wp.id = fo.wedding_id
-        LEFT JOIN transaction_lines tl ON tl.fulfillment_order_id = fo.id
-        LEFT JOIN transactions t ON t.id = tl.transaction_id
+            ,(o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(tl.fulfillment::text <> 'takeaway'), false)) AS is_order
+            ,(o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(tl.is_fulfilled = false), false)) AS status_open
+        FROM transactions o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
+        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
         LEFT JOIN products p ON p.id = tl.product_id
         LEFT JOIN product_variants pv ON pv.id = tl.variant_id
-        WHERE fo.id = $1
-        GROUP BY fo.id, c.id, wp.id
+        WHERE o.id = $1
+        GROUP BY o.id, c.id, wp.id
         "#,
     )
-    .bind(fulfillment_order_id)
+    .bind(transaction_id)
     .fetch_optional(pool)
     .await;
 
     let Ok(Some(row)) = row else {
-        let index = client.index(INDEX_FULFILLMENT_ORDERS);
-        let _ = index
-            .delete_document(fulfillment_order_id.to_string())
-            .await;
+        let index = client.index(INDEX_ORDERS);
+        let _ = index.delete_document(transaction_id.to_string()).await;
         return;
     };
 
-    let status_open = matches!(row.status.as_str(), "open" | "ready");
+    let index = client.index(INDEX_ORDERS);
+    if !row.is_order {
+        let _ = index.delete_document(transaction_id.to_string()).await;
+        return;
+    }
+
     let search_text = format!(
-        "{} {} {} {} {} {} {}",
+        "{} {} {} {} {} {} {} {}",
         row.id,
         row.display_id,
+        row.status,
         row.customer_first.as_deref().unwrap_or(""),
         row.customer_last.as_deref().unwrap_or(""),
         row.customer_code.as_deref().unwrap_or(""),
@@ -589,20 +592,18 @@ pub async fn upsert_fulfillment_order_document(
     ) + " "
         + row.item_blob.as_deref().unwrap_or("");
 
-    let doc = FulfillmentOrderDoc {
+    let doc = OrderDoc {
         id: row.id.to_string(),
         display_id: row.display_id,
-        status_open,
+        status_open: row.status_open,
         search_text,
     };
 
-    let index = client.index(INDEX_FULFILLMENT_ORDERS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
-        log_meili_add_err("fulfillment order upsert", &e);
-        record_incremental_sync_status(pool, INDEX_FULFILLMENT_ORDERS, false, Some(&e.to_string()))
-            .await;
+        log_meili_add_err("order upsert", &e);
+        record_incremental_sync_status(pool, INDEX_ORDERS, false, Some(&e.to_string())).await;
     } else {
-        record_incremental_sync_status(pool, INDEX_FULFILLMENT_ORDERS, true, None).await;
+        record_incremental_sync_status(pool, INDEX_ORDERS, true, None).await;
     }
 }
 
@@ -951,10 +952,7 @@ pub async fn record_sync_status(
 
 /// Full rebuild: settings + all documents (admin / script).
 /// Optimized with bulk additions to avoid 500k sequential HTTP calls.
-pub async fn reindex_all_meilisearch(
-    client: &Client,
-    pool: &PgPool,
-) -> Result<(), meilisearch_sdk::errors::Error> {
+pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::Result<()> {
     tracing::info!("Starting full Meilisearch reindex...");
     crate::logic::meilisearch_client::ensure_all_meilisearch_index_settings(client).await?;
 
@@ -1242,67 +1240,88 @@ pub async fn reindex_all_meilisearch(
     }
     record_sync_status(pool, INDEX_TRANSACTIONS, true, n_txns as i64, None).await;
 
-    // 6. Fulfillment Orders
-    let index_orders = client.index(INDEX_FULFILLMENT_ORDERS);
+    // 6. Orders workspace records (transaction-backed order work, not every checkout)
+    #[derive(sqlx::FromRow)]
+    struct OrderReindexRow {
+        id: Uuid,
+        display_id: String,
+        status: String,
+        customer_first: Option<String>,
+        customer_last: Option<String>,
+        customer_code: Option<String>,
+        party_name: Option<String>,
+        transaction_display_ids: Option<String>,
+        item_blob: Option<String>,
+        status_open: bool,
+    }
+
+    let index_orders = client.index(INDEX_ORDERS);
     index_orders.delete_all_documents().await?;
-    let mut order_stream = sqlx::query!(
+    let mut order_stream = sqlx::query_as::<_, OrderReindexRow>(
         r#"
         SELECT
-            fo.id AS "id!",
-            fo.display_id AS "display_id!",
-            fo.status AS "status!",
+            o.id,
+            COALESCE(o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
+            o.status::text AS status,
             c.first_name AS customer_first,
             c.last_name AS customer_last,
             c.customer_code,
             wp.party_name,
-            string_agg(DISTINCT t.display_id, ' ') AS transaction_display_ids,
-            string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob
-        FROM fulfillment_orders fo
-        LEFT JOIN customers c ON c.id = fo.customer_id
-        LEFT JOIN wedding_parties wp ON wp.id = fo.wedding_id
-        LEFT JOIN transaction_lines tl ON tl.fulfillment_order_id = fo.id
-        LEFT JOIN transactions t ON t.id = tl.transaction_id
+            string_agg(DISTINCT o.display_id, ' ') AS transaction_display_ids,
+            string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob,
+            (o.counterpoint_doc_ref IS NOT NULL OR COALESCE(BOOL_OR(tl.is_fulfilled = false), false)) AS status_open
+        FROM transactions o
+        LEFT JOIN customers c ON c.id = o.customer_id
+        LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
+        LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
+        LEFT JOIN transaction_lines tl ON tl.transaction_id = o.id
         LEFT JOIN products p ON p.id = tl.product_id
         LEFT JOIN product_variants pv ON pv.id = tl.variant_id
-        GROUP BY fo.id, c.id, wp.id
+        WHERE o.counterpoint_doc_ref IS NOT NULL
+           OR EXISTS (
+                SELECT 1
+                FROM transaction_lines tl_order
+                WHERE tl_order.transaction_id = o.id
+                  AND tl_order.fulfillment::text <> 'takeaway'
+           )
+        GROUP BY o.id, c.id, wp.id
         "#
     )
     .fetch(pool);
     let mut order_batch = Vec::with_capacity(1000);
     let mut n_orders = 0usize;
     while let Some(res) = order_stream.next().await {
-        if let Ok(row) = res {
-            let order_id_str = row.id.to_string();
-            let status_open = matches!(row.status.as_str(), "open" | "ready");
-            let search_text = format!(
-                "{} {} {} {} {} {} {} {}",
-                order_id_str,
-                row.display_id,
-                row.customer_first.as_deref().unwrap_or(""),
-                row.customer_last.as_deref().unwrap_or(""),
-                &row.customer_code,
-                row.party_name.as_deref().unwrap_or(""),
-                row.transaction_display_ids.as_deref().unwrap_or(""),
-                row.item_blob.as_deref().unwrap_or("")
-            );
-            order_batch.push(FulfillmentOrderDoc {
-                id: order_id_str,
-                display_id: row.display_id,
-                status_open,
-                search_text,
-            });
-            if order_batch.len() >= 1000 {
-                n_orders += order_batch.len();
-                index_orders.add_documents(&order_batch, Some("id")).await?;
-                order_batch.clear();
-            }
+        let row = res?;
+        let order_id_str = row.id.to_string();
+        let search_text = format!(
+            "{} {} {} {} {} {} {} {} {}",
+            order_id_str,
+            row.display_id,
+            row.status,
+            row.customer_first.as_deref().unwrap_or(""),
+            row.customer_last.as_deref().unwrap_or(""),
+            row.customer_code.as_deref().unwrap_or(""),
+            row.party_name.as_deref().unwrap_or(""),
+            row.transaction_display_ids.as_deref().unwrap_or(""),
+            row.item_blob.as_deref().unwrap_or("")
+        );
+        order_batch.push(OrderDoc {
+            id: order_id_str,
+            display_id: row.display_id,
+            status_open: row.status_open,
+            search_text,
+        });
+        if order_batch.len() >= 1000 {
+            n_orders += order_batch.len();
+            index_orders.add_documents(&order_batch, Some("id")).await?;
+            order_batch.clear();
         }
     }
     if !order_batch.is_empty() {
         n_orders += order_batch.len();
         index_orders.add_documents(&order_batch, Some("id")).await?;
     }
-    record_sync_status(pool, INDEX_FULFILLMENT_ORDERS, true, n_orders as i64, None).await;
+    record_sync_status(pool, INDEX_ORDERS, true, n_orders as i64, None).await;
 
     // 7. Help
     if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {

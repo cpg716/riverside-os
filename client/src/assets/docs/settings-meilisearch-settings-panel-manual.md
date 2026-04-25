@@ -43,7 +43,7 @@ Use this panel when inventory, customer, wedding, order, transaction, alteration
 - Rebuild all indices pushes PostgreSQL records into Meilisearch and refreshes row counts.
 - A stale warning means the dashboard has not recorded a successful rebuild or incremental update for that index in more than 24 hours.
 - Stale can be normal for a quiet module with no recent writes. It needs follow-up when search results look wrong, the store just restored/imported data, or staff changed records in that module and the timestamp did not move.
-- Fulfillment Orders are indexed as `ros_fulfillment_orders`; financial Transactions are indexed as `ros_transactions`; older `ros_orders` health rows are retired.
+- Back Office Orders are indexed as `ros_orders`; financial Transactions are indexed as `ros_transactions`. Orders should roughly match the order-style records in the Orders workspace, while Transactions includes all checkout records.
 - Normal record changes update their affected documents through server-side write hooks. A full rebuild is the repair path when those hooks were missed or the search service was offline.
 
 ## What happens next

@@ -49,10 +49,10 @@ pub struct TransactionDoc {
 }
 
 #[derive(Debug, Clone, Serialize)]
-pub struct FulfillmentOrderDoc {
+pub struct OrderDoc {
     pub id: String,
     pub display_id: String,
-    /// Open / ready when true (for fulfillment queue search).
+    /// Has open/unfulfilled order work when true.
     pub status_open: bool,
     pub search_text: String,
 }
