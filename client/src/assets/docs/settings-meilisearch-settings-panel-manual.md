@@ -1,15 +1,15 @@
 ---
 id: settings-meilisearch-settings-panel
-title: "Meilisearch Settings Panel (settings)"
+title: "Meilisearch Settings"
 order: 1090
-summary: "Draft maintainer scaffold for client/src/components/settings/MeilisearchSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Check Meilisearch sync health, distinguish Refresh from Rebuild, and understand which search indices ROS keeps current."
 source: client/src/components/settings/MeilisearchSettingsPanel.tsx
 last_scanned: 2026-04-23
-tags: settings-meilisearch-settings-panel, component, auto-scaffold
-status: draft
+tags: settings, meilisearch, search, reindex
+status: published
 ---
 
-# Meilisearch Settings Panel (settings)
+# Meilisearch Settings
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/MeilisearchSettingsPanel.tsx`._
@@ -17,42 +17,40 @@ _Linked component: `client/src/components/settings/MeilisearchSettingsPanel.tsx`
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use this Settings panel to verify whether the optional Meilisearch search engine is configured, whether each search index has synced successfully, and whether a full rebuild is needed.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this panel when inventory, customer, wedding, order, transaction, alteration, or Help Center search feels stale or blank.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- You need Settings admin access.
+- PostgreSQL is still the source of truth. Meilisearch only accelerates fuzzy search.
+- Search-capable screens fall back to SQL search when Meilisearch is unavailable.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open Settings, then Meilisearch.
+2. Use Refresh to reload the health view. This does not rebuild any index.
+3. Review row counts, last sync times, and any stale warnings.
+4. Use Rebuild all indices after a restore, Meilisearch wipe, or major import if search results are stale.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Meilisearch does not update itself directly from PostgreSQL. ROS updates search through server write hooks after records are saved.
+- Refresh only reloads this dashboard. It does not push new data into Meilisearch.
+- Rebuild all indices pushes PostgreSQL records into Meilisearch and refreshes row counts.
+- A stale warning means the dashboard has not recorded a successful rebuild or incremental update for that index in more than 24 hours.
+- Stale can be normal for a quiet module with no recent writes. It needs follow-up when search results look wrong, the store just restored/imported data, or staff changed records in that module and the timestamp did not move.
+- Fulfillment Orders are indexed as `ros_fulfillment_orders`; financial Transactions are indexed as `ros_transactions`; older `ros_orders` health rows are retired.
+- Normal record changes update their affected documents through server-side write hooks. A full rebuild is the repair path when those hooks were missed or the search service was offline.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+After a successful rebuild, the panel should show current timestamps and updated row counts for the active indices.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/settings-meilisearch-settings-panel/` and replace this example with governed screenshots.
-
-![Example](../images/help/settings-meilisearch-settings-panel/example.png)
-
+- Search and pagination: `docs/SEARCH_AND_PAGINATION.md`
+- Store deployment: `docs/STORE_DEPLOYMENT_GUIDE.md`

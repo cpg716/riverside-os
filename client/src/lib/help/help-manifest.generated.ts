@@ -53,10 +53,11 @@ import manual_48_raw from "../../assets/docs/pos-register-reports-manual.md?raw"
 import manual_49_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
 import manual_50_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
 import manual_51_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
-import manual_52_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_53_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
-import manual_54_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
-import manual_55_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
+import manual_52_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
+import manual_53_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_54_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
+import manual_55_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_56_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -424,31 +425,38 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["settings-counterpoint-sync-settings-panel","component","counterpoint","bridge","sync"],
   },
   {
+    id: "settings-meilisearch-settings-panel",
+    title: "Meilisearch Settings",
+    summary: "Check Meilisearch sync health, distinguish Refresh from Rebuild, and understand which search indices ROS keeps current.",
+    markdown: manual_52_raw,
+    tags: ["settings","meilisearch","search","reindex"],
+  },
+  {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel",
     summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
-    markdown: manual_52_raw,
+    markdown: manual_53_raw,
     tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "settings-stripe-settings-panel",
     title: "Stripe & Merchant Hub (settings)",
     summary: "High-level integration manual for card processing, fee reconciliation, and QBO clearing account workflows.",
-    markdown: manual_53_raw,
+    markdown: manual_54_raw,
     tags: ["settings-stripe-settings-panel","merchant-processing","reconciliation","stripe","qbo"],
   },
   {
     id: "staff-commission-payouts-panel",
     title: "Commission Payouts Panel (staff)",
     summary: "Review fulfillment-based commission payouts, filter by staff, run prior-month payroll windows, and finalize only eligible unfinalized lines.",
-    markdown: manual_54_raw,
+    markdown: manual_55_raw,
     tags: ["staff-commission-payouts-panel","component","commission","payroll"],
   },
   {
     id: "staff-commission-manager-workspace",
     title: "Commission Manager Workspace (staff)",
     summary: "Use Staff → Commissions as the single workspace for commission payouts, category rates, and SPIFF or combo incentive rules.",
-    markdown: manual_55_raw,
+    markdown: manual_56_raw,
     tags: ["staff-commission-manager-workspace","component","commission","payroll","rates"],
   },
 ];

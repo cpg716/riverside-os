@@ -83,8 +83,7 @@ export default function MeilisearchSettingsPanel() {
         toast(j.error || "Reindex failed", "error");
         setMeiliReindexBusy(false);
       } else {
-        toast("Meilisearch reindex started (background worker)", "success");
-        // Immediate status check to flip isIndexing
+        toast("Meilisearch rebuild completed", "success");
         void fetchStatus();
         setMeiliReindexBusy(false);
       }
@@ -108,30 +107,22 @@ export default function MeilisearchSettingsPanel() {
     <div className="space-y-10">
       <header className="mb-2">
         <div className="flex flex-wrap items-start gap-4">
-          <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-app-success/25 bg-app-surface">
+          <div className="flex shrink-0 items-center justify-center">
             <IntegrationBrandLogo
               brand="meilisearch"
-              kind="icon"
-              className="inline-flex"
-              imageClassName="h-8 w-8 object-contain"
+              kind="wordmark"
+              className="inline-flex rounded-2xl border border-app-success/20 bg-app-surface px-5 py-3 shadow-sm"
+              imageClassName="h-12 w-auto object-contain"
             />
           </div>
           <div className="min-w-0 flex-1 space-y-2">
-            <div className="mb-2 flex items-center">
-              <IntegrationBrandLogo
-                brand="meilisearch"
-                kind="wordmark"
-                className="inline-flex rounded-2xl border border-app-success/20 bg-app-surface px-4 py-2 shadow-sm"
-                imageClassName="h-8 w-auto object-contain"
-              />
-            </div>
             <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
               Search Infrastructure
             </h2>
             <p className="text-sm font-medium text-app-text-muted leading-relaxed max-w-3xl">
               High-performance fuzzy search engine. Riverside uses Meilisearch
-              for inventory, customers, weddings, and help-center search when
-              configured.
+              for inventory, customers, weddings, orders, transactions,
+              alterations, and help-center search when configured.
             </p>
           </div>
         </div>
@@ -153,8 +144,9 @@ export default function MeilisearchSettingsPanel() {
                 Sync Health Dashboard
               </h3>
               <p className="text-xs text-app-text-muted mt-1 max-w-xl leading-relaxed">
-                Riverside pushes updates to Meilisearch via background workers.
-                Monitor sync status and row counts per index below.
+                Refresh only reloads this health view. Rebuild re-pushes
+                PostgreSQL records; normal writes update their affected search
+                documents as staff work.
               </p>
             </div>
           </div>
@@ -282,7 +274,8 @@ export default function MeilisearchSettingsPanel() {
                 "ros_variants",
                 "ros_customers",
                 "ros_wedding_parties",
-                "ros_orders",
+                "ros_fulfillment_orders",
+                "ros_transactions",
                 "ros_staff",
                 "ros_vendors",
                 "ros_tasks",
@@ -318,7 +311,8 @@ export default function MeilisearchSettingsPanel() {
                       ros_variants: "Inventory",
                       ros_wedding_parties: "Weddings",
                       ros_customers: "Customers",
-                      ros_orders: "Orders",
+                      ros_fulfillment_orders: "Orders",
+                      ros_transactions: "Transactions",
                       ros_staff: "Staff",
                       ros_vendors: "Vendors",
                       ros_tasks: "Tasks",
@@ -418,7 +412,8 @@ export default function MeilisearchSettingsPanel() {
             <p className="text-[10px] text-app-text-muted leading-relaxed">
               If search results feel stale or Meilisearch was recently wiped,
               run a full rebuild. This will re-push all records from SQL to
-              Meilisearch. Large catalogs may take minutes.
+              Meilisearch. Large catalogs may take minutes; Refresh only checks
+              the latest status.
             </p>
           </div>
           <button
@@ -442,7 +437,7 @@ export default function MeilisearchSettingsPanel() {
         <ConfirmationModal
           isOpen={true}
           title="Rebuild all search indices?"
-          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Staff, Vendors, Tasks, Appointments, and Alterations). It can take several minutes on large catalogs. Staff can keep working during the process."
+          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Orders, Transactions, Staff, Vendors, Tasks, Appointments, and Alterations). It can take several minutes on large catalogs. Staff can keep working during the process."
           confirmLabel="Execute Rebuild"
           onConfirm={() => void runReindex()}
           onClose={() => setMeiliReindexConfirmOpen(false)}

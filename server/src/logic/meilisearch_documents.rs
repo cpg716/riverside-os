@@ -49,6 +49,15 @@ pub struct TransactionDoc {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct FulfillmentOrderDoc {
+    pub id: String,
+    pub display_id: String,
+    /// Open / ready when true (for fulfillment queue search).
+    pub status_open: bool,
+    pub search_text: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct StaffDoc {
     pub id: String,
     pub is_active: bool,

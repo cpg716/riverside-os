@@ -13,8 +13,11 @@ Recommended for the Store Manager or Lead Cashier.
 
 ### Search Index Health
 - Navigate to **Settings → Integrations → Meilisearch**.
-- Verify the status is "Idle". 
-- If the status is stuck at "Indexing..." for more than 1 hour without progress, check the **Bridge Logs** (Port 3002) for potential sync hangs.
+- Use **Refresh** to reload the health view. Refresh does not rebuild search data.
+- Verify Meilisearch is configured and the index cards are not showing failures.
+- A **stale** warning means no successful rebuild or incremental update has been recorded for that index in more than 24 hours. This can be normal for quiet areas with no recent writes.
+- Treat stale as actionable when search results are wrong, the store just restored/imported data, or staff recently changed records in that module and the timestamp did not move.
+- If search is wrong or the service was offline during writes, run **Rebuild all indices**. Rebuild pushes PostgreSQL records back into Meilisearch and refreshes row counts.
 
 ---
 
@@ -48,8 +51,10 @@ If the Counterpoint sync fails:
 3. Check for **Port Conflicts** (Error `EADDRINUSE: :::3002`).
 
 ### "Meilisearch Search is Blank"
-1. Perform a **Full Reindex** from the Integrations panel.
-2. Wait for the status indicator to return to "Idle". Search functionality is degraded during reindexing.
+1. Confirm the API host has `RIVERSIDE_MEILISEARCH_URL` set and Meilisearch is reachable.
+2. Perform **Rebuild all indices** from the Meilisearch Settings panel.
+3. Use **Refresh** after the rebuild response returns to reload the health view.
+4. If search is still blank, confirm the relevant card has rows and no error message. SQL fallback should still keep core lookup usable while Meilisearch is unavailable.
 
 ---
 *Version: 0.1.8 - April 2026*

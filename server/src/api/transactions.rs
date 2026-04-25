@@ -171,6 +171,23 @@ fn spawn_meilisearch_alteration_upserts(state: &AppState, alteration_ids: Vec<Uu
     });
 }
 
+fn spawn_meilisearch_fulfillment_order_upserts(state: &AppState, fulfillment_order_ids: Vec<Uuid>) {
+    let Some(client) = state.meilisearch.clone() else {
+        return;
+    };
+    let pool = state.db.clone();
+    tokio::spawn(async move {
+        for fulfillment_order_id in fulfillment_order_ids {
+            crate::logic::meilisearch_sync::upsert_fulfillment_order_document(
+                &client,
+                &pool,
+                fulfillment_order_id,
+            )
+            .await;
+        }
+    });
+}
+
 pub use crate::logic::transaction_checkout::{
     CheckoutItem, CheckoutPaymentSplit, CheckoutRequest, CheckoutResponse, WeddingDisbursement,
 };
@@ -2914,6 +2931,7 @@ async fn checkout(
             customer_id: _customer_id,
             price_override_audit,
             alteration_order_ids,
+            fulfillment_order_ids,
             amount_paid,
             total_price,
         } => {
@@ -2960,6 +2978,7 @@ async fn checkout(
 
             spawn_meilisearch_transaction_upsert(&state, transaction_id);
             spawn_meilisearch_alteration_upserts(&state, alteration_order_ids);
+            spawn_meilisearch_fulfillment_order_upserts(&state, fulfillment_order_ids);
 
             if let Ok(url_raw) = std::env::var("RIVERSIDE_WEBHOOK_URL") {
                 let target_url = url_raw.trim().to_string();

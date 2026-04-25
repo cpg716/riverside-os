@@ -15,7 +15,8 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
 - **Indices:** 
   - `ros_products`, `ros_variants`, `ros_store_products`
   - `ros_customers`, `ros_wedding_parties`
-  - `ros_orders`
+  - `ros_fulfillment_orders` (ORD logistics/orders)
+  - `ros_transactions` (TXN financial checkout records; older `ros_orders` status rows are retired)
   - `ros_staff`, `ros_vendors`
   - `ros_tasks`, `ros_appointments`
   - `ros_alterations`
@@ -24,10 +25,14 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
   - **Tracked Categories:** Shows real-time sync status for all primary indices.
   - **Health Metrics:** Displays Row Counts, Last Sync timestamps, and Success/Failure state.
   - **Stale Protection:** System triggers a **Warning** if an index has not successfully synced within 24 hours.
-- **Reindex:** Use the **Rebuild search index** button in Settings to trigger a full background reindex of all categories. Incremental updates run automatically on write paths.
+- **Refresh vs. rebuild:** **Refresh** reloads the Settings health view only. **Rebuild search index** re-pushes PostgreSQL records into Meilisearch for all current indices and refreshes row counts.
+- **Automatic updates:** Meilisearch does **not** subscribe to PostgreSQL or update itself. ROS updates search when specific server write paths spawn an incremental Meilisearch upsert after saving the PostgreSQL record. Successful incremental upserts refresh the index's last-success timestamp; they do not recalculate full row counts. PostgreSQL remains authoritative and search falls back to SQL when Meilisearch is unavailable.
+- **When stale is normal vs. actionable:** A stale warning means ROS has not recorded a successful rebuild or incremental upsert for that index in more than 24 hours. It is expected for quiet indices with no writes. It is actionable when staff recently changed records in that area, search results look wrong, or a restore/import/deploy happened without a rebuild.
 - **Local dev:** `docker compose` includes a **`meilisearch`** service (port **7700**). From the host-run API use **`http://127.0.0.1:7700`**; from a containerized API use **`http://meilisearch:7700`**.
 
 **Customer browse:** When **`q`** is set together with **`wedding_party_q`**, Meilisearch is **not** used for the name leg (existing SQL wedding-party filter remains).
+
+**Orders and transactions search:** fulfillment Orders (`ORD-…`) and financial Transactions (`TXN-…`) are separate Meilisearch indices. Checkout writes upsert the affected transaction document and any created fulfillment order document. The Settings dashboard shows both so staff can tell whether financial checkout search and logistical order search are current.
 
 **Alterations search:** `ros_alterations` indexes open and historical alteration work by customer name, phone digits, email, address/ZIP, garment description, work requested, notes, source SKU, and linked transaction display ID. Alterations Hub and universal search hydrate matched alteration rows from PostgreSQL after Meilisearch lookup, with PostgreSQL `ILIKE` fallback when the search service is unavailable.
 

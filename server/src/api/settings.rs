@@ -1330,9 +1330,30 @@ async fn get_meilisearch_status(
     headers: HeaderMap,
 ) -> Result<Json<MeilisearchStatusResponse>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
+    let tracked_indices = vec![
+        crate::logic::meilisearch_client::INDEX_VARIANTS.to_string(),
+        crate::logic::meilisearch_client::INDEX_STORE_PRODUCTS.to_string(),
+        crate::logic::meilisearch_client::INDEX_CUSTOMERS.to_string(),
+        crate::logic::meilisearch_client::INDEX_WEDDING_PARTIES.to_string(),
+        crate::logic::meilisearch_client::INDEX_TRANSACTIONS.to_string(),
+        crate::logic::meilisearch_client::INDEX_FULFILLMENT_ORDERS.to_string(),
+        crate::logic::meilisearch_client::INDEX_HELP.to_string(),
+        crate::logic::meilisearch_client::INDEX_STAFF.to_string(),
+        crate::logic::meilisearch_client::INDEX_VENDORS.to_string(),
+        crate::logic::meilisearch_client::INDEX_CATEGORIES.to_string(),
+        crate::logic::meilisearch_client::INDEX_APPOINTMENTS.to_string(),
+        crate::logic::meilisearch_client::INDEX_TASKS.to_string(),
+        crate::logic::meilisearch_client::INDEX_ALTERATIONS.to_string(),
+    ];
     let indices = sqlx::query_as::<_, MeilisearchSyncRow>(
-        "SELECT index_name, last_success_at, last_attempt_at, is_success, row_count, error_message FROM meilisearch_sync_status ORDER BY index_name"
+        r#"
+        SELECT index_name, last_success_at, last_attempt_at, is_success, row_count, error_message
+        FROM meilisearch_sync_status
+        WHERE index_name = ANY($1)
+        ORDER BY index_name
+        "#,
     )
+    .bind(&tracked_indices)
     .fetch_all(&state.db)
     .await?;
 

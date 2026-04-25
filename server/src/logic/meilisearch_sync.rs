@@ -5,14 +5,15 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_HELP,
-    INDEX_STAFF, INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS,
-    INDEX_VENDORS, INDEX_WEDDING_PARTIES,
+    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS,
+    INDEX_FULFILLMENT_ORDERS, INDEX_HELP, INDEX_STAFF, INDEX_STORE_PRODUCTS, INDEX_TASKS,
+    INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
 };
 use crate::logic::meilisearch_documents::{
     augment_search_with_phone_digits, build_alteration_search_text, build_customer_search_text,
-    variant_doc_from_row, AlterationDoc, AppointmentDoc, CategoryDoc, CustomerDoc, StaffDoc,
-    StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc, WeddingPartyDoc,
+    variant_doc_from_row, AlterationDoc, AppointmentDoc, CategoryDoc, CustomerDoc,
+    FulfillmentOrderDoc, StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc,
+    WeddingPartyDoc,
 };
 use futures_util::StreamExt;
 
@@ -53,6 +54,39 @@ struct Row {
 
 fn log_meili_add_err(context: &'static str, e: &meilisearch_sdk::errors::Error) {
     tracing::warn!(error = %e, context, "Meilisearch add_documents failed; will rely on SQL search until reindex");
+}
+
+async fn record_incremental_sync_status(
+    pool: &PgPool,
+    index_name: &str,
+    is_success: bool,
+    error_message: Option<&str>,
+) {
+    let now = chrono::Utc::now();
+    let res = sqlx::query(
+        r#"
+        INSERT INTO meilisearch_sync_status
+            (index_name, last_success_at, last_attempt_at, is_success, row_count, error_message, updated_at)
+        VALUES
+            ($1, CASE WHEN $2 THEN $3 ELSE NULL END, $3, $2, 0, $4, $3)
+        ON CONFLICT (index_name) DO UPDATE SET
+            last_success_at = CASE WHEN $2 THEN EXCLUDED.last_attempt_at ELSE meilisearch_sync_status.last_success_at END,
+            last_attempt_at = EXCLUDED.last_attempt_at,
+            is_success = EXCLUDED.is_success,
+            error_message = EXCLUDED.error_message,
+            updated_at = EXCLUDED.updated_at
+        "#
+    )
+    .bind(index_name)
+    .bind(is_success)
+    .bind(now)
+    .bind(error_message)
+    .execute(pool)
+    .await;
+
+    if let Err(e) = res {
+        tracing::error!(error = %e, index = index_name, "Failed to record incremental meilisearch sync status");
+    }
 }
 
 /// Remove a variant document (e.g. inactive product or deleted variant).
@@ -120,6 +154,9 @@ pub async fn upsert_variant_document(client: &Client, pool: &PgPool, variant_id:
     let index = client.index(INDEX_VARIANTS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("variant upsert", &e);
+        record_incremental_sync_status(pool, INDEX_VARIANTS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_VARIANTS, true, None).await;
     }
 }
 
@@ -204,6 +241,10 @@ pub async fn upsert_store_product_document(client: &Client, pool: &PgPool, produ
     }
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("store product upsert", &e);
+        record_incremental_sync_status(pool, INDEX_STORE_PRODUCTS, false, Some(&e.to_string()))
+            .await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_STORE_PRODUCTS, true, None).await;
     }
 }
 
@@ -283,6 +324,9 @@ pub async fn upsert_customer_document(client: &Client, pool: &PgPool, customer_i
     let index = client.index(INDEX_CUSTOMERS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("customer upsert", &e);
+        record_incremental_sync_status(pool, INDEX_CUSTOMERS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_CUSTOMERS, true, None).await;
     }
 }
 
@@ -400,6 +444,10 @@ pub async fn upsert_wedding_party_document(client: &Client, pool: &PgPool, party
     let index = client.index(INDEX_WEDDING_PARTIES);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("wedding party upsert", &e);
+        record_incremental_sync_status(pool, INDEX_WEDDING_PARTIES, false, Some(&e.to_string()))
+            .await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_WEDDING_PARTIES, true, None).await;
     }
 }
 
@@ -469,6 +517,92 @@ pub async fn upsert_transaction_document(client: &Client, pool: &PgPool, transac
     let index = client.index(INDEX_TRANSACTIONS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("transaction upsert", &e);
+        record_incremental_sync_status(pool, INDEX_TRANSACTIONS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_TRANSACTIONS, true, None).await;
+    }
+}
+
+pub async fn upsert_fulfillment_order_document(
+    client: &Client,
+    pool: &PgPool,
+    fulfillment_order_id: Uuid,
+) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        display_id: String,
+        status: String,
+        customer_first: Option<String>,
+        customer_last: Option<String>,
+        customer_code: Option<String>,
+        party_name: Option<String>,
+        transaction_display_ids: Option<String>,
+        item_blob: Option<String>,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        r#"
+        SELECT
+            fo.id,
+            fo.display_id,
+            fo.status,
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            c.customer_code,
+            wp.party_name,
+            string_agg(DISTINCT t.display_id, ' ') AS transaction_display_ids,
+            string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob
+        FROM fulfillment_orders fo
+        LEFT JOIN customers c ON c.id = fo.customer_id
+        LEFT JOIN wedding_parties wp ON wp.id = fo.wedding_id
+        LEFT JOIN transaction_lines tl ON tl.fulfillment_order_id = fo.id
+        LEFT JOIN transactions t ON t.id = tl.transaction_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        WHERE fo.id = $1
+        GROUP BY fo.id, c.id, wp.id
+        "#,
+    )
+    .bind(fulfillment_order_id)
+    .fetch_optional(pool)
+    .await;
+
+    let Ok(Some(row)) = row else {
+        let index = client.index(INDEX_FULFILLMENT_ORDERS);
+        let _ = index
+            .delete_document(fulfillment_order_id.to_string())
+            .await;
+        return;
+    };
+
+    let status_open = matches!(row.status.as_str(), "open" | "ready");
+    let search_text = format!(
+        "{} {} {} {} {} {} {}",
+        row.id,
+        row.display_id,
+        row.customer_first.as_deref().unwrap_or(""),
+        row.customer_last.as_deref().unwrap_or(""),
+        row.customer_code.as_deref().unwrap_or(""),
+        row.party_name.as_deref().unwrap_or(""),
+        row.transaction_display_ids.as_deref().unwrap_or("")
+    ) + " "
+        + row.item_blob.as_deref().unwrap_or("");
+
+    let doc = FulfillmentOrderDoc {
+        id: row.id.to_string(),
+        display_id: row.display_id,
+        status_open,
+        search_text,
+    };
+
+    let index = client.index(INDEX_FULFILLMENT_ORDERS);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("fulfillment order upsert", &e);
+        record_incremental_sync_status(pool, INDEX_FULFILLMENT_ORDERS, false, Some(&e.to_string()))
+            .await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_FULFILLMENT_ORDERS, true, None).await;
     }
 }
 
@@ -510,6 +644,9 @@ pub async fn upsert_staff_document(client: &Client, pool: &PgPool, staff_id: Uui
     let index = client.index(INDEX_STAFF);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("staff upsert", &e);
+        record_incremental_sync_status(pool, INDEX_STAFF, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_STAFF, true, None).await;
     }
 }
 
@@ -545,6 +682,9 @@ pub async fn upsert_vendor_document(client: &Client, pool: &PgPool, vendor_id: U
     let index = client.index(INDEX_VENDORS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("vendor upsert", &e);
+        record_incremental_sync_status(pool, INDEX_VENDORS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_VENDORS, true, None).await;
     }
 }
 
@@ -574,6 +714,9 @@ pub async fn upsert_category_document(client: &Client, pool: &PgPool, category_i
     let index = client.index(INDEX_CATEGORIES);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("category upsert", &e);
+        record_incremental_sync_status(pool, INDEX_CATEGORIES, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_CATEGORIES, true, None).await;
     }
 }
 
@@ -630,6 +773,9 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
     let index = client.index(INDEX_APPOINTMENTS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("appointment upsert", &e);
+        record_incremental_sync_status(pool, INDEX_APPOINTMENTS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_APPOINTMENTS, true, None).await;
     }
 }
 
@@ -662,6 +808,9 @@ pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid)
     let index = client.index(INDEX_TASKS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("task upsert", &e);
+        record_incremental_sync_status(pool, INDEX_TASKS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_TASKS, true, None).await;
     }
 }
 
@@ -752,6 +901,9 @@ pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alterati
     let index = client.index(INDEX_ALTERATIONS);
     if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
         log_meili_add_err("alteration upsert", &e);
+        record_incremental_sync_status(pool, INDEX_ALTERATIONS, false, Some(&e.to_string())).await;
+    } else {
+        record_incremental_sync_status(pool, INDEX_ALTERATIONS, true, None).await;
     }
 }
 
@@ -1090,7 +1242,69 @@ pub async fn reindex_all_meilisearch(
     }
     record_sync_status(pool, INDEX_TRANSACTIONS, true, n_txns as i64, None).await;
 
-    // 6. Help
+    // 6. Fulfillment Orders
+    let index_orders = client.index(INDEX_FULFILLMENT_ORDERS);
+    index_orders.delete_all_documents().await?;
+    let mut order_stream = sqlx::query!(
+        r#"
+        SELECT
+            fo.id AS "id!",
+            fo.display_id AS "display_id!",
+            fo.status AS "status!",
+            c.first_name AS customer_first,
+            c.last_name AS customer_last,
+            c.customer_code,
+            wp.party_name,
+            string_agg(DISTINCT t.display_id, ' ') AS transaction_display_ids,
+            string_agg(DISTINCT TRIM(CONCAT_WS(' ', p.name, pv.sku, pv.variation_label)), ' ') AS item_blob
+        FROM fulfillment_orders fo
+        LEFT JOIN customers c ON c.id = fo.customer_id
+        LEFT JOIN wedding_parties wp ON wp.id = fo.wedding_id
+        LEFT JOIN transaction_lines tl ON tl.fulfillment_order_id = fo.id
+        LEFT JOIN transactions t ON t.id = tl.transaction_id
+        LEFT JOIN products p ON p.id = tl.product_id
+        LEFT JOIN product_variants pv ON pv.id = tl.variant_id
+        GROUP BY fo.id, c.id, wp.id
+        "#
+    )
+    .fetch(pool);
+    let mut order_batch = Vec::with_capacity(1000);
+    let mut n_orders = 0usize;
+    while let Some(res) = order_stream.next().await {
+        if let Ok(row) = res {
+            let order_id_str = row.id.to_string();
+            let status_open = matches!(row.status.as_str(), "open" | "ready");
+            let search_text = format!(
+                "{} {} {} {} {} {} {} {}",
+                order_id_str,
+                row.display_id,
+                row.customer_first.as_deref().unwrap_or(""),
+                row.customer_last.as_deref().unwrap_or(""),
+                &row.customer_code,
+                row.party_name.as_deref().unwrap_or(""),
+                row.transaction_display_ids.as_deref().unwrap_or(""),
+                row.item_blob.as_deref().unwrap_or("")
+            );
+            order_batch.push(FulfillmentOrderDoc {
+                id: order_id_str,
+                display_id: row.display_id,
+                status_open,
+                search_text,
+            });
+            if order_batch.len() >= 1000 {
+                n_orders += order_batch.len();
+                index_orders.add_documents(&order_batch, Some("id")).await?;
+                order_batch.clear();
+            }
+        }
+    }
+    if !order_batch.is_empty() {
+        n_orders += order_batch.len();
+        index_orders.add_documents(&order_batch, Some("id")).await?;
+    }
+    record_sync_status(pool, INDEX_FULFILLMENT_ORDERS, true, n_orders as i64, None).await;
+
+    // 7. Help
     if let Err(e) = crate::logic::help_corpus::reindex_help_meilisearch(client).await {
         tracing::warn!(error = %e, "Meilisearch help reindex failed (other indexes succeeded)");
         record_sync_status(pool, INDEX_HELP, false, 0, Some(&e.to_string())).await;
@@ -1098,7 +1312,7 @@ pub async fn reindex_all_meilisearch(
         record_sync_status(pool, INDEX_HELP, true, 0, None).await;
     }
 
-    // 7. Staff
+    // 8. Staff
     let index_staff = client.index(INDEX_STAFF);
     index_staff.delete_all_documents().await?;
     let mut staff_stream =
@@ -1121,7 +1335,7 @@ pub async fn reindex_all_meilisearch(
     }
     record_sync_status(pool, INDEX_STAFF, true, staff_batch.len() as i64, None).await;
 
-    // 8. Vendors
+    // 9. Vendors
     let index_vendors = client.index(INDEX_VENDORS);
     index_vendors.delete_all_documents().await?;
     let mut vendor_stream =
@@ -1143,7 +1357,7 @@ pub async fn reindex_all_meilisearch(
     }
     record_sync_status(pool, INDEX_VENDORS, true, vendor_batch.len() as i64, None).await;
 
-    // 9. Categories
+    // 10. Categories
     let index_categories = client.index(INDEX_CATEGORIES);
     index_categories.delete_all_documents().await?;
     let mut category_stream = sqlx::query!("SELECT id, name FROM categories").fetch(pool);
@@ -1170,7 +1384,7 @@ pub async fn reindex_all_meilisearch(
     )
     .await;
 
-    // 10. Appointments
+    // 11. Appointments
     let index_appointments = client.index(INDEX_APPOINTMENTS);
     index_appointments.delete_all_documents().await?;
     let mut appt_stream = sqlx::query!(
@@ -1214,7 +1428,7 @@ pub async fn reindex_all_meilisearch(
     )
     .await;
 
-    // 11. Tasks
+    // 12. Tasks
     let index_tasks = client.index(INDEX_TASKS);
     index_tasks.delete_all_documents().await?;
     let mut task_stream = sqlx::query!(
@@ -1245,7 +1459,7 @@ pub async fn reindex_all_meilisearch(
     }
     record_sync_status(pool, INDEX_TASKS, true, task_batch.len() as i64, None).await;
 
-    // 12. Alterations
+    // 13. Alterations
     #[derive(sqlx::FromRow)]
     struct AlterationReindexRow {
         id: Uuid,

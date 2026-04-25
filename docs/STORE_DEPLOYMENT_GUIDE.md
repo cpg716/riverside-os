@@ -47,7 +47,7 @@ flowchart TB
 
 - The server listens on **`0.0.0.0:3000`** by default so **LAN and Tailscale** clients can reach it. Override with **`RIVERSIDE_HTTP_BIND`** if you terminate TLS on a reverse proxy and bind the app to loopback only (see [`DEVELOPER.md`](../DEVELOPER.md) environment table).
 
-**Optional Meilisearch:** Many shops run a small **Meilisearch** process on the same server PC (or another host on the LAN) for fuzzy inventory, CRM, wedding, order, and storefront PLP search. PostgreSQL remains authoritative; the API syncs index documents and falls back to SQL **ILIKE** if Meilisearch is down. After deploy or restore, admins run **Settings → Integrations → Meilisearch → Rebuild search index** (or **`POST /api/settings/meilisearch/reindex`**). Details: [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md).
+**Optional Meilisearch:** Many shops run a small **Meilisearch** process on the same server PC (or another host on the LAN) for fuzzy inventory, CRM, wedding, order, transaction, alteration, Help Center, and storefront PLP search. PostgreSQL remains authoritative; the API syncs index documents and falls back to SQL **ILIKE** if Meilisearch is down. Meilisearch does not watch PostgreSQL by itself: full rebuilds are admin-triggered, and automatic updates happen only on ROS write paths that explicitly upsert the affected search document. After deploy, restore, Meilisearch wipe, or major import, admins should run **Settings → Integrations → Meilisearch → Rebuild search index** (or **`POST /api/settings/meilisearch/reindex`**). Details: [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md).
 
 ---
 
