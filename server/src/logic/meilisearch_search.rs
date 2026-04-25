@@ -5,8 +5,9 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_STAFF, INDEX_STORE_PRODUCTS,
-    INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS, INDEX_WEDDING_PARTIES,
+    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CUSTOMERS, INDEX_HELP, INDEX_STAFF,
+    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS,
+    INDEX_WEDDING_PARTIES,
 };
 
 const CONTROL_BOARD_MEILI_HIT_CAP: usize = 50_000;
@@ -19,6 +20,7 @@ const STAFF_MEILI_HIT_CAP: usize = 1_000;
 const VENDOR_MEILI_HIT_CAP: usize = 2_000;
 const TASK_MEILI_HIT_CAP: usize = 20_000;
 const APPOINTMENT_MEILI_HIT_CAP: usize = 10_000;
+const ALTERATION_MEILI_HIT_CAP: usize = 10_000;
 
 #[derive(Debug, Deserialize)]
 struct IdHit {
@@ -246,5 +248,21 @@ pub async fn appointment_search_ids(
         .with_limit(APPOINTMENT_MEILI_HIT_CAP)
         .execute::<IdHit>()
         .await?;
+    Ok(parse_hit_ids(&res.hits))
+}
+
+pub async fn alteration_search_ids(
+    client: &Client,
+    query_text: &str,
+    open_only: bool,
+) -> Result<Vec<Uuid>, meilisearch_sdk::errors::Error> {
+    let index = client.index(INDEX_ALTERATIONS);
+    let mut sq = index.search();
+    sq.with_query(query_text)
+        .with_limit(ALTERATION_MEILI_HIT_CAP);
+    if open_only {
+        sq.with_filter("status_open = true");
+    }
+    let res = sq.execute::<IdHit>().await?;
     Ok(parse_hit_ids(&res.hits))
 }

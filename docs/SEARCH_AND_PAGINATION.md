@@ -18,6 +18,7 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
   - `ros_orders`
   - `ros_staff`, `ros_vendors`
   - `ros_tasks`, `ros_appointments`
+  - `ros_alterations`
   - `ros_help` (Staff Help Center)
 - **Sync Health Dashboard:** Located at **Settings → Integrations → Meilisearch**.
   - **Tracked Categories:** Shows real-time sync status for all primary indices.
@@ -27,6 +28,8 @@ As of v0.1.1, the Riverside OS administrative interface utilizes a **Meilisearch
 - **Local dev:** `docker compose` includes a **`meilisearch`** service (port **7700**). From the host-run API use **`http://127.0.0.1:7700`**; from a containerized API use **`http://meilisearch:7700`**.
 
 **Customer browse:** When **`q`** is set together with **`wedding_party_q`**, Meilisearch is **not** used for the name leg (existing SQL wedding-party filter remains).
+
+**Alterations search:** `ros_alterations` indexes open and historical alteration work by customer name, phone digits, email, address/ZIP, garment description, work requested, notes, source SKU, and linked transaction display ID. Alterations Hub and universal search hydrate matched alteration rows from PostgreSQL after Meilisearch lookup, with PostgreSQL `ILIKE` fallback when the search service is unavailable.
 
 ---
 

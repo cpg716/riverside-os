@@ -28,6 +28,12 @@ pub struct AlterationOrderRow {
     pub customer_first_name: Option<String>,
     pub customer_last_name: Option<String>,
     pub customer_code: Option<String>,
+    pub customer_phone: Option<String>,
+    pub customer_email: Option<String>,
+    pub customer_address_line1: Option<String>,
+    pub customer_city: Option<String>,
+    pub customer_state: Option<String>,
+    pub customer_postal_code: Option<String>,
     pub wedding_member_id: Option<Uuid>,
     pub status: String,
     pub due_at: Option<DateTime<Utc>>,
@@ -135,6 +141,21 @@ fn trim_optional_text(value: &Option<String>) -> Option<String> {
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
+}
+
+fn digits_only(value: &str) -> String {
+    value.chars().filter(|c| c.is_ascii_digit()).collect()
+}
+
+fn spawn_meilisearch_alteration_upsert(state: &AppState, alteration_id: Uuid) {
+    let Some(client) = state.meilisearch.clone() else {
+        return;
+    };
+    let pool = state.db.clone();
+    crate::logic::meilisearch_sync::spawn_meili(async move {
+        crate::logic::meilisearch_sync::upsert_alteration_document(&client, &pool, alteration_id)
+            .await;
+    });
 }
 
 #[derive(Debug)]
@@ -265,11 +286,42 @@ async fn list_alterations(
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .map(|s| format!("%{s}%"));
+    let raw_search = q
+        .search
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string);
+    let search_digits = raw_search
+        .as_deref()
+        .map(digits_only)
+        .filter(|s| !s.is_empty())
+        .map(|s| format!("%{s}%"));
+    let mut meili_ids: Option<Vec<Uuid>> = None;
+    if let (Some(client), Some(query_text)) = (state.meilisearch.as_ref(), raw_search.as_deref()) {
+        match crate::logic::meilisearch_search::alteration_search_ids(client, query_text, false)
+            .await
+        {
+            Ok(ids) => {
+                if ids.is_empty() {
+                    return Ok(Json(Vec::new()));
+                }
+                meili_ids = Some(ids);
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Meilisearch alteration search failed; using PostgreSQL ILIKE");
+            }
+        }
+    }
+    let sql_search = if meili_ids.is_some() { None } else { search };
 
     let rows = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
         SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-               c.customer_code, a.wedding_member_id, a.status::text AS status,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
                a.due_at, a.notes, a.transaction_id AS linked_transaction_id,
                lt.display_id AS linked_transaction_display_id,
                a.source_type::text AS source_type, a.item_description, a.work_requested,
@@ -283,6 +335,7 @@ async fn list_alterations(
         LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
         WHERE ($1::uuid IS NULL OR a.customer_id = $1)
           AND ($2::text IS NULL OR a.status::text = $2)
+          AND ($5::uuid[] IS NULL OR a.id = ANY($5))
           AND (
             $3::text IS NULL
             OR a.id::text ILIKE $3
@@ -290,10 +343,20 @@ async fn list_alterations(
             OR COALESCE(c.last_name, '') ILIKE $3
             OR CONCAT(COALESCE(c.first_name, ''), ' ', COALESCE(c.last_name, '')) ILIKE $3
             OR COALESCE(c.customer_code, '') ILIKE $3
+            OR COALESCE(c.phone, '') ILIKE $3
+            OR COALESCE(c.email, '') ILIKE $3
+            OR COALESCE(c.address_line1, '') ILIKE $3
+            OR COALESCE(c.city, '') ILIKE $3
+            OR COALESCE(c.state, '') ILIKE $3
+            OR COALESCE(c.postal_code, '') ILIKE $3
             OR COALESCE(a.notes, '') ILIKE $3
             OR COALESCE(a.item_description, '') ILIKE $3
             OR COALESCE(a.work_requested, '') ILIKE $3
             OR COALESCE(a.source_sku, '') ILIKE $3
+            OR (
+              $4::text IS NOT NULL
+              AND regexp_replace(COALESCE(c.phone, ''), '[^0-9]', '', 'g') ILIKE $4
+            )
           )
         ORDER BY a.created_at DESC
         LIMIT 200
@@ -301,7 +364,9 @@ async fn list_alterations(
     )
     .bind(q.customer_id)
     .bind(st)
-    .bind(search)
+    .bind(sql_search)
+    .bind(search_digits)
+    .bind(meili_ids.as_deref())
     .fetch_all(&state.db)
     .await?;
 
@@ -405,7 +470,10 @@ async fn create_alteration(
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
         SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-               c.customer_code, a.wedding_member_id, a.status::text AS status,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
                a.due_at, a.notes, a.transaction_id AS linked_transaction_id,
                lt.display_id AS linked_transaction_display_id,
                a.source_type::text AS source_type, a.item_description, a.work_requested,
@@ -426,6 +494,7 @@ async fn create_alteration(
     .ok_or(AlterationError::NotFound)?;
 
     tx.commit().await?;
+    spawn_meilisearch_alteration_upsert(&state, row.id);
 
     Ok(Json(row))
 }
@@ -492,7 +561,10 @@ async fn patch_alteration(
     let row = sqlx::query_as::<_, AlterationOrderRow>(
         r#"
         SELECT a.id, a.customer_id, c.first_name as customer_first_name, c.last_name as customer_last_name, 
-               c.customer_code, a.wedding_member_id, a.status::text AS status,
+               c.customer_code, c.phone AS customer_phone, c.email AS customer_email,
+               c.address_line1 AS customer_address_line1, c.city AS customer_city,
+               c.state AS customer_state, c.postal_code AS customer_postal_code,
+               a.wedding_member_id, a.status::text AS status,
                a.due_at, a.notes, a.transaction_id AS linked_transaction_id,
                lt.display_id AS linked_transaction_display_id,
                a.source_type::text AS source_type, a.item_description, a.work_requested,
@@ -529,6 +601,7 @@ async fn patch_alteration(
     .await?;
 
     tx.commit().await?;
+    spawn_meilisearch_alteration_upsert(&state, row.id);
 
     if row.status == "ready" && prev_status.as_deref() != Some("ready") {
         let pool = state.db.clone();

@@ -287,6 +287,7 @@ export default function MeilisearchSettingsPanel() {
                 "ros_vendors",
                 "ros_tasks",
                 "ros_appointments",
+                "ros_alterations",
               ].map((catName) => {
                 const idx = meiliIndices.find(
                   (i) => i.index_name === catName,
@@ -322,6 +323,7 @@ export default function MeilisearchSettingsPanel() {
                       ros_vendors: "Vendors",
                       ros_tasks: "Tasks",
                       ros_appointments: "Appointments",
+                      ros_alterations: "Alterations",
                     } as Record<string, string>
                   )[idx.index_name] ||
                   idx.index_name.replace("ros_", "").replace("_", " ");
@@ -440,7 +442,7 @@ export default function MeilisearchSettingsPanel() {
         <ConfirmationModal
           isOpen={true}
           title="Rebuild all search indices?"
-          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Staff, Vendors, Tasks, and Appointments). It can take several minutes on large catalogs. Staff can keep working during the process."
+          message="This reloads Meilisearch from PostgreSQL for all modules (Products, Customers, Staff, Vendors, Tasks, Appointments, and Alterations). It can take several minutes on large catalogs. Staff can keep working during the process."
           confirmLabel="Execute Rebuild"
           onConfirm={() => void runReindex()}
           onClose={() => setMeiliReindexConfirmOpen(false)}

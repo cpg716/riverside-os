@@ -5,14 +5,14 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::logic::meilisearch_client::{
-    INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_HELP, INDEX_STAFF,
-    INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS, INDEX_VENDORS,
-    INDEX_WEDDING_PARTIES,
+    INDEX_ALTERATIONS, INDEX_APPOINTMENTS, INDEX_CATEGORIES, INDEX_CUSTOMERS, INDEX_HELP,
+    INDEX_STAFF, INDEX_STORE_PRODUCTS, INDEX_TASKS, INDEX_TRANSACTIONS, INDEX_VARIANTS,
+    INDEX_VENDORS, INDEX_WEDDING_PARTIES,
 };
 use crate::logic::meilisearch_documents::{
-    augment_search_with_phone_digits, build_customer_search_text, variant_doc_from_row,
-    AppointmentDoc, CategoryDoc, CustomerDoc, StaffDoc, StoreProductDoc, TaskDoc, TransactionDoc,
-    VendorDoc, WeddingPartyDoc,
+    augment_search_with_phone_digits, build_alteration_search_text, build_customer_search_text,
+    variant_doc_from_row, AlterationDoc, AppointmentDoc, CategoryDoc, CustomerDoc, StaffDoc,
+    StoreProductDoc, TaskDoc, TransactionDoc, VendorDoc, WeddingPartyDoc,
 };
 use futures_util::StreamExt;
 
@@ -665,6 +665,96 @@ pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid)
     }
 }
 
+pub async fn upsert_alteration_document(client: &Client, pool: &PgPool, alteration_id: Uuid) {
+    #[derive(sqlx::FromRow)]
+    struct Row {
+        id: Uuid,
+        customer_id: Uuid,
+        status: String,
+        customer_first_name: Option<String>,
+        customer_last_name: Option<String>,
+        customer_code: Option<String>,
+        customer_email: Option<String>,
+        customer_phone: Option<String>,
+        address_line1: Option<String>,
+        city: Option<String>,
+        state: Option<String>,
+        postal_code: Option<String>,
+        transaction_display_id: Option<String>,
+        item_description: Option<String>,
+        work_requested: Option<String>,
+        notes: Option<String>,
+        source_sku: Option<String>,
+    }
+
+    let row = sqlx::query_as::<_, Row>(
+        r#"
+        SELECT
+            a.id,
+            a.customer_id,
+            a.status::text AS status,
+            c.first_name AS customer_first_name,
+            c.last_name AS customer_last_name,
+            c.customer_code,
+            c.email AS customer_email,
+            c.phone AS customer_phone,
+            c.address_line1,
+            c.city,
+            c.state,
+            c.postal_code,
+            lt.display_id AS transaction_display_id,
+            a.item_description,
+            a.work_requested,
+            a.notes,
+            a.source_sku
+        FROM alteration_orders a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
+        WHERE a.id = $1
+        "#,
+    )
+    .bind(alteration_id)
+    .fetch_optional(pool)
+    .await;
+
+    let Ok(Some(row)) = row else {
+        let index = client.index(INDEX_ALTERATIONS);
+        let _ = index.delete_document(alteration_id.to_string()).await;
+        return;
+    };
+
+    let alteration_id_text = row.id.to_string();
+    let search_text = build_alteration_search_text(
+        &alteration_id_text,
+        row.customer_first_name.as_deref(),
+        row.customer_last_name.as_deref(),
+        row.customer_code.as_deref(),
+        row.customer_email.as_deref(),
+        row.customer_phone.as_deref(),
+        row.address_line1.as_deref(),
+        row.city.as_deref(),
+        row.state.as_deref(),
+        row.postal_code.as_deref(),
+        row.transaction_display_id.as_deref(),
+        row.item_description.as_deref(),
+        row.work_requested.as_deref(),
+        row.notes.as_deref(),
+        row.source_sku.as_deref(),
+    );
+
+    let doc = AlterationDoc {
+        id: alteration_id_text,
+        customer_id: row.customer_id.to_string(),
+        status_open: row.status != "picked_up",
+        search_text,
+    };
+
+    let index = client.index(INDEX_ALTERATIONS);
+    if let Err(e) = index.add_or_replace(&[doc], Some("id")).await {
+        log_meili_add_err("alteration upsert", &e);
+    }
+}
+
 /// Spawn a cheap background sync (does not block the request path).
 pub fn spawn_meili<F>(fut: F)
 where
@@ -1154,6 +1244,78 @@ pub async fn reindex_all_meilisearch(
         index_tasks.add_documents(&task_batch, Some("id")).await?;
     }
     record_sync_status(pool, INDEX_TASKS, true, task_batch.len() as i64, None).await;
+
+    // 12. Alterations
+    let index_alterations = client.index(INDEX_ALTERATIONS);
+    index_alterations.delete_all_documents().await?;
+    let mut alteration_stream = sqlx::query!(
+        r#"
+        SELECT
+            a.id,
+            a.customer_id,
+            a.status::text AS status,
+            c.first_name AS customer_first_name,
+            c.last_name AS customer_last_name,
+            c.customer_code,
+            c.email AS customer_email,
+            c.phone AS customer_phone,
+            c.address_line1,
+            c.city,
+            c.state,
+            c.postal_code,
+            lt.display_id AS transaction_display_id,
+            a.item_description,
+            a.work_requested,
+            a.notes,
+            a.source_sku
+        FROM alteration_orders a
+        LEFT JOIN customers c ON c.id = a.customer_id
+        LEFT JOIN transactions lt ON lt.id = COALESCE(a.transaction_id, a.source_transaction_id)
+        "#
+    )
+    .fetch(pool);
+    let mut alteration_batch = Vec::new();
+    while let Some(res) = alteration_stream.next().await {
+        if let Ok(row) = res {
+            let alteration_id_text = row.id.to_string();
+            let search_text = build_alteration_search_text(
+                &alteration_id_text,
+                row.customer_first_name.as_deref(),
+                row.customer_last_name.as_deref(),
+                row.customer_code.as_deref(),
+                row.customer_email.as_deref(),
+                row.customer_phone.as_deref(),
+                row.address_line1.as_deref(),
+                row.city.as_deref(),
+                row.state.as_deref(),
+                row.postal_code.as_deref(),
+                row.transaction_display_id.as_deref(),
+                row.item_description.as_deref(),
+                row.work_requested.as_deref(),
+                row.notes.as_deref(),
+                row.source_sku.as_deref(),
+            );
+            alteration_batch.push(AlterationDoc {
+                id: alteration_id_text,
+                customer_id: row.customer_id.to_string(),
+                status_open: row.status.as_deref() != Some("picked_up"),
+                search_text,
+            });
+        }
+    }
+    if !alteration_batch.is_empty() {
+        index_alterations
+            .add_documents(&alteration_batch, Some("id"))
+            .await?;
+    }
+    record_sync_status(
+        pool,
+        INDEX_ALTERATIONS,
+        true,
+        alteration_batch.len() as i64,
+        None,
+    )
+    .await;
 
     tracing::info!(variants = n_variants, "Meilisearch reindex completed");
     Ok(())

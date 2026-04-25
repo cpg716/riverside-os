@@ -20,6 +20,7 @@ pub const INDEX_VENDORS: &str = "ros_vendors";
 pub const INDEX_CATEGORIES: &str = "ros_categories";
 pub const INDEX_APPOINTMENTS: &str = "ros_appointments";
 pub const INDEX_TASKS: &str = "ros_tasks";
+pub const INDEX_ALTERATIONS: &str = "ros_alterations";
 
 /// When `RIVERSIDE_MEILISEARCH_URL` is empty or client creation fails, search stays on PostgreSQL.
 pub fn meilisearch_from_env() -> Option<Client> {
@@ -231,6 +232,23 @@ pub async fn ensure_tasks_index_settings(client: &Client) -> Result<(), MeiliErr
     Ok(())
 }
 
+pub async fn ensure_alterations_index_settings(client: &Client) -> Result<(), MeiliError> {
+    let index = client.index(INDEX_ALTERATIONS);
+    wait_task_ok(
+        client,
+        index.set_searchable_attributes(["search_text"]).await?,
+    )
+    .await?;
+    wait_task_ok(
+        client,
+        index
+            .set_filterable_attributes(["customer_id", "status_open"])
+            .await?,
+    )
+    .await?;
+    Ok(())
+}
+
 pub async fn ensure_all_meilisearch_index_settings(client: &Client) -> Result<(), MeiliError> {
     ensure_variant_index_settings(client).await?;
     ensure_store_products_index_settings(client).await?;
@@ -243,6 +261,7 @@ pub async fn ensure_all_meilisearch_index_settings(client: &Client) -> Result<()
     ensure_categories_index_settings(client).await?;
     ensure_appointments_index_settings(client).await?;
     ensure_tasks_index_settings(client).await?;
+    ensure_alterations_index_settings(client).await?;
     Ok(())
 }
 

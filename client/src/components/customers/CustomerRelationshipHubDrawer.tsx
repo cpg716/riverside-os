@@ -30,6 +30,7 @@ import ShipmentsHubSection from "./ShipmentsHubSection";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
+import CustomerAlterationsPanel from "./CustomerAlterationsPanel";
 import {
   customerLifecycleBadgeClassName,
   customerLifecycleDescription,
@@ -170,6 +171,7 @@ export type HubTab =
   | "weddings"
   | "messages"
   | "measurements"
+  | "alterations"
   | "profile"
   | "transactions"
   | "orders"
@@ -246,6 +248,7 @@ export function CustomerRelationshipHubDrawer({
   const canMeasurements = hasPermission("customers.measurements");
   const canOrdersView = hasPermission("orders.view");
   const canShipmentsView = hasPermission("shipments.view");
+  const canAlterationsView = hasPermission("alterations.manage");
   const backofficeOrderOpener =
     onOpenOrderInBackoffice ?? onOpenTransactionInBackoffice;
   const [tab, setTab] = useState<HubTab>("profile");
@@ -653,12 +656,14 @@ export function CustomerRelationshipHubDrawer({
     if (tab === "orders" && !canOrdersView) setTab("profile");
     if (tab === "shipments" && !canShipmentsView) setTab("profile");
     if (tab === "measurements" && !canMeasurements) setTab("profile");
+    if (tab === "alterations" && !canAlterationsView) setTab("profile");
   }, [
     permissionsLoaded,
     tab,
     canOrdersView,
     canShipmentsView,
     canMeasurements,
+    canAlterationsView,
   ]);
 
   useEffect(() => {
@@ -1163,12 +1168,13 @@ export function CustomerRelationshipHubDrawer({
       actions={
         <div className="flex flex-wrap gap-2">
           {tabBtn("profile", "Profile")}
-          {canHubView ? tabBtn("messages", "Messages") : null}
+          {canHubView ? tabBtn("messages", "Communications") : null}
           {canOrdersView ? tabBtn("transactions", "Transactions") : null}
           {canOrdersView ? tabBtn("orders", "Orders") : null}
-          {canShipmentsView ? tabBtn("shipments", "Shipments") : null}
-          {canMeasurements ? tabBtn("measurements", "Measurements") : null}
+          {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
           {tabBtn("weddings", "Weddings")}
+          {canMeasurements ? tabBtn("measurements", "Measurements") : null}
+          {canShipmentsView ? tabBtn("shipments", "Shipping") : null}
         </div>
       }
     >
@@ -1346,6 +1352,10 @@ export function CustomerRelationshipHubDrawer({
             openShipmentId={hubShipmentFocusId}
             onOpenShipmentIdConsumed={onHubShipmentFocusConsumed}
           />
+        </div>
+      ) : tab === "alterations" ? (
+        <div className="flex min-h-[420px] flex-1 flex-col">
+          <CustomerAlterationsPanel apiAuth={apiAuth} customerId={customer.id} />
         </div>
       ) : !permissionsLoaded || loading || !hub ? (
         <p className="text-sm text-app-text-muted">

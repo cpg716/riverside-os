@@ -68,6 +68,10 @@ interface AlterationSearchHit {
   customer_first_name: string | null;
   customer_last_name: string | null;
   customer_code: string | null;
+  customer_phone?: string | null;
+  customer_email?: string | null;
+  item_description?: string | null;
+  work_requested?: string | null;
   status: string;
   due_at: string | null;
 }
@@ -458,7 +462,7 @@ export default function GlobalCommandSearch({
       }).then(async (res) => {
         if (res.ok) {
           const data = (await res.json()) as AlterationSearchHit[];
-          setAlterations(data.slice(0, 8));
+          setAlterations(data.filter((row) => row.status !== "picked_up").slice(0, 8));
         }
       }),
     );
@@ -1052,6 +1056,10 @@ export default function GlobalCommandSearch({
                         </span>
                         <span className="text-xs text-app-text-muted">
                           {humanizeStatus(entry.alteration.status)} · Due {fmtDateShort(entry.alteration.due_at)}
+                          {entry.alteration.item_description ? ` · ${entry.alteration.item_description}` : ""}
+                          {entry.alteration.customer_phone ?? entry.alteration.customer_email
+                            ? ` · ${entry.alteration.customer_phone ?? entry.alteration.customer_email}`
+                            : ""}
                         </span>
                       </ResultButton>
                     ))}

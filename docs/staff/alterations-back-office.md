@@ -19,7 +19,7 @@ This area tracks tailoring work orders attached to garments. The workbench start
 ### Work the queue
 
 1. **Alterations** → **Work queue** → review the workbench section that needs attention.
-2. Use the summary cards, search, due, source, and status filters to isolate the garment work.
+2. Use the summary cards, search, due, source, and status filters to isolate the garment work. Search accepts customer name, phone, email, ZIP/address, garment, source SKU, work requested, notes, and linked transaction references.
 3. Read the customer, garment, work requested, charge note, due date, and source context.
 4. Move the status only when the physical garment actually moved.
 5. Start new alteration intake from the Register.

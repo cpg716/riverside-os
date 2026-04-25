@@ -84,6 +84,14 @@ pub struct TaskDoc {
     pub search_text: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AlterationDoc {
+    pub id: String,
+    pub customer_id: String,
+    pub status_open: bool,
+    pub search_text: String,
+}
+
 pub fn build_variant_search_text(
     sku: &str,
     barcode: Option<&str>,
@@ -171,6 +179,51 @@ pub fn augment_search_with_phone_digits(base: &str, phones: &[Option<String>]) -
 }
 
 #[allow(clippy::too_many_arguments)]
+pub fn build_alteration_search_text(
+    alteration_id: &str,
+    customer_first_name: Option<&str>,
+    customer_last_name: Option<&str>,
+    customer_code: Option<&str>,
+    customer_email: Option<&str>,
+    customer_phone: Option<&str>,
+    address_line1: Option<&str>,
+    city: Option<&str>,
+    state: Option<&str>,
+    postal_code: Option<&str>,
+    transaction_display_id: Option<&str>,
+    item_description: Option<&str>,
+    work_requested: Option<&str>,
+    notes: Option<&str>,
+    source_sku: Option<&str>,
+) -> String {
+    let mut base = String::new();
+    for part in [
+        Some(alteration_id),
+        customer_first_name,
+        customer_last_name,
+        customer_code,
+        customer_email,
+        address_line1,
+        city,
+        state,
+        postal_code,
+        transaction_display_id,
+        item_description,
+        work_requested,
+        notes,
+        source_sku,
+    ] {
+        if let Some(value) = part.map(str::trim).filter(|value| !value.is_empty()) {
+            if !base.is_empty() {
+                base.push(' ');
+            }
+            base.push_str(value);
+        }
+    }
+    augment_search_with_phone_digits(&base, &[customer_phone.map(str::to_string)])
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn variant_doc_from_row(
     variant_id: uuid::Uuid,
     product_id: uuid::Uuid,
@@ -247,5 +300,30 @@ mod tests {
         assert!(t.contains("Lee"));
         assert!(t.contains("C001"));
         assert!(t.contains("Smith Party"));
+    }
+
+    #[test]
+    fn alteration_search_text_includes_customer_phone_digits() {
+        let t = build_alteration_search_text(
+            "ALT-1",
+            Some("Pat"),
+            Some("Rivera"),
+            Some("C123"),
+            Some("pat@example.com"),
+            Some("(716) 555-14043"),
+            Some("1 Main St"),
+            Some("Depew"),
+            Some("NY"),
+            Some("14043"),
+            Some("TXN-100"),
+            Some("Navy suit"),
+            Some("Hem pants"),
+            Some("rush"),
+            Some("SKU-1"),
+        );
+        assert!(t.contains("Pat"));
+        assert!(t.contains("pat@example.com"));
+        assert!(t.contains("71655514043"));
+        assert!(t.contains("Hem pants"));
     }
 }

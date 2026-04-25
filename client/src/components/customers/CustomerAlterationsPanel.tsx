@@ -21,6 +21,12 @@ type AlterationRow = {
   customer_first_name: string | null;
   customer_last_name: string | null;
   customer_code: string | null;
+  customer_phone: string | null;
+  customer_email: string | null;
+  customer_address_line1: string | null;
+  customer_city: string | null;
+  customer_state: string | null;
+  customer_postal_code: string | null;
   status: string;
   due_at: string | null;
   notes: string | null;
@@ -110,6 +116,12 @@ const rowMatchesSearch = (row: AlterationRow, search: string) => {
     row.id,
     customerName(row),
     row.customer_code,
+    row.customer_phone,
+    row.customer_email,
+    row.customer_address_line1,
+    row.customer_city,
+    row.customer_state,
+    row.customer_postal_code,
     row.item_description,
     row.work_requested,
     row.notes,
@@ -124,10 +136,12 @@ const rowMatchesSearch = (row: AlterationRow, search: string) => {
 
 export default function CustomerAlterationsPanel({
   apiAuth,
+  customerId,
   highlightAlterationId,
   onHighlightConsumed,
 }: {
   apiAuth: () => HeadersInit;
+  customerId?: string | null;
   highlightAlterationId?: string | null;
   onHighlightConsumed?: () => void;
 }) {
@@ -140,11 +154,23 @@ export default function CustomerAlterationsPanel({
   const [dueFilter, setDueFilter] = useState<string>("all");
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedSearch(search.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/alterations`, { headers: apiAuth() });
+      const params = new URLSearchParams();
+      if (customerId) params.set("customer_id", customerId);
+      if (debouncedSearch) params.set("search", debouncedSearch);
+      const suffix = params.toString() ? `?${params.toString()}` : "";
+      const res = await fetch(`${baseUrl}/api/alterations${suffix}`, { headers: apiAuth() });
       if (!res.ok) throw new Error("load");
       setRows((await res.json()) as AlterationRow[]);
     } catch {
@@ -153,7 +179,7 @@ export default function CustomerAlterationsPanel({
     } finally {
       setLoading(false);
     }
-  }, [apiAuth, toast]);
+  }, [apiAuth, customerId, debouncedSearch, toast]);
 
   useEffect(() => {
     void load();
@@ -440,7 +466,9 @@ export default function CustomerAlterationsPanel({
           </div>
           <h2 className="text-3xl font-black text-app-text tracking-tight">Alterations Hub</h2>
           <p className="mt-2 max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
-            Garment-based workbench for alteration attention by due date, status, and source item. Order details appear only when they describe the source garment.
+            {customerId
+              ? "Customer alteration history and open garment work, searchable by garment, due date, source, and contact details."
+              : "Garment-based workbench for alteration attention by due date, status, and source item. Order details appear only when they describe the source garment."}
           </p>
         </div>
 
@@ -474,7 +502,7 @@ export default function CustomerAlterationsPanel({
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 data-testid="alterations-search"
-                placeholder="SEARCH ALTERATIONS"
+                placeholder="SEARCH NAME, PHONE, GARMENT..."
                 className="ui-input h-10 w-full rounded-xl pl-10 text-[10px] font-black uppercase tracking-widest"
                 aria-label="Search alterations"
               />

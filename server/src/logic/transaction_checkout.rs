@@ -868,6 +868,7 @@ pub enum CheckoutDone {
         operator_staff_id: Uuid,
         customer_id: Option<Uuid>,
         price_override_audit: Vec<Value>,
+        alteration_order_ids: Vec<Uuid>,
         amount_paid: Decimal,
         total_price: Decimal,
     },
@@ -2699,6 +2700,7 @@ pub async fn execute_checkout(
         }
     }
 
+    let mut alteration_order_ids = Vec::new();
     for intake in &payload.alteration_intakes {
         let intake_id = trimmed_non_empty(Some(&intake.intake_id)).ok_or_else(|| {
             CheckoutError::InvalidPayload("alteration intake requires intake_id".to_string())
@@ -2795,6 +2797,7 @@ pub async fn execute_checkout(
         .bind(Json(source_snapshot.clone()))
         .fetch_one(&mut *tx)
         .await?;
+        alteration_order_ids.push(alteration_id);
 
         let detail = json!({
             "customer_id": payload.customer_id,
@@ -3492,6 +3495,7 @@ pub async fn execute_checkout(
         operator_staff_id,
         customer_id,
         price_override_audit,
+        alteration_order_ids,
         amount_paid,
         total_price,
     })
