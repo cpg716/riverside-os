@@ -27,8 +27,8 @@ function money(s: string | number) {
 }
 
 interface CommissionLineRow {
-  order_item_id: string;
-  order_id: string;
+  transaction_line_id: string;
+  transaction_id: string;
   order_short_id: string;
   booked_at: string;
   product_name: string;
@@ -578,16 +578,9 @@ function CommissionDrillDown({
           </tr>
         </thead>
         <tbody className="divide-y divide-app-border/10">
-          {lines.map((ln, index) => (
+          {lines.map((ln) => (
             <tr
-              key={[
-                ln.order_item_id,
-                ln.order_id,
-                ln.booked_at,
-                ln.product_name,
-                ln.calculated_commission,
-                index,
-              ].join(":")}
+              key={ln.transaction_line_id}
               className="hover:bg-app-accent/5 transaction-colors group"
             >
               <td className="px-3 py-2 text-app-text-muted whitespace-nowrap">
@@ -611,7 +604,7 @@ function CommissionDrillDown({
               <td className="px-3 py-2 text-center">
                 <button
                   type="button"
-                  onClick={() => onTrace(ln.order_item_id)}
+                  onClick={() => onTrace(ln.transaction_line_id)}
                   title="View Truth Trace explainer"
                   className="p-1.5 rounded-lg text-app-accent hover:bg-app-accent hover:text-white transition-all scale-90 group-hover:scale-100"
                 >

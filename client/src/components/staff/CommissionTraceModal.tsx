@@ -4,8 +4,8 @@ import { Info, CheckCircle, ShieldCheck, X } from "lucide-react";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
 interface TraceData {
-    order_id: string;
-    order_item_id: string;
+    transaction_id: string;
+    transaction_line_id: string;
     salesperson_name: string;
     role: string;
     line_gross: string;
