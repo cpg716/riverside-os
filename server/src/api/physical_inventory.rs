@@ -81,7 +81,8 @@ async fn list_sessions(
     let rows = sqlx::query_as::<_, physical_inventory::PhysicalInventorySession>(
         r#"
         SELECT id, session_number, status, scope, category_ids,
-               started_at, last_saved_at, published_at, notes
+               started_at, last_saved_at, published_at, notes,
+               exclude_reserved, exclude_layaway
         FROM physical_inventory_sessions
         ORDER BY started_at DESC
         LIMIT 50
@@ -156,7 +157,8 @@ async fn get_session(
     let session = sqlx::query_as::<_, physical_inventory::PhysicalInventorySession>(
         r#"
         SELECT id, session_number, status, scope, category_ids,
-               started_at, last_saved_at, published_at, notes
+               started_at, last_saved_at, published_at, notes,
+               exclude_reserved, exclude_layaway
         FROM physical_inventory_sessions
         WHERE id = $1
         "#,

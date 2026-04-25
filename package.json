@@ -32,7 +32,7 @@
     "test:e2e:visual": "cross-env E2E_RUN_VISUAL=1 npm --prefix client run test:e2e -- --workers=1",
     "test:e2e:high-risk": "npm --prefix client run test:e2e -- e2e/high-risk-regressions.spec.ts --workers=1",
     "test:e2e:phase2": "npm --prefix client run test:e2e -- e2e/phase2-finance-and-help-lifecycle.spec.ts --workers=1",
-    "test:e2e:tender": "npm --prefix client run test:e2e -- e2e/tender-matrix-contract.spec.ts --workers=1",
+    "test:e2e:tender": "npm --prefix client run test:e2e -- e2e/tender-matrix-contract.spec.ts e2e/checkout-tender-financial-contract.spec.ts --workers=1",
     "test:e2e:rms": "npm --prefix client run test:e2e -- e2e/pos-rms-charge.spec.ts e2e/corecard-webhooks.spec.ts e2e/customers-rms-charge.spec.ts e2e/rms-reconciliation.spec.ts e2e/rms-permissions.spec.ts --workers=1",
     "docker:db": "docker compose up -d",
     "pack": "repomix"

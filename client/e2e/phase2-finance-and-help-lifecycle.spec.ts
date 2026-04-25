@@ -33,8 +33,10 @@ function adminHeaders(): Record<string, string> {
 }
 
 function nonAdminHeaders(): Record<string, string> {
+  const code = e2eNonAdminCode();
   return {
-    "x-riverside-staff-code": e2eNonAdminCode(),
+    "x-riverside-staff-code": code,
+    "x-riverside-staff-pin": code,
   };
 }
 
@@ -271,10 +273,10 @@ test.describe("Phase 2: Help policy lifecycle", () => {
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      nonAdminGet.status() !== 401,
-      `Non-admin seed ${e2eNonAdminCode()} missing`,
-    );
+    expect(
+      nonAdminGet.status(),
+      `Seeded non-admin staff ${e2eNonAdminCode()} must authenticate`,
+    ).not.toBe(401);
     expect([403, 404]).toContain(nonAdminGet.status());
 
     const nonAdminPut = await request.put(
@@ -288,10 +290,10 @@ test.describe("Phase 2: Help policy lifecycle", () => {
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      nonAdminPut.status() !== 401,
-      `Non-admin seed ${e2eNonAdminCode()} missing`,
-    );
+    expect(
+      nonAdminPut.status(),
+      `Seeded non-admin staff ${e2eNonAdminCode()} must authenticate`,
+    ).not.toBe(401);
     expect(nonAdminPut.status()).toBe(403);
   });
 });
@@ -399,10 +401,10 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      marginRes.status() !== 401,
-      `Non-admin seed ${e2eNonAdminCode()} missing`,
-    );
+    expect(
+      marginRes.status(),
+      `Seeded non-admin staff ${e2eNonAdminCode()} must authenticate`,
+    ).not.toBe(401);
     expect(marginRes.status()).toBe(403);
 
     const helpStatusRes = await request.get(
@@ -412,10 +414,10 @@ test.describe("Phase 2: Finance-sensitive endpoint contracts", () => {
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      helpStatusRes.status() !== 401,
-      `Non-admin seed ${e2eNonAdminCode()} missing`,
-    );
+    expect(
+      helpStatusRes.status(),
+      `Seeded non-admin staff ${e2eNonAdminCode()} must authenticate`,
+    ).not.toBe(401);
     expect(helpStatusRes.status()).toBe(403);
   });
 });

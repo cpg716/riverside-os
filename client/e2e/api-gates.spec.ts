@@ -17,6 +17,14 @@ function e2eNonAdminStaffCode(): string {
   return process.env.E2E_NON_ADMIN_CODE?.trim() || "5678";
 }
 
+function nonAdminHeaders(): Record<string, string> {
+  const code = e2eNonAdminStaffCode();
+  return {
+    "x-riverside-staff-code": code,
+    "x-riverside-staff-pin": code,
+  };
+}
+
 const isCi = process.env.CI === "true" || process.env.CI === "1";
 
 function requireOrSkip(condition: boolean, message: string): void {
@@ -117,14 +125,11 @@ test.describe("API auth gates", () => {
     const res = await request.get(
       `${apiBase()}/api/insights/margin-pivot?group_by=brand&basis=sale`,
       {
-        headers: { "x-riverside-staff-code": code },
+        headers: nonAdminHeaders(),
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      res.status() !== 401,
-      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-    );
+    expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
     expect(res.status()).toBe(403);
   });
 
@@ -238,13 +243,10 @@ test.describe("API auth gates", () => {
   }) => {
     const code = e2eNonAdminStaffCode();
     const res = await request.get(`${apiBase()}/api/help/admin/ops/status`, {
-      headers: { "x-riverside-staff-code": code },
+      headers: nonAdminHeaders(),
       failOnStatusCode: false,
     });
-    requireOrSkip(
-      res.status() !== 401,
-      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-    );
+    expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
     expect(res.status()).toBe(403);
   });
 
@@ -255,7 +257,7 @@ test.describe("API auth gates", () => {
     const res = await request.post(
       `${apiBase()}/api/help/admin/ops/generate-manifest`,
       {
-        headers: { "x-riverside-staff-code": code },
+        headers: nonAdminHeaders(),
         data: {
           dry_run: true,
           include_shadcn: false,
@@ -265,10 +267,7 @@ test.describe("API auth gates", () => {
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      res.status() !== 401,
-      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-    );
+    expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
     expect(res.status()).toBe(403);
   });
 
@@ -279,15 +278,12 @@ test.describe("API auth gates", () => {
     const res = await request.post(
       `${apiBase()}/api/help/admin/ops/reindex-search`,
       {
-        headers: { "x-riverside-staff-code": code },
+        headers: nonAdminHeaders(),
         data: { full_reindex_fallback: true },
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      res.status() !== 401,
-      `No staff for code ${code} — run scripts/seed_e2e_non_admin_staff.sql (psql + DATABASE_URL)`,
-    );
+    expect(res.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
     expect(res.status()).toBe(403);
   });
 

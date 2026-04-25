@@ -8,6 +8,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
+import { getCheckoutQueueSummary, type CheckoutQueueSummary } from "../../lib/offlineQueue";
 
 const MANDATORY_NOTE_OVER_USD = 5;
 
@@ -134,7 +135,7 @@ export default function CloseRegisterModal({
   onCancel,
 }: CloseRegisterModalProps) {
   const { toast } = useToast();
-  const { backofficeHeaders, staffCode } = useBackofficeAuth();
+  const { backofficeHeaders, staffCode, clearStaffCredentials } = useBackofficeAuth();
   useShellBackdropLayer(true);
 
   const jsonAuthHeaders = useCallback(() => {
@@ -145,7 +146,7 @@ export default function CloseRegisterModal({
 
   const reconcileCashierCode = useMemo(() => {
     const c = staffCode.trim();
-    return c.length === 4 ? c : "1234";
+    return /^\d{4}$/.test(c) ? c : null;
   }, [staffCode]);
 
   const [step, setStep] = useState<"count" | "report">("count");
@@ -168,6 +169,11 @@ export default function CloseRegisterModal({
   const [coinSupplement, setCoinSupplement] = useState("");
   const [fullDrawerTotal, setFullDrawerTotal] = useState("");
   const [showFinalConfirm, setShowFinalConfirm] = useState(false);
+  const [offlineQueueSummary, setOfflineQueueSummary] = useState<CheckoutQueueSummary>({
+    totalCount: 0,
+    pendingCount: 0,
+    blockedCount: 0,
+  });
 
   const baseUrl = getBaseUrl();
   const onReconcilingBegunRef = useRef(onReconcilingBegun);
@@ -175,6 +181,7 @@ export default function CloseRegisterModal({
 
   useEffect(() => {
     if (registerLane != null && registerLane !== 1) return;
+    if (!reconcileCashierCode) return;
     void (async () => {
       try {
         const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
@@ -189,6 +196,7 @@ export default function CloseRegisterModal({
 
   useEffect(() => {
     if (registerLane != null && registerLane !== 1) return;
+    if (!reconcileCashierCode) return;
     let cancelled = false;
     setReconError(null);
     fetch(`${baseUrl}/api/sessions/${sessionId}/reconciliation`, {
@@ -211,7 +219,22 @@ export default function CloseRegisterModal({
         }
       });
     return () => { cancelled = true; };
-  }, [sessionId, baseUrl, backofficeHeaders, registerLane]);
+  }, [sessionId, baseUrl, backofficeHeaders, registerLane, reconcileCashierCode]);
+
+  const refreshOfflineQueueSummary = useCallback(async () => {
+    const summary = await getCheckoutQueueSummary();
+    setOfflineQueueSummary(summary);
+    return summary;
+  }, []);
+
+  useEffect(() => {
+    void refreshOfflineQueueSummary();
+    const handleQueueChanged = () => {
+      void refreshOfflineQueueSummary();
+    };
+    window.addEventListener("queue_changed", handleQueueChanged);
+    return () => window.removeEventListener("queue_changed", handleQueueChanged);
+  }, [refreshOfflineQueueSummary]);
 
   const denominationTotal = useMemo(() => {
     let t = 0;
@@ -221,6 +244,17 @@ export default function CloseRegisterModal({
     }
     return t;
   }, [denomCounts]);
+
+  const blockForOfflineQueue = useCallback(async () => {
+    const summary = await refreshOfflineQueueSummary();
+    if (summary.totalCount === 0) return false;
+    const message =
+      summary.blockedCount > 0
+        ? `${summary.blockedCount} completed checkout${summary.blockedCount === 1 ? "" : "s"} need manager recovery before Z-close.`
+        : `${summary.pendingCount} completed checkout${summary.pendingCount === 1 ? "" : "s"} still need to sync before Z-close.`;
+    toast(message, "error");
+    return true;
+  }, [refreshOfflineQueueSummary, toast]);
 
   const handleBlindCountSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -246,13 +280,16 @@ export default function CloseRegisterModal({
     )
       totalCents = fullDrawerCents;
     if (totalCents == null || totalCents < 0) return;
-    setActualCash(centsToFixed2(totalCents));
-    setStep("report");
+    void (async () => {
+      if (await blockForOfflineQueue()) return;
+      setActualCash(centsToFixed2(totalCents));
+      setStep("report");
+    })();
   };
 
   const internalCancel = async () => {
     try {
-      if (registerLane == null || registerLane === 1) {
+      if ((registerLane == null || registerLane === 1) && reconcileCashierCode) {
         await fetch(`${baseUrl}/api/sessions/${sessionId}/begin-reconcile`, {
           method: "POST",
           headers: jsonAuthHeaders(),
@@ -263,6 +300,12 @@ export default function CloseRegisterModal({
     onCancel();
   };
 
+  const requireStaffReauth = useCallback(() => {
+    clearStaffCredentials();
+    onCancel();
+    toast("Staff Access is required before Z-close. Sign in again with your Access PIN.", "error");
+  }, [clearStaffCredentials, onCancel, toast]);
+
   const { dialogRef, titleId } = useDialogAccessibility(true, {
     onEscape: () => {
       void internalCancel();
@@ -272,6 +315,11 @@ export default function CloseRegisterModal({
 
   const handleFinalClose = async () => {
     setShowFinalConfirm(false);
+    if (!reconcileCashierCode) {
+      requireStaffReauth();
+      return;
+    }
+    if (await blockForOfflineQueue()) return;
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/close`, {
@@ -352,6 +400,26 @@ export default function CloseRegisterModal({
     );
   };
 
+  const renderOfflineQueueBlocker = () => {
+    if (offlineQueueSummary.totalCount === 0) return null;
+    return (
+      <div className="ui-panel ui-tint-danger p-4 text-xs text-app-text-muted">
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-danger">
+          Checkout recovery required
+        </p>
+        <p className="mt-1 leading-relaxed">
+          {offlineQueueSummary.blockedCount > 0
+            ? `${offlineQueueSummary.blockedCount} completed checkout${offlineQueueSummary.blockedCount === 1 ? "" : "s"} need manager recovery.`
+            : null}
+          {offlineQueueSummary.pendingCount > 0
+            ? ` ${offlineQueueSummary.pendingCount} completed checkout${offlineQueueSummary.pendingCount === 1 ? "" : "s"} still need to sync.`
+            : null}
+          {" "}Resolve checkout recovery before closing the shared drawer so the Z report includes every completed sale.
+        </p>
+      </div>
+    );
+  };
+
   if (registerLane != null && registerLane !== 1) {
     return (
       <div className="ui-overlay-backdrop">
@@ -378,6 +446,40 @@ export default function CloseRegisterModal({
           <div className="ui-modal-footer">
             <button type="button" onClick={() => void internalCancel()} className="ui-btn-primary w-full py-3">
               OK
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!reconcileCashierCode) {
+    return (
+      <div className="ui-overlay-backdrop">
+        <div
+          ref={dialogRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={titleId}
+          tabIndex={-1}
+          className="ui-modal max-w-md animate-workspace-snap outline-none"
+        >
+          <div className="ui-modal-header">
+            <h2 id={titleId} className="text-lg font-black text-app-text">
+              Staff Access required
+            </h2>
+          </div>
+          <div className="ui-modal-body space-y-3 text-sm text-app-text-muted">
+            <p>
+              Z-close needs the authenticated staff member who is physically completing the drawer count. Sign in again with your Access PIN before reconciling this till shift.
+            </p>
+          </div>
+          <div className="ui-modal-footer flex gap-3">
+            <button type="button" onClick={onCancel} className="ui-btn-secondary flex-1 py-3">
+              Cancel
+            </button>
+            <button type="button" onClick={requireStaffReauth} className="ui-btn-primary flex-1 py-3">
+              Change Staff Member
             </button>
           </div>
         </div>
@@ -422,6 +524,7 @@ export default function CloseRegisterModal({
               </p>
             ) : null}
             {renderWorkflowSummary("count")}
+            {renderOfflineQueueBlocker()}
             <p className="text-xs text-app-text-muted">
               Blind count: use the denomination helper (recommended) or enter a total. System expected cash is hidden until next step.
             </p>
@@ -579,6 +682,7 @@ export default function CloseRegisterModal({
 
         <div className="ui-modal-body flex-1 overflow-y-auto space-y-6">
           {renderWorkflowSummary("report")}
+          {renderOfflineQueueBlocker()}
           {(recon.tenders_by_lane?.length ?? 0) > 1 ? (
             <div className="ui-panel ui-tint-accent p-4 text-xs text-app-text-muted">
               <p className="font-black uppercase tracking-widest text-[10px] text-app-text mb-1">
@@ -728,7 +832,7 @@ export default function CloseRegisterModal({
             <button
               type="button"
               onClick={() => setShowFinalConfirm(true)}
-              disabled={loading || (needsNote && !notes.trim())}
+              disabled={loading || offlineQueueSummary.totalCount > 0 || (needsNote && !notes.trim())}
               className="ui-btn-primary w-full py-3 text-sm font-black shadow-lg"
             >
               {loading ? "Closing..." : "Finalize & Close Shift"}
@@ -736,6 +840,11 @@ export default function CloseRegisterModal({
             {needsNote && !notes.trim() ? (
               <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-danger">
                 Add closing notes to explain this cash discrepancy before the shift can be closed.
+              </p>
+            ) : null}
+            {offlineQueueSummary.totalCount > 0 ? (
+              <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-danger">
+                Resolve pending or blocked checkout recovery before closing this till shift.
               </p>
             ) : null}
           </div>

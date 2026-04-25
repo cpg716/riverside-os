@@ -51,6 +51,7 @@ pub struct JournalLine {
 #[derive(Debug, Serialize)]
 pub struct JournalProposal {
     pub activity_date: NaiveDate,
+    pub business_timezone: String,
     pub generated_at: chrono::DateTime<Utc>,
     pub lines: Vec<JournalLine>,
     pub warnings: Vec<String>,
@@ -137,15 +138,19 @@ async fn qbo_map_with_misc_fallback(
     Ok(None)
 }
 
-/// Build a proposed journal for fulfilled-recognition day (UTC calendar date).
+/// Build a proposed journal for fulfilled-recognition day (store-local business date).
 /// MVP: takeaway-style recognition only — fulfilled transactions with `fulfilled_at` on `activity_date`.
 /// Deposits, partial pickups, and loyalty gift cards are flagged in `warnings`.
 pub async fn propose_daily_journal(
     pool: &PgPool,
     activity_date: NaiveDate,
 ) -> Result<JournalProposal, sqlx::Error> {
+    let business_timezone: String =
+        sqlx::query_scalar("SELECT reporting.effective_store_timezone()")
+            .fetch_one(pool)
+            .await?;
     let mut warnings: Vec<String> = vec![
-        "MVP journal: uses fulfilled transactions on this UTC date only. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync.".to_string(),
+        format!("MVP journal: uses fulfilled transactions on store-local business date {activity_date} ({business_timezone}). Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
         "Gift card: purchased-card redemptions debit `liability_gift_card` / default; loyalty and donated cards debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
         "Revenue/COGS/tax for fulfilled transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate fulfillment-day nets.".to_string(),
     ];
@@ -178,7 +183,7 @@ pub async fn propose_daily_journal(
         {TL_EFFECTIVE_JOIN}
         WHERE o.is_forfeited = false
           AND oi.fulfilled_at IS NOT NULL
-          AND (oi.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+          AND (oi.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
           AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
@@ -216,7 +221,7 @@ pub async fn propose_daily_journal(
             SUM(amount)::numeric(14, 2) AS total,
             SUM(merchant_fee)::numeric(14, 2) AS total_merchant_fee
         FROM payment_transactions
-        WHERE (created_at AT TIME ZONE 'UTC')::date = $1::date
+        WHERE (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         GROUP BY
             payment_method,
             NULLIF(TRIM(COALESCE(metadata->>'sub_type', '')), ''),
@@ -231,7 +236,7 @@ pub async fn propose_daily_journal(
         r#"
         SELECT COALESCE(SUM(rounding_adjustment), 0)::numeric(14, 2)
         FROM transactions
-        WHERE (booked_at AT TIME ZONE 'UTC')::date = $1::date
+        WHERE (booked_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         "#,
     )
     .bind(activity_date)
@@ -286,7 +291,7 @@ pub async fn propose_daily_journal(
         FROM suit_component_swap_events e
         INNER JOIN product_variants ov ON ov.id = e.old_variant_id
         INNER JOIN product_variants nv ON nv.id = e.new_variant_id
-        WHERE (e.created_at AT TIME ZONE 'UTC')::date = $1::date
+        WHERE (e.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         "#,
     )
     .bind(activity_date)
@@ -295,7 +300,7 @@ pub async fn propose_daily_journal(
 
     if !suit_swaps.is_empty() {
         warnings.push(format!(
-            "Suit/component swaps: {} event(s) on this UTC date — value-delta lines below use `INV_ASSET` + `COGS_DEFAULT` ledger_mappings when mappable.",
+            "Suit/component swaps: {} event(s) on this store-local business date — value-delta lines below use `INV_ASSET` + `COGS_DEFAULT` ledger_mappings when mappable.",
             suit_swaps.len()
         ));
         for s in &suit_swaps {
@@ -373,7 +378,7 @@ pub async fn propose_daily_journal(
         INNER JOIN product_variants pv ON pv.id = it.variant_id
         INNER JOIN products p ON p.id = pv.product_id
         LEFT JOIN categories c ON c.id = p.category_id
-        WHERE (it.created_at AT TIME ZONE 'UTC')::date = $1::date
+        WHERE (it.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND it.tx_type::text IN ('adjustment', 'damaged', 'return_to_vendor', 'physical_inventory')
         GROUP BY p.category_id, c.name, it.tx_type::text
         "#,
@@ -643,7 +648,7 @@ pub async fn propose_daily_journal(
         INNER JOIN products p ON p.id = oi.product_id
         LEFT JOIN categories c ON c.id = p.category_id
         WHERE o.status::text NOT IN ('cancelled')
-          AND (orl.created_at AT TIME ZONE 'UTC')::date = $1::date
+          AND (orl.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         GROUP BY p.category_id, c.name
         "#,
     )
@@ -781,7 +786,7 @@ pub async fn propose_daily_journal(
             FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
               AND o.fulfilled_at IS NOT NULL
-              AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+              AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
         order_deposit AS (
             SELECT
@@ -845,7 +850,7 @@ pub async fn propose_daily_journal(
             FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
               AND o.fulfilled_at IS NOT NULL
-              AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+              AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
         order_deposit AS (
             SELECT
@@ -914,7 +919,7 @@ pub async fn propose_daily_journal(
             FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
               AND o.fulfilled_at IS NOT NULL
-              AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+              AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
         order_deposit AS (
             SELECT
@@ -1213,10 +1218,10 @@ pub async fn propose_daily_journal(
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         INNER JOIN transactions o ON o.id = pa.target_transaction_id
-        WHERE (pt.created_at AT TIME ZONE 'UTC')::date = $1::date
+        WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND pa.amount_allocated > 0::numeric
           AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
-          AND (o.fulfilled_at IS NULL OR (o.fulfilled_at AT TIME ZONE 'UTC')::date > $1::date)
+          AND (o.fulfilled_at IS NULL OR (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
           AND o.status::text NOT IN ('cancelled')
         "#,
     )
@@ -1266,7 +1271,7 @@ pub async fn propose_daily_journal(
         SELECT SUM(amount_paid)::numeric(14,2) AS total_forfeited
         FROM transactions
         WHERE is_forfeited = TRUE
-          AND (forfeited_at AT TIME ZONE 'UTC')::date = $1::date
+          AND (forfeited_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         "#,
     )
     .bind(activity_date)
@@ -1315,7 +1320,7 @@ pub async fn propose_daily_journal(
         {TL_EFFECTIVE_JOIN}
         WHERE o.status::text NOT IN ('cancelled')
           AND oi.fulfilled_at IS NOT NULL
-          AND (oi.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+          AND (oi.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND p.pos_line_kind = 'alteration_service'
           AND oi.unit_price > 0::numeric
         "#
@@ -1355,7 +1360,7 @@ pub async fn propose_daily_journal(
         {TL_EFFECTIVE_JOIN}
         WHERE o.status::text NOT IN ('cancelled')
           AND o.fulfilled_at IS NOT NULL
-          AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+          AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND p.pos_line_kind = 'rms_charge_payment'
         "#
     ))
@@ -1395,7 +1400,7 @@ pub async fn propose_daily_journal(
               AND COALESCE((metadata->>'rms_charge_collection')::boolean, FALSE) = TRUE
         ), 0)::numeric(14, 2)
         FROM payment_transactions
-        WHERE (created_at AT TIME ZONE 'UTC')::date = $1::date
+        WHERE (created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         "#,
     )
     .bind(activity_date)
@@ -1440,6 +1445,7 @@ pub async fn propose_daily_journal(
 
     Ok(JournalProposal {
         activity_date,
+        business_timezone,
         generated_at: Utc::now(),
         lines,
         warnings,

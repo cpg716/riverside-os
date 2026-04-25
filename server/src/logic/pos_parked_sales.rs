@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use sqlx::FromRow;
+use sqlx::{FromRow, Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::auth::pins::log_staff_access;
@@ -301,9 +301,19 @@ pub async fn delete_parked_sale(
     Ok(())
 }
 
-/// Mark any still-parked rows for these sessions deleted when the till group Z-closes.
-pub async fn purge_open_parked_for_sessions(
-    pool: &sqlx::PgPool,
+#[derive(Debug, FromRow)]
+struct PurgedParkedSale {
+    id: Uuid,
+    register_session_id: Uuid,
+    parked_by_staff_id: Uuid,
+}
+
+/// Mark still-parked rows deleted as part of the register Z-close transaction.
+///
+/// This must stay transaction-bound with the register session close so a failed parked-sale cleanup
+/// cannot leave a closed drawer with active server-backed parked carts.
+pub async fn purge_open_parked_for_sessions_in_tx(
+    tx: &mut Transaction<'_, Postgres>,
     session_ids: &[Uuid],
     actor_staff_id: Option<Uuid>,
 ) -> Result<u64, sqlx::Error> {
@@ -311,7 +321,7 @@ pub async fn purge_open_parked_for_sessions(
         return Ok(0);
     }
 
-    let res = sqlx::query(
+    let rows = sqlx::query_as::<_, PurgedParkedSale>(
         r#"
         UPDATE pos_parked_sale
         SET
@@ -321,28 +331,38 @@ pub async fn purge_open_parked_for_sessions(
             deleted_by_staff_id = COALESCE($2, parked_by_staff_id)
         WHERE register_session_id = ANY($1)
           AND status = 'parked'
+        RETURNING id, register_session_id, parked_by_staff_id
         "#,
     )
     .bind(session_ids)
     .bind(actor_staff_id)
-    .execute(pool)
+    .fetch_all(&mut **tx)
     .await?;
 
-    let n = res.rows_affected();
-    if n > 0 {
-        if let Some(actor) = actor_staff_id {
-            let _ = log_staff_access(
-                pool,
-                actor,
-                "pos_parked_sale_purge_on_close",
-                json!({
-                    "session_ids": session_ids,
-                    "purged_count": n,
-                }),
+    for row in &rows {
+        let actor = actor_staff_id.unwrap_or(row.parked_by_staff_id);
+        sqlx::query(
+            r#"
+            INSERT INTO pos_parked_sale_audit (
+                register_session_id,
+                parked_sale_id,
+                action,
+                actor_staff_id,
+                metadata
             )
-            .await;
-        }
+            VALUES ($1, $2, 'purge_on_close', $3, $4)
+            "#,
+        )
+        .bind(row.register_session_id)
+        .bind(row.id)
+        .bind(actor)
+        .bind(json!({
+            "session_ids": session_ids,
+            "purge_reason": "register_close",
+        }))
+        .execute(&mut **tx)
+        .await?;
     }
 
-    Ok(n)
+    Ok(rows.len() as u64)
 }

@@ -8,11 +8,25 @@ import { signInToBackOffice } from "./helpers/backofficeSignIn";
 
 test.describe("RMS permissions split", () => {
   test("standard POS user stays limited to slim POS-safe RMS access", async ({ page, request }) => {
+    const nonAdminCode = process.env.E2E_NON_ADMIN_CODE?.trim() || "5678";
+    const verifyRes = await request.post(
+      `${process.env.E2E_API_BASE || "http://127.0.0.1:43300"}/api/staff/verify-cashier-code`,
+      {
+        headers: { "Content-Type": "application/json" },
+        data: { cashier_code: nonAdminCode, pin: nonAdminCode },
+        failOnStatusCode: false,
+      },
+    );
+    expect(
+      verifyRes.status(),
+      `No staff for code ${nonAdminCode} — run scripts/seed_e2e_non_admin_staff.sql and scripts/seed_e2e_rms_staff.sql`,
+    ).toBe(200);
+
     await resetOpenRegisterSessions(request);
-    const { sessionId, sessionToken } = await ensureSessionAuth(request, "5678");
+    const { sessionId, sessionToken } = await ensureSessionAuth(request, nonAdminCode);
 
     await signInToBackOffice(page, {
-      staffCode: "5678",
+      staffCode: nonAdminCode,
       staffName: "E2E Non-Admin",
       persistSession: true,
     });

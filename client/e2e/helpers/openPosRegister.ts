@@ -1,4 +1,4 @@
-import { expect, type Page } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import {
   e2eBackofficeStaffCode,
   openBackofficeSidebarTab,
@@ -9,8 +9,8 @@ function e2eBackofficeStaffName(): string {
 }
 
 async function closeStaffDropdownIfOpen(
-  dialog: Page["locator"],
-  selectorButton: Page["locator"],
+  dialog: Locator,
+  selectorButton: Locator,
   preferredName: string,
 ): Promise<void> {
   const page = dialog.page();
@@ -48,7 +48,7 @@ async function closeStaffDropdownIfOpen(
     .toBeTruthy();
 }
 
-async function selectFirstStaffMember(dialog: Page["locator"]): Promise<void> {
+async function selectFirstStaffMember(dialog: Locator): Promise<void> {
   const preferredName = e2eBackofficeStaffName();
   const chevronSelectorButton = dialog
     .locator("button")
@@ -113,6 +113,52 @@ async function selectFirstStaffMember(dialog: Page["locator"]): Promise<void> {
   await closeStaffDropdownIfOpen(dialog, selectorButton, preferredName);
 }
 
+async function waitForPosRegisterPanel(page: Page): Promise<void> {
+  const shell = page.getByTestId("pos-shell-root");
+  await expect(shell).toBeVisible({ timeout: 20_000 });
+
+  if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) !== "register") {
+    const registerTab = page.getByTestId("pos-sidebar-tab-register");
+    const registerNavButton = page
+      .getByRole("navigation", { name: "POS Navigation" })
+      .getByRole("button", { name: /^register$/i });
+    const target = (await registerTab.isVisible().catch(() => false))
+      ? registerTab
+      : registerNavButton;
+    await expect(target).toBeVisible({ timeout: 20_000 });
+    await expect(target).toBeEnabled();
+    await target.click();
+  }
+
+  await expect(shell).toHaveAttribute("data-pos-active-tab", "register", {
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId("pos-register-panel")).toBeVisible({
+    timeout: 20_000,
+  });
+}
+
+async function waitForRegisterCartMounted(page: Page): Promise<void> {
+  const cartShell = page.getByTestId("pos-register-cart-shell");
+  await expect(cartShell).toBeVisible({ timeout: 25_000 });
+  await expect(cartShell).toHaveAttribute("data-sale-hydrated", "true", {
+    timeout: 25_000,
+  });
+}
+
+async function waitForRegisterReady(page: Page): Promise<void> {
+  const cartShell = page.getByTestId("pos-register-cart-shell");
+  await expect(cartShell).toHaveAttribute("data-register-ready", "true", {
+    timeout: 25_000,
+  });
+  await expect(page.getByTestId("pos-product-search")).toBeVisible({
+    timeout: 25_000,
+  });
+  await expect(page.getByTestId("pos-action-gift-card")).toBeVisible({
+    timeout: 25_000,
+  });
+}
+
 export async function ensurePosRegisterSessionOpen(
   page: Page,
   options?: {
@@ -122,10 +168,9 @@ export async function ensurePosRegisterSessionOpen(
   // 1. Wait for initial bootstrap to clear
   await expect(page.getByText(/loading riverside pos/i)).toBeHidden({ timeout: 20_000 });
 
+  await waitForPosRegisterPanel(page);
   const registerDialog = page.getByRole("dialog", { name: /riverside register/i });
-  const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
   const pin1 = registerDialog.getByTestId("pin-key-1");
-  const tillOpenBadge = page.getByText(/till open/i).first();
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
 
   // 2. Wait for state stabilization (either unmounted because session open, or enabled and ready)
@@ -133,14 +178,7 @@ export async function ensurePosRegisterSessionOpen(
     .poll(
       async () => {
         const registerVisible = await registerDialog.isVisible().catch(() => false);
-        if (
-          !registerVisible &&
-          (await posNav.isVisible().catch(() => false)) &&
-          ((await cashierDialog.isVisible().catch(() => false)) ||
-            (await tillOpenBadge.isVisible().catch(() => false)))
-        ) {
-          return true;
-        }
+        if (!registerVisible && (await posNav.isVisible().catch(() => false))) return true;
         const visible = await registerDialog.isVisible().catch(() => false);
         if (!visible) return true;
         const enabled = await pin1.isEnabled().catch(() => false);
@@ -157,6 +195,7 @@ export async function ensurePosRegisterSessionOpen(
     if (!(await posNav.isVisible().catch(() => false))) {
       await enterPosShell(page);
     }
+    await waitForRegisterCartMounted(page).catch(() => {});
     return;
   }
 
@@ -177,34 +216,38 @@ export async function ensurePosRegisterSessionOpen(
   if (!(await posNav.isVisible().catch(() => false))) {
     await enterPosShell(page);
   }
+  await waitForRegisterCartMounted(page);
 }
 
 /**
  * Dismisses {@link PosSaleCashierSignInOverlay} so cart search / tools are usable.
  */
 export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
-  const cashierDlg = page.getByRole("dialog", { name: /sign-in for this sale/i });
-  const productSearch = page.getByTestId("pos-product-search");
-  const giftCardAction = page.getByTestId("pos-action-gift-card");
+  await waitForRegisterCartMounted(page);
+
+  const cashierDlg = page.getByTestId("pos-sale-cashier-overlay");
+  const cartShell = page.getByTestId("pos-register-cart-shell");
 
   await expect
     .poll(
       async () =>
-        ((await productSearch.isVisible().catch(() => false)) &&
-          !(await cashierDlg.isVisible().catch(() => false))) ||
+        ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") ||
         (await cashierDlg.isVisible().catch(() => false)),
       { timeout: 20_000 },
     )
     .toBeTruthy();
 
-  if (
-    (await productSearch.isVisible().catch(() => false)) &&
-    !(await cashierDlg.isVisible().catch(() => false))
-  ) {
+  if ((await cartShell.getAttribute("data-register-ready").catch(() => null)) === "true") {
     return;
   }
 
+  await expect(cashierDlg).toHaveAttribute("data-roster-ready", "true", {
+    timeout: 15_000,
+  });
   await selectFirstStaffMember(cashierDlg);
+  await expect(cashierDlg).toHaveAttribute("data-pin-entry-ready", "true", {
+    timeout: 10_000,
+  });
 
   const pin1 = cashierDlg.getByTestId("pin-key-1");
   await expect(pin1).toBeVisible({ timeout: 15_000 });
@@ -215,19 +258,51 @@ export async function ensurePosSaleCashierSignedIn(page: Page): Promise<void> {
     await cashierDlg.getByTestId(`pin-key-${digit}`).click();
   }
   
-  const contBtn = cashierDlg.getByRole("button", { name: /^continue$/i });
+  const contBtn = cashierDlg.getByTestId("pos-sale-cashier-continue");
   await expect(contBtn).toBeEnabled({ timeout: 10_000 });
   await contBtn.click();
   
   await expect(cashierDlg).toBeHidden({ timeout: 20_000 });
-  await expect
-    .poll(
-      async () =>
-        (await giftCardAction.isVisible().catch(() => false)) ||
-        (await productSearch.isVisible().catch(() => false)),
-      { timeout: 20_000 },
-    )
-    .toBeTruthy();
+  await waitForRegisterReady(page);
+}
+
+export async function attachNewCustomerToSale(
+  page: Page,
+  options?: {
+    firstName?: string;
+    lastName?: string;
+    phone?: string;
+    email?: string;
+  },
+): Promise<void> {
+  const suffix = Date.now();
+  await page.getByRole("button", { name: /^add customer$/i }).click();
+
+  const addCustomerDrawer = page.getByRole("dialog", {
+    name: /add customer/i,
+  });
+  await expect(addCustomerDrawer).toBeVisible({ timeout: 20_000 });
+
+  await addCustomerDrawer
+    .getByLabel(/first name/i)
+    .fill(options?.firstName ?? "E2E");
+  await addCustomerDrawer
+    .getByLabel(/last name/i)
+    .fill(options?.lastName ?? "Customer");
+  await addCustomerDrawer
+    .getByPlaceholder("(555) 000-0000")
+    .first()
+    .fill(options?.phone ?? "7165550123");
+  await addCustomerDrawer
+    .getByLabel(/^email$/i)
+    .fill(options?.email ?? `e2e-pos-${suffix}@example.com`);
+  await addCustomerDrawer
+    .getByRole("button", { name: /create customer/i })
+    .click();
+
+  await expect(
+    page.getByRole("button", { name: /remove customer from sale/i }),
+  ).toBeVisible({ timeout: 20_000 });
 }
 
 export async function enterPosShell(page: Page): Promise<void> {

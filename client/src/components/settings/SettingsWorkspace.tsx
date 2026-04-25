@@ -86,6 +86,9 @@ export interface BackupSettings {
   cloud_bucket_name: string;
   cloud_region: string;
   cloud_endpoint: string;
+  backup_dir?: string;
+  backup_dir_configured?: boolean;
+  backup_dir_explicit_required?: boolean;
 }
 
 interface BackupFile {
@@ -311,6 +314,14 @@ export default function SettingsWorkspace({
 
   const saveBackupSettings = async () => {
     if (!backupCfg) return;
+    const payload = {
+      auto_cleanup_days: backupCfg.auto_cleanup_days,
+      schedule_cron: backupCfg.schedule_cron,
+      cloud_storage_enabled: backupCfg.cloud_storage_enabled,
+      cloud_bucket_name: backupCfg.cloud_bucket_name,
+      cloud_region: backupCfg.cloud_region,
+      cloud_endpoint: backupCfg.cloud_endpoint,
+    };
     setBusy(true);
     try {
       const res = await fetch(`${baseUrl}/api/settings/backup/config`, {
@@ -319,7 +330,7 @@ export default function SettingsWorkspace({
           "Content-Type": "application/json",
           ...(backofficeHeaders() as Record<string, string>),
         },
-        body: JSON.stringify(backupCfg),
+        body: JSON.stringify(payload),
       });
       if (res.ok) {
         setBackupCfg((await res.json()) as BackupSettings);
@@ -376,14 +387,19 @@ export default function SettingsWorkspace({
         `${baseUrl}/api/settings/backups/restore/${filename}`,
         {
           method: "POST",
-          headers: backofficeHeaders() as Record<string, string>,
+          headers: {
+            ...(backofficeHeaders() as Record<string, string>),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ confirmation_filename: filename }),
         },
       );
       if (res.ok) {
         toast("Restore successful. Application reloading...", "success");
         setTimeout(() => window.location.reload(), 1500);
       } else {
-        toast("Restore failed. Check server logs.", "error");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(body.error ?? "Restore failed. Check server logs.", "error");
       }
     } finally {
       setBackupBusy(false);
@@ -603,6 +619,36 @@ export default function SettingsWorkspace({
                           Manual Trigger
                         </button>
                       </div>
+
+                      {backupCfg && (
+                        <div className="border-b border-app-border bg-app-bg/35 px-6 py-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                Backup Directory
+                              </p>
+                              <p className="mt-1 truncate font-mono text-xs font-bold text-app-text">
+                                {backupCfg.backup_dir || "backups"}
+                              </p>
+                            </div>
+                            <span
+                              className={`rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-widest ${
+                                backupCfg.backup_dir_configured
+                                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-600"
+                                  : backupCfg.backup_dir_explicit_required
+                                    ? "border-red-500/30 bg-red-500/10 text-red-600"
+                                    : "border-amber-500/30 bg-amber-500/10 text-amber-600"
+                              }`}
+                            >
+                              {backupCfg.backup_dir_configured
+                                ? "Explicit Path"
+                                : backupCfg.backup_dir_explicit_required
+                                  ? "Required"
+                                  : "Dev Fallback"}
+                            </span>
+                          </div>
+                        </div>
+                      )}
 
                       <div className="overflow-x-auto">
                         <table className="w-full text-left">

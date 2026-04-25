@@ -1,0 +1,125 @@
+P0/P1 probe: duplicate checkout_client_id transactions
+ checkout_client_id | transaction_count 
+--------------------+-------------------
+(0 rows)
+
+P0/P1 probe: payment allocations referencing missing payment transactions
+ id | transaction_id | target_transaction_id | amount_allocated 
+----+----------------+-----------------------+------------------
+(0 rows)
+
+P0/P1 probe: payment allocations referencing missing retail transactions
+ id | transaction_id | target_transaction_id | amount_allocated 
+----+----------------+-----------------------+------------------
+(0 rows)
+
+P1 probe: payment allocations that over-allocate a payment transaction
+ payment_transaction_id | payment_amount | allocated_amount | overage 
+------------------------+----------------+------------------+---------
+(0 rows)
+
+P1 probe: register sessions still reconciling for more than 2 hours
+ id | register_lane | till_close_group_id | opened_at | lifecycle_status 
+----+---------------+---------------------+-----------+------------------
+(0 rows)
+
+P1 probe: open server-backed parked sales on closed register sessions
+ id | register_session_id | till_close_group_id | label | created_at 
+----+---------------------+---------------------+-------+------------
+(0 rows)
+
+P1 probe: negative available stock by variant
+              variant_id              |              sku              | stock_on_hand | reserved_stock | on_layaway | available_stock 
+--------------------------------------+-------------------------------+---------------+----------------+------------+-----------------
+ 0728633e-18e3-41bf-ad74-1a67ebe8adfb | 16460                         |            -8 |              0 |          0 |              -8
+ a3ba51d6-a114-441f-85cc-0fb6fb7d26d7 | 16408                         |            -7 |              0 |          0 |              -7
+ a233337c-30c4-44ab-80c1-682cdf14c60f | 11709                         |            -3 |              0 |          0 |              -3
+ c3ed6903-5335-4a11-9983-95fe036f3baa | 10488                         |            -2 |              0 |          0 |              -2
+ 1b7b0ac0-e24b-4788-b383-d8f6297c4267 | 10492                         |            -2 |              0 |          0 |              -2
+ 7ea6ab45-8bda-40c2-8a90-12eea8d8ab4e | 10494                         |            -2 |              0 |          0 |              -2
+ 94cbbf7e-185e-4ede-afb2-18920f8893cb | 12717                         |            -2 |              0 |          0 |              -2
+ cdaf0fbd-ef64-43c5-824f-b881947f0b03 | 10425                         |            -1 |              0 |          0 |              -1
+ 7dbad202-e46b-4d8c-8600-c3e6f0c20705 | 10484                         |            -1 |              0 |          0 |              -1
+ d75c243d-7982-40c8-9e0f-9668e1c68def | 10496                         |            -1 |              0 |          0 |              -1
+ 8ec8f4fc-9a89-4563-bd53-13afaa11b94c | 10497                         |            -1 |              0 |          0 |              -1
+ f37614aa-22ff-4f17-a78e-4306cfbc2f79 | 10506                         |            -1 |              0 |          0 |              -1
+ 139b6ebd-8350-4624-a91c-8feeb56f6237 | 10515                         |            -1 |              0 |          0 |              -1
+ 05164d22-18c7-4ead-b5d7-cfd921b39dad | 10593                         |            -1 |              0 |          0 |              -1
+ 71a39206-e9d8-4f2b-923b-4ad25eef22f8 | 10599                         |            -1 |              0 |          0 |              -1
+ 1f9d64fc-732f-40fa-9ffd-e5bbfa2c4a2b | 10601                         |            -1 |              0 |          0 |              -1
+ 00f9d245-b2a5-4f78-8e80-dbd1286e88d1 | 10620                         |            -1 |              0 |          0 |              -1
+ d3d65626-eb23-48e3-83ae-947abbf96a96 | 10673                         |            -1 |              0 |          0 |              -1
+ 59916661-2cc4-4824-9ae7-8de6cfcd3d50 | 10675                         |            -1 |              0 |          0 |              -1
+ 9566e5af-25cb-449a-8e81-65d4e02ae464 | 10677                         |            -1 |              0 |          0 |              -1
+ e79fa4be-55aa-4476-8a03-58deceaed86d | 12461                         |            -1 |              0 |          0 |              -1
+ d1c17b7c-3440-4fc2-b637-eaf07e876b87 | 12496                         |            -1 |              0 |          0 |              -1
+ f1b24925-00b5-4a08-a25d-05508a26ea91 | 12707                         |            -1 |              0 |          0 |              -1
+ 22743379-296e-487b-b2ab-6551697d282f | 12716                         |            -1 |              0 |          0 |              -1
+ 0f219acb-5ae1-4e24-b7df-252775683411 | 12720                         |            -1 |              0 |          0 |              -1
+ 9093c870-37f5-4f1f-aefa-b29791bb1abc | 12721                         |            -1 |              0 |          0 |              -1
+ 5769dc87-44a9-4d96-a6d3-13f685b050f8 | 12746                         |            -1 |              0 |          0 |              -1
+ 3bf52f6d-b1ac-4614-b398-1ddfa6ea6e69 | 13013                         |            -1 |              0 |          0 |              -1
+ f301cc48-2cd1-480a-a30e-856b0faee099 | 13141                         |            -1 |              0 |          0 |              -1
+ b147e0e3-ee9a-4742-9fc9-e8c2d7884f49 | 13768                         |            -1 |              0 |          0 |              -1
+ dedf6de5-2112-4bec-af8a-2f3a401ae1a6 | 13784                         |            -1 |              0 |          0 |              -1
+ f7d11e18-71e5-424c-b6bc-f01b00ece3c3 | 14364                         |            -1 |              0 |          0 |              -1
+ 48b7b456-ac6a-40fd-aa73-c5d464498965 | 14379                         |            -1 |              0 |          0 |              -1
+ 102e37fb-fa9d-4091-b1cd-b43ea2907aa9 | 14455                         |            -1 |              0 |          0 |              -1
+ 554ab2ea-e951-4399-b23d-2807b77c1c3a | 14532                         |            -1 |              0 |          0 |              -1
+ ae240622-69de-4867-b10f-de22b6c6c9ab | 14534                         |            -1 |              0 |          0 |              -1
+ bc6ec889-8c51-44e0-9c0e-5371274be859 | 14538                         |            -1 |              0 |          0 |              -1
+ e8d15869-442e-4710-a948-7214a91ef302 | 15719                         |            -1 |              0 |          0 |              -1
+ 4ddb46d9-a240-4517-b9ca-fca0bbd8c4b6 | 15721                         |            -1 |              0 |          0 |              -1
+ f99213c3-11fd-444d-af1f-94cb5abfa591 | 15732                         |            -1 |              0 |          0 |              -1
+ d4156de9-4be8-4ec9-bb0b-d52502e82c19 | 15786                         |            -1 |              0 |          0 |              -1
+ fbefeb10-56a1-4c0c-9e07-950987d43a77 | 15836                         |            -1 |              0 |          0 |              -1
+ bf5cdbc6-65c0-4273-bede-038af38f2789 | 16430                         |            -1 |              0 |          0 |              -1
+ d4f71e68-6f27-4e7a-a80c-d79fedd742a2 | 16442                         |            -1 |              0 |          0 |              -1
+ 500ae266-37f5-4eeb-b2cc-c6d3bad94108 | 16517                         |            -1 |              0 |          0 |              -1
+ 0a15b84c-e902-47e7-83cc-e417ed15270c | 16546                         |            -1 |              0 |          0 |              -1
+ 8db0593c-4582-4f3a-b2f4-e275034faad3 | I-102119|40901/1|38 L|2BV     |            -1 |              0 |          0 |              -1
+ 6a6310d8-35c5-4283-b8ff-3a66992e7e64 | I-102999|B50U15|M|CHARCOAL    |            -1 |              0 |          0 |              -1
+ 37cbf306-3227-4889-af14-2b5722e1fb92 | I-103064|A0006|31W X 34L|TATE |            -1 |              0 |          0 |              -1
+ 2d0e98ec-1776-4a18-b052-75c7d63d3ae7 | I-103064|A0006|32W X 34L|TATE |            -1 |              0 |          0 |              -1
+ d6d41463-6181-4d0d-a19b-8bebc72c1d2f | I-103785|KM4081M-BLUM|L|BLUE  |            -1 |              0 |          0 |              -1
+(51 rows)
+
+P1 probe: order-style checkout lines that decremented stock at booking
+ id | variant_id | reference_table | reference_id | tx_type | quantity_delta | created_at 
+----+------------+-----------------+--------------+---------+----------------+------------
+(0 rows)
+
+P1 probe: taxable transaction lines with tax-exempt flag but missing reason
+ id | transaction_id | product_id | unit_price | state_tax | local_tax 
+----+----------------+------------+------------+-----------+-----------
+(0 rows)
+
+P1 probe: finalized commission lines without fulfillment recognition
+ id | transaction_id | salesperson_id | fulfilled_at | commission_payout_finalized_at 
+----+----------------+----------------+--------------+--------------------------------
+(0 rows)
+
+P1 probe: approved/pending QBO staging rows with unbalanced payload totals
+ id | sync_date | status | debits | credits | balanced 
+----+-----------+--------+--------+---------+----------
+(0 rows)
+
+P1 probe: QBO staging rows missing business_timezone after store-local date hardening
+ id | sync_date | status | created_at 
+----+-----------+--------+------------
+(0 rows)
+
+P1 probe: stale backup health
+ id | last_local_success_at | last_local_failure_at | last_cloud_success_at | last_cloud_failure_at | updated_at 
+----+-----------------------+-----------------------+-----------------------+-----------------------+------------
+(0 rows)
+
+Summary: open register, parked sale, QBO staging, backup state
+             metric              |            value             
+---------------------------------+------------------------------
+ open_register_sessions          | 3
+ open_parked_sales               | 0
+ pending_or_approved_qbo_staging | 0
+ last_local_backup_success_at    | 2026-04-25 06:00:03.52106+00
+(4 rows)
+

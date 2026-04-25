@@ -1573,6 +1573,14 @@ async fn close_session(
 
     let mut tx = state.db.begin().await.map_err(SessionError::Database)?;
 
+    let purged_parked_sales = crate::logic::pos_parked_sales::purge_open_parked_for_sessions_in_tx(
+        &mut tx,
+        &group_ids,
+        closer.opened_by,
+    )
+    .await
+    .map_err(SessionError::Database)?;
+
     let result = sqlx::query(
         r#"
         UPDATE register_sessions
@@ -1660,19 +1668,6 @@ async fn close_session(
         }
     });
 
-    if let Err(e) = crate::logic::pos_parked_sales::purge_open_parked_for_sessions(
-        &state.db,
-        &group_ids,
-        closer.opened_by,
-    )
-    .await
-    {
-        tracing::error!(
-            error = %e,
-            "failed to purge server parked sales after register close"
-        );
-    }
-
     if let Some(ob) = closer.opened_by {
         let _ = log_staff_access(
             &state.db,
@@ -1685,6 +1680,7 @@ async fn close_session(
                 "discrepancy_amount": discrepancy,
                 "actual_cash": payload.actual_cash,
                 "expected_cash": expected_cash,
+                "purged_parked_sales": purged_parked_sales,
             }),
         )
         .await;

@@ -1201,6 +1201,17 @@ fn resolve_payment_splits(
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string())
                 });
+                if m.eq_ignore_ascii_case("check")
+                    && check_number
+                        .as_deref()
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .is_none()
+                {
+                    return Err(CheckoutError::InvalidPayload(
+                        "check payment requires check_number".to_string(),
+                    ));
+                }
 
                 let fee = if stripe_intent_id.is_some() {
                     estimate_stripe_fee(
@@ -1252,6 +1263,11 @@ fn resolve_payment_splits(
     if m.is_empty() || m.len() > 50 {
         return Err(CheckoutError::InvalidPayload(
             "payment_method is required (max 50 characters)".to_string(),
+        ));
+    }
+    if m.eq_ignore_ascii_case("check") {
+        return Err(CheckoutError::InvalidPayload(
+            "check payment requires check_number".to_string(),
         ));
     }
     Ok((
@@ -3568,7 +3584,6 @@ pub async fn evaluate_combo_incentives(
 
     // 3) Evaluate rules (repeatedly to catch multiple combos if per-bundle is allowed)
     for rule_json in rules {
-        let rule_id = Uuid::parse_str(rule_json["id"].as_str().unwrap_or("")).unwrap_or_default();
         let reward_val = rule_json["reward_amount"].as_f64().unwrap_or(0.0);
         let reward_amount = Decimal::from_f64_retain(reward_val).unwrap_or(Decimal::ZERO);
         let label = rule_json["label"].as_str().unwrap_or("SPIFF").to_string();
@@ -3596,6 +3611,26 @@ pub async fn evaluate_combo_incentives(
                 }
 
                 if satisfied {
+                    let reward_context = reqs
+                        .iter()
+                        .find_map(|req| {
+                            let m_type = req["match_type"].as_str().unwrap_or("");
+                            let m_id = Uuid::parse_str(req["match_id"].as_str().unwrap_or(""))
+                                .unwrap_or_default();
+                            if m_type == "product" {
+                                items
+                                    .iter()
+                                    .find(|item| item.product_id == m_id)
+                                    .map(|item| (item.product_id, item.variant_id))
+                            } else {
+                                items
+                                    .iter()
+                                    .find(|item| item_cat_map.get(&item.product_id) == Some(&m_id))
+                                    .map(|item| (item.product_id, item.variant_id))
+                            }
+                        })
+                        .or_else(|| items.first().map(|item| (item.product_id, item.variant_id)));
+
                     // Consume quantities
                     for req in reqs {
                         let m_type = req["match_type"].as_str().unwrap_or("");
@@ -3610,16 +3645,14 @@ pub async fn evaluate_combo_incentives(
                         }
                     }
 
-                    // Add reward line metadata. Use a placeholder variant/product context if needed.
-                    // For reporting, we'll use a generic "Promotional SPIFF" product_id if one exists,
-                    // or just use the rule_id as product_id (conceptually) if the schema allows.
-                    // Actually, let's use a fixed "SPIFF REWARD" product UUID or the rule_id.
-                    rewards.push(ComboSpiffReward {
-                        product_id: rule_id, // Use rule id as product context for now
-                        variant_id: rule_id,
-                        reward_amount,
-                        label: label.clone(),
-                    });
+                    if let Some((product_id, variant_id)) = reward_context {
+                        rewards.push(ComboSpiffReward {
+                            product_id,
+                            variant_id,
+                            reward_amount,
+                            label: label.clone(),
+                        });
+                    }
                 } else {
                     break;
                 }

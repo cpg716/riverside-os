@@ -9,6 +9,8 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{error, info};
 
+const BACKUP_DIR_ENV: &str = "RIVERSIDE_BACKUP_DIR";
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct BackupSettings {
     pub auto_cleanup_days: u32,
@@ -44,9 +46,57 @@ pub struct BackupFile {
     pub created_at: String,
 }
 
+#[derive(Debug, Serialize, Clone)]
+pub struct BackupDirectoryInfo {
+    pub path: String,
+    pub configured: bool,
+    pub strict_required: bool,
+}
+
+fn configured_backup_dir() -> (PathBuf, bool) {
+    std::env::var(BACKUP_DIR_ENV)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .map(|value| (PathBuf::from(value), true))
+        .unwrap_or_else(|| (PathBuf::from("backups"), false))
+}
+
+pub fn backup_directory_info(strict_production: bool) -> BackupDirectoryInfo {
+    let (path, configured) = configured_backup_dir();
+    BackupDirectoryInfo {
+        path: path.to_string_lossy().into_owned(),
+        configured,
+        strict_required: strict_production,
+    }
+}
+
+pub fn validate_backup_dir_for_startup(strict_production: bool) -> Result<()> {
+    let (path, configured) = configured_backup_dir();
+    if strict_production && !configured {
+        return Err(anyhow::anyhow!(
+            "Strict production requires {BACKUP_DIR_ENV} to point at a durable backup directory"
+        ));
+    }
+    if strict_production && !path.is_absolute() {
+        return Err(anyhow::anyhow!(
+            "Strict production requires {BACKUP_DIR_ENV} to be an absolute path"
+        ));
+    }
+
+    fs::create_dir_all(&path)?;
+    if !path.is_dir() {
+        return Err(anyhow::anyhow!(
+            "{BACKUP_DIR_ENV} does not point at a directory"
+        ));
+    }
+
+    Ok(())
+}
+
 impl BackupManager {
     pub fn new(database_url: String) -> Self {
-        let backup_dir = PathBuf::from("backups");
+        let (backup_dir, _) = configured_backup_dir();
         if !backup_dir.exists() {
             let _ = fs::create_dir_all(&backup_dir);
         }
@@ -86,6 +136,32 @@ impl BackupManager {
         // Sort by created_at descending (newest first)
         backups.sort_by(|a, b| b.created_at.cmp(&a.created_at));
         Ok(backups)
+    }
+
+    fn listed_backup_path(&self, filename: &str) -> Result<PathBuf> {
+        let trimmed = filename.trim();
+        if trimmed.is_empty()
+            || trimmed.contains('/')
+            || trimmed.contains('\\')
+            || trimmed.contains("..")
+            || !trimmed.ends_with(".dump")
+        {
+            return Err(anyhow::anyhow!(
+                "Backup file is not in the local backup catalog"
+            ));
+        }
+
+        let exists = self
+            .list_backups()?
+            .into_iter()
+            .any(|backup| backup.filename == trimmed);
+        if !exists {
+            return Err(anyhow::anyhow!(
+                "Backup file is not in the local backup catalog"
+            ));
+        }
+
+        Ok(self.backup_dir.join(trimmed))
     }
 
     /// Perform a backup using pg_dump.
@@ -170,7 +246,7 @@ impl BackupManager {
     /// Restore a database from a backup using pg_restore.
     /// WARNING: This is destructive.
     pub async fn restore_backup(&self, filename: &str) -> Result<()> {
-        let input_path = self.backup_dir.join(filename);
+        let input_path = self.listed_backup_path(filename)?;
         if !input_path.exists() {
             return Err(anyhow::anyhow!("Backup file not found"));
         }
@@ -255,13 +331,19 @@ impl BackupManager {
 
     /// Delete a backup file.
     pub fn delete_backup(&self, filename: &str) -> Result<()> {
-        let path = self.backup_dir.join(filename);
+        let path = self.listed_backup_path(filename)?;
         if path.exists() {
             fs::remove_file(path)?;
             Ok(())
         } else {
             Err(anyhow::anyhow!("File not found"))
         }
+    }
+
+    /// Read a cataloged backup file for download.
+    pub async fn read_backup_file(&self, filename: &str) -> Result<Vec<u8>> {
+        let path = self.listed_backup_path(filename)?;
+        tokio::fs::read(&path).await.map_err(Into::into)
     }
 
     /// Auto-cleanup local backups older than max_days.
@@ -329,7 +411,7 @@ impl BackupManager {
         }
 
         let op = Operator::new(builder)?.finish();
-        let file_path = self.backup_dir.join(filename);
+        let file_path = self.listed_backup_path(filename)?;
         let contents = tokio::fs::read(&file_path).await?;
 
         info!(
@@ -345,6 +427,40 @@ impl BackupManager {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs::File;
+
+    #[test]
+    fn listed_backup_path_rejects_path_traversal() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        let manager = BackupManager {
+            backup_dir: tmp.path().to_path_buf(),
+            database_url: "postgres://example".to_string(),
+        };
+
+        assert!(manager.listed_backup_path("../backup.dump").is_err());
+        assert!(manager.listed_backup_path("nested/backup.dump").is_err());
+        assert!(manager.listed_backup_path("backup.sql").is_err());
+    }
+
+    #[test]
+    fn listed_backup_path_accepts_cataloged_dump() {
+        let tmp = tempfile::tempdir().expect("tempdir");
+        File::create(tmp.path().join("backup_20260425_120000.dump")).expect("backup file");
+        let manager = BackupManager {
+            backup_dir: tmp.path().to_path_buf(),
+            database_url: "postgres://example".to_string(),
+        };
+
+        let path = manager
+            .listed_backup_path("backup_20260425_120000.dump")
+            .expect("listed path");
+        assert_eq!(path, tmp.path().join("backup_20260425_120000.dump"));
     }
 }
 

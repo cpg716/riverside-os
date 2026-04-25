@@ -4,9 +4,6 @@ import {
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
 
-const quarantineUnstablePosUi =
-  process.env.ROS_QUARANTINE_UNSTABLE_POS_E2E === "1";
-
 function apiBase(): string {
   const raw =
     process.env.E2E_API_BASE?.trim() ||
@@ -237,10 +234,6 @@ test.describe("POS exchange wizard", () => {
   test.describe.configure({ mode: "serial" });
 
   test("opens from cart when register is open", async ({ page, request }) => {
-    test.skip(
-      quarantineUnstablePosUi,
-      "Temporarily quarantined in CI due to shared POS register-ready / cashier-overlay instability. See docs/POS_E2E_TESTABILITY_FOLLOWUP.md.",
-    );
     test.setTimeout(60_000);
     await primeBackofficeSession(page, request);
     await page.goto("/pos", { waitUntil: "domcontentloaded" });
@@ -280,13 +273,22 @@ test.describe("POS exchange wizard", () => {
     await expect(trigger).toBeVisible({ timeout: 15_000 });
     await trigger.focus();
     await trigger.press("Enter");
-    await expect(page.getByTestId("pos-exchange-wizard-dialog")).toBeVisible({
+    const wizardDialog = page.getByTestId("pos-exchange-wizard-dialog");
+    await expect(wizardDialog).toBeVisible({
       timeout: 15_000,
     });
-    await expect(page.getByText(/find original sale/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/record return items/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/sell replacements/i)).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByText(/next: record return items/i)).toBeVisible({ timeout: 10_000 });
+    await expect(wizardDialog.getByText(/find original sale/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(wizardDialog.getByText(/record return items/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(wizardDialog.getByText(/sell replacements/i).first()).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(
+      wizardDialog.getByText(/next: record return items/i),
+    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("returned quantity stays in sync across totals, refund queue, and receipt output", async ({

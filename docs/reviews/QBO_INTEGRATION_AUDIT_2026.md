@@ -39,7 +39,7 @@ The QuickBooks Online (QBO) integration is a high-fidelity financial bridge. It 
 ## 5. Findings & Recommendations
 1. **Precision**: The "Effective Quantity" logic (line 120 of `qbo_journal.rs`) is an excellent guard against overstating revenue.
 2. **Loyalty Handling**: The split between "Expense" and "Liability" for gift cards is a advanced accounting feature not often seen in retail systems.
-3. **Observation**: The integration relies on **UTC dates** for recognition. **Recommendation**: Ensure the QBO instance is also configured for the same timezone to avoid "midnight cutoff" reconciliation issues.
+3. **Resolved**: Staging now uses the store-local business date from `store_settings.receipt_config.timezone` via `reporting.effective_store_timezone()`, and the proposed payload includes the effective `business_timezone` for accounting review.
 
 ## 6. Conclusion
 The QBO Integration is a **professional-grade financial subsystem**. It provides the auditability and control required for a luxury bridal and menswear operation.

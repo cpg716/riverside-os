@@ -9,7 +9,12 @@ pub async fn recalc_transaction_totals(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
 ) -> Result<(), sqlx::Error> {
-    let (total, amount_paid, _ship): (Option<Decimal>, Decimal, Option<Decimal>) = sqlx::query_as(
+    let (total, amount_paid, rounding_adjustment, _ship): (
+        Option<Decimal>,
+        Decimal,
+        Decimal,
+        Option<Decimal>,
+    ) = sqlx::query_as(
         r#"
         SELECT
             COALESCE(SUM(
@@ -17,6 +22,7 @@ pub async fn recalc_transaction_totals(
                 * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0)::numeric
             ), 0::numeric) + COALESCE(o.shipping_amount_usd, 0)::numeric AS total,
             o.amount_paid,
+            COALESCE(o.rounding_adjustment, 0)::numeric AS rounding_adjustment,
             o.shipping_amount_usd
         FROM transactions o
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
@@ -26,7 +32,7 @@ pub async fn recalc_transaction_totals(
             GROUP BY transaction_line_id
         ) orl ON orl.transaction_line_id = oi.id
         WHERE o.id = $1
-        GROUP BY o.amount_paid, o.shipping_amount_usd
+        GROUP BY o.amount_paid, o.rounding_adjustment, o.shipping_amount_usd
         "#,
     )
     .bind(transaction_id)
@@ -34,7 +40,7 @@ pub async fn recalc_transaction_totals(
     .await?;
 
     let total_price = total.unwrap_or(Decimal::ZERO);
-    let balance_due = total_price - amount_paid;
+    let balance_due = total_price + rounding_adjustment - amount_paid;
 
     sqlx::query(
         r#"

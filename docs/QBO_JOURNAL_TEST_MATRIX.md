@@ -10,7 +10,7 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 | Partial return before journal re-run for D | Revenue/COGS/tax reduced proportionally vs `order_return_lines` |
 | Full return of fulfilled line | Category net for that merchandise → 0 for that line’s share |
 
-## Return-day contra (same UTC date as `order_return_lines.created_at`)
+## Return-day contra (same store-local business date as `order_return_lines.created_at`)
 
 | Scenario | Expect |
 |----------|--------|
@@ -59,4 +59,4 @@ See also **[`SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`](./SUIT_OUTFIT_COMPONENT_SWA
 
 ## Operational note
 
-Re-running **propose** for an older `activity_date` after returns restates that day’s fulfillment nets. Return-day contra lines appear on the **return** date. Align with your accountant on recognition policy.
+`activity_date` is the store-local business date from `store_settings.receipt_config.timezone` through `reporting.effective_store_timezone()`. Re-running **propose** for an older `activity_date` after returns restates that day’s fulfillment nets. Return-day contra lines appear on the **return** business date. Align with your accountant on recognition policy.

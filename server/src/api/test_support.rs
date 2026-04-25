@@ -5,7 +5,7 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
-use chrono::Utc;
+use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use thiserror::Error;
@@ -203,10 +203,32 @@ struct TestSupportPaymentRow {
 }
 
 #[derive(Debug, Serialize)]
+struct TestSupportPaymentAllocationRow {
+    payment_transaction_id: Uuid,
+    target_transaction_id: Uuid,
+    #[serde(default)]
+    target_display_id: Option<String>,
+    amount_allocated: String,
+    payment_method: String,
+    payment_amount: String,
+    #[serde(default)]
+    payment_check_number: Option<String>,
+    #[serde(default)]
+    allocation_check_number: Option<String>,
+    allocation_metadata: Value,
+}
+
+#[derive(Debug, Serialize)]
 struct TestSupportTransactionArtifacts {
     transaction_id: Uuid,
+    transaction_display_id: String,
+    total_price: String,
+    amount_paid: String,
+    balance_due: String,
+    rounding_adjustment: String,
     metadata: Value,
     payment_rows: Vec<TestSupportPaymentRow>,
+    allocation_rows: Vec<TestSupportPaymentAllocationRow>,
     rms_records: Vec<corecard::RmsChargeRecordDetail>,
 }
 
@@ -215,6 +237,32 @@ struct TestSupportAlterationActivityRow {
     action: String,
     staff_id: Option<Uuid>,
     detail: Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct SeedQboTaxMappingRequest {
+    category_id: Uuid,
+    activity_date: NaiveDate,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssignQboTransactionDateRequest {
+    transaction_id: Uuid,
+    activity_date: NaiveDate,
+}
+
+#[derive(Debug, Deserialize)]
+struct AssignQboTransactionTimestampRequest {
+    transaction_id: Uuid,
+    timestamp_utc: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize)]
+struct TestSupportParkedSaleStatus {
+    id: Uuid,
+    register_session_id: Uuid,
+    status: String,
+    audit_actions: Vec<String>,
 }
 
 async fn ensure_e2e_catalog(state: &AppState) -> Result<SeedProductSummary, TestSupportError> {
@@ -703,10 +751,39 @@ async fn get_transaction_artifacts(
     Path(transaction_id): Path<Uuid>,
 ) -> Result<Json<TestSupportTransactionArtifacts>, TestSupportError> {
     let _staff = require_admin_staff(&state, &headers).await?;
-    let metadata: Value = sqlx::query_scalar("SELECT metadata FROM transactions WHERE id = $1")
-        .bind(transaction_id)
-        .fetch_one(&state.db)
-        .await?;
+    let (
+        transaction_display_id,
+        total_price,
+        amount_paid,
+        balance_due,
+        rounding_adjustment,
+        metadata,
+    ) = sqlx::query_as::<
+        _,
+        (
+            String,
+            rust_decimal::Decimal,
+            rust_decimal::Decimal,
+            rust_decimal::Decimal,
+            rust_decimal::Decimal,
+            Value,
+        ),
+    >(
+        r#"
+        SELECT
+            display_id,
+            COALESCE(total_price, 0)::numeric(14, 2),
+            COALESCE(amount_paid, 0)::numeric(14, 2),
+            COALESCE(balance_due, 0)::numeric(14, 2),
+            COALESCE(rounding_adjustment, 0)::numeric(14, 2),
+            COALESCE(metadata, '{}'::jsonb)
+        FROM transactions
+        WHERE id = $1
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_one(&state.db)
+    .await?;
 
     let payment_rows = sqlx::query_as::<_, (String, Option<String>, Value)>(
         r#"
@@ -730,6 +807,72 @@ async fn get_transaction_artifacts(
     )
     .collect();
 
+    let allocation_rows = sqlx::query_as::<
+        _,
+        (
+            Uuid,
+            Uuid,
+            Option<String>,
+            rust_decimal::Decimal,
+            String,
+            rust_decimal::Decimal,
+            Option<String>,
+            Option<String>,
+            Value,
+        ),
+    >(
+        r#"
+        WITH related_payment_tx AS (
+            SELECT DISTINCT transaction_id
+            FROM payment_allocations
+            WHERE target_transaction_id = $1
+        )
+        SELECT
+            pa.transaction_id AS payment_transaction_id,
+            pa.target_transaction_id,
+            target.display_id AS target_display_id,
+            COALESCE(pa.amount_allocated, 0)::numeric(14, 2) AS amount_allocated,
+            pt.payment_method,
+            COALESCE(pt.amount, 0)::numeric(14, 2) AS payment_amount,
+            pt.check_number AS payment_check_number,
+            pa.check_number AS allocation_check_number,
+            COALESCE(pa.metadata, '{}'::jsonb) AS allocation_metadata
+        FROM payment_allocations pa
+        INNER JOIN related_payment_tx rpt ON rpt.transaction_id = pa.transaction_id
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        LEFT JOIN transactions target ON target.id = pa.target_transaction_id
+        ORDER BY pt.created_at ASC, pt.id ASC, target.display_id ASC, pa.amount_allocated ASC
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(&state.db)
+    .await?
+    .into_iter()
+    .map(
+        |(
+            payment_transaction_id,
+            target_transaction_id,
+            target_display_id,
+            amount_allocated,
+            payment_method,
+            payment_amount,
+            payment_check_number,
+            allocation_check_number,
+            allocation_metadata,
+        )| TestSupportPaymentAllocationRow {
+            payment_transaction_id,
+            target_transaction_id,
+            target_display_id,
+            amount_allocated: amount_allocated.to_string(),
+            payment_method,
+            payment_amount: payment_amount.to_string(),
+            payment_check_number,
+            allocation_check_number,
+            allocation_metadata,
+        },
+    )
+    .collect();
+
     let record_ids: Vec<Uuid> = sqlx::query_scalar(
         "SELECT id FROM pos_rms_charge_record WHERE transaction_id = $1 ORDER BY created_at ASC",
     )
@@ -748,8 +891,14 @@ async fn get_transaction_artifacts(
 
     Ok(Json(TestSupportTransactionArtifacts {
         transaction_id,
+        transaction_display_id,
+        total_price: total_price.to_string(),
+        amount_paid: amount_paid.to_string(),
+        balance_due: balance_due.to_string(),
+        rounding_adjustment: rounding_adjustment.to_string(),
         metadata,
         payment_rows,
+        allocation_rows,
         rms_records,
     }))
 }
@@ -785,6 +934,244 @@ async fn get_alteration_activity(
     ))
 }
 
+async fn post_seed_qbo_tax_mapping(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<SeedQboTaxMappingRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO qbo_accounts_cache (id, name, account_type, account_number, is_active)
+        VALUES
+            ('E2E_CASH', 'E2E Cash Clearing', 'Bank', 'E2E-1000', true),
+            ('E2E_REVENUE', 'E2E Sales Revenue', 'Income', 'E2E-4000', true),
+            ('E2E_SALES_TAX', 'E2E Sales Tax Payable', 'Other Current Liability', 'E2E-2100', true),
+            ('E2E_CASH_ROUNDING', 'E2E Cash Rounding', 'Income', 'E2E-4090', true)
+        ON CONFLICT (id) DO UPDATE
+        SET name = EXCLUDED.name,
+            account_type = EXCLUDED.account_type,
+            account_number = EXCLUDED.account_number,
+            is_active = true,
+            refreshed_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO qbo_mappings (source_type, source_id, qbo_account_id, qbo_account_name, updated_at)
+        VALUES
+            ('tender', 'cash', 'E2E_CASH', 'E2E Cash Clearing', CURRENT_TIMESTAMP),
+            ('category_revenue', $1, 'E2E_REVENUE', 'E2E Sales Revenue', CURRENT_TIMESTAMP),
+            ('tax', 'SALES_TAX', 'E2E_SALES_TAX', 'E2E Sales Tax Payable', CURRENT_TIMESTAMP)
+        ON CONFLICT (source_type, source_id) DO UPDATE
+        SET qbo_account_id = EXCLUDED.qbo_account_id,
+            qbo_account_name = EXCLUDED.qbo_account_name,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .bind(payload.category_id.to_string())
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO ledger_mappings (internal_key, internal_description, qbo_account_id, updated_at)
+        VALUES ('CASH_ROUNDING', 'E2E cash rounding adjustments', 'E2E_CASH_ROUNDING', CURRENT_TIMESTAMP)
+        ON CONFLICT (internal_key) DO UPDATE
+        SET internal_description = EXCLUDED.internal_description,
+            qbo_account_id = EXCLUDED.qbo_account_id,
+            updated_at = CURRENT_TIMESTAMP
+        "#,
+    )
+    .execute(&state.db)
+    .await?;
+
+    sqlx::query("DELETE FROM qbo_sync_logs WHERE sync_date = $1 AND status = 'pending'")
+        .bind(payload.activity_date)
+        .execute(&state.db)
+        .await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "category_id": payload.category_id,
+        "activity_date": payload.activity_date
+    })))
+}
+
+async fn post_assign_qbo_transaction_date(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboTransactionDateRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload
+        .activity_date
+        .and_hms_opt(15, 0, 0)
+        .ok_or_else(|| TestSupportError::BadRequest("invalid activity_date".to_string()))?
+        .and_utc();
+
+    let mut tx = state.db.begin().await?;
+
+    let updated_orders = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET booked_at = $2,
+            fulfilled_at = CASE WHEN fulfilled_at IS NOT NULL THEN $2 ELSE fulfilled_at END
+        WHERE id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated_orders == 0 {
+        return Err(TestSupportError::BadRequest(
+            "transaction_id not found".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE transaction_lines
+        SET fulfilled_at = CASE WHEN is_fulfilled THEN $2 ELSE fulfilled_at END
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_transactions pt
+        SET created_at = $2
+        FROM payment_allocations pa
+        WHERE pa.transaction_id = pt.id
+          AND pa.target_transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "activity_date": payload.activity_date
+    })))
+}
+
+async fn post_assign_qbo_transaction_timestamp(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboTransactionTimestampRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload.timestamp_utc;
+
+    let mut tx = state.db.begin().await?;
+
+    let updated_orders = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET booked_at = $2,
+            fulfilled_at = CASE WHEN fulfilled_at IS NOT NULL THEN $2 ELSE fulfilled_at END
+        WHERE id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated_orders == 0 {
+        return Err(TestSupportError::BadRequest(
+            "transaction_id not found".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE transaction_lines
+        SET fulfilled_at = CASE WHEN is_fulfilled THEN $2 ELSE fulfilled_at END
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_transactions pt
+        SET created_at = $2
+        FROM payment_allocations pa
+        WHERE pa.transaction_id = pt.id
+          AND pa.target_transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "timestamp_utc": timestamp
+    })))
+}
+
+async fn get_parked_sale_status(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(parked_sale_id): Path<Uuid>,
+) -> Result<Json<TestSupportParkedSaleStatus>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+
+    let (id, register_session_id, status) = sqlx::query_as::<_, (Uuid, Uuid, String)>(
+        r#"
+        SELECT id, register_session_id, status::text
+        FROM pos_parked_sale
+        WHERE id = $1
+        "#,
+    )
+    .bind(parked_sale_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    let audit_actions = sqlx::query_scalar::<_, String>(
+        r#"
+        SELECT action
+        FROM pos_parked_sale_audit
+        WHERE parked_sale_id = $1
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(parked_sale_id)
+    .fetch_all(&state.db)
+    .await?;
+
+    Ok(Json(TestSupportParkedSaleStatus {
+        id,
+        register_session_id,
+        status,
+        audit_actions,
+    }))
+}
+
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/rms/seed-fixture", post(post_seed_fixture))
@@ -796,5 +1183,18 @@ pub fn router() -> Router<AppState> {
         .route(
             "/alterations/{alteration_id}/activity",
             get(get_alteration_activity),
+        )
+        .route("/qbo/seed-tax-mapping", post(post_seed_qbo_tax_mapping))
+        .route(
+            "/qbo/assign-transaction-date",
+            post(post_assign_qbo_transaction_date),
+        )
+        .route(
+            "/qbo/assign-transaction-timestamp",
+            post(post_assign_qbo_transaction_timestamp),
+        )
+        .route(
+            "/parked-sales/{parked_sale_id}",
+            get(get_parked_sale_status),
         )
 }

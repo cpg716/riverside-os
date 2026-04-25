@@ -36,7 +36,11 @@ function adminHeaders(): Record<string, string> {
 }
 
 function nonAdminHeaders(): Record<string, string> {
-  return { "x-riverside-staff-code": e2eNonAdminCode() };
+  const code = e2eNonAdminCode();
+  return {
+    "x-riverside-staff-code": code,
+    "x-riverside-staff-pin": code,
+  };
 }
 
 function utcIsoDaysAgo(days: number): string {
@@ -195,10 +199,10 @@ test.describe("High-risk API regressions", () => {
         failOnStatusCode: false,
       },
     );
-    requireOrSkip(
-      nonAdminStatus.status() !== 401,
-      `Non-admin seed ${e2eNonAdminCode()} missing`,
-    );
+    expect(
+      nonAdminStatus.status(),
+      `Seeded non-admin staff ${e2eNonAdminCode()} must authenticate`,
+    ).not.toBe(401);
     expect(nonAdminStatus.status()).toBe(403);
 
     const adminStatus = await request.get(`${apiBase()}/api/help/admin/ops/status`, {
@@ -310,27 +314,24 @@ test.describe("High-risk API regressions", () => {
     const margin = await request.get(
       `${apiBase()}/api/insights/margin-pivot?group_by=brand&basis=sale`,
       {
-        headers: { "x-riverside-staff-code": code },
+        headers: nonAdminHeaders(),
         failOnStatusCode: false,
       },
     );
 
-    requireOrSkip(margin.status() !== 401, `Non-admin seed ${code} missing`);
+    expect(margin.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
     expect(margin.status()).toBe(403);
 
     const helpReindex = await request.post(
       `${apiBase()}/api/help/admin/ops/reindex-search`,
       {
-        headers: { "x-riverside-staff-code": code },
+        headers: nonAdminHeaders(),
         data: { full_reindex_fallback: true },
         failOnStatusCode: false,
       },
     );
 
-    requireOrSkip(
-      helpReindex.status() !== 401,
-      `Non-admin seed ${code} missing`,
-    );
+    expect(helpReindex.status(), `Seeded non-admin staff ${code} must authenticate`).not.toBe(401);
     expect(helpReindex.status()).toBe(403);
   });
 });

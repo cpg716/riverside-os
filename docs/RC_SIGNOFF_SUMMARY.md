@@ -58,7 +58,7 @@ Local runtime parity for this RC branch expects:
 ## Known limitations
 
 - Remaining direct **`VITE_API_BASE ?? "http://127.0.0.1:3000"`** callsites are not fully centralized yet.
-- The unstable POS UI subset is temporarily quarantined in CI behind `ROS_QUARANTINE_UNSTABLE_POS_E2E=1` while explicit POS testability contracts are implemented.
+- The POS UI subset now uses explicit register-ready and cashier-overlay contracts; CI no longer quarantines those specs.
 
 ## Release-readiness statement
 

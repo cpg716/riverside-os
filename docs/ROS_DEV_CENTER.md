@@ -140,6 +140,8 @@ As of v0.2.1, allowed action keys are:
 
 Unknown keys are rejected and API returns the current allow-list.
 
+`backup.trigger_local` writes to the effective `RIVERSIDE_BACKUP_DIR` location. Runtime Diagnostics exposes the backup directory path and flags whether the host is using an explicit production-safe path or the local development fallback.
+
 ---
 
 ## Alert model

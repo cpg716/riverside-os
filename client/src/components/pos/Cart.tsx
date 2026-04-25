@@ -1263,6 +1263,10 @@ export default function Cart({
   return (
     <div
       className="relative grid h-full w-full bg-app-bg overflow-hidden"
+      data-testid="pos-register-cart-shell"
+      data-sale-hydrated={saleHydrated ? "true" : "false"}
+      data-cashier-blocked={!checkoutOperator ? "true" : "false"}
+      data-register-ready={saleHydrated && !!checkoutOperator ? "true" : "false"}
       style={{
         gridTemplateColumns: "minmax(0, 1fr) clamp(332px, 25vw, 376px)",
       }}

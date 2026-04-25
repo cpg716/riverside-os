@@ -7,6 +7,8 @@
 use rust_decimal::Decimal;
 use rust_decimal::RoundingStrategy;
 use rust_decimal_macros::dec;
+use serde::de::{self, Visitor};
+use std::fmt;
 
 /// Net price must be **strictly less than** this amount (USD) for the exemption criteria (§3.3).
 pub const CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_USD: Decimal = dec!(110.00);
@@ -24,9 +26,7 @@ pub const FULL_COMBINED_SALES_TAX_RATE: Decimal = dec!(0.0875);
 pub const LOCAL_ONLY_COMBINED_SALES_TAX_RATE: Decimal = dec!(0.0475);
 
 /// Product tax classification for Publication 718-C.
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, sqlx::Type,
-)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, sqlx::Type)]
 #[sqlx(type_name = "tax_category", rename_all = "lowercase")]
 #[serde(rename_all = "lowercase")]
 pub enum TaxCategory {
@@ -36,6 +36,42 @@ pub enum TaxCategory {
     Service,
     /// Any other category (mapped to full state + local).
     Other,
+}
+
+impl<'de> serde::Deserialize<'de> for TaxCategory {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        struct TaxCategoryVisitor;
+
+        impl Visitor<'_> for TaxCategoryVisitor {
+            type Value = TaxCategory;
+
+            fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+                formatter.write_str("a tax category string")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                match value.trim().to_ascii_lowercase().as_str() {
+                    "clothing" => Ok(TaxCategory::Clothing),
+                    "footwear" => Ok(TaxCategory::Footwear),
+                    "accessory" => Ok(TaxCategory::Accessory),
+                    "service" => Ok(TaxCategory::Service),
+                    "other" => Ok(TaxCategory::Other),
+                    _ => Err(E::unknown_variant(
+                        value,
+                        &["clothing", "footwear", "accessory", "service", "other"],
+                    )),
+                }
+            }
+        }
+
+        deserializer.deserialize_str(TaxCategoryVisitor)
+    }
 }
 
 impl TaxCategory {
@@ -175,6 +211,18 @@ mod tests {
         assert_eq!(
             nys_erie_combined_rate(TaxCategory::Other, net),
             FULL_COMBINED_SALES_TAX_RATE
+        );
+    }
+
+    #[test]
+    fn tax_category_json_is_case_insensitive() {
+        assert_eq!(
+            serde_json::from_str::<TaxCategory>("\"Clothing\"").unwrap(),
+            TaxCategory::Clothing
+        );
+        assert_eq!(
+            serde_json::from_str::<TaxCategory>("\" FOOTWEAR \"").unwrap(),
+            TaxCategory::Footwear
         );
     }
 }

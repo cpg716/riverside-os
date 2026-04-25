@@ -608,8 +608,13 @@ export default function RmsChargeAdminSection({
           }),
         },
       );
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      const body = (await res.json().catch(() => ({}))) as RmsExceptionRow & { error?: string };
       if (!res.ok) throw new Error(body.error ?? "We couldn't claim this RMS issue.");
+      if (body.id) {
+        setExceptions((current) =>
+          current.map((row) => (row.id === body.id ? { ...row, ...body } : row)),
+        );
+      }
       toast("RMS issue assigned to you.", "success");
       await loadOperationalData();
     } catch (error) {
@@ -740,6 +745,15 @@ export default function RmsChargeAdminSection({
       toast(error instanceof Error ? error.message : "We couldn't remove this account link. Please try again.", "error");
     }
   }, [apiAuth, loadAccounts, toast]);
+
+  const displayExceptions = useMemo(() => {
+    if (!staffId) return exceptions;
+    return [...exceptions].sort((a, b) => {
+      const aMine = a.assigned_to_staff_id === staffId ? 0 : 1;
+      const bMine = b.assigned_to_staff_id === staffId ? 0 : 1;
+      return aMine - bMine;
+    });
+  }, [exceptions, staffId]);
 
   return (
     <div className="ui-page flex min-h-0 flex-1 flex-col p-6">
@@ -1153,7 +1167,7 @@ export default function RmsChargeAdminSection({
               ) : exceptions.length === 0 ? (
                 <div className="rounded-xl border border-app-border bg-app-bg p-4 text-sm text-app-text-muted">No active RMS Charge exceptions.</div>
               ) : (
-                exceptions.slice(0, 8).map((exception) => (
+                displayExceptions.map((exception) => (
                   <div key={exception.id} className="rounded-xl border border-app-border bg-app-bg p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
@@ -1492,8 +1506,8 @@ export default function RmsChargeAdminSection({
                       </div>
                     ))
                   : null}
-                {activeWorkspaceTab === "exceptions" && exceptions.length > 0
-                  ? exceptions.map((row) => (
+                {activeWorkspaceTab === "exceptions" && displayExceptions.length > 0
+                  ? displayExceptions.map((row) => (
                       <div key={row.id} className="rounded-xl border border-app-border bg-app-bg p-4">
                         <div className="flex items-center justify-between gap-3">
                           <div>

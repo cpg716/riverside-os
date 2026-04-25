@@ -57,6 +57,10 @@ export default function PosSaleCashierSignInOverlay({
   return (
     <div
       className="fixed inset-0 z-[120] flex min-h-[100dvh] flex-col items-center justify-center bg-app-bg p-4 font-sans antialiased sm:p-6"
+      data-testid="pos-sale-cashier-overlay"
+      data-roster-ready={roster.length > 0 ? "true" : "false"}
+      data-staff-selected={selectedStaffId ? "true" : "false"}
+      data-pin-entry-ready={!busy && selectedStaffId ? "true" : "false"}
       style={{
         paddingBottom: "max(1rem, env(safe-area-inset-bottom))",
         paddingTop: "max(1rem, env(safe-area-inset-top))",
@@ -147,6 +151,7 @@ export default function PosSaleCashierSignInOverlay({
             <button
               type="button"
               disabled={busy || credential.length !== 4}
+              data-testid="pos-sale-cashier-continue"
               onClick={() => onVerify()}
               className="ui-btn-primary h-14 flex-[2] text-sm font-black disabled:opacity-50"
             >

@@ -74,11 +74,27 @@ type CheckoutResponse = {
 
 export type TransactionArtifacts = {
   transaction_id: string;
+  transaction_display_id: string;
+  total_price: string;
+  amount_paid: string;
+  balance_due: string;
+  rounding_adjustment: string;
   metadata: Record<string, unknown>;
   payment_rows: Array<{
     payment_method: string;
     check_number?: string | null;
     metadata: Record<string, unknown>;
+  }>;
+  allocation_rows: Array<{
+    payment_transaction_id: string;
+    target_transaction_id: string;
+    target_display_id?: string | null;
+    amount_allocated: string;
+    payment_method: string;
+    payment_amount: string;
+    payment_check_number?: string | null;
+    allocation_check_number?: string | null;
+    allocation_metadata: Record<string, unknown>;
   }>;
   rms_records: Array<{
     id: string;
@@ -498,12 +514,18 @@ export async function postCoreCardWebhook(
 }
 
 export async function openCustomersRmsWorkspace(page: Page) {
+  await page.evaluate(() => {
+    localStorage.removeItem("ros_api_base_override");
+  });
   await openBackofficeSidebarTab(page, "customers");
   await page.getByRole("button", { name: /^RMS Charge$/i }).click();
   await expect(page.getByText(/RMS Charge/i).first()).toBeVisible({ timeout: 15_000 });
 }
 
 export async function openPosRmsWorkspace(page: Page) {
+  await page.evaluate(() => {
+    localStorage.removeItem("ros_api_base_override");
+  });
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
   if (!(await posNav.isVisible().catch(() => false))) {
     await enterPosShell(page);

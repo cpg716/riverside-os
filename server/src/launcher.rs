@@ -458,6 +458,13 @@ async fn launch_server_inner(
         );
     }
 
+    if config.strict_production {
+        crate::api::qbo::validate_qbo_token_key_for_startup()
+            .map_err(|e| format!("Strict production QBO token configuration failed: {e}"))?;
+        crate::logic::backups::validate_backup_dir_for_startup(config.strict_production)
+            .map_err(|e| format!("Strict production backup directory failed: {e}"))?;
+    }
+
     let cors = if cors_header_values.is_empty() {
         tracing::warn!(
             "CORS allow_origin(Any) enabled; set RIVERSIDE_CORS_ORIGINS and RIVERSIDE_STRICT_PRODUCTION=true for production browser deployments"

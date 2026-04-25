@@ -1,12 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
+  attachNewCustomerToSale,
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
 } from "./helpers/openPosRegister";
-
-const quarantineUnstablePosUi =
-  process.env.ROS_QUARANTINE_UNSTABLE_POS_E2E === "1";
 
 /**
  * Tax Exempt & Stripe Branding E2E Spec.
@@ -71,11 +69,6 @@ async function openPaymentLedger(
 }
 
 test.describe("Tax Exempt and Stripe Branding", () => {
-  test.skip(
-    quarantineUnstablePosUi,
-    "Temporarily quarantined in CI due to shared POS register-ready / cashier-overlay instability. See docs/POS_E2E_TESTABILITY_FOLLOWUP.md.",
-  );
-
   test("checkout drawer uses STRIPE branding and supports audited tax exemption", async ({
     page,
   }) => {
@@ -113,12 +106,13 @@ test.describe("Tax Exempt and Stripe Branding", () => {
 
     // 4. Verify linking a customer enables STRIPE VAULT branding
     await drawer.getByLabel("Close drawer").last().click();
-    
-    await page.getByRole("button", { name: /quick add/i }).click();
-    await page.getByPlaceholder("First Name").fill("Audited");
-    await page.getByPlaceholder("Last Name").fill("Customer");
-    await page.getByPlaceholder("Phone Number").fill("7165559999");
-    await page.getByRole("button", { name: /add & select/i }).click();
+
+    await attachNewCustomerToSale(page, {
+      firstName: "Audited",
+      lastName: "Customer",
+      phone: "7165559999",
+      email: `e2e-tax-${Date.now()}@example.com`,
+    });
     
     await openPaymentLedger(page);
     await expect(drawer.getByRole("button", { name: /STRIPE VAULT/i })).toBeVisible();

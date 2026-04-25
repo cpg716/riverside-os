@@ -127,6 +127,7 @@ export default function PosSidebar({
                 >
                   <button
                     type="button"
+                    data-testid={`pos-sidebar-tab-${tab.id}`}
                     onClick={() => onTabChange(tab.id)}
                     onDoubleClick={() => onToggleCollapse()}
                     aria-label={tab.label}

@@ -375,6 +375,14 @@ pub async fn runtime_diagnostics_snapshot(
         "Weather surfaces will use deterministic mock weather fallback.".to_string()
     };
     let weather_severity = if weather_live { "info" } else { "warning" };
+    let backup_dir = crate::logic::backups::backup_directory_info(strict_production);
+    let backup_dir_detail = if backup_dir.configured {
+        "Local backups use the explicit RIVERSIDE_BACKUP_DIR path.".to_string()
+    } else if strict_production {
+        "Strict production requires RIVERSIDE_BACKUP_DIR before startup can pass.".to_string()
+    } else {
+        "Local development is using the relative backups/ fallback.".to_string()
+    };
 
     Ok(RuntimeDiagnosticsSnapshot {
         generated_at: Utc::now(),
@@ -432,6 +440,17 @@ pub async fn runtime_diagnostics_snapshot(
                 value: weather_value.to_string(),
                 detail: weather_detail,
                 severity: weather_severity.to_string(),
+            },
+            RuntimeDiagnosticItem {
+                key: "backup_directory".to_string(),
+                label: "Backup Directory".to_string(),
+                value: backup_dir.path,
+                detail: backup_dir_detail,
+                severity: if backup_dir.configured {
+                    "info".to_string()
+                } else {
+                    "warning".to_string()
+                },
             },
         ],
     })

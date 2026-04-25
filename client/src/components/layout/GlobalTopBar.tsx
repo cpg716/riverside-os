@@ -111,7 +111,7 @@ export default function GlobalTopBar({
     () => mergedPosStaffHeaders(backofficeHeaders),
     [backofficeHeaders],
   );
-  const { isOnline, queueCount } = useOfflineSync(baseUrl, apiAuth);
+  const { isOnline, queueCount, pendingCount, blockedCount } = useOfflineSync(baseUrl, apiAuth);
   
   const isTailscaleRemote = useMemo(() => {
     if (typeof window === "undefined") return false;
@@ -311,18 +311,29 @@ export default function GlobalTopBar({
           )}
           {queueCount > 0 && (
             <div
-              className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800 dark:text-amber-200"
-              title={`${queueCount} completed POS checkout${queueCount === 1 ? "" : "s"} waiting to sync when connectivity returns.`}
+              className={cn(
+                "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-widest",
+                blockedCount > 0
+                  ? "border-rose-500/30 bg-rose-500/10 text-rose-700 dark:text-rose-200"
+                  : "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200",
+              )}
+              title={
+                blockedCount > 0
+                  ? `${blockedCount} completed POS checkout${blockedCount === 1 ? "" : "s"} need manager recovery. ${pendingCount} still pending sync.`
+                  : `${pendingCount} completed POS checkout${pendingCount === 1 ? "" : "s"} waiting to sync when connectivity returns.`
+              }
             >
-              <div className="h-2 w-2 rounded-full bg-amber-500 animate-pulse" />
+              <div className={cn("h-2 w-2 rounded-full animate-pulse", blockedCount > 0 ? "bg-rose-500" : "bg-amber-500")} />
               <span className="sm:hidden">
-                {queueCount} sync{queueCount === 1 ? "" : "s"}
+                {blockedCount > 0 ? `${blockedCount} blocked` : `${pendingCount} sync${pendingCount === 1 ? "" : "s"}`}
               </span>
               <span className="hidden lg:inline">
-                {queueCount} pending sync{queueCount === 1 ? "" : "s"}
+                {blockedCount > 0
+                  ? `${blockedCount} blocked checkout${blockedCount === 1 ? "" : "s"}`
+                  : `${pendingCount} pending sync${pendingCount === 1 ? "" : "s"}`}
               </span>
               <span className="hidden sm:inline lg:hidden">
-                {queueCount} pending
+                {blockedCount > 0 ? `${blockedCount} blocked` : `${pendingCount} pending`}
               </span>
             </div>
           )}

@@ -247,9 +247,8 @@ async fn snapshot_stock(
     exclude_reserved: bool,
     exclude_layaway: bool,
 ) -> Result<()> {
-    let stock_expr = "pv.stock_on_hand - (CASE WHEN $3 THEN pv.reserved_stock ELSE 0 END) - (CASE WHEN $4 THEN pv.on_layaway ELSE 0 END)".to_string();
-
     if scope == "category" && !category_ids.is_empty() {
+        let stock_expr = "pv.stock_on_hand - (CASE WHEN $3 THEN pv.reserved_stock ELSE 0 END) - (CASE WHEN $4 THEN pv.on_layaway ELSE 0 END)";
         let sql = format!(
             r#"
             INSERT INTO physical_inventory_snapshots (session_id, variant_id, stock_at_start)
@@ -270,6 +269,7 @@ async fn snapshot_stock(
             .await
             .context("Failed to snapshot scoped stock")?;
     } else {
+        let stock_expr = "pv.stock_on_hand - (CASE WHEN $2 THEN pv.reserved_stock ELSE 0 END) - (CASE WHEN $3 THEN pv.on_layaway ELSE 0 END)";
         let sql = format!(
             r#"
             INSERT INTO physical_inventory_snapshots (session_id, variant_id, stock_at_start)
@@ -282,8 +282,8 @@ async fn snapshot_stock(
         );
         sqlx::query(&sql)
             .bind(session_id)
-            .bind(exclude_reserved) // note: $2 in full scope query
-            .bind(exclude_layaway) // note: $3 in full scope query
+            .bind(exclude_reserved)
+            .bind(exclude_layaway)
             .execute(&mut **tx)
             .await
             .context("Failed to snapshot full stock")?;

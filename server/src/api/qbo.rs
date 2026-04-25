@@ -10,11 +10,14 @@ use axum::{
 use base64::{engine::general_purpose, Engine as _};
 use chrono::{DateTime, NaiveDate, Utc};
 use reqwest::Client;
+use ring::aead::{self, Aad, LessSafeKey, UnboundKey};
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use sqlx::{FromRow, PgPool};
 use std::env;
+use std::str::FromStr;
 use thiserror::Error;
 use uuid::Uuid;
 
@@ -24,6 +27,10 @@ use crate::auth::pins::log_staff_access;
 use crate::logic::integration_alerts::{record_integration_failure, record_integration_success};
 use crate::logic::qbo_journal;
 use crate::middleware::require_staff_with_permission;
+
+const DEFAULT_QBO_TOKEN_KEY: &str = "riverside-dev-token-key-change-me";
+const QBO_TOKEN_KEY_MIN_LEN: usize = 32;
+const QBO_TOKEN_AEAD_PREFIX: &str = "v2:";
 
 #[derive(Debug, Error)]
 pub enum QboError {
@@ -204,6 +211,82 @@ pub async fn get_mapping(pool: &PgPool, key: &str) -> Result<String, sqlx::Error
         .await
 }
 
+fn json_decimal(v: &serde_json::Value) -> Option<Decimal> {
+    if let Some(s) = v.as_str() {
+        return Decimal::from_str(s.trim()).ok();
+    }
+    v.as_number()
+        .and_then(|n| Decimal::from_str(&n.to_string()).ok())
+}
+
+fn validate_staging_journal_balanced(payload: &serde_json::Value) -> Result<(), QboError> {
+    let totals_balanced = payload
+        .get("totals")
+        .and_then(|v| v.get("balanced"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    if !totals_balanced {
+        return Err(QboError::Conflict(
+            "QBO staging journal is not balanced. Fix mappings and regenerate before approval or sync."
+                .to_string(),
+        ));
+    }
+
+    let lines = payload
+        .get("lines")
+        .and_then(|v| v.as_array())
+        .ok_or_else(|| QboError::InvalidPayload("staging payload has no lines".to_string()))?;
+
+    let mut debits = Decimal::ZERO;
+    let mut credits = Decimal::ZERO;
+    let mut postable_count = 0usize;
+
+    for line in lines {
+        let account_id = line
+            .get("qbo_account_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if account_id.is_empty() {
+            continue;
+        }
+
+        let debit = line
+            .get("debit")
+            .and_then(json_decimal)
+            .unwrap_or(Decimal::ZERO)
+            .abs();
+        let credit = line
+            .get("credit")
+            .and_then(json_decimal)
+            .unwrap_or(Decimal::ZERO)
+            .abs();
+
+        if debit != Decimal::ZERO {
+            debits += debit;
+            postable_count += 1;
+        } else if credit != Decimal::ZERO {
+            credits += credit;
+            postable_count += 1;
+        }
+    }
+
+    if postable_count == 0 {
+        return Err(QboError::InvalidPayload(
+            "staging payload has no postable journal lines".to_string(),
+        ));
+    }
+
+    if debits != credits {
+        return Err(QboError::Conflict(format!(
+            "QBO staging journal postable lines are not balanced (debits {debits:.2}, credits {credits:.2}). Fix missing mappings and regenerate before approval or sync."
+        )));
+    }
+
+    Ok(())
+}
+
 fn mask_client_id(s: &str) -> String {
     let t = s.trim();
     if t.len() <= 4 {
@@ -294,12 +377,44 @@ struct OAuthTokenResponse {
     expires_in: i64,
 }
 
-fn token_cipher_key() -> Vec<u8> {
-    let key = env::var("QBO_TOKEN_ENC_KEY")
-        .unwrap_or_else(|_| "riverside-dev-token-key-change-me".to_string());
+fn env_truthy(key: &str) -> bool {
+    env::var(key)
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn validate_qbo_token_key_configured() -> Result<String, QboError> {
+    let key = env::var("QBO_TOKEN_ENC_KEY").unwrap_or_default();
+    let trimmed = key.trim();
+    if trimmed.len() < QBO_TOKEN_KEY_MIN_LEN || trimmed == DEFAULT_QBO_TOKEN_KEY {
+        return Err(QboError::InvalidPayload(format!(
+            "QBO_TOKEN_ENC_KEY must be set to a non-default secret at least {QBO_TOKEN_KEY_MIN_LEN} characters long before QuickBooks credentials can be activated."
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+pub fn validate_qbo_token_key_for_startup() -> Result<(), QboError> {
+    if env_truthy("RIVERSIDE_STRICT_PRODUCTION") {
+        validate_qbo_token_key_configured()?;
+    }
+    Ok(())
+}
+
+fn qbo_token_key_material(require_configured: bool) -> Result<Vec<u8>, QboError> {
+    let key = if require_configured || env_truthy("RIVERSIDE_STRICT_PRODUCTION") {
+        validate_qbo_token_key_configured()?
+    } else {
+        env::var("QBO_TOKEN_ENC_KEY").unwrap_or_else(|_| DEFAULT_QBO_TOKEN_KEY.to_string())
+    };
     let mut hasher = Sha256::new();
     hasher.update(key.as_bytes());
-    hasher.finalize().to_vec()
+    Ok(hasher.finalize().to_vec())
 }
 
 fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
@@ -309,15 +424,52 @@ fn xor_crypt(data: &[u8], key: &[u8]) -> Vec<u8> {
         .collect()
 }
 
-fn encrypt_token(plain: &str) -> String {
-    let key = token_cipher_key();
-    let raw = xor_crypt(plain.as_bytes(), &key);
-    general_purpose::STANDARD.encode(raw)
+fn encrypt_token(plain: &str) -> Result<String, QboError> {
+    let key_material = qbo_token_key_material(true)?;
+    let unbound = UnboundKey::new(&aead::CHACHA20_POLY1305, &key_material).map_err(|_| {
+        QboError::InvalidPayload("failed to initialize QBO token encryption".to_string())
+    })?;
+    let key = LessSafeKey::new(unbound);
+    let nonce_uuid = Uuid::new_v4();
+    let mut nonce_bytes = [0u8; 12];
+    nonce_bytes.copy_from_slice(&nonce_uuid.as_bytes()[..12]);
+    let nonce = aead::Nonce::assume_unique_for_key(nonce_bytes);
+    let mut in_out = plain.as_bytes().to_vec();
+    key.seal_in_place_append_tag(nonce, Aad::from(b"riverside-os-qbo-token-v2"), &mut in_out)
+        .map_err(|_| QboError::InvalidPayload("failed to encrypt QBO token".to_string()))?;
+    let mut packed = nonce_bytes.to_vec();
+    packed.extend_from_slice(&in_out);
+    Ok(format!(
+        "{QBO_TOKEN_AEAD_PREFIX}{}",
+        general_purpose::STANDARD.encode(packed)
+    ))
 }
 
 fn decrypt_token(cipher: &str) -> Option<String> {
-    let key = token_cipher_key();
-    let decoded = general_purpose::STANDARD.decode(cipher).ok()?;
+    let trimmed = cipher.trim();
+    if let Some(encoded) = trimmed.strip_prefix(QBO_TOKEN_AEAD_PREFIX) {
+        let key_material = qbo_token_key_material(true).ok()?;
+        let decoded = general_purpose::STANDARD.decode(encoded).ok()?;
+        if decoded.len() <= 12 {
+            return None;
+        }
+        let mut nonce_bytes = [0u8; 12];
+        nonce_bytes.copy_from_slice(&decoded[..12]);
+        let mut in_out = decoded[12..].to_vec();
+        let unbound = UnboundKey::new(&aead::CHACHA20_POLY1305, &key_material).ok()?;
+        let key = LessSafeKey::new(unbound);
+        let plain = key
+            .open_in_place(
+                aead::Nonce::assume_unique_for_key(nonce_bytes),
+                Aad::from(b"riverside-os-qbo-token-v2"),
+                &mut in_out,
+            )
+            .ok()?;
+        return String::from_utf8(plain.to_vec()).ok();
+    }
+
+    let key = qbo_token_key_material(true).ok()?;
+    let decoded = general_purpose::STANDARD.decode(trimmed).ok()?;
     let raw = xor_crypt(&decoded, &key);
     String::from_utf8(raw).ok()
 }
@@ -392,8 +544,8 @@ async fn refresh_access_token(
         .await
         .map_err(|e| QboError::Conflict(format!("invalid refresh response: {e}")))?;
     let refresh_plain = body.refresh_token.clone().unwrap_or(refresh_token);
-    let enc_access = encrypt_token(&body.access_token);
-    let enc_refresh = encrypt_token(&refresh_plain);
+    let enc_access = encrypt_token(&body.access_token)?;
+    let enc_refresh = encrypt_token(&refresh_plain)?;
     sqlx::query(
         r#"
         UPDATE qbo_integration
@@ -522,6 +674,7 @@ async fn put_credentials(
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
     let use_sandbox = body.use_sandbox.unwrap_or(true);
+    validate_qbo_token_key_configured()?;
 
     let company = realm.clone().unwrap_or_else(|| "pending".to_string());
 
@@ -653,8 +806,8 @@ async fn oauth_callback(
     )
     .bind(r.id)
     .bind(realm)
-    .bind(encrypt_token(&body.access_token))
-    .bind(encrypt_token(body.refresh_token.as_deref().unwrap_or("")))
+    .bind(encrypt_token(&body.access_token)?)
+    .bind(encrypt_token(body.refresh_token.as_deref().unwrap_or(""))?)
     .bind(body.expires_in)
     .execute(&state.db)
     .await?;
@@ -1105,6 +1258,22 @@ async fn approve_staging(
     let admin = require_staff_with_permission(&state, &headers, QBO_STAGING_APPROVE)
         .await
         .map_err(|_| QboError::Forbidden)?;
+    let row: Option<(String, serde_json::Value)> =
+        sqlx::query_as("SELECT status, payload FROM qbo_sync_logs WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.db)
+            .await?;
+
+    let Some((status, payload)) = row else {
+        return Err(QboError::NotFound);
+    };
+    if status != "pending" {
+        return Err(QboError::Conflict(
+            "only pending entries can be approved".to_string(),
+        ));
+    }
+    validate_staging_journal_balanced(&payload)?;
+
     let n = sqlx::query(
         r#"
         UPDATE qbo_sync_logs
@@ -1118,7 +1287,7 @@ async fn approve_staging(
     .rows_affected();
     if n == 0 {
         return Err(QboError::Conflict(
-            "only pending entries can be approved".to_string(),
+            "staging entry changed before approval; reload and try again".to_string(),
         ));
     }
     let _ = log_staff_access(
@@ -1182,7 +1351,7 @@ async fn staging_drilldown(
                 SUM(pa.amount_allocated)::numeric(14,2) AS amount
             FROM payment_allocations pa
             INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
-            WHERE (pt.created_at AT TIME ZONE 'UTC')::date = $1::date
+            WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
               AND pt.payment_method = $2
               AND ($3::text IS NULL OR NULLIF(TRIM(COALESCE(pt.metadata->>'sub_type', '')), '') = $3)
             GROUP BY pa.target_transaction_id
@@ -1219,7 +1388,7 @@ async fn staging_drilldown(
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
                 WHERE o.fulfilled_at IS NOT NULL
-                  AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+                  AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
                   AND p.category_id = $2
                 GROUP BY oi.transaction_id
                 ORDER BY amount DESC
@@ -1239,7 +1408,7 @@ async fn staging_drilldown(
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
                 WHERE o.fulfilled_at IS NOT NULL
-                  AND (o.fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+                  AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
                   AND p.category_id IS NULL
                 GROUP BY oi.transaction_id
                 ORDER BY amount DESC
@@ -1268,7 +1437,7 @@ async fn staging_drilldown(
                     SELECT id
                     FROM transactions
                     WHERE fulfilled_at IS NOT NULL
-                      AND (fulfilled_at AT TIME ZONE 'UTC')::date = $1::date
+                      AND (fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
                 ),
                 order_deposit AS (
                     SELECT
@@ -1349,6 +1518,7 @@ async fn sync_staging(
             "only approved entries can be pushed to QBO".to_string(),
         ));
     }
+    validate_staging_journal_balanced(&payload)?;
 
     let integ = integration_row(&state.db)
         .await?
@@ -1528,4 +1698,125 @@ async fn sync_staging(
         "status": "synced",
         "journal_entry_id": je_id
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> &'static Mutex<()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+    }
+
+    fn with_qbo_token_env<T>(key: Option<&str>, strict: Option<&str>, f: impl FnOnce() -> T) -> T {
+        let _guard = env_lock().lock().expect("env lock poisoned");
+        let previous_key = env::var("QBO_TOKEN_ENC_KEY").ok();
+        let previous_strict = env::var("RIVERSIDE_STRICT_PRODUCTION").ok();
+
+        match key {
+            Some(value) => env::set_var("QBO_TOKEN_ENC_KEY", value),
+            None => env::remove_var("QBO_TOKEN_ENC_KEY"),
+        }
+        match strict {
+            Some(value) => env::set_var("RIVERSIDE_STRICT_PRODUCTION", value),
+            None => env::remove_var("RIVERSIDE_STRICT_PRODUCTION"),
+        }
+
+        let result = f();
+
+        match previous_key {
+            Some(value) => env::set_var("QBO_TOKEN_ENC_KEY", value),
+            None => env::remove_var("QBO_TOKEN_ENC_KEY"),
+        }
+        match previous_strict {
+            Some(value) => env::set_var("RIVERSIDE_STRICT_PRODUCTION", value),
+            None => env::remove_var("RIVERSIDE_STRICT_PRODUCTION"),
+        }
+
+        result
+    }
+
+    fn balanced_payload() -> serde_json::Value {
+        json!({
+            "totals": {
+                "debits": "25.00",
+                "credits": "25.00",
+                "balanced": true
+            },
+            "lines": [
+                {
+                    "qbo_account_id": "101",
+                    "qbo_account_name": "Cash",
+                    "debit": "25.00",
+                    "credit": "0.00"
+                },
+                {
+                    "qbo_account_id": "401",
+                    "qbo_account_name": "Sales",
+                    "debit": "0.00",
+                    "credit": "25.00"
+                }
+            ]
+        })
+    }
+
+    #[test]
+    fn balanced_staging_payload_passes_gate() {
+        assert!(validate_staging_journal_balanced(&balanced_payload()).is_ok());
+    }
+
+    #[test]
+    fn totals_unbalanced_payload_fails_gate() {
+        let mut payload = balanced_payload();
+        payload["totals"]["balanced"] = json!(false);
+
+        let err = validate_staging_journal_balanced(&payload).unwrap_err();
+        assert!(matches!(err, QboError::Conflict(_)));
+    }
+
+    #[test]
+    fn missing_mapping_that_unbalances_postable_lines_fails_gate() {
+        let mut payload = balanced_payload();
+        payload["lines"][1]["qbo_account_id"] = json!("");
+
+        let err = validate_staging_journal_balanced(&payload).unwrap_err();
+        assert!(matches!(err, QboError::Conflict(_)));
+    }
+
+    #[test]
+    fn strict_production_rejects_missing_or_default_qbo_token_key() {
+        with_qbo_token_env(None, Some("true"), || {
+            assert!(validate_qbo_token_key_for_startup().is_err());
+        });
+
+        with_qbo_token_env(Some(DEFAULT_QBO_TOKEN_KEY), Some("true"), || {
+            assert!(validate_qbo_token_key_for_startup().is_err());
+        });
+    }
+
+    #[test]
+    fn qbo_token_encryption_requires_configured_key_and_round_trips_v2() {
+        with_qbo_token_env(
+            Some("test-qbo-token-key-32-characters-minimum-value"),
+            None,
+            || {
+                let encrypted = encrypt_token("refresh-token-secret").expect("encrypt token");
+                assert!(encrypted.starts_with(QBO_TOKEN_AEAD_PREFIX));
+                assert_ne!(encrypted, "refresh-token-secret");
+                assert_eq!(
+                    decrypt_token(&encrypted).as_deref(),
+                    Some("refresh-token-secret")
+                );
+            },
+        );
+    }
+
+    #[test]
+    fn qbo_token_encryption_rejects_default_key_even_outside_strict_mode() {
+        with_qbo_token_env(Some(DEFAULT_QBO_TOKEN_KEY), None, || {
+            assert!(encrypt_token("secret").is_err());
+        });
+    }
 }

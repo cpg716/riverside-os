@@ -270,7 +270,13 @@ export default function PosShell({
   ]);
 
   return (
-    <div className="flex flex-1 w-full bg-app-bg font-sans antialiased transition-colors duration-300">
+    <div
+      className="flex flex-1 w-full bg-app-bg font-sans antialiased transition-colors duration-300"
+      data-testid="pos-shell-root"
+      data-pos-active-tab={activePosTab}
+      data-register-open={isRegisterOpen ? "true" : "false"}
+      data-register-session-ready={isRegisterOpen && sessionId ? "true" : "false"}
+    >
       <PosSidebar
         activeTab={activePosTab}
         onTabChange={setActivePosTab}
@@ -299,7 +305,13 @@ export default function PosShell({
             ))}
 
           {(activePosTab === "register") && (
-            <div className="relative flex min-h-0 flex-1 flex-col">
+            <div
+              className="relative flex min-h-0 flex-1 flex-col"
+              data-testid="pos-register-panel"
+              data-register-state={
+                !isRegisterOpen ? "needs-open" : sessionId ? "mounted" : "missing-session"
+              }
+            >
               {!isRegisterOpen ? ( <RegisterOverlay onSessionOpened={handleSessionOpenedWithAuth} /> ) : sessionId ? (
                 <Cart
                   sessionId={sessionId}

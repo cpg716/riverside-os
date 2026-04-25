@@ -25,4 +25,10 @@ VALUES (
     NULL,
     'ros_default'
 )
-ON CONFLICT (cashier_code) DO NOTHING;
+ON CONFLICT (cashier_code) DO UPDATE SET
+    full_name = EXCLUDED.full_name,
+    base_commission_rate = EXCLUDED.base_commission_rate,
+    is_active = EXCLUDED.is_active,
+    role = EXCLUDED.role,
+    pin_hash = EXCLUDED.pin_hash,
+    avatar_key = EXCLUDED.avatar_key;

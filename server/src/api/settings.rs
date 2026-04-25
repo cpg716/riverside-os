@@ -48,6 +48,8 @@ pub enum SettingsError {
     #[error("Backup error: {0}")]
     Backup(String),
     #[error("{0}")]
+    Conflict(String),
+    #[error("{0}")]
     InvalidPayload(String),
     #[error("{0}")]
     Unauthorized(String),
@@ -84,6 +86,7 @@ impl IntoResponse for SettingsError {
         let (status, msg) = match self {
             SettingsError::InvalidPayload(m) => (StatusCode::BAD_REQUEST, m),
             SettingsError::Backup(m) => (StatusCode::INTERNAL_SERVER_ERROR, m),
+            SettingsError::Conflict(m) => (StatusCode::CONFLICT, m),
             SettingsError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             SettingsError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             SettingsError::Database(e) => {
@@ -98,8 +101,92 @@ impl IntoResponse for SettingsError {
     }
 }
 
+#[derive(Debug, Deserialize)]
+struct RestoreBackupRequest {
+    confirmation_filename: String,
+}
+
+#[derive(Debug, Serialize)]
+struct BackupSettingsResponse {
+    #[serde(flatten)]
+    settings: BackupSettings,
+    backup_dir: String,
+    backup_dir_configured: bool,
+    backup_dir_explicit_required: bool,
+}
+
+fn env_truthy(key: &str) -> bool {
+    std::env::var(key)
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false)
+}
+
+fn validate_restore_confirmation(
+    filename: &str,
+    confirmation_filename: Option<&str>,
+) -> Result<(), SettingsError> {
+    let Some(confirmation_filename) = confirmation_filename else {
+        return Err(SettingsError::InvalidPayload(
+            "Restore requires confirmation_filename matching the selected backup.".to_string(),
+        ));
+    };
+    if confirmation_filename.trim() != filename {
+        return Err(SettingsError::InvalidPayload(
+            "Restore confirmation must exactly match the selected backup filename.".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_restore_environment(
+    strict_production: bool,
+    allow_production_restore: bool,
+) -> Result<(), SettingsError> {
+    if strict_production && !allow_production_restore {
+        return Err(SettingsError::Conflict(
+            "Production restore is locked. Restore into a non-production drill database, or set RIVERSIDE_ALLOW_PRODUCTION_RESTORE=true for an approved emergency window."
+                .to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_restore_register_blocker(open_register_count: i64) -> Result<(), SettingsError> {
+    if open_register_count > 0 {
+        return Err(SettingsError::Conflict(format!(
+            "Restore blocked: {open_register_count} register session(s) are open or reconciling. Close all registers before restoring."
+        )));
+    }
+    Ok(())
+}
+
+fn validate_restore_catalog_membership(exists_in_catalog: bool) -> Result<(), SettingsError> {
+    if !exists_in_catalog {
+        return Err(SettingsError::InvalidPayload(
+            "Backup file is not in the local backup catalog".to_string(),
+        ));
+    }
+    Ok(())
+}
+
 pub struct MeilisearchStatusResponseBasic {
     pub configured: bool,
+}
+
+fn backup_settings_response(settings: BackupSettings) -> BackupSettingsResponse {
+    let dir =
+        crate::logic::backups::backup_directory_info(env_truthy("RIVERSIDE_STRICT_PRODUCTION"));
+    BackupSettingsResponse {
+        settings,
+        backup_dir: dir.path,
+        backup_dir_configured: dir.configured,
+        backup_dir_explicit_required: dir.strict_required,
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -410,14 +497,62 @@ async fn restore_backup(
     State(state): State<AppState>,
     Path(filename): Path<String>,
     headers: HeaderMap,
+    body: Option<Json<RestoreBackupRequest>>,
 ) -> Result<Json<Value>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let manager = BackupManager::new(state.database_url);
+    let confirmation_filename = body
+        .as_ref()
+        .map(|Json(body)| body.confirmation_filename.as_str());
+    validate_restore_confirmation(&filename, confirmation_filename)?;
+
+    validate_restore_environment(
+        env_truthy("RIVERSIDE_STRICT_PRODUCTION"),
+        env_truthy("RIVERSIDE_ALLOW_PRODUCTION_RESTORE"),
+    )?;
+
+    let open_register_count: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM register_sessions
+        WHERE is_open = true OR lifecycle_status = 'reconciling'
+        "#,
+    )
+    .fetch_one(&state.db)
+    .await?;
+    validate_restore_register_blocker(open_register_count)?;
+
+    let manager = BackupManager::new(state.database_url.clone());
+    let exists_in_catalog = manager
+        .list_backups()
+        .map_err(|e| SettingsError::Backup(e.to_string()))?
+        .into_iter()
+        .any(|backup| backup.filename == filename);
+    validate_restore_catalog_membership(exists_in_catalog)?;
+
+    let pre_restore_filename = match manager.create_backup().await {
+        Ok(f) => f,
+        Err(e) => {
+            let msg = format!("Pre-restore backup failed: {e}");
+            if let Err(err) =
+                crate::logic::backups::record_local_backup_failure(&state.db, &msg).await
+            {
+                tracing::error!(error = err.to_string(), "record_local_backup_failure");
+            }
+            return Err(SettingsError::Backup(msg));
+        }
+    };
+    if let Err(e) = crate::logic::backups::record_local_backup_success(&state.db).await {
+        tracing::error!(error = e.to_string(), "record_local_backup_success");
+    }
+
     manager
         .restore_backup(&filename)
         .await
         .map_err(|e| SettingsError::Backup(e.to_string()))?;
-    Ok(Json(json!({ "status": "restored" })))
+    Ok(Json(json!({
+        "status": "restored",
+        "pre_restore_backup": pre_restore_filename
+    })))
 }
 
 async fn delete_backup(
@@ -439,12 +574,9 @@ async fn get_backup_download(
     headers: HeaderMap,
 ) -> Result<impl IntoResponse, SettingsError> {
     require_settings_admin(&state, &headers).await?;
-    let path = std::path::PathBuf::from("backups").join(&filename);
-    if !path.exists() {
-        return Err(SettingsError::Backup("Backup not found".to_string()));
-    }
-
-    let content = tokio::fs::read(&path)
+    let manager = BackupManager::new(state.database_url.clone());
+    let content = manager
+        .read_backup_file(&filename)
         .await
         .map_err(|e| SettingsError::Backup(e.to_string()))?;
 
@@ -667,14 +799,14 @@ async fn optimize_db(
 async fn get_backup_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<BackupSettings>, SettingsError> {
+) -> Result<Json<BackupSettingsResponse>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
     let raw: Value = sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
         .fetch_one(&state.db)
         .await?;
 
     let cfg: BackupSettings = serde_json::from_value(raw).unwrap_or_default();
-    Ok(Json(cfg))
+    Ok(Json(backup_settings_response(cfg)))
 }
 
 #[derive(Debug, Serialize)]
@@ -1304,7 +1436,7 @@ async fn patch_backup_settings(
     State(state): State<AppState>,
     headers: HeaderMap,
     Json(body): Json<Value>,
-) -> Result<Json<BackupSettings>, SettingsError> {
+) -> Result<Json<BackupSettingsResponse>, SettingsError> {
     require_settings_admin(&state, &headers).await?;
     let existing_raw: Value =
         sqlx::query_scalar("SELECT backup_settings FROM store_settings WHERE id = 1")
@@ -1324,7 +1456,7 @@ async fn patch_backup_settings(
         .await?;
 
     let cfg: BackupSettings = serde_json::from_value(existing).unwrap_or_default();
-    Ok(Json(cfg))
+    Ok(Json(backup_settings_response(cfg)))
 }
 
 pub fn router() -> Router<AppState> {
@@ -1481,4 +1613,70 @@ async fn post_remote_access_disconnect(
         .await
         .map_err(|e| SettingsError::InvalidPayload(e.to_string()))?;
     Ok(Json(json!({ "status": "ok" })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        validate_restore_catalog_membership, validate_restore_confirmation,
+        validate_restore_environment, validate_restore_register_blocker, SettingsError,
+    };
+
+    fn err_message(err: SettingsError) -> String {
+        match err {
+            SettingsError::Database(e) => e.to_string(),
+            SettingsError::Backup(m)
+            | SettingsError::Conflict(m)
+            | SettingsError::InvalidPayload(m)
+            | SettingsError::Unauthorized(m)
+            | SettingsError::Forbidden(m) => m,
+        }
+    }
+
+    #[test]
+    fn restore_confirmation_requires_exact_filename() {
+        let filename = "backup_20260425_120000.dump";
+
+        assert!(validate_restore_confirmation(filename, Some(filename)).is_ok());
+
+        let missing = validate_restore_confirmation(filename, None).expect_err("missing body");
+        assert!(matches!(missing, SettingsError::InvalidPayload(_)));
+        assert!(err_message(missing).contains("confirmation_filename"));
+
+        let mismatch = validate_restore_confirmation(filename, Some("different.dump"))
+            .expect_err("mismatched confirmation");
+        assert!(matches!(mismatch, SettingsError::InvalidPayload(_)));
+        assert!(err_message(mismatch).contains("exactly match"));
+    }
+
+    #[test]
+    fn restore_environment_blocks_strict_production_without_emergency_unlock() {
+        let locked =
+            validate_restore_environment(true, false).expect_err("strict production is locked");
+        assert!(matches!(locked, SettingsError::Conflict(_)));
+        assert!(err_message(locked).contains("Production restore is locked"));
+
+        assert!(validate_restore_environment(true, true).is_ok());
+        assert!(validate_restore_environment(false, false).is_ok());
+    }
+
+    #[test]
+    fn restore_register_blocker_rejects_open_or_reconciling_sessions() {
+        assert!(validate_restore_register_blocker(0).is_ok());
+
+        let blocked =
+            validate_restore_register_blocker(2).expect_err("open registers block restore");
+        assert!(matches!(blocked, SettingsError::Conflict(_)));
+        assert!(err_message(blocked).contains("2 register session(s)"));
+    }
+
+    #[test]
+    fn restore_catalog_membership_requires_listed_backup() {
+        assert!(validate_restore_catalog_membership(true).is_ok());
+
+        let missing =
+            validate_restore_catalog_membership(false).expect_err("non-catalog backup rejected");
+        assert!(matches!(missing, SettingsError::InvalidPayload(_)));
+        assert!(err_message(missing).contains("local backup catalog"));
+    }
 }

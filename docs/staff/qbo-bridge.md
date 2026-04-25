@@ -34,7 +34,7 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 **Purpose:** Review **journal bundles** before they hit QBO.
 
 1. **Staging** → sort by **date** or **status**.
-2. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
+2. Treat the row date as the store-local business date shown by Riverside; open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
 3. **Approve** only when totals match **ROS** expectations for that close.
 4. **Sync** after approve; watch **History** for success/fail.
 

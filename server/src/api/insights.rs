@@ -702,11 +702,11 @@ async fn commission_lines(
         SELECT
             oi.id AS transaction_line_id,
             o.id AS transaction_id,
-            o.short_id AS order_short_id,
+            COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS order_short_id,
             o.booked_at,
             p.name AS product_name,
             oi.unit_price,
-            oi.quantity,
+            oi.quantity::numeric(14, 2) AS quantity,
             (oi.unit_price * oi.quantity)::numeric(14, 2) AS line_gross,
             oi.calculated_commission::numeric(14, 2) AS calculated_commission,
             oi.is_fulfilled,

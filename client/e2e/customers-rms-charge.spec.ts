@@ -55,7 +55,21 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
     expect(assigned?.assigned_to_staff_id).toBe(currentStaffId);
     expect(assigned?.notes).toMatch(/claimed by/i);
 
-    await page.getByTestId(`rms-exception-retry-${prepared.exception_id}`).click();
+    const retryButton = page.getByTestId(`rms-exception-retry-${prepared.exception_id}`);
+    await expect(retryButton).toBeVisible({ timeout: 10_000 });
+    await retryButton.scrollIntoViewIfNeeded();
+    const retryResponse = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .includes(`/api/customers/rms-charge/exceptions/${prepared.exception_id}/retry`) &&
+        response.request().method() === "POST",
+      { timeout: 10_000 },
+    );
+    await retryButton.click({ force: true });
+    const retryResult = await retryResponse;
+    const retryBody = await retryResult.text();
+    expect(retryResult.status(), retryBody).toBe(200);
     await expect
       .poll(
         async () => {
@@ -97,7 +111,7 @@ test("exception ownership and retry flow stay support-safe", async ({ request, p
     await expect(resolutionDialog).toBeHidden({ timeout: 15_000 });
 
     const resolvedRes = await request.get(
-      `${process.env.E2E_API_BASE || "http://127.0.0.1:43300"}/api/customers/rms-charge/exceptions?limit=50`,
+      `${process.env.E2E_API_BASE || "http://127.0.0.1:43300"}/api/customers/rms-charge/exceptions?status=resolved&limit=200`,
       {
         headers: staffHeaders(),
         failOnStatusCode: false,
