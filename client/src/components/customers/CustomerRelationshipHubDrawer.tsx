@@ -7,6 +7,8 @@ import {
   MessageSquarePlus,
   Printer,
   Receipt,
+  Scissors,
+  Search,
   ShoppingBag,
   Sparkles,
   UserPlus,
@@ -30,7 +32,6 @@ import ShipmentsHubSection from "./ShipmentsHubSection";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
-import CustomerAlterationsPanel from "./CustomerAlterationsPanel";
 import {
   customerLifecycleBadgeClassName,
   customerLifecycleDescription,
@@ -196,6 +197,46 @@ interface CustomerOrderHistoryItem {
   counterpoint_customer_code?: string | null;
 }
 
+interface CustomerAlterationSummary {
+  id: string;
+  status: string;
+  due_at: string | null;
+  notes: string | null;
+  linked_transaction_display_id: string | null;
+  source_type: string | null;
+  item_description: string | null;
+  work_requested: string | null;
+  source_sku: string | null;
+  charge_amount: string | number | null;
+  created_at: string;
+}
+
+function alterationStatusLabel(status: string): string {
+  return status.replace(/_/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function alterationSourceLabel(sourceType: string | null | undefined): string {
+  switch (sourceType) {
+    case "current_cart_item":
+      return "Current sale";
+    case "past_transaction_line":
+      return "Past purchase";
+    case "catalog_item":
+      return "Stock/catalog";
+    case "custom_item":
+      return "Custom/manual";
+    default:
+      return "Alteration";
+  }
+}
+
+function shortDate(value: string | null | undefined): string {
+  if (!value) return "No due date";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString();
+}
+
 export interface CustomerRelationshipHubDrawerProps {
   customer: Customer;
   open: boolean;
@@ -310,6 +351,13 @@ export function CustomerRelationshipHubDrawer({
   const [orderHistoryTotal, setOrderHistoryTotal] = useState(0);
   const [orderHistoryLoading, setOrderHistoryLoading] = useState(false);
   const [orderHistoryMoreBusy, setOrderHistoryMoreBusy] = useState(false);
+  const [customerAlterations, setCustomerAlterations] = useState<
+    CustomerAlterationSummary[]
+  >([]);
+  const [customerAlterationsLoading, setCustomerAlterationsLoading] =
+    useState(false);
+  const [customerAlterationsSearch, setCustomerAlterationsSearch] =
+    useState("");
   const ordersFilterRef = useRef({ from: "", to: "" });
   ordersFilterRef.current = { from: ordersDateFrom, to: ordersDateTo };
   const [podiumUrlDraft, setPodiumUrlDraft] = useState("");
@@ -548,6 +596,26 @@ export function CustomerRelationshipHubDrawer({
     toast,
   ]);
 
+  const loadCustomerAlterations = useCallback(async () => {
+    setCustomerAlterationsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      params.set("customer_id", customer.id);
+      const term = customerAlterationsSearch.trim();
+      if (term) params.set("search", term);
+      const res = await fetch(`${baseUrl}/api/alterations?${params}`, {
+        headers: apiAuth(),
+      });
+      if (!res.ok) throw new Error("alterations");
+      setCustomerAlterations((await res.json()) as CustomerAlterationSummary[]);
+    } catch {
+      setCustomerAlterations([]);
+      toast("Could not load customer alterations.", "error");
+    } finally {
+      setCustomerAlterationsLoading(false);
+    }
+  }, [apiAuth, baseUrl, customer.id, customerAlterationsSearch, toast]);
+
   useEffect(() => {
     if (
       !open ||
@@ -564,6 +632,22 @@ export function CustomerRelationshipHubDrawer({
     loadOrderHistoryFirstPage,
     permissionsLoaded,
     canOrdersView,
+  ]);
+
+  useEffect(() => {
+    if (!open || tab !== "alterations" || !permissionsLoaded || !canAlterationsView) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void loadCustomerAlterations();
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [
+    open,
+    tab,
+    permissionsLoaded,
+    canAlterationsView,
+    loadCustomerAlterations,
   ]);
 
   useEffect(() => {
@@ -1354,8 +1438,112 @@ export function CustomerRelationshipHubDrawer({
           />
         </div>
       ) : tab === "alterations" ? (
-        <div className="flex min-h-[420px] flex-1 flex-col">
-          <CustomerAlterationsPanel apiAuth={apiAuth} customerId={customer.id} />
+        <div className="space-y-4">
+          <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  <Scissors size={14} aria-hidden />
+                  Customer alterations
+                </h3>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Open and recent garment work for {customer.first_name}{" "}
+                  {customer.last_name}. Intake still starts in Register.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => void loadCustomerAlterations()}
+                className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase tracking-widest"
+              >
+                Refresh
+              </button>
+            </div>
+            <div className="relative mt-3">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted"
+                aria-hidden
+              />
+              <input
+                value={customerAlterationsSearch}
+                onChange={(event) =>
+                  setCustomerAlterationsSearch(event.target.value)
+                }
+                className="ui-input w-full rounded-xl py-2 pl-9 text-sm"
+                placeholder="Search garment, work, notes, SKU, phone..."
+                aria-label="Search customer alterations"
+              />
+            </div>
+          </section>
+
+          {customerAlterationsLoading && customerAlterations.length === 0 ? (
+            <p className="text-sm text-app-text-muted">
+              Loading alterations…
+            </p>
+          ) : null}
+
+          {!customerAlterationsLoading && customerAlterations.length === 0 ? (
+            <p className="rounded-2xl border border-dashed border-app-border bg-app-surface-2/70 p-4 text-sm text-app-text-muted">
+              No alteration work found for this customer.
+            </p>
+          ) : null}
+
+          {customerAlterations.length > 0 ? (
+            <div className="space-y-2">
+              {customerAlterations.map((row) => (
+                <div
+                  key={row.id}
+                  className="rounded-2xl border border-app-border bg-app-surface p-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="mb-2 flex flex-wrap items-center gap-2">
+                        <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {alterationStatusLabel(row.status)}
+                        </span>
+                        <span className="rounded-lg border border-app-border bg-app-surface-2 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {alterationSourceLabel(row.source_type)}
+                        </span>
+                        {row.charge_amount != null &&
+                        Number(row.charge_amount) > 0 ? (
+                          <span className="rounded-lg border border-app-warning/20 bg-app-warning/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                            Charge noted {fmtMoney(row.charge_amount)}
+                          </span>
+                        ) : (
+                          <span className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-0.5 text-[9px] font-black uppercase tracking-widest text-app-success">
+                            Free / included
+                          </span>
+                        )}
+                      </div>
+                      <p className="break-words text-sm font-black text-app-text">
+                        {row.item_description || "Garment not specified"}
+                      </p>
+                      <p className="mt-1 break-words text-sm font-semibold text-app-text-muted">
+                        {row.work_requested || "Work details not specified"}
+                      </p>
+                      {row.notes ? (
+                        <p className="mt-2 break-words rounded-xl border border-app-border/60 bg-app-surface-2 px-3 py-2 text-xs italic text-app-text-muted">
+                          {row.notes}
+                        </p>
+                      ) : null}
+                    </div>
+                    <div className="shrink-0 text-right text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+                      <p>Due {shortDate(row.due_at)}</p>
+                      {row.linked_transaction_display_id ? (
+                        <p className="mt-1 font-mono">
+                          {row.linked_transaction_display_id}
+                        </p>
+                      ) : null}
+                      {row.source_sku ? (
+                        <p className="mt-1 font-mono">SKU {row.source_sku}</p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
         </div>
       ) : !permissionsLoaded || loading || !hub ? (
         <p className="text-sm text-app-text-muted">
