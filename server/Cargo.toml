@@ -55,7 +55,7 @@ opendal = { version = "0.55.0", features = ["services-s3"] }
 tokio-cron-scheduler = "0.15.1"
 ammonia = "4"
 jsonwebtoken = "9"
-meilisearch-sdk = "0.32"
+meilisearch-sdk = "0.33"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 opentelemetry = "0.27"
 opentelemetry_sdk = { version = "0.27", features = ["rt-tokio"] }
