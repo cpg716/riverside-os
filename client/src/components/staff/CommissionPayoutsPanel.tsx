@@ -578,8 +578,18 @@ function CommissionDrillDown({
           </tr>
         </thead>
         <tbody className="divide-y divide-app-border/10">
-          {lines.map((ln) => (
-            <tr key={ln.order_item_id} className="hover:bg-app-accent/5 transaction-colors group">
+          {lines.map((ln, index) => (
+            <tr
+              key={[
+                ln.order_item_id,
+                ln.order_id,
+                ln.booked_at,
+                ln.product_name,
+                ln.calculated_commission,
+                index,
+              ].join(":")}
+              className="hover:bg-app-accent/5 transaction-colors group"
+            >
               <td className="px-3 py-2 text-app-text-muted whitespace-nowrap">
                 {new Date(ln.booked_at).toLocaleDateString()}
               </td>
