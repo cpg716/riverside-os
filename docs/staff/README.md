@@ -176,4 +176,4 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 
 ---
 
-**Last reviewed:** 2026-04-18 (v0.2.1 hardening + ROS Dev Center)
+**Last reviewed:** 2026-04-25 (v0.3.0 operational workflow updates)
