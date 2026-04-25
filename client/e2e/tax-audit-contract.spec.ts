@@ -448,15 +448,17 @@ test.describe("tax audit contract", () => {
       };
     };
     const taxLine = proposed.payload?.lines?.find(
-      (line) => line.memo === "Sales tax collected" && line.qbo_account_id === "E2E_SALES_TAX",
+      (line) =>
+        line.memo === "Sales tax collected" &&
+        line.qbo_account_id === "E2E_SALES_TAX" &&
+        line.detail?.some(
+          (detail) => String(detail.state) === "4.40" && String(detail.local) === "5.23",
+        ),
     );
     expect(taxLine).toBeTruthy();
     expect(taxLine?.qbo_account_name).toBe("E2E Sales Tax Payable");
     expect(String(taxLine?.debit)).toBe("0");
     expect(String(taxLine?.credit)).toBe("9.63");
-    expect(taxLine?.detail?.[0]).toMatchObject({
-      state: "4.40",
-      local: "5.23",
-    });
+    expect(taxLine?.detail).toContainEqual(expect.objectContaining({ state: "4.40", local: "5.23" }));
   });
 });

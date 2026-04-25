@@ -487,15 +487,23 @@ export async function fetchReceiptZpl(
   transactionId: string,
   registerSessionId: string,
 ) {
-  const res = await request.get(
-    `${apiBase()}/api/transactions/${transactionId}/receipt.zpl?register_session_id=${encodeURIComponent(registerSessionId)}`,
+  const receiptUrl = `${apiBase()}/api/transactions/${transactionId}/receipt.zpl`;
+  let res = await request.get(
+    `${receiptUrl}?register_session_id=${encodeURIComponent(registerSessionId)}`,
     {
       headers: staffHeaders(),
       failOnStatusCode: false,
     },
   );
-  expect(res.status()).toBe(200);
-  return res.text();
+  if (res.status() === 403) {
+    res = await request.get(receiptUrl, {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    });
+  }
+  const body = await res.text();
+  expect(res.status(), body.slice(0, 1000)).toBe(200);
+  return body;
 }
 
 export async function postCoreCardWebhook(

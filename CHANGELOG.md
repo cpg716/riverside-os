@@ -5,11 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-04-25
+### Added
+- **Production hardening audit package** with ranked audit report, fix plan, go/no-go checklist, coverage gap matrix, SQL audit probes, and local restore/probe evidence for Hybrid Tauri Host retail readiness.
+- **Release-blocking audit contracts** for checkout tender financial truth, NYS/Erie tax behavior, commission payout timing, inventory truth, offline checkout recovery, register close, and QuickBooks staging/business-date behavior.
+- **Release evidence docs** covering the `181 passed, 7 skipped, 0 failed` full local release gate and remaining human/hardware/QBO/restore signoffs.
+
+### Changed
+- Removed the POS UI E2E quarantine by adding explicit POS readiness contracts; the formerly quarantined POS specs are back in the release gate.
+- QBO proposal and drilldown date windows now use configured store-local business date instead of naive UTC calendar cutoffs, with `business_timezone` carried in staging payloads.
+- Updated offline/recovery staff documentation to explain blocked checkout recovery and close blockers.
+- Bumped application/package metadata to `0.3.1`.
+
+### Fixed
+- Stabilized CI Playwright coverage for RMS receipt assertions and tax/QBO fixture isolation.
+- Hardened offline checkout replay so 4xx responses retain blocked recovery rows instead of silently deleting queued sales; register close now blocks while checkout recovery is pending or blocked.
+- Hardened register close parked-sale cleanup so server-backed parked sales are purged inside the close transaction with audit rows.
+- Hardened checkout tender handling by rejecting check tender without a check number and preserving split-tender/cash-rounding ledger traceability.
+- Hardened QBO approval/sync so unbalanced staged journals cannot be approved or synced.
+- Hardened restore safety with preflight checks, backup catalog membership checks, strict-production guards, and local non-production restore drill evidence.
+
 ## [0.3.0] — 2026-04-25
 ### Added
 - **Operational Perfection release** focused on clearer day-to-day workflows, staff-facing visibility, and safer guided decisions across existing modules.
-- **Production hardening audit package** with ranked audit report, fix plan, go/no-go checklist, coverage gap matrix, SQL audit probes, and local restore/probe evidence for Hybrid Tauri Host retail readiness.
-- **Release-blocking audit contracts** for checkout tender financial truth, NYS/Erie tax behavior, commission payout timing, inventory truth, offline checkout recovery, register close, and QuickBooks staging/business-date behavior.
 - **Alterations workbench improvements** with garment-centered queue visibility, open-work summary cards, due/status/source filtering, search, Customer Profile alteration visibility, and universal search/Meilisearch coverage.
 - **Customer intake refinements** with a more compact Add Customer drawer, duplicate review safeguards, address lookup feedback, and QuickBooks credential settings.
 - **Existing order payment allocation foundation** for safely allocating checkout tender across today’s sale and existing open transaction balances without mutating order line items.
@@ -20,18 +38,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Refined Customer Profile tab order and renamed Messages to Communications for a clearer CRM flow.
 - Updated Register order payment UI to expose safe existing-order payment lines in the current sale.
 - Tightened help/staff documentation for visible workflow changes.
-- Removed the POS UI E2E quarantine by adding explicit POS readiness contracts; the formerly quarantined POS specs are back in the release gate.
-- QBO proposal and drilldown date windows now use configured store-local business date instead of naive UTC calendar cutoffs, with `business_timezone` carried in staging payloads.
 
 ### Fixed
 - Replaced the embedded full Alterations Hub in Customer Profile with a compact customer-specific alteration section.
 - Fixed GitHub Actions failures from stale Alterations E2E selectors and SQLx macro usage in Meilisearch reindexing.
 - Improved Alterations workbench layout so long lists and long garment text stay inside their sections.
-- Hardened offline checkout replay so 4xx responses retain blocked recovery rows instead of silently deleting queued sales; register close now blocks while checkout recovery is pending or blocked.
-- Hardened register close parked-sale cleanup so server-backed parked sales are purged inside the close transaction with audit rows.
-- Hardened checkout tender handling by rejecting check tender without a check number and preserving split-tender/cash-rounding ledger traceability.
-- Hardened QBO approval/sync so unbalanced staged journals cannot be approved or synced.
-- Hardened restore safety with preflight checks, backup catalog membership checks, strict-production guards, and local non-production restore drill evidence.
 
 ## [0.2.1] — 2026-04-18
 ### Added
