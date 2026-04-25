@@ -258,7 +258,11 @@ export default function CustomerAlterationsPanel({
       id: "overdue",
       label: "Overdue",
       value: rows.filter((row) => isOverdue(row)).length,
-      tone: "border-red-500/20 bg-red-500/10 text-red-700",
+      icon: AlertTriangle,
+      tint: "ui-tint-danger",
+      color: "text-app-danger",
+      bg: "bg-app-danger/8",
+      border: "border-app-danger/16",
       onClick: () => {
         setDueFilter("overdue");
         setFilter("all");
@@ -268,7 +272,11 @@ export default function CustomerAlterationsPanel({
       id: "due_today",
       label: "Due Today",
       value: rows.filter((row) => isDueToday(row)).length,
-      tone: "border-amber-500/20 bg-amber-500/10 text-amber-700",
+      icon: CalendarIcon,
+      tint: "ui-tint-warning",
+      color: "text-app-warning",
+      bg: "bg-app-warning/8",
+      border: "border-app-warning/16",
       onClick: () => {
         setDueFilter("due_today");
         setFilter("all");
@@ -278,7 +286,11 @@ export default function CustomerAlterationsPanel({
       id: "ready",
       label: "Ready for Pickup",
       value: rows.filter((row) => row.status === "ready").length,
-      tone: "border-emerald-500/20 bg-emerald-500/10 text-emerald-700",
+      icon: CheckCircle2,
+      tint: "ui-tint-success",
+      color: "text-app-success",
+      bg: "bg-app-success/8",
+      border: "border-app-success/16",
       onClick: () => {
         setDueFilter("ready");
         setFilter("all");
@@ -288,7 +300,11 @@ export default function CustomerAlterationsPanel({
       id: "open",
       label: "Total Open",
       value: rows.filter((row) => row.status !== "picked_up").length,
-      tone: "border-app-accent/20 bg-app-accent/10 text-app-accent",
+      icon: Scissors,
+      tint: "ui-tint-accent",
+      color: "text-app-accent",
+      bg: "bg-app-accent/8",
+      border: "border-app-accent/16",
       onClick: () => {
         setDueFilter("all");
         setFilter("all");
@@ -455,44 +471,59 @@ export default function CustomerAlterationsPanel({
   );
 
   return (
-    <div className="ui-page flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
-      <div className="grid gap-4 xl:grid-cols-[minmax(280px,0.85fr)_minmax(640px,1.6fr)]">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            <Scissors size={14} className="text-app-accent opacity-60" />
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-              Tailoring Workflow
-            </p>
-          </div>
-          <h2 className="text-3xl font-black text-app-text tracking-tight">Alterations Hub</h2>
-          <p className="mt-2 max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
-            {customerId
-              ? "Customer alteration history and open garment work, searchable by garment, due date, source, and contact details."
-              : "Garment-based workbench for alteration attention by due date, status, and source item. Order details appear only when they describe the source garment."}
-          </p>
-        </div>
-
-        <div className="flex min-w-0 flex-col gap-2">
-          <div className="grid gap-2 sm:grid-cols-4">
-            {summaryCards.map((card) => (
-              <button
-                key={card.id}
-                type="button"
-                data-testid={`alterations-summary-${card.id}`}
-                onClick={card.onClick}
-                className={`min-w-0 rounded-2xl border px-3 py-2.5 text-left shadow-[0_8px_22px_rgba(15,23,42,0.05),0_2px_5px_rgba(15,23,42,0.03)] transition-all hover:-translate-y-0.5 hover:shadow-lg ${card.tone}`}
+    <div className="ui-page flex min-h-0 flex-1 flex-col bg-transparent p-0">
+      <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+        {summaryCards.map((card) => {
+          const Icon = card.icon;
+          return (
+            <button
+              key={card.id}
+              type="button"
+              data-testid={`alterations-summary-${card.id}`}
+              onClick={card.onClick}
+              className={`ui-card flex min-w-[200px] flex-1 items-center gap-4 p-4 text-left transition-all hover:-translate-y-0.5 hover:shadow-lg ${card.tint}`}
+            >
+              <div
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${card.border} ${card.bg} shadow-sm`}
               >
-                <p className="truncate text-[9px] font-black uppercase tracking-widest opacity-80">
+                <Icon size={24} className={card.color} />
+              </div>
+              <div className="min-w-0">
+                <p className="truncate text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">
                   {card.label}
                 </p>
-                <p className="mt-0.5 text-xl font-black tabular-nums">
+                <p className="text-2xl font-black tabular-nums text-app-text">
                   {card.value}
                 </p>
-              </button>
-            ))}
-          </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
 
-          <div className="flex flex-wrap gap-2 rounded-2xl border border-app-border bg-app-surface-2 p-2 shadow-inner">
+      <div className="px-4 sm:px-6">
+        <div className="ui-card ui-tint-accent px-4 py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                Alteration Workflow
+              </p>
+              <p className="mt-1 text-sm font-semibold text-app-text">
+                {customerId
+                  ? "Customer alteration history and open garment work, searchable by garment, due date, source, and contact details."
+                  : "Garment-based workbench for alteration attention by due date, status, and source item."}
+              </p>
+            </div>
+            <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              {visibleRows.length} visible / {rows.length} loaded
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
+        <section className="ui-card flex min-h-0 flex-1 flex-col">
+          <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-app-border bg-app-surface-2 px-5 py-4">
             <div className="relative min-w-[260px] flex-1">
               <Search
                 size={16}
@@ -508,24 +539,24 @@ export default function CustomerAlterationsPanel({
               />
             </div>
             <div className="flex flex-wrap gap-2">
-             {DUE_FILTERS.map(f => (
-               <button
-                 key={f.value}
-                 type="button"
-                 data-testid={`alterations-due-filter-${f.value}`}
-                 onClick={() => setDueFilter(f.value)}
-                 className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                   dueFilter === f.value
-                    ? "bg-app-accent text-white shadow-lg shadow-app-accent/20"
-                    : "text-app-text-muted hover:text-app-text"
-                 }`}
-               >
-                 {f.label}
-               </button>
-             ))}
+              {DUE_FILTERS.map(f => (
+                <button
+                  key={f.value}
+                  type="button"
+                  data-testid={`alterations-due-filter-${f.value}`}
+                  onClick={() => setDueFilter(f.value)}
+                  className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
+                    dueFilter === f.value
+                      ? "border-app-accent/20 bg-app-accent/10 text-app-accent"
+                      : "border-app-border bg-app-surface-3 text-app-text-muted hover:bg-app-surface hover:text-app-text"
+                  }`}
+                >
+                  {f.label}
+                </button>
+              ))}
             </div>
           </div>
-          <div className="flex flex-wrap justify-end gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-app-border bg-app-surface-3 px-5 py-4">
             <select
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
@@ -553,21 +584,17 @@ export default function CustomerAlterationsPanel({
               ))}
             </select>
           </div>
-        </div>
-      </div>
 
-      <div className="min-h-0 flex-1">
-        <section className="flex h-full min-h-0 flex-col rounded-3xl border border-app-border/40 bg-app-surface-2/40 p-4 shadow-inner ring-1 ring-black/[0.02]">
-          <div className="mb-3 flex items-center justify-between px-2">
-             <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
-               Garment Workbench ({visibleRows.length})
-             </h3>
-             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
-               {rows.length} total loaded
-             </p>
+          <div className="flex items-center justify-between border-b border-app-border/40 px-5 py-3">
+            <h3 className="text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted">
+              Garment Workbench
+            </h3>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+              {visibleRows.length} visible
+            </p>
           </div>
           
-          <div className="-mr-2 flex-1 overflow-y-auto pr-2">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 custom-scrollbar">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24 gap-4 opacity-40">
                 <Loader2 size={32} className="animate-spin text-app-accent" />

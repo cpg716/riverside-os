@@ -15,15 +15,18 @@ import {
 } from "../../lib/money";
 import {
   Activity,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
   Search,
   RotateCcw,
+  Wallet,
 } from "lucide-react";
 import AttachOrderToWeddingModal from "./AttachOrderToWeddingModal";
 import TransactionDetailDrawer, {
   type TransactionDrawerAudit,
   type TransactionDrawerDetail,
 } from "./TransactionDetailDrawer";
-import DashboardGridCard from "../ui/DashboardGridCard";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
 import { getAppIcon } from "../../lib/icons";
@@ -727,194 +730,231 @@ export default function OrdersWorkspace({
     );
   }, [transactionRows]);
 
+  const orderStatCards = [
+    {
+      label: "Visible Orders",
+      value: orderIntegritySummary.visibleOrders,
+      icon: ORDERS_ICON,
+      tint: "ui-tint-info",
+      color: "text-app-info",
+      bg: "bg-app-info/8",
+      border: "border-app-info/16",
+    },
+    {
+      label: "Waiting Details",
+      value: orderIntegritySummary.waitingOnDetails,
+      icon: Clock,
+      tint: "ui-tint-warning",
+      color: "text-app-warning",
+      bg: "bg-app-warning/8",
+      border: "border-app-warning/16",
+    },
+    {
+      label: "Balance Due",
+      value: orderIntegritySummary.balanceStillDue,
+      icon: Wallet,
+      tint: "ui-tint-danger",
+      color: "text-app-danger",
+      bg: "bg-app-danger/8",
+      border: "border-app-danger/16",
+    },
+    {
+      label: "Wedding Orders",
+      value: pipelineStats?.wedding_orders ?? 0,
+      icon: WEDDINGS_ICON,
+      tint: "ui-tint-accent",
+      color: "text-app-accent",
+      bg: "bg-app-accent/8",
+      border: "border-app-accent/16",
+    },
+  ];
+
+  const orderFollowUpMetrics = [
+    { label: "Needs action", value: pipelineStats?.needs_action ?? 0, icon: Activity },
+    { label: "Ready pickup", value: pipelineStats?.ready_for_pickup ?? 0, icon: CheckCircle2 },
+    { label: "Overdue follow-up", value: pipelineStats?.overdue ?? 0, icon: AlertTriangle },
+  ];
+
   return (
-    <div className="flex flex-1 flex-col bg-transparent">
-
-
-      <div className="flex shrink-0 items-center justify-between p-6 sm:p-10 pb-4">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-xl font-black uppercase tracking-widest text-app-text">Orders</h1>
-          <p className="text-[10px] font-bold text-app-text-muted uppercase tracking-[0.2em] italic opacity-60">
-            {section === "open" ? "Current Open Orders & Counterpoint Open Docs" : "Closed Order History"}
-          </p>
+    <div className="ui-page flex flex-1 flex-col bg-transparent p-0">
+      <div className="flex flex-1 flex-col bg-transparent">
+        <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+          {orderStatCards.map((stat) => (
+            <div
+              key={stat.label}
+              className={`ui-card flex min-w-[200px] flex-1 items-center gap-4 p-4 ${stat.tint}`}
+            >
+              <div
+                className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border ${stat.border} ${stat.bg} shadow-sm`}
+              >
+                <stat.icon size={24} className={stat.color} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-70">
+                  {stat.label}
+                </p>
+                <p className="text-2xl font-black tabular-nums text-app-text">
+                  {stat.value}
+                </p>
+              </div>
+            </div>
+          ))}
         </div>
-        
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => {
-              setSearch("");
-              setViewPreset(defaultViewPreset);
-              setKindFilter("all");
-              setPaymentFilter("all");
-              setSalespersonFilter("all");
-              setDatePreset("all");
-              setDateFrom("");
-              setDateTo("");
-            }}
-            className="flex items-center gap-2 rounded-xl px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all duration-150 hover:bg-app-danger/8 hover:text-app-danger active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-danger/20"
-          >
-            <RotateCcw size={14} />
-            Reset
-          </button>
-          <div className="flex items-center gap-2 rounded-2xl border border-app-success/16 bg-app-success/8 px-4 py-2.5 text-app-success shadow-soft-xs">
-            <Activity size={14} className={section === "open" ? "animate-pulse" : ""} />
-            <p className="text-[10px] font-black uppercase tracking-widest italic">
-              {section === "open" ? "Open orders" : "Order history"}
-            </p>
-          </div>
-        </div>
-      </div>
 
-      <div className="flex flex-1 p-6 sm:p-10 sm:pt-4">
-        {/* Unified Order Dashboard */}
-        <DashboardGridCard 
-          title={section === "open" ? "Open Orders" : "Closed Orders"}
-          subtitle={`${totalCount} orders`}
-          icon={ORDERS_ICON}
-          className="flex-1"
-          contentClassName="p-0 flex flex-col"
-        >
-          <div className="border-b border-app-border bg-app-surface-2 px-8 py-4">
+        <div className="px-4 sm:px-6">
+          <div className="ui-card ui-tint-warning px-4 py-4">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                  Order Integrity
+                  Order Follow-Up
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Open visibility into orders that still need booking details, payment follow-up, or aging review.
+                  Current order work that still needs booking details, payment follow-up, or aging review.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                {orderIntegritySummary.visibleOrders} visible orders
+                {totalCount} orders found
               </span>
             </div>
-            <div className="mt-4 grid gap-2 sm:grid-cols-4">
-              {[
-                ["Waiting on details", orderIntegritySummary.waitingOnDetails],
-                ["Balance still due", orderIntegritySummary.balanceStillDue],
-                ["Needs action", pipelineStats?.needs_action ?? 0],
-                ["Overdue follow-up", pipelineStats?.overdue ?? 0],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className="ui-metric-cell px-3 py-3"
-                >
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    {label}
-                  </p>
-                  <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                    {value}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="px-8 pt-5">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted">
-                View
-              </span>
-              {(
-                [
-                  { id: "open", label: "Open Orders" },
-                  { id: "all", label: "Order History" },
-                ] satisfies Array<{ id: OrderViewPreset; label: string }>
-              ).map((preset) => {
-                const active = viewPreset === preset.id;
+            <div className="mt-4 grid gap-2 sm:grid-cols-3">
+              {orderFollowUpMetrics.map((metric) => {
+                const Icon = metric.icon;
                 return (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => setViewPreset(preset.id)}
-                    className={cn(
-                      "rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all",
-                      active
-                        ? "border-app-success/20 bg-app-success/10 text-app-success"
-                        : "border-app-border bg-app-surface-3 text-app-text-muted hover:bg-app-surface hover:text-app-text",
-                    )}
-                    aria-pressed={active}
-                  >
-                    {preset.label}
-                  </button>
-                );
+                <div key={metric.label} className="ui-metric-cell px-3 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {metric.label}
+                      </p>
+                      <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                        {metric.value}
+                      </p>
+                    </div>
+                    <Icon size={18} className="text-app-text-muted opacity-50" />
+                  </div>
+                </div>
+              );
               })}
             </div>
           </div>
+        </div>
 
-          {/* Header Filters Area */}
-          <div className="flex flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-3 px-8 py-5">
-            <div className="relative group flex-1 min-w-[300px]">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-app-text-disabled group-focus-within:text-app-accent transition-all" size={18} />
-              <input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder="SEARCH ORDERS (By name, phone number, Order #, etc)"
-                
-                className="ui-input w-full h-11 px-11 text-[11px] font-black uppercase tracking-wider shadow-sm focus:border-app-accent"
-              />
-            </div>
-            
-            <div className="flex items-center gap-2">
-              <select
-                value={kindFilter}
-                onChange={(e) => setKindFilter(e.target.value)}
-                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
-              >
-                <option value="all">Kind: All</option>
-                <option value="special_order">Order</option>
-                <option value="wedding_order">Wedding</option>
-                <option value="custom">Custom</option>
-              </select>
-              <select
-                value={paymentFilter}
-                onChange={(e) => setPaymentFilter(e.target.value)}
-                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
-              >
-                <option value="all">Payment: All</option>
-                <option value="paid">Paid</option>
-                <option value="partial">Partial</option>
-                <option value="unpaid">Unpaid</option>
-              </select>
-              <select
-                value={salespersonFilter}
-                onChange={(e) => setSalespersonFilter(e.target.value)}
-                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
-              >
-                <option value="all">Staff: All</option>
-                {salespersonOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-              <select
-                value={datePreset}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  setDatePreset(val);
-                  if (val === "today") {
-                    const d = new Date().toISOString().split("T")[0];
-                    setDateFrom(d);
-                    setDateTo(d);
-                  } else if (val === "30d") {
-                    const d = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
-                    setDateFrom(d);
-                    setDateTo(new Date().toISOString().split("T")[0]);
-                  } else if (val === "all") {
+        <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
+          <div className="ui-card flex flex-col">
+            <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-5 py-4">
+              <div className="relative group min-w-[300px] flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Search orders by name, phone, order number..."
+                  className="ui-input w-full pl-10 text-sm font-bold shadow-sm focus:border-app-accent"
+                />
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {(
+                  [
+                    { id: "open", label: "Open Orders" },
+                    { id: "all", label: "Order History" },
+                  ] satisfies Array<{ id: OrderViewPreset; label: string }>
+                ).map((preset) => {
+                  const active = viewPreset === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => setViewPreset(preset.id)}
+                      className={cn(
+                        "rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all",
+                        active
+                          ? "border-app-accent/20 bg-app-accent/10 text-app-accent"
+                          : "border-app-border bg-app-surface-3 text-app-text-muted hover:bg-app-surface hover:text-app-text",
+                      )}
+                      aria-pressed={active}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+
+                <button
+                  onClick={() => {
+                    setSearch("");
+                    setViewPreset(defaultViewPreset);
+                    setKindFilter("all");
+                    setPaymentFilter("all");
+                    setSalespersonFilter("all");
+                    setDatePreset("all");
                     setDateFrom("");
                     setDateTo("");
-                  }
-                }}
-                className="ui-input h-11 px-4 text-[10px] font-black uppercase tracking-widest hover:bg-app-surface-2"
-              >
-                <option value="all">Date: Always</option>
-                <option value="today">Today</option>
-                <option value="30d">30 Days</option>
-                <option value="custom">Custom</option>
-              </select>
+                  }}
+                  className="flex items-center justify-center rounded-xl bg-app-surface-2 p-2.5 text-app-text-muted border border-app-border hover:bg-app-surface transition-colors"
+                  title="Reset filters"
+                >
+                  <RotateCcw size={18} />
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Wide Table Implementation */}
-          <div className="flex-1 custom-scrollbar">
-            <table className="w-full text-left border-collapse min-w-[1000px]">
+            <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-5 py-4">
+                <select
+                  value={kindFilter}
+                  onChange={(e) => setKindFilter(e.target.value)}
+                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                >
+                  <option value="all">Kind: All</option>
+                  <option value="special_order">Order</option>
+                  <option value="wedding_order">Wedding</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <select
+                  value={paymentFilter}
+                  onChange={(e) => setPaymentFilter(e.target.value)}
+                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                >
+                  <option value="all">Payment: All</option>
+                  <option value="paid">Paid</option>
+                  <option value="partial">Partial</option>
+                  <option value="unpaid">Unpaid</option>
+                </select>
+                <select
+                  value={salespersonFilter}
+                  onChange={(e) => setSalespersonFilter(e.target.value)}
+                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                >
+                  <option value="all">Staff: All</option>
+                  {salespersonOptions.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                </select>
+                <select
+                  value={datePreset}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDatePreset(val);
+                    if (val === "today") {
+                      const d = new Date().toISOString().split("T")[0];
+                      setDateFrom(d);
+                      setDateTo(d);
+                    } else if (val === "30d") {
+                      const d = new Date(Date.now() - 30 * 86400000).toISOString().split("T")[0];
+                      setDateFrom(d);
+                      setDateTo(new Date().toISOString().split("T")[0]);
+                    } else if (val === "all") {
+                      setDateFrom("");
+                      setDateTo("");
+                    }
+                  }}
+                  className="ui-input h-10 px-3 text-[10px] font-black uppercase tracking-widest"
+                >
+                  <option value="all">Date: Always</option>
+                  <option value="today">Today</option>
+                  <option value="30d">30 Days</option>
+                  <option value="custom">Custom</option>
+                </select>
+            </div>
+
+            <div className="flex-1 custom-scrollbar overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[1000px]">
               <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>
                   <th className="px-6 py-4 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">ID / Date</th>
@@ -950,21 +990,19 @@ export default function OrdersWorkspace({
               </tbody>
             </table>
 
-            {transactionRows.length === 0 && (
-              <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
-                <Search size={48} className="mb-4 opacity-70" />
-                <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
-                <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
-                  Try a broader search or clear one of the active filters to bring orders back into view.
-                </p>
-              </div>
-            )}
+              {transactionRows.length === 0 && (
+                <div className="flex flex-col items-center justify-center p-16 text-center text-app-text-muted">
+                  <Search size={48} className="mb-4 opacity-70" />
+                  <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
+                  <p className="mt-2 max-w-sm text-sm font-medium normal-case tracking-normal text-app-text-muted">
+                    Try a broader search or clear one of the active filters to bring orders back into view.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
-
-
-        </DashboardGridCard>
+        </div>
       </div>
-
 
       <ConfirmationModal
         isOpen={cancelConfirmOpen}
