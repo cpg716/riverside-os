@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-04-25
+### Added
+- **Operational Perfection release** focused on clearer day-to-day workflows, staff-facing visibility, and safer guided decisions across existing modules.
+- **Alterations workbench improvements** with garment-centered queue visibility, open-work summary cards, due/status/source filtering, search, Customer Profile alteration visibility, and universal search/Meilisearch coverage.
+- **Customer intake refinements** with a more compact Add Customer drawer, duplicate review safeguards, address lookup feedback, and QuickBooks credential settings.
+- **Existing order payment allocation foundation** for safely allocating checkout tender across today’s sale and existing open transaction balances without mutating order line items.
+- **Operational dashboard visibility** for alteration workload and data-quality signals.
+
+### Changed
+- Unified dark shell styling across Back Office and POS/Register surfaces while keeping cards, panels, inputs, and tables readable.
+- Refined Customer Profile tab order and renamed Messages to Communications for a clearer CRM flow.
+- Updated Register order payment UI to expose safe existing-order payment lines in the current sale.
+- Tightened help/staff documentation for visible workflow changes.
+
+### Fixed
+- Replaced the embedded full Alterations Hub in Customer Profile with a compact customer-specific alteration section.
+- Fixed GitHub Actions failures from stale Alterations E2E selectors and SQLx macro usage in Meilisearch reindexing.
+- Improved Alterations workbench layout so long lists and long garment text stay inside their sections.
+
 ## [0.2.1] — 2026-04-18
 ### Added
 - **Printing & Layout Refactor**: 

@@ -1,8 +1,8 @@
 # Riverside OS
 
-**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.2.0 introduces a **Transaction-centric backend** (separating financial ledgers from logistics) and a **Persistent Top Bar architecture** for seamless navigation and universal search. It bundles a full-feature POS, inventory management, wedding-party workflow, CRM, commission accounting, and QuickBooks Online bridge into a single Tauri 2 desktop application.
+**Riverside OS (ROS)** is a production-grade desktop ERM/POS platform for formalwear and wedding retail. Version 0.3.0 focuses on operational clarity, staff-facing visibility, and safer guided workflows across the existing platform. It bundles a full-feature POS, inventory management, wedding-party workflow, CRM, commission accounting, and QuickBooks Online bridge into a single Tauri 2 desktop application.
 
-Current Version: **v0.2.1** (See [CHANGELOG.md](CHANGELOG.md))
+Current Version: **v0.3.0** (See [CHANGELOG.md](CHANGELOG.md))
 
 ## Stack
 

@@ -4924,7 +4924,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-pos-tauri"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -4944,7 +4944,7 @@ dependencies = [
 
 [[package]]
 name = "riverside-server"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "ammonia",
  "anyhow",
