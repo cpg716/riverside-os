@@ -257,6 +257,12 @@ struct AssignQboTransactionTimestampRequest {
     timestamp_utc: DateTime<Utc>,
 }
 
+#[derive(Debug, Deserialize)]
+struct AssignQboShippingRecognitionRequest {
+    transaction_id: Uuid,
+    label_purchased_at_utc: DateTime<Utc>,
+}
+
 #[derive(Debug, Serialize)]
 struct TestSupportParkedSaleStatus {
     id: Uuid,
@@ -1134,6 +1140,119 @@ async fn post_assign_qbo_transaction_timestamp(
     })))
 }
 
+async fn post_assign_qbo_shipping_recognition(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<AssignQboShippingRecognitionRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let staff = require_admin_staff(&state, &headers).await?;
+    let timestamp = payload.label_purchased_at_utc;
+
+    let mut tx = state.db.begin().await?;
+
+    let updated_orders = sqlx::query(
+        r#"
+        UPDATE transactions
+        SET booked_at = $2,
+            fulfillment_method = 'ship'::order_fulfillment_method,
+            fulfilled_at = NULL
+        WHERE id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+    if updated_orders == 0 {
+        return Err(TestSupportError::BadRequest(
+            "transaction_id not found".to_string(),
+        ));
+    }
+
+    sqlx::query(
+        r#"
+        UPDATE transaction_lines
+        SET fulfilled_at = NULL
+        WHERE transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        UPDATE payment_transactions pt
+        SET created_at = $2
+        FROM payment_allocations pa
+        WHERE pa.transaction_id = pt.id
+          AND pa.target_transaction_id = $1
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(timestamp)
+    .execute(&mut *tx)
+    .await?;
+
+    sqlx::query("DELETE FROM shipment WHERE transaction_id = $1")
+        .bind(payload.transaction_id)
+        .execute(&mut *tx)
+        .await?;
+
+    let shipment_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO shipment (
+            source, transaction_id, created_by_staff_id, status, ship_to, created_at, updated_at
+        )
+        VALUES (
+            'pos_order'::shipment_source,
+            $1,
+            $2,
+            'label_purchased'::shipment_status,
+            '{}'::jsonb,
+            $3,
+            $3
+        )
+        RETURNING id
+        "#,
+    )
+    .bind(payload.transaction_id)
+    .bind(staff.id)
+    .bind(timestamp)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    sqlx::query(
+        r#"
+        INSERT INTO shipment_event (shipment_id, at, kind, message, metadata, staff_id)
+        VALUES (
+            $1,
+            $2,
+            'label_purchased',
+            'E2E shipping recognition marker for QBO audit.',
+            jsonb_build_object('transaction_id', $3::text, 'source', 'qbo_audit_contract'),
+            $4
+        )
+        "#,
+    )
+    .bind(shipment_id)
+    .bind(timestamp)
+    .bind(payload.transaction_id)
+    .bind(staff.id)
+    .execute(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "transaction_id": payload.transaction_id,
+        "shipment_id": shipment_id,
+        "label_purchased_at_utc": timestamp
+    })))
+}
+
 async fn get_parked_sale_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1192,6 +1311,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/qbo/assign-transaction-timestamp",
             post(post_assign_qbo_transaction_timestamp),
+        )
+        .route(
+            "/qbo/assign-shipping-recognition",
+            post(post_assign_qbo_shipping_recognition),
         )
         .route(
             "/parked-sales/{parked_sale_id}",

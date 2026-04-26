@@ -45,7 +45,7 @@ This plan resolves the audit findings in `docs/reviews/PRODUCTION_HARDENING_AUDI
    - Status: implemented.
    - Tax: `client/e2e/tax-audit-contract.spec.ts` covers clothing threshold, discount crossing, stale client tax rejection, returns tax reversal, and QBO tax liability mapping.
    - Commission: `client/e2e/commission-audit-contract.spec.ts` covers fulfillment timing, specificity order, finalized payout immutability, and internal SPIFF receipt exclusion.
-   - QBO: `client/e2e/qbo-audit-contract.spec.ts` covers balanced real-checkout proposal, mapped accounts, dedupe, staging list visibility, drilldown linkage, duplicate approval rejection, and store-local business-date cutoff near midnight UTC.
+   - QBO: `client/e2e/qbo-audit-contract.spec.ts` covers balanced real-checkout proposal, mapped accounts, dedupe, staging list visibility, drilldown linkage, duplicate approval rejection, store-local business-date cutoff near midnight UTC, and shipped-order recognition from shipment events.
    - Inventory: `client/e2e/inventory-audit-contract.spec.ts` covers order-style no-decrement checkout, pickup decrement, duplicate PO receipt retry, and return/restock truth.
    - Physical inventory: fixed session/list reads to include `exclude_reserved` and `exclude_layaway`, and fixed full-scope snapshot parameter binding for reserved/layaway exclusions.
    - Register: `client/e2e/register-audit-contract.spec.ts` covers Register #1 linked lanes, duplicate-open block, satellite attach/close rules, reconciliation baseline, group close, closed-token rejection, post-close token reissue rejection, and parked-sale purge/audit rows during Z-close.
@@ -63,7 +63,8 @@ This plan resolves the audit findings in `docs/reviews/PRODUCTION_HARDENING_AUDI
   - Each purged parked sale receives a `pos_parked_sale_audit` row with `action = 'purge_on_close'`; register close staff-access metadata includes the purge count.
 - Convert QBO staging date logic to store-local business date or document signed accounting acceptance for UTC.
   - Status: implemented in `server/src/logic/qbo_journal.rs` and QBO drilldown queries in `server/src/api/qbo.rs`.
-  - QBO proposal windows now use `reporting.effective_store_timezone()` for fulfilled, booked, tender, return, inventory, forfeiture, and drilldown date cuts.
+  - QBO proposal windows now use `reporting.effective_store_timezone()` for fulfilled/recognized, booked, tender, return, inventory, forfeiture, and drilldown date cuts.
+  - Revenue, COGS, tax, deposit-release, alteration, RMS pass-through, and drilldown attribution now share the reporting recognition basis: pickup/takeaway fulfillment timestamps plus shipped-order shipment events.
   - Proposal payloads include `business_timezone`, and QBO docs/staff SOPs now describe staging date as the store-local business date.
 - Add a SQL audit probe pack for payment allocation, stock, commission, QBO, register, and backup invariants.
   - Status: implemented in `scripts/production_audit_probes.sql`.

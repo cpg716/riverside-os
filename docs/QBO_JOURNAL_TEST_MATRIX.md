@@ -2,11 +2,12 @@
 
 Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/staging/propose`, review `warnings`, `totals.balanced`, and line memos. Use staging drilldown where available.
 
-## Fulfillment-day revenue (effective qty)
+## Recognition-day revenue (effective qty)
 
 | Scenario | Expect |
 |----------|--------|
-| Order fulfilled on date D, no returns | Revenue/COGS/tax from effective qty = sold qty |
+| Pickup / in-store takeaway fulfilled on date D, no returns | Revenue/COGS/tax from effective qty = sold qty |
+| Shipped order label purchased / marked in transit / delivered on date D | Revenue/COGS/tax posts on the shipment recognition date, even when `transactions.fulfilled_at` is null |
 | Partial return before journal re-run for D | Revenue/COGS/tax reduced proportionally vs `order_return_lines` |
 | Full return of fulfilled line | Category net for that merchandise → 0 for that line’s share |
 
@@ -38,7 +39,8 @@ Use a **sandbox** QuickBooks company and ROS staging data. After `POST /api/qbo/
 - [ ] Single tender, single category, balanced journal  
 - [ ] Multi-split checkout (multiple tenders)  
 - [ ] Gift card `sub_type` `paid_liability` vs `loyalty_giveaway`  
-- [ ] Exchange pair (two orders) does not double-count if only reporting by fulfillment  
+- [ ] Exchange pair (two transactions) does not double-count if only reporting by recognition
+- [ ] Shipped transaction has no QBO revenue before shipment recognition event
 
 ## Ledger mapping fallbacks (inventory / COGS)
 
@@ -59,4 +61,4 @@ See also **[`SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md`](./SUIT_OUTFIT_COMPONENT_SWA
 
 ## Operational note
 
-`activity_date` is the store-local business date from `store_settings.receipt_config.timezone` through `reporting.effective_store_timezone()`. Re-running **propose** for an older `activity_date` after returns restates that day’s fulfillment nets. Return-day contra lines appear on the **return** business date. Align with your accountant on recognition policy.
+`activity_date` is the store-local business date from `store_settings.receipt_config.timezone` through `reporting.effective_store_timezone()`. QBO uses the same recognition basis as reporting: pickup / in-store takeaway recognizes from fulfillment timestamps, and shipped transactions recognize from the earliest qualifying shipment event (`label_purchased`, `in_transit`, or `delivered`). Re-running **propose** for an older `activity_date` after returns restates that day’s recognition nets. Return-day contra lines appear on the **return** business date. Align with your accountant on recognition policy.

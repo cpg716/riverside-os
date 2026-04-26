@@ -34,9 +34,10 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 **Purpose:** Review **journal bundles** before they hit QBO.
 
 1. **Staging** → sort by **date** or **status**.
-2. Treat the row date as the store-local business date shown by Riverside; open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
-3. **Approve** only when totals match **ROS** expectations for that close.
-4. **Sync** after approve; watch **History** for success/fail.
+2. Treat the row date as the store-local business date shown by Riverside. Sales revenue follows recognition timing: pickup / in-store takeaway posts when fulfilled, and shipped transactions post when the shipment is label-purchased / in transit / delivered.
+3. Open a row → **drilldown** to lines; fix **unmapped** SKUs or accounts **before** approve.
+4. **Approve** only when totals match **ROS** expectations for that close.
+5. **Sync** after approve; watch **History** for success/fail.
 
 ## History
 
@@ -67,4 +68,4 @@ Data flows **ROS → mappings → staging → approve → sync → QuickBooks**.
 - [../QBO_JOURNAL_TEST_MATRIX.md](../QBO_JOURNAL_TEST_MATRIX.md)
 - [../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md](../SUIT_OUTFIT_COMPONENT_SWAP_AND_QBO.md)
 
-**Last reviewed:** 2026-04-04
+**Last reviewed:** 2026-04-25

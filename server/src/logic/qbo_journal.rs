@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::logic::custom_orders::normalize_custom_item_type_key;
+use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 
 fn is_rms_financing_tender(payment_method: &str, tender_family: Option<&str>) -> bool {
     payment_method.eq_ignore_ascii_case("on_account_rms")
@@ -138,21 +139,24 @@ async fn qbo_map_with_misc_fallback(
     Ok(None)
 }
 
-/// Build a proposed journal for fulfilled-recognition day (store-local business date).
-/// MVP: takeaway-style recognition only — fulfilled transactions with `fulfilled_at` on `activity_date`.
+/// Build a proposed journal for recognized fulfillment day (store-local business date).
+/// Pickup / in-store takeaway use fulfillment timestamps; shipped orders use the shared
+/// shipment recognition instant from `report_basis`.
 /// Deposits, partial pickups, and loyalty gift cards are flagged in `warnings`.
 pub async fn propose_daily_journal(
     pool: &PgPool,
     activity_date: NaiveDate,
 ) -> Result<JournalProposal, sqlx::Error> {
+    let order_recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_recognition_ts = format!("(COALESCE(({order_recognition_ts}), oi.fulfilled_at))");
     let business_timezone: String =
         sqlx::query_scalar("SELECT reporting.effective_store_timezone()")
             .fetch_one(pool)
             .await?;
     let mut warnings: Vec<String> = vec![
-        format!("MVP journal: uses fulfilled transactions on store-local business date {activity_date} ({business_timezone}). Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
+        format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
         "Gift card: purchased-card redemptions debit `liability_gift_card` / default; loyalty and donated cards debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
-        "Revenue/COGS/tax for fulfilled transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate fulfillment-day nets.".to_string(),
+        "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
     ];
 
     #[derive(sqlx::FromRow)]
@@ -182,8 +186,8 @@ pub async fn propose_daily_journal(
             SUM((oi.local_tax * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)) AS tax_local
         {TL_EFFECTIVE_JOIN}
         WHERE o.is_forfeited = false
-          AND oi.fulfilled_at IS NOT NULL
-          AND (oi.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND {line_recognition_ts} IS NOT NULL
+          AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND (p.pos_line_kind IS DISTINCT FROM 'rms_charge_payment')
           AND (p.pos_line_kind IS DISTINCT FROM 'pos_gift_card_load')
           AND (p.pos_line_kind IS DISTINCT FROM 'alteration_service')
@@ -778,15 +782,15 @@ pub async fn propose_daily_journal(
         release_amount: Option<Decimal>,
     }
 
-    // For fulfilled transactions, release previously held customer deposits into recognized revenue.
-    let deposit_release_rows: Vec<DepositReleaseAgg> = sqlx::query_as(
+    // For recognized transactions, release previously held customer deposits into recognized revenue.
+    let deposit_release_rows: Vec<DepositReleaseAgg> = sqlx::query_as(&format!(
         r#"
         WITH fulfilled_transactions AS (
             SELECT o.id
             FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
-              AND o.fulfilled_at IS NOT NULL
-              AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+              AND ({order_recognition_ts}) IS NOT NULL
+              AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
         order_deposit AS (
             SELECT
@@ -836,21 +840,21 @@ pub async fn propose_daily_journal(
         INNER JOIN order_deposit od ON od.transaction_id = cn.transaction_id
         WHERE od.deposit_total > 0
         GROUP BY cn.category_id, cn.category_name
-        "#,
-    )
+        "#
+    ))
     .bind(activity_date)
     .fetch_all(pool)
     .await?;
 
     // Day-level verification: total releasable allocations should closely match deposit signals.
-    let (deposit_total_day, release_total_day): (Option<Decimal>, Option<Decimal>) = sqlx::query_as(
+    let (deposit_total_day, release_total_day): (Option<Decimal>, Option<Decimal>) = sqlx::query_as(&format!(
         r#"
         WITH fulfilled_transactions AS (
             SELECT o.id
             FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
-              AND o.fulfilled_at IS NOT NULL
-              AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+              AND ({order_recognition_ts}) IS NOT NULL
+              AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
         order_deposit AS (
             SELECT
@@ -897,8 +901,8 @@ pub async fn propose_daily_journal(
         SELECT
             (SELECT COALESCE(SUM(deposit_total), 0::numeric) FROM order_deposit) AS deposit_total_day,
             (SELECT COALESCE(SUM(alloc_amt), 0::numeric) FROM alloc) AS release_total_day
-        "#,
-    )
+        "#
+    ))
     .bind(activity_date)
     .fetch_one(pool)
     .await?;
@@ -912,14 +916,14 @@ pub async fn propose_daily_journal(
     }
 
     // Proportionality verification: detect per-order rounding drift from category splits.
-    let drift_rows: Vec<(Uuid, Decimal)> = sqlx::query_as(
+    let drift_rows: Vec<(Uuid, Decimal)> = sqlx::query_as(&format!(
         r#"
         WITH fulfilled_transactions AS (
             SELECT o.id
             FROM transactions o
             WHERE o.status::text NOT IN ('cancelled')
-              AND o.fulfilled_at IS NOT NULL
-              AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+              AND ({order_recognition_ts}) IS NOT NULL
+              AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
         ),
         order_deposit AS (
             SELECT
@@ -970,8 +974,8 @@ pub async fn propose_daily_journal(
         FROM alloc
         GROUP BY transaction_id
         HAVING ABS(MAX(deposit_total) - SUM(alloc_amt)) > 0.01
-        "#,
-    )
+        "#
+    ))
     .bind(activity_date)
     .fetch_all(pool)
     .await?;
@@ -1212,7 +1216,7 @@ pub async fn propose_daily_journal(
     // (liability increase). Use allocation metadata instead of merchandise lines so
     // existing-order payments collected in a mixed POS sale remain liability movement,
     // not current merchandise revenue.
-    let deposit_inflow: Decimal = sqlx::query_scalar(
+    let deposit_inflow: Decimal = sqlx::query_scalar(&format!(
         r#"
         SELECT COALESCE(SUM((pa.metadata->>'applied_deposit_amount')::numeric(14,2)), 0)::numeric(14,2)
         FROM payment_allocations pa
@@ -1221,10 +1225,10 @@ pub async fn propose_daily_journal(
         WHERE (pt.created_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND pa.amount_allocated > 0::numeric
           AND NULLIF(TRIM(pa.metadata->>'applied_deposit_amount'), '') IS NOT NULL
-          AND (o.fulfilled_at IS NULL OR (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
+          AND (({order_recognition_ts}) IS NULL OR (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date > $1::date)
           AND o.status::text NOT IN ('cancelled')
-        "#,
-    )
+        "#
+    ))
     .bind(activity_date)
     .fetch_one(pool)
     .await?;
@@ -1319,8 +1323,8 @@ pub async fn propose_daily_journal(
         SELECT COALESCE(SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)), 0)::numeric(14, 2)
         {TL_EFFECTIVE_JOIN}
         WHERE o.status::text NOT IN ('cancelled')
-          AND oi.fulfilled_at IS NOT NULL
-          AND (oi.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND {line_recognition_ts} IS NOT NULL
+          AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND p.pos_line_kind = 'alteration_service'
           AND oi.unit_price > 0::numeric
         "#
@@ -1359,8 +1363,8 @@ pub async fn propose_daily_journal(
         SELECT COALESCE(SUM((oi.unit_price * GREATEST(oi.quantity - COALESCE(orl.returned, 0), 0))::numeric(14, 2)), 0)::numeric(14, 2)
         {TL_EFFECTIVE_JOIN}
         WHERE o.status::text NOT IN ('cancelled')
-          AND o.fulfilled_at IS NOT NULL
-          AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+          AND {line_recognition_ts} IS NOT NULL
+          AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
           AND p.pos_line_kind = 'rms_charge_payment'
         "#
     ))

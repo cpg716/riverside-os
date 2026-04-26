@@ -26,6 +26,7 @@ use crate::auth::permissions::{QBO_MAPPING_EDIT, QBO_STAGING_APPROVE, QBO_SYNC, 
 use crate::auth::pins::log_staff_access;
 use crate::logic::integration_alerts::{record_integration_failure, record_integration_success};
 use crate::logic::qbo_journal;
+use crate::logic::report_basis::ORDER_RECOGNITION_TS_SQL;
 use crate::middleware::require_staff_with_permission;
 
 const DEFAULT_QBO_TOKEN_KEY: &str = "riverside-dev-token-key-change-me";
@@ -1337,6 +1338,8 @@ async fn staging_drilldown(
         .and_then(|a| a.first())
         .cloned()
         .unwrap_or_else(|| json!({}));
+    let order_recognition_ts = ORDER_RECOGNITION_TS_SQL.trim();
+    let line_recognition_ts = format!("(COALESCE(({order_recognition_ts}), oi.fulfilled_at))");
     let mut contributors: Vec<DrilldownContributor> = Vec::new();
 
     if let Some(method) = detail0.get("payment_method").and_then(|v| v.as_str()) {
@@ -1379,7 +1382,7 @@ async fn staging_drilldown(
             let cat_uuid = Uuid::parse_str(cat_str).map_err(|_| {
                 QboError::InvalidPayload("invalid category_id in payload".to_string())
             })?;
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 r#"
                 SELECT
                     oi.transaction_id,
@@ -1387,19 +1390,20 @@ async fn staging_drilldown(
                 FROM transaction_lines oi
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
-                WHERE o.fulfilled_at IS NOT NULL
-                  AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+                WHERE o.status::text NOT IN ('cancelled')
+                  AND {line_recognition_ts} IS NOT NULL
+                  AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
                   AND p.category_id = $2
                 GROUP BY oi.transaction_id
                 ORDER BY amount DESC
-                "#,
-            )
+                "#
+            ))
             .bind(sync_date)
             .bind(cat_uuid)
             .fetch_all(&state.db)
             .await?
         } else {
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 r#"
                 SELECT
                     oi.transaction_id,
@@ -1407,13 +1411,14 @@ async fn staging_drilldown(
                 FROM transaction_lines oi
                 INNER JOIN transactions o ON o.id = oi.transaction_id
                 INNER JOIN products p ON p.id = oi.product_id
-                WHERE o.fulfilled_at IS NOT NULL
-                  AND (o.fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+                WHERE o.status::text NOT IN ('cancelled')
+                  AND {line_recognition_ts} IS NOT NULL
+                  AND ({line_recognition_ts} AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
                   AND p.category_id IS NULL
                 GROUP BY oi.transaction_id
                 ORDER BY amount DESC
-                "#,
-            )
+                "#
+            ))
             .bind(sync_date)
             .fetch_all(&state.db)
             .await?
@@ -1431,13 +1436,14 @@ async fn staging_drilldown(
             let cat_uuid = Uuid::parse_str(cat).map_err(|_| {
                 QboError::InvalidPayload("invalid category_id in payload".to_string())
             })?;
-            sqlx::query_as(
+            sqlx::query_as(&format!(
                 r#"
                 WITH fulfilled_orders AS (
-                    SELECT id
-                    FROM transactions
-                    WHERE fulfilled_at IS NOT NULL
-                      AND (fulfilled_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+                    SELECT o.id
+                    FROM transactions o
+                    WHERE o.status::text NOT IN ('cancelled')
+                      AND ({order_recognition_ts}) IS NOT NULL
+                      AND (({order_recognition_ts}) AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
                 ),
                 order_deposit AS (
                     SELECT
@@ -1471,8 +1477,8 @@ async fn staging_drilldown(
                 WHERE cn.category_id = $2
                   AND od.deposit_total > 0
                 ORDER BY amount DESC
-                "#,
-            )
+                "#
+            ))
             .bind(sync_date)
             .bind(cat_uuid)
             .fetch_all(&state.db)

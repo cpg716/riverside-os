@@ -234,6 +234,26 @@ async function assignQboTimestamp(
   expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
 }
 
+async function assignQboShippingRecognition(
+  request: APIRequestContext,
+  transactionId: string,
+  timestampUtc: string,
+) {
+  const res = await request.post(`${apiBase()}/api/test-support/qbo/assign-shipping-recognition`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      transaction_id: transactionId,
+      label_purchased_at_utc: timestampUtc,
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+}
+
 async function proposeJournal(
   request: APIRequestContext,
   activityDate: string,
@@ -431,5 +451,50 @@ test.describe("QBO audit contract", () => {
         utcDrilldown.contributors?.some((row) => row.transaction_id === checkout.transaction_id),
       ).toBe(false);
     }
+  });
+
+  test("shipped orders recognize in QBO on shipment event date", async ({ request }) => {
+    test.setTimeout(90_000);
+    const activityDate = futureUtcDate(21);
+    const recognitionTimestampUtc = `${activityDate}T16:00:00Z`;
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createQboProduct(request, operatorStaffId);
+    await seedQboMappings(request, product.categoryId, activityDate);
+
+    const checkout = await checkoutQboProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+    });
+    await assignQboShippingRecognition(request, checkout.transaction_id, recognitionTimestampUtc);
+
+    const proposed = await proposeJournal(request, activityDate);
+    expect(proposed.payload.business_timezone).toBeTruthy();
+    expect(proposed.payload.totals?.balanced).toBe(true);
+
+    const revenueLineIndex = proposed.payload.lines.findIndex(
+      (line) =>
+        line.memo.startsWith("Revenue") &&
+        line.qbo_account_id === "E2E_REVENUE" &&
+        line.detail?.some((detail) => detail.category_id === product.categoryId),
+    );
+    expect(revenueLineIndex).toBeGreaterThanOrEqual(0);
+
+    const drilldownRes = await request.get(
+      `${apiBase()}/api/qbo/staging/${proposed.id}/drilldown?line_index=${revenueLineIndex}`,
+      {
+        headers: staffHeaders(),
+        failOnStatusCode: false,
+      },
+    );
+    expect(drilldownRes.status()).toBe(200);
+    const drilldown = (await drilldownRes.json()) as {
+      contributors?: Array<{ transaction_id: string; amount: string | number }>;
+    };
+    expect(
+      drilldown.contributors?.some((row) => row.transaction_id === checkout.transaction_id),
+    ).toBe(true);
   });
 });

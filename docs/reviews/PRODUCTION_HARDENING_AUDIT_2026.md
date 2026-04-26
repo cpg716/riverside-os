@@ -143,9 +143,9 @@ The POS golden path, tender UI smoke, tax-exempt checkout UI, and one exchange U
 
 ### P2-004: QBO recognition used UTC date in staging
 
-**Status:** Remediated and covered by `client/e2e/qbo-audit-contract.spec.ts`. QBO proposal and drilldown date cuts now use store-local business date via `reporting.effective_store_timezone()`, proposal payloads include `business_timezone`, and near-midnight UTC activity is asserted against the intended store business date.
+**Status:** Remediated and covered by `client/e2e/qbo-audit-contract.spec.ts`. QBO proposal and drilldown date cuts now use store-local business date via `reporting.effective_store_timezone()`, proposal payloads include `business_timezone`, near-midnight UTC activity is asserted against the intended store business date, and shipped-order revenue is recognized from shipment events.
 
-**Evidence:** `server/src/logic/qbo_journal.rs` and QBO drilldown queries now use the configured store timezone for business-date windows; `docs/QBO_JOURNAL_TEST_MATRIX.md` documents the store-local policy.
+**Evidence:** `server/src/logic/qbo_journal.rs` and QBO drilldown queries now use the configured store timezone and shared reporting recognition basis for business-date windows; `docs/QBO_JOURNAL_TEST_MATRIX.md` documents the store-local recognition policy.
 
 **Business impact:** Late-day retail activity can land on a different accounting date than the store-local close day.
 
