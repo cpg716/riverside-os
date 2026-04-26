@@ -78,7 +78,7 @@ function centeredLines(lines: string[]) {
   return lines
     .map((line) => line.trim())
     .filter(Boolean)
-    .map((line) => `^${escapeReceiptlineText(line)}`)
+    .map((line) => `| ${escapeReceiptlineText(line)} |`)
     .join("\n");
 }
 
@@ -218,19 +218,19 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         "{{LOGO_IMAGE}}",
         showLogo && receiptLogoBase64 ? `{image:${receiptLogoBase64}}` : "",
       )
-      .replace("{{STORE_NAME}}", `^${escapeReceiptlineText(cfg.store_name)}`)
+      .replace("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
       .replace("{{HEADER_LINES}}", centeredLines(headerLineValues))
-      .replace("{{RECEIPT_TITLE}}", "^^^RECEIPT")
-      .replace("{{RECEIPT_ID}}", "^Receipt TXN-66736")
-      .replace("{{RECEIPT_DATE}}", "^04/26/2026 02:14 AM")
+      .replace("{{RECEIPT_TITLE}}", "| ^^^RECEIPT |")
+      .replace("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
+      .replace("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
       .replace("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
       .replace("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
       .replace("{{CASHIER_LINE}}", "Cashier: Alex B.")
       .replace(
         "{{ITEM_LINES}}",
         [
-          "1x 100% Lambswool Sweater | $83.80",
-          "SKU I-1003713601",
+          "1x 100% Lambswool Sweater",
+          "SKU I-1003713601 | $83.80",
           "Taken home today",
         ]
           .filter(Boolean)
@@ -239,7 +239,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replace("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
       .replace("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
       .replace("{{PAYMENT_BLOCK}}", "")
-      .replace("{{TOTAL_LINE}}", "^Total | ^$83.80")
+      .replace("{{TOTAL_LINE}}", "Total | ^^$83.80")
       .replace("{{PAID_LINE}}", "Paid | $83.80")
       .replace("{{BALANCE_LINE}}", "")
       .replace("{{TENDER_LINE}}", "Tender | Cash")

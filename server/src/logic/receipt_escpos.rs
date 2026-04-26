@@ -326,7 +326,7 @@ fn centered_lines(lines: &[String]) -> String {
         .iter()
         .map(|line| line.trim())
         .filter(|line| !line.is_empty())
-        .map(|line| format!("^{}", receiptline_escape(line)))
+        .map(|line| format!("| {} |", receiptline_escape(line)))
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -374,8 +374,8 @@ fn receiptline_item_lines(d: &ReceiptOrderForZpl, gift: bool) -> String {
             lines.push(name);
             lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
         } else {
-            lines.push(format!("{name} | {}", money(it.unit_price)));
-            lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
+            lines.push(name);
+            lines.push(format!("SKU {} | {}", receiptline_escape(&it.sku), money(it.unit_price)));
             if let Some(orig) = it.original_unit_price {
                 if orig > it.unit_price && orig > Decimal::ZERO {
                     lines.push(format!("Reg {} Sale {}", money(orig), money(it.unit_price)));
@@ -433,9 +433,9 @@ pub fn build_receiptline_markdown(
     };
     let template = receipt_template_with_slots(template, cfg.show_logo, cfg.show_barcode);
     let title = if gift {
-        "^^^GIFT RECEIPT"
+        "| ^^^GIFT RECEIPT |"
     } else {
-        "^^^RECEIPT"
+        "| ^^^RECEIPT |"
     };
     let customer_line = d
         .customer
@@ -487,16 +487,16 @@ pub fn build_receiptline_markdown(
     } else {
         String::new()
     };
-    let store_name = format!("^{}", receiptline_escape(&cfg.store_name));
+    let store_name = format!("| ^^{} |", receiptline_escape(&cfg.store_name));
     let header_lines = centered_lines(&receipt_header_lines(cfg));
-    let receipt_id = format!("^Receipt {}", receipt_ref(d));
-    let receipt_date = format!("^{}", receipt_date(d, cfg));
+    let receipt_id = format!("| Receipt {} |", receipt_ref(d));
+    let receipt_date = format!("| {} |", receipt_date(d, cfg));
     let item_lines = receiptline_item_lines(d, gift);
     let payment_block_value = if gift { "" } else { payment_block.as_str() };
     let total_line = if gift {
         String::new()
     } else {
-        format!("^Total | ^{}", money(d.total_price))
+        format!("Total | ^^{}", money(d.total_price))
     };
     let paid_line = if gift {
         String::new()
