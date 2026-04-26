@@ -1,6 +1,18 @@
 # Transaction Fulfillment, Pickup, and Shipping
 
+**Status:** Canonical pickup, partial fulfillment, and shipping workflow reference. For the full transactions doc map, start at [`TRANSACTIONS.md`](TRANSACTIONS.md).
+
 Operational reference for **register** flows: loading customer transactions, partial fulfillment, pickup, and shipping. Updates from v0.2.0.
+
+## Register Shipping vs Orders
+
+Shipping is a delivery method, not automatically an Order.
+
+- **Ship current sale**: staff can add shipping to an in-stock Register sale before payment. Checkout records `fulfillment_method = ship`, stores the quoted shipping amount/address snapshot, and creates a shipment registry row. The merchandise line can remain a current-sale/takeaway-style line; it does not become a Special/Custom/Wedding fulfillment order just because it ships.
+- **Ship existing order**: staff can ship an already-open transaction/order-style line from the Orders or Shipments workflow. This is fulfillment/release work against existing transaction lines.
+- **Pickup existing order**: staff use the pickup/release flow to mark open transaction lines fulfilled for in-store handoff.
+
+The historical endpoint for marking lines fulfilled is still `POST /api/transactions/{transaction_id}/pickup`; staff-facing UI should distinguish **Release for Pickup** from **Shipping** even when shared fulfillment internals are reused.
 
 ## Overview
 
@@ -116,7 +128,8 @@ When a transaction is created with Ship fulfillment, the customer can save a car
 ### At Register (New Transactions)
 
 ```
-Cart → Add Items → Select Customer → Review Transaction (Rush/Due/Ship)
+Cart → Add Items → Select Customer → optional Ship current sale
+     → Review Transaction (Rush/Due/Pickup release)
      → Payment → Transaction Created (Open)
 ```
 
@@ -134,7 +147,7 @@ Transactions Workspace → Find Customer's Transaction → Pickup OR Ship
 
 ### Revenue Recognition
 
-Transactions are recognized as revenue at **fulfillment time** (not booking). See `docs/REPORTING_BOOKED_AND_RECOGNITION.md`.
+Transactions are recognized as revenue at **fulfillment time** (not booking). See [`REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md).
 
 ### Shipping Fees
 

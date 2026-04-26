@@ -34,9 +34,13 @@ type ShippingQuoteResponse = {
 
 type TransactionDetailResponse = {
   total_price: string;
+  fulfillment_method?: "pickup" | "ship";
+  shipping_amount_usd?: string | null;
   items: Array<{
     transaction_line_id: string;
     sku: string;
+    fulfillment?: string;
+    is_fulfilled?: boolean;
     quantity: number;
     quantity_returned: number;
   }>;
@@ -542,7 +546,7 @@ test.describe("tax audit contract", () => {
     expect(detail.total_price).toBe(amount);
   });
 
-  test("shipping charge is included in total without adding sales tax", async ({ request }) => {
+  test("ship current sale records shipping without requiring an order line", async ({ request }) => {
     test.setTimeout(90_000);
     const { sessionId, sessionToken } = await ensureSessionAuth(request);
     const operatorStaffId = await verifyStaffId(request);
@@ -581,7 +585,7 @@ test.describe("tax audit contract", () => {
           {
             product_id: product.productId,
             variant_id: product.variantId,
-            fulfillment: "special_order",
+            fulfillment: "takeaway",
             quantity: 1,
             unit_price: "110.00",
             unit_cost: product.unitCost,
@@ -611,6 +615,68 @@ test.describe("tax audit contract", () => {
     expect(detailRes.status()).toBe(200);
     const detail = (await detailRes.json()) as TransactionDetailResponse;
     expect(detail.total_price).toBe(total);
+    expect(detail.fulfillment_method).toBe("ship");
+    expect(detail.shipping_amount_usd).toBe("12.00");
+    expect(detail.items[0]?.fulfillment).toBe("takeaway");
+    expect(detail.items[0]?.is_fulfilled).toBe(true);
+  });
+
+  test("ship fulfillment mode requires Register shipping quote", async ({ request }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "110.00",
+      label: "ship-mode-no-quote",
+    });
+    const tax = taxFor("clothing", "110.00");
+    const total = totalFor("110.00", tax.stateTax, tax.localTax);
+
+    const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
+        customer_id: null,
+        payment_method: "cash",
+        total_price: total,
+        amount_paid: total,
+        checkout_client_id: crypto.randomUUID(),
+        fulfillment_mode: "ship",
+        ship_to: {
+          name: "Quote Missing Customer",
+          street1: "1 Main St",
+          city: "Buffalo",
+          state: "NY",
+          zip: "14202",
+          country: "US",
+        },
+        items: [
+          {
+            product_id: product.productId,
+            variant_id: product.variantId,
+            fulfillment: "takeaway",
+            quantity: 1,
+            unit_price: "110.00",
+            unit_cost: product.unitCost,
+            state_tax: tax.stateTax,
+            local_tax: tax.localTax,
+            salesperson_id: operatorStaffId,
+          },
+        ],
+        payment_splits: [{ payment_method: "cash", amount: total }],
+      },
+      failOnStatusCode: false,
+    });
+    const text = await res.text();
+    expect(res.status(), text.slice(0, 1000)).toBe(400);
+    expect(text).toContain("Ship current sale requires the Register Shipping action");
   });
 
   test("returns reverse the original line-level tax into the refund queue", async ({ request }) => {

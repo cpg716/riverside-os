@@ -158,6 +158,17 @@ pub struct CheckoutRequest {
     /// Consumed at checkout (single use); amount included in `total_price` validation.
     #[serde(default)]
     pub shipping_rate_quote_id: Option<Uuid>,
+    /// Customer delivery mode requested by the Register. Shipping is only authoritative
+    /// when paired with a valid `shipping_rate_quote_id` so the address/charge snapshot
+    /// comes from the POS shipping flow.
+    #[serde(default)]
+    pub fulfillment_mode: Option<DbOrderFulfillmentMethod>,
+    /// Legacy/client hint. Checkout ignores this unless the shipping quote metadata
+    /// carries the matching authoritative address snapshot.
+    #[serde(default)]
+    pub ship_to: Option<Value>,
+    #[serde(default)]
+    pub stripe_payment_method_id: Option<String>,
     /// Legacy field is not safe for mixed current-sale + existing-order allocations.
     /// Use `order_payments[]`.
     #[serde(default)]
@@ -2075,6 +2086,26 @@ pub async fn execute_checkout(
     let mut sum_expected = sum_lines;
 
     let shipping_quote_id = payload.shipping_rate_quote_id;
+    let requested_ship = payload.fulfillment_mode == Some(DbOrderFulfillmentMethod::Ship);
+    if requested_ship && shipping_quote_id.is_none() {
+        return Err(CheckoutError::InvalidPayload(
+            "Ship current sale requires the Register Shipping action so rates, address, and shipment tracking are recorded."
+                .to_string(),
+        ));
+    }
+    if payload.fulfillment_mode == Some(DbOrderFulfillmentMethod::Pickup)
+        && shipping_quote_id.is_some()
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "Shipping quote was attached but fulfillment mode is pickup; clear shipping or choose Ship Current Sale."
+                .to_string(),
+        ));
+    }
+    if shipping_quote_id.is_some() && payload.ship_to.is_none() {
+        tracing::debug!(
+            "checkout shipping uses ship_to from rate quote metadata; payload ship_to was empty"
+        );
+    }
     let shipping_peek_amt: Option<Decimal> = if let Some(qid) = shipping_quote_id {
         let row: Option<Decimal> = sqlx::query_scalar(
             r#"

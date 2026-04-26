@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-04-26T01:06:49.555Z",
+  "generated_at": "2026-04-26T02:54:00.203Z",
   "standard_version": "help-manual-standard-v1",
   "published_manual_count": 57,
   "draft_manual_count": 108,
@@ -2889,7 +2889,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 5,
       "placeholder_hits": [
         "add pngs under"
       ],

@@ -134,11 +134,6 @@ export function useCartCheckout({
       return;
     }
 
-    if (posShipping && lines.some(l => l.fulfillment === "takeaway")) {
-      toast("Items marked as 'Takeaway' cannot be shipped. Switch fulfillment to Special Order.", "error");
-      return;
-    }
-
     setCheckoutBusy(true);
 
     try {

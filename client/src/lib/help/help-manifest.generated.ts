@@ -336,7 +336,7 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "pos-shipping-manual",
     title: "Shipping & Fulfillment Guide",
-    summary: "Guide to quoting shipping rates at terminal, processing shipped orders, and tracking fulfillment in the Back Office Hub.",
+    summary: "Guide to quoting current-sale shipping at the Register and tracking shipments after checkout.",
     markdown: manual_39_raw,
     tags: ["pos","shipping","shippo","fulfillment","back-office"],
   },

@@ -2,7 +2,7 @@
 id: pos-shipping-manual
 title: "Shipping & Fulfillment Guide"
 order: 1061
-summary: "Guide to quoting shipping rates at terminal, processing shipped orders, and tracking fulfillment in the Back Office Hub."
+summary: "Guide to quoting current-sale shipping at the Register and tracking shipments after checkout."
 source: client/src/components/pos/Cart.tsx
 last_scanned: 2026-04-11
 tags: pos, shipping, shippo, fulfillment, back-office
@@ -10,7 +10,7 @@ tags: pos, shipping, shippo, fulfillment, back-office
 
 # Shipping & Fulfillment Guide
 
-Riverside OS features a unified shipping integration that connects the **POS Register**, the **Online Store**, and the **Customer Relationship Hub**. This ensures that every order destined for a doorstep is tracked from the moment of sale to final delivery.
+Riverside OS features a unified shipping integration that connects the **POS Register**, the **Online Store**, and the **Customer Relationship Hub**. Shipping is a delivery method, not automatically a Special/Custom/Wedding order.
 
 ## What this is
 
@@ -19,7 +19,7 @@ Use this guide for shipping quotes at checkout and for the follow-up shipment wo
 ## How to use it
 
 1. Link the correct customer profile before quoting shipment at the register.
-2. Add shipping in the POS cart and confirm the quoted rate.
+2. Add **Ship current sale** in the POS cart and confirm the quoted rate.
 3. Complete checkout with shipping paid correctly.
 4. Move into the **Shipments Hub** afterward to post tracking and status updates.
 
@@ -32,7 +32,7 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 
 ### Adding Shipping to the Cart
 1. Build the customer's cart as usual.
-2. Tap the **Truck Icon (Shipping)** button below the subtotal.
+2. Tap **Ship current sale** below the subtotal.
 3. The **Ship this Sale** window will open.
     - **Use customer address**: Quickly pull the saved address from the CRM.
     - **Edit address**: Manually enter a one-time delivery address for this order.
@@ -40,9 +40,9 @@ Shipping **requires** a linked customer profile. Use the **Customer Selector** t
 5. Select the desired rate and tap **Apply shipping to sale**.
 
 ### Fulfillment & Payment Rules
-- **Automatic Switching**: When shipping is added, any items marked as **Takeaway** are automatically switched to **Special Order**. This ensures the items stay in your inventory until they are physically shipped.
+- **Current-sale shipping**: Shipping ordinary in-stock merchandise does not require converting the line to a Special/Custom/Wedding fulfillment order.
 - **Immediate Payment**: Shipping fees are treated as an immediate liability. They must be paid in full at the time of sale (along with any takeaway items) before the register will allow the transaction to be finalized.
-- **Reporting**: Shipped orders remain in **Open** status until the tracking number is added and the shipment is marked as "Shipped" in the Back Office.
+- **Reporting**: Shipped transactions remain in **Open** status until the shipment workflow records the carrier handoff/recognition event.
 
 ## 2. Managing Shipments (Back Office)
 

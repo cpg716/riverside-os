@@ -10,23 +10,23 @@ tags: pos, shipping, shippo, rates
 
 # Shipping Quote Modal
 
-The **Shipping Quote Modal** is triggered when you tap the **Truck Icon** in the POS Cart. It allows you to select how a customer's order will be delivered.
+The **Shipping Quote Modal** is triggered when you tap **Ship current sale** in the POS Cart. It captures the delivery address and carrier quote for a current Register sale.
 
 ## What this is
 
-Use this modal to capture the destination address and apply a shipping quote to the current register sale.
+Use this modal to capture the destination address and apply a shipping quote to the current Register sale. This does not require creating a Special/Custom/Wedding order; it can ship ordinary in-stock merchandise from the current sale.
 
 ## When to use it
 
-Open this modal only when the customer wants delivery instead of leaving with the product today.
+Open this modal when the customer wants delivery instead of leaving with the product today. Use Orders or the Shipments Hub when you are shipping an already-open order.
 
 ## Features
 - **Address Integration**: Pulls the primary address directly from the linked customer profile.
-- **Auto-Fulfillment**: Once a rate is applied, the cart will automatically switch relevant items to "Special Order" (non-takeaway).
+- **Current-sale shipping**: The sale is marked for shipping and a shipment record is created at checkout.
 - **Live Carrier Rates**: Fetches real-time pricing from USPS, UPS, and FedEx (requires active internet connection).
 
 ## Workflow
-1. Tap the **Truck Icon** in the cart.
+1. Tap **Ship current sale** in the cart.
 2. Select **Use customer address** or enter a manual destination.
 3. Tap **Get shipping rates**.
 4. Pick the preferred carrier and service level.
@@ -35,7 +35,7 @@ Open this modal only when the customer wants delivery instead of leaving with th
 ## What to watch for
 
 - Shipping requires a usable address before the quote can be trusted.
-- Applying shipping may change fulfillment handling for items that were previously takeaway.
+- Applying shipping does not sell the item twice and does not require converting the line into a Special Order.
 - Use the full shipping guide if the task moves beyond quoting into shipment follow-up.
 
-_For more details on managing shipments after the sale, see the [Shipping & Fulfillment Guide](pos-shipping-manual)._
+_For more details on managing shipments after the sale, see the [Shipping & Fulfillment Guide](pos-shipping-manual.md)._

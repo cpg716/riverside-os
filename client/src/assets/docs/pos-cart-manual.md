@@ -17,7 +17,7 @@ _Linked component: `client/src/components/pos/Cart.tsx`._
 
 ## What this is
 
-The Register cart is the selling surface for active sale lines, customer context, payment entry, and sale tools. The toolbar includes separate actions for Wedding, Alteration, Exchange, Layaway, Gift Card, Park Sale, Clear Sale, Options, and Orders.
+The Register cart is the selling surface for active sale lines, customer context, payment entry, and sale tools. The toolbar includes separate actions for Wedding, Alteration, Exchange, Layaway, Gift Card, Park Sale, Clear Sale, Options, and Orders. Shipping for the current sale lives in the cart totals area as **Ship current sale** so address, quote, and shipment tracking stay together.
 
 The **Alteration** action starts intake for garment work orders. Every Register alteration creates an editable **Alteration** cart line. Free/included alterations show **$0.00**; charged alterations show the entered service amount. Alteration-only scanned, past-purchase, or custom items are tracked as sources and are not sold again.
 
@@ -37,6 +37,7 @@ Use this screen when helping a customer at the Register, adding sale lines, revi
 2. Use toolbar actions as separate commands; **Exchange** and **Layaway** are independent actions.
 3. To start alteration intake, select the customer, choose **Alteration**, choose the item source, enter work requested, and save.
 4. Review the alteration cart line. Use **Edit** on that line to change work requested, source details, due date, notes, or charge amount before checkout.
+5. Use **Ship current sale** when ordinary in-stock merchandise should be delivered instead of handed to the customer. Shipping does not require converting the merchandise line into a Special Order.
 
 ## What to watch for
 
@@ -44,6 +45,7 @@ Use this screen when helping a customer at the Register, adding sale lines, revi
 - Scanned/entered alteration-only items are lookup-only and are not added to the cart.
 - Every alteration cart line must match its intake before checkout can complete.
 - Charged alteration lines are service lines, not merchandise lines.
+- Ship current sale requires a valid shipping quote; choosing Ship in a generic order review is not enough.
 
 ## What happens next
 

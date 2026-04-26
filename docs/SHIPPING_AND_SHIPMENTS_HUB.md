@@ -1,5 +1,7 @@
 # Shipping, Shippo, and the unified shipments hub
 
+Status: **Canonical Shipping / Shippo / Shipments Hub reference**. Cross-cutting Podium and notification behavior starts at [CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md](./CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md).
+
 **Audience:** Developers and operators shipping from **POS**, the **Back Office**, the **online storefront**, or **manual** CRM workflows.
 
 **Purpose:** Describe the unified shipping architecture where the **Shipments Hub** is mirrored between both the Back Office and the POS to support salespersons and support staff. Details today's state (schema, env, APIs, UI) versus what remains on the roadmap (**[`docs/PLAN_SHIPPO_SHIPPING.md`](PLAN_SHIPPO_SHIPPING.md)**).
@@ -47,7 +49,7 @@ Live rates run only when the store enables them **and** the token is present (se
 
 Implementation: **`server/src/api/shipments.rs`**, **`server/src/logic/shipment.rs`**, **`server/src/api/pos.rs`**, **`server/src/api/store.rs`**.
 
-**Checkout:** POS checkout with **ship** fulfillment creates or aligns a **`shipment`** row via **`insert_from_pos_order_tx`** (**`server/src/logic/order_checkout.rs`**). **Web** paid orders that ship should get the same treatment in the web checkout path when that flow is wired (backfill **75** already tags historical rows by **`sale_channel`**).
+**Checkout:** POS checkout with **Ship current sale** consumes a valid shipping quote, stores **`transactions.fulfillment_method = ship`**, keeps the quoted address/fee snapshot, and creates or aligns a **`shipment`** row via **`insert_from_pos_order_tx`** (**`server/src/logic/transaction_checkout.rs`**). This is allowed for ordinary current-sale merchandise; shipping does **not** require turning the line into a Special/Custom/Wedding fulfillment order. **Web** paid orders that ship should get the same treatment in the web checkout path when that flow is wired (backfill **75** already tags historical rows by **`sale_channel`**).
 
 ---
 

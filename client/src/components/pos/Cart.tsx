@@ -1511,7 +1511,7 @@ export default function Cart({
                 type="button"
                 onClick={() => setOrderReviewOpen(true)}
                 disabled={lines.length === 0}
-                title="Set Rush, Fulfillment, or Shipping details"
+                title="Set rush and pickup/order details. Use Shipping to ship this current sale."
                 className="ui-touch-target flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-success/35 bg-app-success/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-success transition-all hover:bg-app-success hover:text-white disabled:opacity-20"
               >
                 <Zap size={16} className="shrink-0" aria-hidden />
@@ -1824,7 +1824,7 @@ export default function Cart({
                     className="inline-flex items-center gap-1 rounded-full border border-app-border/80 bg-app-surface-2/90 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text transition-all duration-150 hover:border-app-accent/40 hover:bg-app-accent/5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35"
                   >
                     <Truck size={11} aria-hidden />
-                    Shipping
+                    Ship current sale
                   </button>
                 </div>
               )}
@@ -2892,14 +2892,7 @@ export default function Cart({
                 is_rush: options.isRush,
                 need_by_date: options.needByDate,
                 fulfillment_mode: options.fulfillment,
-                ship_to: options.shipTo ? {
-                  name: options.shipTo.name,
-                  street1: options.shipTo.street1,
-                  city: options.shipTo.city,
-                  state: options.shipTo.state,
-                  zip: options.shipTo.zip,
-                  country: options.shipTo.country || "US",
-                } : null,
+                ship_to: null,
                 stripe_payment_method_id: options.storeCardForBalance?.stripe_payment_method_id || null,
               });
               setOrderReviewOpen(false);

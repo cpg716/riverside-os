@@ -48,7 +48,7 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 6. **Wrong size after adding?** Tap the **product name** on the line (not only the SKU chip). If that style has multiple sizes/options, the **variation picker** opens again so you can **swap** the line without removing it; if there is only one SKU, a **review / price** panel may open instead.
 7. **Cart Item Toggles:** Each line in the cart now includes quick toggles for **Gift Wrap** (blue wrapping icon). Tapping this updates the fulfillment requirement immediately.
 8. **Recalling a Transaction:** If a customer has items to pick up or a previous transaction to resume, tap the **Transactions** button next to the customer search bar. This opens the **Transaction Loader**, where you can select specific items from their history to bring into the active cart for direct pickup or further payment.
-9. **Fulfillment Requirements (Rush/Due Date):** Tap the **Zap (Options)** icon in the tool rail to open the **Transaction Review** screen. Here you can set the **Need By Date**, toggle **Rush** status for the whole sale, and switch between **Pickup** and **Ship**. These requirements are saved and printed on the final receipt.
+9. **Fulfillment Requirements (Rush/Due Date):** Tap the **Zap (Options)** icon in the tool rail to open the **Transaction Review** screen. Here you can set the **Need By Date** and toggle **Rush** status for the whole sale. Use the separate **Ship current sale** action in the cart when the customer wants delivery; that flow captures the address, rate quote, and shipment tracking together.
 10. **Quantity and price:** Use the on-screen **numpad**. 
     - **Quantity**: Type amount and tap **Qty** (or **Apply** if in Qty mode).
     - **Percentage Discount**: Select a line item, type the percentage (e.g. `20`), and tap **%**. This instantly calculates the discounted price and recalculates the line tax based on the new net price.
@@ -59,6 +59,8 @@ Staff-facing details for engineers: **[Parked sales and RMS charges](../POS_PARK
 **R2S payment on the customer’s outside charge (not a normal sale):** When the customer is paying down an **R2S-managed** balance (not store credit, not a new purchase), type **`PAYMENT`** in the product search. Select **RMS CHARGE PAYMENT**, attach the **customer**, enter the **amount** on the **Price** numpad (no tax on this line; no loyalty points on this transaction type). Complete the sale with **Cash** or **Check** only (other tenders are hidden for this flow). **Sales Support** gets a **task** to confirm the payment was posted in the **R2S** portal — complete it per SOP. Details: **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)**.
 
 **Fulfillment Orders:** Lines that are **not** takeaway fulfillment typically do **not** reduce on-hand stock at checkout; **takeaway** items decrement stock at sale time. The system may allow **negative on-hand** when policy permits oversell. Do not promise same-day pickup unless the line type and notes say so.
+
+**Shipping without an order:** A customer can buy an in-stock item at the Register and have it shipped without turning the merchandise line into a Special/Custom/Wedding fulfillment order. Use **Ship current sale** before payment. Riverside records the transaction delivery method as **Ship**, stores the address and shipping fee from the rate quote, and creates the shipment record for follow-up. This is separate from shipping an existing open order from the Orders/Shipments workflow.
 
 **Register alterations:** Use **Alteration** from the Register toolbar after selecting the customer. Every Register alteration adds an editable **Alteration** cart line. Free/included work shows **$0.00**; charged work shows the entered service amount. The source garment can be a current cart item, past purchase, SKU lookup, or custom/manual description, but lookup-only and past-purchase garments are **not** sold again. Removing a source sale line asks whether to remove the attached alteration too or keep it as a custom/manual item.
 
@@ -89,7 +91,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
 ## Checkout (Complete Sale)
 
 1. Review **subtotal**, **tax**, and **balance due** with the customer.
-2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires shipping or special fulfillment, the **Transaction Review** screen (Rush/Due Date/Fulfillment) will appear first to ensure all metadata is captured before you proceed to the **payment ledger**.
+2. Tap **Pay** / **Complete Sale** (or equivalent green action). If the transaction requires Rush/Due Date details or special fulfillment, the **Transaction Review** screen appears before payment. If the customer wants delivery, use **Ship current sale** from the cart before payment so checkout has a valid quote and address snapshot.
 3. **Tender:** choose the method, enter the amount on the keypad, then **Apply payment** for each tender before finalizing. Enter cash, swipe/tap card, gift card, or **split** tenders per training. Wait for **approved** state on card; do not hand back change until tender is confirmed on screen.
     - **Physical Checks**: When a customer pays by check, select the **CHECK** tab and enter the **Check #** in the input field before pressing **Apply Payment**.
     - The **keypad** stays fixed in the payment panel — scroll only affects the tender and balance area above it if the screen is very short.
@@ -97,7 +99,7 @@ Technical reference for engineers and leads: **[Parked sales and RMS charges](..
    - Integrated Card and Vault methods are labeled as **STRIPE CARD**, **STRIPE MANUAL**, or **STRIPE VAULT**.
    - **Saved Card**: Select **STRIPE VAULT** to charge a card on file without the physical reader. 
    - **Stripe Credit**: Select **STRIPE CREDIT** (on returns) to issue a credit back via the terminal.
-   - See **[`stripe-payments-manual.md`](stripe-payments-manual.md)** for full details.
+   - See **[`stripe-payments-manual.md`](../../client/src/assets/docs/stripe-payments-manual.md)** for full details.
 5. **Audited Tax Exemptions:**
    - For tax-free sales, tap the **Tax Exempt** toggle in the checkout drawer.
    - **Reason Required**: A valid reason (e.g. Resale, Exempt Org) MUST be selected.
