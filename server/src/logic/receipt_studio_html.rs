@@ -322,7 +322,7 @@ pub fn wrap_receipt_fragment_for_podium_email_inline(fragment: &str) -> String {
 
 /// Demo order for Settings → Receipt Builder preview (`GET /api/settings/receipt/preview-html`).
 pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
-    use crate::models::{DbFulfillmentType, DbOrderStatus};
+    use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus};
     use chrono::Utc;
 
     ReceiptOrderForZpl {
@@ -348,6 +348,8 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
                 variation_label: Some("42R Navy".to_string()),
                 original_unit_price: None,
                 discount_event_label: None,
+                custom_order_details: None,
+                is_fulfilled: true,
             },
             crate::logic::receipt_zpl::ReceiptLineForZpl {
                 product_name: "Silk tie".to_string(),
@@ -359,10 +361,13 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
                 variation_label: None,
                 original_unit_price: None,
                 discount_event_label: None,
+                custom_order_details: None,
+                is_fulfilled: true,
             },
         ],
         is_tax_exempt: false,
         tax_exempt_reason: None,
+        fulfillment_method: DbOrderFulfillmentMethod::Pickup,
         cashier_name: Some("Taylor M.".to_string()),
         salesperson_display_name: Some("Alex B.".to_string()),
     }

@@ -17,7 +17,7 @@ pub struct LoyaltyReceiptData {
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_zpl::{order_status_label, ReceiptOrderForZpl};
-use crate::models::DbFulfillmentType;
+use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
 const CPL: usize = 42;
 const RECEIPT_LOGO_WIDTH_PX: u32 = 384;

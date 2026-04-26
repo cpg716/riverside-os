@@ -5,7 +5,7 @@ use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use uuid::Uuid;
 
-use crate::models::{DbFulfillmentType, DbOrderStatus};
+use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus};
 
 pub fn order_status_label(s: DbOrderStatus) -> &'static str {
     match s {
