@@ -2731,7 +2731,7 @@ export function AddCustomerDrawer({
       {emailPromptOpen && isOpen
         ? createPortal(
             <div
-              className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4 backdrop-blur-md"
+              className="ui-overlay-backdrop !z-[200]"
               onClick={() => setEmailPromptOpen(false)}
               role="presentation"
             >
@@ -2790,7 +2790,7 @@ export function AddCustomerDrawer({
                 </div>
               </div>
             </div>,
-            document.body,
+            document.getElementById("drawer-root") || document.body,
           )
         : null}
     </>

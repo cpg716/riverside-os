@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Flame, Calendar, Package, MapPin, ArrowRight } from "lucide-react";
 import {
   customOrderDetailEntries,
@@ -61,6 +62,9 @@ export default function OrderReviewModal({
 
   if (!isOpen) return null;
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   const orderTotal = items.reduce((sum, item) => {
     const price = parseFloat(item.standard_retail_price) * 100;
     return sum + price * item.quantity;
@@ -76,8 +80,8 @@ export default function OrderReviewModal({
     });
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
       <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-3xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-app-border px-4 py-4 sm:px-6">
@@ -222,6 +226,7 @@ export default function OrderReviewModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

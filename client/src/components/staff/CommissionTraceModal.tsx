@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Info, CheckCircle, ShieldCheck, X } from "lucide-react";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
@@ -52,11 +53,14 @@ export default function CommissionTraceModal({ lineId, onClose, authHeaders }: C
 
     if (loading) return null; // Parent handles spinner if needed
 
+    const root = document.getElementById("drawer-root");
+    if (!root) return null;
+
     const money = (s: string) => formatUsdFromCents(parseMoneyToCents(s));
     const percent = (s: string) => `${(parseFloat(s) * 100).toFixed(1)}%`;
 
-    return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-navy-950/40 backdrop-blur-sm">
+    return createPortal(
+        <div className="ui-overlay-backdrop !z-[200]">
             <div className="bg-app-surface w-full max-w-lg rounded-[2rem] shadow-2xl border border-app-border overflow-hidden animate-in fade-in zoom-in duration-200">
                 <div className="p-6 border-b border-app-border flex justify-between items-center bg-app-surface-2">
                     <div className="flex items-center gap-3">
@@ -132,6 +136,7 @@ export default function CommissionTraceModal({ lineId, onClose, authHeaders }: C
                     </button>
                 </div>
             </div>
-        </div>
+        </div>,
+        root
     );
 }

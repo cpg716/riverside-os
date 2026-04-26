@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import type { TaxCategory } from "../../lib/tax";
 import {
   MANUAL_CUSTOM_ITEM_TYPES,
@@ -132,6 +133,11 @@ export default function CustomItemPromptModal({
     }
   }, [itemType]);
 
+  if (!isOpen) return null;
+
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   const parsedPrice = Number.parseFloat(price);
   const priceIsValid = Number.isFinite(parsedPrice) && parsedPrice > 0;
 
@@ -242,13 +248,8 @@ export default function CustomItemPromptModal({
     setShirtPocketStyle("");
   };
 
-  return (
-    <div
-      className={`fixed inset-0 z-[120] flex items-end justify-center p-0 transition-all sm:items-center sm:p-4 ${
-        isOpen ? "opacity-100" : "pointer-events-none opacity-0"
-      }`}
-    >
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
       <div className="relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[90vh] sm:max-w-sm sm:overflow-hidden sm:rounded-3xl">
         <div className="border-b border-app-border bg-app-surface-2 px-6 py-4">
           <h3 className="text-lg font-black uppercase italic tracking-tighter text-app-text">
@@ -1038,6 +1039,7 @@ export default function CustomItemPromptModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

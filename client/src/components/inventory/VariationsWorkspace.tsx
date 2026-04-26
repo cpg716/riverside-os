@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   LayoutGrid,
   List,
@@ -476,9 +477,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
       )}
 
       {/* Maintenance Modal */}
-      {maintenanceTarget && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="w-full max-w-md rounded-[32px] border border-app-border bg-app-surface p-8 shadow-2xl animate-in zoom-in-95 duration-300">
+      {maintenanceTarget && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+          <div className="ui-modal w-full max-w-md p-8 animate-in zoom-in-95 duration-300">
             <div className="mb-6 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <div
@@ -555,7 +556,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
       {/* Batch Pricing Modal */}
@@ -599,9 +601,9 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
         />
       )}
 
-      {showBatchPriceModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="w-full max-w-sm rounded-[32px] border border-app-border bg-app-surface p-8 shadow-2xl animate-in zoom-in-95 duration-300">
+      {showBatchPriceModal && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+          <div className="ui-modal w-full max-w-sm p-8 animate-in zoom-in-95 duration-300">
             <div className="mb-6 flex flex-col items-center text-center">
               <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-app-accent text-white shadow-lg shadow-app-accent/30">
                 <DollarSign size={28} />
@@ -707,7 +709,8 @@ export const VariationsWorkspace: React.FC<VariationsWorkspaceProps> = ({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
       {/* Batch Command Bar */}

@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Gift, X, Plus, Award, User, CreditCard, Sparkles, TrendingDown, AlertTriangle } from "lucide-react";
 import { centsToFixed2, parseMoneyToCents } from "../../lib/money";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -104,8 +105,11 @@ export function LoyaltyRedeemDialog({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 animate-in fade-in duration-500">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop animate-in fade-in duration-500">
       <div
         ref={dialogRef}
         role="dialog"
@@ -270,6 +274,7 @@ export function LoyaltyRedeemDialog({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

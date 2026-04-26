@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { 
   Search, 
   X, 
@@ -192,6 +193,9 @@ export default function WeddingLookupDrawer({
 
   if (!isOpen) return null;
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   const totalSelectedBalanceCents =
     selectedParty?.members
       .filter((m) => selectedMemberIds.has(m.id))
@@ -201,8 +205,8 @@ export default function WeddingLookupDrawer({
         0,
       ) ?? 0;
 
-  return (
-    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 sm:items-stretch sm:justify-end">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[100] sm:items-stretch sm:justify-end">
       <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in slide-in-from-bottom duration-300 sm:h-full sm:w-[450px] sm:max-h-none sm:rounded-none sm:border-l sm:border-t-0 sm:slide-in-from-right">
         {/* Header */}
         <div className="sticky top-0 z-20 flex items-center justify-between border-b border-app-border bg-app-surface p-4 sm:p-6">
@@ -424,7 +428,8 @@ export default function WeddingLookupDrawer({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    root
   );
 }
 

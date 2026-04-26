@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Building2, Clock3, Edit3, Package, Plus, Search, Trash2, Wallet, ShieldCheck, Merge, TrendingUp } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -496,9 +497,9 @@ export default function VendorHub() {
         }}
       />
 
-      {showMergeModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
-          <div className="w-full max-w-md overflow-hidden rounded-[40px] border border-app-border bg-app-surface shadow-2xl ring-1 ring-black/10 transition-all animate-in zoom-in-95 duration-300">
+      {showMergeModal && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+          <div className="ui-modal w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="relative h-32 bg-emerald-600 p-8 flex items-center justify-between">
                <div className="relative z-10 text-white">
                  <h3 className="text-2xl font-black uppercase tracking-tight">Merge Vendors</h3>
@@ -562,12 +563,13 @@ export default function VendorHub() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
-      {showVendorForm && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-xl">
-          <div className="w-full max-w-2xl overflow-hidden rounded-[32px] border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-300">
+      {showVendorForm && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+          <div className="ui-modal w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-300">
             <div className="border-b border-app-border bg-app-surface-2 px-8 py-6">
               <h3 className="text-xl font-black tracking-tight text-app-text">
                 {editingVendorId ? "Edit Vendor" : "New Vendor"}
@@ -624,7 +626,8 @@ export default function VendorHub() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
     </div>
   );

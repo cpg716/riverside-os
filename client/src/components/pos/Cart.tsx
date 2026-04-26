@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { useScanner } from "../../hooks/useScanner";
 import {
   Search,
@@ -2019,10 +2020,10 @@ export default function Cart({
         </div>
       </aside>
 
-      {editingOrderPaymentLine ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:px-4">
+      {editingOrderPaymentLine && createPortal(
+        <div className="ui-overlay-backdrop !z-[200]">
           <div
-            className="w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-sm sm:rounded-2xl"
+            className="ui-modal w-full max-w-sm p-6"
             data-testid="pos-order-payment-edit-modal"
           >
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -2082,12 +2083,13 @@ export default function Cart({
                 onClick={saveOrderPaymentEdit}
                 className="flex-1 rounded-xl border-b-4 border-violet-800 bg-violet-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-lg shadow-violet-600/25 active:translate-y-0.5 active:border-b-2"
               >
-                Save
+                Update
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.getElementById("drawer-root") || document.body
+      )}
 
       <PosShippingModal
         open={shippingModalOpen}
@@ -2179,211 +2181,218 @@ export default function Cart({
         confirmLabel="Apply to sale"
         variant="info"
       />
-      {parkedListOpen ? (
-        <div className="fixed inset-0 z-[110] flex items-end justify-center p-0 font-sans sm:items-center sm:p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setParkedListOpen(false)}
-            aria-label="Close parked sales"
-          />
-          <div
-            className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(560px,85vh)] sm:max-w-md sm:rounded-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="parked-sales-title"
-          >
-            <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
-              <h2
-                id="parked-sales-title"
-                className="text-sm font-black uppercase tracking-widest text-app-text"
-              >
-                Parked sales
-              </h2>
-              <button
-                type="button"
-                onClick={() => setParkedListOpen(false)}
-                className="ui-touch-target rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2"
-                aria-label="Close"
-              >
-                <X size={18} />
-              </button>
-            </div>
-            <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
-              {parkedRows.length === 0 ? (
-                <p className="py-8 text-center text-sm text-app-text-muted">
-                  No parked sales for this register.
-                </p>
-              ) : (
-                <ul className="space-y-2">
-                  {parkedRows.map((p) => {
-                    const lines = (p.payload_json?.lines || []) as CartLineItem[];
-                    const lineCount = lines.length;
-                    const subtotalCents = lines.reduce((acc, l) => {
-                       return acc + parseMoneyToCents(l.standard_retail_price || "0") * (l.quantity || 1);
-                    }, 0);
-                    const cust = p.payload_json?.selectedCustomer as Customer | null;
-                    const customerName = cust ? `${cust.first_name} ${cust.last_name}` : "Unknown Customer";
-
-                    return (
-                    <li
-                      key={p.id}
-                      className="rounded-xl border border-app-border bg-app-surface-2 p-3"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-xs font-black uppercase tracking-tight text-app-text">
-                            {customerName}
-                          </p>
-                          <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent opacity-80">
-                            TRX #{p.id.slice(-6).toUpperCase()}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-black italic tracking-tighter text-app-text">
-                            ${centsToFixed2(subtotalCents)}
-                          </p>
-                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                            {lineCount} item{lineCount === 1 ? "" : "s"}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="mt-3 flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void recallParkedSale(p.id)}
-                          className="ui-btn-primary flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest"
-                        >
-                          Recall
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deleteParkedSale(p.id)}
-                          className="ui-btn-secondary flex-1 border-red-200 py-1.5 text-[9px] font-black uppercase tracking-widest text-red-600"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
-          </div>
-        </div>
       ) : null}
-      {parkedCustomerPrompt ? (
-        <div className="fixed inset-0 z-[115] flex items-end justify-center p-0 font-sans sm:items-center sm:p-4">
-          <button
-            type="button"
-            className="absolute inset-0 bg-black/50"
-            onClick={() => setParkedCustomerPrompt(null)}
-            aria-label="Dismiss parked sale prompt"
-          />
-          <div
-            className="relative w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-md sm:rounded-2xl"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="parked-customer-prompt-title"
-          >
-            <h2
-              id="parked-customer-prompt-title"
-              className="text-sm font-black uppercase tracking-widest text-app-text"
-            >
-              Parked sale for this customer
-            </h2>
-            <p className="mt-2 text-xs text-app-text-muted">
-              {parkedCustomerPrompt.rows.length === 1
-                ? "There is one parked sale linked to this customer on this register."
-                : `There are ${parkedCustomerPrompt.rows.length} parked sales for this customer on this register.`}{" "}
-              Choose how to proceed.
-            </p>
-            <div className="mt-4 flex flex-col gap-2">
-              <button
-                type="button"
-                className="ui-btn-primary py-3 text-[10px] font-black uppercase tracking-widest"
-                onClick={() => {
-                  const id = parkedCustomerPrompt.rows[0]?.id;
-                  setParkedCustomerPrompt(null);
-                  if (id) void recallParkedSale(id);
-                }}
+      {parkedListOpen && document.getElementById("drawer-root")
+        ? createPortal(
+            <div className="ui-overlay-backdrop !z-[200]">
+              <div
+                className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(560px,85vh)] sm:max-w-md sm:rounded-2xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="parked-sales-title"
               >
-                Continue parked sale
-              </button>
-              <button
-                type="button"
-                className="ui-btn-secondary py-3 text-[10px] font-black uppercase tracking-widest"
-                onClick={() => {
-                  setParkedCustomerPrompt(null);
-                  void (async () => {
-                    await refreshParkedSales();
-                    setParkedListOpen(true);
-                  })();
-                }}
-              >
-                Open parked list
-              </button>
-              <button
-                type="button"
-                className="ui-btn-secondary py-3 text-[10px] font-black uppercase tracking-widest"
-                onClick={() => {
-                  skippedParkedForCustomerRef.current.add(
-                    `${sessionId}:${parkedCustomerPrompt.customerId}`,
-                  );
-                  setParkedCustomerPrompt(null);
-                }}
-              >
-                Skip for now
-              </button>
-              <button
-                type="button"
-                className="rounded-xl border-2 border-red-200 bg-red-50 py-3 text-[10px] font-black uppercase tracking-widest text-red-700 transition-colors hover:bg-red-100"
-                onClick={() => {
-                  const prompt = parkedCustomerPrompt;
-                  setParkedCustomerPrompt(null);
-                  void (async () => {
-                    const tok = await ensurePosTokenForSession();
-                    if (!tok) {
-                      toast(
-                        "This device is missing the register session token. Open or join the register, then try again.",
-                        "error",
-                      );
-                      return;
-                    }
-                    const actor = await resolveActorStaffId();
-                    if (!actor) {
-                      toast(
-                        "Sign in to Back Office or verify cashier to delete parked sales.",
-                        "error",
-                      );
-                      return;
-                    }
-                    try {
-                      for (const r of prompt.rows) {
-                        await deleteParkedSaleOnServer(
-                          baseUrl,
-                          sessionId,
-                          r.id,
-                          apiAuth,
-                          actor,
+                <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
+                  <h2
+                    id="parked-sales-title"
+                    className="text-sm font-black uppercase tracking-widest text-app-text"
+                  >
+                    Parked sales
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => setParkedListOpen(false)}
+                    className="ui-touch-target rounded-lg p-2 text-app-text-muted hover:bg-app-surface-2"
+                    aria-label="Close"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
+                <div className="no-scrollbar min-h-0 flex-1 overflow-y-auto p-3">
+                  {parkedRows.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-app-text-muted">
+                      No parked sales for this register.
+                    </p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {parkedRows.map((p) => {
+                        const lines = (p.payload_json?.lines || []) as CartLineItem[];
+                        const lineCount = lines.length;
+                        const subtotalCents = lines.reduce((acc, l) => {
+                          return acc + parseMoneyToCents(l.standard_retail_price || "0") * (l.quantity || 1);
+                        }, 0);
+                        const cust = p.payload_json?.selectedCustomer as Customer | null;
+                        const customerName = cust ? `${cust.first_name} ${cust.last_name}` : "Unknown Customer";
+
+                        return (
+                          <li
+                            key={p.id}
+                            className="rounded-xl border border-app-border bg-app-surface-2 p-3"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-xs font-black uppercase tracking-tight text-app-text">
+                                  {customerName}
+                                </p>
+                                <p className="mt-0.5 text-[9px] font-black uppercase tracking-widest text-app-accent opacity-80">
+                                  TRX #{p.id.slice(-6).toUpperCase()}
+                                </p>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-sm font-black italic tracking-tighter text-app-text">
+                                  ${centsToFixed2(subtotalCents)}
+                                </p>
+                                <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                                  {lineCount} item{lineCount === 1 ? "" : "s"}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => void recallParkedSale(p.id)}
+                                className="ui-btn-primary flex-1 py-1.5 text-[9px] font-black uppercase tracking-widest"
+                              >
+                                Recall
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void deleteParkedSale(p.id)}
+                                className="ui-btn-secondary flex-1 border-red-200 py-1.5 text-[9px] font-black uppercase tracking-widest text-red-600"
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </li>
                         );
-                      }
-                    } catch (e) {
-                      toast(
-                        e instanceof Error ? e.message : "Could not delete parked sales",
-                        "error",
-                      );
-                      return;
-                    }
-                    setParkedCustomerPrompt(null);
-                    await refreshParkedSales();
-                    toast("Parked sales removed. Start a new sale.", "success");
-                  })();
-                }}
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>,
+            document.getElementById("drawer-root")!,
+          )
+        : null}
+      {parkedCustomerPrompt && document.getElementById("drawer-root")
+        ? createPortal(
+            <div className="ui-overlay-backdrop !z-[200]">
+              <button
+                type="button"
+                className="absolute inset-0 bg-black/50"
+                onClick={() => setParkedCustomerPrompt(null)}
+                aria-label="Dismiss parked sale prompt"
+              />
+              <div
+                className="relative w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-md sm:rounded-2xl"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="parked-customer-prompt-title"
               >
-                Delete parked and start new
-              </button>
+                <h2
+                  id="parked-customer-prompt-title"
+                  className="text-sm font-black uppercase tracking-widest text-app-text"
+                >
+                  Parked sale for this customer
+                </h2>
+                <p className="mt-2 text-xs text-app-text-muted">
+                  {parkedCustomerPrompt.rows.length === 1
+                    ? "There is one parked sale linked to this customer on this register."
+                    : `There are ${parkedCustomerPrompt.rows.length} parked sales for this customer on this register.`}{" "}
+                  Choose how to proceed.
+                </p>
+                <div className="mt-4 flex flex-col gap-2">
+                  <button
+                    type="button"
+                    className="ui-btn-primary py-3 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      const id = parkedCustomerPrompt.rows[0]?.id;
+                      setParkedCustomerPrompt(null);
+                      if (id) void recallParkedSale(id);
+                    }}
+                  >
+                    Continue parked sale
+                  </button>
+                  <button
+                    type="button"
+                    className="ui-btn-secondary py-3 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      setParkedCustomerPrompt(null);
+                      void (async () => {
+                        await refreshParkedSales();
+                        setParkedListOpen(true);
+                      })();
+                    }}
+                  >
+                    Open parked list
+                  </button>
+                  <button
+                    type="button"
+                    className="ui-btn-secondary py-3 text-[10px] font-black uppercase tracking-widest"
+                    onClick={() => {
+                      skippedParkedForCustomerRef.current.add(
+                        `${sessionId}:${parkedCustomerPrompt.customerId}`,
+                      );
+                      setParkedCustomerPrompt(null);
+                    }}
+                  >
+                    Skip for now
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-xl border-2 border-red-200 bg-red-50 py-3 text-[10px] font-black uppercase tracking-widest text-red-700 transition-colors hover:bg-red-100"
+                    onClick={() => {
+                      const prompt = parkedCustomerPrompt;
+                      setParkedCustomerPrompt(null);
+                      void (async () => {
+                        const tok = await hydratePosRegisterAuthIfNeeded();
+                        if (!tok) {
+                          toast(
+                            "This device is missing the register session token. Open or join the register, then try again.",
+                            "error",
+                          );
+                          return;
+                        }
+                        // Use the merged headers logic to resolve actor if possible, 
+                        // but the original code used resolveActorStaffId() which I should keep if it exists.
+                        const actor = await resolveActorStaffId(); 
+                        if (!actor) {
+                          toast(
+                            "Sign in to Back Office or verify cashier to delete parked sales.",
+                            "error",
+                          );
+                          return;
+                        }
+                        try {
+                          for (const r of prompt.rows) {
+                            await deleteParkedSaleOnServer(
+                              baseUrl,
+                              sessionId,
+                              r.id,
+                              mergedPosStaffHeaders(),
+                              actor,
+                            );
+                          }
+                        } catch (e) {
+                          toast(
+                            e instanceof Error ? e.message : "Could not delete parked sales",
+                            "error",
+                          );
+                          return;
+                        }
+                        setParkedCustomerPrompt(null);
+                        await refreshParkedSales();
+                        toast("Parked sales removed. Start a new sale.", "success");
+                      })();
+                    }}
+                  >
+                    Delete parked and start new
+                  </button>
+                </div>
+              </div>
+            </div>,
+            document.getElementById("drawer-root")!,
+          )
+        : null}
             </div>
           </div>
         </div>

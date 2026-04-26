@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Truck, X } from "lucide-react";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -211,8 +212,11 @@ export default function PosShippingModal({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center p-0 font-sans sm:items-center sm:p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
       <button
         type="button"
         className="absolute inset-0 bg-black/50"
@@ -417,6 +421,7 @@ export default function PosShippingModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

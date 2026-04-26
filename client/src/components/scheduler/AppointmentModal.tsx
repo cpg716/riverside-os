@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useState, useEffect, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Calendar, AlertTriangle, Trash, CheckCircle } from 'lucide-react';
 import CustomerSearchInput from '../ui/CustomerSearchInput';
 import { weddingApi } from '../../lib/weddingApi';
@@ -262,11 +263,14 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
 
   if (!isOpen) return null;
 
-  return (
-    <div className="animate-in fade-in zoom-in fixed inset-0 z-[100] flex items-end justify-center bg-app-bg/80 p-0 backdrop-blur-md duration-200 sm:items-center sm:p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop animate-in fade-in duration-200">
       <div
         data-testid="appointment-modal"
-        className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-3xl"
+        className="ui-modal w-full max-w-none sm:max-w-2xl animate-in zoom-in-95 duration-300"
       >
         
         {/* Header */}
@@ -534,7 +538,8 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
           />
         )}
       </div>
-    </div>
+    </div>,
+    root
   );
 };
 

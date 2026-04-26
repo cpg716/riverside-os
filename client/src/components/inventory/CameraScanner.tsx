@@ -4,6 +4,7 @@
  * Renders as full-screen overlay on mobile, floating modal on desktop.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Html5Qrcode } from "html5-qrcode";
 import { Camera, CameraOff, X } from "lucide-react";
 import { playScanSuccess } from "../../lib/scanSounds";
@@ -99,10 +100,13 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
     onClose();
   };
 
-  return (
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
     // Full-screen on mobile, floating modal on md+
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm md:inset-auto md:bottom-6 md:right-6 md:w-[380px] md:rounded-3xl md:shadow-2xl"
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-sm md:inset-auto md:bottom-6 md:right-6 md:w-[380px] md:rounded-3xl md:shadow-2xl"
       role="dialog"
       aria-label="Camera Scanner"
     >
@@ -204,6 +208,7 @@ export default function CameraScanner({ onScan, onClose, label }: Props) {
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    root
   );
 }

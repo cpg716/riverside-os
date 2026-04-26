@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Ruler, X } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
@@ -89,8 +90,11 @@ export default function PosCustomerMeasurementsDrawer({
 
   if (!open) return null;
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         ref={dialogRef}
         className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[min(92vh,720px)] sm:max-w-lg sm:rounded-3xl"
@@ -148,6 +152,7 @@ export default function PosCustomerMeasurementsDrawer({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

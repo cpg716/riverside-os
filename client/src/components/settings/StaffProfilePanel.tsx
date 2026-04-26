@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { 
   User, 
   Mail, 
@@ -549,10 +550,13 @@ export default function StaffProfilePanel() {
       </div>
 
       {/* Avatar Picker Modal */}
-      {avatarPickerOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 sm:p-10 animate-in fade-in duration-300">
-           <div className="fixed inset-0 bg-black/80 backdrop-blur-xl" onClick={() => setAvatarPickerOpen(false)} />
-           <div className="relative w-full max-w-5xl bg-app-card rounded-[3rem] border border-app-border shadow-[0_50px_100px_-20px_rgba(0,0,0,0.6)] flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300">
+      {avatarPickerOpen && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+           <div 
+             className="fixed inset-0 bg-black/80 backdrop-blur-xl" 
+             onClick={() => setAvatarPickerOpen(false)} 
+           />
+           <div className="ui-modal relative w-full max-w-5xl flex flex-col max-h-[90vh] overflow-hidden animate-in zoom-in-95 duration-300">
               <div className="p-10 border-b border-app-border flex justify-between items-center">
                  <div>
                     <h3 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">Avatar Catalog</h3>
@@ -594,15 +598,19 @@ export default function StaffProfilePanel() {
                    </div>
                  ))}
               </div>
-           </div>
-        </div>
+            </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
       {/* PIN Update Modal */}
-      {pinModalOpen && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 animate-in fade-in duration-300">
-           <div className="fixed inset-0 bg-black/80 backdrop-blur-xl" onClick={() => setPinModalOpen(false)} />
-           <div className="relative w-full max-w-md bg-app-card rounded-[2.5rem] border border-app-border shadow-2xl p-10 space-y-8 animate-in zoom-in-95 duration-300">
+      {pinModalOpen && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+           <div 
+             className="fixed inset-0 bg-black/80 backdrop-blur-xl" 
+             onClick={() => setPinModalOpen(false)} 
+           />
+           <div className="ui-modal relative w-full max-w-md p-10 space-y-8 animate-in zoom-in-95 duration-300">
               <div className="text-center">
                 <div className="mx-auto h-20 w-20 rounded-[1.5rem] bg-app-accent/10 flex items-center justify-center text-app-accent mb-6 shadow-inner">
                    <KeyRound size={32} />
@@ -644,10 +652,11 @@ export default function StaffProfilePanel() {
                     {pinSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck size={18} />}
                     Update PIN
                  </button>
-              </div>
-           </div>
-        </div>
-      )}
+               </div>
+            </div>
+         </div>,
+         document.getElementById("drawer-root") || document.body
+       )}
     </div>
   );
 }

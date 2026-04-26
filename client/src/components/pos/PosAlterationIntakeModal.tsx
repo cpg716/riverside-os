@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -352,15 +353,18 @@ export default function PosAlterationIntakeModal({
 
   if (!open) return null;
 
-  return (
-    <div
-      className="fixed inset-0 z-[85] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-label="Alteration intake"
-      data-testid="pos-alteration-intake-dialog"
-    >
-      <div className="ui-card flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[92vh] sm:max-w-4xl sm:rounded-2xl">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
+      <div
+        className="ui-card relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[92vh] sm:max-w-4xl sm:rounded-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Alteration intake"
+        data-testid="pos-alteration-intake-dialog"
+      >
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Scissors className="h-5 w-5 text-app-accent" />
@@ -729,6 +733,7 @@ export default function PosAlterationIntakeModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import { Command, Search } from "lucide-react";
 import { clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
@@ -741,8 +742,8 @@ export default function GlobalCommandSearch({
         </button>
       </div>
 
-      {open ? (
-        <div className="fixed inset-0 z-[110] flex items-start justify-center bg-black/35 px-4 py-6 backdrop-blur-[3px] sm:py-10">
+      {open && createPortal(
+        <div className="ui-overlay-backdrop !z-[200]">
           <button
             type="button"
             aria-label="Close universal search"
@@ -754,7 +755,7 @@ export default function GlobalCommandSearch({
             role="dialog"
             aria-modal="true"
             aria-labelledby={titleId}
-            className="relative z-[111] flex max-h-[min(88vh,56rem)] w-full max-w-4xl flex-col overflow-hidden rounded-[28px] border border-app-border bg-app-surface shadow-[0_30px_80px_-24px_rgba(15,23,42,0.35)] animate-in fade-in zoom-in-95 duration-200"
+            className="ui-modal relative w-full max-w-4xl flex flex-col max-h-[min(88vh,56rem)] animate-in zoom-in-95 duration-200"
           >
             <div className="border-b border-app-border bg-[color-mix(in_srgb,var(--app-surface)_88%,var(--app-surface-2))] px-4 py-4 sm:px-6">
               <div className="flex items-start justify-between gap-4">
@@ -1068,8 +1069,9 @@ export default function GlobalCommandSearch({
               )}
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        document.getElementById("drawer-root") || document.body
+      )}
     </>
   );
 }

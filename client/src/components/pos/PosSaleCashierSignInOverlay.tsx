@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { Shield, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import StaffMiniSelector from "../ui/StaffMiniSelector";
@@ -54,7 +55,10 @@ export default function PosSaleCashierSignInOverlay({
 
   if (!open) return null;
 
-  return (
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
     <div
       className="fixed inset-0 z-[120] flex min-h-[100dvh] flex-col items-center justify-center bg-app-bg p-4 font-sans antialiased sm:p-6"
       data-testid="pos-sale-cashier-overlay"
@@ -160,6 +164,7 @@ export default function PosSaleCashierSignInOverlay({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

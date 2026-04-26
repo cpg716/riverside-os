@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useRegisterSW } from "virtual:pwa-register/react";
 
 type BeforeInstallPromptEvent = Event & {
@@ -119,10 +120,13 @@ function PwaUpdatePromptInner() {
     dismissInstallPrompt();
   };
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   if (needRefresh) {
-    return (
+    return createPortal(
       <div
-        className="fixed bottom-4 left-1/2 z-[200] flex w-[min(92vw,44rem)] -translate-x-1/2 flex-col gap-3 rounded-2xl border border-app-border bg-app-surface px-4 py-3 shadow-xl"
+        className="fixed bottom-4 left-1/2 z-[300] flex w-[min(92vw,44rem)] -translate-x-1/2 flex-col gap-3 rounded-2xl border border-app-border bg-app-surface px-4 py-3 shadow-xl"
         style={{
           paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
           paddingLeft: "max(1rem, env(safe-area-inset-left))",
@@ -154,50 +158,54 @@ function PwaUpdatePromptInner() {
             Reload now
           </button>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
-  if (!showInstallPrompt) return null;
-
-  return (
-    <div
-      className="fixed bottom-4 left-1/2 z-[200] flex w-[min(92vw,44rem)] -translate-x-1/2 flex-col gap-3 rounded-2xl border border-app-border bg-app-surface px-4 py-3 shadow-xl"
-      style={{
-        paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
-        paddingLeft: "max(1rem, env(safe-area-inset-left))",
-        paddingRight: "max(1rem, env(safe-area-inset-right))",
-      }}
-      role="status"
-    >
-      <div className="space-y-1">
-        <p className="text-sm font-semibold text-app-text">
-          Install Riverside on this device
-        </p>
-        <p className="text-xs font-medium text-app-text-muted">
-          {installDescription}
-        </p>
-      </div>
-      <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:self-end">
-        <button
-          type="button"
-          className="ui-btn-secondary h-10 w-full px-4 text-xs font-bold uppercase tracking-wide sm:h-9 sm:w-auto"
-          onClick={dismissInstallPrompt}
-        >
-          Later
-        </button>
-        {installPromptEvent ? (
+  if (showInstallPrompt) {
+    return createPortal(
+      <div
+        className="fixed bottom-4 left-1/2 z-[300] flex w-[min(92vw,44rem)] -translate-x-1/2 flex-col gap-3 rounded-2xl border border-app-border bg-app-surface px-4 py-3 shadow-xl"
+        style={{
+          paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+          paddingLeft: "max(1rem, env(safe-area-inset-left))",
+          paddingRight: "max(1rem, env(safe-area-inset-right))",
+        }}
+        role="status"
+      >
+        <div className="space-y-1">
+          <p className="text-sm font-semibold text-app-text">
+            Install Riverside on this device
+          </p>
+          <p className="text-xs font-medium text-app-text-muted">
+            {installDescription}
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-col-reverse gap-2 sm:flex-row sm:self-end">
           <button
             type="button"
-            className="h-10 w-full rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-4 text-xs font-bold uppercase tracking-wide text-white shadow hover:bg-emerald-500 sm:h-9 sm:w-auto"
-            onClick={() => void handleInstall()}
+            className="ui-btn-secondary h-10 w-full px-4 text-xs font-bold uppercase tracking-wide sm:h-9 sm:w-auto"
+            onClick={dismissInstallPrompt}
           >
-            Install app
+            Later
           </button>
-        ) : null}
-      </div>
-    </div>
-  );
+          {installPromptEvent ? (
+            <button
+              type="button"
+              className="h-10 w-full rounded-xl border-b-4 border-emerald-800 bg-emerald-600 px-4 text-xs font-bold uppercase tracking-wide text-white shadow hover:bg-emerald-500 sm:h-9 sm:w-auto"
+              onClick={() => void handleInstall()}
+            >
+              Install app
+            </button>
+          ) : null}
+        </div>
+      </div>,
+      root
+    );
+  }
+
+  return null;
 }
 
 export default function PwaUpdatePrompt() {

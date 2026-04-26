@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle,
   Barcode,
@@ -499,6 +500,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         r.product_name.toLowerCase().includes(q),
     );
   }, [reviewRows, reviewSearch]);
+
+  const root = document.getElementById("drawer-root");
 
   // ─────────────────────────────────────────────────────────────────────────────
    if (phase === "manager") {
@@ -1257,8 +1260,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
         />
 
         {/* Edit Modal (Adjustment) */}
-        {editingCountId && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-6 backdrop-blur-md bg-black/20 animate-in fade-in duration-300">
+        {editingCountId && root && createPortal(
+          <div className="fixed inset-0 z-[200] flex items-center justify-center p-6 backdrop-blur-md bg-black/20 animate-in fade-in duration-300">
             <div className="w-full max-w-lg rounded-[3rem] border border-white/20 bg-app-surface p-10 shadow-2xl animate-in zoom-in duration-300">
               <div className="mb-8">
                 <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Discrepancy Correction</h3>
@@ -1304,7 +1307,8 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 </div>
               </div>
             </div>
-          </div>
+          </div>,
+          root
         )}
 
         <ConfirmationModal

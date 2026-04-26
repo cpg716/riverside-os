@@ -1504,22 +1504,17 @@ export default function NexoCheckoutDrawer({
           </div>
         </div>
 
-        {showStripeSimulation && createPortal(
-          <div className="ui-overlay-backdrop !z-[200]">
-            <div className="w-full max-w-lg p-6 sm:p-12 animate-in zoom-in-95 duration-200">
-              <StripeReaderSimulation
-                amountCents={pendingStripeCentsRef.current}
-                moto={tab === "card_manual"}
-                onSuccess={(meta) => handleStripeSuccess(meta)}
-                onCancel={() => {
-                  setShowStripeSimulation(false);
-                  setStripeIntent(null);
-                  pendingStripeCentsRef.current = 0;
-                }}
-              />
-            </div>
-          </div>,
-          document.getElementById("drawer-root")!
+        {showStripeSimulation && (
+          <StripeReaderSimulation
+            amountCents={pendingStripeCentsRef.current}
+            moto={tab === "card_manual"}
+            onSuccess={handleStripeSuccess}
+            onCancel={() => {
+              setShowStripeSimulation(false);
+              setStripeIntent(null);
+              pendingStripeCentsRef.current = 0;
+            }}
+          />
         )}
       </div>
     </DetailDrawer>

@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertCircle,
   Barcode,
@@ -449,6 +450,9 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
     }
   };
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   const canPost =
     !receivingClosed && lines.some((l) => l.qty_receiving > 0) && !loading;
   const receivingWorkflowCurrentStep: ReceivingWorkflowStep["id"] =
@@ -464,8 +468,8 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
   // ── Render: Error ──────────────────────────────────────────────────────────
 
   if (loadError) {
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-app-bg font-sans">
+    return createPortal(
+      <div className="fixed inset-0 z-[100] flex flex-col bg-app-bg font-sans">
         <div className="flex items-center justify-between bg-app-text px-6 py-4 text-white">
           <p className="text-sm font-bold text-red-300">{loadError}</p>
           <button
@@ -477,22 +481,24 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
             <X size={22} />
           </button>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
   if (!detail) {
-    return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 font-sans text-sm font-bold text-white">
+    return createPortal(
+      <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/40 font-sans text-sm font-bold text-white">
         Loading purchase order...
-      </div>
+      </div>,
+      root
     );
   }
 
   // ── Render: Main ───────────────────────────────────────────────────────────
 
-  return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-app-bg font-sans">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex flex-col bg-app-bg font-sans">
       {/* Scan feedback overlay */}
       {feedback && (
         <div
@@ -800,19 +806,15 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
                       className="mx-auto block w-20 rounded-xl border-2 border-app-border p-2 text-center font-black text-app-accent-2 outline-none transition-all focus:border-app-accent-2 disabled:opacity-50"
                     />
                   </td>
-                  <td
-                    className={`px-6 py-4 text-right font-mono text-sm ${
-                      unitCostAlerts(line.prior_effective_cost, line.unit_cost)
-                        ? "bg-app-accent/15 text-app-text shadow-[inset_0_0_0_2px_color-mix(in_srgb,var(--app-accent)_45%,transparent)]"
-                        : "text-app-text-muted"
-                    }`}
-                    title={
-                      line.prior_effective_cost > 0
-                        ? `Prior effective (WAC path): $${centsToFixed2(parseMoneyToCents(line.prior_effective_cost))}`
-                        : undefined
-                    }
-                  >
-                    ${centsToFixed2(parseMoneyToCents(line.unit_cost))}
+                  <td className="px-6 py-4 text-right">
+                    <div className={`text-sm font-black tabular-nums ${unitCostAlerts(line.prior_effective_cost, line.unit_cost) ? 'text-amber-600 animate-pulse' : 'text-app-text'}`}>
+                      ${line.unit_cost.toFixed(2)}
+                    </div>
+                    {line.prior_effective_cost > 0 && (
+                       <div className="text-[10px] font-bold text-app-text-muted uppercase">
+                         Prior: ${line.prior_effective_cost.toFixed(2)}
+                       </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -821,93 +823,87 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
         </div>
       </div>
 
-      <footer className="shrink-0 border-t-2 border-app-border bg-app-surface p-4 sm:p-8 shadow-2xl">
-        <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-8 lg:flex-nowrap">
-          <div className="w-full lg:w-1/4">
-            <label className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              <Truck size={14} className="text-app-accent-2" /> Inbound freight (invoice)
-            </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 font-black text-app-text-muted">
-                $
-              </span>
-              <input
-                type="text"
-                inputMode="decimal"
-                disabled={receivingClosed}
-                value={freight}
-                onChange={(e) => setFreight(e.target.value)}
-                className="w-full rounded-2xl border border-app-border bg-app-surface-2 py-4 pl-8 pr-4 text-2xl font-black text-app-text outline-none focus:ring-2 focus:ring-app-accent-2 disabled:opacity-50"
-              />
+      <footer className="shrink-0 border-t border-app-border bg-app-surface p-4 sm:p-8 shadow-[0_-12px_40px_rgba(0,0,0,0.08)]">
+        <div className="mx-auto flex max-w-6xl flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Invoice number
+              </label>
+              <div className="relative">
+                 <input
+                   type="text"
+                   value={invoiceNum}
+                   disabled={receivingClosed}
+                   onChange={(e) => setInvoiceNum(e.target.value)}
+                   className="ui-input w-full p-3 font-black text-app-text"
+                   placeholder="From paperwork..."
+                 />
+                 <Truck className="absolute right-3 top-1/2 -translate-y-1/2 text-app-text-disabled" size={16} />
+              </div>
             </div>
-            <label className="mt-3 mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-              Vendor invoice #
-            </label>
-            <input
-              type="text"
-              disabled={receivingClosed}
-              value={invoiceNum}
-              onChange={(e) => setInvoiceNum(e.target.value)}
-              className="w-full rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-sm font-bold text-app-text outline-none disabled:opacity-50"
-            />
+            <div className="space-y-1.5">
+              <label className="block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Freight charge ($)
+              </label>
+              <div className="relative">
+                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted font-black" aria-hidden>$</span>
+                 <input
+                   type="text"
+                   value={freight}
+                   disabled={receivingClosed}
+                   onChange={(e) => setFreight(e.target.value)}
+                   className="ui-input w-full pl-7 p-3 font-mono font-black text-app-text"
+                 />
+              </div>
+            </div>
+            <div className="space-y-2 lg:col-span-1">
+              <div className="flex items-center gap-2">
+                 <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_#10b981]" />
+                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">QBO integration status</p>
+              </div>
+              <div className="space-y-1">
+                <p className="text-[10px] font-bold text-app-text-muted">Asset: <span className="text-app-text font-black">{invGlLabel}</span></p>
+                <p className="text-[10px] font-bold text-app-text-muted">Freight: <span className="text-app-text font-black">{freightGlLabel}</span></p>
+              </div>
+            </div>
           </div>
 
-          <div className="flex-1 rounded-2xl border border-app-border bg-app-surface-2 p-4">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                <Landmark size={14} /> Accounting labels
-              </span>
-              <div className="flex items-center gap-1 rounded bg-app-accent-2/15 px-2 py-0.5 text-[9px] font-bold uppercase text-app-accent-2">
-                <ShieldCheck size={10} /> Freight recorded on receipt
-              </div>
-            </div>
-            <div className="grid gap-6 sm:grid-cols-2">
-              <div>
-                <p className="mb-1 text-[9px] font-bold uppercase text-app-text-muted">
-                  Inventory receiving account
-                </p>
-                <p className="text-xs font-black tracking-tight text-app-text">
-                  {invGlLabel}
-                </p>
-              </div>
-              <div>
-                <p className="mb-1 text-[9px] font-bold uppercase text-app-text-muted">
-                  Inbound freight account
-                </p>
-                <p className="text-xs font-black tracking-tight text-app-accent-2">
-                  {freightGlLabel}
-                </p>
-              </div>
-            </div>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <button
               type="button"
-              onClick={() => void refreshGlance()}
-              className="mt-3 text-[10px] font-bold uppercase tracking-widest text-app-text-muted hover:text-app-accent-2"
+              onClick={onClose}
+              className="ui-btn-secondary px-8 py-4 text-xs"
             >
-              Refresh mapping labels
+              Cancel & Close
+            </button>
+            <button
+              type="button"
+              disabled={!canPost}
+              onClick={() => setShowPostConfirm(true)}
+              className="flex items-center justify-center gap-3 rounded-2xl bg-emerald-600 px-10 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-500/20 transition-all hover:bg-emerald-500 hover:shadow-emerald-500/40 active:scale-95 disabled:opacity-30"
+            >
+              {loading ? (
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+              ) : (
+                <ShieldCheck size={18} />
+              )}
+              Post Receipt to Inventory
             </button>
           </div>
-
-          <button
-            type="button"
-            onClick={() => setShowPostConfirm(true)}
-            disabled={!canPost}
-            className="flex h-[84px] shrink-0 items-center gap-4 rounded-3xl border-b-8 border-emerald-800 bg-emerald-600 px-12 text-lg font-black uppercase tracking-widest text-white shadow-xl shadow-emerald-900/25 transition-all hover:brightness-110 active:translate-y-0.5 active:border-b-4 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            <Save size={24} /> {loading ? "Updating…" : "Post inventory"}
-          </button>
         </div>
       </footer>
 
-      <ConfirmationModal
-        isOpen={showPostConfirm}
-        onClose={() => setShowPostConfirm(false)}
-        onConfirm={handlePost}
-        title="Post Inventory"
-        message={`Are you sure you want to post this receipt? This will adjust stock levels for ${lines.filter(l => l.qty_receiving > 0).length} items and finalize the invoice. This action cannot be reversed.`}
-        confirmLabel={loading ? "Posting..." : "Confirm & Post"}
-        variant="success"
-      />
-    </div>
+      {showPostConfirm && (
+        <ConfirmationModal
+          title="Finalize Inventory Receipt?"
+          message={`This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}. This action is audit-tracked and difficult to reverse.`}
+          confirmLabel="Confirm & Post"
+          onConfirm={() => void handlePost()}
+          onCancel={() => setShowPostConfirm(false)}
+        />
+      )}
+    </div>,
+    root
   );
 }

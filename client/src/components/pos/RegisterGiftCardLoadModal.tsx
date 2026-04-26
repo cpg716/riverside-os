@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { CreditCard, Loader2, X } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -177,6 +178,9 @@ export default function RegisterGiftCardLoadModal({
 
   if (!open) return null;
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   const displayAmount = `$${centsToFixed2(parseMoneyToCents(amountBuffer || "0"))}`;
   const loadCents = parseMoneyToCents(amountBuffer.trim() || "0");
   const loadAmountLabel =
@@ -184,15 +188,21 @@ export default function RegisterGiftCardLoadModal({
       ? `$${centsToFixed2(loadCents)}`
       : "—";
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={onClose}
+        aria-label="Close"
+      />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[90vh] sm:w-[min(44rem,calc(100vw-1.25rem))] sm:rounded-3xl"
+        className="ui-modal relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[90vh] sm:w-[min(44rem,calc(100vw-1.25rem))] sm:rounded-3xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-app-border/70 bg-app-surface-2 px-5 py-4">
           <div className="flex items-center gap-3">
@@ -214,7 +224,6 @@ export default function RegisterGiftCardLoadModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={busy}
             className="ui-touch-target rounded-xl text-app-text-muted hover:bg-app-surface-2"
             aria-label="Close"
           >
@@ -425,6 +434,7 @@ export default function RegisterGiftCardLoadModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

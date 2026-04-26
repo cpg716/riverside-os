@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { UserRoundCog, X } from "lucide-react";
 import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
@@ -61,6 +62,9 @@ export default function RegisterShiftHandoffModal({
 
   if (!isOpen) return null;
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   const submit = async () => {
     const code = credential.trim();
     if (code.length !== 4) {
@@ -95,8 +99,8 @@ export default function RegisterShiftHandoffModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         ref={dialogRef}
         role="dialog"
@@ -190,6 +194,7 @@ export default function RegisterShiftHandoffModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

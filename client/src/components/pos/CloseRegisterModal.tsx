@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { openProfessionalZReportPrint } from "./zReportPrint";
@@ -420,16 +421,25 @@ export default function CloseRegisterModal({
     );
   };
 
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
   if (registerLane != null && registerLane !== 1) {
-    return (
-      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
+    return createPortal(
+      <div className="ui-overlay-backdrop !z-[200]">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/50"
+          onClick={() => void internalCancel()}
+          aria-label="Close"
+        />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
+          className="ui-modal relative w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
         >
           <div className="ui-modal-header">
             <h2 id={titleId} className="text-lg font-black text-app-text">
@@ -449,20 +459,27 @@ export default function CloseRegisterModal({
             </button>
           </div>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
   if (!reconcileCashierCode) {
-    return (
-      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
+    return createPortal(
+      <div className="ui-overlay-backdrop !z-[200]">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/50"
+          onClick={onCancel}
+          aria-label="Close"
+        />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
+          className="ui-modal relative w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
         >
           <div className="ui-modal-header">
             <h2 id={titleId} className="text-lg font-black text-app-text">
@@ -483,7 +500,8 @@ export default function CloseRegisterModal({
             </button>
           </div>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
@@ -497,15 +515,21 @@ export default function CloseRegisterModal({
       Number.isFinite(parseMoneyToCents(fullDrawerTotal));
     const canSubmitDenom = hasBillCounts || coinOk || fullOk;
 
-    return (
-      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
+    return createPortal(
+      <div className="ui-overlay-backdrop !z-[200]">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/50"
+          onClick={() => void internalCancel()}
+          aria-label="Close"
+        />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-lg sm:rounded-3xl"
+          className="ui-modal relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-lg sm:rounded-3xl"
         >
           <div className="ui-modal-header flex items-center justify-between">
             <div className="flex gap-2">
@@ -561,20 +585,27 @@ export default function CloseRegisterModal({
             </form>
           </div>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
   if (reconError) {
-    return (
-      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
+    return createPortal(
+      <div className="ui-overlay-backdrop !z-[200]">
+        <button
+          type="button"
+          className="absolute inset-0 bg-black/50"
+          onClick={() => void internalCancel()}
+          aria-label="Close"
+        />
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
+          className="ui-modal relative w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
         >
           <div className="ui-modal-header text-app-danger font-black uppercase text-xs tracking-widest">
             <h2 id={titleId}>Error</h2>
@@ -591,13 +622,14 @@ export default function CloseRegisterModal({
             </div>
           </div>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
   if (!recon) {
-    return (
-      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
+    return createPortal(
+      <div className="ui-overlay-backdrop !z-[200]">
         <div
           ref={dialogRef}
           role="dialog"
@@ -613,7 +645,8 @@ export default function CloseRegisterModal({
           <div className="h-8 w-8 animate-spin rounded-full border-2 border-app-border border-t-app-accent" />
           <p className="text-xs font-black uppercase tracking-widest text-app-text-muted">Calculating...</p>
         </div>
-      </div>
+      </div>,
+      root
     );
   }
 
@@ -627,15 +660,21 @@ export default function CloseRegisterModal({
   const needsNote =
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
 
-  return (
-    <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
+      <button
+        type="button"
+        className="absolute inset-0 bg-black/50"
+        onClick={() => void internalCancel()}
+        aria-label="Close"
+      />
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-3xl sm:rounded-3xl"
+        className="ui-modal relative flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-3xl sm:rounded-3xl"
       >
         <div className="ui-modal-header flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -798,12 +837,10 @@ export default function CloseRegisterModal({
                         <td className="px-2 py-1.5 font-mono text-app-text-muted whitespace-nowrap">
                           {new Date(t.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
                         </td>
-                        <td className="px-2 py-1.5 font-bold">#{t.register_lane ?? "—"}</td>
-                        <td className="px-2 py-1.5 capitalize">{t.payment_method.replace(/_/g, " ")}</td>
-                        <td className="px-2 py-1.5 text-right font-mono font-bold">${centsToFixed2(parseMoneyToCents(t.amount))}</td>
-                        <td className="px-2 py-1.5 text-app-text-muted truncate max-w-[120px]" title={t.customer_name}>
-                          {t.customer_name || "—"}
-                        </td>
+                        <td className="px-2 py-1.5 font-bold text-app-text">#{t.register_lane ?? 1}</td>
+                        <td className="px-2 py-1.5 capitalize text-app-text">{t.payment_method}</td>
+                        <td className="px-2 py-1.5 text-right font-mono font-bold text-app-text">${centsToFixed2(parseMoneyToCents(t.amount))}</td>
+                        <td className="px-2 py-1.5 truncate text-app-text-muted">{t.customer_name}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -812,41 +849,19 @@ export default function CloseRegisterModal({
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">Closing Notes / Discrepancy</label>
-              <textarea value={notes} onChange={e => setNotes(e.target.value)} className="ui-input w-full p-4 h-24 resize-none text-sm" placeholder={needsNote ? "REQUIRED: Managerial note for discrepancy..." : "Optional shift notes..."} />
-            </div>
-            <div>
-              <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-success">Daily Context (Momentum View)</label>
-              <textarea value={closingComments} onChange={e => setClosingComments(e.target.value)} className="ui-input w-full p-4 h-24 resize-none text-sm border-app-success/20" placeholder="e.g. Blizzard kept people home, Parade blocked street..." />
-            </div>
+          <div className="space-y-3 pt-2">
+            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Shift Notes (Internal)</label>
+            <textarea value={notes} onChange={e => setNotes(e.target.value)} className="ui-input w-full p-4 text-xs min-h-[80px]" placeholder="Explain any discrepancy or shift events..." />
           </div>
-        </div>
 
-        <div className="ui-modal-footer gap-4 p-6">
-          <button type="button" onClick={() => setStep("count")} className="ui-btn-secondary px-8 py-3">
-            Recount
-          </button>
-          <div className="flex-1">
-            <button
-              type="button"
-              onClick={() => setShowFinalConfirm(true)}
-              disabled={loading || offlineQueueSummary.totalCount > 0 || (needsNote && !notes.trim())}
-              className="ui-btn-primary w-full py-3 text-sm font-black shadow-lg"
-            >
-              {loading ? "Closing..." : "Finalize & Close Shift"}
-            </button>
-            {needsNote && !notes.trim() ? (
-              <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-danger">
-                Add closing notes to explain this cash discrepancy before the shift can be closed.
-              </p>
-            ) : null}
-            {offlineQueueSummary.totalCount > 0 ? (
-              <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-danger">
-                Resolve pending or blocked checkout recovery before closing this till shift.
-              </p>
-            ) : null}
+          <div className="space-y-3">
+            <label className="block text-[10px] font-black uppercase text-app-text-muted tracking-widest">Closing Comments (Public)</label>
+            <textarea value={closingComments} onChange={e => setClosingComments(e.target.value)} className="ui-input w-full p-4 text-xs min-h-[60px]" placeholder="Add comments for the Z report..." />
+          </div>
+
+          <div className="flex gap-3 pt-6 border-t border-app-border">
+            <button type="button" onClick={() => void internalCancel()} disabled={loading} className="ui-btn-secondary flex-1 py-4 text-sm font-bold">Cancel</button>
+            <button type="button" onClick={() => setShowFinalConfirm(true)} disabled={loading || (needsNote && notes.trim() === '')} className="ui-btn-primary flex-1 py-4 text-sm font-black shadow-lg shadow-app-accent/20">Finalize & Close Shift</button>
           </div>
         </div>
       </div>
@@ -859,6 +874,7 @@ export default function CloseRegisterModal({
         onConfirm={() => void handleFinalClose()}
         onClose={() => setShowFinalConfirm(false)}
       />
-    </div>
+    </div>,
+    root
   );
 }

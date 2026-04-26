@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { 
   Package, 
   ShoppingCart, 
@@ -112,15 +113,18 @@ export default function ProductIntelligenceDrawer({
 
   if (!variantId) return null;
 
-  return (
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
     <>
       <div 
-        className={`fixed inset-0 z-50 bg-black/60 backdrop-blur-sm transition-opacity duration-300 ${variantId ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+        className="ui-overlay-backdrop !z-[200]"
         onClick={onClose}
       />
 
       <div 
-        className={`fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] w-full rounded-t-3xl border border-app-border bg-app-bg shadow-2xl transition-transform duration-500 ease-out sm:inset-y-0 sm:bottom-auto sm:right-0 sm:max-h-none sm:w-full sm:max-w-md sm:rounded-none sm:border-l sm:border-t-0 ${variantId ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-y-0 sm:translate-x-full'}`}
+        className={`fixed inset-x-0 bottom-0 z-[200] max-h-[96dvh] w-full rounded-t-3xl border border-app-border bg-app-bg shadow-2xl transition-transform duration-500 ease-out sm:inset-y-0 sm:bottom-auto sm:right-0 sm:max-h-none sm:w-full sm:max-w-md sm:rounded-none sm:border-l sm:border-t-0 ${variantId ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-y-0 sm:translate-x-full'}`}
       >
         <div className="flex h-full flex-col overflow-hidden">
           <div className="flex items-center justify-between border-b border-app-border bg-app-surface px-4 py-3 sm:px-6">
@@ -303,6 +307,7 @@ export default function ProductIntelligenceDrawer({
           )}
         </div>
       </div>
-    </>
+    </>,
+    root
   );
 }

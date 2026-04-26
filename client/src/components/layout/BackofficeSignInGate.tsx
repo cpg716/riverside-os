@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { ShieldCheck } from "lucide-react";
 import {
   useBackofficeAuth,
@@ -275,9 +276,9 @@ export default function BackofficeSignInGate({
         </button>
       </div>
 
-      {showServerSetup && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-6">
-          <div className="w-full max-w-sm rounded-3xl bg-app-surface border border-app-border shadow-2xl p-8 space-y-6">
+      {showServerSetup && createPortal(
+        <div className="ui-overlay-backdrop animate-in fade-in duration-300">
+          <div className="ui-modal w-full max-w-sm p-8 space-y-6 animate-in zoom-in-95 duration-300">
             <div className="text-center space-y-2">
               <h3 className="text-sm font-black uppercase tracking-widest text-app-text">API Host Configuration</h3>
               <p className="text-[10px] font-medium text-app-text-muted">Point this device to the Riverside URL for the host machine it should use: the local-network host URL when this device is in the shop, or the store's Tailscale remote-access URL when this device is off-site.</p>
@@ -313,7 +314,8 @@ export default function BackofficeSignInGate({
               Reset to Localhost
             </button>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
     </div>
   );

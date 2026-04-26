@@ -8,6 +8,7 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   Building2,
   LayoutGrid,
@@ -245,9 +246,9 @@ function InventoryTagPrintModal({
     [product.variant_rows, quantities],
   );
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/45 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-3xl rounded-[2rem] border border-app-border bg-app-surface shadow-2xl">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
+      <div className="ui-modal w-full max-w-3xl">
         <div className="flex items-center justify-between border-b border-app-border/50 px-6 py-5">
           <div>
             <p className="text-[10px] font-black uppercase tracking-[0.22em] text-app-text-muted">
@@ -266,7 +267,7 @@ function InventoryTagPrintModal({
           </button>
         </div>
 
-        <div className="space-y-3 px-6 py-5">
+        <div className="no-scrollbar max-h-[60vh] space-y-3 overflow-y-auto px-6 py-5">
           {product.variant_rows.map((row) => (
             <div
               key={row.variant_id}
@@ -334,7 +335,8 @@ function InventoryTagPrintModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.getElementById("drawer-root") || document.body
   );
 }
 
@@ -1503,9 +1505,9 @@ export default function InventoryControlBoard({
       </div>
       )}
 
-      {!isPosSurface && adjustRow && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm rounded-[2.5rem] bg-app-surface p-8 shadow-2xl ring-1 ring-black/5">
+      {!isPosSurface && adjustRow && createPortal(
+        <div className="ui-overlay-backdrop !z-[200]">
+          <div className="ui-modal w-full max-w-sm p-8 shadow-2xl ring-1 ring-black/5">
             <div className="mb-6 flex flex-col items-center text-center">
               <div className="mb-4 h-14 w-14 rounded-2xl bg-app-accent flex items-center justify-center text-white shadow-lg shadow-app-accent/30">
                 <LayoutGrid size={28} />
@@ -1635,11 +1637,12 @@ export default function InventoryControlBoard({
               Cancel
             </button>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
-      {!isPosSurface && maintenanceTarget && (
-        <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+      {!isPosSurface && maintenanceTarget && createPortal(
+        <div className="ui-overlay-backdrop !z-[200]">
           <div className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300">
             <div className="ui-modal-header flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1720,7 +1723,8 @@ export default function InventoryControlBoard({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root") || document.body
       )}
 
       {printTarget && (

@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, ShieldCheck } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -173,8 +174,11 @@ export default function OrderAttributionModal({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
       <div
         ref={dialogRef}
         role="dialog"
@@ -360,6 +364,7 @@ export default function OrderAttributionModal({
           ) : null}
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }
