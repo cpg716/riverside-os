@@ -521,10 +521,10 @@ export default function CustomerAlterationsPanel({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
-        <section className="ui-card flex min-h-0 flex-1 flex-col">
-          <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-app-border bg-app-surface-2 px-5 py-4">
-            <div className="relative min-w-[260px] flex-1">
+      <div className="flex flex-1 flex-col p-3 sm:p-6 lg:min-h-0 lg:p-8 animate-workspace-snap">
+        <section className="ui-card flex flex-1 flex-col overflow-hidden lg:min-h-0">
+          <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:px-5">
+            <div className="relative min-w-0 flex-1">
               <Search
                 size={16}
                 className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-disabled"
@@ -556,7 +556,7 @@ export default function CustomerAlterationsPanel({
               ))}
             </div>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 border-b border-app-border bg-app-surface-3 px-5 py-4">
+          <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:justify-end lg:px-5">
             <select
               value={sourceFilter}
               onChange={(event) => setSourceFilter(event.target.value)}
@@ -594,7 +594,7 @@ export default function CustomerAlterationsPanel({
             </p>
           </div>
           
-          <div className="min-h-0 flex-1 overflow-y-auto p-4 custom-scrollbar">
+          <div className="flex-1 p-3 lg:min-h-0 lg:overflow-y-auto lg:p-4 custom-scrollbar">
             {loading ? (
               <div className="flex flex-col items-center justify-center py-24 gap-4 opacity-40">
                 <Loader2 size={32} className="animate-spin text-app-accent" />
@@ -606,7 +606,11 @@ export default function CustomerAlterationsPanel({
                 <p className="text-sm font-black uppercase tracking-widest text-center">No garment work matched these filters.</p>
               </div>
             ) : (
-              <div className="grid items-start gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+              <>
+              <div className="grid gap-3 lg:hidden">
+                {visibleRows.map(renderAlterationCard)}
+              </div>
+              <div className="hidden items-start gap-4 lg:grid xl:grid-cols-2 2xl:grid-cols-3">
                 {workbenchSections.map((section) => {
                 const Icon = section.icon;
                 const isIntakeSection = section.id === "intake";
@@ -651,6 +655,7 @@ export default function CustomerAlterationsPanel({
                 );
                 })}
               </div>
+              </>
             )}
           </div>
         </section>

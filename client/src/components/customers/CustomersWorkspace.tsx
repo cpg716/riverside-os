@@ -1013,11 +1013,11 @@ export default function CustomersWorkspace({
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
-          <div className="ui-card flex flex-col">
+        <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
+          <div className="ui-card flex flex-col overflow-hidden">
             {/* Toolbar */}
-            <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-5 py-4">
-              <div className="relative group min-w-[300px] flex-1">
+            <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4 lg:px-5">
+              <div className="relative group min-w-0 flex-1">
                 <Search
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors"
                   size={16}
@@ -1030,8 +1030,8 @@ export default function CustomersWorkspace({
                 />
               </div>
 
-              <div className="flex items-center gap-2">
-                <div className="relative group w-64">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                <div className="relative group w-full sm:w-64">
                   {_weddingPartyQuery ? (
                     <div className="flex h-9 items-center justify-between rounded-xl border border-app-accent bg-app-accent/5 px-3">
                       <span className="truncate text-[10px] font-black uppercase tracking-widest text-app-accent">
@@ -1058,7 +1058,7 @@ export default function CustomersWorkspace({
                 <button
                   type="button"
                   onClick={() => setShowAddDrawer(true)}
-                  className="flex items-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-xs font-black uppercase tracking-tight text-white shadow-lg shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95"
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-app-accent px-4 py-2 text-xs font-black uppercase tracking-tight text-white shadow-lg shadow-app-accent/20 transition-all hover:brightness-110 active:scale-95"
                 >
                   <UserPlus size={16} />
                   Add Customer
@@ -1091,7 +1091,7 @@ export default function CustomersWorkspace({
             </div>
 
             {/* Filter Row */}
-            <div className="flex shrink-0 items-center justify-between border-b border-app-border bg-app-surface-3 px-5 py-2.5">
+            <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between lg:px-5">
               <div className="flex flex-wrap items-center gap-3">
                 <span className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-50 mr-2">
                   Quick Filters
@@ -1158,6 +1158,138 @@ export default function CustomersWorkspace({
               </div>
             </div>
 
+            <div className="grid gap-3 p-3 lg:hidden">
+              {rows.map((r) => {
+                const hasBalance = parseMoneyToCents(r.open_balance_due) > 0;
+                return (
+                  <article
+                    key={r.id}
+                    className={`rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm ${
+                      selected.has(r.id) ? "ring-2 ring-app-accent" : ""
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setHubInitialTab(null);
+                          setPicked(rowToCustomer(r));
+                        }}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <p className="truncate text-base font-black text-app-text">
+                          {r.first_name} {r.last_name}
+                        </p>
+                        <p className="mt-0.5 truncate font-mono text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                          {r.customer_code}
+                          {r.company_name ? ` · ${r.company_name}` : ""}
+                        </p>
+                      </button>
+                      <input
+                        type="checkbox"
+                        checked={selected.has(r.id)}
+                        onChange={() => toggleSelect(r.id)}
+                        className="mt-1 h-5 w-5 rounded border-app-border text-app-accent focus:ring-0"
+                        aria-label={`Select ${r.first_name} ${r.last_name}`}
+                      />
+                    </div>
+
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest ${customerLifecycleBadgeClassName(
+                          r.lifecycle_state,
+                        )}`}
+                      >
+                        {customerLifecycleLabel(r.lifecycle_state)}
+                      </span>
+                      {r.is_vip ? (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                          <Gem size={10} />
+                          VIP
+                        </span>
+                      ) : null}
+                      {!customerProfileComplete(r) ? (
+                        <span className="inline-flex items-center rounded-full border border-app-warning/16 bg-app-warning/8 px-2.5 py-1 text-[9px] font-black uppercase tracking-widest text-app-warning">
+                          Profile incomplete
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <dl className="mt-4 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+                        <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Phone
+                        </dt>
+                        <dd className="mt-1 truncate font-bold text-app-text">
+                          {r.phone || "No phone"}
+                        </dd>
+                      </div>
+                      <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+                        <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Email
+                        </dt>
+                        <dd className="mt-1 truncate font-bold lowercase text-app-text">
+                          {r.email || "No email"}
+                        </dd>
+                      </div>
+                      <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+                        <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Balance
+                        </dt>
+                        <dd className={`mt-1 font-mono font-black ${hasBalance ? "text-app-danger" : "text-app-text-muted"}`}>
+                          {moneyDec(r.open_balance_due)}
+                        </dd>
+                      </div>
+                      <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+                        <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Orders
+                        </dt>
+                        <dd className="mt-1 font-black text-app-text">
+                          {r.open_orders_count}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    {r.wedding_active && r.wedding_party_id ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenWeddingParty(r.wedding_party_id!)}
+                        className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-app-danger/16 bg-app-danger/8 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-danger"
+                      >
+                        <Heart size={12} fill="currentColor" />
+                        {r.wedding_party_name || "Active Party"}
+                      </button>
+                    ) : null}
+                  </article>
+                );
+              })}
+              {hasMore ? (
+                <button
+                  type="button"
+                  onClick={() => void loadMore()}
+                  disabled={loadingMore || loading}
+                  className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-app-text"
+                >
+                  {loadingMore ? "Synchronizing..." : "Load more records"}
+                  <ChevronRight size={16} />
+                </button>
+              ) : null}
+              {!loading && rows.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center">
+                  <Users
+                    size={40}
+                    className="mx-auto text-app-text-muted opacity-30"
+                  />
+                  <h3 className="mt-3 text-base font-black text-app-text">
+                    No matches found
+                  </h3>
+                  <p className="mt-1 text-sm text-app-text-muted">
+                    Try adjusting your filters or search terms.
+                  </p>
+                </div>
+              ) : null}
+            </div>
+
             {/* Main Table Content */}
             <div
               tabIndex={0}
@@ -1166,7 +1298,7 @@ export default function CustomersWorkspace({
               onFocus={() => _setTableFocus(true)}
               onBlur={() => _setTableFocus(false)}
               onKeyDown={onTableKeyDown}
-              className="ui-table-shell min-w-0 outline-none"
+              className="ui-table-shell hidden min-w-0 outline-none lg:block"
             >
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">

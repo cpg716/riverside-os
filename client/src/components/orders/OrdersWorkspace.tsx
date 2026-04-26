@@ -249,6 +249,109 @@ function OrderTableRow({ row, isSelected, onClick, actions }: {
   );
 }
 
+function OrderMobileCard({
+  row,
+  isSelected,
+  onClick,
+  actions,
+}: {
+  row: TransactionRow;
+  isSelected: boolean;
+  onClick: () => void;
+  actions: OrderRowActions;
+}) {
+  const balanceDue = parseMoneyToCents(row.balance_due);
+  return (
+    <article
+      className={cn(
+        "rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm",
+        isSelected && "ring-2 ring-app-success",
+      )}
+    >
+      <button type="button" onClick={onClick} className="w-full text-left">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-black text-app-text">{row.display_id}</p>
+            <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+              {new Date(row.booked_at).toLocaleDateString()} · {orderKindLabel(row.order_kind)}
+            </p>
+          </div>
+          <span
+            className={cn(
+              "shrink-0 rounded-lg border px-2.5 py-1 text-[9px] font-black uppercase tracking-widest",
+              row.counterpoint_customer_code
+                ? "border-app-info/20 bg-app-info/10 text-app-info"
+                : "border-app-success/20 bg-app-success/10 text-app-success",
+            )}
+          >
+            {formatOrderStatusLabel(row.status)}
+          </span>
+        </div>
+
+        <div className="mt-4 min-w-0">
+          <p className="truncate text-base font-black text-app-text">
+            {row.customer_name ?? `CP: ${row.counterpoint_customer_code ?? "Unknown"}`}
+          </p>
+          <p className="mt-1 truncate text-xs font-semibold text-app-text-muted">
+            {row.item_count} item{row.item_count === 1 ? "" : "s"}
+            {row.primary_salesperson_name ? ` · ${row.primary_salesperson_name}` : ""}
+          </p>
+          {row.party_name ? (
+            <p className="mt-1 flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-app-danger">
+              <WEDDINGS_ICON size={12} />
+              {row.party_name}
+            </p>
+          ) : null}
+        </div>
+
+        <dl className="mt-4 grid grid-cols-3 gap-2 text-xs">
+          <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+            <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Total
+            </dt>
+            <dd className="mt-1 font-mono font-black text-app-text">
+              {money(row.total_price)}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+            <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Paid
+            </dt>
+            <dd className="mt-1 font-mono font-black text-app-text">
+              {money(row.amount_paid)}
+            </dd>
+          </div>
+          <div className="rounded-xl border border-app-border/50 bg-app-surface-2/70 p-3">
+            <dt className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+              Due
+            </dt>
+            <dd className={cn("mt-1 font-mono font-black", balanceDue > 0 ? "text-app-warning" : "text-app-text-muted")}>
+              {money(row.balance_due)}
+            </dd>
+          </div>
+        </dl>
+      </button>
+
+      <div className="mt-4 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => actions.onOpenInRegister?.(row.transaction_id)}
+          className="min-h-11 rounded-xl bg-app-success px-3 py-2 text-[10px] font-black uppercase tracking-widest text-white"
+        >
+          Register
+        </button>
+        <button
+          type="button"
+          onClick={onClick}
+          className="min-h-11 rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text"
+        >
+          {isSelected ? "Hide Detail" : "View Detail"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 function jsonHeaders(base: () => HeadersInit): HeadersInit {
   const h = new Headers(base());
   h.set("Content-Type", "application/json");
@@ -839,10 +942,10 @@ export default function OrdersWorkspace({
           </div>
         </div>
 
-        <div className="flex flex-1 flex-col p-4 sm:p-8 animate-workspace-snap">
-          <div className="ui-card flex flex-col">
-            <div className="flex shrink-0 flex-wrap items-center gap-4 border-b border-app-border bg-app-surface-2 px-5 py-4">
-              <div className="relative group min-w-[300px] flex-1">
+        <div className="flex flex-1 flex-col p-3 sm:p-6 lg:p-8 animate-workspace-snap">
+          <div className="ui-card flex flex-col overflow-hidden">
+            <div className="flex shrink-0 flex-col gap-3 border-b border-app-border bg-app-surface-2 px-4 py-4 lg:flex-row lg:flex-wrap lg:items-center lg:gap-4 lg:px-5">
+              <div className="relative group min-w-0 flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent transition-colors" size={16} />
                 <input
                   value={search}
@@ -897,7 +1000,7 @@ export default function OrdersWorkspace({
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-5 py-4">
+            <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-3 px-4 py-4 lg:px-5">
                 <select
                   value={kindFilter}
                   onChange={(e) => setKindFilter(e.target.value)}
@@ -953,7 +1056,40 @@ export default function OrdersWorkspace({
                 </select>
             </div>
 
-            <div className="flex-1 custom-scrollbar overflow-x-auto">
+            <div className="grid gap-3 p-3 lg:hidden">
+              {transactionRows.map((r) => (
+                <OrderMobileCard
+                  key={r.transaction_id}
+                  row={r}
+                  isSelected={selectedId === r.transaction_id}
+                  onClick={() => setSelectedId(selectedId === r.transaction_id ? null : r.transaction_id)}
+                  actions={{
+                    onOpenInRegister,
+                    onAttachToWedding: () => setAttachWeddingModalOpen(true),
+                    onCancel: () => setCancelConfirmOpen(true),
+                    onReturnAll: () => setReturnConfirmOpen(true),
+                    deleteLine: (it: OrderItem) => void deleteLine(it),
+                    addBySku: () => void addBySku(),
+                    updateLine,
+                    setSku,
+                    sku,
+                    canModify,
+                    canAttemptCancel,
+                  }}
+                />
+              ))}
+              {transactionRows.length === 0 && (
+                <div className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 p-8 text-center text-app-text-muted">
+                  <Search size={40} className="mx-auto mb-3 opacity-50" />
+                  <p className="text-sm font-black uppercase tracking-widest italic">No matching orders found</p>
+                  <p className="mt-2 text-sm font-medium normal-case tracking-normal">
+                    Try a broader search or clear one of the active filters.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="hidden flex-1 custom-scrollbar overflow-x-auto lg:block">
               <table className="w-full text-left border-collapse min-w-[1000px]">
               <thead className="sticky top-0 z-20 border-b border-app-border bg-app-surface-3">
                 <tr>

@@ -1723,9 +1723,9 @@ function AppMainColumn({
           />
         </Suspense>
       ) : null}
-      <div className={`relative flex flex-1 flex-col ${activeTab === "alterations" ? "p-4" : "p-0"}`}>
+      <div className={`relative flex flex-1 flex-col ${activeTab === "alterations" ? "p-2 sm:p-4" : "p-0"}`}>
         <div
-          className={`relative flex flex-1 flex-col bg-app-bg transition-all duration-300 ease-standard ${activeTab === "alterations" ? "min-h-0 overflow-hidden rounded-2xl border border-app-border shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)]" : ""} ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : ""}`}
+          className={`relative flex flex-1 flex-col bg-app-bg transition-all duration-300 ease-standard ${activeTab === "alterations" ? "rounded-2xl border border-app-border shadow-[0_10px_28px_-22px_rgba(20,20,20,0.2)] lg:min-h-0 lg:overflow-hidden" : ""} ${canvasRecessed ? "origin-top shadow-[0_16px_40px_-24px_rgba(20,20,20,0.28)]" : ""}`}
         >
           <Suspense
             fallback={
@@ -1736,7 +1736,7 @@ function AppMainColumn({
           >
             <div
               key={activeTab}
-              className={`workspace-snap flex flex-1 flex-col ${activeTab === "alterations" ? "min-h-0 overflow-hidden" : ""}`}
+              className={`workspace-snap flex flex-1 flex-col ${activeTab === "alterations" ? "lg:min-h-0 lg:overflow-hidden" : ""}`}
             >
               {(() => {
                 if (activeTab === "home")
