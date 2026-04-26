@@ -70,6 +70,11 @@ import PromptModal from '../ui/PromptModal';
 2. **Zero-Scroll Discipline**: Workspace drawers and POS components must be designed for zero-scrolling on 1080p (Back Office list-heavy surfaces may still scroll; see **`docs/CLIENT_UI_CONVENTIONS.md`**).
 3. **True Dark Mode**: All non-POS workspaces (Weddings, CRM, Inventory) use the ROS True Dark palette (`bg-app-bg`).
 4. **Reading vs chrome typography**: **`ConfirmationModal`**, **`PromptModal`**, and other **instructional** blocks use **`ui-type-instruction`** / **`ui-type-instruction-muted`** (sentence case, comfortable line-height). Reserve **`ui-type-chrome`** (uppercase micro-labels) for short labels only—see **`docs/CLIENT_UI_CONVENTIONS.md`** § Typography roles.
+5. **Standardized Stacking Tiers (Mandatory Portals)**: All overlays (Modals, Drawers, Wizards) MUST be portaled to `#drawer-root` and follow the tiered z-index system:
+   - **`z-100`**: Side Panels / Drawers.
+   - **`z-200`**: Modals / Wizards / Overlays.
+   - **`z-300`**: System Priority (Bug Reports, Error Overlays, Toasts).
+   - Use the **`.ui-overlay-backdrop`** class for consistent background and layering behavior.
 
 ## See also
 

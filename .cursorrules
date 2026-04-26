@@ -51,6 +51,7 @@
   - `BackOffice` = detailed, reviewable, management-first
 - Never use browser `alert()`, `confirm()`, or `prompt()`.
 - Use toast notifications, `ConfirmationModal`, `PromptModal`, or established drawer patterns.
+- **Mandatory Portaling & Layering**: All overlays (Modals, Drawers, Wizards) MUST use `createPortal` targeting `#drawer-root` and follow tiered z-index: `z-100` (Drawers), `z-200` (Modals/Wizards), `z-300` (System priority). Use `.ui-overlay-backdrop`.
 - Prefer existing `ui-*` primitives and project patterns before creating new UI patterns.
 
 ### 6. Business-critical invariants

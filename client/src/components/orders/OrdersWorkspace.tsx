@@ -5,9 +5,9 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useRegisterGate } from "../../context/RegisterGateContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import RegisterRequiredModal from "../layout/RegisterRequiredModal";
+import PosRefundModal from "../pos/PosRefundModal";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
-import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import {
   centsToFixed2,
   formatUsdFromCents,
@@ -407,13 +407,6 @@ export default function OrdersWorkspace({
   const [refundBusy, setRefundBusy] = useState(false);
   const [registerRequiredOpen, setRegisterRequiredOpen] = useState(false);
   useShellBackdropLayer(refundModalOpen || registerRequiredOpen);
-  const { dialogRef: refundDialogRef, titleId: refundTitleId } = useDialogAccessibility(
-    refundModalOpen && !registerRequiredOpen,
-    {
-      onEscape: () => setRefundModalOpen(false),
-      closeOnEscape: !refundBusy,
-    },
-  );
   // exchangeOtherId removed
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
   const [attachWeddingModalOpen, setAttachWeddingModalOpen] = useState(false);
@@ -1178,79 +1171,18 @@ export default function OrdersWorkspace({
         />
       )}
 
-      {refundModalOpen && (
-        <div className="ui-overlay-backdrop flex items-center justify-center p-4">
-          <div
-            ref={refundDialogRef}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby={refundTitleId}
-            tabIndex={-1}
-            className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300 outline-none"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="border-b border-app-border p-4">
-              <h3 id={refundTitleId} className="text-lg font-bold text-app-text">
-                Process refund
-              </h3>
-              <p className="mt-1 text-xs text-app-text-muted">
-                A register session must be open. Card methods trigger Stripe when a payment intent exists on the
-                order. Gift card refunds require the card code.
-              </p>
-            </div>
-            <div className="space-y-3 p-4">
-              <label className="block text-xs font-bold text-app-text-muted">
-                Amount (USD)
-                <input
-                  type="text"
-                  value={refundAmountStr}
-                  onChange={(e) => setRefundAmountStr(e.target.value)}
-                  className="ui-input mt-1 w-full text-sm"
-                />
-              </label>
-              <label className="block text-xs font-bold text-app-text-muted">
-                Payment method
-                <input
-                  type="text"
-                  value={refundMethod}
-                  onChange={(e) => setRefundMethod(e.target.value)}
-                  className="ui-input mt-1 w-full text-sm"
-                  placeholder="cash, card_present, gift_card, …"
-                />
-              </label>
-              {refundMethod.toLowerCase().includes("gift") && (
-                <label className="block text-xs font-bold text-app-text-muted">
-                  Gift card code
-                  <input
-                    type="text"
-                    value={refundGiftCode}
-                    onChange={(e) => setRefundGiftCode(e.target.value)}
-                    className="ui-input mt-1 w-full text-sm font-mono"
-                  />
-                </label>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 border-t border-app-border p-4">
-              <button
-                type="button"
-                className="ui-btn-secondary px-4 py-2 text-sm"
-                disabled={refundBusy}
-                onClick={() => setRefundModalOpen(false)}
-              >
-                Close
-              </button>
-              <button
-                type="button"
-                className="ui-btn-primary px-4 py-2 text-sm"
-                disabled={refundBusy}
-                onClick={() => void submitProcessRefund()}
-              >
-                {refundBusy ? "Processing…" : "Submit refund"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PosRefundModal
+        isOpen={refundModalOpen}
+        onClose={() => setRefundModalOpen(false)}
+        onSubmit={() => void submitProcessRefund()}
+        busy={refundBusy}
+        amount={refundAmountStr}
+        setAmount={setRefundAmountStr}
+        method={refundMethod}
+        setMethod={setRefundMethod}
+        giftCode={refundGiftCode}
+        setGiftCode={setRefundGiftCode}
+      />
 
       <TransactionDetailDrawer
         orderId={selectedId}

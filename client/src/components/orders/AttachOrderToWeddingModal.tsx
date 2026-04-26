@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { X, Heart, Search, CheckCircle2 } from "lucide-react";
 import { weddingApi } from "../../lib/weddingApi";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -108,9 +109,15 @@ export default function AttachOrderToWeddingModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-app-bg/80 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-xl rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]" onClick={onClose}>
+      <div 
+        className="w-full max-w-xl rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
@@ -258,6 +265,7 @@ export default function AttachOrderToWeddingModal({
           </div>
         </form>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

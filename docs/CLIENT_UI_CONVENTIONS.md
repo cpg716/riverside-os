@@ -114,6 +114,19 @@ Riverside OS follows a **search-first administrative mandate**. Direct entry of 
 - **`client/src/components/layout/DetailDrawer.tsx`** uses the hook (unique title id per instance). ROS modals that overlay the shell should follow the same pattern; see the sweep notes in **`client/UI_WORKSPACE_INVENTORY.md`**.
 - **Admin Workflow Pattern**: Prefer **`DetailDrawer`** slideouts for high-density resource management (e.g., **`StaffEditDrawer`**, **`CustomerRelationshipHubDrawer`**, **`ProductHubDrawer`**) to maintain context and shell stability. Centered modals (`ConfirmationModal`, `PromptModal`) are reserved for atomic intent checks and transient inputs.
 
+### Standardized Stacking Tiers & Portaling Mandate (v0.3.3+)
+To prevent "buried" interactive elements in complex nested workflows (e.g., opening a refund modal from a transaction drawer that was opened from a customer hub), Riverside OS enforces a strict **Stacking Tier** system combined with **Mandatory Portaling**.
+
+- **Standard Tiers (Defined in `index.css`)**:
+  - **`z-0..40` (Shell)**: Permanent navigation chrome (Sidebar, Top Bar).
+  - **`z-100` (Drawers)**: Large slide-out panels (DetailDrawer, SearchDrawers).
+  - **`z-200` (Modals)**: Standard interactive overlays (Confirmation, Prompt, Wizards).
+  - **`z-300` (System)**: Global priority overlays (Bug Reports, Error Overlays, Toasts).
+- **The Portaling Mandate**: Every component that functions as a Dialog, Modal, or Overlay MUST utilize **React Portals** (`createPortal`) targeting the `#drawer-root` element in `index.html`. 
+  - This bypasses the CSS stacking context of parent containers (like the persistent side-nav or a parent drawer).
+  - Components MUST use the `.ui-overlay-backdrop` class for a consistent, tiered background that respects these z-index rules.
+  - Failure to portal a secondary modal triggered from a drawer will result in the modal being trapped behind the drawer.
+
 ## Code splitting (`client/src/App.tsx` and POS)
 
 - Heavy Back Office workspaces load via **`React.lazy`** + **`Suspense`** (e.g. Inventory, QBO, Insights, Wedding Manager on the BO tab, Orders, Alterations on the BO path, Staff, Gift Cards, Loyalty, Settings, Scheduler).

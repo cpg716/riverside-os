@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { useShellBackdropLayer } from "./ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
@@ -22,15 +23,18 @@ export default function RegisterRequiredModal({
 
   if (!open) return null;
 
-  return (
-    <div className="ui-overlay-backdrop flex items-center justify-center p-4 z-[220]">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[220] flex items-center justify-center p-4" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal w-full max-w-md animate-workspace-snap outline-none"
+        className="ui-modal w-full max-w-md animate-workspace-snap outline-none shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header">
@@ -57,6 +61,7 @@ export default function RegisterRequiredModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

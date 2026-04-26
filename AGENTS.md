@@ -161,6 +161,11 @@ The main shell component is the central hub of Riverside OS. It manages global s
   - Avoid `h-screen` or `overflow-hidden` on main workspace containers.
   - Use `sticky` positioning for persistent navigation bars and sidebar menus.
   - Exception: `Alterations Hub` preserves the windowed/nested-scroll model for tactical density.
+- **Standardized Stacking & Portaling Mandate (v0.3.3+)**:
+  - All overlays (Modals, Drawers, Wizards) MUST be portaled to `#drawer-root`.
+  - Enforce tiered `z-index`: **`z-100`** (Drawers), **`z-200`** (Modals/Wizards), **`z-300`** (System Priority/Toasts).
+  - Use the **`.ui-overlay-backdrop`** class for consistent layering and background behavior.
+  - This is non-negotiable for preventing "buried" interactive elements in nested flows.
 
 ### Money / tax / financial integrity
 
