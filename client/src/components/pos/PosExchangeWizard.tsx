@@ -5,6 +5,7 @@ import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { parseMoney, formatMoney } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
 import OrderSearchInput from "../ui/OrderSearchInput";
+import ManagerApprovalModal from "./ManagerApprovalModal";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -19,7 +20,8 @@ interface OrderItemRow {
 }
 
 interface OrderDetailLite {
-  order_id: string;
+  transaction_id: string;
+  booked_at: string;
   status: string;
   total_price: string;
   amount_paid: string;
@@ -64,6 +66,7 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
 export default function PosExchangeWizard({
   open,
   initialOrderId,
+  customer,
   onClose,
   sessionId,
   baseUrl,
@@ -72,6 +75,7 @@ export default function PosExchangeWizard({
 }: {
   open: boolean;
   initialOrderId?: string | null;
+  customer?: Customer | null;
   onClose: () => void;
   sessionId: string;
   baseUrl: string;
@@ -89,6 +93,7 @@ export default function PosExchangeWizard({
   const [detail, setDetail] = useState<OrderDetailLite | null>(null);
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [pendingManagerApproval, setPendingManagerApproval] = useState<OrderDetailLite | null>(null);
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
   const nextWorkflowStep =
     workflowIndex < EXCHANGE_WORKFLOW_STEPS.length - 1
@@ -101,6 +106,7 @@ export default function PosExchangeWizard({
     setStep("load");
     setDetail(null);
     setReturnQtyDraft({});
+    setPendingManagerApproval(null);
   }, []);
 
   const loadOrder = useCallback(async (id: string) => {
@@ -123,8 +129,14 @@ export default function PosExchangeWizard({
         toast("Cancelled orders cannot be exchanged here", "error");
         return;
       }
-      setDetail(d);
-      setStep("return");
+      
+      const daysOld = (Date.now() - new Date(d.booked_at).getTime()) / (1000 * 60 * 60 * 24);
+      if (daysOld > 60) {
+        setPendingManagerApproval(d);
+      } else {
+        setDetail(d);
+        setStep("return");
+      }
     } catch {
       toast("Network error loading order", "error");
     } finally {
@@ -166,7 +178,7 @@ export default function PosExchangeWizard({
     setSubmitting(true);
     try {
       const res = await fetch(
-        `${baseUrl}/api/transactions/${encodeURIComponent(detail.order_id)}/returns?${sessionQs}`,
+        `${baseUrl}/api/transactions/${encodeURIComponent(detail.transaction_id)}/returns?${sessionQs}`,
         {
           method: "POST",
           headers: jsonHeaders(apiAuth()),
@@ -204,7 +216,7 @@ export default function PosExchangeWizard({
   const handleContinue = () => {
     if (!detail) return;
     onContinueToReplacement({
-      originalOrderId: detail.order_id,
+      originalOrderId: detail.transaction_id,
       customer: applyCustomer(),
     });
     onClose();
@@ -291,6 +303,7 @@ export default function PosExchangeWizard({
                  </p>
                  <OrderSearchInput 
                     autoFocus 
+                    initialQuery={customer ? `${customer.first_name} ${customer.last_name}`.trim() : ""}
                     onSelect={(o) => void loadOrder(o.order_id)} 
                     disabled={loading}
                  />
@@ -306,7 +319,7 @@ export default function PosExchangeWizard({
           {step === "return" && detail && (
             <div className="space-y-4">
               <p className="text-xs font-bold text-app-text">
-                Order <span className="font-mono">{detail.order_id.slice(0, 8)}…</span>
+                Order <span className="font-mono">{detail.transaction_id.slice(0, 8)}…</span>
               </p>
               <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[11px] leading-relaxed text-app-text-muted">
                 Step 2 records the items coming back first. Once the return is saved, the next screen sends you straight into the replacement sale.
@@ -403,6 +416,31 @@ export default function PosExchangeWizard({
           )}
         </div>
       </div>
+
+      {pendingManagerApproval ? (
+        <ManagerApprovalModal
+          isOpen={true}
+          title="Return Deadline Exceeded"
+          message="This original sale is older than 60 days. A Manager PIN is required to process an exchange/return."
+          onClose={() => {
+            setPendingManagerApproval(null);
+            setLoading(false);
+          }}
+          onApprove={async (pin, managerId) => {
+             const res = await fetch(`${baseUrl}/api/staff/verify-pin`, {
+               method: "POST",
+               headers: { ...jsonHeaders(apiAuth()) },
+               body: JSON.stringify({ staff_id: managerId, pin_hash: pin })
+             });
+             if (!res.ok) {
+               throw new Error("Invalid Manager PIN.");
+             }
+             setDetail(pendingManagerApproval);
+             setStep("return");
+             setPendingManagerApproval(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

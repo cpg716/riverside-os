@@ -28,6 +28,7 @@ interface OrderSearchInputProps {
   className?: string;
   autoFocus?: boolean;
   disabled?: boolean;
+  initialQuery?: string;
 }
 
 export default function OrderSearchInput({
@@ -36,11 +37,12 @@ export default function OrderSearchInput({
   className = "",
   autoFocus = false,
   disabled,
+  initialQuery = "",
 }: OrderSearchInputProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
   
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<OrderSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);

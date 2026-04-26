@@ -1508,7 +1508,7 @@ export default function Cart({
               >
                 <ArrowLeftRight size={16} />
                 <span className="text-[10px] font-black uppercase tracking-widest">
-                  Exchange
+                  Exchange / Return
                 </span>
               </button>
               <button
@@ -2625,6 +2625,7 @@ export default function Cart({
       <PosExchangeWizard
         open={exchangeWizardOpen}
         initialOrderId={exchangeWizardInitialOrderId}
+        customer={selectedCustomer}
         onClose={() => {
           setExchangeWizardOpen(false);
           setExchangeWizardInitialOrderId(null);
