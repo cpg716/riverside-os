@@ -106,6 +106,72 @@ export function StaffRoleAccessPanel() {
 
   return (
     <section className="ui-card min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+      <div className="rounded-xl border border-app-accent/20 bg-app-accent/5 p-4">
+        <div className="flex items-center gap-3">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-app-accent text-white">
+            <svg
+              className="h-4 w-4"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.5}
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+              />
+            </svg>
+          </div>
+          <div>
+            <h3 className="text-sm font-black uppercase tracking-tight text-app-text">
+              Global Register Policy
+            </h3>
+            <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+              Core transaction guardrails
+            </p>
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="flex items-start gap-3 rounded-lg border border-app-border bg-app-surface p-3">
+            <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+              <span className="text-[10px] font-black">60</span>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-tight text-app-text">
+                Return/Exchange Window
+              </p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-app-text-muted">
+                Staff can process returns for any transaction within 60 days
+                without secondary approval. Beyond 60 days, a Manager PIN is
+                required.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-start gap-3 rounded-lg border border-app-border bg-app-surface p-3">
+            <div className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-blue-500/10 text-blue-600">
+              <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M4 4a2 2 0 00-2 2v1h16V6a2 2 0 00-2-2H4z" />
+                <path
+                  fillRule="evenodd"
+                  d="M18 9H2v5a2 2 0 002 2h12a2 2 0 002-2V9zM4 13a1 1 0 011-1h1a1 1 0 110 2H5a1 1 0 01-1-1zm5-1a1 1 0 100 2h1a1 1 0 100-2H9z"
+                  clipRule="evenodd"
+                />
+              </svg>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase tracking-tight text-app-text">
+                Register Session Limit
+              </p>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-app-text-muted">
+                Active cashiers are restricted to their assigned register station
+                until the session is reconciled or handed off.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <details className="rounded-xl border border-app-border bg-app-surface-2/50 px-3 py-2 text-xs text-app-text-muted">
         <summary className="cursor-pointer select-none font-bold text-app-text">
           Role planning (how retail POS systems frame access)

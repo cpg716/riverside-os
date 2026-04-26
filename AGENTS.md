@@ -247,7 +247,17 @@ cargo sqlx prepare --workspace
 ### Transparency
 
 - Intelligence-driven decisions must include visible reasoning/explainer strings
-- Audit-sensitive actions must remain traceable
+ - Audit-sensitive actions must remain traceable
+ 
+ ### Return & Exchange Policy (v0.3.2+)
+ Riverside OS enforces a global **60-day return window**.
+ - **Staff Authorization (<= 60 days)**: Standard staff with `orders.modify` can process returns/exchanges for transactions booked within the last 60 days.
+ - **Manager Override (> 60 days)**: Transactions older than 60 days strictly require a **Manager PIN** (staff member with `orders.modify` or `admin` role) to authorize the modification.
+ - **Wizard Pattern**: Complex post-sale adjustments (Exchanges) MUST use the **Phase-Based Wizard** pattern (wide-workspace, guided phases, active instruction cards).
+ 
+ ### RBAC Auto-Synchronization (v0.3.2+)
+ - **Profile Parity**: Changing a staff member's **Role** in the Back Office profile MUST automatically synchronize their **`staff_permission`** set and **`max_discount_percent`** from the new role's template.
+ - **Manual Overrides**: The synchronization logic must attempt to preserve existing manual user overrides while ensuring the staff member attains the mandatory baseline of their new role.
 
 ---
 

@@ -95,12 +95,8 @@ export default function PosExchangeWizard({
   const [submitting, setSubmitting] = useState(false);
   const [pendingManagerApproval, setPendingManagerApproval] = useState<TransactionDetailLite | null>(null);
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
-  const nextWorkflowStep =
-    workflowIndex < EXCHANGE_WORKFLOW_STEPS.length - 1
-      ? EXCHANGE_WORKFLOW_STEPS[workflowIndex + 1]
-      : null;
-
-  const sessionQs = `register_session_id=${encodeURIComponent(sessionId)}`;
+ 
+   const sessionQs = `register_session_id=${encodeURIComponent(sessionId)}`;
 
   const reset = useCallback(() => {
     setStep("load");

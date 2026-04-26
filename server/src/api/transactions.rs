@@ -76,7 +76,7 @@ pub enum TransactionError {
     Database(#[from] sqlx::Error),
     #[error("Invalid payload: {0}")]
     InvalidPayload(String),
-    #[error("Order not found")]
+    #[error("Transaction not found")]
     NotFound,
     #[error("{0}")]
     Unauthorized(String),
@@ -90,7 +90,7 @@ impl IntoResponse for TransactionError {
     fn into_response(self) -> Response {
         let (status, msg) = match self {
             TransactionError::InvalidPayload(m) => (StatusCode::BAD_REQUEST, m),
-            TransactionError::NotFound => (StatusCode::NOT_FOUND, "Order not found".to_string()),
+            TransactionError::NotFound => (StatusCode::NOT_FOUND, "Transaction not found".to_string()),
             TransactionError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             TransactionError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             TransactionError::BadGateway(m) => (StatusCode::BAD_GATEWAY, m),
@@ -98,7 +98,7 @@ impl IntoResponse for TransactionError {
                 if matches!(&e, SqlxError::RowNotFound) {
                     return (
                         StatusCode::NOT_FOUND,
-                        Json(json!({ "error": "Order not found" })),
+                        Json(json!({ "error": "Transaction not found" })),
                     )
                         .into_response();
                 }
@@ -182,7 +182,7 @@ pub use crate::logic::transaction_list::{
 };
 
 #[derive(Debug, Serialize)]
-pub struct OrderCustomerSummary {
+pub struct TransactionCustomerSummary {
     pub id: Uuid,
     pub first_name: String,
     pub last_name: String,
@@ -193,7 +193,7 @@ pub struct OrderCustomerSummary {
 }
 
 #[derive(Debug, Serialize)]
-pub struct OrderWeddingSummary {
+pub struct TransactionWeddingSummary {
     pub wedding_party_id: Uuid,
     pub wedding_member_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -279,8 +279,8 @@ pub struct TransactionDetailResponse {
     pub primary_salesperson_name: Option<String>,
     pub wedding_member_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wedding_summary: Option<OrderWeddingSummary>,
-    pub customer: Option<OrderCustomerSummary>,
+    pub wedding_summary: Option<TransactionWeddingSummary>,
+    pub customer: Option<TransactionCustomerSummary>,
     pub financial_summary: TransactionFinancialSummary,
     pub items: Vec<TransactionDetailItem>,
     pub is_tax_exempt: bool,
@@ -769,12 +769,12 @@ pub struct ProcessRefundRequest {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PostOrderReturnsRequest {
-    pub lines: Vec<OrderReturnLineBody>,
+pub struct PostTransactionReturnsRequest {
+    pub lines: Vec<TransactionReturnLineBody>,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct OrderReturnLineBody {
+pub struct TransactionReturnLineBody {
     pub transaction_line_id: Uuid,
     pub quantity: i32,
     #[serde(default)]
@@ -784,12 +784,12 @@ pub struct OrderReturnLineBody {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct OrderExchangeLinkBody {
+pub struct TransactionExchangeLinkBody {
     pub other_transaction_id: Uuid,
 }
 
 #[derive(Debug, Deserialize)]
-pub struct PatchOrderAttributionRequest {
+pub struct PatchTransactionAttributionRequest {
     pub manager_cashier_code: String,
     /// Required when the manager has a hashed PIN set (`staff.pin_hash`).
     #[serde(default)]
@@ -894,7 +894,7 @@ async fn register_session_is_open(
     Ok(ok.unwrap_or(false))
 }
 
-async fn order_has_positive_payment_in_session(
+async fn transaction_has_positive_payment_in_session(
     pool: &sqlx::PgPool,
     transaction_id: Uuid,
     session_id: Uuid,
@@ -949,15 +949,39 @@ async fn authorize_transaction_modify_bo_or_register(
                 "register session is not open".to_string(),
             ));
         }
-        let ok = order_has_positive_payment_in_session(&state.db, transaction_id, sid)
+
+        // 1. Check if linked to current session (fast path)
+        let in_session = transaction_has_positive_payment_in_session(&state.db, transaction_id, sid)
             .await
             .map_err(TransactionError::Database)?;
-        if !ok {
-            return Err(TransactionError::Forbidden(
-                "order is not linked to this register session".to_string(),
-            ));
+        
+        if in_session {
+            return Ok(None);
         }
-        return Ok(None);
+
+        // 2. Not in session? Check age (60 day policy)
+        let booked_at = sqlx::query_scalar::<_, DateTime<Utc>>(
+            "SELECT booked_at FROM transactions WHERE id = $1"
+        )
+        .bind(transaction_id)
+        .fetch_optional(&state.db)
+        .await?
+        .ok_or(TransactionError::NotFound)?;
+
+        let days_old = (Utc::now() - booked_at).num_days();
+        if days_old <= 60 {
+            // Within 60 days, any register session can process the return/exchange
+            return Ok(None);
+        }
+
+        // 3. Older than 60 days? Require BO permission (Manager Approval)
+        if let Ok(s) = middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY).await {
+            return Ok(Some(s.id));
+        }
+
+        return Err(TransactionError::Forbidden(
+            "transaction is older than 60 days; manager approval required".to_string(),
+        ));
     }
     let s = middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY)
         .await
@@ -2314,7 +2338,7 @@ pub(crate) async fn load_transaction_detail(
     .collect::<Vec<_>>();
 
     let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
-        (Some(id), Some(first_name), Some(last_name)) => Some(OrderCustomerSummary {
+        (Some(id), Some(first_name), Some(last_name)) => Some(TransactionCustomerSummary {
             id,
             first_name,
             last_name,
@@ -2325,7 +2349,7 @@ pub(crate) async fn load_transaction_detail(
     };
 
     let wedding_summary = match (h.wedding_party_id, h.wedding_member_id) {
-        (Some(wedding_party_id), Some(wedding_member_id)) => Some(OrderWeddingSummary {
+        (Some(wedding_party_id), Some(wedding_member_id)) => Some(TransactionWeddingSummary {
             wedding_party_id,
             wedding_member_id,
             party_name: h.wedding_party_name,
@@ -2515,7 +2539,7 @@ async fn post_transaction_returns(
     Path(transaction_id): Path<Uuid>,
     Query(q): Query<TransactionReadQuery>,
     headers: HeaderMap,
-    Json(body): Json<PostOrderReturnsRequest>,
+    Json(body): Json<PostTransactionReturnsRequest>,
 ) -> Result<Json<TransactionDetailResponse>, TransactionError> {
     let staff_id = authorize_transaction_modify_bo_or_register(
         &state,
@@ -2560,7 +2584,7 @@ async fn post_transaction_exchange_link(
     Path(transaction_id): Path<Uuid>,
     Query(q): Query<TransactionReadQuery>,
     headers: HeaderMap,
-    Json(body): Json<OrderExchangeLinkBody>,
+    Json(body): Json<TransactionExchangeLinkBody>,
 ) -> Result<Json<TransactionDetailResponse>, TransactionError> {
     if body.other_transaction_id == transaction_id {
         return Err(TransactionError::InvalidPayload(
@@ -3112,7 +3136,7 @@ async fn staff_id_active(pool: &sqlx::PgPool, id: Uuid) -> Result<bool, Transact
 async fn patch_transaction_attribution(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
-    Json(body): Json<PatchOrderAttributionRequest>,
+    Json(body): Json<PatchTransactionAttributionRequest>,
 ) -> Result<Json<serde_json::Value>, TransactionError> {
     let code = body.manager_cashier_code.trim();
     if code.is_empty() {

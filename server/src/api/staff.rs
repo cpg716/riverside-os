@@ -1158,6 +1158,79 @@ async fn admin_patch_staff(
     .execute(&mut *tx)
     .await?;
 
+    // Auto-sync permissions and discount limits if role changed
+    if let Some(new_role) = body.role {
+        if new_role != current_role {
+            // 1. Sync max_discount_percent if not explicitly provided in the patch
+            if body.max_discount_percent.is_none() {
+                sqlx::query(
+                    r#"
+                    UPDATE staff SET max_discount_percent = COALESCE(
+                        (SELECT max_discount_percent FROM staff_role_pricing_limits WHERE role = $1),
+                        30::numeric
+                    )
+                    WHERE id = $2
+                    "#,
+                )
+                .bind(new_role)
+                .bind(staff_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+
+            // 2. Regenerate staff_permission from role defaults + overrides
+            if new_role != DbStaffRole::Admin {
+                sqlx::query("DELETE FROM staff_permission WHERE staff_id = $1")
+                    .bind(staff_id)
+                    .execute(&mut *tx)
+                    .await?;
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO staff_permission (staff_id, permission_key, allowed)
+                    SELECT $1, p.permission_key, true
+                    FROM staff_role_permission p
+                    WHERE p.role = $2 AND p.allowed = true
+                    ON CONFLICT DO NOTHING
+                    "#,
+                )
+                .bind(staff_id)
+                .bind(new_role)
+                .execute(&mut *tx)
+                .await?;
+
+                // Apply existing deny overrides
+                sqlx::query(
+                    r#"
+                    DELETE FROM staff_permission sp
+                    USING staff_permission_override o
+                    WHERE sp.staff_id = o.staff_id
+                      AND sp.staff_id = $1
+                      AND sp.permission_key = o.permission_key
+                      AND o.effect = 'deny'
+                    "#,
+                )
+                .bind(staff_id)
+                .execute(&mut *tx)
+                .await?;
+
+                // Apply existing allow overrides
+                sqlx::query(
+                    r#"
+                    INSERT INTO staff_permission (staff_id, permission_key, allowed)
+                    SELECT o.staff_id, o.permission_key, true
+                    FROM staff_permission_override o
+                    WHERE o.staff_id = $1 AND o.effect = 'allow'
+                    ON CONFLICT (staff_id, permission_key) DO UPDATE SET allowed = true
+                    "#,
+                )
+                .bind(staff_id)
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+
     let mut reconciled_line_count = 0u64;
     if rate_change_requested {
         let new_rate = body.base_commission_rate.unwrap_or(current_rate);
@@ -2020,9 +2093,19 @@ async fn admin_create_staff(
         .map_err(|_| StaffApiError::InvalidPayload("could not hash initial PIN".to_string()))?;
 
     let base_rate = body.base_commission_rate.unwrap_or(Decimal::new(200, 4)); // 2%
-    let max_disc = body.max_discount_percent.unwrap_or(Decimal::new(30, 0)); // 30%
-
     let role = body.role.unwrap_or(DbStaffRole::Salesperson);
+
+    let max_disc = if let Some(m) = body.max_discount_percent {
+        m
+    } else {
+        sqlx::query_scalar::<_, Decimal>(
+            "SELECT max_discount_percent FROM staff_role_pricing_limits WHERE role = $1",
+        )
+        .bind(role)
+        .fetch_optional(&state.db)
+        .await?
+        .unwrap_or(Decimal::new(30, 0)) // 30% fallback
+    };
 
     let mut tx = state.db.begin().await?;
 

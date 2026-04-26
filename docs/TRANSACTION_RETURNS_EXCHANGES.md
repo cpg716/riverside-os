@@ -11,7 +11,7 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 | Key | Use |
 |-----|-----|
 | `orders.view` | List transactions, read detail, audit trail, receipt ZPL (with BO headers). |
-| `orders.modify` | Add/edit/delete lines, pickup, `POST .../returns`, `POST .../exchange-link`. |
+| `orders.modify` | Edit transaction lines, pickup, returns, exchanges. **(Manager PIN required after 60 days)** |
 | `orders.suit_component_swap` | `POST /api/transactions/{id}/items/{line}/suit-swap` — requires **`orders.modify`** as well; BO staff only (no register_session bypass). Seeded in **`migrations/50_suit_component_swap_register_open_drawer.sql`**. |
 | `orders.cancel` | `PATCH` transaction to `cancelled` when **payment allocations** exist (queues refund). |
 | `orders.void_sale` | `PATCH` to `cancelled` when the transaction has **no** payment allocations (void mistaken / unpaid cart). Either **`orders.cancel`** or **`orders.void_sale`** suffices when there are no allocations. Seeded in **`migrations/49_orders_void_sale_permission.sql`**. |
@@ -26,7 +26,11 @@ For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **sp
 
 ## Register session bypass (read / limited write)
 
-When the client cannot send Back Office staff headers (e.g. receipt modal on the till), some routes accept **`register_session_id`** so a **single open register session** that already has a **positive** `payment_allocation` to the transaction can authorize read or modify:
+When the client cannot send Back Office staff headers (e.g. receipt modal on the till), some routes accept **`register_session_id`** so a **single open register session** can authorize read or modify.
+
+**Policy Note (60-Day Window)**:
+ - **Transactions <= 60 days old**: Can be modified by any staff member on an active session.
+ - **Transactions > 60 days old**: Always requires a **Manager PIN** override (`orders.modify` permission) even if a session ID is provided.
 
 | Operation | Query / body | Requirement |
 |-----------|----------------|-------------|
@@ -91,7 +95,11 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 - **Recommended operational pattern:** return lines on the original transaction (and process refund queue as needed), then **new checkout** for the replacement merchandise; link the two transactions with **exchange-link** for reporting.
 
-- **POS Exchange Wizard** (register): [`PosExchangeWizard`](client/src/components/pos/PosExchangeWizard.tsx) — load original transaction (same register session), record line returns, then continue to the cart for replacement checkout. After checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically when both legs are on the session. Back Office still supports manual link and refunds.
+- **Exchange/Return Wizard** (register): [`PosExchangeWizard`](client/src/components/pos/PosExchangeWizard.tsx) — A high-fidelity, "WowDash" themed workspace for processing post-sale adjustments at the till. 
+   - **Wide Workspace**: Uses a `3xl` width modal to provide a zero-scroll triage environment.
+   - **Guided Phases**: Implements step-by-step navigation (Selection, Returns, Cart replacement).
+   - **Active Instructions**: Context-aware instruction cards guide staff through complex return semantics.
+   - **Automated Linking**: After replacement checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically to link the legs for reporting.
 
 ---
 

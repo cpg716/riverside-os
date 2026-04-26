@@ -2,7 +2,7 @@
 
 This document describes Riverside OS **Back Office** access control: string permission keys, **per-staff** grants (runtime), **role templates** in the database (edited under **Settings**), staff **phone/email**, **linked employee customer** (employee pricing + zero commission on those sales), and how the client loads **effective permissions** after staff authentication.
 
-**Runtime model (migration 97):** For non-**admin** staff, the effective permission set is **`staff_permission`** only (`allowed = true` rows). **`staff_role_permission`** and **`staff_role_pricing_limits`** are **store default templates** used when onboarding, when an operator clicks **Apply role defaults** on a profile, and for initial migration backfill. **`staff_permission_override`** is no longer used for enforcement after backfill (rows may remain unused).
+**Runtime model (migration 97):** For non-**admin** staff, the effective permission set is **`staff_permission`** only (`allowed = true` rows). **`staff_role_permission`** and **`staff_role_pricing_limits`** are **store default templates** used for onboarding and when applying role defaults. **As of v0.3.2, role updates in a staff profile automatically trigger a synchronization from these templates while preserving existing manual overrides.**
 
 For high-level architecture, see **`DEVELOPER.md`**. For agent-oriented invariants, see **`AGENTS.md`**.
 
@@ -96,7 +96,8 @@ Role defaults: **admin** = all **true**; **salesperson** = narrow (e.g. `catalog
 1. Authenticate with **`authenticate_staff_by_id`** (using the staff UUID and their 4-digit **Access PIN**).
 2. If **`DbStaffRole::Admin`**, the effective set is **the full catalog**.
 3. Otherwise, effective keys are loaded from **`staff_permission`**.
-4. The background **Employee Tracking ID** (`cashier_code`) remains stored for printed receipt attribution and audit trails but is not part of the primary login handshake.
+ 4. **Auto-Synchronization (v0.3.2)**: Updating a staff member's role in the Back Office profile automatically regenerates their **`staff_permission`** set from the new role's template, while preserving any manual overrides.
+ 5. The background **Employee Tracking ID** (`cashier_code`) remains stored for printed receipt attribution and audit trails but is not part of the primary login handshake.
 
 ```mermaid
 flowchart LR
@@ -152,7 +153,7 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `physical_inventory.view` | List/read physical inventory sessions. |
 | `physical_inventory.mutate` | Create, count, review, publish sessions. |
 | `orders.view` | List/read orders, audit, receipt ZPL (Back Office headers; or `register_session_id` when tied to that session). |
-| `orders.modify` | Add/edit/delete lines, pickup, line returns, exchange link (or register session read path for pickup/returns). |
+| `orders.modify` | Edit transaction lines, pickup, line returns, exchange link. **(Manager PIN required after 60 days)** |
 | `orders.cancel` | Set order status to cancelled (queues refunds when payments exist). |
 | `orders.refund_process` | `GET /refunds/due`, `POST .../refunds/process`. |
 | `orders.edit_attribution` | Patch order attribution. |

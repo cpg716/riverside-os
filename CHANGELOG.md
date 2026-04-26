@@ -4,6 +4,32 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+ 
+## [0.3.2] — 2026-04-26
+### Added
+- **Exchange/Return Wizard Redesign**: 
+  - Comprehensive UI overhaul with a larger `3xl` width modal to eliminate vertical scrolling.
+  - Applied "WowDash" glassmorphism with `backdrop-blur-xl` and themed surface tokens.
+  - Implemented phase-based navigation with guided "Active Instruction" panels for staff.
+  - High-fidelity item cards with max-return indicators and improved typography.
+- **60-Day Global Return Policy**:
+  - Implemented a system-wide policy allowing any staff member to process returns/exchanges for transactions up to 60 days old.
+  - Transactions beyond the 60-day window now automatically trigger a mandatory Manager PIN verification (`orders.modify` permission).
+  - Added a "Global Register Policy" card to the Staff Access settings to document this guardrail for administrators.
+- **RBAC Auto-Synchronization**:
+  - Role updates in staff profiles now automatically regenerate the staff member's effective permissions from the new role's defaults.
+  - Automated syncing of `max_discount_percent` from role pricing templates on profile update and new hire creation.
+  - Preserves existing manual permission overrides during role transitions.
+
+### Changed
+- **Unified Transaction Nomenclature**: Finalized the systematic renaming of "Orders" to **"Transactions"** across all financial ledger UI, API endpoints, and permission labels. 
+- Updated the Permission Catalog documentation in the UI to reflect the 60-day Manager PIN requirement on the `Edit transaction lines` permission.
+
+### Fixed
+- Resolved a critical 422 Unprocessable Entity error in the Return Wizard caused by a schema mismatch on transaction line IDs.
+- Fixed React "unique key" warnings in the Exchange/Return item lists.
+- Fixed backend compilation errors in `TransactionDetailResponse` and related summaries following the nomenclature refactor.
+
 
 ## [0.3.1] — 2026-04-25
 ### Added

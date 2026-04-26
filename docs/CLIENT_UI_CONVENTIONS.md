@@ -54,10 +54,18 @@ The implementation of the Settings module follows a unified, reactive pattern ac
 
 - **Profile-First Entry**: The settings workspace MUST initialize to the **Staff Profile** by default. Current staff meta (Avatar, Permissions, Identity) is the primary anchor.
 - **Unified Navigator**: Settings navigation is driven by the global sidebar (BO) or the navigation rail (POS). Workspace-internal tab switching should be avoided in favor of direct sub-section routing.
-- **POS Restriction (v0.2.1+)**: When in the POS shell, the Settings navigator is restricted to **Staff Profile** and **Printers & Scanners**. This prevents unauthorized access to administrative configurations (Data Backups, Stripe Integration) while at a public register station.
+- **POS Settings Gate**: **Strategic Boundary**: POS Settings are restricted to **Staff Profile** and **Printers & Scanners** (Hardware) to maintain operational security at public registers.
 - **ROS Dev Center (v0.2.1+)**: The **Settings → ROS Dev Center** subsection is an admin-bound operational command center. Read surfaces require **`ops.dev_center.view`**; guarded mutations require **`ops.dev_center.actions`** and must enforce explicit reason + dual confirmation before execution.
 - **Change Staff / Logout**: These actions are unified in the Profile dropdown. Both successfully clear the active persona and trigger the `BackofficeSignInGate` across all shell modes.
 - **Mirrored Workspaces**: Settings, including **Printers & Scanners** and **Terminal Overrides**, are mirrored between Back Office and POS to ensure staff can manage their workstation environment without switching shells.
+
+### Phase-Based Wizards (v0.3.2+)
+For complex multi-step operational tasks (e.g. Exchanges, Multi-Item Returns), Riverside OS uses a **Phase-Based Wizard** pattern.
+
+- **Wide-Workspace Density**: These wizards utilize a `3xl` width modal (`sm:max-w-3xl`) to provide an edge-to-edge workspace that eliminates vertical scrolling during complex triage.
+- **Guided Navigation**: The UI is divided into distinct **Phases** (Selection, Triage, Finalization). Navigation is guided by a central instruction panel or "Active Instruction" cards.
+- **Surface Depth**: Uses the `backdrop-blur-xl` and `bg-app-surface/50` tokens to maintain the WowDash glassmorphism while providing a distinct "Triage" environment that sits above the main shell.
+- **Guided Workflows**: Prefer explicit "Instruction Panels" that update based on the current step, rather than relying on staff memory for multi-step logic.
 
 ### Dashboard Primitives
 Located in `client/src/components/ui/`, these components serve as the foundation for all operational views:
