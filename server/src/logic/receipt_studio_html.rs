@@ -363,5 +363,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
         ],
         is_tax_exempt: false,
         tax_exempt_reason: None,
+        cashier_name: Some("Taylor M.".to_string()),
+        salesperson_display_name: Some("Alex B.".to_string()),
     }
 }

@@ -381,13 +381,19 @@ async fn patch_receipt_config(
         }
     }
 
+    // Validate the merged payload against the ReceiptConfig schema before persisting.
+    let normalized: ReceiptConfig = serde_json::from_value(existing).map_err(|e| {
+        SettingsError::InvalidPayload(format!("invalid receipt settings payload: {e}"))
+    })?;
+    let normalized_value = serde_json::to_value(&normalized)
+        .map_err(|e| SettingsError::InvalidPayload(format!("serialize failed: {e}")))?;
+
     sqlx::query("UPDATE store_settings SET receipt_config = $1 WHERE id = 1")
-        .bind(&existing)
+        .bind(&normalized_value)
         .execute(&state.db)
         .await?;
 
-    let cfg: ReceiptConfig = serde_json::from_value(existing).unwrap_or_default();
-    Ok(Json(cfg))
+    Ok(Json(normalized))
 }
 
 async fn get_receipt_preview_html(

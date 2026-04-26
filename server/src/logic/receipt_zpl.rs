@@ -78,6 +78,10 @@ pub struct ReceiptOrderForZpl {
     pub items: Vec<ReceiptLineForZpl>,
     pub is_tax_exempt: bool,
     pub tax_exempt_reason: Option<String>,
+    /// Cashier (operator) display name, masked as First + Last Initial.
+    pub cashier_name: Option<String>,
+    /// Primary salesperson display name, masked as First + Last Initial.
+    pub salesperson_display_name: Option<String>,
 }
 
 /// Builds ZPL for receipt or bag-tag mode from normalized order fields.

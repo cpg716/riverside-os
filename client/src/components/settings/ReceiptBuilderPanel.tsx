@@ -37,8 +37,12 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{RECEIPT_ID}}
 {{RECEIPT_DATE}}
 {{CUSTOMER_LINE}}
+{{SALESPERSON_LINE}}
+{{CASHIER_LINE}}
 ---
 {{ITEM_LINES}}
+{{LOYALTY_EARNED}}
+{{LOYALTY_BALANCE}}
 {{PAYMENT_BLOCK}}
 {{TOTAL_LINE}}
 {{PAID_LINE}}
@@ -220,18 +224,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replace("{{RECEIPT_ID}}", "^Receipt TXN-66736")
       .replace("{{RECEIPT_DATE}}", "^04/26/2026 02:14 AM")
       .replace("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
+      .replace("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
+      .replace("{{CASHIER_LINE}}", "Cashier: Alex B.")
       .replace(
         "{{ITEM_LINES}}",
         [
           "1x 100% Lambswool Sweater | $83.80",
           "SKU I-1003713601",
           "Taken home today",
-          cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "",
-          cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "",
         ]
           .filter(Boolean)
           .join("\n"),
       )
+      .replace("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
+      .replace("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
       .replace("{{PAYMENT_BLOCK}}", "")
       .replace("{{TOTAL_LINE}}", "^Total | ^$83.80")
       .replace("{{PAID_LINE}}", "Paid | $83.80")
@@ -546,7 +552,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Available Tokens
                 </p>
                 <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
-                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{ITEM_LINES}} {{PAYMENT_BLOCK}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
+                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{SALESPERSON_LINE}} {{CASHIER_LINE}} {{ITEM_LINES}} {{LOYALTY_EARNED}} {{LOYALTY_BALANCE}} {{PAYMENT_BLOCK}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
                 </p>
               </div>
             </div>

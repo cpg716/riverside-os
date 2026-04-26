@@ -7,6 +7,14 @@ use image::{ColorType, ImageEncoder};
 use rust_decimal::Decimal;
 use std::collections::HashMap;
 
+/// Optional loyalty point data for receipt rendering. When supplied, the
+/// `{{LOYALTY_EARNED}}` and `{{LOYALTY_BALANCE}}` tokens are populated.
+#[derive(Debug, Clone, Default)]
+pub struct LoyaltyReceiptData {
+    pub points_earned: Option<i32>,
+    pub points_balance: Option<i32>,
+}
+
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_zpl::{order_status_label, ReceiptOrderForZpl};
 use crate::models::DbFulfillmentType;
@@ -409,13 +417,14 @@ fn receiptline_payment_lines(d: &ReceiptOrderForZpl) -> String {
 }
 
 fn default_receiptline_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n{{SALESPERSON_LINE}}\n{{CASHIER_LINE}}\n---\n{{ITEM_LINES}}\n{{LOYALTY_EARNED}}\n{{LOYALTY_BALANCE}}\n{{PAYMENT_BLOCK}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 pub fn build_receiptline_markdown(
     d: &ReceiptOrderForZpl,
     cfg: &ReceiptConfig,
     params: &HashMap<String, String>,
+    loyalty: &LoyaltyReceiptData,
 ) -> String {
     let gift = truthy_param(params, "gift");
     let template = match cfg.receiptline_template.as_deref().map(str::trim) {
@@ -432,6 +441,16 @@ pub fn build_receiptline_markdown(
         .customer
         .as_ref()
         .map(|c| format!("Customer: {}", receiptline_escape(&c.display_name)))
+        .unwrap_or_default();
+    let cashier_line = d
+        .cashier_name
+        .as_ref()
+        .map(|n| format!("Cashier: {}", receiptline_escape(n)))
+        .unwrap_or_default();
+    let salesperson_line = d
+        .salesperson_display_name
+        .as_ref()
+        .map(|n| format!("Salesperson: {}", receiptline_escape(n)))
         .unwrap_or_default();
     let payment_lines = receiptline_payment_lines(d);
     let payment_block = if payment_lines.is_empty() {
@@ -500,6 +519,23 @@ pub fn build_receiptline_markdown(
         String::new()
     };
 
+    let loyalty_earned_line = if !gift && cfg.show_loyalty_earned {
+        match loyalty.points_earned {
+            Some(pts) if pts > 0 => format!("Loyalty earned | {} pts", pts),
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    };
+    let loyalty_balance_line = if !gift && cfg.show_loyalty_balance {
+        match loyalty.points_balance {
+            Some(bal) => format!("Loyalty balance | {} pts", bal),
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    };
+
     template
         .replace("{{LOGO_IMAGE}}", &logo_image)
         .replace("{{STORE_NAME}}", &store_name)
@@ -508,6 +544,8 @@ pub fn build_receiptline_markdown(
         .replace("{{RECEIPT_ID}}", &receipt_id)
         .replace("{{RECEIPT_DATE}}", &receipt_date)
         .replace("{{CUSTOMER_LINE}}", &customer_line)
+        .replace("{{CASHIER_LINE}}", &cashier_line)
+        .replace("{{SALESPERSON_LINE}}", &salesperson_line)
         .replace("{{ITEM_LINES}}", &item_lines)
         .replace("{{PAYMENT_BLOCK}}", payment_block_value)
         .replace("{{TOTAL_LINE}}", &total_line)
@@ -516,6 +554,8 @@ pub fn build_receiptline_markdown(
         .replace("{{TENDER_LINE}}", &tender_line)
         .replace("{{STATUS_LINE}}", &status_line)
         .replace("{{TAX_EXEMPT_LINE}}", &tax_exempt_line)
+        .replace("{{LOYALTY_EARNED}}", &loyalty_earned_line)
+        .replace("{{LOYALTY_BALANCE}}", &loyalty_balance_line)
         .replace("{{BARCODE_IMAGE}}", &barcode_image)
         .replace("{{FOOTER_LINES}}", &footer_lines)
         .replace("{{CUT}}", "=")

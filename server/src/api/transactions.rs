@@ -401,6 +401,12 @@ impl TransactionDetailResponse {
                 .collect(),
             is_tax_exempt: self.is_tax_exempt,
             tax_exempt_reason: self.tax_exempt_reason.clone(),
+            cashier_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+                self.operator_name.as_deref(),
+            ),
+            salesperson_display_name: crate::logic::receipt_privacy::mask_name_for_receipt(
+                self.primary_salesperson_name.as_deref(),
+            ),
             customer: self.customer.as_ref().map(|c| {
                 let full = format!("{} {}", c.first_name, c.last_name);
                 let masked = crate::logic::receipt_privacy::mask_name_for_receipt(Some(&full))
@@ -837,10 +843,6 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{transaction_id}/items/{transaction_line_id}/suit-swap",
             post(post_suit_component_swap),
-        )
-        .route(
-            "/{transaction_id}/receipt.zpl",
-            get(get_transaction_receipt_zpl),
         )
         .route(
             "/{transaction_id}/receipt.escpos",
@@ -1723,49 +1725,7 @@ async fn process_refund(
     Ok(Json(json!({ "status": "ok" })))
 }
 
-async fn get_transaction_receipt_zpl(
-    State(state): State<AppState>,
-    Path(transaction_id): Path<Uuid>,
-    Query(params): Query<std::collections::HashMap<String, String>>,
-    headers: HeaderMap,
-) -> Result<Response, TransactionError> {
-    let register_session_id = params
-        .get("register_session_id")
-        .and_then(|s| Uuid::parse_str(s.trim()).ok());
-    authorize_transaction_read_bo_or_register(
-        &state,
-        &headers,
-        transaction_id,
-        register_session_id,
-    )
-    .await?;
-    let detail = load_transaction_detail(&state.db, transaction_id).await?;
 
-    let item_ids = receipt_query_transaction_line_ids(&params);
-    let receipt_order = detail.receipt_for_zpl_filtered(item_ids.as_deref())?;
-
-    // Load receipt config (best-effort; fall back to defaults on error).
-    let receipt_cfg: crate::api::settings::ReceiptConfig =
-        sqlx::query_scalar::<_, serde_json::Value>(
-            "SELECT receipt_config FROM store_settings WHERE id = 1",
-        )
-        .fetch_optional(&state.db)
-        .await
-        .ok()
-        .flatten()
-        .and_then(|v| serde_json::from_value(v).ok())
-        .unwrap_or_default();
-
-    let body = receipt_zpl::build_receipt_zpl(&receipt_order, &receipt_cfg, None, None, params);
-    Response::builder()
-        .status(StatusCode::OK)
-        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
-        .body(body.into())
-        .map_err(|e| {
-            tracing::warn!(error = %e, "ZPL response build error");
-            TransactionError::InvalidPayload("failed to build response".to_string())
-        })
-}
 
 async fn get_transaction_receipt_escpos(
     State(state): State<AppState>,
@@ -1799,8 +1759,37 @@ async fn get_transaction_receipt_escpos(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
+    // Best-effort loyalty data for receipt tokens.
+    let loyalty = {
+        let points_earned: Option<i32> = sqlx::query_scalar(
+            "SELECT points_earned FROM transaction_loyalty_accrual WHERE transaction_id = $1",
+        )
+        .bind(transaction_id)
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten();
+
+        let points_balance: Option<i32> = if let Some(cid) = detail.customer.as_ref().map(|c| c.id)
+        {
+            sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
+                .bind(cid)
+                .fetch_optional(&state.db)
+                .await
+                .ok()
+                .flatten()
+        } else {
+            None
+        };
+
+        receipt_escpos::LoyaltyReceiptData {
+            points_earned,
+            points_balance,
+        }
+    };
+
     let receiptline_markdown =
-        receipt_escpos::build_receiptline_markdown(&receipt_order, &receipt_cfg, &params);
+        receipt_escpos::build_receiptline_markdown(&receipt_order, &receipt_cfg, &params, &loyalty);
     let bytes = receipt_escpos::build_receipt_escpos(&receipt_order, &receipt_cfg, params);
     let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(Json(serde_json::json!({
