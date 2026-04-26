@@ -121,6 +121,7 @@ async fn scan_sku(
     headers: HeaderMap,
     Path(sku): Path<String>,
 ) -> Result<Json<ResolvedSkuItem>, InventoryError> {
+    let sku = sku.strip_prefix('/').unwrap_or(&sku).to_string();
     middleware::require_staff_or_pos_register_session(&state, &headers)
         .await
         .map_err(|(_, axum::Json(v))| {
