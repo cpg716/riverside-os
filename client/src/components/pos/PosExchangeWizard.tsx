@@ -125,7 +125,7 @@ export default function PosExchangeWizard({
         return;
       }
       const d = (await res.json()) as OrderDetailLite;
-      if (d.status === "cancelled") {
+      if ((d.status || "").toLowerCase() === "cancelled") {
         toast("Cancelled orders cannot be exchanged here", "error");
         return;
       }

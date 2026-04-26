@@ -813,7 +813,7 @@ export default function Cart({
         toast("Receipt barcode not found in the system.", "error");
         return;
       }
-      if (txn.status === "fulfilled") {
+      if ((txn.status || "").toLowerCase() === "fulfilled") {
         setExchangeWizardInitialOrderId(txn.transaction_id);
         setExchangeWizardOpen(true);
       } else {
