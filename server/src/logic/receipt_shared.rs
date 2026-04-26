@@ -1,5 +1,5 @@
 //! Shared receipt data types and helpers.
-//! Note: ZPL building logic was removed in v0.3.2 as it is no longer used by the project.
+//! Note: This module provides a unified data contract for all receipt formats.
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
@@ -22,7 +22,7 @@ pub struct ReceiptCustomerLine {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReceiptLineForZpl {
+pub struct ReceiptLine {
     pub product_name: String,
     pub sku: String,
     pub quantity: i32,
@@ -39,14 +39,14 @@ pub struct ReceiptLineForZpl {
 }
 
 #[derive(Debug, Clone)]
-pub struct ReceiptPaymentApplicationForZpl {
+pub struct ReceiptPaymentApplication {
     pub target_display_id: String,
     pub amount: Decimal,
     pub remaining_balance: Decimal,
 }
 
 #[derive(Debug, Clone)]
-pub struct ReceiptOrderForZpl {
+pub struct ReceiptOrder {
     pub transaction_id: Uuid,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
@@ -54,9 +54,9 @@ pub struct ReceiptOrderForZpl {
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
     pub payment_methods_summary: String,
-    pub payment_applications: Vec<ReceiptPaymentApplicationForZpl>,
+    pub payment_applications: Vec<ReceiptPaymentApplication>,
     pub customer: Option<ReceiptCustomerLine>,
-    pub items: Vec<ReceiptLineForZpl>,
+    pub items: Vec<ReceiptLine>,
     pub is_tax_exempt: bool,
     pub tax_exempt_reason: Option<String>,
     pub fulfillment_method: DbOrderFulfillmentMethod,

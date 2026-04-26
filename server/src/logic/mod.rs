@@ -60,7 +60,7 @@ pub mod receipt_escpos_raster;
 pub mod receipt_plain_text;
 pub mod receipt_privacy;
 pub mod receipt_studio_html;
-pub mod receipt_zpl;
+pub mod receipt_shared;
 pub mod register_day_activity;
 pub mod register_staff_metrics;
 pub mod remote_access;

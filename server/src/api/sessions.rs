@@ -184,7 +184,7 @@ pub struct SessionResponse {
     pub opening_float: Decimal,
     pub opened_at: DateTime<Utc>,
     pub till_close_group_id: Uuid,
-    /// IANA TZ from `store_settings.receipt_config` — matches receipt / ZPL timestamp formatting.
+    /// IANA TZ from `store_settings.receipt_config` — matches receipt / thermal timestamp formatting.
     pub receipt_timezone: String,
     /// Returned on open / re-issue only; never on `GET /current`.
     #[serde(skip_serializing_if = "Option::is_none")]

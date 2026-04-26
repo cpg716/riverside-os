@@ -1,14 +1,14 @@
-//! Plain-text receipt body for SMS / messaging (same order snapshot as ZPL / Receipt Builder merge).
+//! Plain-text receipt body for SMS / messaging (same order snapshot as thermal / Receipt Builder merge).
 
 use chrono_tz::Tz;
 use rust_decimal::Decimal;
 
 use crate::api::settings::ReceiptConfig;
-use crate::logic::receipt_zpl::{order_status_label, ReceiptOrderForZpl};
+use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
 pub fn format_pos_gift_receipt_text_message(
-    order: &ReceiptOrderForZpl,
+    order: &ReceiptOrder,
     cfg: &ReceiptConfig,
 ) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
@@ -63,7 +63,7 @@ pub fn format_pos_gift_receipt_text_message(
 }
 
 /// Formats a concise receipt for SMS (no HTML). Uses `ReceiptConfig` timezone and store name.
-pub fn format_pos_receipt_text_message(order: &ReceiptOrderForZpl, cfg: &ReceiptConfig) -> String {
+pub fn format_pos_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref: String = order

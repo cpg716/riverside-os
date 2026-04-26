@@ -16,7 +16,7 @@ pub struct LoyaltyReceiptData {
 }
 
 use crate::api::settings::ReceiptConfig;
-use crate::logic::receipt_zpl::{order_status_label, ReceiptOrderForZpl};
+use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
 use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod};
 
 const CPL: usize = 42;
@@ -180,7 +180,7 @@ fn kick_cash_drawer(out: &mut Vec<u8>) {
     out.extend_from_slice(&[0x1b, 0x70, 0x00, 0x32, 0xfa]);
 }
 
-fn push_header(out: &mut Vec<u8>, d: &ReceiptOrderForZpl, cfg: &ReceiptConfig, gift: bool) {
+fn push_header(out: &mut Vec<u8>, d: &ReceiptOrder, cfg: &ReceiptConfig, gift: bool) {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = d.booked_at.with_timezone(&tz);
     let order_ref = d
@@ -218,7 +218,7 @@ fn push_header(out: &mut Vec<u8>, d: &ReceiptOrderForZpl, cfg: &ReceiptConfig, g
     divider(out);
 }
 
-fn push_items(out: &mut Vec<u8>, d: &ReceiptOrderForZpl, gift: bool) {
+fn push_items(out: &mut Vec<u8>, d: &ReceiptOrder, gift: bool) {
     for it in &d.items {
         let var = it
             .variation_label
@@ -262,7 +262,7 @@ fn push_items(out: &mut Vec<u8>, d: &ReceiptOrderForZpl, gift: bool) {
     }
 }
 
-fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrderForZpl) {
+fn push_totals(out: &mut Vec<u8>, d: &ReceiptOrder) {
     divider(out);
     set_bold(out, true);
     push_line(out, &right_pair("Total", &money(d.total_price)));
@@ -310,7 +310,7 @@ fn push_footer(out: &mut Vec<u8>, cfg: &ReceiptConfig) {
     set_align(out, 0);
 }
 
-fn receipt_ref(d: &ReceiptOrderForZpl) -> String {
+fn receipt_ref(d: &ReceiptOrder) -> String {
     d.transaction_id
         .simple()
         .to_string()
@@ -320,7 +320,7 @@ fn receipt_ref(d: &ReceiptOrderForZpl) -> String {
         .to_uppercase()
 }
 
-fn receipt_date(d: &ReceiptOrderForZpl, cfg: &ReceiptConfig) -> String {
+fn receipt_date(d: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     d.booked_at
         .with_timezone(&tz)
@@ -368,7 +368,7 @@ fn receipt_header_lines(cfg: &ReceiptConfig) -> Vec<String> {
     lines
 }
 
-fn receiptline_item_lines(d: &ReceiptOrderForZpl, gift: bool) -> String {
+fn receiptline_item_lines(d: &ReceiptOrder, gift: bool) -> String {
     let mut out_lines = Vec::new();
 
     let labels = [
@@ -478,7 +478,7 @@ fn receiptline_item_lines(d: &ReceiptOrderForZpl, gift: bool) -> String {
     out_lines.join("\n")
 }
 
-fn receiptline_payment_lines(d: &ReceiptOrderForZpl) -> String {
+fn receiptline_payment_lines(d: &ReceiptOrder) -> String {
     if d.payment_applications.is_empty() {
         return String::new();
     }
@@ -499,7 +499,7 @@ fn default_receiptline_template() -> &'static str {
 }
 
 pub fn build_receiptline_markdown(
-    d: &ReceiptOrderForZpl,
+    d: &ReceiptOrder,
     cfg: &ReceiptConfig,
     params: &HashMap<String, String>,
     loyalty: &LoyaltyReceiptData,
@@ -644,7 +644,7 @@ pub fn build_receiptline_markdown(
 }
 
 pub fn build_receipt_escpos(
-    d: &ReceiptOrderForZpl,
+    d: &ReceiptOrder,
     cfg: &ReceiptConfig,
     params: HashMap<String, String>,
 ) -> Vec<u8> {

@@ -34,7 +34,7 @@ use crate::logic::pos_rms_charge;
 use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_studio_html;
-use crate::logic::receipt_zpl;
+use crate::logic::receipt_shared;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::transaction_recalc;
 use crate::logic::transaction_returns::{self, ReturnLineInput};
@@ -291,7 +291,7 @@ pub struct TransactionDetailResponse {
     /// Set from `store_settings.receipt_config`: exported HTML exists for Receipt Builder merge.
     #[serde(default)]
     pub receipt_studio_layout_available: bool,
-    /// `zpl` (thermal ZPL) or `studio_html` (browser print of merged HTML).
+    /// `escpos` (thermal) or `studio_html` (browser print of merged HTML).
     #[serde(default)]
     pub receipt_thermal_mode: String,
     /// From `store_settings.review_policy` (for receipt / POS review invite UX).
@@ -378,13 +378,13 @@ impl TransactionDetailResponse {
 
     /// Build customer-facing receipt data. When `transaction_line_ids` is `Some`, only those lines are
     /// included (must match at least one line or returns `InvalidPayload`).
-    pub(crate) fn receipt_for_zpl_filtered(
+    pub(crate) fn build_receipt_data(
         &self,
         transaction_line_ids: Option<&[Uuid]>,
-    ) -> Result<receipt_zpl::ReceiptOrderForZpl, TransactionError> {
+    ) -> Result<receipt_shared::ReceiptOrder, TransactionError> {
         let selected = self.selected_receipt_items_with_effective_qty(transaction_line_ids)?;
 
-        Ok(receipt_zpl::ReceiptOrderForZpl {
+        Ok(receipt_shared::ReceiptOrder {
             transaction_id: self.transaction_id,
             booked_at: self.booked_at,
             status: self.status,
@@ -395,7 +395,7 @@ impl TransactionDetailResponse {
             payment_applications: self
                 .payment_applications
                 .iter()
-                .map(|app| receipt_zpl::ReceiptPaymentApplicationForZpl {
+                .map(|app| receipt_shared::ReceiptPaymentApplication {
                     target_display_id: app.target_display_id.clone(),
                     amount: app.amount,
                     remaining_balance: app.remaining_balance,
@@ -413,13 +413,13 @@ impl TransactionDetailResponse {
                 let full = format!("{} {}", c.first_name, c.last_name);
                 let masked = crate::logic::receipt_privacy::mask_name_for_receipt(Some(&full))
                     .unwrap_or_else(|| "—".to_string());
-                receipt_zpl::ReceiptCustomerLine {
+                receipt_shared::ReceiptCustomerLine {
                     display_name: masked,
                 }
             }),
             items: selected
                 .into_iter()
-                .map(|(it, effective_qty)| receipt_zpl::ReceiptLineForZpl {
+                .map(|(it, effective_qty)| receipt_shared::ReceiptLine {
                     product_name: it.product_name.clone(),
                     sku: it.sku.clone(),
                     quantity: effective_qty,
@@ -531,7 +531,7 @@ mod tests {
         let detail = sample_transaction_detail(vec![sample_item(3, 1)]);
 
         let receipt = detail
-            .receipt_for_zpl_filtered(None)
+            .build_receipt_data(None)
             .expect("receipt builds");
 
         assert_eq!(receipt.items.len(), 1);
@@ -543,7 +543,7 @@ mod tests {
         let detail = sample_transaction_detail(vec![sample_item(2, 2), sample_item(1, 0)]);
 
         let receipt = detail
-            .receipt_for_zpl_filtered(None)
+            .build_receipt_data(None)
             .expect("receipt builds");
 
         assert_eq!(receipt.items.len(), 1);
@@ -559,7 +559,7 @@ mod tests {
         let detail = sample_transaction_detail(vec![returned, active]);
 
         let err = detail
-            .receipt_for_zpl_filtered(Some(&[returned_id]))
+            .build_receipt_data(Some(&[returned_id]))
             .expect_err("fully returned subset should fail");
 
         assert!(matches!(err, TransactionError::InvalidPayload(_)));
@@ -573,7 +573,7 @@ mod tests {
         let detail = sample_transaction_detail(vec![sample_internal_item()]);
 
         let receipt = detail
-            .receipt_for_zpl_filtered(None)
+            .build_receipt_data(None)
             .expect("internal-only receipt should build");
 
         assert!(receipt.items.is_empty());
@@ -1776,7 +1776,7 @@ async fn get_transaction_receipt_escpos(
     let detail = load_transaction_detail(&state.db, transaction_id).await?;
 
     let item_ids = receipt_query_transaction_line_ids(&params);
-    let receipt_order = detail.receipt_for_zpl_filtered(item_ids.as_deref())?;
+    let receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
 
     let receipt_cfg: crate::api::settings::ReceiptConfig =
         sqlx::query_scalar::<_, serde_json::Value>(
@@ -1850,7 +1850,7 @@ async fn get_transaction_receipt_html(
 
     let gift = receipt_query_gift_flag(&params);
     let item_ids = receipt_query_transaction_line_ids(&params);
-    let receipt_order = detail.receipt_for_zpl_filtered(item_ids.as_deref())?;
+    let receipt_order = detail.build_receipt_data(item_ids.as_deref())?;
 
     let receipt_cfg: crate::api::settings::ReceiptConfig =
         sqlx::query_scalar::<_, serde_json::Value>(
@@ -1974,7 +1974,7 @@ async fn post_transaction_receipt_send_email(
     } else {
         Some(body.transaction_line_ids.as_slice())
     };
-    let receipt_order = detail.receipt_for_zpl_filtered(item_ids)?;
+    let receipt_order = detail.build_receipt_data(item_ids)?;
 
     let tpl = receipt_cfg
         .receipt_studio_exported_html
@@ -2077,7 +2077,7 @@ async fn post_transaction_receipt_send_sms(
     } else {
         Some(body.transaction_line_ids.as_slice())
     };
-    let receipt_order = detail.receipt_for_zpl_filtered(item_ids)?;
+    let receipt_order = detail.build_receipt_data(item_ids)?;
 
     if let Some(b64_raw) = body.png_base64.as_ref() {
         let b64 = b64_raw.trim();

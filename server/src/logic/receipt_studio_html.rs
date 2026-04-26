@@ -8,7 +8,7 @@ use uuid::Uuid;
 
 use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_privacy;
-use crate::logic::receipt_zpl::{order_status_label, ReceiptOrderForZpl};
+use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
 
 fn html_escape(s: &str) -> String {
     s.chars()
@@ -22,7 +22,7 @@ fn html_escape(s: &str) -> String {
         .collect()
 }
 
-fn build_items_table(order: &ReceiptOrderForZpl) -> String {
+fn build_items_table(order: &ReceiptOrder) -> String {
     let mut rows = String::new();
     for it in &order.items {
         let var = it
@@ -44,7 +44,7 @@ fn build_items_table(order: &ReceiptOrderForZpl) -> String {
     )
 }
 
-fn build_items_table_gift(order: &ReceiptOrderForZpl) -> String {
+fn build_items_table_gift(order: &ReceiptOrder) -> String {
     let mut rows = String::new();
     for it in &order.items {
         let var = it
@@ -65,7 +65,7 @@ fn build_items_table_gift(order: &ReceiptOrderForZpl) -> String {
     )
 }
 
-fn build_payment_applications(order: &ReceiptOrderForZpl) -> String {
+fn build_payment_applications(order: &ReceiptOrder) -> String {
     if order.payment_applications.is_empty() {
         return String::new();
     }
@@ -86,7 +86,7 @@ fn build_payment_applications(order: &ReceiptOrderForZpl) -> String {
 }
 
 pub fn render_standard_receipt_html(
-    order: &ReceiptOrderForZpl,
+    order: &ReceiptOrder,
     cfg: &ReceiptConfig,
     gift: bool,
 ) -> String {
@@ -199,7 +199,7 @@ fn replace_all(haystack: &mut String, needle: &str, repl: &str) {
 /// Replace documented tokens; unknown `{{...}}` tokens are left unchanged.
 pub fn merge_receipt_studio_html(
     template: &str,
-    order: &ReceiptOrderForZpl,
+    order: &ReceiptOrder,
     cfg: &ReceiptConfig,
     gift: bool,
 ) -> String {
@@ -321,11 +321,11 @@ pub fn wrap_receipt_fragment_for_podium_email_inline(fragment: &str) -> String {
 }
 
 /// Demo order for Settings → Receipt Builder preview (`GET /api/settings/receipt/preview-html`).
-pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
+pub fn sample_receipt_order_for_preview() -> ReceiptOrder {
     use crate::models::{DbFulfillmentType, DbOrderFulfillmentMethod, DbOrderStatus};
     use chrono::Utc;
 
-    ReceiptOrderForZpl {
+    ReceiptOrder {
         transaction_id: Uuid::nil(),
         booked_at: Utc::now(),
         status: DbOrderStatus::Open,
@@ -334,11 +334,11 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
         payment_applications: Vec::new(),
-        customer: Some(crate::logic::receipt_zpl::ReceiptCustomerLine {
+        customer: Some(crate::logic::receipt_shared::ReceiptCustomerLine {
             display_name: "Alex R.".to_string(),
         }),
         items: vec![
-            crate::logic::receipt_zpl::ReceiptLineForZpl {
+            crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Wool suit jacket".to_string(),
                 sku: "SKU-DEMO-01".to_string(),
                 quantity: 1,
@@ -351,7 +351,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
                 custom_order_details: None,
                 is_fulfilled: true,
             },
-            crate::logic::receipt_zpl::ReceiptLineForZpl {
+            crate::logic::receipt_shared::ReceiptLine {
                 product_name: "Silk tie".to_string(),
                 sku: "SKU-DEMO-02".to_string(),
                 quantity: 2,
