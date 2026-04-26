@@ -19,6 +19,8 @@ interface DashboardStatsCardProps {
   sparklineData?: { value: number }[];
   color?: "blue" | "green" | "orange" | "rose" | "purple";
   className?: string;
+  onClick?: () => void;
+  ariaLabel?: string;
 }
 
 const colorMap = {
@@ -67,50 +69,58 @@ export default function DashboardStatsCard({
   sparklineData,
   color = "blue",
   className,
+  onClick,
+  ariaLabel,
 }: DashboardStatsCardProps) {
   const styles = colorMap[color];
+  const Root = onClick ? "button" : "div";
 
   return (
-    <div
+    <Root
+      type={onClick ? "button" : undefined}
+      onClick={onClick}
+      aria-label={ariaLabel ?? (onClick ? `Open ${title}` : undefined)}
       className={cn(
-        "ui-card relative p-6 transition-all hover:-translate-y-0.5",
+        "ui-card relative min-w-0 overflow-hidden p-6 text-left transition-all hover:-translate-y-0.5",
+        onClick && "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/30",
         styles.card,
         className,
       )}
     >
-      <div className="flex items-start justify-between">
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
-            <div className={cn("flex h-10 w-10 items-center justify-center rounded-xl", styles.icon)}>
+      <div className="relative z-10 min-w-0 space-y-4">
+        <div className="flex min-w-0 items-center gap-3">
+            <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-xl", styles.icon)}>
               <Icon size={20} />
             </div>
-            <span className="text-sm font-semibold text-app-text-muted">{title}</span>
-          </div>
+            <span className="min-w-0 text-sm font-semibold leading-tight text-app-text-muted">{title}</span>
+        </div>
 
-          <div className="space-y-1">
-            <h3 className="text-3xl font-bold tracking-tight text-app-text">{value}</h3>
+        <div className="min-w-0 space-y-1">
+            <h3 className="max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1.75rem,2vw,2.25rem)] font-bold leading-tight tracking-tight text-app-text">
+              {value}
+            </h3>
             {trend && (
-              <div className="flex items-center gap-2">
+              <div className="flex min-w-0 items-center gap-2">
                 <span
                   className={cn(
-                    "text-xs font-bold",
+                    "shrink-0 text-xs font-bold",
                     trend.isUp ? styles.trendUp : styles.trendDown,
                   )}
                 >
                   {trend.isUp ? "▲" : "▼"} {trend.value}
                 </span>
                 {trend.label && (
-                  <span className="text-[10px] font-medium text-app-text-muted">
+                  <span className="min-w-0 truncate text-[10px] font-medium text-app-text-muted">
                     {trend.label}
                   </span>
                 )}
               </div>
             )}
-          </div>
         </div>
+      </div>
 
         {sparklineData && sparklineData.length > 0 && (
-          <div className="h-16 w-24 translate-y-2 relative" style={{ minWidth: "96px", minHeight: "64px" }}>
+          <div className="pointer-events-none absolute bottom-3 right-3 h-12 w-20 opacity-75" aria-hidden>
             <LineChart width={96} height={64} data={sparklineData}>
               <Line
                 type="monotone"
@@ -123,10 +133,9 @@ export default function DashboardStatsCard({
             </LineChart>
           </div>
         )}
-      </div>
 
       {/* Subtle glassmorphic background reflection effect */}
       <div className="absolute -right-4 -top-4 size-24 rounded-full bg-app-accent/2 blur-3xl" />
-    </div>
+    </Root>
   );
 }

@@ -113,6 +113,10 @@ interface AlterationOpsRow {
 interface OperationalHomeProps {
   onOpenWeddingParty: (partyId: string) => void;
   onOpenTransactionInBackoffice: (orderId: string) => void;
+  onNavigateMetric?: (target: {
+    tab: "home" | "alterations" | "inventory";
+    section?: string;
+  }) => void;
   /** Podium inbox row → open customer hub Messages. */
   onOpenInboxCustomer: (customer: Customer) => void;
   /** Increment to refetch compass + activity (e.g. after wedding edits). */
@@ -239,7 +243,9 @@ function SummaryPill({
       <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
         {label}
       </p>
-      <p className="mt-1 text-lg font-black text-app-text">{value}</p>
+      <p className="mt-1 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[clamp(1.15rem,1.6vw,1.5rem)] font-black leading-tight text-app-text">
+        {value}
+      </p>
     </div>
   );
 }
@@ -432,6 +438,7 @@ function cn(...inputs: (string | boolean | undefined | null | Record<string, boo
 export default function OperationalHome({
   onOpenWeddingParty,
   onOpenTransactionInBackoffice,
+  onNavigateMetric,
   onOpenInboxCustomer,
   refreshSignal = 0,
   activeSection,
@@ -1069,7 +1076,7 @@ export default function OperationalHome({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(220px,1fr))] gap-6">
          <DashboardStatsCard
            title="Today's Sales"
            value={todaySummary ? money(todaySummary.net_sales) : "$0.00"}
@@ -1081,6 +1088,8 @@ export default function OperationalHome({
              label: "sales today",
            }}
            color="blue"
+           onClick={() => onNavigateMetric?.({ tab: "home", section: "daily-sales" })}
+           ariaLabel="Open Daily Sales"
          />
          <DashboardStatsCard
            title="Pending Orders"
@@ -1092,6 +1101,8 @@ export default function OperationalHome({
              label: "ready for pickup",
            }}
            color="purple"
+           onClick={() => onNavigateMetric?.({ tab: "home", section: "fulfillment" })}
+           ariaLabel="Open Pickup Queue"
          />
          <DashboardStatsCard
            title="Alterations"
@@ -1103,6 +1114,8 @@ export default function OperationalHome({
              label: "ready for pickup",
            }}
            color="blue"
+           onClick={() => onNavigateMetric?.({ tab: "alterations", section: "queue" })}
+           ariaLabel="Open Alterations Queue"
          />
          <DashboardStatsCard
            title="Low Stock Alerts"
@@ -1114,6 +1127,8 @@ export default function OperationalHome({
              label: "issue alerts",
            }}
            color="orange"
+           onClick={() => onNavigateMetric?.({ tab: "inventory", section: "intelligence" })}
+           ariaLabel="Open Inventory Stock Guidance"
          />
          <DashboardStatsCard
            title="Needs Attention"
@@ -1125,6 +1140,8 @@ export default function OperationalHome({
              label: "open inbox items",
            }}
            color="rose"
+           onClick={() => onNavigateMetric?.({ tab: "home", section: "inbox" })}
+           ariaLabel="Open Podium Inbox"
          />
       </div>
 

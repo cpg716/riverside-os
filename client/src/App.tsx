@@ -1748,6 +1748,12 @@ function AppMainColumn({
                         navigateWedding(id);
                       }}
                       onOpenTransactionInBackoffice={onOpenTransactionInBackoffice}
+                      onNavigateMetric={(target) => {
+                        setActiveTab(target.tab);
+                        if (target.section) {
+                          setActiveSubSection(target.section);
+                        }
+                      }}
                       onOpenInboxCustomer={onOpenCustomerHubFromInbox}
                       registerReportsDeepLinkTxnId={
                         registerReportsDeepLinkTxnId
