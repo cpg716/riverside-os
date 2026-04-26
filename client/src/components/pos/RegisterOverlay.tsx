@@ -11,9 +11,7 @@ import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
-  Printer,
   RefreshCw,
-  Search,
   Wifi,
 } from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
@@ -149,7 +147,6 @@ export default function RegisterOverlay({
   const { backofficeHeaders, staffRole, permissionsLoaded } =
     useBackofficeAuth();
   const [credential, setCredential] = useState("");
-  const [roster, setRoster] = useState<{ id: string; full_name: string }[]>([]);
 
   const baseUrl = getBaseUrl();
 
@@ -158,8 +155,7 @@ export default function RegisterOverlay({
       try {
         const res = await fetch(`${baseUrl}/api/staff/list-for-pos`);
         if (res.ok) {
-          const data = await res.json();
-          setRoster(data);
+          await res.json();
         }
       } catch (e) {
         console.error("Roster load failed", e);

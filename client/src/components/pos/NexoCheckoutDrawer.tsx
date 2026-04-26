@@ -1,6 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import type { Dispatch, SetStateAction } from "react";
 import {
   CreditCard,

@@ -7,10 +7,7 @@ use crate::api::settings::ReceiptConfig;
 use crate::logic::receipt_shared::{order_status_label, ReceiptOrder};
 
 /// Gift receipt body for SMS when MMS/HTML is not used: items only, no prices or payment details.
-pub fn format_pos_gift_receipt_text_message(
-    order: &ReceiptOrder,
-    cfg: &ReceiptConfig,
-) -> String {
+pub fn format_pos_gift_receipt_text_message(order: &ReceiptOrder, cfg: &ReceiptConfig) -> String {
     let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
     let local_time = order.booked_at.with_timezone(&tz);
     let order_ref: String = order

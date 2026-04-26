@@ -2181,7 +2181,6 @@ export default function Cart({
         confirmLabel="Apply to sale"
         variant="info"
       />
-      ) : null}
       {parkedListOpen && document.getElementById("drawer-root")
         ? createPortal(
             <div className="ui-overlay-backdrop !z-[200]">
@@ -2393,10 +2392,6 @@ export default function Cart({
             document.getElementById("drawer-root")!,
           )
         : null}
-            </div>
-          </div>
-        </div>
-      ) : null}
       {cashAdjustOpen && (
         <RegisterCashAdjustModal
           sessionId={sessionId}

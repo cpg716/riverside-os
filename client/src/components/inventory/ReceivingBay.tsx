@@ -13,8 +13,6 @@ import {
   Camera,
   CheckCircle,
   CheckSquare,
-  Landmark,
-  Save,
   ShieldCheck,
   Truck,
   X,

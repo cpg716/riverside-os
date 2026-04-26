@@ -33,8 +33,8 @@ use crate::logic::podium_reviews;
 use crate::logic::pos_rms_charge;
 use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
-use crate::logic::receipt_studio_html;
 use crate::logic::receipt_shared;
+use crate::logic::receipt_studio_html;
 use crate::logic::suit_component_swap::{self, SuitSwapInput, SuitSwapOutcome};
 use crate::logic::transaction_recalc;
 use crate::logic::transaction_returns::{self, ReturnLineInput};
@@ -530,9 +530,7 @@ mod tests {
     fn receipt_builder_uses_effective_quantity_after_partial_return() {
         let detail = sample_transaction_detail(vec![sample_item(3, 1)]);
 
-        let receipt = detail
-            .build_receipt_data(None)
-            .expect("receipt builds");
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
 
         assert_eq!(receipt.items.len(), 1);
         assert_eq!(receipt.items[0].quantity, 2);
@@ -542,9 +540,7 @@ mod tests {
     fn receipt_builder_omits_fully_returned_lines() {
         let detail = sample_transaction_detail(vec![sample_item(2, 2), sample_item(1, 0)]);
 
-        let receipt = detail
-            .build_receipt_data(None)
-            .expect("receipt builds");
+        let receipt = detail.build_receipt_data(None).expect("receipt builds");
 
         assert_eq!(receipt.items.len(), 1);
         assert_eq!(receipt.items[0].quantity, 1);
