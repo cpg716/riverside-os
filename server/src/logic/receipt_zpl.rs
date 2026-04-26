@@ -58,6 +58,13 @@ pub struct ReceiptLineForZpl {
 }
 
 #[derive(Debug, Clone)]
+pub struct ReceiptPaymentApplicationForZpl {
+    pub target_display_id: String,
+    pub amount: Decimal,
+    pub remaining_balance: Decimal,
+}
+
+#[derive(Debug, Clone)]
 pub struct ReceiptOrderForZpl {
     pub transaction_id: Uuid,
     pub booked_at: DateTime<Utc>,
@@ -66,6 +73,7 @@ pub struct ReceiptOrderForZpl {
     pub amount_paid: Decimal,
     pub balance_due: Decimal,
     pub payment_methods_summary: String,
+    pub payment_applications: Vec<ReceiptPaymentApplicationForZpl>,
     pub customer: Option<ReceiptCustomerLine>,
     pub items: Vec<ReceiptLineForZpl>,
     pub is_tax_exempt: bool,
@@ -251,6 +259,20 @@ pub fn build_receipt_zpl(
         20,
         &format!("Tender: {}", d.payment_methods_summary),
     );
+    if !d.payment_applications.is_empty() {
+        zpl_push_line(&mut out, &mut y, 20, "Applied payments:");
+        for app in &d.payment_applications {
+            zpl_push_line(
+                &mut out,
+                &mut y,
+                18,
+                &format!(
+                    "{} {} rem {}",
+                    app.target_display_id, app.amount, app.remaining_balance
+                ),
+            );
+        }
+    }
     zpl_push_line(
         &mut out,
         &mut y,

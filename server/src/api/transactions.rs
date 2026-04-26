@@ -270,6 +270,8 @@ pub struct TransactionDetailResponse {
     #[serde(default)]
     pub exchange_group_id: Option<Uuid>,
     pub payment_methods_summary: String,
+    #[serde(default)]
+    pub payment_applications: Vec<TransactionPaymentApplication>,
     pub operator_staff_id: Option<Uuid>,
     pub operator_name: Option<String>,
     pub primary_salesperson_id: Option<Uuid>,
@@ -304,6 +306,14 @@ pub struct TransactionDetailResponse {
 pub struct TransactionFinancialSummary {
     pub total_allocated_payments: Decimal,
     pub total_applied_deposit_amount: Decimal,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TransactionPaymentApplication {
+    pub target_transaction_id: Uuid,
+    pub target_display_id: String,
+    pub amount: Decimal,
+    pub remaining_balance: Decimal,
 }
 
 impl TransactionDetailResponse {
@@ -379,6 +389,15 @@ impl TransactionDetailResponse {
             amount_paid: self.amount_paid,
             balance_due: self.balance_due,
             payment_methods_summary: self.payment_methods_summary.clone(),
+            payment_applications: self
+                .payment_applications
+                .iter()
+                .map(|app| receipt_zpl::ReceiptPaymentApplicationForZpl {
+                    target_display_id: app.target_display_id.clone(),
+                    amount: app.amount,
+                    remaining_balance: app.remaining_balance,
+                })
+                .collect(),
             is_tax_exempt: self.is_tax_exempt,
             tax_exempt_reason: self.tax_exempt_reason.clone(),
             customer: self.customer.as_ref().map(|c| {
@@ -435,6 +454,7 @@ mod tests {
             shipping_label_url: None,
             exchange_group_id: None,
             payment_methods_summary: "Card".to_string(),
+            payment_applications: Vec::new(),
             operator_staff_id: None,
             operator_name: None,
             primary_salesperson_id: None,
@@ -892,21 +912,13 @@ async fn order_has_positive_payment_in_session(
 async fn authorize_transaction_read_bo_or_register(
     state: &AppState,
     headers: &HeaderMap,
-    transaction_id: Uuid,
+    _transaction_id: Uuid,
     register_session_id: Option<Uuid>,
 ) -> Result<(), TransactionError> {
     if let Some(sid) = register_session_id {
         if !register_session_is_open(&state.db, sid).await? {
             return Err(TransactionError::Forbidden(
                 "register session is not open".to_string(),
-            ));
-        }
-        let ok = order_has_positive_payment_in_session(&state.db, transaction_id, sid)
-            .await
-            .map_err(TransactionError::Database)?;
-        if !ok {
-            return Err(TransactionError::Forbidden(
-                "order is not linked to this register session".to_string(),
             ));
         }
         return Ok(());
@@ -2201,6 +2213,7 @@ pub(crate) async fn load_transaction_detail(
         FROM payment_allocations pa
         INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
         WHERE pa.target_transaction_id = $1
+           OR pt.metadata->>'checkout_transaction_id' = $1::text
         "#,
     )
     .bind(transaction_id)
@@ -2223,6 +2236,49 @@ pub(crate) async fn load_transaction_detail(
     } else {
         summary_parts.join(", ")
     };
+
+    let payment_applications = sqlx::query_as::<_, (Uuid, String, Decimal, Decimal)>(
+        r#"
+        SELECT
+            target.id AS target_transaction_id,
+            COALESCE(
+                NULLIF(TRIM(pa.metadata->>'target_display_id'), ''),
+                (
+                    SELECT string_agg(DISTINCT fo.display_id, ', ' ORDER BY fo.display_id)
+                    FROM transaction_lines tl
+                    INNER JOIN fulfillment_orders fo ON fo.id = tl.fulfillment_order_id
+                    WHERE tl.transaction_id = target.id
+                ),
+                target.counterpoint_doc_ref,
+                target.counterpoint_ticket_ref,
+                target.display_id,
+                target.id::text
+            ) AS target_display_id,
+            COALESCE(pa.amount_allocated, 0)::numeric(14,2) AS amount,
+            COALESCE(target.balance_due, 0)::numeric(14,2) AS remaining_balance
+        FROM payment_allocations pa
+        INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id
+        INNER JOIN transactions target ON target.id = pa.target_transaction_id
+        WHERE pt.metadata->>'checkout_transaction_id' = $1::text
+          AND pa.metadata->>'kind' = 'existing_order_payment'
+        ORDER BY target.display_id NULLS LAST, target.id
+        "#,
+    )
+    .bind(transaction_id)
+    .fetch_all(pool)
+    .await?
+    .into_iter()
+    .map(
+        |(target_transaction_id, target_display_id, amount, remaining_balance)| {
+            TransactionPaymentApplication {
+                target_transaction_id,
+                target_display_id,
+                amount,
+                remaining_balance,
+            }
+        },
+    )
+    .collect::<Vec<_>>();
 
     let customer = match (h.customer_id, h.customer_first_name, h.customer_last_name) {
         (Some(id), Some(first_name), Some(last_name)) => Some(OrderCustomerSummary {
@@ -2330,6 +2386,7 @@ pub(crate) async fn load_transaction_detail(
         shipping_label_url: h.shipping_label_url,
         exchange_group_id: h.exchange_group_id,
         payment_methods_summary,
+        payment_applications,
         operator_staff_id: h.operator_staff_id,
         operator_name: h.operator_name,
         primary_salesperson_id: h.primary_salesperson_id,

@@ -1592,14 +1592,10 @@ pub async fn execute_checkout(
         .wedding_disbursements
         .as_ref()
         .is_some_and(|v| !v.is_empty());
-    if payload.items.is_empty() && !has_wedding_disbursements {
-        if !payload.order_payments.is_empty() {
-            return Err(CheckoutError::InvalidPayload(
-                "order_payments require a current sale in this phase".to_string(),
-            ));
-        }
+    if payload.items.is_empty() && !has_wedding_disbursements && payload.order_payments.is_empty() {
         return Err(CheckoutError::InvalidPayload(
-            "Cart cannot be empty (must have items or wedding payouts)".to_string(),
+            "Cart cannot be empty (must have items, wedding payouts, or order payments)"
+                .to_string(),
         ));
     }
     if payload.target_transaction_id.is_some() {
@@ -2293,7 +2289,18 @@ pub async fn execute_checkout(
             r#"
             SELECT
                 o.id,
-                COALESCE(o.display_id, o.id::text) AS display_id,
+                COALESCE(
+                    (
+                        SELECT string_agg(DISTINCT fo.display_id, ', ' ORDER BY fo.display_id)
+                        FROM transaction_lines tl
+                        INNER JOIN fulfillment_orders fo ON fo.id = tl.fulfillment_order_id
+                        WHERE tl.transaction_id = o.id
+                    ),
+                    o.counterpoint_doc_ref,
+                    o.counterpoint_ticket_ref,
+                    o.display_id,
+                    o.id::text
+                ) AS display_id,
                 o.customer_id,
                 o.balance_due,
                 o.status
@@ -3194,6 +3201,17 @@ pub async fn execute_checkout(
                     .execute(&mut *tx)
                     .await?;
                 }
+            }
+
+            if let Some(metadata) = split.metadata.as_object_mut() {
+                metadata.insert(
+                    "checkout_transaction_id".to_string(),
+                    json!(transaction_id.to_string()),
+                );
+                metadata.insert(
+                    "checkout_display_id".to_string(),
+                    json!(transaction_display_id.clone()),
+                );
             }
 
             // 3. Create the movement record (payment_transactions)
@@ -4201,6 +4219,42 @@ mod tests {
                 .get("applied_deposit_amount")
                 .and_then(|value| value.as_str()),
             Some("40.00")
+        );
+    }
+
+    #[test]
+    fn transaction_checkout_allocation_plan_allows_order_payment_only() {
+        let current_tx_id = Uuid::new_v4();
+        let customer_id = Uuid::new_v4();
+        let target_id = Uuid::new_v4();
+        let order_payments = vec![ResolvedOrderPayment {
+            client_line_id: "order-pay-1".to_string(),
+            target_transaction_id: target_id,
+            target_display_id: "TXN-12345".to_string(),
+            customer_id,
+            amount: Decimal::new(8799, 2),
+            balance_before: Decimal::new(8799, 2),
+            projected_balance_after: Decimal::ZERO,
+        }];
+
+        let plan = build_payment_allocation_plan(
+            &[resolved_split(Decimal::new(8799, 2))],
+            current_tx_id,
+            Decimal::ZERO,
+            &order_payments,
+        )
+        .unwrap();
+
+        assert_eq!(plan.len(), 1);
+        assert_eq!(plan[0].target_transaction_id, target_id);
+        assert_eq!(plan[0].amount, Decimal::new(8799, 2));
+        assert!(plan[0].is_existing_order_payment);
+        assert_eq!(
+            plan[0]
+                .metadata
+                .get("kind")
+                .and_then(|value| value.as_str()),
+            Some("existing_order_payment")
         );
     }
 

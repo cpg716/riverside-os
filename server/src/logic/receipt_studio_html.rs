@@ -65,6 +65,26 @@ fn build_items_table_gift(order: &ReceiptOrderForZpl) -> String {
     )
 }
 
+fn build_payment_applications(order: &ReceiptOrderForZpl) -> String {
+    if order.payment_applications.is_empty() {
+        return String::new();
+    }
+    let rows = order
+        .payment_applications
+        .iter()
+        .map(|app| {
+            format!(
+                "<div style=\"display:flex;justify-content:space-between;gap:12px\"><span>Payment on {}</span><span>{} · remaining {}</span></div>",
+                html_escape(&app.target_display_id),
+                app.amount,
+                app.remaining_balance
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Applied payments</strong>{rows}</div>")
+}
+
 fn replace_all(haystack: &mut String, needle: &str, repl: &str) {
     *haystack = haystack.replace(needle, repl);
 }
@@ -142,11 +162,16 @@ pub fn merge_receipt_studio_html(
         replace_all(&mut out, "{{ROS_AMOUNT_PAID}}", "—");
         replace_all(&mut out, "{{ROS_BALANCE_DUE}}", "—");
     } else {
-        replace_all(
-            &mut out,
-            "{{ROS_PAYMENT_SUMMARY}}",
-            &html_escape(&order.payment_methods_summary),
-        );
+        let payment_summary = if order.payment_applications.is_empty() {
+            html_escape(&order.payment_methods_summary)
+        } else {
+            format!(
+                "{}{}",
+                html_escape(&order.payment_methods_summary),
+                build_payment_applications(order)
+            )
+        };
+        replace_all(&mut out, "{{ROS_PAYMENT_SUMMARY}}", &payment_summary);
         replace_all(&mut out, "{{ROS_TOTAL}}", &order.total_price.to_string());
         replace_all(
             &mut out,
@@ -201,6 +226,7 @@ pub fn sample_receipt_order_for_preview() -> ReceiptOrderForZpl {
         amount_paid: Decimal::new(19950, 2),
         balance_due: Decimal::ZERO,
         payment_methods_summary: "VISA ••••4242".to_string(),
+        payment_applications: Vec::new(),
         customer: Some(crate::logic::receipt_zpl::ReceiptCustomerLine {
             display_name: "Alex R.".to_string(),
         }),

@@ -14,7 +14,9 @@ use uuid::Uuid;
 
 use crate::api::AppState;
 use crate::auth::permissions::SETTINGS_ADMIN;
-use crate::logic::bug_reports::{self, BugReportDetailRow, BugReportListRow, BugReportStatus};
+use crate::logic::bug_reports::{
+    self, BugReportDetailRow, BugReportListRow, BugReportStatus, StaffErrorEventRow,
+};
 use crate::middleware;
 
 const MAX_SUMMARY_LEN: usize = 12_000;
@@ -33,6 +35,8 @@ const MAX_SUBMITS_PER_STAFF_WINDOW: i64 = 12;
 const SUBMIT_RATE_WINDOW_MINUTES: i64 = 15;
 /// Extra JSON from the client (viewport, UA, etc.) — keep bounded.
 const MAX_CLIENT_META_JSON_BYTES: usize = 65_536;
+const MAX_ERROR_EVENT_MESSAGE_LEN: usize = 2_000;
+const MAX_ERROR_EVENT_ROUTE_LEN: usize = 2_048;
 
 #[derive(Debug, Deserialize)]
 pub struct SubmitBugReportBody {
@@ -67,6 +71,19 @@ pub struct PatchBugReportBody {
     pub resolver_notes: Option<String>,
     #[serde(default)]
     pub external_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SubmitErrorEventBody {
+    pub message: String,
+    #[serde(default)]
+    pub event_source: Option<String>,
+    #[serde(default)]
+    pub severity: Option<String>,
+    #[serde(default)]
+    pub route: Option<String>,
+    #[serde(default)]
+    pub client_meta: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -385,13 +402,108 @@ async fn patch_bug_report(
     Ok(Json(detail_row_to_response(r)))
 }
 
+async fn submit_error_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<SubmitErrorEventBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let staff = middleware::require_authenticated_staff_headers(&state, &headers)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let message = body.message.trim();
+    if message.is_empty() {
+        return Err(bad_request("message required"));
+    }
+    if message.len() > MAX_ERROR_EVENT_MESSAGE_LEN {
+        return Err(bad_request("message too long"));
+    }
+    let event_source = body
+        .event_source
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("client_toast");
+    let severity = body
+        .severity
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("error");
+    let route = body
+        .route
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if route.is_some_and(|value| value.len() > MAX_ERROR_EVENT_ROUTE_LEN) {
+        return Err(bad_request("route too long"));
+    }
+    let meta = if body.client_meta.is_null() {
+        json!({})
+    } else {
+        body.client_meta
+    };
+    let meta_len = serde_json::to_string(&meta)
+        .map_err(|_| bad_request("client_meta is not serializable"))?
+        .len();
+    if meta_len > MAX_CLIENT_META_JSON_BYTES {
+        return Err(bad_request("client_meta too large"));
+    }
+    let server_log_snapshot = state
+        .server_log_ring
+        .snapshot_text(MAX_SERVER_LOG_SNAPSHOT_BYTES);
+
+    let id = bug_reports::insert_staff_error_event(
+        &state.db,
+        Some(staff.id),
+        message,
+        event_source,
+        severity,
+        route,
+        &meta,
+        &server_log_snapshot,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "insert staff_error_event failed");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "error": "could not save error event" })),
+        )
+            .into_response()
+    })?;
+
+    Ok(Json(json!({ "id": id })))
+}
+
+async fn list_error_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<StaffErrorEventRow>>, Response> {
+    let _ = require_settings_admin(&state, &headers).await?;
+    let rows = bug_reports::list_staff_error_events(&state.db)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "list_staff_error_events failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "list failed" })),
+            )
+                .into_response()
+        })?;
+    Ok(Json(rows))
+}
+
 pub fn submit_router() -> Router<AppState> {
-    Router::new().route("/", post(submit_bug_report))
+    Router::new()
+        .route("/", post(submit_bug_report))
+        .route("/error-events", post(submit_error_event))
 }
 
 pub fn settings_subrouter() -> Router<AppState> {
     Router::new()
         .route("/bug-reports", get(list_bug_reports))
+        .route("/bug-reports/error-events", get(list_error_events))
         .route(
             "/bug-reports/{id}",
             get(get_bug_report).patch(patch_bug_report),

@@ -1,6 +1,48 @@
 import { useState, useCallback, type ReactNode } from "react";
 import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 import { ToastContext, type Toast, type ToastType } from "./ToastProviderLogic";
+import { getBaseUrl } from "../../lib/apiConfig";
+import { sessionPollAuthHeaders } from "../../lib/posRegisterAuth";
+
+const baseUrl = getBaseUrl();
+const recentErrorEventKeys = new Map<string, number>();
+
+function recordErrorToastEvent(message: string) {
+  const trimmed = message.trim();
+  if (!trimmed) return;
+  const now = Date.now();
+  const key = trimmed.toLowerCase().slice(0, 240);
+  const last = recentErrorEventKeys.get(key) ?? 0;
+  if (now - last < 30_000) return;
+  recentErrorEventKeys.set(key, now);
+
+  const headers = sessionPollAuthHeaders();
+  if (!headers["x-riverside-staff-code"]) return;
+
+  void fetch(`${baseUrl}/api/bug-reports/error-events`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...headers,
+    },
+    body: JSON.stringify({
+      message: trimmed,
+      event_source: "client_toast",
+      severity: "error",
+      route: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+      client_meta: {
+        user_agent: navigator.userAgent,
+        viewport: {
+          width: window.innerWidth,
+          height: window.innerHeight,
+        },
+        online: navigator.onLine,
+      },
+    }),
+  }).catch(() => {
+    /* best-effort telemetry; never create a second staff-facing error */
+  });
+}
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -12,6 +54,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const toast = useCallback((message: string, type: ToastType = "info") => {
     const id = Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, message, type }]);
+    if (type === "error") {
+      recordErrorToastEvent(message);
+    }
 
     // Auto-dismiss after 4 seconds
     setTimeout(() => {

@@ -7,6 +7,7 @@ export interface CustomerOrder {
   id: string;
   customer_id?: string | null;
   display_id: string;
+  order_payment_display_id?: string | null;
   booked_at: string;
   status: string;
   total_price: string;
@@ -38,6 +39,7 @@ interface OrderLoadModalProps {
   isOpen: boolean;
   customerId: string;
   customerName: string;
+  registerSessionId?: string | null;
   baseUrl: string;
   apiAuth: () => Record<string, string>;
   onClose: () => void;
@@ -49,6 +51,7 @@ export default function OrderLoadModal({
   isOpen,
   customerId,
   customerName,
+  registerSessionId,
   baseUrl,
   apiAuth,
   onClose,
@@ -64,11 +67,15 @@ export default function OrderLoadModal({
   const [paymentAmount, setPaymentAmount] = useState("");
 
   const fetchOrderItems = async (orderId: string) => {
-    const res = await fetch(`${baseUrl}/api/transactions/${orderId}/items`, {
+    const params = new URLSearchParams();
+    if (registerSessionId) params.set("register_session_id", registerSessionId);
+    const suffix = params.toString() ? `?${params.toString()}` : "";
+    const res = await fetch(`${baseUrl}/api/transactions/${orderId}/items${suffix}`, {
       headers: apiAuth(),
     });
     if (!res.ok) {
-      throw new Error("Could not load order items");
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error || `Could not load order items (${res.status})`);
     }
     const data = (await res.json()) as OrderItem[];
     return Array.isArray(data) ? data : [];
@@ -79,16 +86,24 @@ export default function OrderLoadModal({
     try {
       const items = await fetchOrderItems(orderId);
       setSelectedOrderItems(items);
-    } catch {
+    } catch (e) {
       setSelectedOrderItems([]);
-      toast("We couldn't load those order items. Please try again.", "error");
+      toast(
+        e instanceof Error ? e.message : "We couldn't load those order items. Please try again.",
+        "error",
+      );
     }
   };
 
   useEffect(() => {
     if (!isOpen || !customerId) return;
     setLoading(true);
-    fetch(`${baseUrl}/api/transactions?customer_id=${encodeURIComponent(customerId)}&limit=25`, {
+    const params = new URLSearchParams({
+      customer_id: customerId,
+      limit: "25",
+    });
+    if (registerSessionId) params.set("register_session_id", registerSessionId);
+    fetch(`${baseUrl}/api/transactions?${params.toString()}`, {
       headers: apiAuth(),
     })
       .then(async (r) => {
@@ -104,7 +119,7 @@ export default function OrderLoadModal({
         toast("We couldn't load this customer's orders. Please try again.", "error");
       })
       .finally(() => setLoading(false));
-  }, [isOpen, customerId, baseUrl, apiAuth, toast]);
+  }, [isOpen, customerId, registerSessionId, baseUrl, apiAuth, toast]);
 
   const formatCurrency = (amount: string) => formatUsdFromCents(parseMoneyToCents(amount));
 
@@ -166,8 +181,13 @@ export default function OrderLoadModal({
         return;
       }
       onCopyOrder(order, unfulfilled);
-    } catch {
-      toast("We couldn't prepare this order for the register. Please try again.", "error");
+    } catch (e) {
+      toast(
+        e instanceof Error
+          ? e.message
+          : "We couldn't prepare this order for the register. Please try again.",
+        "error",
+      );
     }
   };
 
@@ -203,7 +223,7 @@ export default function OrderLoadModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="flex w-[500px] max-h-[80vh] flex-col rounded-2xl border border-app-border bg-app-surface shadow-2xl">
+      <div className="flex w-[min(920px,calc(100vw-2rem))] max-h-[84vh] flex-col rounded-2xl border border-app-border bg-app-surface shadow-2xl">
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Package size={20} className="text-blue-600" />
@@ -230,11 +250,11 @@ export default function OrderLoadModal({
               <span className="text-app-text-muted">No open orders for this customer</span>
             </div>
           ) : (
-            <div className="flex flex-col gap-2">
+            <div className="grid gap-3 lg:grid-cols-2">
               {orders.map((order) => (
                 <div
                   key={order.id}
-                  className="flex items-center justify-between rounded-xl border border-app-border bg-app-surface-2/50 p-3"
+                  className="grid gap-4 rounded-xl border border-app-border bg-app-surface-2/50 p-4 xl:grid-cols-[minmax(0,1fr)_12rem]"
                 >
                   <div className="flex flex-1 flex-col gap-1">
                     <div className="flex items-center gap-2">
@@ -265,7 +285,7 @@ export default function OrderLoadModal({
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-3 text-xs text-app-text-muted">
+                    <div className="grid grid-cols-2 gap-2 text-xs text-app-text-muted sm:grid-cols-4">
                       <span>{formatDate(order.booked_at)}</span>
                       <span className="font-medium text-emerald-600">
                         Paid: {formatCurrency(order.amount_paid)}
@@ -279,7 +299,7 @@ export default function OrderLoadModal({
                       {lifecycleNote(order)}
                     </p>
                   </div>
-                  <div className="flex shrink-0 flex-col gap-1">
+                  <div className="grid shrink-0 grid-cols-1 gap-1 sm:grid-cols-3 xl:grid-cols-1">
                     {onMakePayment && parseMoneyToCents(order.balance_due) > 0 ? (
                       <button
                         type="button"

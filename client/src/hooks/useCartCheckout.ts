@@ -115,8 +115,8 @@ export function useCartCheckout({
       toast("Sign in as cashier on the register sign-in screen before completing payment.", "error");
       return;
     }
-    if (lines.length === 0 && disbursementMembers.length === 0) {
-      toast("Add at least one item before checking out.", "error");
+    if (lines.length === 0 && disbursementMembers.length === 0 && orderPaymentLines.length === 0) {
+      toast("Add at least one item or order payment before checking out.", "error");
       return;
     }
     if (!navigator.onLine && posShipping) {

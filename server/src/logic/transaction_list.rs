@@ -39,6 +39,7 @@ pub struct TransactionPipelineStats {
 pub struct TransactionListRow {
     pub transaction_id: Uuid,
     pub display_id: Option<String>,
+    pub order_payment_display_id: Option<String>,
     pub booked_at: DateTime<Utc>,
     pub total_price: Decimal,
     pub amount_paid: Decimal,
@@ -91,6 +92,7 @@ pub struct TransactionListQuery {
 pub struct TransactionListResponse {
     pub transaction_id: Uuid,
     pub display_id: String,
+    pub order_payment_display_id: String,
     pub booked_at: DateTime<Utc>,
     pub status: DbOrderStatus,
     pub total_price: Decimal,
@@ -188,6 +190,13 @@ pub async fn query_paged_transactions(
         SELECT
             o.id AS transaction_id,
             COALESCE(o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
+            COALESCE(
+                NULLIF(string_agg(DISTINCT fo.display_id, ', ' ORDER BY fo.display_id) FILTER (WHERE fo.display_id IS NOT NULL), ''),
+                o.counterpoint_doc_ref,
+                o.counterpoint_ticket_ref,
+                o.display_id,
+                o.id::text
+            ) AS order_payment_display_id,
             o.booked_at,
             o.total_price,
             o.amount_paid,
@@ -214,6 +223,7 @@ pub async fn query_paged_transactions(
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN fulfillment_orders fo ON fo.id = oi.fulfillment_order_id
         WHERE 1=1
         "#
     ));
@@ -253,7 +263,7 @@ pub async fn query_paged_transactions(
         _ => {}
     }
 
-    if let Some(sid) = q.register_session_id {
+    if let Some(sid) = q.register_session_id.filter(|_| q.customer_id.is_none()) {
         qb.push(
             " AND EXISTS (SELECT 1 FROM payment_allocations pa \
              INNER JOIN payment_transactions pt ON pt.id = pa.transaction_id \
@@ -281,6 +291,8 @@ pub async fn query_paged_transactions(
             qb.push(" OR o.counterpoint_doc_ref ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR o.counterpoint_ticket_ref ILIKE ");
+            qb.push_bind(s.clone());
+            qb.push(" OR fo.display_id ILIKE ");
             qb.push_bind(s.clone());
             qb.push(" OR c.first_name ILIKE ");
             qb.push_bind(s.clone());
@@ -362,9 +374,14 @@ pub async fn query_paged_transactions(
                 r.has_custom,
                 r.has_special_order,
             );
+            let fallback_display_id = r.display_id.unwrap_or_else(|| r.transaction_id.to_string());
+            let order_payment_display_id = r
+                .order_payment_display_id
+                .unwrap_or_else(|| fallback_display_id.clone());
             TransactionListResponse {
                 transaction_id: r.transaction_id,
-                display_id: r.display_id.unwrap_or_else(|| r.transaction_id.to_string()),
+                display_id: fallback_display_id,
+                order_payment_display_id,
                 booked_at: r.booked_at,
                 total_price: r.total_price,
                 amount_paid: r.amount_paid,

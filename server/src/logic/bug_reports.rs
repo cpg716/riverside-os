@@ -46,6 +46,20 @@ pub struct BugReportDetailRow {
     pub resolver_name: Option<String>,
 }
 
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct StaffErrorEventRow {
+    pub id: Uuid,
+    pub created_at: DateTime<Utc>,
+    pub staff_id: Option<Uuid>,
+    pub staff_name: Option<String>,
+    pub message: String,
+    pub event_source: String,
+    pub severity: String,
+    pub route: Option<String>,
+    pub client_meta: Value,
+    pub server_log_snapshot: String,
+}
+
 /// Count submissions by this staff member since `since` (for abuse throttling).
 pub async fn count_bug_reports_since(
     pool: &PgPool,
@@ -227,6 +241,63 @@ pub async fn patch_bug_report(
     .execute(pool)
     .await?;
     Ok(r.rows_affected() > 0)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn insert_staff_error_event(
+    pool: &PgPool,
+    staff_id: Option<Uuid>,
+    message: &str,
+    event_source: &str,
+    severity: &str,
+    route: Option<&str>,
+    client_meta: &Value,
+    server_log_snapshot: &str,
+) -> Result<Uuid, sqlx::Error> {
+    sqlx::query_scalar::<_, Uuid>(
+        r#"
+        INSERT INTO staff_error_event (
+            staff_id, message, event_source, severity, route, client_meta, server_log_snapshot
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        RETURNING id
+        "#,
+    )
+    .bind(staff_id)
+    .bind(message)
+    .bind(event_source)
+    .bind(severity)
+    .bind(route)
+    .bind(client_meta)
+    .bind(server_log_snapshot)
+    .fetch_one(pool)
+    .await
+}
+
+pub async fn list_staff_error_events(
+    pool: &PgPool,
+) -> Result<Vec<StaffErrorEventRow>, sqlx::Error> {
+    sqlx::query_as::<_, StaffErrorEventRow>(
+        r#"
+        SELECT
+            e.id,
+            e.created_at,
+            e.staff_id,
+            s.full_name AS staff_name,
+            e.message,
+            e.event_source,
+            e.severity,
+            e.route,
+            e.client_meta,
+            e.server_log_snapshot
+        FROM staff_error_event e
+        LEFT JOIN staff s ON s.id = e.staff_id
+        ORDER BY e.created_at DESC
+        LIMIT 500
+        "#,
+    )
+    .fetch_all(pool)
+    .await
 }
 
 /// Deletes reports older than `retention_days`. Returns rows deleted.

@@ -91,7 +91,13 @@ export function useCartPersistence({
 
         if (saved && saved.sessionId === sessionId) {
           const rawLines = (saved.lines || []) as CartLineItem[];
-          if (rawLines.length === 0) {
+          const rawOrderPaymentLines = saved.orderPaymentLines || [];
+          const rawAlterationIntakes = saved.pendingAlterationIntakes || [];
+          if (
+            rawLines.length === 0 &&
+            rawOrderPaymentLines.length === 0 &&
+            rawAlterationIntakes.length === 0
+          ) {
             await localforage.removeItem("ros_pos_active_sale");
           } else {
             const wm = saved.activeWeddingMember || null;
@@ -131,8 +137,8 @@ export function useCartPersistence({
                 fullName: co.fullName.trim(),
               });
             }
-            setPendingAlterationIntakes?.(saved.pendingAlterationIntakes || []);
-            setOrderPaymentLines?.(saved.orderPaymentLines || []);
+            setPendingAlterationIntakes?.(rawAlterationIntakes);
+            setOrderPaymentLines?.(rawOrderPaymentLines);
           }
         } else if (saved && saved.sessionId !== sessionId) {
           clearCart();

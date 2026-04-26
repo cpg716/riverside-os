@@ -1064,15 +1064,13 @@ export default function OperationalHome({
   const renderDashboard = () => (
     <div className="space-y-8 animate-in fade-in duration-500">
       
-      <div className="mb-8 flex flex-wrap items-center gap-6">
+      <div className="mb-8 flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
         <div className="space-y-1">
           <h2 className="text-3xl font-bold tracking-tight text-app-text">Operations Overview</h2>
           <p className="text-sm font-medium text-app-text-muted">Real-time snapshots of your store operations</p>
         </div>
-        <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
-        <div className="flex items-center gap-3">
-           <div className="h-2 w-2 rounded-full bg-app-success" />
-           <span className="text-[10px] font-bold uppercase tracking-wider text-app-text-muted">Live Dashboard Active</span>
+        <div className="flex w-full justify-start lg:w-auto lg:justify-end">
+          <WeatherDashboardWidget refreshSignal={refreshSignal} compact />
         </div>
       </div>
 

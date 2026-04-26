@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
-import { Bug, Download, RefreshCw } from "lucide-react";
+import { AlertTriangle, Bug, Download, RefreshCw } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -37,6 +37,19 @@ type Detail = {
   staff_name: string;
   resolved_at: string | null;
   resolver_name: string | null;
+};
+
+type ErrorEventRow = {
+  id: string;
+  created_at: string;
+  staff_id: string | null;
+  staff_name: string | null;
+  message: string;
+  event_source: string;
+  severity: string;
+  route: string | null;
+  client_meta: Record<string, unknown>;
+  server_log_snapshot: string;
 };
 
 function downloadJson(filename: string, data: unknown) {
@@ -100,8 +113,11 @@ export default function BugReportsSettingsPanel({
   const { toast } = useToast();
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const [rows, setRows] = useState<ListRow[]>([]);
+  const [errorEvents, setErrorEvents] = useState<ErrorEventRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [eventsLoading, setEventsLoading] = useState(true);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [eventDetail, setEventDetail] = useState<ErrorEventRow | null>(null);
   const [draftNotes, setDraftNotes] = useState("");
   const [draftUrl, setDraftUrl] = useState("");
   const [statusConfirm, setStatusConfirm] = useState<{
@@ -111,6 +127,7 @@ export default function BugReportsSettingsPanel({
   const [listFilter, setListFilter] = useState<
     "all" | "pending" | "complete" | "dismissed"
   >("pending");
+  const [viewMode, setViewMode] = useState<"reports" | "events">("reports");
 
   const filteredRows =
     listFilter === "all" ? rows : rows.filter((r) => r.status === listFilter);
@@ -136,9 +153,31 @@ export default function BugReportsSettingsPanel({
     }
   }, [backofficeHeaders, hasPermission, toast]);
 
+  const loadErrorEvents = useCallback(async () => {
+    if (!hasPermission("settings.admin")) return;
+    setEventsLoading(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/settings/bug-reports/error-events`, {
+        headers: backofficeHeaders() as Record<string, string>,
+      });
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(j.error ?? "Could not load error events", "error");
+        return;
+      }
+      const data = (await res.json()) as ErrorEventRow[];
+      setErrorEvents(data);
+    } catch {
+      toast("Network error loading error events", "error");
+    } finally {
+      setEventsLoading(false);
+    }
+  }, [backofficeHeaders, hasPermission, toast]);
+
   useEffect(() => {
     void loadList();
-  }, [loadList]);
+    void loadErrorEvents();
+  }, [loadErrorEvents, loadList]);
 
   const openDetail = useCallback(async (id: string) => {
     try {
@@ -214,7 +253,9 @@ export default function BugReportsSettingsPanel({
           <p className="mt-1 max-w-2xl text-xs text-app-text-muted">
             Submissions from the bug icon (Tauri, PWA, or browser): optional
             screenshot, client console, API tracing snapshot, correlation id,
-            and triage fields. Notifications go to staff with settings.admin.
+            and triage fields. Automated error events capture recent error toasts
+            so staff do not have to file a full report for every failed action.
+            Notifications go to staff with settings.admin.
             Old reports purge per{" "}
             <code className="font-mono text-[10px]">
               RIVERSIDE_BUG_REPORT_RETENTION_DAYS
@@ -224,7 +265,10 @@ export default function BugReportsSettingsPanel({
         </div>
         <button
           type="button"
-          onClick={() => void loadList()}
+          onClick={() => {
+            void loadList();
+            void loadErrorEvents();
+          }}
           className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase tracking-widest"
         >
           <RefreshCw className="h-3.5 w-3.5" aria-hidden />
@@ -232,6 +276,88 @@ export default function BugReportsSettingsPanel({
         </button>
       </div>
 
+      <div className="flex flex-wrap gap-2">
+        {([
+          ["reports", "Bug reports"],
+          ["events", "Error events"],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setViewMode(key)}
+            className={`rounded-xl border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors ${
+              viewMode === key
+                ? "border-app-accent bg-app-accent/15 text-app-text"
+                : "border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border/20"
+            }`}
+          >
+            {label}
+            <span className="ml-1.5 tabular-nums opacity-70">
+              ({key === "reports" ? rows.length : errorEvents.length})
+            </span>
+          </button>
+        ))}
+      </div>
+
+      {viewMode === "events" ? (
+        <div className="ui-card overflow-hidden">
+          {eventsLoading ? (
+            <p className="p-6 text-sm text-app-text-muted">Loading…</p>
+          ) : errorEvents.length === 0 ? (
+            <p className="p-6 text-sm text-app-text-muted">
+              No automated error events yet.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[760px] border-collapse text-left text-sm">
+                <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  <tr>
+                    <th className="px-4 py-3">When</th>
+                    <th className="px-4 py-3">Staff</th>
+                    <th className="px-4 py-3">Source</th>
+                    <th className="px-4 py-3">Message</th>
+                    <th className="px-4 py-3">Route</th>
+                    <th className="px-4 py-3 text-right">Open</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-app-border">
+                  {errorEvents.map((event) => (
+                    <tr key={event.id} className="hover:bg-app-surface-2/80">
+                      <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
+                        {new Date(event.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-3 text-xs font-semibold text-app-text">
+                        {event.staff_name ?? "Unknown"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="ui-pill bg-app-danger/10 text-[9px] text-app-danger">
+                          {event.event_source.replace(/_/g, " ")}
+                        </span>
+                      </td>
+                      <td className="max-w-md px-4 py-3 text-xs text-app-text line-clamp-2">
+                        {event.message}
+                      </td>
+                      <td className="max-w-[14rem] truncate px-4 py-3 font-mono text-[10px] text-app-text-muted">
+                        {event.route ?? "—"}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setEventDetail(event)}
+                          className="text-[10px] font-black uppercase tracking-widest text-app-accent hover:underline"
+                        >
+                          View
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      ) : (
+        <>
       <div className="flex flex-wrap gap-2">
         {(
           [
@@ -325,6 +451,8 @@ export default function BugReportsSettingsPanel({
           </div>
         )}
       </div>
+        </>
+      )}
 
       {detail ? (
         <div
@@ -554,6 +682,82 @@ export default function BugReportsSettingsPanel({
                 </p>
                 <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
                   {detail.client_console_log || "—"}
+                </pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {eventDetail ? (
+        <div
+          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          role="presentation"
+          onPointerDown={() => setEventDetail(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Error event detail"
+            className="ui-card flex max-h-[min(92vh,760px)] w-full max-w-3xl flex-col overflow-hidden shadow-2xl"
+            onPointerDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-app-border px-5 py-4">
+              <div className="min-w-0">
+                <p className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-app-danger">
+                  <AlertTriangle className="h-4 w-4" aria-hidden />
+                  Automated error event
+                </p>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  {new Date(eventDetail.created_at).toLocaleString()} ·{" "}
+                  {eventDetail.staff_name ?? "Unknown staff"}
+                </p>
+                <p className="mt-2 text-sm font-bold text-app-text">
+                  {eventDetail.message}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="ui-btn-secondary shrink-0 px-3 py-1.5 text-[10px] font-black uppercase"
+                onClick={() => setEventDetail(null)}
+              >
+                Close
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Route
+                  </p>
+                  <p className="mt-1 break-all font-mono text-xs text-app-text">
+                    {eventDetail.route ?? "—"}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
+                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    Source
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-app-text">
+                    {eventDetail.event_source.replace(/_/g, " ")} ·{" "}
+                    {eventDetail.severity}
+                  </p>
+                </div>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Client meta
+                </p>
+                <pre className="mt-1 max-h-52 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
+                  {JSON.stringify(eventDetail.client_meta, null, 2)}
+                </pre>
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  API server log near event
+                </p>
+                <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
+                  {eventDetail.server_log_snapshot || "—"}
                 </pre>
               </div>
             </div>

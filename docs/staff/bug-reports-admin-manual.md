@@ -10,7 +10,7 @@
 
 ## Why this screen exists
 
-Submissions land in **`staff_bug_report`** with optional **PNG screenshot**, **summary**, **steps**, **client console buffer**, **client metadata** (build, URL, tab/subsection, register session flags, Tauri/PWA/browser surface), **correlation id**, and a **server log snapshot** captured at submit time (bounded **in-memory `tracing` ring** on the API process — **not** a full disk log or other servers). New reports can notify everyone with **`settings.admin`** (in-app notification with deep link toward **Settings → Bug reports**).
+Submissions land in **`staff_bug_report`** with optional **PNG screenshot**, **summary**, **steps**, **client console buffer**, **client metadata** (build, URL, tab/subsection, register session flags, Tauri/PWA/browser surface), **correlation id**, and a **server log snapshot** captured at submit time (bounded **in-memory `tracing` ring** on the API process — **not** a full disk log or other servers). Automated **Error events** land in **`staff_error_event`** when the app shows an error toast, giving admins a lightweight trail even when staff do not file a full report. New reports can notify everyone with **`settings.admin`** (in-app notification with deep link toward **Settings → Bug reports**).
 
 **Technical reference:** **[../PLAN_BUG_REPORTS.md](../PLAN_BUG_REPORTS.md)**  
 **What the server snapshot is:** **[../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md](../OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md)**
@@ -23,6 +23,7 @@ Submissions land in **`staff_bug_report`** with optional **PNG screenshot**, **s
 |--------|----------|
 | Open **Settings → Bug reports** | **`settings.admin`** |
 | **List / view / PATCH** reports in the UI | **`settings.admin`** |
+| **List / view Error events** | **`settings.admin`** |
 | **Submit** a report (any staff) | Authenticated staff only (`POST /api/bug-reports`) |
 
 If you need triage access but do not see **Bug reports**, an **admin** must grant **`settings.admin`** per **[STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)** / **[staff-administration.md](staff-administration.md)**.
@@ -52,6 +53,12 @@ After opening **Settings → Bug reports**:
 | **View** | Opens the **detail** drawer. |
 
 Empty states: **No bug reports yet** or **No reports in this filter**.
+
+## Error events
+
+The **Error events** tab is an automated companion to staff-submitted bug reports. It records recent error toasts with staff identity when available, route, client metadata, and a bounded API server log snapshot.
+
+Use Error events to answer “what failed around this time?” quickly. Convert the pattern into a full bug report or external ticket when the same message repeats, affects checkout/order/payment flows, or needs engineering follow-up. Error events do **not** include screenshots or staff-written steps.
 
 ---
 

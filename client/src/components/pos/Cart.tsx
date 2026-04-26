@@ -525,11 +525,12 @@ export default function Cart({
       toast("Order payment cannot be more than the balance due.", "error");
       return;
     }
+    const orderPaymentDisplayId = order.order_payment_display_id || order.display_id;
     const nextLine: OrderPaymentCartLine = {
       line_type: "order_payment",
       cart_row_id: newCartRowId(),
       target_transaction_id: order.id,
-      target_display_id: order.display_id,
+      target_display_id: orderPaymentDisplayId,
       customer_id: selectedCustomer.id,
       customer_name: `${selectedCustomer.first_name} ${selectedCustomer.last_name}`.trim(),
       amount: centsToFixed2(amountCents),
@@ -539,14 +540,14 @@ export default function Cart({
     setOrderPaymentLines((prev) => {
       const existing = prev.find((line) => line.target_transaction_id === order.id);
       if (!existing) return [...prev, nextLine];
-      toast(`Updated payment amount for ${order.display_id}.`, "info");
+      toast(`Updated payment amount for ${orderPaymentDisplayId}.`, "info");
       return prev.map((line) =>
         line.target_transaction_id === order.id
           ? { ...nextLine, cart_row_id: line.cart_row_id }
           : line,
       );
     });
-    toast(`Payment for ${order.display_id} added to this sale.`, "success");
+    toast(`Payment for ${orderPaymentDisplayId} added to this sale.`, "success");
   }, [selectedCustomer, toast]);
 
   const openOrderPaymentEdit = useCallback((line: OrderPaymentCartLine) => {
@@ -678,6 +679,7 @@ export default function Cart({
 
   const isRmsPaymentCart = useMemo(() => lines.some(l => rmsPaymentMeta && l.sku === rmsPaymentMeta.sku), [lines, rmsPaymentMeta]);
   const isGiftCardOnlyCart = useMemo(() => lines.length > 0 && lines.every(l => !!l.gift_card_load_code), [lines]);
+  const hasCheckoutWork = lines.length > 0 || orderPaymentLines.length > 0;
 
   const ensurePosTokenForSession = useCallback(async () => {
     const success = await hydratePosRegisterAuthIfNeeded({
@@ -1582,6 +1584,16 @@ export default function Cart({
                 />
               ))}
             </div>
+          ) : orderPaymentLines.length > 0 ? (
+              <div className="flex h-full flex-col items-center justify-center px-6 text-center text-app-text-muted/80">
+                <CreditCard size={64} strokeWidth={1} className="mb-4 text-violet-600" />
+                <p className="text-base font-black uppercase italic tracking-widest">
+                  Payment Only
+                </p>
+                <p className="mt-2 max-w-[22rem] text-sm font-medium normal-case tracking-normal text-app-text-muted">
+                  Existing order payments are ready below. No new merchandise is being sold.
+                </p>
+             </div>
           ) : (
               <div className="flex h-full flex-col items-center justify-center px-6 text-center text-app-text-muted/80">
                 <Package size={64} strokeWidth={1} className="mb-4" />
@@ -1904,9 +1916,9 @@ export default function Cart({
            <button 
              type="button" 
              data-testid="pos-pay-button"
-             disabled={lines.length === 0 || checkoutBusy} 
+             disabled={!hasCheckoutWork || checkoutBusy}
              onClick={() => {
-               if (lines.length === 0) return toast("Add at least one item before checking out.", "error");
+               if (!hasCheckoutWork) return toast("Add at least one item or order payment before checking out.", "error");
                 if (!ensureSaleCashier()) return;
                if (isRmsPaymentCart) {
                  if (!selectedCustomer) {
@@ -1930,12 +1942,12 @@ export default function Cart({
                  return;
                }
 
-               if (hasSpecialOrWeddingLines && !orderReviewOpen) {
+               if (lines.length > 0 && hasSpecialOrWeddingLines && !orderReviewOpen) {
                  setOrderReviewOpen(true);
                  return;
                }
 
-               if (!isRmsPaymentCart && !isGiftCardOnlyCart) {
+               if (lines.length > 0 && !isRmsPaymentCart && !isGiftCardOnlyCart) {
                  const hasAttribution =
                    primarySalespersonId.trim() !== "" ||
                    lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "");
@@ -1953,7 +1965,7 @@ export default function Cart({
                  setCheckoutDrawerOpen(true);
                }
              }}
-             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${lines.length > 0 ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-app-success/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
+             className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-app-success/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
            >
              <div className="flex flex-col items-start pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
@@ -2820,6 +2832,7 @@ export default function Cart({
             onClose={() => setOrderLoadOpen(false)}
             customerId={selectedCustomer.id}
             customerName={`${selectedCustomer.first_name} ${selectedCustomer.last_name}`}
+            registerSessionId={sessionId}
             baseUrl={baseUrl}
             apiAuth={apiAuth}
             onMakePayment={addOrderPaymentLine}

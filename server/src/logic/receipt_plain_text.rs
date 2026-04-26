@@ -108,6 +108,15 @@ pub fn format_pos_receipt_text_message(order: &ReceiptOrderForZpl, cfg: &Receipt
         lines.push(format!("Balance: {}", order.balance_due));
     }
     lines.push(format!("Tender: {}", order.payment_methods_summary.trim()));
+    if !order.payment_applications.is_empty() {
+        lines.push("Applied payments:".to_string());
+        for app in &order.payment_applications {
+            lines.push(format!(
+                "Payment on {}: {} (remaining {})",
+                app.target_display_id, app.amount, app.remaining_balance
+            ));
+        }
+    }
     lines.push(format!("Status: {}", order_status_label(order.status)));
     if order.is_tax_exempt {
         lines.push(format!(
