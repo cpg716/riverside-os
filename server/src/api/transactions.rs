@@ -431,8 +431,11 @@ impl TransactionDetailResponse {
                     variation_label: it.variation_label.clone(),
                     original_unit_price: it.receipt_original_unit_price,
                     discount_event_label: it.discount_event_label.clone(),
+                    custom_order_details: it.custom_order_details.clone(),
+                    is_fulfilled: it.is_fulfilled,
                 })
                 .collect(),
+            fulfillment_method: self.fulfillment_method,
         })
     }
 }

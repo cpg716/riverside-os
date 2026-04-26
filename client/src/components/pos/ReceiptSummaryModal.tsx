@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { isTauri } from "@tauri-apps/api/core";
 import { transform } from "receiptline";
 import {
@@ -772,17 +773,21 @@ export default function ReceiptSummaryModal({
   const compactActionButton =
     "inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation sm:text-[11px]";
 
-  return (
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
     <div
-      className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 dark:bg-black/70 sm:items-center"
-      style={{
-        paddingTop: "max(0.75rem, env(safe-area-inset-top))",
-        paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
-        paddingLeft: "max(0.75rem, env(safe-area-inset-left))",
-        paddingRight: "max(0.75rem, env(safe-area-inset-right))",
+      className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm transition-opacity"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClose();
       }}
     >
-      <div className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl">
+      <div 
+        className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="relative flex max-h-[96dvh] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:max-h-[min(90dvh,35rem)] sm:p-6 lg:p-7">
           <button
             type="button"
@@ -1263,6 +1268,7 @@ export default function ReceiptSummaryModal({
           </div>
         </div>
       ) : null}
-    </div>
+    </div>,
+    root,
   );
 }

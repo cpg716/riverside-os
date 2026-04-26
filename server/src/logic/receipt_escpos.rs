@@ -93,11 +93,18 @@ fn receipt_template_with_slots(template: &str, show_logo: bool, show_barcode: bo
         next = format!("{{{{LOGO_IMAGE}}}}\n{next}");
     }
     if show_barcode && !next.contains("{{BARCODE_IMAGE}}") {
-        next = if next.contains("{{FOOTER_LINES}}") {
-            next.replace("{{FOOTER_LINES}}", "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}")
+        if next.contains("{{FOOTER_LINES}}") {
+            // Only replace the first occurrence to avoid duplication if the token is already repeated
+            let parts: Vec<&str> = next.splitn(2, "{{FOOTER_LINES}}").collect();
+            if parts.len() == 2 {
+                next = format!(
+                    "{}{}{}{}",
+                    parts[0], "{{BARCODE_IMAGE}}\n", "{{FOOTER_LINES}}", parts[1]
+                );
+            }
         } else {
-            format!("{next}\n{{{{BARCODE_IMAGE}}}}")
-        };
+            next = format!("{next}\n{{{{BARCODE_IMAGE}}}}");
+        }
     }
     next
 }
@@ -362,46 +369,113 @@ fn receipt_header_lines(cfg: &ReceiptConfig) -> Vec<String> {
 }
 
 fn receiptline_item_lines(d: &ReceiptOrderForZpl, gift: bool) -> String {
-    let mut lines = Vec::new();
-    for it in &d.items {
-        let var = it
-            .variation_label
-            .as_deref()
-            .map(|v| format!(" ({v})"))
-            .unwrap_or_default();
-        let name = receiptline_escape(&format!("{}x {}{var}", it.quantity, it.product_name));
-        if gift {
-            lines.push(name);
-            lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
-        } else {
-            lines.push(name);
-            lines.push(format!(
-                "SKU {} | {}",
-                receiptline_escape(&it.sku),
-                money(it.unit_price)
-            ));
-            if let Some(orig) = it.original_unit_price {
-                if orig > it.unit_price && orig > Decimal::ZERO {
-                    lines.push(format!("Reg {} Sale {}", money(orig), money(it.unit_price)));
+    let mut out_lines = Vec::new();
+
+    let labels = [
+        "Taken Today",
+        "PICKED UP",
+        "SHIPPED",
+        "Special Order",
+        "Custom Order",
+        "Wedding Order",
+        "Layaway",
+    ];
+
+    for label in labels {
+        let items: Vec<_> = d
+            .items
+            .iter()
+            .filter(|it| {
+                let it_label = if it.is_fulfilled {
+                    match d.fulfillment_method {
+                        DbOrderFulfillmentMethod::Ship => "SHIPPED",
+                        DbOrderFulfillmentMethod::Pickup => {
+                            if it.fulfillment == DbFulfillmentType::Takeaway {
+                                "Taken Today"
+                            } else {
+                                "PICKED UP"
+                            }
+                        }
+                    }
+                } else {
+                    match it.fulfillment {
+                        DbFulfillmentType::Takeaway => "Taken Today",
+                        DbFulfillmentType::SpecialOrder => "Special Order",
+                        DbFulfillmentType::Custom => "Custom Order",
+                        DbFulfillmentType::WeddingOrder => "Wedding Order",
+                        DbFulfillmentType::Layaway => "Layaway",
+                    }
+                };
+                it_label == label
+            })
+            .collect();
+
+        if items.is_empty() {
+            continue;
+        }
+
+        if !out_lines.is_empty() {
+            out_lines.push(String::new());
+        }
+
+        out_lines.push(format!("^^^{}", receiptline_escape(label)));
+
+        for it in items {
+            if let Some(details) = &it.custom_order_details {
+                let note = match details {
+                    serde_json::Value::String(s) => s.clone(),
+                    serde_json::Value::Object(m) => m
+                        .get("note")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    _ => String::new(),
+                };
+                if !note.trim().is_empty() {
+                    out_lines.push(format!("NOTICE: {}", receiptline_escape(note.trim())));
                 }
             }
-            if let Some(label) = &it.discount_event_label {
-                let t = label.trim();
-                if !t.is_empty() {
-                    lines.push(format!("Discount: {}", receiptline_escape(t)));
+
+            let var = it
+                .variation_label
+                .as_deref()
+                .map(|v| format!(" ({v})"))
+                .unwrap_or_default();
+            let name = receiptline_escape(&format!("{}x {}{var}", it.quantity, it.product_name));
+
+            if gift {
+                out_lines.push(name);
+                out_lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
+            } else {
+                out_lines.push(name);
+                out_lines.push(format!(
+                    "SKU {} | {}",
+                    receiptline_escape(&it.sku),
+                    money(it.unit_price)
+                ));
+                if let Some(orig) = it.original_unit_price {
+                    if orig > it.unit_price && orig > Decimal::ZERO {
+                        let diff = orig - it.unit_price;
+                        let pct = (diff / orig * Decimal::from(100)).round_dp(0);
+                        out_lines.push(format!(
+                            "Reg {} Sale {} ({}% Discount)",
+                            money(orig),
+                            money(it.unit_price),
+                            pct
+                        ));
+                    }
+                }
+                if let Some(label) = &it.discount_event_label {
+                    let t = label.trim();
+                    if !t.is_empty() {
+                        out_lines.push(format!("Discount Event: {}", receiptline_escape(t)));
+                    }
                 }
             }
         }
-        let status_label = match it.fulfillment {
-            DbFulfillmentType::Takeaway => "Taken home today",
-            DbFulfillmentType::WeddingOrder => "Wedding order",
-            DbFulfillmentType::SpecialOrder | DbFulfillmentType::Custom => "Order",
-            DbFulfillmentType::Layaway => "Layaway",
-        };
-        lines.push(receiptline_escape(status_label));
-        lines.push(String::new());
     }
-    lines.join("\n")
+
+    out_lines.join("\n")
 }
 
 fn receiptline_payment_lines(d: &ReceiptOrderForZpl) -> String {

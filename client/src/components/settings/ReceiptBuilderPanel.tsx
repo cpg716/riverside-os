@@ -96,9 +96,13 @@ function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarco
     next = `{{LOGO_IMAGE}}\n${next}`;
   }
   if (showBarcode && !next.includes("{{BARCODE_IMAGE}}")) {
-    next = next.includes("{{FOOTER_LINES}}")
-      ? next.replace("{{FOOTER_LINES}}", "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}")
-      : `${next}\n{{BARCODE_IMAGE}}`;
+    if (next.includes("{{FOOTER_LINES}}")) {
+      // Use replace with a function or just replace the first occurrence to be safe
+      const parts = next.split("{{FOOTER_LINES}}");
+      next = parts[0] + "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}" + parts.slice(1).join("{{FOOTER_LINES}}");
+    } else {
+      next = `${next}\n{{BARCODE_IMAGE}}`;
+    }
   }
   return next;
 }
@@ -214,40 +218,54 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   ].filter(Boolean);
   const getReceiptLineMarkup = () =>
     effectiveTemplate
-      .replace(
+      .replaceAll(
         "{{LOGO_IMAGE}}",
         showLogo && receiptLogoBase64 ? `{image:${receiptLogoBase64}}` : "",
       )
-      .replace("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
-      .replace("{{HEADER_LINES}}", centeredLines(headerLineValues))
-      .replace("{{RECEIPT_TITLE}}", "| ^^^RECEIPT |")
-      .replace("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
-      .replace("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
-      .replace("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
-      .replace("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
-      .replace("{{CASHIER_LINE}}", "Cashier: Alex B.")
-      .replace(
+      .replaceAll("{{STORE_NAME}}", `| ^^${escapeReceiptlineText(cfg.store_name)} |`)
+      .replaceAll("{{HEADER_LINES}}", centeredLines(headerLineValues))
+      .replaceAll("{{RECEIPT_TITLE}}", "| ^^^RECEIPT |")
+      .replaceAll("{{RECEIPT_ID}}", "| Receipt TXN-66736 |")
+      .replaceAll("{{RECEIPT_DATE}}", "| 04/26/2026 02:14 AM |")
+      .replaceAll("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
+      .replaceAll("{{SALESPERSON_LINE}}", "Salesperson: Taylor M.")
+      .replaceAll("{{CASHIER_LINE}}", "Cashier: Alex B.")
+      .replaceAll(
         "{{ITEM_LINES}}",
         [
+          "^^^Taken Today",
           "1x 100% Lambswool Sweater",
           "SKU I-1003713601 | $83.80",
-          "Taken home today",
+          "Reg $104.75 Sale $83.80 (20% Discount)",
+          "",
+          "^^^PICKED UP",
+          "1x Tuxedo Shirt",
+          "SKU I-40092182 | $65.00",
+          "",
+          "^^^SHIPPED",
+          "1x Silk Tie",
+          "SKU I-50012345 | $45.00",
+          "",
+          "^^^Special Order",
+          "NOTICE: Size 42R requested",
+          "1x Custom Navy Blazer",
+          "SKU I-2004829302 | $295.00",
         ]
           .filter(Boolean)
           .join("\n"),
       )
-      .replace("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
-      .replace("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
-      .replace("{{PAYMENT_BLOCK}}", "")
-      .replace("{{TOTAL_LINE}}", "Total | ^^$83.80")
-      .replace("{{PAID_LINE}}", "Paid | $83.80")
-      .replace("{{BALANCE_LINE}}", "")
-      .replace("{{TENDER_LINE}}", "Tender | Cash")
-      .replace("{{STATUS_LINE}}", "Status | Paid")
-      .replace("{{TAX_EXEMPT_LINE}}", "")
-      .replace("{{BARCODE_IMAGE}}", cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "")
-      .replace("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
-      .replace("{{CUT}}", "=");
+      .replaceAll("{{LOYALTY_EARNED}}", cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "")
+      .replaceAll("{{LOYALTY_BALANCE}}", cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "")
+      .replaceAll("{{PAYMENT_BLOCK}}", "")
+      .replaceAll("{{TOTAL_LINE}}", "Total | ^^$83.80")
+      .replaceAll("{{PAID_LINE}}", "Paid | $83.80")
+      .replaceAll("{{BALANCE_LINE}}", "")
+      .replaceAll("{{TENDER_LINE}}", "Tender | Cash")
+      .replaceAll("{{STATUS_LINE}}", "Status | Paid")
+      .replaceAll("{{TAX_EXEMPT_LINE}}", "")
+      .replaceAll("{{BARCODE_IMAGE}}", cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "")
+      .replaceAll("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
+      .replaceAll("{{CUT}}", "=");
 
   const requiredTokens = ["{{ITEM_LINES}}", "{{TOTAL_LINE}}", "{{PAID_LINE}}", "{{TENDER_LINE}}"];
   const missingRequiredTokens = requiredTokens.filter((token) => !effectiveTemplate.includes(token));
@@ -497,12 +515,19 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     <button
                       key={label}
                       type="button"
-                      onClick={() =>
+                      onClick={() => {
+                        const tokens = token.split("\n");
+                        let newTemplate = effectiveTemplate.trimEnd();
+                        tokens.forEach(t => {
+                          if (!newTemplate.includes(t)) {
+                            newTemplate += `\n${t}`;
+                          }
+                        });
                         setCfg({
                           ...cfg,
-                          receiptline_template: `${effectiveTemplate.trimEnd()}\n${token}`,
-                        })
-                      }
+                          receiptline_template: newTemplate,
+                        });
+                      }}
                       className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
                     >
                       Add {label}
@@ -536,6 +561,14 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
                     <p className="text-[10px] font-bold leading-relaxed text-amber-800">
                       Missing financial receipt tokens: {missingRequiredTokens.join(", ")}.
+                    </p>
+                  </div>
+                ) : null}
+                {requiredTokens.some(t => effectiveTemplate.split(t).length > 2) ? (
+                  <div className="mt-3 flex items-start gap-3 rounded-xl border border-app-accent/30 bg-app-accent/10 p-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-app-accent" aria-hidden />
+                    <p className="text-[10px] font-bold leading-relaxed text-app-accent">
+                      Tip: Duplicate tokens detected. This will cause sections to repeat on the receipt as shown in the preview.
                     </p>
                   </div>
                 ) : null}

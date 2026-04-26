@@ -34,6 +34,8 @@ pub struct ReceiptLineForZpl {
     pub original_unit_price: Option<Decimal>,
     /// Discount event label from `size_specs`, when set.
     pub discount_event_label: Option<String>,
+    pub custom_order_details: Option<serde_json::Value>,
+    pub is_fulfilled: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -57,6 +59,7 @@ pub struct ReceiptOrderForZpl {
     pub items: Vec<ReceiptLineForZpl>,
     pub is_tax_exempt: bool,
     pub tax_exempt_reason: Option<String>,
+    pub fulfillment_method: DbOrderFulfillmentMethod,
     /// Cashier (operator) display name, masked as First + Last Initial.
     pub cashier_name: Option<String>,
     /// Primary salesperson display name, masked as First + Last Initial.
