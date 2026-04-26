@@ -285,10 +285,10 @@ async fn get_gift_card_by_code(
     row.map(Json).ok_or(GiftCardError::NotFound)
 }
 
-// ── Issue: purchased card ─────────────────────────────────────────────────────
+// ── Register purchased-card load ──────────────────────────────────────────────
 
 #[derive(Debug, Deserialize)]
-pub struct IssuePurchasedRequest {
+pub struct PosLoadPurchasedRequest {
     pub code: String,
     pub amount: Decimal,
     #[serde(default)]
@@ -297,53 +297,14 @@ pub struct IssuePurchasedRequest {
     pub session_id: Option<Uuid>,
 }
 
-async fn issue_purchased(
-    State(state): State<AppState>,
-    headers: HeaderMap,
-    Json(body): Json<IssuePurchasedRequest>,
-) -> Result<Json<GiftCardRow>, GiftCardError> {
-    require_gift_cards_manage(&state, &headers).await?;
-    let code = body.code.trim().to_string();
-    if code.is_empty() {
-        return Err(GiftCardError::InvalidPayload(
-            "code is required".to_string(),
-        ));
-    }
-    if body.amount <= Decimal::ZERO {
-        return Err(GiftCardError::InvalidPayload(
-            "amount must be positive".to_string(),
-        ));
-    }
-
-    // 9-year expiry for purchased cards (near indefinite).
-    let expires_at = Utc::now() + Duration::days(365 * 9);
-
-    let id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO gift_cards
-            (code, card_kind, card_status, current_balance, original_value,
-             is_liability, expires_at, customer_id, issued_session_id)
-        VALUES ($1, 'purchased', 'active', $2, $2, TRUE, $3, $4, $5)
-        RETURNING id
-        "#,
-    )
-    .bind(&code)
-    .bind(body.amount)
-    .bind(expires_at)
-    .bind(body.customer_id)
-    .bind(body.session_id)
-    .fetch_one(&state.db)
-    .await?;
-
-    get_card_row(&state.db, id).await
-}
-
 async fn pos_load_purchased(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<IssuePurchasedRequest>,
+    Json(body): Json<PosLoadPurchasedRequest>,
 ) -> Result<Json<GiftCardRow>, GiftCardError> {
-    require_gift_card_lookup(&state, &headers).await?;
+    let auth = middleware::require_staff_or_pos_register_session(&state, &headers)
+        .await
+        .map_err(map_gc_perm)?;
     let id = gift_card_ops::pos_load_purchased_card(
         &state.db,
         &body.code,
@@ -353,6 +314,19 @@ async fn pos_load_purchased(
     )
     .await
     .map_err(|e| GiftCardError::InvalidPayload(e.to_string()))?;
+
+    let operator_staff_id = match auth {
+        middleware::StaffOrPosSession::Staff(staff) => Some(staff.id),
+        middleware::StaffOrPosSession::PosSession { .. } => None,
+    };
+    gift_card_ops::notify_sales_support_direct_pos_load(
+        &state.db,
+        &body.code,
+        body.amount,
+        body.session_id,
+        operator_staff_id,
+    )
+    .await?;
 
     get_card_row(&state.db, id).await
 }
@@ -435,7 +409,7 @@ async fn issue_loyalty_load(
             r#"
             INSERT INTO gift_cards
                 (code, card_kind, card_status, current_balance, original_value,
-                 is_liability, expires_at, customer_id, issued_session_id, issued_transaction_id, notes)
+                 is_liability, expires_at, customer_id, issued_session_id, issued_order_id, notes)
             VALUES ($1, 'loyalty_reward', 'active', $2, $2, FALSE, $3, $4, $5, $6, $7)
             RETURNING id
             "#,
@@ -672,7 +646,6 @@ pub fn router() -> Router<AppState> {
         .route("/open", get(list_gift_cards_open))
         .route("/code/{code}/events", get(get_gift_card_events_by_code))
         .route("/code/{code}", get(get_gift_card_by_code))
-        .route("/issue-purchased", post(issue_purchased))
         .route("/pos-load-purchased", post(pos_load_purchased))
         .route("/issue-loyalty-load", post(issue_loyalty_load))
         .route("/issue-donated", post(issue_donated))

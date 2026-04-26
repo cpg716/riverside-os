@@ -1,6 +1,6 @@
 import { centsToFixed2 } from "./money";
 
-export type TaxCategory = "clothing" | "footwear" | "other";
+export type TaxCategory = "clothing" | "footwear" | "accessory" | "service" | "other";
 
 const CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_CENTS = 11000; // $110.00
 const NYS_STATE_SALES_TAX_RATE = 0.04;
@@ -16,6 +16,9 @@ export function calculateNysErieTaxForUnit(
   unitPriceCents: number
 ): { stateTaxCents: number; localTaxCents: number } {
   const normalizedCategory = category.toLowerCase();
+  if (normalizedCategory === "service") {
+    return { stateTaxCents: 0, localTaxCents: 0 };
+  }
   const isClothingOrFootwear = normalizedCategory === "clothing" || normalizedCategory === "footwear";
   const exemptFromState = isClothingOrFootwear && unitPriceCents < CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_CENTS;
 

@@ -78,6 +78,7 @@ struct SkuJoinRow {
     base_cost: Decimal,
     spiff_amount: Decimal,
     pos_line_kind: Option<String>,
+    tax_category_override: Option<TaxCategory>,
     category_id: Option<Uuid>,
     primary_vendor_id: Option<Uuid>,
     employee_markup_percent: Option<Decimal>,
@@ -101,6 +102,7 @@ const SKU_JOIN_FROM: &str = r#"
             p.base_cost,
             p.spiff_amount,
             p.pos_line_kind,
+            p.tax_category_override,
             p.category_id,
             p.primary_vendor_id,
             p.employee_markup_percent,
@@ -173,7 +175,9 @@ fn join_row_to_resolved(
         row.cost_override,
     );
 
-    let logic_tax_cat: TaxCategory = if row.resolved_is_clothing_footwear {
+    let logic_tax_cat: TaxCategory = if let Some(override_category) = row.tax_category_override {
+        override_category
+    } else if row.resolved_is_clothing_footwear {
         let category_name = row
             .resolved_category_name
             .unwrap_or_default()

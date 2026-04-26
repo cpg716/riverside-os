@@ -34,6 +34,7 @@ interface ProductMasterFormProps {
 }
 
 type FormStep = "shell" | "financials" | "matrix" | "review";
+type ProductTaxOverride = "" | "clothing" | "footwear" | "accessory" | "service";
 
 export default function ProductMasterForm({
   onCreated,
@@ -58,6 +59,7 @@ export default function ProductMasterForm({
   // Financials
   const [baseRetail, setBaseRetail] = useState("0.00");
   const [baseCost, setBaseCost] = useState("0.00");
+  const [taxCategoryOverride, setTaxCategoryOverride] = useState<ProductTaxOverride>("");
 
   // Options
   const [imagesRaw] = useState("");
@@ -143,6 +145,7 @@ export default function ProductMasterForm({
           images,
           track_low_stock: trackLowStockTemplate,
           publish_variants_to_web: publishVariantsToWeb,
+          tax_category_override: taxCategoryOverride || null,
           variants: rows,
         }),
       });
@@ -157,6 +160,7 @@ export default function ProductMasterForm({
       setDescription("");
       setBaseRetail("0.00");
       setBaseCost("0.00");
+      setTaxCategoryOverride("");
       setRows([]);
       setStep("shell");
       setTrackLowStockTemplate(false);
@@ -367,6 +371,27 @@ export default function ProductMasterForm({
                   <h4 className="text-[10px] font-black uppercase tracking-widest text-app-text-muted mb-2">
                     Optional Rules
                   </h4>
+                  <label className="block rounded-2xl border border-app-border/40 bg-app-surface p-3">
+                    <span className="text-xs font-black uppercase tracking-tight text-app-text">
+                      Tax Category
+                    </span>
+                    <select
+                      value={taxCategoryOverride}
+                      onChange={(event) =>
+                        setTaxCategoryOverride(event.target.value as ProductTaxOverride)
+                      }
+                      className="mt-2 h-11 w-full rounded-xl border border-app-border bg-app-surface-2 px-3 text-xs font-bold text-app-text"
+                    >
+                      <option value="">Inherit from category</option>
+                      <option value="clothing">Clothing</option>
+                      <option value="footwear">Footwear</option>
+                      <option value="accessory">Accessory / taxable item</option>
+                      <option value="service">Service / non-taxable</option>
+                    </select>
+                    <span className="mt-2 block text-[10px] font-bold leading-tight text-app-text-muted">
+                      Use this only when the parent product needs a tax rule different from its category.
+                    </span>
+                  </label>
                   <label className="flex items-start gap-4 p-3 rounded-2xl bg-app-surface border border-app-border/40 cursor-pointer group hover:border-app-accent/40 transition-all">
                     <div className="pt-1">
                       <input

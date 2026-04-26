@@ -20,6 +20,18 @@ type CheckoutResponse = {
   transaction_id: string;
 };
 
+type PosLineMeta = {
+  product_id: string;
+  variant_id: string;
+  sku: string;
+  name: string;
+};
+
+type ShippingQuoteResponse = {
+  quote_id: string;
+  amount_usd: string | number;
+};
+
 type TransactionDetailResponse = {
   total_price: string;
   items: Array<{
@@ -81,6 +93,7 @@ async function createTaxCategory(
   actorStaffId: string,
   isClothingFootwear: boolean,
   label: string,
+  parentId: string | null = null,
 ): Promise<string> {
   const res = await request.post(`${apiBase()}/api/categories`, {
     headers: {
@@ -89,7 +102,7 @@ async function createTaxCategory(
     },
     data: {
       name: `E2E Tax ${label}`,
-      parent_id: null,
+      parent_id: parentId,
       is_clothing_footwear: isClothingFootwear,
       changed_by_staff_id: actorStaffId,
       change_note: "Created for tax audit E2E coverage",
@@ -108,17 +121,21 @@ async function createTaxProduct(
   options: {
     unitPrice: string;
     isClothingFootwear?: boolean;
+    categoryId?: string;
+    taxCategoryOverride?: "clothing" | "footwear" | "accessory" | "service" | null;
     label: string;
     stockOnHand?: number;
   },
 ): Promise<CreatedTaxProduct> {
   const suffix = uniqueSuffix(options.label);
-  const categoryId = await createTaxCategory(
-    request,
-    actorStaffId,
-    options.isClothingFootwear ?? true,
-    suffix,
-  );
+  const categoryId =
+    options.categoryId ??
+    (await createTaxCategory(
+      request,
+      actorStaffId,
+      options.isClothingFootwear ?? true,
+      suffix,
+    ));
   const sku = `TAX-${suffix}`.toUpperCase();
   const unitCost = "40.00";
 
@@ -138,6 +155,7 @@ async function createTaxProduct(
       images: [],
       track_low_stock: false,
       publish_variants_to_web: false,
+      tax_category_override: options.taxCategoryOverride ?? null,
       variants: [
         {
           sku,
@@ -184,6 +202,8 @@ async function checkoutTaxProduct(
     localTax: string;
     quantity?: number;
     priceOverrideReason?: string;
+    isTaxExempt?: boolean;
+    taxExemptReason?: string;
   },
 ) {
   const quantity = options.quantity ?? 1;
@@ -203,6 +223,8 @@ async function checkoutTaxProduct(
       payment_method: "cash",
       total_price: total,
       amount_paid: total,
+      is_tax_exempt: options.isTaxExempt ?? false,
+      tax_exempt_reason: options.taxExemptReason,
       checkout_client_id: crypto.randomUUID(),
       items: [
         {
@@ -229,7 +251,106 @@ async function checkoutTaxProduct(
   });
 }
 
+async function fetchGiftCardLoadMeta(request: APIRequestContext): Promise<PosLineMeta> {
+  const res = await request.get(`${apiBase()}/api/pos/gift-card-load-line-meta`, {
+    headers: staffHeaders(),
+    failOnStatusCode: false,
+  });
+  expect(res.status()).toBe(200);
+  const meta = (await res.json()) as PosLineMeta | null;
+  expect(meta?.product_id).toBeTruthy();
+  expect(meta?.variant_id).toBeTruthy();
+  return meta!;
+}
+
+async function seedShippingQuote(request: APIRequestContext, amountUsd: string): Promise<string> {
+  const res = await request.post(`${apiBase()}/api/test-support/shipping/seed-quote`, {
+    headers: {
+      ...staffHeaders(),
+      "Content-Type": "application/json",
+    },
+    data: {
+      amount_usd: amountUsd,
+    },
+    failOnStatusCode: false,
+  });
+  const text = await res.text();
+  expect(res.status(), text.slice(0, 1000)).toBe(200);
+  const body = JSON.parse(text) as ShippingQuoteResponse;
+  expect(body.quote_id).toBeTruthy();
+  return body.quote_id;
+}
+
 test.describe("tax audit contract", () => {
+  test("category inheritance and parent-product override drive server tax rules", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+
+    const parentCategoryId = await createTaxCategory(
+      request,
+      operatorStaffId,
+      true,
+      uniqueSuffix("parent-clothing"),
+    );
+    const childCategoryId = await createTaxCategory(
+      request,
+      operatorStaffId,
+      false,
+      uniqueSuffix("child-inherits"),
+      parentCategoryId,
+    );
+    const inherited = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "109.99",
+      categoryId: childCategoryId,
+      label: "child-inherits",
+    });
+    const inheritedTax = taxFor("clothing", "109.99");
+    const inheritedRes = await checkoutTaxProduct(request, {
+      product: inherited,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "109.99",
+      stateTax: inheritedTax.stateTax,
+      localTax: inheritedTax.localTax,
+    });
+    expect(inheritedRes.status()).toBe(200);
+
+    const overrideService = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "109.99",
+      categoryId: parentCategoryId,
+      taxCategoryOverride: "service",
+      label: "product-service-override",
+    });
+    const serviceTax = taxFor("service", "109.99");
+    expect(serviceTax).toEqual({ stateTax: "0.00", localTax: "0.00" });
+    const serviceRes = await checkoutTaxProduct(request, {
+      product: overrideService,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "109.99",
+      stateTax: serviceTax.stateTax,
+      localTax: serviceTax.localTax,
+    });
+    expect(serviceRes.status()).toBe(200);
+
+    const staleInheritedTaxRes = await checkoutTaxProduct(request, {
+      product: overrideService,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "109.99",
+      stateTax: inheritedTax.stateTax,
+      localTax: inheritedTax.localTax,
+    });
+    expect(staleInheritedTaxRes.status()).toBe(400);
+    await expect(staleInheritedTaxRes.text()).resolves.toMatch(/Tax per unit/i);
+  });
+
   test("checkout enforces NYS/Erie clothing threshold and discount crossing at server boundary", async ({
     request,
   }) => {
@@ -302,6 +423,194 @@ test.describe("tax audit contract", () => {
     });
     expect(staleRes.status()).toBe(400);
     await expect(staleRes.text()).resolves.toMatch(/Tax per unit/i);
+  });
+
+  test("tax-exempt checkout requires a reason and preserves zero tax at server boundary", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "110.00",
+      label: "tax-exempt-reason",
+    });
+
+    const missingReasonRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "110.00",
+      stateTax: "0.00",
+      localTax: "0.00",
+      isTaxExempt: true,
+    });
+    expect(missingReasonRes.status()).toBe(400);
+    await expect(missingReasonRes.text()).resolves.toMatch(/tax_exempt_reason/i);
+
+    const exemptRes = await checkoutTaxProduct(request, {
+      product,
+      sessionId,
+      sessionToken,
+      operatorStaffId,
+      unitPrice: "110.00",
+      stateTax: "0.00",
+      localTax: "0.00",
+      isTaxExempt: true,
+      taxExemptReason: "E2E resale certificate",
+    });
+    expect(exemptRes.status()).toBe(200);
+    const checkout = (await exemptRes.json()) as CheckoutResponse;
+    const detailRes = await request.get(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(detailRes.status()).toBe(200);
+    const detail = (await detailRes.json()) as TransactionDetailResponse;
+    expect(detail.total_price).toBe("110.00");
+  });
+
+  test("gift card load lines remain non-taxable even when amount is taxable-sized", async ({
+    request,
+  }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const meta = await fetchGiftCardLoadMeta(request);
+    const giftCardCode = `TAXGC${Date.now()}${Math.random().toString(36).slice(2, 6)}`.toUpperCase();
+    const amount = "150.00";
+    const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
+        customer_id: null,
+        payment_method: "cash",
+        total_price: amount,
+        amount_paid: amount,
+        checkout_client_id: crypto.randomUUID(),
+        items: [
+          {
+            product_id: meta.product_id,
+            variant_id: meta.variant_id,
+            fulfillment: "takeaway",
+            quantity: 1,
+            unit_price: amount,
+            unit_cost: "0.00",
+            state_tax: "0.00",
+            local_tax: "0.00",
+            salesperson_id: operatorStaffId,
+            price_override_reason: "pos_gift_card_load",
+            original_unit_price: "0.00",
+            gift_card_load_code: giftCardCode,
+          },
+        ],
+        payment_splits: [{ payment_method: "cash", amount }],
+      },
+      failOnStatusCode: false,
+    });
+    const text = await res.text();
+    expect(res.status(), text.slice(0, 1000)).toBe(200);
+    const checkout = JSON.parse(text) as CheckoutResponse;
+    const detailRes = await request.get(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(detailRes.status()).toBe(200);
+    const detail = (await detailRes.json()) as TransactionDetailResponse;
+    expect(detail.total_price).toBe(amount);
+  });
+
+  test("shipping charge is included in total without adding sales tax", async ({ request }) => {
+    test.setTimeout(90_000);
+    const { sessionId, sessionToken } = await ensureSessionAuth(request);
+    const operatorStaffId = await verifyStaffId(request);
+    const product = await createTaxProduct(request, operatorStaffId, {
+      unitPrice: "110.00",
+      label: "shipping-tax",
+    });
+    const tax = taxFor("clothing", "110.00");
+    const shippingQuoteId = await seedShippingQuote(request, "12.00");
+    const total = centsToFixed2(
+      parseMoneyToCents("110.00") +
+        parseMoneyToCents(tax.stateTax) +
+        parseMoneyToCents(tax.localTax) +
+        parseMoneyToCents("12.00"),
+    );
+    expect(total).toBe("131.63");
+
+    const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+        "x-riverside-pos-session-id": sessionId,
+        "x-riverside-pos-session-token": sessionToken,
+      },
+      data: {
+        session_id: sessionId,
+        operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
+        customer_id: null,
+        payment_method: "cash",
+        total_price: total,
+        amount_paid: total,
+        checkout_client_id: crypto.randomUUID(),
+        shipping_rate_quote_id: shippingQuoteId,
+        items: [
+          {
+            product_id: product.productId,
+            variant_id: product.variantId,
+            fulfillment: "special_order",
+            quantity: 1,
+            unit_price: "110.00",
+            unit_cost: product.unitCost,
+            state_tax: tax.stateTax,
+            local_tax: tax.localTax,
+            salesperson_id: operatorStaffId,
+          },
+        ],
+        payment_splits: [{ payment_method: "cash", amount: total }],
+      },
+      failOnStatusCode: false,
+    });
+    const text = await res.text();
+    expect(res.status(), text.slice(0, 1000)).toBe(200);
+    const checkout = JSON.parse(text) as CheckoutResponse;
+    const detailRes = await request.get(
+      `${apiBase()}/api/transactions/${checkout.transaction_id}?register_session_id=${encodeURIComponent(sessionId)}`,
+      {
+        headers: {
+          ...staffHeaders(),
+          "x-riverside-pos-session-id": sessionId,
+          "x-riverside-pos-session-token": sessionToken,
+        },
+        failOnStatusCode: false,
+      },
+    );
+    expect(detailRes.status()).toBe(200);
+    const detail = (await detailRes.json()) as TransactionDetailResponse;
+    expect(detail.total_price).toBe(total);
   });
 
   test("returns reverse the original line-level tax into the refund queue", async ({ request }) => {

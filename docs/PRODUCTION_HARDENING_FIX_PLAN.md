@@ -43,7 +43,7 @@ This plan resolves the audit findings in `docs/reviews/PRODUCTION_HARDENING_AUDI
 
 6. **Audit contract coverage for tax, commission, QBO, inventory, register, and recovery**
    - Status: implemented.
-   - Tax: `client/e2e/tax-audit-contract.spec.ts` covers clothing threshold, discount crossing, stale client tax rejection, returns tax reversal, and QBO tax liability mapping.
+   - Tax: `client/e2e/tax-audit-contract.spec.ts` covers category inheritance, parent-product tax overrides, clothing threshold, discount crossing, stale client tax rejection, tax-exempt reason enforcement, gift-card non-taxability, shipping no-tax treatment, returns tax reversal, and QBO tax liability mapping.
    - Commission: `client/e2e/commission-audit-contract.spec.ts` covers fulfillment timing, specificity order, finalized payout immutability, and internal SPIFF receipt exclusion.
    - QBO: `client/e2e/qbo-audit-contract.spec.ts` covers balanced real-checkout proposal, mapped accounts, dedupe, staging list visibility, drilldown linkage, duplicate approval rejection, store-local business-date cutoff near midnight UTC, and shipped-order recognition from shipment events.
    - Inventory: `client/e2e/inventory-audit-contract.spec.ts` covers order-style no-decrement checkout, pickup decrement, duplicate PO receipt retry, and return/restock truth.

@@ -161,6 +161,8 @@ pub struct CreateProductRequest {
     /// When true, new variants are created with `web_published = true` (still require catalog handle + template for storefront).
     #[serde(default)]
     pub publish_variants_to_web: bool,
+    /// Optional parent-product POS tax override. Omit/null to inherit category ancestry.
+    pub tax_category_override: Option<crate::logic::tax::TaxCategory>,
     pub variants: Vec<CreateVariantInput>,
 }
 
@@ -461,6 +463,8 @@ pub struct InventoryControlRow {
     pub state_tax: Decimal,
     pub local_tax: Decimal,
     pub tax_category: crate::logic::tax::TaxCategory,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tax_category_override: Option<crate::logic::tax::TaxCategory>,
     pub web_published: bool,
     pub web_price_override: Option<Decimal>,
     pub available_stock: i32,
@@ -508,6 +512,9 @@ pub struct PatchProductModelRequest {
     pub clear_catalog_handle: bool,
     pub is_bundle: Option<bool>,
     pub track_low_stock: Option<bool>,
+    pub tax_category_override: Option<crate::logic::tax::TaxCategory>,
+    #[serde(default)]
+    pub clear_tax_category_override: bool,
     /// When set, overrides store default employee markup % for this product; omit to keep prior.
     pub employee_markup_percent: Option<Decimal>,
     #[serde(default)]
@@ -651,6 +658,7 @@ pub struct ProductHubProductRow {
     track_low_stock: bool,
     employee_markup_percent: Option<Decimal>,
     employee_extra_amount: Decimal,
+    tax_category_override: Option<crate::logic::tax::TaxCategory>,
     nuorder_product_id: Option<String>,
     catalog_handle: Option<String>,
 }
@@ -940,9 +948,9 @@ async fn create_product(
         r#"
         INSERT INTO products (
             category_id, name, brand, description, base_retail_price, base_cost, variation_axes, images,
-            track_low_stock
+            track_low_stock, tax_category_override
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
         RETURNING id, name, brand, base_retail_price, base_cost
         "#,
     )
@@ -955,6 +963,7 @@ async fn create_product(
     .bind(normalized_axes)
     .bind(payload.images.unwrap_or_default())
     .bind(payload.track_low_stock)
+    .bind(payload.tax_category_override)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -1098,6 +1107,7 @@ pub async fn list_control_board(
             pvendor.name AS primary_vendor_name,
             lv.id AS last_vendor_id,
             lv.name AS last_vendor_name,
+            p.tax_category_override,
             p.tax_category,
             0::numeric AS state_tax,
             0::numeric AS local_tax
@@ -1279,7 +1289,9 @@ pub async fn list_control_board(
     let rows: Vec<InventoryControlRow> = rows
         .into_iter()
         .map(|mut r| {
-            let logic_tax_cat = if r.is_clothing_footwear.unwrap_or(false) {
+            let logic_tax_cat = if let Some(override_category) = r.tax_category_override {
+                override_category
+            } else if r.is_clothing_footwear.unwrap_or(false) {
                 let cat_name = r.category_name.as_deref().unwrap_or("").to_lowercase();
                 if cat_name.contains("shoe") || cat_name.contains("footwear") {
                     crate::logic::tax::TaxCategory::Footwear
@@ -1432,7 +1444,7 @@ async fn patch_product_model(
 ) -> Result<Json<Value>, ProductError> {
     let actor = require_catalog_staff(&state, &headers, CATALOG_EDIT).await?;
     let current = sqlx::query_as::<_, ProductModelAuditSnapshot>(
-        "SELECT name, brand, catalog_handle FROM products WHERE id = $1 AND is_active = TRUE",
+        "SELECT name, brand, catalog_handle, tax_category_override::text FROM products WHERE id = $1 AND is_active = TRUE",
     )
     .bind(product_id)
     .fetch_optional(&state.db)
@@ -1473,6 +1485,8 @@ async fn patch_product_model(
     let mut is_bundle_value = false;
     let mut set_track_low_stock = false;
     let mut track_low_stock_value = false;
+    let mut set_tax_category_override = false;
+    let mut tax_category_override_value: Option<crate::logic::tax::TaxCategory> = None;
 
     if let Some(ref name) = body.name {
         let trimmed = name.trim();
@@ -1659,6 +1673,43 @@ async fn patch_product_model(
         n += 1;
     }
 
+    if body.clear_tax_category_override && body.tax_category_override.is_some() {
+        return Err(ProductError::InvalidPayload(
+            "cannot set tax_category_override and clear_tax_category_override together".to_string(),
+        ));
+    }
+    if body.clear_tax_category_override {
+        set_tax_category_override = true;
+        n += 1;
+        if current.tax_category_override.is_some() {
+            before_values.insert(
+                "tax_category_override".to_string(),
+                current
+                    .tax_category_override
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+            after_values.insert("tax_category_override".to_string(), Value::Null);
+        }
+    } else if let Some(category) = body.tax_category_override {
+        set_tax_category_override = true;
+        tax_category_override_value = Some(category);
+        n += 1;
+        let after = format!("{:?}", category).to_ascii_lowercase();
+        if current.tax_category_override.as_deref() != Some(after.as_str()) {
+            before_values.insert(
+                "tax_category_override".to_string(),
+                current
+                    .tax_category_override
+                    .clone()
+                    .map(Value::String)
+                    .unwrap_or(Value::Null),
+            );
+            after_values.insert("tax_category_override".to_string(), Value::String(after));
+        }
+    }
+
     if n == 0 {
         return Err(ProductError::InvalidPayload(
             "provide at least one field".to_string(),
@@ -1696,8 +1747,13 @@ async fn patch_product_model(
                 ELSE primary_vendor_id
             END,
             is_bundle = CASE WHEN $23 THEN $24 ELSE is_bundle END,
-            track_low_stock = CASE WHEN $25 THEN $26 ELSE track_low_stock END
-        WHERE id = $27
+            track_low_stock = CASE WHEN $25 THEN $26 ELSE track_low_stock END,
+            tax_category_override = CASE
+                WHEN $27 THEN NULL
+                WHEN $28 THEN $29
+                ELSE tax_category_override
+            END
+        WHERE id = $30
         "#,
     )
     .bind(set_name)
@@ -1726,6 +1782,9 @@ async fn patch_product_model(
     .bind(is_bundle_value)
     .bind(set_track_low_stock)
     .bind(track_low_stock_value)
+    .bind(body.clear_tax_category_override)
+    .bind(set_tax_category_override && !body.clear_tax_category_override)
+    .bind(tax_category_override_value)
     .bind(product_id)
     .execute(&mut *tx)
     .await?;
@@ -2084,6 +2143,7 @@ struct ProductModelAuditSnapshot {
     name: String,
     brand: Option<String>,
     catalog_handle: Option<String>,
+    tax_category_override: Option<String>,
 }
 
 fn normalize_optional_text(value: Option<&str>) -> Option<String> {
@@ -2164,6 +2224,7 @@ async fn fetch_product_hub(
             p.track_low_stock,
             p.employee_markup_percent,
             COALESCE(p.employee_extra_amount, 0::numeric) AS employee_extra_amount,
+            p.tax_category_override,
             p.catalog_handle AS nuorder_product_id,
             p.catalog_handle
         FROM products p
@@ -3044,6 +3105,7 @@ mod tests {
             images: None,
             track_low_stock: false,
             publish_variants_to_web: false,
+            tax_category_override: None,
             variants: vec![CreateVariantInput {
                 sku: "SKU-1".to_string(),
                 variation_values: json!({
@@ -3348,6 +3410,8 @@ mod tests {
                 clear_catalog_handle: false,
                 is_bundle: None,
                 track_low_stock: None,
+                tax_category_override: None,
+                clear_tax_category_override: false,
                 employee_markup_percent: None,
                 clear_employee_markup_percent: false,
                 employee_extra_amount: None,

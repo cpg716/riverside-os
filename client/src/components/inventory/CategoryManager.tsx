@@ -1,6 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { FolderTree, Clock3, ShieldAlert, Tag, Settings2, History, ShieldCheck, Zap } from "lucide-react";
+import { FolderTree, Clock3, Tag, Settings2, History, Zap } from "lucide-react";
 import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
@@ -301,22 +301,18 @@ export default function CategoryManager() {
           <div className="flex items-center gap-6">
             <div className="text-right hidden sm:block">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-tight">Tax Implication</p>
-                <button
-                    type="button"
-                    onClick={() => void toggleTaxRule(node)}
-                    className={`mt-1 flex items-center gap-1.5 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-all ${
-                        node.is_clothing_footwear
+                <select
+                    value={node.is_clothing_footwear ? "clothing_footwear" : "standard"}
+                    onChange={() => void toggleTaxRule(node)}
+                    className={`mt-1 rounded-full border px-3 py-1 text-[9px] font-black uppercase tracking-widest transition-all ${
+                      node.is_clothing_footwear
                         ? "border-app-success/20 bg-app-success/10 text-app-success shadow-sm"
-                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent/40"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted"
                     }`}
                 >
-                    {node.is_clothing_footwear ? (
-                        <ShieldCheck size={12} className="animate-pulse" />
-                    ) : (
-                        <ShieldAlert size={12} />
-                    )}
-                    {node.is_clothing_footwear ? "Clothing Exempt" : "Standard Model"}
-                </button>
+                    <option value="standard">Standard taxable</option>
+                    <option value="clothing_footwear">Clothing / footwear</option>
+                </select>
             </div>
 
             <div className="h-10 w-px bg-app-border/40" />
@@ -415,14 +411,16 @@ export default function CategoryManager() {
                 />
             </div>
             <div className="flex flex-col justify-end gap-3">
-                 <label className="flex items-center gap-2 cursor-pointer group px-1">
-                    <input
-                        type="checkbox"
-                        checked={createIsClothing}
-                        onChange={(e) => setCreateIsClothing(e.target.checked)}
-                        className="h-5 w-5 rounded-lg border-app-border bg-app-surface text-app-success transition-all"
-                    />
-                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted group-hover:text-app-success transition-colors">Tax Exempt</span>
+                 <label className="space-y-1 px-1">
+                    <span className="text-[10px] font-black uppercase tracking-tight text-app-text-muted">Tax Category</span>
+                    <select
+                        value={createIsClothing ? "clothing_footwear" : "standard"}
+                        onChange={(e) => setCreateIsClothing(e.target.value === "clothing_footwear")}
+                        className="h-10 w-full rounded-xl border border-app-border bg-app-surface px-3 text-[10px] font-black uppercase tracking-tight text-app-text"
+                    >
+                        <option value="standard">Standard taxable</option>
+                        <option value="clothing_footwear">Clothing / footwear</option>
+                    </select>
                  </label>
                  <button
                     type="button"

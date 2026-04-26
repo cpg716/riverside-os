@@ -263,6 +263,11 @@ struct AssignQboShippingRecognitionRequest {
     label_purchased_at_utc: DateTime<Utc>,
 }
 
+#[derive(Debug, Deserialize)]
+struct SeedShippingQuoteRequest {
+    amount_usd: rust_decimal::Decimal,
+}
+
 #[derive(Debug, Serialize)]
 struct TestSupportParkedSaleStatus {
     id: Uuid,
@@ -1253,6 +1258,54 @@ async fn post_assign_qbo_shipping_recognition(
     })))
 }
 
+async fn post_seed_shipping_quote(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<SeedShippingQuoteRequest>,
+) -> Result<Json<Value>, TestSupportError> {
+    let _staff = require_admin_staff(&state, &headers).await?;
+    if payload.amount_usd < rust_decimal::Decimal::ZERO {
+        return Err(TestSupportError::BadRequest(
+            "amount_usd must be non-negative".to_string(),
+        ));
+    }
+
+    let quote_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO store_shipping_rate_quote (
+            expires_at, amount_usd, carrier, service_name, shippo_rate_object_id, metadata
+        )
+        VALUES (
+            NOW() + INTERVAL '30 minutes',
+            $1,
+            'E2E Carrier',
+            'Tax Audit Ground',
+            'e2e_tax_shipping_rate',
+            jsonb_build_object(
+                'stub', true,
+                'ship_to', jsonb_build_object(
+                    'name', 'Tax Audit Customer',
+                    'street1', '1 Main St',
+                    'city', 'Buffalo',
+                    'state', 'NY',
+                    'zip', '14202',
+                    'country', 'US'
+                )
+            )
+        )
+        RETURNING id
+        "#,
+    )
+    .bind(payload.amount_usd)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(json!({
+        "quote_id": quote_id,
+        "amount_usd": payload.amount_usd
+    })))
+}
+
 async fn get_parked_sale_status(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -1316,6 +1369,7 @@ pub fn router() -> Router<AppState> {
             "/qbo/assign-shipping-recognition",
             post(post_assign_qbo_shipping_recognition),
         )
+        .route("/shipping/seed-quote", post(post_seed_shipping_quote))
         .route(
             "/parked-sales/{parked_sale_id}",
             get(get_parked_sale_status),

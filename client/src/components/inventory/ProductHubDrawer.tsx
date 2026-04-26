@@ -23,6 +23,7 @@ import { getAppIcon } from "../../lib/icons";
 const VENDOR_ICON = getAppIcon("vendor");
 
 type HubTab = "general" | "variations" | "history";
+type ProductTaxOverride = "" | "clothing" | "footwear" | "accessory" | "service";
 
 interface ProductHubProduct {
   id: string;
@@ -40,6 +41,7 @@ interface ProductHubProduct {
   primary_vendor_id: string | null;
   primary_vendor_name: string | null;
   track_low_stock: boolean;
+  tax_category_override?: ProductTaxOverride | null;
   /** Null = use store default markup %. */
   employee_markup_percent: string | number | null;
   employee_extra_amount: string | number;
@@ -582,7 +584,39 @@ export default function ProductHubDrawer({
                     Clothing / footwear tax class
                   </span>
                 ) : null}
+                {hub.product.tax_category_override ? (
+                  <span className="rounded-lg border border-amber-300/50 bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
+                    Product tax override: {hub.product.tax_category_override}
+                  </span>
+                ) : null}
               </div>
+
+              <label className="block rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                <span className="text-sm font-bold text-app-text">
+                  Tax category
+                </span>
+                <select
+                  value={hub.product.tax_category_override ?? ""}
+                  onChange={(event) => {
+                    const value = event.target.value as ProductTaxOverride;
+                    void patchPrimaryVendor(
+                      value
+                        ? { tax_category_override: value }
+                        : { clear_tax_category_override: true },
+                    );
+                  }}
+                  className="mt-2 h-11 w-full rounded-xl border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text"
+                >
+                  <option value="">Inherit from category</option>
+                  <option value="clothing">Clothing</option>
+                  <option value="footwear">Footwear</option>
+                  <option value="accessory">Accessory / taxable item</option>
+                  <option value="service">Service / non-taxable</option>
+                </select>
+                <span className="mt-2 block text-xs text-app-text-muted">
+                  Product overrides apply to every SKU under this parent item. Leave inherited unless this product differs from the category rule.
+                </span>
+              </label>
 
               <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4 transition-colors duration-150 hover:bg-app-surface-2">
                 <input

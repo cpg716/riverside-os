@@ -79,6 +79,22 @@ impl TaxCategory {
     pub fn is_clothing_or_footwear(self) -> bool {
         matches!(self, TaxCategory::Clothing | TaxCategory::Footwear)
     }
+
+    #[inline]
+    pub fn is_non_taxable_service(self) -> bool {
+        matches!(self, TaxCategory::Service)
+    }
+
+    pub fn from_db_text(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "clothing" => Some(TaxCategory::Clothing),
+            "footwear" => Some(TaxCategory::Footwear),
+            "accessory" => Some(TaxCategory::Accessory),
+            "service" => Some(TaxCategory::Service),
+            "other" => Some(TaxCategory::Other),
+            _ => None,
+        }
+    }
 }
 
 /// State and local **ad valorem** rates that apply to the line’s net taxable price (§3.3).
@@ -89,6 +105,10 @@ pub fn nys_erie_state_and_local_rates(
     category: TaxCategory,
     net_taxable_price_usd: Decimal,
 ) -> (Decimal, Decimal) {
+    if category.is_non_taxable_service() {
+        return (Decimal::ZERO, Decimal::ZERO);
+    }
+
     let exempt_window = category.is_clothing_or_footwear()
         && net_taxable_price_usd < CLOTHING_FOOTWEAR_EXEMPTION_THRESHOLD_USD;
 
@@ -211,6 +231,18 @@ mod tests {
         assert_eq!(
             nys_erie_combined_rate(TaxCategory::Other, net),
             FULL_COMBINED_SALES_TAX_RATE
+        );
+    }
+
+    #[test]
+    fn service_category_is_non_taxable() {
+        let net = dec!(50.00);
+        let (s, l) = nys_erie_state_and_local_rates(TaxCategory::Service, net);
+        assert_eq!(s, Decimal::ZERO);
+        assert_eq!(l, Decimal::ZERO);
+        assert_eq!(
+            nys_erie_total_sales_tax_usd(TaxCategory::Service, net, net),
+            Decimal::ZERO
         );
     }
 

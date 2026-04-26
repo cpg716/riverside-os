@@ -314,7 +314,7 @@ pub async fn pos_load_purchased_in_tx(
             r#"
             INSERT INTO gift_cards
                 (code, card_kind, card_status, current_balance, original_value,
-                 is_liability, expires_at, customer_id, issued_session_id, issued_transaction_id, notes)
+                 is_liability, expires_at, customer_id, issued_session_id, issued_order_id, notes)
             VALUES ($1, 'purchased', 'active', $2, $2, TRUE, $3, $4, $5, NULL, NULL)
             RETURNING id
             "#,

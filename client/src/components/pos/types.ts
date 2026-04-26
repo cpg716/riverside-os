@@ -15,7 +15,7 @@ export interface ResolvedSkuItem {
   spiff_amount?: string | number;
   state_tax: string | number;
   local_tax: string | number;
-  tax_category?: "clothing" | "footwear" | "other";
+  tax_category?: "clothing" | "footwear" | "accessory" | "service" | "other";
   stock_on_hand?: number;
   vendor_sku?: string;
   /** Present when API includes it (promotions, prompts). */

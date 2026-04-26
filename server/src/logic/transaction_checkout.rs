@@ -659,6 +659,61 @@ fn is_alteration_service_item(item: &CheckoutItem) -> bool {
     checkout_line_type(item) == "alteration_service"
 }
 
+async fn resolve_checkout_tax_category_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    variant_id: Uuid,
+) -> Result<crate::logic::tax::TaxCategory, CheckoutError> {
+    let (override_category, resolved_category_name): (Option<String>, Option<String>) =
+        sqlx::query_as(
+            r#"
+            SELECT
+                p.tax_category_override::text,
+                rc.resolved_category_name
+            FROM product_variants pv
+            JOIN products p ON p.id = pv.product_id
+            LEFT JOIN LATERAL (
+                WITH RECURSIVE cat_path AS (
+                    SELECT c.id, c.name, c.is_clothing_footwear, c.parent_id, 0 AS depth
+                    FROM categories c
+                    WHERE c.id = p.category_id
+                    UNION ALL
+                    SELECT parent.id, parent.name, parent.is_clothing_footwear, parent.parent_id, cat_path.depth + 1
+                    FROM categories parent
+                    JOIN cat_path ON cat_path.parent_id = parent.id
+                    WHERE cat_path.depth < 16
+                )
+                SELECT cp.name AS resolved_category_name
+                FROM cat_path cp
+                WHERE cp.is_clothing_footwear = true
+                ORDER BY cp.depth
+                LIMIT 1
+            ) rc ON true
+            WHERE pv.id = $1
+            "#,
+        )
+        .bind(variant_id)
+        .fetch_one(&mut **tx)
+        .await?;
+
+    if let Some(category) = override_category
+        .as_deref()
+        .and_then(crate::logic::tax::TaxCategory::from_db_text)
+    {
+        return Ok(category);
+    }
+
+    if let Some(category_name) = resolved_category_name {
+        let lower = category_name.to_lowercase();
+        if lower.contains("shoe") || lower.contains("footwear") {
+            Ok(crate::logic::tax::TaxCategory::Footwear)
+        } else {
+            Ok(crate::logic::tax::TaxCategory::Clothing)
+        }
+    } else {
+        Ok(crate::logic::tax::TaxCategory::Other)
+    }
+}
+
 fn validate_checkout_alteration_intakes(
     customer_id: Option<Uuid>,
     items: &[CheckoutItem],
@@ -1949,6 +2004,19 @@ pub async fn execute_checkout(
         }
     }
 
+    if payload.is_tax_exempt
+        && payload
+            .tax_exempt_reason
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .is_none()
+    {
+        return Err(CheckoutError::InvalidPayload(
+            "tax_exempt_reason is required for tax-exempt checkout".to_string(),
+        ));
+    }
+
     let lines_snap: Vec<checkout_validate::CheckoutLineSnapshot> = payload
         .items
         .iter()
@@ -2521,29 +2589,7 @@ pub async fn execute_checkout(
         )
         .await?;
 
-        let (is_clothing_footwear, category_name): (bool, Option<String>) = sqlx::query_as(
-            r#"
-                SELECT COALESCE(c.is_clothing_footwear, false), c.name
-                FROM product_variants pv
-                JOIN products p ON p.id = pv.product_id
-                LEFT JOIN categories c ON c.id = p.category_id
-                WHERE pv.id = $1
-                "#,
-        )
-        .bind(item.variant_id)
-        .fetch_one(&mut *tx)
-        .await?;
-
-        let logic_tax_cat = if is_clothing_footwear {
-            let cat_name = category_name.as_deref().unwrap_or("").to_lowercase();
-            if cat_name.contains("shoe") || cat_name.contains("footwear") {
-                crate::logic::tax::TaxCategory::Footwear
-            } else {
-                crate::logic::tax::TaxCategory::Clothing
-            }
-        } else {
-            crate::logic::tax::TaxCategory::Other
-        };
+        let logic_tax_cat = resolve_checkout_tax_category_tx(&mut tx, item.variant_id).await?;
 
         let pos_kind = fetch_variant_pos_line_kind(&mut *tx, item.variant_id).await?;
         // Internal POS-only service/payment lines must remain non-taxable.
@@ -2551,6 +2597,34 @@ pub async fn execute_checkout(
             pos_kind.as_deref(),
             Some("rms_charge_payment") | Some("pos_gift_card_load") | Some("alteration_service")
         ) {
+            (Decimal::ZERO, Decimal::ZERO)
+        } else if payload.is_tax_exempt {
+            let original_state_tax = crate::logic::tax::nys_state_tax_usd(
+                logic_tax_cat,
+                item.unit_price,
+                item.unit_price,
+            );
+            let original_local_tax = crate::logic::tax::erie_local_tax_usd(
+                logic_tax_cat,
+                item.unit_price,
+                item.unit_price,
+            );
+            if !original_state_tax.is_zero() || !original_local_tax.is_zero() {
+                let mut base = override_meta.unwrap_or_else(|| json!({}));
+                if let Value::Object(ref mut map) = base {
+                    map.insert(
+                        "tax_exempt_reason".to_string(),
+                        json!(payload.tax_exempt_reason.as_deref().unwrap_or("")),
+                    );
+                    map.insert("original_state_tax".to_string(), json!(original_state_tax));
+                    map.insert("original_local_tax".to_string(), json!(original_local_tax));
+                    map.insert(
+                        "tax_category".to_string(),
+                        json!(format!("{:?}", logic_tax_cat)),
+                    );
+                }
+                override_meta = Some(base);
+            }
             (Decimal::ZERO, Decimal::ZERO)
         } else {
             (
