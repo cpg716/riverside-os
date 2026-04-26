@@ -92,6 +92,7 @@ export default function StaffMiniSelector({
       <div className={`${containerWidth} flex flex-col items-center`}>
         <button
           type="button"
+          data-testid="staff-selector-button"
           onClick={() => setIsOpen(!isOpen)}
           className={`flex items-center gap-3 w-full rounded-xl border-2 border-app-border bg-app-surface-2 transition-all hover:border-app-accent/60 hover:bg-app-surface active:scale-[0.98] ${buttonPadding} ${buttonText} font-bold text-app-text focus:outline-none focus:ring-2 focus:ring-app-accent/20`}
         >
@@ -110,7 +111,10 @@ export default function StaffMiniSelector({
         </button>
 
         {isOpen && (
-          <div className={`absolute top-full left-0 right-0 mx-auto z-[100] mt-1 ${dropdownWidth} max-h-[15rem] overflow-y-auto rounded-xl border border-app-border bg-app-surface p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-150`}>
+          <div 
+            data-testid="staff-selector-dropdown"
+            className={`absolute top-full left-0 right-0 mx-auto z-[100] mt-1 ${dropdownWidth} max-h-[15rem] overflow-y-auto rounded-xl border border-app-border bg-app-surface p-1 shadow-2xl animate-in fade-in zoom-in-95 duration-150`}
+          >
             <button
               type="button"
               onClick={() => {
@@ -128,10 +132,12 @@ export default function StaffMiniSelector({
               {placeholder}
             </button>
             <div className="my-1 h-px bg-app-border/40" />
-            {staff.map((s) => (
+            {staff.map((s, idx) => (
               <button
                 key={s.id}
                 type="button"
+                data-testid={`staff-identity-selector-${idx + 1}`}
+                data-staff-id={s.id}
                 onClick={() => {
                   onSelect(s.id);
                   setIsOpen(false);

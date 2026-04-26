@@ -676,7 +676,26 @@ export default function ReceiptSummaryModal({
     setReceiptPreviewError(null);
     setReceiptPreviewHtml(null);
     try {
-      setReceiptPreviewHtml(await fetchReceiptHtml());
+      if (transactionDetail?.receipt_thermal_mode === "escpos") {
+        const q = buildReceiptQuery();
+        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
+          headers: getAuthHeaders(),
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Receipt preview could not load.");
+        const payload = (await res.json()) as { receiptline_markdown?: string };
+        if (payload.receiptline_markdown) {
+          const svg = transform(payload.receiptline_markdown, {
+            cpl: 42,
+            encoding: "cp437",
+          });
+          setReceiptPreviewHtml(svg);
+        } else {
+          setReceiptPreviewHtml(await fetchReceiptHtml());
+        }
+      } else {
+        setReceiptPreviewHtml(await fetchReceiptHtml());
+      }
     } catch (e) {
       const message =
         e instanceof Error ? e.message : "Receipt preview could not load.";
@@ -688,13 +707,51 @@ export default function ReceiptSummaryModal({
 
   const printReceiptOnReportPrinter = async () => {
     try {
-      const html = receiptPreviewHtml ?? (await fetchReceiptHtml());
+      let content = receiptPreviewHtml ?? (await fetchReceiptHtml());
+      
+      // If it's an SVG (ReceiptLine), wrap it in a basic HTML shell for better printing
+      if (content.trim().startsWith("<svg")) {
+        content = `
+          <!DOCTYPE html>
+          <html>
+            <head>
+              <title>Receipt Preview</title>
+              <style>
+                body { 
+                  margin: 0; 
+                  display: flex; 
+                  justify-content: center; 
+                  background: white;
+                }
+                .receipt-container { 
+                  width: 380px; 
+                  padding: 20px;
+                }
+                svg { 
+                  width: 100%; 
+                  height: auto; 
+                }
+                @media print {
+                  body { background: none; }
+                  .receipt-container { padding: 0; width: 100%; max-width: 380px; }
+                }
+              </style>
+            </head>
+            <body>
+              <div class="receipt-container">
+                ${content}
+              </div>
+            </body>
+          </html>
+        `;
+      }
+
       const w = window.open("", "_blank", "noopener,noreferrer");
       if (!w) {
         throw new Error("Popup blocked — allow popups to print the report copy.");
       }
       w.document.open();
-      w.document.write(html);
+      w.document.write(content);
       w.document.close();
       w.focus();
       requestAnimationFrame(() => {
@@ -1163,6 +1220,13 @@ export default function ReceiptSummaryModal({
                 ) : receiptPreviewError ? (
                   <div className="flex h-full items-center justify-center px-6 text-center text-sm font-bold text-app-danger">
                     {receiptPreviewError}
+                  </div>
+                ) : receiptPreviewHtml?.trim().startsWith("<svg") ? (
+                  <div className="flex h-full items-center justify-center bg-[#f0f0f0] p-4 sm:p-8">
+                    <div 
+                      className="receiptline-preview w-full max-w-[380px] shadow-2xl [&_svg]:h-auto [&_svg]:w-full"
+                      dangerouslySetInnerHTML={{ __html: receiptPreviewHtml }}
+                    />
                   </div>
                 ) : (
                   <iframe

@@ -35,7 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Workspace UI**: Harmonized layouts between Orders and Alterations hubs.
 - **Permissions**: Updated the Permission Catalog documentation in the UI to reflect the 60-day Manager PIN requirement.
 
-### Fixed
+- **CI Hardening & E2E Stability**:
+  - Implemented explicit waits and stable test-IDs in the POS staff identity selection flow to resolve flaky "Target closed" failures.
+  - Standardized staff selection helpers across POS and Back Office to use the new `staff-selector-button` and `staff-selector-dropdown` contracts.
+  - Finalized the deprecation of **ZPL** receipts; removed stale server-side ZPL generation logic and updated all system defaults and error fallbacks to **ESC/POS**.
+  - Pruned obsolete ZPL assertions from E2E coverage to eliminate false-positive CI failures.
 - **Tax Integrity**: Hardened tax category controls and server-side checkout validation truth.
 - **Meilisearch**: Resolved orders index synchronization and health status reporting bugs.
 - **UI Navigation**: Fixed Operations dashboard card navigation and commission drilldown row keys.

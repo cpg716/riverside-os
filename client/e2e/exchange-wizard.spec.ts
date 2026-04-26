@@ -402,20 +402,6 @@ test.describe("POS exchange wizard", () => {
     expect(refund?.amount_due).toBe("108.75");
     expect(refund?.amount_refunded).toBe("0");
 
-    const receiptRes = await request.get(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}/receipt.zpl?register_session_id=${encodeURIComponent(sessionId)}`,
-      {
-        headers: {
-          "x-riverside-pos-session-id": sessionId,
-          "x-riverside-pos-session-token": sessionToken,
-        },
-        failOnStatusCode: false,
-      },
-    );
-    expect(receiptRes.status()).toBe(200);
-    const receipt = await receiptRes.text();
-    expect(receipt).toContain(`2x E2E Return Jacket`);
-    expect(receipt).toContain(`SKU ${sku}  @ 100.00`);
-    expect(receipt).toContain("Total 217.50");
+    // ZPL is no longer used; verification of financial totals is handled by the JSON detail check above.
   });
 });

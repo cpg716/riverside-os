@@ -90,7 +90,9 @@ impl IntoResponse for TransactionError {
     fn into_response(self) -> Response {
         let (status, msg) = match self {
             TransactionError::InvalidPayload(m) => (StatusCode::BAD_REQUEST, m),
-            TransactionError::NotFound => (StatusCode::NOT_FOUND, "Transaction not found".to_string()),
+            TransactionError::NotFound => {
+                (StatusCode::NOT_FOUND, "Transaction not found".to_string())
+            }
             TransactionError::Unauthorized(m) => (StatusCode::UNAUTHORIZED, m),
             TransactionError::Forbidden(m) => (StatusCode::FORBIDDEN, m),
             TransactionError::BadGateway(m) => (StatusCode::BAD_GATEWAY, m),
@@ -478,7 +480,7 @@ mod tests {
             tax_exempt_reason: None,
             register_session_id: None,
             receipt_studio_layout_available: false,
-            receipt_thermal_mode: "zpl".to_string(),
+            receipt_thermal_mode: "escpos".to_string(),
             store_review_invites_enabled: false,
             store_send_review_invite_by_default: false,
             review_invite_sent_at: None,
@@ -951,17 +953,18 @@ async fn authorize_transaction_modify_bo_or_register(
         }
 
         // 1. Check if linked to current session (fast path)
-        let in_session = transaction_has_positive_payment_in_session(&state.db, transaction_id, sid)
-            .await
-            .map_err(TransactionError::Database)?;
-        
+        let in_session =
+            transaction_has_positive_payment_in_session(&state.db, transaction_id, sid)
+                .await
+                .map_err(TransactionError::Database)?;
+
         if in_session {
             return Ok(None);
         }
 
         // 2. Not in session? Check age (60 day policy)
         let booked_at = sqlx::query_scalar::<_, DateTime<Utc>>(
-            "SELECT booked_at FROM transactions WHERE id = $1"
+            "SELECT booked_at FROM transactions WHERE id = $1",
         )
         .bind(transaction_id)
         .fetch_optional(&state.db)
@@ -975,7 +978,9 @@ async fn authorize_transaction_modify_bo_or_register(
         }
 
         // 3. Older than 60 days? Require BO permission (Manager Approval)
-        if let Ok(s) = middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY).await {
+        if let Ok(s) =
+            middleware::require_staff_with_permission(state, headers, ORDERS_MODIFY).await
+        {
             return Ok(Some(s.id));
         }
 
@@ -2416,10 +2421,10 @@ pub(crate) async fn load_transaction_detail(
                     .unwrap_or(false),
                 c.receipt_thermal_mode,
             ),
-            Err(_) => (false, "zpl".to_string()),
+            Err(_) => (false, "escpos".to_string()),
         }
     } else {
-        (false, "zpl".to_string())
+        (false, "escpos".to_string())
     };
 
     Ok(TransactionDetailResponse {

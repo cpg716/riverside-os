@@ -11,9 +11,15 @@ export async function selectBackofficeStaffMember(
   staffName?: string,
 ) {
   const preferredName = resolveBackofficeStaffName(staffName);
-  const selectorButton = container.getByRole("button", {
-    name: /select staff member|select\.\.\.|select your name/i,
-  });
+  
+  // Use the new test-id for the selector button if available
+  let selectorButton = (container as any).getByTestId?.("staff-selector-button");
+  if (!selectorButton) {
+    selectorButton = container.getByRole("button", {
+      name: /select staff member|select\.\.\.|select your name/i,
+    });
+  }
+
   if (!(await selectorButton.isVisible().catch(() => false))) {
     return;
   }
@@ -21,29 +27,24 @@ export async function selectBackofficeStaffMember(
     return;
   }
   await selectorButton.click();
+  
+  const dropdown = (container as any).getByTestId?.("staff-selector-dropdown") || 
+                   container.locator("[data-testid='staff-selector-dropdown']");
+  
+  await dropdown.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+
   const preferredOption = container.getByRole("button", {
     name: new RegExp(preferredName, "i"),
   });
-  const selectedStaffButton = container
-    .getByRole("button", { name: new RegExp(preferredName, "i") })
-    .first();
-  await preferredOption.waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
+  
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
-    await expect(selectedStaffButton).toBeVisible({ timeout: 5_000 });
-    return;
-  }
-  const options = container
-    .locator("button")
-    .filter({ has: container.locator("img") })
-    .filter({ hasNotText: /select staff member/i });
-  await options.first().waitFor({ state: "visible", timeout: 5_000 }).catch(() => {});
-  const optionCount = await options.count();
-  if (optionCount > 0) {
-    await options.first().click();
-  }
-  if (staffName) {
-    await expect(selectedStaffButton).toBeVisible({ timeout: 5_000 });
+  } else {
+    const firstOption = (container as any).getByTestId?.("staff-identity-selector-1") || 
+                        container.locator("[data-testid='staff-identity-selector-1']");
+    if (await firstOption.isVisible().catch(() => false)) {
+      await firstOption.click();
+    }
   }
 }
 

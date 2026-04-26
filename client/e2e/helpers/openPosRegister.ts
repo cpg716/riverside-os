@@ -49,68 +49,46 @@ async function closeStaffDropdownIfOpen(
 }
 
 async function selectFirstStaffMember(dialog: Locator): Promise<void> {
+  const page = dialog.page();
   const preferredName = e2eBackofficeStaffName();
-  const chevronSelectorButton = dialog
-    .locator("button")
-    .filter({ has: dialog.locator("svg.lucide-chevron-down") })
-    .first();
-  const fallbackSelectorButton = dialog.getByRole("button", {
-    name: /select staff member|select\.\.\.|select your name/i,
-  });
-  const selectedButton = dialog
-    .getByRole("button", { name: new RegExp(preferredName, "i") })
-    .first();
-  const selectorButton = (await chevronSelectorButton.isVisible().catch(() => false))
-    ? chevronSelectorButton
-    : (await fallbackSelectorButton.isVisible().catch(() => false))
-    ? fallbackSelectorButton
-    : selectedButton;
-  if (!(await selectorButton.isVisible().catch(() => false))) {
-    return;
-  }
-  const selectorWarning = dialog.getByText(/please select a staff member first/i);
-  await expect
-    .poll(
-      async () => ((await selectorButton.textContent().catch(() => "")) ?? "").replace(/\s+/g, " ").trim(),
-      { timeout: 5_000, message: "Staff selector text never stabilized" },
-    )
-    .not.toEqual("");
+  
+  // Use the new test-id for the selector button if available
+  const selectorButton = dialog.getByTestId("staff-selector-button");
+  
+  await expect(selectorButton).toBeVisible({ timeout: 15_000 });
+  await selectorButton.scrollIntoViewIfNeeded();
 
   const currentLabel = ((await selectorButton.textContent().catch(() => "")) ?? "")
     .replace(/\s+/g, " ")
     .trim();
   const selectionRequired =
-    /select staff member/i.test(currentLabel) ||
-    (await selectorWarning.isVisible().catch(() => false));
+    /select staff member|select\.\.\.|select your name/i.test(currentLabel) ||
+    (await dialog.getByText(/please select a staff member first/i).isVisible().catch(() => false));
 
   if (!selectionRequired || currentLabel.match(new RegExp(preferredName, "i"))) {
-    await closeStaffDropdownIfOpen(dialog, selectorButton, preferredName);
     return;
   }
+
+  // Click to open dropdown
   await selectorButton.click();
-  const preferredOption = dialog.getByRole("button", {
+  
+  const dropdown = page.getByTestId("staff-selector-dropdown");
+  await expect(dropdown).toBeVisible({ timeout: 10_000 });
+
+  const preferredOption = dropdown.getByRole("button", {
     name: new RegExp(preferredName, "i"),
-  }).last();
-  const rosterOptions = dialog
-    .locator("button")
-    .filter({ has: dialog.locator("img") })
-    .filter({ hasNotText: /select staff member/i });
-  await expect
-    .poll(async () => await rosterOptions.count(), {
-      timeout: 10_000,
-      message: "Staff roster options never loaded in POS cashier selector",
-    })
-    .toBeGreaterThan(0);
+  });
+  
   if (await preferredOption.isVisible().catch(() => false)) {
     await preferredOption.click();
-    await closeStaffDropdownIfOpen(dialog, selectorButton, preferredName);
-    return;
+  } else {
+    // Fallback to first identity selector if name doesn't match
+    const firstIdentity = dropdown.getByTestId("staff-identity-selector-1");
+    await expect(firstIdentity).toBeVisible({ timeout: 5_000 });
+    await firstIdentity.click();
   }
-  const optionCount = await rosterOptions.count();
-  if (optionCount > 0) {
-    await rosterOptions.first().click();
-  }
-  await closeStaffDropdownIfOpen(dialog, selectorButton, preferredName);
+
+  await expect(dropdown).toBeHidden({ timeout: 10_000 });
 }
 
 async function waitForPosRegisterPanel(page: Page): Promise<void> {
