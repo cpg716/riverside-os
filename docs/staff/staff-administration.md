@@ -58,12 +58,12 @@ Floor staff complete items in **POS → Tasks** or Operations widgets — see [p
 
 ## Commissions
 
-**Purpose:** One hub for commission payroll, rates, and incentives.
+**Purpose:** One hub for commission reporting and fixed incentives.
 
 1. **Staff** → **Commissions**.
-2. **Payouts** (**insights.view** + **insights.commission_finalize**): review fulfillment-based earned commission, run prior-month payroll windows, and finalize realized payout rows.
-3. **Rates** (**staff.manage_commission**): manage category overrides that change the base commission percent used for eligible lines.
-4. **Rules & SPIFFs** (**staff.manage_commission**): configure SPIFF incentives and combo rewards that add or override commission behavior.
+2. **Reports** (**insights.view**): review fulfillment-based earned commission and prior-month windows.
+3. **SPIFFs & Combos** (**staff.manage_commission**): configure fixed-dollar SPIFF incentives and combo rewards.
+4. Staff base commission rates are edited on the Staff Profile with an effective start date.
 5. SPIFF and combo reward lines remain filtered from customer receipts for privacy.
 
 ## Audit

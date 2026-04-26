@@ -3427,6 +3427,13 @@ pub async fn execute_checkout(
     transaction_recalc::recalc_transaction_totals(&mut tx, transaction_id)
         .await
         .map_err(CheckoutError::Database)?;
+    crate::logic::commission_events::upsert_fulfilled_transaction_events(
+        &mut tx,
+        transaction_id,
+        &[],
+    )
+    .await
+    .map_err(CheckoutError::Database)?;
 
     let operator_staff_id = payload.operator_staff_id;
     let customer_id = payload.customer_id;

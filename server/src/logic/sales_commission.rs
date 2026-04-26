@@ -18,7 +18,17 @@ pub struct CommissionLineInput {
     pub is_employee_sale: bool,
 }
 
-/// Retail line gross × effective rate. Precedence: Variant Rule > Product Rule > Category Rule > Category Legacy Override > Staff Base.
+#[derive(Debug, Clone, Copy)]
+pub struct CommissionBreakdown {
+    pub base_rate: Decimal,
+    pub commissionable_amount: Decimal,
+    pub base_commission: Decimal,
+    pub incentive_amount: Decimal,
+    pub total_commission: Decimal,
+}
+
+/// Retail line gross × staff effective rate plus fixed SPIFF add-ons.
+/// Staff Profile is the only base-rate authority; percentage/category overrides are retired.
 /// Employee-purchase transactions carry zero commission.
 pub async fn commission_for_line(
     conn: &mut PgConnection,
@@ -34,14 +44,24 @@ pub async fn commission_for_line_at(
     input: CommissionLineInput,
     as_of: DateTime<Utc>,
 ) -> Result<Decimal, sqlx::Error> {
+    Ok(commission_breakdown_for_line_at(conn, input, as_of)
+        .await?
+        .total_commission)
+}
+
+pub async fn commission_breakdown_for_line_at(
+    conn: &mut PgConnection,
+    input: CommissionLineInput,
+    as_of: DateTime<Utc>,
+) -> Result<CommissionBreakdown, sqlx::Error> {
     if input.is_employee_sale {
-        return Ok(Decimal::ZERO);
+        return Ok(CommissionBreakdown::zero());
     }
     let Some(sid) = input.salesperson_id else {
-        return Ok(Decimal::ZERO);
+        return Ok(CommissionBreakdown::zero());
     };
     if input.quantity <= 0 {
-        return Ok(Decimal::ZERO);
+        return Ok(CommissionBreakdown::zero());
     }
 
     let staff_row: Option<(Decimal, DbStaffRole)> = sqlx::query_as(
@@ -69,11 +89,11 @@ pub async fn commission_for_line_at(
     .await?;
 
     let Some((base_rate, role)) = staff_row else {
-        return Ok(Decimal::ZERO);
+        return Ok(CommissionBreakdown::zero());
     };
 
     if role == DbStaffRole::SalesSupport {
-        return Ok(Decimal::ZERO);
+        return Ok(CommissionBreakdown::zero());
     }
 
     let category_id: Option<Uuid> =
@@ -82,20 +102,20 @@ pub async fn commission_for_line_at(
             .fetch_optional(&mut *conn)
             .await?;
 
-    // 1) specificity-based rule lookup (Variant > Product > Category)
+    // Fixed-dollar SPIFF lookup only. Percentage/category overrides are intentionally ignored.
     #[derive(sqlx::FromRow)]
-    struct RuleMatch {
-        override_rate: Option<Decimal>,
+    struct SpiffMatch {
         fixed_spiff_amount: Decimal,
     }
 
-    let rule: Option<RuleMatch> = sqlx::query_as(
+    let spiff: Option<SpiffMatch> = sqlx::query_as(
         r#"
-        SELECT override_rate, fixed_spiff_amount
+        SELECT fixed_spiff_amount
         FROM commission_rules
         WHERE is_active = TRUE
           AND (start_date IS NULL OR start_date <= $4)
           AND (end_date IS NULL OR end_date >= $4)
+          AND fixed_spiff_amount > 0
           AND (
             (match_type = 'variant' AND match_id = $1)
             OR (match_type = 'product' AND match_id = $2)
@@ -117,30 +137,28 @@ pub async fn commission_for_line_at(
     .fetch_optional(&mut *conn)
     .await?;
 
-    let (rate, flat_bonus) = if let Some(r) = rule {
-        (
-            r.override_rate.unwrap_or(base_rate),
-            r.fixed_spiff_amount * Decimal::from(input.quantity),
-        )
-    } else {
-        // Fallback to legacy category overrides
-        let legacy_override = if let Some(cid) = category_id {
-            sqlx::query_scalar::<_, Decimal>(
-                r#"
-                SELECT commission_rate
-                FROM category_commission_overrides
-                WHERE category_id = $1
-                "#,
-            )
-            .bind(cid)
-            .fetch_optional(&mut *conn)
-            .await?
-        } else {
-            None
-        };
-        (legacy_override.unwrap_or(base_rate), Decimal::ZERO)
-    };
-
     let gross = input.unit_price * Decimal::from(input.quantity);
-    Ok(round_money_usd(gross * rate + flat_bonus))
+    let base_commission = round_money_usd(gross * base_rate);
+    let incentive_amount = spiff
+        .map(|r| r.fixed_spiff_amount * Decimal::from(input.quantity))
+        .unwrap_or(Decimal::ZERO);
+    Ok(CommissionBreakdown {
+        base_rate,
+        commissionable_amount: gross,
+        base_commission,
+        incentive_amount,
+        total_commission: round_money_usd(base_commission + incentive_amount),
+    })
+}
+
+impl CommissionBreakdown {
+    pub fn zero() -> Self {
+        Self {
+            base_rate: Decimal::ZERO,
+            commissionable_amount: Decimal::ZERO,
+            base_commission: Decimal::ZERO,
+            incentive_amount: Decimal::ZERO,
+            total_commission: Decimal::ZERO,
+        }
+    }
 }

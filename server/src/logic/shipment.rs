@@ -591,6 +591,9 @@ pub async fn purchase_shipment_label(
             &[],
         )
         .await?;
+        let _ =
+            crate::logic::commission_events::upsert_fulfilled_transaction_events(&mut tx, oid, &[])
+                .await?;
     }
 
     tx.commit().await?;
@@ -730,6 +733,8 @@ pub async fn patch_shipment(
                 &[],
             )
             .await?;
+            crate::logic::commission_events::upsert_fulfilled_transaction_events(&mut tx, oid, &[])
+                .await?;
         }
     }
 

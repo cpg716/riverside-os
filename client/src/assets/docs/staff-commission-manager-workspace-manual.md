@@ -2,10 +2,10 @@
 id: staff-commission-manager-workspace
 title: "Commission Manager Workspace (staff)"
 order: 1110
-summary: "Use Staff → Commissions as the single workspace for commission payouts, category rates, and SPIFF or combo incentive rules."
+summary: "Use Staff → Commissions for commission reports, fixed SPIFFs, and combo incentives."
 source: client/src/components/staff/CommissionManagerWorkspace.tsx
-last_scanned: 2026-04-23
-tags: staff-commission-manager-workspace, component, commission, payroll, rates
+last_scanned: 2026-04-25
+tags: staff-commission-manager-workspace, component, commission, reporting, incentives
 status: approved
 ---
 
@@ -15,29 +15,37 @@ status: approved
 _Linked component: `client/src/components/staff/CommissionManagerWorkspace.tsx`._
 <!-- /help:component-source -->
 
-## What this is
+## What This Is
 
-Use **Staff → Commissions** as the single hub for commission work. This workspace combines payroll review, category commission rates, and SPIFF or combo incentive rules in one place so managers do not need to bounce between separate Staff sections.
+Use **Staff → Commissions** for reporting and incentives.
 
-## Before you start
+The workspace is intentionally simple:
 
-- **Payouts** requires **insights.view** and **insights.commission_finalize**.
-- **Rates** and **Rules & SPIFFs** require **staff.manage_commission**.
-- Commission follows the **fulfillment / recognition** date, not the original booking date.
+- **Reports** shows all-staff and individual staff commission reporting by period.
+- **SPIFFs & Combos** manages fixed-dollar incentive add-ons.
+
+Category commission rate overrides and percentage override rules are retired from the staff-facing workflow.
+
+## Before You Start
+
+- **Reports** requires **insights.view**.
+- **SPIFFs & Combos** requires **staff.manage_commission**.
+- Staff base commission rates are set on each Staff Profile.
+- Commission follows the fulfillment / recognition date, not the booking date.
 
 ## Tabs
 
-1. **Payouts**: review realized commission, filter by date or staff member, and finalize eligible payout rows.
-2. **Rates**: manage category-level override percentages for commission-eligible sales.
-3. **Rules & SPIFFs**: manage fixed-dollar SPIFF rules and combo rewards.
+1. **Reports**: review booked pipeline and earned commission for a selected period.
+2. **SPIFFs & Combos**: manage fixed-dollar SPIFFs and combo rewards.
 
-## What to watch for
+## What To Watch For
 
-- Finalized payouts stay locked.
-- Rate changes can reconcile eligible unfinalized lines only from the chosen effective date.
-- Sales Support continues to earn no commission unless store policy and code change separately.
+- Rate changes start on the selected effective date.
+- SPIFFs and combos add to the staff base commission; they do not replace the base rate.
+- Manual add/subtract adjustments are audited.
+- Returns and exchanges affect the period in which they happen through immutable adjustment events.
 
-## Related workflows
+## Related Workflows
 
 - [staff-commission-payouts-panel-manual.md](./staff-commission-payouts-panel-manual.md)
 - [settings-staff-profile-panel-manual.md](./settings-staff-profile-panel-manual.md)

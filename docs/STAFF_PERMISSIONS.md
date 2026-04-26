@@ -140,15 +140,15 @@ Canonical list: **`server/src/auth/permissions.rs`**. UI labels: **`client/src/l
 | `staff.view` | View staff roster / hub. |
 | `staff.edit` | Create new staff and edit existing profile fields (name, code, role, active, contacts). |
 | `staff.manage_pins` | Set or change staff PINs. |
-| `staff.manage_commission` | Commission Manager: rules, SPIFFs, combos, and category overrides. |
+| `staff.manage_commission` | Commission Manager: fixed SPIFF and combo incentive setup. |
 | `staff.view_audit` | Staff access log. |
 | `staff.manage_access` | Edit **per-person** permission checklists on staff profiles; use **Settings → Staff access defaults** for role **template** matrix and template discount caps (**`settings.admin`** may also open Settings; templates are policy-sensitive). |
 | `qbo.view` | QBO workspace read-oriented actions. |
 | `qbo.mapping_edit` | Save ledger / granular mappings. |
 | `qbo.staging_approve` | Approve staging. |
 | `qbo.sync` | Trigger sync. |
-| `insights.view` | **Insights** tab (Metabase in **`InsightsShell`**). Also required for **Staff → Commission payouts** ledger APIs. |
-| `insights.commission_finalize` | Finalize commission payouts (**Staff → Commission payouts**); requires **`insights.view`** as well for that UI. |
+| `insights.view` | **Insights** tab (Metabase in **`InsightsShell`**) and **Staff → Commissions → Reports**. |
+| `insights.commission_finalize` | Legacy commission finalize API permission. The visible Staff commission workflow is now reporting-only. |
 | `physical_inventory.view` | List/read physical inventory sessions. |
 | `physical_inventory.mutate` | Create, count, review, publish sessions. |
 | `orders.view` | List/read orders, audit, receipt ZPL (Back Office headers; or `register_session_id` when tied to that session). |
@@ -249,7 +249,7 @@ Any `fetch` to a permission-gated API must pass **`...(backofficeHeaders() as Re
 2. Create or use a **non-admin** staff user with a **subset** of **`staff_permission`** rows (via profile checklist or **Apply role defaults** then remove keys).
 3. Confirm **403** on API calls when the required key is missing.
 4. Confirm gated workspaces send **`backofficeHeaders`** on every relevant request (Insights, QBO, Staff, physical inventory, etc.).
-5. Confirm **sidebar** hides tabs and subsections (e.g. Physical count, **Commission payouts**, Staff sub-panels) when mapped permissions are absent.
+5. Confirm **sidebar** hides tabs and subsections (e.g. Physical count, **Commission reports**, Staff sub-panels) when mapped permissions are absent.
 6. Confirm **deep links** or stale subsections **redirect** to the first allowed subsection after permissions load (`App.tsx`).
 7. **Orders:** With **`orders.view`** only, confirm list/detail work with **`backofficeHeaders`**; confirm **`orders.refund_process`** is required for **`/api/transactions/refunds/due`** and **process refund**; confirm **`orders.modify`** is required for line edits and **returns** (see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**).
 

@@ -77,9 +77,9 @@ export const HELP_MANUALS: HelpManual[] = [
   {
     id: "insights",
     title: "Insights (Metabase)",
-    summary: "Metabase analytics in-app, Metabase login, Staff commission payouts, permissions. For the curated Reports library, open the Reports (curated) manual in Help.",
+    summary: "Metabase analytics in-app, Metabase login, Staff commission reports, permissions. For the curated Reports library, open the Reports (curated) manual in Help.",
     markdown: manual_2_raw,
-    tags: ["insights","metabase","reports","analytics","commission","payouts"],
+    tags: ["insights","metabase","reports","analytics","commission"],
   },
   {
     id: "lockout",
@@ -447,17 +447,17 @@ export const HELP_MANUALS: HelpManual[] = [
   },
   {
     id: "staff-commission-payouts-panel",
-    title: "Commission Payouts Panel (staff)",
-    summary: "Review fulfillment-based commission payouts, filter by staff, run prior-month payroll windows, and finalize only eligible unfinalized lines.",
+    title: "Commission Reports Panel (staff)",
+    summary: "Review fulfillment-based commission reporting by staff and period.",
     markdown: manual_55_raw,
-    tags: ["staff-commission-payouts-panel","component","commission","payroll"],
+    tags: ["staff-commission-payouts-panel","component","commission","reporting"],
   },
   {
     id: "staff-commission-manager-workspace",
     title: "Commission Manager Workspace (staff)",
-    summary: "Use Staff → Commissions as the single workspace for commission payouts, category rates, and SPIFF or combo incentive rules.",
+    summary: "Use Staff → Commissions for commission reports, fixed SPIFFs, and combo incentives.",
     markdown: manual_56_raw,
-    tags: ["staff-commission-manager-workspace","component","commission","payroll","rates"],
+    tags: ["staff-commission-manager-workspace","component","commission","reporting","incentives"],
   },
 ];
 

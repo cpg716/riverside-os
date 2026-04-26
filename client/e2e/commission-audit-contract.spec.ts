@@ -4,7 +4,6 @@ import { calculateNysErieTaxStringsForUnit } from "../src/lib/tax";
 import {
   apiBase,
   ensureSessionAuth,
-  staffCode,
   staffHeaders,
   verifyStaffId,
 } from "./helpers/rmsCharge";
@@ -36,11 +35,12 @@ type TransactionDetailResponse = {
 };
 
 type CommissionLine = {
-  transaction_line_id: string;
-  transaction_id: string;
+  event_id: string | null;
+  event_type: string;
+  transaction_line_id: string | null;
+  transaction_id: string | null;
   calculated_commission: string;
   is_fulfilled: boolean;
-  is_finalized: boolean;
 };
 
 type CommissionLedgerRow = {
@@ -375,24 +375,29 @@ async function fetchTransactionDetail(
   return (await res.json()) as TransactionDetailResponse;
 }
 
-async function finalizeCommissions(request: APIRequestContext, staffId: string) {
-  return request.post(`${apiBase()}/api/insights/commission-finalize`, {
+async function addManualAdjustment(
+  request: APIRequestContext,
+  staffId: string,
+  amount: string,
+  note: string,
+) {
+  return request.post(`${apiBase()}/api/insights/commission-adjustments`, {
     headers: {
       ...staffHeaders(),
       "Content-Type": "application/json",
     },
     data: {
-      staff_ids: [staffId],
-      include_unassigned: false,
-      from: utcDate(),
-      to: utcDate(),
+      staff_id: staffId,
+      reporting_date: utcDate(),
+      amount,
+      note,
     },
     failOnStatusCode: false,
   });
 }
 
 test.describe("commission audit contract", () => {
-  test("fulfillment timing uses recognition date and finalized payouts block silent rewrites", async ({
+  test("fulfillment timing uses recognition date and staff rate snapshots report immutably", async ({
     request,
   }) => {
     test.setTimeout(120_000);
@@ -431,10 +436,6 @@ test.describe("commission audit contract", () => {
     expectMoney(ledger?.unpaid_commission, "10.00");
     expectMoney(ledger?.realized_pending_payout, "0.00");
 
-    let finalizeRes = await finalizeCommissions(request, salespersonA);
-    expect(finalizeRes.status()).toBe(200);
-    await expect(finalizeRes.json()).resolves.toMatchObject({ lines_finalized: 0 });
-
     await patchStaffRate(request, salespersonA, "0.2000", false);
     commissionLine = await fetchCommissionLine(
       request,
@@ -468,17 +469,6 @@ test.describe("commission audit contract", () => {
     expectMoney(ledger?.unpaid_commission, "0.00");
     expectMoney(ledger?.realized_pending_payout, "20.00");
 
-    finalizeRes = await finalizeCommissions(request, salespersonA);
-    expect(finalizeRes.status()).toBe(200);
-    await expect(finalizeRes.json()).resolves.toMatchObject({ lines_finalized: 1 });
-    commissionLine = await fetchCommissionLine(
-      request,
-      salespersonA,
-      checkout.transaction_id,
-      line?.transaction_line_id,
-    );
-    expect(commissionLine.is_finalized).toBe(true);
-
     await patchStaffRate(request, salespersonA, "0.5000", true);
     commissionLine = await fetchCommissionLine(
       request,
@@ -488,31 +478,18 @@ test.describe("commission audit contract", () => {
     );
     expect(commissionLine.calculated_commission).toBe("20.00");
 
-    const attributionRes = await request.patch(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}/attribution`,
-      {
-        headers: {
-          "Content-Type": "application/json",
-        },
-        data: {
-          manager_cashier_code: staffCode(),
-          manager_pin: staffCode(),
-          reason: "E2E finalized commission guard",
-          line_attribution: [
-            {
-              transaction_line_id: line?.transaction_line_id,
-              salesperson_id: salespersonB,
-            },
-          ],
-        },
-        failOnStatusCode: false,
-      },
+    const adjustmentRes = await addManualAdjustment(
+      request,
+      salespersonB,
+      "-3.50",
+      "E2E current-period adjustment",
     );
-    expect(attributionRes.status()).toBe(400);
-    await expect(attributionRes.text()).resolves.toMatch(/finalized commission payout/i);
+    expect(adjustmentRes.status()).toBe(200);
+    const adjustedLedger = await fetchCommissionLedgerRow(request, salespersonB);
+    expectMoney(adjustedLedger?.realized_pending_payout, "-3.50");
   });
 
-  test("commission rate specificity resolves variant, product, category, category default, then staff base", async ({
+  test("percentage overrides are ignored; staff base rate and fixed SPIFFs drive commission", async ({
     request,
   }) => {
     test.setTimeout(120_000);
@@ -578,10 +555,10 @@ test.describe("commission audit contract", () => {
     const detail = await fetchTransactionDetail(request, checkout.transaction_id);
 
     const expectedBySku = new Map([
-      [variantProduct.sku, "6.00"],
-      [productProduct.sku, "5.00"],
-      [categoryProduct.sku, "4.00"],
-      [defaultProduct.sku, "3.00"],
+      [variantProduct.sku, "1.00"],
+      [productProduct.sku, "1.00"],
+      [categoryProduct.sku, "1.00"],
+      [defaultProduct.sku, "1.00"],
       [staffBaseProduct.sku, "1.00"],
     ]);
     for (const [sku, expectedCommission] of expectedBySku) {

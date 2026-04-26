@@ -137,24 +137,6 @@ pub async fn apply_transaction_returns(
         let line_total = (unit_price + state_tax + local_tax) * Decimal::from(line.quantity);
         refund_add += line_total;
 
-        if is_fulfilled && line_commission > Decimal::ZERO && remaining > 0 {
-            let claw = (line_commission * Decimal::from(line.quantity) / Decimal::from(remaining))
-                .round_dp(2);
-            if claw > Decimal::ZERO {
-                sqlx::query(
-                    r#"
-                    UPDATE transaction_lines
-                    SET calculated_commission = GREATEST(calculated_commission - $1, 0)
-                    WHERE id = $2
-                    "#,
-                )
-                .bind(claw)
-                .bind(oid)
-                .execute(&mut *tx)
-                .await?;
-            }
-        }
-
         let restock = line
             .restock
             .unwrap_or_else(|| fulfillment == DbFulfillmentType::Takeaway && is_fulfilled);
@@ -178,11 +160,12 @@ pub async fn apply_transaction_returns(
             .await?;
         }
 
-        sqlx::query(
+        let return_line_id: Uuid = sqlx::query_scalar(
             r#"
             INSERT INTO transaction_return_lines
                 (transaction_id, transaction_line_id, quantity_returned, reason, restocked, staff_id)
             VALUES ($1, $2, $3, $4, $5, $6)
+            RETURNING id
             "#,
         )
         .bind(transaction_id)
@@ -191,8 +174,23 @@ pub async fn apply_transaction_returns(
         .bind(line.reason.as_deref().unwrap_or("return"))
         .bind(restock)
         .bind(staff_id)
-        .execute(&mut *tx)
+        .fetch_one(&mut *tx)
         .await?;
+
+        if is_fulfilled && line_commission > Decimal::ZERO {
+            crate::logic::commission_events::insert_return_adjustment_event(
+                &mut tx,
+                transaction_id,
+                oid,
+                return_line_id,
+                line.quantity,
+                sold_qty,
+                line_commission,
+                line.reason.as_deref().unwrap_or("return"),
+                staff_id,
+            )
+            .await?;
+        }
 
         let excludes_loyalty: bool = sqlx::query_scalar(
             r#"

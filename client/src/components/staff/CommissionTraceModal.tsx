@@ -4,17 +4,20 @@ import { Info, CheckCircle, ShieldCheck, X } from "lucide-react";
 import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 
 interface TraceData {
-    transaction_id: string;
-    transaction_line_id: string;
+    event_id: string;
+    transaction_id: string | null;
+    transaction_line_id: string | null;
     salesperson_name: string;
-    role: string;
+    role: string | null;
     line_gross: string;
     base_rate: string;
     applied_rate: string;
     flat_spiff: string;
+    adjustment_amount: string;
     total_commission: string;
     source: string;
     explanation: string;
+    snapshot_json: Record<string, unknown>;
 }
 
 interface CommissionTraceModalProps {
@@ -92,12 +95,14 @@ export default function CommissionTraceModal({ lineId, onClose, authHeaders }: C
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="p-4 bg-app-surface-2 rounded-2xl border border-app-border">
-                                    <p className="text-[9px] font-black text-app-text-muted uppercase mb-1">Base Rate ({trace.role})</p>
+                                    <p className="text-[9px] font-black text-app-text-muted uppercase mb-1">Base Rate ({trace.role ?? "adjustment"})</p>
                                     <p className="text-lg font-black text-app-text">{percent(trace.base_rate)}</p>
                                 </div>
                                 <div className="p-4 bg-app-surface-2 rounded-2xl border border-app-border">
-                                    <p className="text-[9px] font-black text-app-text-muted uppercase mb-1">Fixed Spiff</p>
-                                    <p className="text-lg font-black text-app-text">{money(trace.flat_spiff)}</p>
+                                    <p className="text-[9px] font-black text-app-text-muted uppercase mb-1">Incentive / Adjustment</p>
+                                    <p className="text-lg font-black text-app-text">
+                                        {money(String((parseFloat(trace.flat_spiff || "0") + parseFloat(trace.adjustment_amount || "0")).toFixed(2)))}
+                                    </p>
                                 </div>
                             </div>
 

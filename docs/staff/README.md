@@ -60,7 +60,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Gift Cards & Loyalty (BO) | [gift-cards-loyalty-back-office.md](gift-cards-loyalty-back-office.md) |
 | Staff admin | [staff-administration.md](staff-administration.md) |
 | QBO bridge | [qbo-bridge.md](qbo-bridge.md) |
-| Insights (Metabase) + commission payouts | [insights-back-office.md](insights-back-office.md) |
+| Insights (Metabase) + commission reports | [insights-back-office.md](insights-back-office.md) |
 | Reports (curated library) | [reports-curated-manual.md](reports-curated-manual.md) (staff); [reports-curated-admin.md](reports-curated-admin.md) (admins / policy) |
 | In-app Help: Reports + Insights manuals | [`../../client/src/assets/docs/reports-manual.md`](../../client/src/assets/docs/reports-manual.md), [`../../client/src/assets/docs/insights-manual.md`](../../client/src/assets/docs/insights-manual.md) (Help Center; see [../MANUAL_CREATION.md](../MANUAL_CREATION.md)) |
 | Settings (BO) | [settings-back-office.md](settings-back-office.md) |
@@ -132,7 +132,7 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | QBO bridge | History | [qbo-bridge.md](qbo-bridge.md) |
 | Reports | _(no subsections)_ | [reports-curated-manual.md](reports-curated-manual.md), [reports-curated-admin.md](reports-curated-admin.md) |
 | Insights | _(no subsections; full-screen Metabase)_ | [insights-back-office.md](insights-back-office.md) |
-| Staff | Commission payouts | [insights-back-office.md](insights-back-office.md) |
+| Staff | Commission reports | [insights-back-office.md](insights-back-office.md) |
 | Appointments | Scheduler | [appointments.md](appointments.md) |
 | Appointments | Conflicts | [appointments.md](appointments.md) |
 | Settings | Profile | [settings-back-office.md](settings-back-office.md) |

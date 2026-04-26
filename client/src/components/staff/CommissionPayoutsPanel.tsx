@@ -2,7 +2,6 @@ import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState, Fragment } from "react";
 import { Receipt, Info, ChevronDown, ChevronRight } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
-import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import {
   formatUsdFromCents,
@@ -27,8 +26,10 @@ function money(s: string | number) {
 }
 
 interface CommissionLineRow {
-  transaction_line_id: string;
-  transaction_id: string;
+  event_id: string | null;
+  event_type: string;
+  transaction_line_id: string | null;
+  transaction_id: string | null;
   order_short_id: string;
   booked_at: string;
   product_name: string;
@@ -76,17 +77,17 @@ export default function CommissionPayoutsPanel() {
   );
   const [commissionFrom, setCommissionFrom] = useState("");
   const [commissionTo, setCommissionTo] = useState("");
-  const [commissionSelected, setCommissionSelected] = useState<Set<string>>(
-    () => new Set(),
-  );
-  const [finalizeBusy, setFinalizeBusy] = useState(false);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const [showFinalizeConfirm, setShowFinalizeConfirm] = useState(false);
   const [expandedStaffId, setExpandedStaffId] = useState<string | null>(null);
   const [traceLineId, setTraceLineId] = useState<string | null>(null);
   const [staffRoster, setStaffRoster] = useState<CommissionStaffRow[]>([]);
   const [selectedStaffId, setSelectedStaffId] = useState("");
+  const [adjustStaffId, setAdjustStaffId] = useState("");
+  const [adjustDate, setAdjustDate] = useState("");
+  const [adjustAmount, setAdjustAmount] = useState("");
+  const [adjustNote, setAdjustNote] = useState("");
+  const [adjustBusy, setAdjustBusy] = useState(false);
 
   const commissionRowKey = useCallback((r: CommissionLedgerRow) => {
     return r.staff_id ?? COMMISSION_UNASSIGNED;
@@ -177,25 +178,6 @@ export default function CommissionPayoutsPanel() {
     void loadRoster();
   }, []);
 
-  const toggleCommissionRow = (r: CommissionLedgerRow) => {
-    const k = commissionRowKey(r);
-    setCommissionSelected((prev) => {
-      const n = new Set(prev);
-      if (n.has(k)) n.delete(k);
-      else n.add(k);
-      return n;
-    });
-  };
-
-  const selectedPendingTotal = useMemo(() => {
-    let tCents = 0;
-    for (const r of commissionRows) {
-      if (!commissionSelected.has(commissionRowKey(r))) continue;
-      tCents += parseMoneyToCents(r.realized_pending_payout || "0");
-    }
-    return tCents / 100;
-  }, [commissionRows, commissionSelected, commissionRowKey]);
-
   const filteredRows = useMemo(() => {
     if (!selectedStaffId.trim()) return commissionRows;
     return commissionRows.filter((row) => row.staff_id === selectedStaffId);
@@ -204,64 +186,66 @@ export default function CommissionPayoutsPanel() {
   const selectedStaffName =
     staffRoster.find((row) => row.id === selectedStaffId)?.full_name ?? "Selected staff";
 
-  const finalizeCommissionPayout = useCallback(() => {
-    const staff_ids = [...commissionSelected].filter(
-      (id) => id !== COMMISSION_UNASSIGNED,
-    );
-    const include_unassigned = commissionSelected.has(COMMISSION_UNASSIGNED);
-    if (staff_ids.length === 0 && !include_unassigned) {
-      toast("Select at least one staff row (or Unassigned) to finalize.", "info");
+  const submitManualAdjustment = useCallback(async () => {
+    if (!hasPermission("staff.manage_commission")) {
+      toast("You do not have permission to add commission adjustments.", "error");
       return;
     }
-    setShowFinalizeConfirm(true);
-  }, [commissionSelected, toast]);
-
-  const executeFinalizeCommissionPayout = useCallback(async () => {
-    setShowFinalizeConfirm(false);
-    const staff_ids = [...commissionSelected].filter(
-      (id) => id !== COMMISSION_UNASSIGNED,
-    );
-    const include_unassigned = commissionSelected.has(COMMISSION_UNASSIGNED);
-    setFinalizeBusy(true);
+    const staff_id = adjustStaffId || selectedStaffId;
+    if (!staff_id) {
+      toast("Choose a staff member for the adjustment.", "error");
+      return;
+    }
+    const amount = Number.parseFloat(adjustAmount);
+    if (!Number.isFinite(amount) || amount === 0) {
+      toast("Enter a non-zero adjustment amount.", "error");
+      return;
+    }
+    if (!adjustDate) {
+      toast("Choose a reporting date for the adjustment.", "error");
+      return;
+    }
+    if (adjustNote.trim().length < 3) {
+      toast("Add a note for the adjustment.", "error");
+      return;
+    }
+    setAdjustBusy(true);
     try {
-      const body: Record<string, unknown> = {
-        staff_ids,
-        include_unassigned,
-      };
-      if (commissionFrom.trim()) body.from = commissionFrom.trim();
-      if (commissionTo.trim()) body.to = commissionTo.trim();
-      const res = await fetch(`${baseUrl}/api/insights/commission-finalize`, {
+      const res = await fetch(`${baseUrl}/api/insights/commission-adjustments`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(backofficeHeaders() as Record<string, string>),
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          staff_id,
+          reporting_date: adjustDate,
+          amount,
+          note: adjustNote.trim(),
+        }),
       });
       if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(j.error ?? "Finalize failed");
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not add adjustment");
       }
-      const data = (await res.json()) as { lines_finalized?: number };
-      setCommissionSelected(new Set());
+      setAdjustAmount("");
+      setAdjustNote("");
       await loadCommissions();
-      toast(
-        data.lines_finalized != null
-          ? `Marked ${data.lines_finalized} line(s) as paid out (finalized).`
-          : "Payout finalized.",
-        "success",
-      );
-    } catch (e) {
-      toast(e instanceof Error ? e.message : "Finalize failed", "error");
+      toast("Commission adjustment added.", "success");
+    } catch (error) {
+      toast(error instanceof Error ? error.message : "Could not add adjustment", "error");
     } finally {
-      setFinalizeBusy(false);
+      setAdjustBusy(false);
     }
   }, [
-    commissionSelected,
-    commissionFrom,
-    commissionTo,
-    loadCommissions,
+    adjustAmount,
+    adjustDate,
+    adjustNote,
+    adjustStaffId,
     backofficeHeaders,
+    hasPermission,
+    loadCommissions,
+    selectedStaffId,
     toast,
   ]);
 
@@ -289,11 +273,10 @@ export default function CommissionPayoutsPanel() {
             <Receipt className="mt-0.5 shrink-0 text-app-accent" size={18} />
             <p>
               <span className="font-bold text-app-text">Split-date model:</span>{" "}
-              <em>Unpaid</em> is pipeline on open lines (sale booked in range).{" "}
-              <em>Realized (pending payout)</em> uses the <strong>recognition</strong> window: pickup / takeaway when
+              <em>Booked not fulfilled</em> is pipeline on open lines sold in range.{" "}
+              <em>Earned in period</em> uses the <strong>recognition</strong> window: pickup / takeaway when
               fulfilled, shipped orders when the label ships or shipment moves to in transit / delivered (see Shipments
-              hub). Not yet marked paid out.{" "}
-              <em>Paid out</em> is the same recognition window after you finalize below.
+              hub). This screen is reporting-only; manual payout adjustments move to the Phase 2 ledger.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -301,7 +284,10 @@ export default function CommissionPayoutsPanel() {
               Staff
               <select
                 value={selectedStaffId}
-                onChange={(e) => setSelectedStaffId(e.target.value)}
+                onChange={(e) => {
+                  setSelectedStaffId(e.target.value);
+                  if (e.target.value) setAdjustStaffId(e.target.value);
+                }}
                 className="ui-input px-2 py-1 font-sans text-[11px]"
               >
                 <option value="">All staff</option>
@@ -347,41 +333,64 @@ export default function CommissionPayoutsPanel() {
           {chip(false, "Prior 14 days", () => applyPayoutDayWindow(14, 14))}
           {chip(false, "Prior month payroll", applyPriorMonthWindow)}
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-app-border/80 pt-3">
-          <p className="text-[11px] text-app-text-muted">
-            Selected pending payout:{" "}
-            <span className="font-mono font-bold text-emerald-800">
-              {money(selectedPendingTotal)}
-            </span>
-          </p>
-          <button
-            type="button"
-            disabled={
-              finalizeBusy ||
-              commissionSelected.size === 0 ||
-              selectedPendingTotal <= 0 ||
-              !hasPermission("insights.commission_finalize")
-            }
-            onClick={() => void finalizeCommissionPayout()}
-            className="rounded-xl border border-emerald-700/40 bg-emerald-700 px-5 py-2.5 text-[10px] font-black uppercase tracking-widest text-white shadow-sm hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {finalizeBusy ? "Finalizing…" : "Finalize payout"}
-          </button>
-        </div>
+        {hasPermission("staff.manage_commission") ? (
+          <div className="grid gap-2 border-t border-app-border/80 pt-3 md:grid-cols-[1.2fr_0.8fr_0.8fr_1.8fr_auto]">
+            <select
+              value={adjustStaffId || selectedStaffId}
+              onChange={(e) => setAdjustStaffId(e.target.value)}
+              className="ui-input px-2 py-2 text-[11px]"
+              aria-label="Adjustment staff"
+            >
+              <option value="">Adjustment staff...</option>
+              {staffRoster.map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.full_name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={adjustDate}
+              onChange={(e) => setAdjustDate(e.target.value)}
+              className="ui-input px-2 py-2 text-[11px]"
+              aria-label="Adjustment reporting date"
+            />
+            <input
+              type="number"
+              step="0.01"
+              value={adjustAmount}
+              onChange={(e) => setAdjustAmount(e.target.value)}
+              placeholder="+/- amount"
+              className="ui-input px-2 py-2 text-[11px]"
+              aria-label="Adjustment amount"
+            />
+            <input
+              value={adjustNote}
+              onChange={(e) => setAdjustNote(e.target.value)}
+              placeholder="Adjustment note"
+              className="ui-input px-2 py-2 text-[11px]"
+              aria-label="Adjustment note"
+            />
+            <button
+              type="button"
+              disabled={adjustBusy}
+              onClick={() => void submitManualAdjustment()}
+              className="rounded-xl border border-app-border bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest text-app-text hover:border-app-input-border disabled:opacity-50"
+            >
+              {adjustBusy ? "Adding..." : "Add adjustment"}
+            </button>
+          </div>
+        ) : null}
       </div>
 
       <div className="ui-card min-h-0 min-w-0 flex-1 overflow-x-auto overflow-y-auto overscroll-x-contain">
         <table className="w-full text-left text-sm">
           <thead className="sticky top-0 bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
             <tr>
-              <th className="w-10 px-2 py-3"> </th>
               <th className="px-4 py-3">Staff</th>
-              <th className="px-4 py-3 text-right">Unpaid (sale accrual)</th>
+              <th className="px-4 py-3 text-right">Booked not fulfilled</th>
               <th className="px-4 py-3 text-right text-emerald-900/80">
-                Realized (pending)
-              </th>
-              <th className="px-4 py-3 text-right text-app-text-muted">
-                Paid out
+                Earned in period
               </th>
             </tr>
           </thead>
@@ -389,31 +398,17 @@ export default function CommissionPayoutsPanel() {
             {filteredRows.map((r) => {
               const k = commissionRowKey(r);
               const isExpanded = expandedStaffId === k;
-              const pendCents = parseMoneyToCents(
-                r.realized_pending_payout || "0",
-              );
+              const earnedInPeriod =
+                (parseMoneyToCents(r.realized_pending_payout || "0") +
+                  parseMoneyToCents(r.paid_out_commission || "0")) /
+                100;
               return (
                 <Fragment key={k}>
                   <tr
                     className={`hover:bg-app-accent/10 transition-colors ${
-                      commissionSelected.has(k) ? "bg-app-accent/15" : ""
-                    } ${isExpanded ? "bg-app-surface-2" : ""}`}
+                      isExpanded ? "bg-app-surface-2" : ""
+                    }`}
                   >
-                    <td className="px-2 py-3">
-                      <input
-                        type="checkbox"
-                        checked={commissionSelected.has(k)}
-                        disabled={pendCents <= 0}
-                        onChange={() => toggleCommissionRow(r)}
-                        className="h-4 w-4 rounded border-app-input-border text-app-accent"
-                        title={
-                          pendCents > 0
-                            ? "Include in payout finalization"
-                            : "No pending realized amount"
-                        }
-                        aria-label={`Select ${r.staff_name} for payout`}
-                      />
-                    </td>
                     <td className="px-4 py-3">
                       <button
                         type="button"
@@ -434,15 +429,12 @@ export default function CommissionPayoutsPanel() {
                       {money(r.unpaid_commission)}
                     </td>
                     <td className="px-4 py-3 text-right font-mono text-emerald-800 tabular-nums">
-                      {money(r.realized_pending_payout)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-app-text-muted tabular-nums">
-                      {money(r.paid_out_commission)}
+                      {money(earnedInPeriod)}
                     </td>
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={5} className="bg-app-surface-2/30 p-0">
+                      <td colSpan={3} className="bg-app-surface-2/30 p-0">
                         <div className="border-t border-app-border/30 animate-in fade-in slide-in-from-top-1 duration-200">
                           <CommissionDrillDown
                             staffId={r.staff_id}
@@ -460,7 +452,7 @@ export default function CommissionPayoutsPanel() {
             {!loading && filteredRows.length === 0 ? (
               <tr>
                 <td
-                  colSpan={5}
+                  colSpan={3}
                   className="px-4 py-8 text-center text-app-text-muted"
                 >
                   {selectedStaffId
@@ -483,7 +475,7 @@ export default function CommissionPayoutsPanel() {
               {selectedStaffName}
             </p>
             <p className="mt-1 text-[11px] text-app-text-muted">
-              This staff-level line report still runs even when the payout
+              This staff-level line report still runs even when the commission
               summary table has no visible row for the selected window.
             </p>
           </div>
@@ -494,18 +486,6 @@ export default function CommissionPayoutsPanel() {
             onTrace={(id) => setTraceLineId(id)}
           />
         </div>
-      ) : null}
-
-      {showFinalizeConfirm ? (
-        <ConfirmationModal
-          isOpen={true}
-          title="Finalize Commission Payout?"
-          message={`Finalize payout for ${money(selectedPendingTotal)} in realized (recognition-date) commissions for the selected rows and date window? Matching order lines are locked — attribution correction will no longer change them.`}
-          confirmLabel="Execute Finalization"
-          onConfirm={executeFinalizeCommissionPayout}
-          onClose={() => setShowFinalizeConfirm(false)}
-          variant="danger"
-        />
       ) : null}
 
       {traceLineId && (
@@ -578,9 +558,9 @@ function CommissionDrillDown({
           </tr>
         </thead>
         <tbody className="divide-y divide-app-border/10">
-          {lines.map((ln) => (
+          {lines.map((ln, index) => (
             <tr
-              key={ln.transaction_line_id}
+              key={ln.event_id ?? ln.transaction_line_id ?? `${ln.event_type}-${index}`}
               className="hover:bg-app-accent/5 transaction-colors group"
             >
               <td className="px-3 py-2 text-app-text-muted whitespace-nowrap">
@@ -602,14 +582,20 @@ function CommissionDrillDown({
                 {money(ln.calculated_commission)}
               </td>
               <td className="px-3 py-2 text-center">
-                <button
-                  type="button"
-                  onClick={() => onTrace(ln.transaction_line_id)}
-                  title="View Truth Trace explainer"
-                  className="p-1.5 rounded-lg text-app-accent hover:bg-app-accent hover:text-white transition-all scale-90 group-hover:scale-100"
-                >
-                  <Info size={14} />
-                </button>
+                {ln.event_id ? (
+                  <button
+                    type="button"
+                    onClick={() => onTrace(ln.event_id!)}
+                    title="View Truth Trace explainer"
+                    className="p-1.5 rounded-lg text-app-accent hover:bg-app-accent hover:text-white transition-all scale-90 group-hover:scale-100"
+                  >
+                    <Info size={14} />
+                  </button>
+                ) : (
+                  <span className="text-[9px] font-bold uppercase tracking-widest text-app-text-muted/50">
+                    Pending
+                  </span>
+                )}
               </td>
             </tr>
           ))}

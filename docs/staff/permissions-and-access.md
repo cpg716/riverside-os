@@ -34,13 +34,13 @@ Riverside OS hides **entire tabs** or **subsections** when your role does not in
 | **Settings → ROS Dev Center** | **ops.dev_center.view** |
 | **Appointments** | **weddings.view** (shared with wedding reads) |
 | **Loyalty** (any of Eligible / Adjust / Settings) | **loyalty.program_settings** and/or **loyalty.adjust_points** |
-| **Staff → Commission payouts** (finalize payout runs) | **insights.commission_finalize** |
+| **Staff → Commissions → Reports** | **insights.view** |
 | **Inventory → Physical count** | **physical_inventory.view** |
 | **Staff → Team** (Edit staff → **Access** checklist) | **staff.manage_access** |
 | **Settings → Staff access defaults** | **settings.admin** **or** **staff.manage_access** |
 | **Staff → Tasks** (subsection) | **tasks.complete** (templates may need **tasks.manage**) |
 | **Staff → Team** (Edit staff → **PIN**) | **staff.manage_pins** |
-| **Staff → Commission** | **staff.manage_commission** |
+| **Staff → Commissions → SPIFFs & Combos** | **staff.manage_commission** |
 | **Staff → Audit** | **staff.view_audit** |
 | **POS Alterations** rail item | **alterations.manage** |
 | **Customers → Relationship hub** (open drawer) | **customers.hub_view** |

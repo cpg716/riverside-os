@@ -37,7 +37,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
 **Shortcuts on the page**
 
 - **POS register day and lane reports** — sends you toward **Operations → Daily Sales** (or POS Reports) for lane-focused tools.
-- **Commission finalize and payouts** — sends you to **Staff**; **finalizing** payouts always happens there, not inside a report tile.
+- **Commission reports** — sends you to **Staff** for all-staff or individual staff commission detail.
 
 ---
 
@@ -88,7 +88,7 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 
 ## See also
 
-- **[insights-back-office.md](insights-back-office.md)** — Metabase shell and **commission payouts**
+- **[insights-back-office.md](insights-back-office.md)** — Metabase shell and **commission reports**
 - **[../AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)** — Curated Reports v1 table and API reference
 - **[../REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** — Booked vs recognition
 - **[../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** — RMS charge vs payment

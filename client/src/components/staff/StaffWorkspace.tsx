@@ -345,7 +345,7 @@ export default function StaffWorkspace({
         id: "commission",
         label: "Commissions",
         icon: LayoutGrid,
-        requireAny: ["staff.manage_commission", "insights.commission_finalize"],
+        requireAny: ["staff.manage_commission", "insights.view"],
       },
       { id: "audit", label: "Audit", icon: ClipboardList, perm: "staff.view_audit" },
     ];

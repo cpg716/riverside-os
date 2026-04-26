@@ -4,7 +4,7 @@
 
 **Where in ROS:**
 - **Inventory Workspace** (Product Intelligence Drawer)
-- **Staff -> Commission Payouts** (Truth Trace)
+- **Staff -> Commission Reports** (Truth Trace)
 
 ---
 
@@ -21,18 +21,17 @@ When شما scan an item or select a variant in the **Inventory Workspace**, the
 
 ## 2. Commission Trust Center (Truth Trace)
 
-**Purpose:** Transparency for complex payouts. Answers the question: *"Why did I earn this exact amount?"*
+**Purpose:** Transparency for commission reporting. Answers the question: *"Why did this line report this exact amount?"*
 
 ### The "Truth Trace"
-In the **Commission Payouts** panel, you can click on any pending amount to see a **Truth Trace**. This is a human-readable summary of the rules applied to that sale.
+In the **Commission Reports** panel, you can click **Trace** on a line to see a **Truth Trace**. This is a human-readable summary of the calculation context for that sale.
 
 ### Precedence Rules
-If multiple commission rules conflict, the system follows this order:
-1. **Specific SKU Rule** (Highest - overrides everything)
-2. **Specific Product Rule**
-3. **Category Rule**
-4. **General Category Override**
-5. **Staff Base Rate** (Lowest - the default)
+The intended commission model is staff base rate plus fixed incentive add-ons:
+1. **Staff Base Rate** from the Staff Profile, effective-dated.
+2. **Fixed SPIFF** add-on when configured.
+3. **Combo Incentive** add-on when configured.
+4. **Return / exchange / manual adjustment** events in Phase 2.
 
 ---
 

@@ -2,13 +2,13 @@
 id: insights
 title: "Insights (Metabase)"
 order: 15
-summary: "Metabase analytics in-app, Metabase login, Staff commission payouts, permissions. For the curated Reports library, open the Reports (curated) manual in Help."
-tags: insights, metabase, reports, analytics, commission, payouts
+summary: "Metabase analytics in-app, Metabase login, Staff commission reports, permissions. For the curated Reports library, open the Reports (curated) manual in Help."
+tags: insights, metabase, reports, analytics, commission
 ---
 
 # Insights (Metabase) — staff guide
 
-This guide covers **Insights** (powered by **Metabase**) and **commission payouts** (under **Staff**). For **Back Office → Reports** (curated tiles, basis, CSV, Admin-only margin), open **Help → Reports (curated)**.
+This guide covers **Insights** (powered by **Metabase**) and **commission reports** (under **Staff**). For **Back Office → Reports** (curated tiles, basis, CSV, Admin-only margin), open **Help → Reports (curated)**.
 
 ---
 
@@ -57,19 +57,19 @@ The first time (or after a logout or browser data clear), Metabase may show its 
 
 ---
 
-## Commission payouts (Staff workspace)
+## Commission reports (Staff workspace)
 
-**Finalizing commission payouts** is **not** inside the Metabase iframe. It uses Riverside APIs and lives under **Staff**.
+Commission reporting is **not** inside the Metabase iframe. It uses Riverside APIs and lives under **Staff**.
 
-**Permissions:** You need **both** **insights.view** (ledger) and **insights.commission_finalize** (finalize button). If the subsection is missing, ask an admin.
+**Permissions:** You need **insights.view** to see commission reports. If the subsection is missing, ask an admin.
 
 1. Unlock **Staff** with your staff code if prompted.
-2. Open **Staff** → **Commission payouts**.
-3. Set the **date range** (or use presets), then **Refresh** to load the ledger.
-4. Select rows with **realized (pending)** amounts you are paying out.
-5. Review **Selected pending payout**, then **Finalize payout** and confirm in the modal. This step is **payroll-sensitive** — double-check dates and selections.
+2. Open **Staff** → **Commissions** → **Reports**.
+3. Set the **date range** (or use presets), then **Refresh** to load the report.
+4. Pick a staff member for individual drilldown, or leave staff blank for all-staff reporting.
+5. Expand a staff row and use **Trace** when you need line-level calculation context.
 
-**Category commission rates** (percent per category) are separate: **Staff** → **Commission** (**staff.manage_commission**). That screen does not finalize payroll; it sets rules.
+Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions** → **SPIFFs & Combos**. Staff base commission rates are set on each Staff Profile.
 
 ---
 
@@ -80,8 +80,7 @@ The first time (or after a logout or browser data clear), Metabase may show its 
 | Blank or gray iframe | Metabase service may be down, or the store proxy is off — contact IT. |
 | Metabase login loop or broken links | **Site URL** in Metabase admin must match how staff open the store (including **`/metabase`** if you use that path). |
 | 404 or “proxy disabled” | Server ops may have turned off the Metabase upstream — see **DEVELOPER.md** (Metabase section). |
-| Cannot see **Commission payouts** | You need **insights.view** and **insights.commission_finalize**. |
-| Cannot finalize | Confirm row selection and pending amount; confirm permission **insights.commission_finalize**. |
+| Cannot see **Commission reports** | You need **insights.view**. |
 
 ---
 
@@ -96,6 +95,6 @@ The first time (or after a logout or browser data clear), Metabase may show its 
 ## See also
 
 - **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`** — architecture, proxy, Phase 2 reporting views (planned).
-- **`docs/STAFF_PERMISSIONS.md`** — **insights.view**, **insights.commission_finalize**.
+- **`docs/STAFF_PERMISSIONS.md`** — **insights.view**, **staff.manage_commission**.
 - **`docs/AI_REPORTING_DATA_CATALOG.md`** — API catalog for **`/api/insights/*`** (operational reads; not a substitute for Metabase exploration).
 - **Staff guide (longer):** **`docs/staff/insights-back-office.md`**

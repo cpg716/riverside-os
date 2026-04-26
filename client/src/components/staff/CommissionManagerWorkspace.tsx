@@ -27,15 +27,9 @@ const DNA = {
   heading: "text-[10px] font-black uppercase tracking-widest text-app-text-muted",
 };
 
-type TabId = "payouts" | "rates" | "promos";
+type TabId = "payouts" | "promos";
 
 type MatchType = "category" | "product" | "variant";
-
-interface CategoryCommissionRow {
-  category_id: string;
-  category_name: string;
-  commission_rate: string | number;
-}
 
 interface CommissionRule {
   id: string;
@@ -71,37 +65,20 @@ interface RuleDraft {
   label: string;
   match_type: MatchType;
   match_id: string;
-  override_rate: string;
   fixed_spiff_amount: string;
   is_active: boolean;
 }
 
-/** Commission rate stored as 0–1 decimal → percent label for the grid (not currency). */
-function pctFromDecimal(d: string | number): string {
-  const v = typeof d === "number" ? d : Number.parseFloat(String(d));
-  if (!Number.isFinite(v)) return "0";
-  return (v * 100).toFixed(2);
-}
-
-/** Cashier-entered percent string → 0–1 decimal for PATCH payloads (not currency). */
-function decimalFromPctInput(s: string): number | null {
-  const t = s.trim().replace(/%/g, "");
-  const v = Number.parseFloat(t);
-  if (!Number.isFinite(v) || v < 0 || v > 100) return null;
-  return v / 100;
-}
-
 export default function CommissionManagerWorkspace() {
   const { hasPermission } = useBackofficeAuth();
-  const canViewPayouts =
-    hasPermission("insights.view") && hasPermission("insights.commission_finalize");
+  const canViewReports = hasPermission("insights.view");
   const canManageCommission = hasPermission("staff.manage_commission");
   const availableTabs = useMemo(
     () => [
-      ...(canViewPayouts ? (["payouts"] as TabId[]) : []),
-      ...(canManageCommission ? (["rates", "promos"] as TabId[]) : []),
+      ...(canViewReports ? (["payouts"] as TabId[]) : []),
+      ...(canManageCommission ? (["promos"] as TabId[]) : []),
     ],
-    [canManageCommission, canViewPayouts],
+    [canManageCommission, canViewReports],
   );
   const [activeTab, setActiveTab] = useState<TabId>(availableTabs[0] ?? "payouts");
 
@@ -128,26 +105,18 @@ export default function CommissionManagerWorkspace() {
               Commissions
             </h1>
             <p className="mt-0.5 text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
-              Payouts, rates, and incentives
+              Reports, SPIFFs, and combo incentives
             </p>
           </div>
         </div>
 
         <nav className="flex items-center gap-1 rounded-full border border-app-border bg-app-surface-2 p-1">
-          {canViewPayouts ? (
+          {canViewReports ? (
             <TabButton
               active={activeTab === "payouts"}
               onClick={() => setActiveTab("payouts")}
               icon={<Receipt size={14} />}
-              label="Payouts"
-            />
-          ) : null}
-          {canManageCommission ? (
-            <TabButton
-              active={activeTab === "rates"}
-              onClick={() => setActiveTab("rates")}
-              icon={<Percent size={14} />}
-              label="Rates"
+              label="Reports"
             />
           ) : null}
           {canManageCommission ? (
@@ -155,7 +124,7 @@ export default function CommissionManagerWorkspace() {
               active={activeTab === "promos"}
               onClick={() => setActiveTab("promos")}
               icon={<Zap size={14} />}
-              label="Rules & SPIFFs"
+              label="SPIFFs & Combos"
             />
           ) : null}
         </nav>
@@ -169,8 +138,6 @@ export default function CommissionManagerWorkspace() {
             </div>
           </div>
         )}
-
-        {activeTab === "rates" && <CommissionRatesSection />}
 
         {activeTab === "promos" && <PromoManagerSection />}
       </main>
@@ -236,10 +203,13 @@ function PromoManagerSection() {
         }),
       ]);
 
-      if (rRes.ok) setRules((await rRes.json()) as CommissionRule[]);
+      if (rRes.ok) {
+        const rows = (await rRes.json()) as CommissionRule[];
+        setRules(rows.filter((row) => Number.parseFloat(row.fixed_spiff_amount) > 0));
+      }
       if (cRes.ok) setCombos((await cRes.json()) as ComboRule[]);
     } catch {
-      toast("Failed to load promo rules", "error");
+      toast("Failed to load SPIFF incentives", "error");
     } finally {
       setLoading(false);
     }
@@ -260,11 +230,11 @@ function PromoManagerSection() {
         headers: backofficeHeaders(),
       });
       if (!res.ok) throw new Error("Delete failed");
-      toast("Rule deleted", "success");
+      toast(deleteTarget.isCombo ? "Combo deleted" : "SPIFF deleted", "success");
       setDeleteTarget(null);
       await loadAll();
     } catch {
-      toast("Failed to delete rule", "error");
+      toast("Failed to delete incentive", "error");
     }
   };
 
@@ -272,7 +242,7 @@ function PromoManagerSection() {
     <div className="grid h-full grid-cols-12 gap-6 overflow-hidden">
       <div className="col-span-8 flex flex-col gap-4 overflow-hidden">
         <div className="flex items-center justify-between">
-          <h2 className={DNA.heading}>Active SPIFF Rules</h2>
+          <h2 className={DNA.heading}>Active SPIFF Incentives</h2>
           <button
             type="button"
             onClick={() => {
@@ -282,7 +252,7 @@ function PromoManagerSection() {
             className="flex items-center gap-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-black uppercase tracking-widest text-emerald-500 shadow-lg shadow-emerald-500/5 transition-all active:scale-95 hover:bg-emerald-500/20"
           >
             <Plus size={14} />
-            Create Rule
+            Create SPIFF
           </button>
         </div>
 
@@ -291,7 +261,7 @@ function PromoManagerSection() {
             <thead className={`sticky top-0 ${DNA.bg} ${DNA.heading}`}>
               <tr>
                 <th className="px-6 py-4">Description</th>
-                <th className="px-4 py-4 text-center">Specificity</th>
+                <th className="px-4 py-4 text-center">Target</th>
                 <th className="px-4 py-4 text-right text-emerald-500">
                   Incentive
                 </th>
@@ -315,7 +285,7 @@ function PromoManagerSection() {
                     colSpan={5}
                     className="px-6 py-12 text-center text-[10px] font-black uppercase tracking-widest text-slate-500 opacity-20"
                   >
-                    No active SPIFF rules
+                    No active SPIFF incentives
                   </td>
                 </tr>
               ) : (
@@ -338,22 +308,8 @@ function PromoManagerSection() {
                       </span>
                     </td>
                     <td className="px-4 py-4 text-right">
-                      {rule.override_rate && (
-                        <div className="text-[9px] font-bold text-emerald-400/30 line-through">
-                          Standard %
-                        </div>
-                      )}
                       <div className="whitespace-nowrap font-mono text-md font-black text-emerald-400">
-                        {rule.override_rate
-                          ? `${(parseFloat(rule.override_rate) * 100).toFixed(0)}%`
-                          : ""}
-                        {rule.override_rate &&
-                        parseFloat(rule.fixed_spiff_amount) > 0
-                          ? " + "
-                          : ""}
-                        {parseFloat(rule.fixed_spiff_amount) > 0
-                          ? `$${parseFloat(rule.fixed_spiff_amount).toFixed(2)}`
-                          : ""}
+                        +${parseFloat(rule.fixed_spiff_amount).toFixed(2)}
                       </div>
                     </td>
                     <td className="px-4 py-4">
@@ -495,7 +451,7 @@ function PromoManagerSection() {
 
       <ConfirmationModal
         isOpen={deleteTarget != null}
-        title="Delete rule?"
+        title="Delete incentive?"
         message="This action cannot be undone."
         confirmLabel="Delete"
         variant="danger"
@@ -503,153 +459,6 @@ function PromoManagerSection() {
         onClose={() => setDeleteTarget(null)}
       />
     </div>
-  );
-}
-
-function CommissionRatesSection() {
-  const { toast } = useToast();
-  const { backofficeHeaders } = useBackofficeAuth();
-  const [rows, setRows] = useState<CategoryCommissionRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [busyCategoryId, setBusyCategoryId] = useState<string | null>(null);
-
-  const loadRows = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`${baseUrl}/api/staff/admin/category-commissions`, {
-        headers: backofficeHeaders(),
-      });
-      if (!res.ok) throw new Error("Could not load category rates");
-      const data = (await res.json()) as CategoryCommissionRow[];
-      setRows(Array.isArray(data) ? data : []);
-    } catch {
-      setRows([]);
-      toast("Failed to load category commission rates", "error");
-    } finally {
-      setLoading(false);
-    }
-  }, [backofficeHeaders, toast]);
-
-  useEffect(() => {
-    void loadRows();
-  }, [loadRows]);
-
-  const saveRate = useCallback(
-    async (categoryId: string, pctStr: string) => {
-      const rate = decimalFromPctInput(pctStr);
-      if (rate === null) {
-        toast("Enter a commission rate between 0% and 100%.", "error");
-        return;
-      }
-      setBusyCategoryId(categoryId);
-      try {
-        const res = await fetch(
-          `${baseUrl}/api/staff/admin/category-commissions/${encodeURIComponent(categoryId)}`,
-          {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json", ...backofficeHeaders() },
-            body: JSON.stringify({ commission_rate: rate }),
-          },
-        );
-        if (!res.ok) {
-          const body = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(body.error ?? "Could not save category commission rate");
-        }
-        toast("Category commission rate saved.", "success");
-        await loadRows();
-      } catch (error) {
-        toast(error instanceof Error ? error.message : "Could not save category commission rate", "error");
-      } finally {
-        setBusyCategoryId(null);
-      }
-    },
-    [backofficeHeaders, loadRows, toast],
-  );
-
-  return (
-    <section className="flex h-full flex-col gap-4 overflow-hidden">
-      <div className="rounded-2xl border border-app-border bg-app-surface px-4 py-3">
-        <p className="text-sm text-app-text-muted">
-          Category overrides apply to commission-eligible staff when a sale line maps to that category.
-          Commission remains fulfillment-based, and Sales Support continues to earn no commission.
-        </p>
-      </div>
-      <div className="flex-1 overflow-auto rounded-2xl border border-app-border bg-app-surface">
-        <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 border-b border-app-border bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            <tr>
-              <th className="px-4 py-3">Category</th>
-              <th className="px-4 py-3">Override %</th>
-              <th className="px-4 py-3 text-right">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={3} className="px-4 py-12 text-center text-app-text-muted">
-                  Loading category rates…
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={3} className="px-4 py-12 text-center text-app-text-muted">
-                  No category overrides configured.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <CategoryRateRow
-                  key={row.category_id}
-                  row={row}
-                  disabled={busyCategoryId === row.category_id}
-                  onSave={(pct) => void saveRate(row.category_id, pct)}
-                />
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </section>
-  );
-}
-
-function CategoryRateRow({
-  row,
-  disabled,
-  onSave,
-}: {
-  row: CategoryCommissionRow;
-  disabled: boolean;
-  onSave: (pct: string) => void;
-}) {
-  const [local, setLocal] = useState(pctFromDecimal(row.commission_rate));
-
-  useEffect(() => {
-    setLocal(pctFromDecimal(row.commission_rate));
-  }, [row.commission_rate]);
-
-  return (
-    <tr className="border-b border-app-border/50">
-      <td className="px-4 py-3 font-semibold text-app-text">{row.category_name}</td>
-      <td className="px-4 py-3">
-        <input
-          value={local}
-          onChange={(e) => setLocal(e.target.value)}
-          disabled={disabled}
-          className="ui-input w-24 py-1.5 font-mono text-sm"
-        />
-      </td>
-      <td className="px-4 py-3 text-right">
-        <button
-          type="button"
-          disabled={disabled}
-          onClick={() => onSave(local)}
-          className="ui-btn-primary px-3 py-1.5 disabled:opacity-50"
-        >
-          Apply
-        </button>
-      </td>
-    </tr>
   );
 }
 
@@ -673,9 +482,6 @@ function RuleEditorModal({
     label: rule?.label || "",
     match_type: rule?.match_type || "category",
     match_id: rule?.match_id || "",
-    override_rate: rule?.override_rate
-      ? (parseFloat(rule.override_rate) * 100).toFixed(0).toString()
-      : "",
     fixed_spiff_amount: rule?.fixed_spiff_amount
       ? parseFloat(rule.fixed_spiff_amount).toString()
       : "0",
@@ -704,14 +510,16 @@ function RuleEditorModal({
       toast("Label required", "error");
       return;
     }
+    if ((parseFloat(formData.fixed_spiff_amount) || 0) <= 0) {
+      toast("SPIFF amount must be greater than $0.00.", "error");
+      return;
+    }
 
     setLoading(true);
     try {
       const body = {
         ...formData,
-        override_rate: formData.override_rate
-          ? (parseFloat(formData.override_rate) / 100).toString()
-          : null,
+        override_rate: null,
         fixed_spiff_amount: parseFloat(formData.fixed_spiff_amount) || 0,
       };
 
@@ -725,10 +533,10 @@ function RuleEditorModal({
       });
 
       if (!res.ok) throw new Error("Save failed");
-      toast("Rule saved", "success");
+      toast("SPIFF saved", "success");
       onSaved();
     } catch {
-      toast("Failed to save rule", "error");
+      toast("Failed to save SPIFF", "error");
     } finally {
       setLoading(false);
     }
@@ -740,10 +548,10 @@ function RuleEditorModal({
         <div className="mb-8 flex items-center justify-between">
           <div>
             <h3 className="line-height-tight text-lg font-black uppercase tracking-tight text-app-text">
-              {rule ? "Edit Rule" : "Create SPIFF Rule"}
+              {rule ? "Edit SPIFF" : "Create SPIFF"}
             </h3>
             <p className="mt-1 font-mono text-[10px] font-bold uppercase tracking-widest text-emerald-500/60">
-              SPECIFICITY OVERRIDE ENGINE
+              FIXED INCENTIVE ADD-ON
             </p>
           </div>
           <button
@@ -775,7 +583,7 @@ function RuleEditorModal({
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1.5">
               <label htmlFor="rule-match-type" className={DNA.heading}>
-                Specificity
+                Target type
               </label>
               <select
                 id="rule-match-type"
@@ -798,12 +606,8 @@ function RuleEditorModal({
                 }}
               >
                 <option value="category">Category</option>
-                <option value="product" disabled>
-                  Product (Coming)
-                </option>
-                <option value="variant" disabled>
-                  Variant (Coming)
-                </option>
+                <option value="product" disabled>Product (Phase 2)</option>
+                <option value="variant" disabled>Variant (Phase 2)</option>
               </select>
             </div>
 
@@ -836,29 +640,7 @@ function RuleEditorModal({
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label htmlFor="rule-rate" className={DNA.heading}>
-                Commission Rate %
-              </label>
-              <div className="relative">
-                <input
-                  id="rule-rate"
-                  name="override_rate"
-                  type="number"
-                  className="w-full rounded-xl border-app-border bg-app-surface py-3 pl-4 pr-10 font-mono text-sm font-black tabular-nums text-emerald-600 dark:text-emerald-400 ui-input"
-                  placeholder="Override"
-                  value={formData.override_rate}
-                  onChange={(e) =>
-                    setFormData({ ...formData, override_rate: e.target.value })
-                  }
-                />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2 font-bold text-slate-600">
-                  %
-                </div>
-              </div>
-            </div>
-
+          <div className="grid grid-cols-1 gap-4">
             <div className="space-y-1.5">
               <label htmlFor="rule-spiff" className={DNA.heading}>
                 Fixed SPIFF ($)
@@ -909,7 +691,7 @@ function RuleEditorModal({
             onClick={() => void save()}
             className="flex-1 rounded-2xl bg-emerald-500 py-4 text-[10px] font-black uppercase tracking-widest text-slate-950 shadow-xl shadow-emerald-500/20 transition-all active:scale-95 hover:bg-emerald-400 disabled:opacity-50"
           >
-            {loading ? "Syncing Rule..." : rule ? "Update Rule" : "Create Rule"}
+            {loading ? "Saving SPIFF..." : rule ? "Update SPIFF" : "Create SPIFF"}
           </button>
           <button
             type="button"

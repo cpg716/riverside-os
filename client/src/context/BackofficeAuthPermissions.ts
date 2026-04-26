@@ -40,14 +40,14 @@ export const SIDEBAR_SUB_SECTION_PERMISSION: Record<string, string> = {
 
 /** Subsection requires every listed permission (AND). */
 export const SIDEBAR_SUB_SECTION_PERMISSIONS_ALL: Record<string, string[]> = {
-  "staff:commission-payouts": ["insights.view", "insights.commission_finalize"],
+  "staff:commission-payouts": ["insights.view"],
 };
 
 /** Subsection visible if any listed permission is held (OR). */
 export const SIDEBAR_SUB_SECTION_PERMISSIONS_ANY: Record<string, string[]> = {
   "staff:commission": [
     "staff.manage_commission",
-    "insights.commission_finalize",
+    "insights.view",
   ],
   "settings:staff-access-defaults": ["settings.admin", "staff.manage_access"],
   "customers:rms-charge": [

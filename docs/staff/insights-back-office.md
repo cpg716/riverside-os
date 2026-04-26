@@ -1,4 +1,4 @@
-# Insights (Metabase) and commission payouts
+# Insights (Metabase) and commission reports
 
 **Audience:** Owners, managers, accountants, and anyone with reporting or payout permissions.
 
@@ -6,14 +6,14 @@
 
 - **Back Office → Reports** — **curated** read-only reports (sales and margin pivots, register exports, tax audit, wedding health, best sellers, and more) backed by **`/api/insights/*`**. Same tab uses **`insights.view`**; **Margin pivot** is **Admin role only**. Use **Open Insights (Metabase)** in this workspace for deep exploration. **Staff manual:** **[reports-curated-manual.md](reports-curated-manual.md)**. **Admin / store policy:** **[reports-curated-admin.md](reports-curated-admin.md)**.
 - **Back Office → Insights** — opens the **Insights shell**: thin Riverside header plus a **full-page Metabase** iframe (same site, path **`/metabase/`** behind the scenes). There are **no** Insights subsections in the sidebar.
-- **Back Office → Staff → Commissions → Payouts** — **commission ledger** and **finalize payout** (Riverside UI, not Metabase).
+- **Back Office → Staff → Commissions → Reports** — commission reporting by period and staff member (Riverside UI, not Metabase).
 
 **Related permissions**
 
 - **Reports tab:** **insights.view** (plus **Admin** for margin pivot)
 - **Insights tab:** **insights.view**
-- **Staff → Commissions → Payouts:** **insights.view** **and** **insights.commission_finalize**
-- **Staff → Commissions → Rates / Rules & SPIFFs:** **staff.manage_commission**
+- **Staff → Commissions → Reports:** **insights.view**
+- **Staff → Commissions → SPIFFs & Combos:** **staff.manage_commission**
 
 **In-app Help:** open **Help** in the header — **Reports (curated)** (`reports-manual.md`) and **Insights (Metabase)** (`insights-manual.md`).
 
@@ -48,24 +48,22 @@ Give **staff-class** Metabase credentials to floor teams; reserve **admin-class*
 
 ---
 
-## Commissions → Payouts (Staff workspace)
+## Commissions → Reports (Staff workspace)
 
-**Purpose:** **Finalize** realized commission for selected staff (and optional **unassigned** lines) for a date window. This is **payroll-sensitive**.
+**Purpose:** Review commission reporting for all staff or one selected staff member over a day, week, month, year, or custom window. This is reporting-sensitive and is the owner/accounting view used for monthly review.
 
-1. **Staff** → **Commissions** → **Payouts** (unlock **Staff** with your code if prompted).
+1. **Staff** → **Commissions** → **Reports** (unlock **Staff** with your code if prompted).
 2. Set **From** / **To** (or use **Last 14 days**, **Prior 14 days**, or **Prior month payroll**), then **Refresh**.
 3. Optional: pick a **Staff** member to run a staff-level report even if the summary ledger is empty.
-4. Review **Realized (pending)** amounts for the recognition window. Riverside uses **fulfillment / pickup / shipping recognition**, not booking, for payout timing.
-5. Select rows you are paying, confirm **Selected pending payout**, then **Finalize payout** and complete the confirmation modal.
+4. Review **Booked not fulfilled** for pipeline and **Earned in period** for commission earned in the selected recognition window. Riverside uses **fulfillment / pickup / shipping recognition**, not booking, for earned commission timing.
 
 ### Effective-dated commission changes
 
 - Staff base commission changes now require a **start date**.
-- Riverside can reconcile **eligible unfinalized** commission lines from that date.
-- Finalized payouts stay locked.
-- Salesperson attribution changes continue to recalculate immediately for eligible unfinalized lines.
+- Riverside uses the effective staff rate from that date forward.
+- Phase 2 will snapshot this rate into immutable commission events.
 
-**Category commission rates** (per product category) are edited under **Staff** → **Commissions** → **Rates** — not here.
+**Category commission rate overrides are retired from the staff-facing workflow.** Base rates live on Staff Profile. Fixed SPIFF and combo incentives are managed under **Staff** → **Commissions** → **SPIFFs & Combos**.
 
 ---
 
@@ -82,14 +80,13 @@ Operational **RMS charge** and **RMS payment** lines are listed under **Customer
 | Blank iframe | Metabase or proxy not running | IT / **DEVELOPER.md** Metabase section |
 | Metabase login loop | **Site URL** in Metabase admin must match how you open the store | IT |
 | No **Insights** tab | Missing **insights.view** | Admin / **STAFF_PERMISSIONS.md** |
-| No **Payouts** tab inside **Commissions** | Need **insights.view** and **insights.commission_finalize** | Admin |
-| Cannot finalize | Nothing selected or zero pending; or missing finalize permission | Owner |
+| No **Reports** tab inside **Commissions** | Need **insights.view** | Admin |
 
 ---
 
 ## When to get a manager
 
-- **Payroll** disputes after finalize.
+- Payroll questions after monthly review.
 - Suspected **fraud** or returns affecting commission.
 
 ---

@@ -1279,6 +1279,12 @@ async fn mark_transaction_pickup(
         &body.delivered_item_ids,
     )
     .await?;
+    crate::logic::commission_events::upsert_fulfilled_transaction_events(
+        &mut tx,
+        transaction_id,
+        &body.delivered_item_ids,
+    )
+    .await?;
 
     // For Special/Custom transactions: the item physically arrives from the vendor and goes
     // into reserved_stock. At pickup, the item leaves the store, so we decrement both

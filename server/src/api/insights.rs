@@ -20,8 +20,11 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::api::AppState;
-use crate::auth::permissions::{INSIGHTS_COMMISSION_FINALIZE, INSIGHTS_VIEW, REGISTER_REPORTS};
+use crate::auth::permissions::{
+    INSIGHTS_COMMISSION_FINALIZE, INSIGHTS_VIEW, REGISTER_REPORTS, STAFF_MANAGE_COMMISSION,
+};
 use crate::auth::pins::log_staff_access;
+use crate::logic::commission_events::ManualCommissionAdjustment;
 use crate::logic::commission_payout::finalize_realized_commissions;
 use crate::logic::insights_config::StoreInsightsConfig;
 use crate::logic::inventory_velocity;
@@ -574,77 +577,55 @@ async fn commission_ledger(
         })?;
 
     let (start, end) = range_bounds(&q);
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
-    let rows = sqlx::query_as::<_, CommissionLedgerRow>(&format!(
+    let rows = sqlx::query_as::<_, CommissionLedgerRow>(
         r#"
-        SELECT
+        WITH pipeline AS (
+          SELECT
             st.id AS staff_id,
             COALESCE(st.full_name, 'Unassigned') AS staff_name,
             COALESCE(
-                SUM(oi.calculated_commission) FILTER (
-                    WHERE NOT oi.is_fulfilled
-                      AND o.booked_at >= $1
-                      AND o.booked_at < $2
-                ),
-                0
+              SUM(oi.calculated_commission) FILTER (
+                WHERE NOT oi.is_fulfilled
+                  AND o.booked_at >= $1
+                  AND o.booked_at < $2
+              ), 0
             )::numeric(14, 2) AS unpaid_commission,
-            COALESCE(
-                SUM(oi.calculated_commission) FILTER (
-                    WHERE oi.is_fulfilled
-                      AND ({rec}) IS NOT NULL
-                      AND ({rec}) >= $1
-                      AND ({rec}) < $2
-                      AND oi.commission_payout_finalized_at IS NULL
-                ),
-                0
-            )::numeric(14, 2) AS realized_pending_payout,
-            COALESCE(
-                SUM(oi.calculated_commission) FILTER (
-                    WHERE oi.is_fulfilled
-                      AND ({rec}) IS NOT NULL
-                      AND ({rec}) >= $1
-                      AND ({rec}) < $2
-                      AND oi.commission_payout_finalized_at IS NOT NULL
-                ),
-                0
-            )::numeric(14, 2) AS paid_out_commission
-        FROM transaction_lines oi
-        INNER JOIN transactions o ON o.id = oi.transaction_id
-        LEFT JOIN staff st ON st.id = oi.salesperson_id
-        WHERE o.status::text NOT IN ('cancelled')
-        GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
-        HAVING
-            COALESCE(
-                SUM(oi.calculated_commission) FILTER (
-                    WHERE NOT oi.is_fulfilled
-                      AND o.booked_at >= $1
-                      AND o.booked_at < $2
-                ),
-                0
-            ) != 0
-            OR COALESCE(
-                SUM(oi.calculated_commission) FILTER (
-                    WHERE oi.is_fulfilled
-                      AND ({rec}) IS NOT NULL
-                      AND ({rec}) >= $1
-                      AND ({rec}) < $2
-                      AND oi.commission_payout_finalized_at IS NULL
-                ),
-                0
-            ) != 0
-            OR COALESCE(
-                SUM(oi.calculated_commission) FILTER (
-                    WHERE oi.is_fulfilled
-                      AND ({rec}) IS NOT NULL
-                      AND ({rec}) >= $1
-                      AND ({rec}) < $2
-                      AND oi.commission_payout_finalized_at IS NOT NULL
-                ),
-                0
-            ) != 0
+            0::numeric(14, 2) AS realized_pending_payout,
+            0::numeric(14, 2) AS paid_out_commission
+          FROM transaction_lines oi
+          INNER JOIN transactions o ON o.id = oi.transaction_id
+          LEFT JOIN staff st ON st.id = oi.salesperson_id
+          WHERE o.status::text NOT IN ('cancelled')
+          GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
+        ),
+        earned AS (
+          SELECT
+            st.id AS staff_id,
+            COALESCE(st.full_name, 'Unassigned') AS staff_name,
+            0::numeric(14, 2) AS unpaid_commission,
+            COALESCE(SUM(ce.total_commission_amount), 0)::numeric(14, 2) AS realized_pending_payout,
+            0::numeric(14, 2) AS paid_out_commission
+          FROM commission_events ce
+          LEFT JOIN staff st ON st.id = ce.staff_id
+          WHERE ce.event_at >= $1 AND ce.event_at < $2
+          GROUP BY st.id, COALESCE(st.full_name, 'Unassigned')
+        )
+        SELECT
+          staff_id,
+          staff_name,
+          SUM(unpaid_commission)::numeric(14, 2) AS unpaid_commission,
+          SUM(realized_pending_payout)::numeric(14, 2) AS realized_pending_payout,
+          SUM(paid_out_commission)::numeric(14, 2) AS paid_out_commission
+        FROM (
+          SELECT * FROM pipeline
+          UNION ALL
+          SELECT * FROM earned
+        ) x
+        GROUP BY staff_id, staff_name
+        HAVING SUM(unpaid_commission) <> 0 OR SUM(realized_pending_payout) <> 0
         ORDER BY realized_pending_payout DESC, unpaid_commission DESC
         "#,
-    ))
+    )
     .bind(start)
     .bind(end)
     .fetch_all(&state.db)
@@ -655,8 +636,10 @@ async fn commission_ledger(
 
 #[derive(Debug, Serialize, FromRow)]
 pub struct CommissionLineRow {
-    pub transaction_line_id: Uuid,
-    pub transaction_id: Uuid,
+    pub event_id: Option<Uuid>,
+    pub event_type: String,
+    pub transaction_line_id: Option<Uuid>,
+    pub transaction_id: Option<Uuid>,
     pub order_short_id: String,
     pub booked_at: DateTime<Utc>,
     pub product_name: String,
@@ -695,11 +678,39 @@ async fn commission_lines(
         })?;
 
     let (start, end) = range_bounds(&q.range);
-    let rec = ORDER_RECOGNITION_TS_SQL.trim();
-
-    let rows = sqlx::query_as::<_, CommissionLineRow>(&format!(
+    let rows = sqlx::query_as::<_, CommissionLineRow>(
         r#"
-        SELECT
+        WITH event_rows AS (
+          SELECT
+            ce.id AS event_id,
+            ce.event_type,
+            ce.transaction_line_id,
+            ce.transaction_id,
+            COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8), 'ADJ-' || left(ce.id::text, 8)) AS order_short_id,
+            ce.event_at AS booked_at,
+            COALESCE(p.name, ce.snapshot_json->>'product_name', 'Manual adjustment') AS product_name,
+            0::numeric(14, 2) AS unit_price,
+            1::numeric(14, 2) AS quantity,
+            ce.commissionable_amount AS line_gross,
+            ce.total_commission_amount AS calculated_commission,
+            TRUE AS is_fulfilled,
+            ce.event_at AS fulfilled_at,
+            FALSE AS is_finalized
+          FROM commission_events ce
+          LEFT JOIN transaction_lines oi ON oi.id = ce.transaction_line_id
+          LEFT JOIN transactions o ON o.id = ce.transaction_id
+          LEFT JOIN products p ON p.id = oi.product_id
+          WHERE (
+              (ce.staff_id = $1)
+              OR ($1 IS NULL AND ce.staff_id IS NULL)
+          )
+            AND ce.event_at >= $2
+            AND ce.event_at < $3
+        ),
+        pipeline_rows AS (
+          SELECT
+            NULL::uuid AS event_id,
+            'booked_not_fulfilled'::text AS event_type,
             oi.id AS transaction_line_id,
             o.id AS transaction_id,
             COALESCE(o.short_id, 'TXN-' || left(o.id::text, 8)) AS order_short_id,
@@ -710,26 +721,26 @@ async fn commission_lines(
             (oi.unit_price * oi.quantity)::numeric(14, 2) AS line_gross,
             oi.calculated_commission::numeric(14, 2) AS calculated_commission,
             oi.is_fulfilled,
-            ({rec}) AS fulfilled_at,
+            oi.fulfilled_at,
             oi.commission_payout_finalized_at IS NOT NULL AS is_finalized
-        FROM transaction_lines oi
-        INNER JOIN transactions o ON o.id = oi.transaction_id
-        INNER JOIN products p ON p.id = oi.product_id
-        WHERE o.status::text NOT IN ('cancelled')
-          AND (
+          FROM transaction_lines oi
+          INNER JOIN transactions o ON o.id = oi.transaction_id
+          INNER JOIN products p ON p.id = oi.product_id
+          WHERE o.status::text NOT IN ('cancelled')
+            AND oi.is_fulfilled = FALSE
+            AND (
             (oi.salesperson_id = $1)
             OR ($1 IS NULL AND oi.salesperson_id IS NULL)
-          )
-          AND (
-              -- Case 1: Pipeline (booked in range)
-              (o.booked_at >= $2 AND o.booked_at < $3)
-              OR
-              -- Case 2: Recognition (fulfilled in range)
-              (({rec}) IS NOT NULL AND ({rec}) >= $2 AND ({rec}) < $3)
-          )
-        ORDER BY o.booked_at DESC
-        "#
-    ))
+            )
+            AND o.booked_at >= $2
+            AND o.booked_at < $3
+        )
+        SELECT * FROM event_rows
+        UNION ALL
+        SELECT * FROM pipeline_rows
+        ORDER BY booked_at DESC
+        "#,
+    )
     .bind(q.staff_id)
     .bind(start)
     .bind(end)
@@ -747,6 +758,75 @@ pub struct CommissionFinalizeRequest {
     pub include_unassigned: bool,
     #[serde(flatten)]
     pub range: DateRangeQuery,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CommissionAdjustmentRequest {
+    pub staff_id: Uuid,
+    pub reporting_date: NaiveDate,
+    pub amount: Decimal,
+    pub note: String,
+}
+
+async fn commission_adjustment(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<CommissionAdjustmentRequest>,
+) -> Result<Json<serde_json::Value>, InsightsError> {
+    let admin = require_staff_with_permission(&state, &headers, STAFF_MANAGE_COMMISSION)
+        .await
+        .map_err(|(s, _)| {
+            if s == StatusCode::FORBIDDEN {
+                InsightsError::Forbidden("staff.manage_commission permission required".to_string())
+            } else {
+                InsightsError::Unauthorized(
+                    "staff credentials required (x-riverside-staff-code and PIN if set)"
+                        .to_string(),
+                )
+            }
+        })?;
+
+    if body.amount == Decimal::ZERO {
+        return Err(InsightsError::BadRequest(
+            "adjustment amount must be non-zero".to_string(),
+        ));
+    }
+    let note = body.note.trim();
+    if note.len() < 3 {
+        return Err(InsightsError::BadRequest(
+            "adjustment note is required".to_string(),
+        ));
+    }
+
+    let mut tx = state.db.begin().await?;
+    let event_id = crate::logic::commission_events::insert_manual_adjustment(
+        &mut tx,
+        ManualCommissionAdjustment {
+            staff_id: body.staff_id,
+            reporting_date: body.reporting_date,
+            amount: body.amount,
+            note: note.to_string(),
+            created_by_staff_id: admin.id,
+        },
+    )
+    .await?;
+    tx.commit().await?;
+
+    let _ = log_staff_access(
+        &state.db,
+        admin.id,
+        "commission_manual_adjustment",
+        json!({
+            "event_id": event_id,
+            "staff_id": body.staff_id,
+            "reporting_date": body.reporting_date,
+            "amount": body.amount,
+            "note": note,
+        }),
+    )
+    .await;
+
+    Ok(Json(json!({ "event_id": event_id })))
 }
 
 async fn commission_finalize(
@@ -2172,11 +2252,29 @@ async fn get_merchant_activity(
     }))
 }
 
+#[derive(Debug, Serialize, FromRow)]
+pub struct CommissionTraceEvent {
+    pub event_id: Uuid,
+    pub transaction_id: Option<Uuid>,
+    pub transaction_line_id: Option<Uuid>,
+    pub salesperson_name: String,
+    pub role: Option<DbStaffRole>,
+    pub line_gross: Decimal,
+    pub base_rate: Decimal,
+    pub applied_rate: Decimal,
+    pub flat_spiff: Decimal,
+    pub adjustment_amount: Decimal,
+    pub total_commission: Decimal,
+    pub source: String,
+    pub explanation: String,
+    pub snapshot_json: Value,
+}
+
 async fn commission_trace(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Path(line_id): Path<Uuid>,
-) -> Result<Json<crate::logic::commission_trace::CommissionTrace>, InsightsError> {
+    Path(event_id): Path<Uuid>,
+) -> Result<Json<CommissionTraceEvent>, InsightsError> {
     require_staff_with_permission(&state, &headers, INSIGHTS_VIEW)
         .await
         .map_err(|(s, _)| {
@@ -2190,9 +2288,38 @@ async fn commission_trace(
             }
         })?;
 
-    let trace = crate::logic::commission_trace::query_commission_trace(&state.db, line_id)
-        .await
-        .map_err(InsightsError::BadRequest)?;
+    let trace = sqlx::query_as::<_, CommissionTraceEvent>(
+        r#"
+        SELECT
+            ce.id AS event_id,
+            ce.transaction_id,
+            ce.transaction_line_id,
+            COALESCE(st.full_name, 'Unassigned') AS salesperson_name,
+            st.role,
+            ce.commissionable_amount AS line_gross,
+            ce.base_rate_used AS base_rate,
+            ce.base_rate_used AS applied_rate,
+            ce.incentive_amount AS flat_spiff,
+            ce.adjustment_amount,
+            ce.total_commission_amount AS total_commission,
+            COALESCE(ce.snapshot_json->>'source', ce.event_type) AS source,
+            CASE ce.event_type
+              WHEN 'sale_commission' THEN 'Staff Profile base rate was snapshotted for this recognized sale line. Fixed SPIFFs, if any, are shown as incentive amount.'
+              WHEN 'combo_incentive' THEN 'Fixed combo incentive event generated for a qualifying bundle.'
+              WHEN 'return_adjustment' THEN 'Negative commission adjustment recorded in the return period.'
+              WHEN 'manual_adjustment' THEN COALESCE(ce.note, 'Manual commission adjustment.')
+              ELSE COALESCE(ce.note, 'Commission event snapshot.')
+            END AS explanation,
+            ce.snapshot_json
+        FROM commission_events ce
+        LEFT JOIN staff st ON st.id = ce.staff_id
+        WHERE ce.id = $1
+        "#,
+    )
+    .bind(event_id)
+    .fetch_optional(&state.db)
+    .await?
+    .ok_or_else(|| InsightsError::BadRequest("commission event not found".to_string()))?;
     Ok(Json(trace))
 }
 
@@ -2214,6 +2341,7 @@ pub fn router() -> Router<AppState> {
         .route("/sales-pivot", get(sales_pivot))
         .route("/margin-pivot", get(margin_pivot))
         .route("/commission-ledger", get(commission_ledger))
+        .route("/commission-adjustments", post(commission_adjustment))
         .route("/commission-finalize", post(commission_finalize))
         .route("/commission-lines", get(commission_lines))
         .route("/commission-trace/{line_id}", get(commission_trace))

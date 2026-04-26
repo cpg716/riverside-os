@@ -12,7 +12,7 @@
 
 - **Reports** = fixed tile grid + detail pane; each tile maps to **one** HTTP surface (mostly **`GET /api/insights/*`**, plus **`GET /api/customers/rms-charge/records`** for the CRM-shaped tile). Catalog lives in **`client/src/lib/reportsCatalog.ts`**.
 - **Insights** = **`InsightsShell`** + Metabase iframe; exploratory analytics and **separate** Metabase RBAC.
-- **Non-goals:** No second SPA; no commission **finalize** inside Reports (that stays **Staff → Commission payouts** with **insights.commission_finalize**).
+- **Non-goals:** No second SPA; commission reporting stays under **Staff → Commissions → Reports** for staff-level review.
 
 ---
 

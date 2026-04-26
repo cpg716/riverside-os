@@ -581,7 +581,7 @@ export default function StaffEditDrawer({
                           Commission change timing
                         </p>
                         <p className="mt-1 text-[11px] text-app-text-muted">
-                          Commission payouts follow fulfillment. Choose when this
+                          Commission reporting follows fulfillment. Choose when this
                           new rate starts, and whether Riverside should
                           reconcile eligible unfinalized lines from that date.
                         </p>
@@ -613,7 +613,7 @@ export default function StaffEditDrawer({
                           />
                           <span className="text-[11px] text-app-text-muted">
                             Recalculate unfinalized commission lines from this
-                            date. Finalized payouts stay locked.
+                            date. New reporting uses immutable commission event snapshots.
                           </span>
                         </label>
                       </div>

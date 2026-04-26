@@ -1,70 +1,101 @@
-# Commission & SPIFF Operations
+# Commission Reporting and Incentives
 
-Riverside OS provides a unified **Commission Manager** within the Staff module to centralize payout tracking, SPIFF promotional logic, and granular commission rate overrides.
+Riverside OS commissions are being simplified into a reporting-first system for Riverside Men's Shop.
 
-## Commission Manager Workspace
+The intended store rule is:
 
-Access this workspace via **Staff → Commission Manager**. It requires the `staff.manage_commission` permission.
+- Each staff member's base commission rate is set on the Staff Profile.
+- Staff rate changes are effective-dated; the new rate applies from that date forward.
+- Category, product, and variant percentage overrides are retired from the staff workflow.
+- SPIFFs and combo incentives remain as fixed-dollar add-ons.
+- Commission reporting can be reviewed by day, week, month, year, or custom period.
+- The normal payroll review is the prior calendar month, reviewed on the first payday of the new month.
+- Returns and exchanges affect the period in which the return/exchange happens.
+- Manual commission adjustments are allowed only with full note and audit tracking.
 
-The workspace is divided into three primary functional areas:
-1. **Payout Ledger**: A high-density log of every commission-eligible line item sold. It displays the salesperson, order reference, calculated commission, and status.
-2. **Promo Manager (Rules)**: Manage specificity-based overrides and flat SPIFF bonuses.
-3. **Combo Rewards**: Configure multi-item bundles that trigger incentives for single-salesperson transactions.
+## Workspace
 
-## Fulfillment-based payroll rule
+Open **Staff → Commissions**.
 
-Commission payouts follow the **fulfillment / recognition** clock, not the original booking date.
+The workspace is divided into two operator-facing areas:
 
-- **Pickup / takeaway:** payout timing follows the fulfilled / pickup moment.
-- **Shipments:** payout timing follows the first qualifying shipment recognition event.
-- **Effective-dated staff rate changes:** Riverside can apply a new base rate from a chosen date and reconcile eligible unfinalized lines from that date.
-- **Salesperson corrections:** reassignment recalculates immediately for eligible unfinalized lines.
-- **Finalized payouts:** once a line has been paid out and finalized, Riverside preserves the locked amount and requires accounting adjustment instead of silent rewrite.
+1. **Reports** — Read-only commission reporting for all staff or one selected staff member.
+2. **SPIFFs & Combos** — Fixed-dollar incentive configuration.
 
----
+The old category commission rate editor and percentage override rule UI are no longer part of the staff-facing workflow.
 
-## Specificity Hierarchy
+## Reporting Timing
 
-When calculating commissions, the engine evaluates rules in a strict order of specificity. The first rule that matches a line item is applied:
+Commissions follow the fulfillment / recognition clock:
 
-1. **Variant Rule**: Matched by a specific SKU's `variant_id`.
-2. **Product Rule**: Matched by a `product_id`.
-3. **Category Rule**: Matched by a `category_id`.
-4. **Category Default**: Inherited from the category's legacy `override_commission_rate` if no rules match.
-5. **Staff Base Rate**: The fallback rate defined on the staff profile.
+- Takeaway and pickup lines count when fulfilled.
+- Shipped lines count when the shipment recognition event occurs.
+- Booked-but-unfulfilled lines are visible as pipeline only; they are not earned commission.
 
-Rules can provide either a **percentage override** (e.g., 5% instead of the staff's usual 2%) or a **fixed SPIFF amount** (e.g., $10 bonus per item sold), or both.
+The report screen shows:
 
----
+- **Booked not fulfilled** — pipeline commission from sold lines that have not reached fulfillment.
+- **Earned in period** — commission earned in the selected recognition period.
 
-## Combo Rewards (Bundles)
+## Staff Rate Changes
 
-Combo rewards are multi-item incentives designed to encourage bundle sales (e.g., a "Wedding Suit Bundle" consisting of 1 Suit, 1 Tie, and 1 Shirt).
+Staff base rates are managed on the Staff Profile.
 
-### Trigger Rules
-- **Quantity Required**: Each item in the combo must meet the minimum quantity required.
-- **Single Salesperson Requirement**: Most importantly, **all items in the bundle must be attributed to the same salesperson** on the order. If multiple staff members split the items, the combo incentive is not triggered.
-- **Auto-Detection**: The system automatically evaluates satisfied combos during checkout and inserts a reward line item into the order.
-- **Configuration**: Use the **Configure Combo** modal within the Promo Manager to define target categories and quantities.
+When a rate changes, the start date matters:
 
----
+- activity before the start date uses the prior effective rate;
+- activity on or after the start date uses the new rate;
+- visible payout finalization is retired in favor of immutable event reporting.
 
-## Internal Incentive Lines (`is_internal`)
+## SPIFFs
 
-SPIFF and Combo rewards are recorded as **internal line items** within an order.
-- They have a price of **$0.00**.
-- The reward amount is stored in the `calculated_commission` column.
-- They are flagged as `is_internal = TRUE` in the database.
+SPIFFs are fixed-dollar incentives added on top of the staff member's base-rate commission.
 
-> [!IMPORTANT]
-> Internal lines are automatically filtered from all customer-facing receipts (Thermal ZPL, Studio HTML, SMS, and Email). They are intended strictly for payroll and staff auditing.
+Example:
 
----
+- Base-rate commission: `$12.00`
+- SPIFF: `$10.00`
+- Reported commission: `$22.00`
 
-## Receipt Privacy Standards
+SPIFFs do not replace or override the staff rate.
 
-To protect staff privacy while providing a personal touch, salesperson names on customer receipts follow the **First Name + Last Initial** format:
-- Example: "Christopher Green" -> **"Christopher G."**
-- Example: "Mary Watson" -> **"Mary W."**
+## Combo Incentives
 
-This formatting is enforced using the `staff_name_for_customer_receipt` helper in `server/src/logic/receipt_privacy.rs`.
+Combo incentives are fixed-dollar rewards for qualifying bundles.
+
+Current behavior:
+
+- Each requirement has a quantity threshold.
+- The qualifying items must be attributed to the same salesperson.
+- Rewards are internal commission/reporting lines and remain off customer-facing receipts.
+
+## Returns and Exchanges
+
+Returns and exchanges must affect the current reporting period, not rewrite a prior paid month.
+
+Example:
+
+- April sale earned `$20.00`.
+- The item is returned in May.
+- May reporting should include a `-$20.00` commission adjustment.
+
+Returns create immutable negative commission adjustment events in the return period.
+
+## Manual Adjustments
+
+Manual add/subtract entries are required for store-approved commission corrections.
+
+Each adjustment must capture:
+
+- staff member;
+- amount;
+- reporting date;
+- reason/note;
+- created by;
+- created at.
+
+Manual adjustments are recorded as immutable commission events.
+
+## Event Ledger
+
+See [Commission Reporting Ledger Plan](./COMMISSION_REPORTING_LEDGER_PLAN.md).

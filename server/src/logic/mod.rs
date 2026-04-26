@@ -3,6 +3,7 @@
 pub mod backups;
 pub mod bug_reports;
 pub mod checkout_validate;
+pub mod commission_events;
 pub mod commission_payout;
 pub mod commission_recalc;
 pub mod corecard;
