@@ -894,11 +894,12 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
 
       {showPostConfirm && (
         <ConfirmationModal
+          isOpen={true}
           title="Finalize Inventory Receipt?"
           message={`This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}. This action is audit-tracked and difficult to reverse.`}
           confirmLabel="Confirm & Post"
           onConfirm={() => void handlePost()}
-          onCancel={() => setShowPostConfirm(false)}
+          onClose={() => setShowPostConfirm(false)}
         />
       )}
     </div>,

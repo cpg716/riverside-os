@@ -1019,10 +1019,7 @@ export default function RegisterOverlay({
 
                 <div className="space-y-4 py-4">
                   <PinDots
-                    length={4}
-                    activeCount={credential.length}
-                    error={Boolean(error)}
-                    busy={busy}
+                    length={credential.length}
                   />
                   {error && (
                     <p className="text-center text-[10px] font-bold text-app-danger animate-shake">
@@ -1041,25 +1038,17 @@ export default function RegisterOverlay({
 
                 <div className="mx-auto max-w-[320px]">
                   <NumericPinKeypad
-                    onInput={(val) => {
-                      if (credential.length < 4) {
-                        const next = credential + val;
-                        setCredential(next);
-                        if (next.length === 4) {
-                          // Auto-submit
-                          setTimeout(() => {
-                            void onSubmit();
-                          }, 150);
-                        }
+                    value={credential}
+                    onChange={(next) => {
+                      setCredential(next);
+                      setError(null);
+                      if (next.length === 4) {
+                        // Auto-submit
+                        setTimeout(() => {
+                          credentialRef.current = next;
+                          void onSubmit();
+                        }, 150);
                       }
-                    }}
-                    onClear={() => {
-                      setCredential("");
-                      setError(null);
-                    }}
-                    onBackspace={() => {
-                      setCredential((prev) => prev.slice(0, -1));
-                      setError(null);
                     }}
                     disabled={busy || hasBlockingReadinessIssue}
                   />

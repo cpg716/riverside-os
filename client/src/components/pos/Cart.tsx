@@ -2343,7 +2343,7 @@ export default function Cart({
                       const prompt = parkedCustomerPrompt;
                       setParkedCustomerPrompt(null);
                       void (async () => {
-                        const tok = await hydratePosRegisterAuthIfNeeded();
+                        const tok = await ensurePosTokenForSession();
                         if (!tok) {
                           toast(
                             "This device is missing the register session token. Open or join the register, then try again.",
@@ -2367,7 +2367,7 @@ export default function Cart({
                               baseUrl,
                               sessionId,
                               r.id,
-                              mergedPosStaffHeaders(),
+                              apiAuth,
                               actor,
                             );
                           }
