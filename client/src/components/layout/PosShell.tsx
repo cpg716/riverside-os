@@ -62,10 +62,10 @@ interface PosShellProps {
   sessionId: string | null;
   pendingPosCustomer: Customer | null;
   pendingPosTransactionId: string | null;
-  setPendingPosTransactionId: (orderId: string | null) => void;
+  setPendingPosTransactionId: (transactionId: string | null) => void;
   setPendingPosCustomer: (c: Customer | null) => void;
   clearPendingPosCustomer: () => void;
-  clearPendingPosOrder: () => void;
+  clearPendingPosTransaction: () => void;
   pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
   clearPendingWeddingPosLink: () => void;
   onSessionOpened: (p: SessionOpenedPayload) => void;
@@ -101,7 +101,7 @@ export default function PosShell({
   setPendingPosTransactionId,
   setPendingPosCustomer,
   clearPendingPosCustomer,
-  clearPendingPosOrder,
+  clearPendingPosTransaction,
   pendingWeddingPosLink,
   clearPendingWeddingPosLink,
   onSessionOpened,
@@ -320,8 +320,8 @@ export default function PosShell({
                   cashierCode={cashierCode}
                   initialCustomer={pendingPosCustomer}
                   onInitialCustomerConsumed={clearPendingPosCustomer}
-                  initialOrderId={pendingPosTransactionId}
-                  onInitialOrderConsumed={clearPendingPosOrder}
+                  initialTransactionId={pendingPosTransactionId}
+                  onInitialTransactionConsumed={clearPendingPosTransaction}
                   managerMode={managerMode}
                   initialWeddingLookupOpen={false}
                   initialWeddingPosLink={pendingWeddingPosLink}
@@ -359,7 +359,7 @@ export default function PosShell({
                     onOpenWeddingParty?.(id);
                   }}
                   onStartSaleInPos={(customer) => {
-                    clearPendingPosOrder();
+                    clearPendingPosTransaction();
                     setPendingPosCustomer(customer);
                     setActivePosTab("register");
                   }}
@@ -393,7 +393,7 @@ export default function PosShell({
                     onOpenWeddingParty?.(id);
                   }}
                   onStartSaleInPos={(customer) => {
-                    clearPendingPosOrder();
+                    clearPendingPosTransaction();
                     setPendingPosCustomer(customer);
                     setActivePosTab("register");
                   }}

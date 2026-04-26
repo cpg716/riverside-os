@@ -4,13 +4,13 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { parseMoney, formatMoney } from "../../lib/money";
 import type { Customer } from "../pos/CustomerSelector";
-import OrderSearchInput from "../ui/OrderSearchInput";
+import TransactionSearchInput from "../ui/TransactionSearchInput";
 import ManagerApprovalModal from "./ManagerApprovalModal";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
-interface OrderItemRow {
-  order_item_id: string;
+interface TransactionItemRow {
+  transaction_item_id: string;
   sku: string;
   product_name: string;
   variation_label: string | null;
@@ -19,7 +19,7 @@ interface OrderItemRow {
   fulfillment: FulfillmentKind;
 }
 
-interface OrderDetailLite {
+interface TransactionDetailLite {
   transaction_id: string;
   booked_at: string;
   status: string;
@@ -28,7 +28,7 @@ interface OrderDetailLite {
   balance_due: string;
   payment_methods_summary?: string;
   customer: { id: string; first_name: string; last_name: string } | null;
-  items: OrderItemRow[];
+  items: TransactionItemRow[];
 }
 
 function jsonHeaders(base: Record<string, string>): HeadersInit {
@@ -65,7 +65,7 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
 
 export default function PosExchangeWizard({
   open,
-  initialOrderId,
+  initialTransactionId,
   customer,
   onClose,
   sessionId,
@@ -74,14 +74,14 @@ export default function PosExchangeWizard({
   onContinueToReplacement,
 }: {
   open: boolean;
-  initialOrderId?: string | null;
+  initialTransactionId?: string | null;
   customer?: Customer | null;
   onClose: () => void;
   sessionId: string;
   baseUrl: string;
   apiAuth: () => Record<string, string>;
   onContinueToReplacement: (args: {
-    originalOrderId: string;
+    originalTransactionId: string;
     customer: Customer | null;
   }) => void;
 }) {
@@ -90,10 +90,10 @@ export default function PosExchangeWizard({
 
   const [step, setStep] = useState<Step>("load");
   const [loading, setLoading] = useState(false);
-  const [detail, setDetail] = useState<OrderDetailLite | null>(null);
+  const [detail, setDetail] = useState<TransactionDetailLite | null>(null);
   const [returnQtyDraft, setReturnQtyDraft] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
-  const [pendingManagerApproval, setPendingManagerApproval] = useState<OrderDetailLite | null>(null);
+  const [pendingManagerApproval, setPendingManagerApproval] = useState<TransactionDetailLite | null>(null);
   const workflowIndex = EXCHANGE_WORKFLOW_STEPS.findIndex((item) => item.id === step);
   const nextWorkflowStep =
     workflowIndex < EXCHANGE_WORKFLOW_STEPS.length - 1
@@ -109,7 +109,7 @@ export default function PosExchangeWizard({
     setPendingManagerApproval(null);
   }, []);
 
-  const loadOrder = useCallback(async (id: string) => {
+  const loadTransaction = useCallback(async (id: string) => {
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/transactions/${encodeURIComponent(id)}?${sessionQs}`, {
@@ -119,14 +119,14 @@ export default function PosExchangeWizard({
         const b = (await res.json().catch(() => ({}))) as { error?: string };
         toast(
           b.error ??
-            "Could not load this order. It may be outside this register session — use Back Office Orders.",
+            "Could not load this transaction. It may be outside this register session — use Back Office instead.",
           "error",
         );
         return;
       }
-      const d = (await res.json()) as OrderDetailLite;
+      const d = (await res.json()) as TransactionDetailLite;
       if ((d.status || "").toLowerCase() === "cancelled") {
-        toast("Cancelled orders cannot be exchanged here", "error");
+        toast("Cancelled transactions cannot be exchanged here", "error");
         return;
       }
       
@@ -138,25 +138,25 @@ export default function PosExchangeWizard({
         setStep("return");
       }
     } catch {
-      toast("Network error loading order", "error");
+      toast("Network error loading transaction", "error");
     } finally {
       setLoading(false);
     }
   }, [baseUrl, sessionQs, apiAuth, toast]);
 
   useEffect(() => {
-    if (open && initialOrderId) {
-      void loadOrder(initialOrderId);
+    if (open && initialTransactionId) {
+      void loadTransaction(initialTransactionId);
     } else if (!open) {
       reset();
     }
-  }, [open, initialOrderId, reset, loadOrder]);
+  }, [open, initialTransactionId, reset, loadTransaction]);
 
   const submitReturns = async () => {
     if (!detail) return;
-    const lines: { order_item_id: string; quantity: number; reason?: string }[] = [];
+    const lines: { transaction_item_id: string; quantity: number; reason?: string }[] = [];
     for (const it of detail.items) {
-      const raw = (returnQtyDraft[it.order_item_id] ?? "").trim();
+      const raw = (returnQtyDraft[it.transaction_item_id] ?? "").trim();
       if (!raw) continue;
       const q = Number(raw);
       if (!Number.isFinite(q) || q <= 0) continue;
@@ -166,7 +166,7 @@ export default function PosExchangeWizard({
         return;
       }
       lines.push({
-        order_item_id: it.order_item_id,
+        transaction_item_id: it.transaction_item_id,
         quantity: q,
         reason: "exchange",
       });
@@ -190,7 +190,7 @@ export default function PosExchangeWizard({
         toast(b.error ?? "Return failed", "error");
         return;
       }
-      toast("Return recorded. Process any refund due from the Orders workspace if needed.", "success");
+      toast("Return recorded. Process any refund due from the Transactions workspace if needed.", "success");
       setStep("done");
     } catch {
       toast("Return failed", "error");
@@ -216,7 +216,7 @@ export default function PosExchangeWizard({
   const handleContinue = () => {
     if (!detail) return;
     onContinueToReplacement({
-      originalOrderId: detail.transaction_id,
+      originalTransactionId: detail.transaction_id,
       customer: applyCustomer(),
     });
     onClose();
@@ -299,19 +299,19 @@ export default function PosExchangeWizard({
               </p>
               <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                  <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                   Select Order
+                   Select Transaction
                  </p>
-                 <OrderSearchInput 
+                 <TransactionSearchInput 
                     autoFocus 
                     initialQuery={customer ? `${customer.first_name} ${customer.last_name}`.trim() : ""}
-                    onSelect={(o) => void loadOrder(o.order_id)} 
+                    onSelect={(o) => void loadTransaction(o.transaction_id)} 
                     disabled={loading}
                  />
               </div>
               <p className="text-[10px] text-app-text-muted leading-relaxed opacity-60">
-                The order must have a payment on this open register session,
-                or use Back Office Orders instead. For uneven wedding group payments, confirm return
-                quantities against the correct member order in Back Office.
+                The transaction must have a payment on this open register session,
+                or use Back Office instead. For uneven wedding group payments, confirm return
+                quantities against the correct member record in Back Office.
               </p>
             </div>
           )}
@@ -319,13 +319,13 @@ export default function PosExchangeWizard({
           {step === "return" && detail && (
             <div className="space-y-4">
               <p className="text-xs font-bold text-app-text">
-                Order <span className="font-mono">{detail.transaction_id.slice(0, 8)}…</span>
+                Transaction <span className="font-mono">{detail.transaction_id.slice(0, 8)}…</span>
               </p>
               <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[11px] leading-relaxed text-app-text-muted">
                 Step 2 records the items coming back first. Once the return is saved, the next screen sends you straight into the replacement sale.
               </div>
               <div className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] leading-relaxed text-app-text-muted">
-                <p className="font-black uppercase tracking-widest text-app-text">Order totals</p>
+                <p className="font-black uppercase tracking-widest text-app-text">Transaction totals</p>
                 <p className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5">
                   <span>
                     Total{" "}
@@ -353,12 +353,12 @@ export default function PosExchangeWizard({
                 ) : null}
               </div>
               <ul className="space-y-2">
-                {detail.items.map((it: OrderItemRow) => {
+                {detail.items.map((it: TransactionItemRow) => {
                   const max = it.quantity - (it.quantity_returned ?? 0);
                   if (max <= 0) return null;
                   return (
                     <li
-                      key={it.order_item_id}
+                      key={it.transaction_item_id}
                       className="flex flex-col gap-1 rounded-xl border border-app-border bg-app-surface-2 p-3 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="min-w-0">
@@ -371,11 +371,11 @@ export default function PosExchangeWizard({
                         className="ui-input w-24 font-mono text-sm"
                         inputMode="numeric"
                         placeholder="Qty"
-                        value={returnQtyDraft[it.order_item_id] ?? ""}
+                        value={returnQtyDraft[it.transaction_item_id] ?? ""}
                         onChange={(e) =>
                           setReturnQtyDraft((d: Record<string, string>) => ({
                             ...d,
-                            [it.order_item_id]: e.target.value,
+                            [it.transaction_item_id]: e.target.value,
                           }))
                         }
                       />
@@ -402,8 +402,8 @@ export default function PosExchangeWizard({
                 Returns are saved. Add replacement items to the cart, then complete checkout.
               </p>
               <p className="text-xs text-app-text-muted">
-                After checkout, orders link automatically for exchange reporting when both sales are
-                on this register session.
+                After checkout, transactions link automatically for exchange reporting when both sales are
+                part of the same register session.
               </p>
               <button
                 type="button"

@@ -347,7 +347,7 @@ function App() {
     () => setPendingPosCustomer(null),
     [],
   );
-  const clearPendingPosOrder = useCallback(
+  const clearPendingPosTransaction = useCallback(
     () => setPendingPosTransactionId(null),
     [],
   );
@@ -925,7 +925,7 @@ function App() {
             pendingPosTransactionId={pendingPosTransactionId}
             setPendingPosTransactionId={setPendingPosTransactionId}
             clearPendingPosCustomer={clearPendingPosCustomer}
-            clearPendingPosOrder={clearPendingPosOrder}
+            clearPendingPosTransaction={clearPendingPosTransaction}
             pendingWeddingPosLink={pendingWeddingPosLink}
             clearPendingWeddingPosLink={clearPendingWeddingPosLink}
             transactionsDeepLinkTxnId={transactionsDeepLinkTxnId}
@@ -1032,7 +1032,7 @@ interface AppShellProps {
   pendingPosTransactionId: string | null;
   setPendingPosTransactionId: (id: string | null) => void;
   clearPendingPosCustomer: () => void;
-  clearPendingPosOrder: () => void;
+  clearPendingPosTransaction: () => void;
   pendingWeddingPosLink: RosOpenRegisterFromWmDetail | null;
   clearPendingWeddingPosLink: () => void;
   transactionsDeepLinkTxnId: string | null;
@@ -1118,7 +1118,7 @@ function AppShell({
   setPendingPosTransactionId,
   setPendingPosCustomer,
   clearPendingPosCustomer,
-  clearPendingPosOrder,
+  clearPendingPosTransaction,
   pendingWeddingPosLink,
   clearPendingWeddingPosLink,
   navigateDashboard,
@@ -1260,7 +1260,7 @@ function AppShell({
             setPendingPosTransactionId={setPendingPosTransactionId}
             setPendingPosCustomer={setPendingPosCustomer}
             clearPendingPosCustomer={clearPendingPosCustomer}
-            clearPendingPosOrder={clearPendingPosOrder}
+            clearPendingPosTransaction={clearPendingPosTransaction}
             pendingWeddingPosLink={pendingWeddingPosLink}
             clearPendingWeddingPosLink={clearPendingWeddingPosLink}
             onSessionOpened={handleSessionOpened}

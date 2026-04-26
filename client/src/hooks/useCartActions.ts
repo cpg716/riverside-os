@@ -259,7 +259,7 @@ export function useCartActions({
   }, [checkoutOperator, giftCardLoadMeta, toast, setSearch, setSearchResults, setGiftCardLoadOpen]);
 
   const onExchangeContinue = useCallback(
-    (args: { originalOrderId: string; customer: Customer | null }) => {
+    (args: { originalTransactionId: string; customer: Customer | null }) => {
       const linkedCustomer = args.customer;
       if (!linkedCustomer) return;
       void (async () => {

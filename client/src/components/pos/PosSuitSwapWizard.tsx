@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Shirt, X, Loader2 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
-import OrderSearchInput from "../ui/OrderSearchInput";
+import TransactionSearchInput from "../ui/TransactionSearchInput";
 
 type FulfillmentKind = "takeaway" | "special_order" | "wedding_order";
 
@@ -18,7 +18,7 @@ interface OrderItemRow {
 }
 
 interface OrderDetailLite {
-  order_id: string;
+  transaction_id: string;
   status: string;
   items: OrderItemRow[];
 }
@@ -67,7 +67,7 @@ export default function PosSuitSwapWizard({
     if (!open) reset();
   }, [open, reset]);
 
-  const loadOrder = async (id: string) => {
+  const loadTransaction = async (id: string) => {
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/transactions/${encodeURIComponent(id)}?${sessionQs}`, {
@@ -120,7 +120,7 @@ export default function PosSuitSwapWizard({
       }
       const scanned = (await scanRes.json()) as { variant_id: string };
       const res = await fetch(
-        `${baseUrl}/api/transactions/${detail.order_id}/items/${selectedLineId}/suit-swap`,
+        `${baseUrl}/api/transactions/${detail.transaction_id}/items/${selectedLineId}/suit-swap`,
         {
           method: "POST",
           headers: jsonHeaders(apiAuth()),
@@ -186,9 +186,9 @@ export default function PosSuitSwapWizard({
                  <p className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                    Select Order
                  </p>
-                 <OrderSearchInput 
+                 <TransactionSearchInput 
                     autoFocus 
-                    onSelect={(o) => void loadOrder(o.order_id)} 
+                    onSelect={(o) => void loadTransaction(o.transaction_id)} 
                     disabled={_loading}
                  />
               </div>
@@ -200,7 +200,7 @@ export default function PosSuitSwapWizard({
 
           {step === "swap" && detail && (
             <div className="space-y-4">
-              <p className="text-xs font-mono text-app-text-muted">{detail.order_id}</p>
+              <p className="text-xs font-mono text-app-text-muted">{detail.transaction_id}</p>
               <div className="space-y-2">
                 <p className="text-[10px] font-black uppercase text-app-text-muted">Line</p>
                 <ul className="max-h-48 space-y-2 overflow-y-auto">

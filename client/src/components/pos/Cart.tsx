@@ -142,8 +142,8 @@ interface CartProps {
   cashierCode?: string | null;
   initialCustomer?: Customer | null;
   onInitialCustomerConsumed?: () => void;
-  initialOrderId?: string | null;
-  onInitialOrderConsumed?: () => void;
+  initialTransactionId?: string | null;
+  onInitialTransactionConsumed?: () => void;
   initialWeddingLookupOpen?: boolean;
   managerMode?: boolean;
   /** From Wedding Manager: pre-link customer + wedding member for wedding_order checkout. */
@@ -170,8 +170,8 @@ export default function Cart({
   cashierName = null,
   initialCustomer = null,
   onInitialCustomerConsumed,
-  initialOrderId = null,
-  onInitialOrderConsumed,
+  initialTransactionId = null,
+  onInitialTransactionConsumed,
   managerMode = false,
   // initialWeddingLookupOpen removed
   initialWeddingPosLink = null,
@@ -250,7 +250,7 @@ export default function Cart({
 
   const [activeDiscountEvents, setActiveDiscountEvents] = useState<ActiveDiscountEvent[]>([]);
   const [selectedDiscountEventId, setSelectedDiscountEventId] = useState("");
-  const [exchangeWizardInitialOrderId, setExchangeWizardInitialOrderId] = useState<string | null>(null);
+  const [exchangeWizardInitialTransactionId, setExchangeWizardInitialTransactionId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${baseUrl}/api/discount-events/active`, { headers: apiAuth() as Record<string, string> })
@@ -794,8 +794,8 @@ export default function Cart({
   // pendingExchangeOriginalOrderIdRef removed
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const didInitialProductSearchFocusRef = useRef(false);
-  const initialOrderApplyingRef = useRef<string | null>(null);
-  const initialOrderAppliedRef = useRef<string | null>(null);
+  const initialTransactionApplyingRef = useRef<string | null>(null);
+  const initialTransactionAppliedRef = useRef<string | null>(null);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
 
@@ -814,7 +814,7 @@ export default function Cart({
         return;
       }
       if ((txn.status || "").toLowerCase() === "fulfilled") {
-        setExchangeWizardInitialOrderId(txn.transaction_id);
+        setExchangeWizardInitialTransactionId(txn.transaction_id);
         setExchangeWizardOpen(true);
       } else {
         if (txn.customer_id) {
@@ -1000,13 +1000,13 @@ export default function Cart({
     onInitialCustomerConsumed?.();
   }, [initialCustomer, onInitialCustomerConsumed, setSelectedCustomer]);
 
-  const loadOrderIntoRegister = useCallback(
-    async (orderId: string) => {
-      const res = await fetch(`${baseUrl}/api/transactions/${orderId}`, {
+  const loadTransactionIntoRegister = useCallback(
+    async (transactionId: string) => {
+      const res = await fetch(`${baseUrl}/api/transactions/${transactionId}`, {
         headers: apiAuth(),
       });
       if (!res.ok) {
-        toast("We couldn't load that order into the register. Please try again.", "error");
+        toast("We couldn't load that transaction into the register. Please try again.", "error");
         return false;
       }
 
@@ -1016,7 +1016,7 @@ export default function Cart({
       );
 
       if (unfulfilled.length === 0) {
-        toast("All order lines are already marked complete.", "info");
+        toast("All transaction lines are already marked complete.", "info");
         return false;
       }
 
@@ -1078,37 +1078,26 @@ export default function Cart({
   );
 
   useEffect(() => {
-    if (!initialOrderId) {
-      initialOrderApplyingRef.current = null;
-      initialOrderAppliedRef.current = null;
+    if (!initialTransactionId) {
       return;
     }
     if (!saleHydrated) return;
     if (
-      initialOrderApplyingRef.current === initialOrderId ||
-      initialOrderAppliedRef.current === initialOrderId
+      initialTransactionApplyingRef.current === initialTransactionId ||
+      initialTransactionAppliedRef.current === initialTransactionId
     ) {
       return;
     }
-
-    let cancelled = false;
-    initialOrderApplyingRef.current = initialOrderId;
+    initialTransactionApplyingRef.current = initialTransactionId;
     void (async () => {
-      await loadOrderIntoRegister(initialOrderId);
-      if (cancelled) return;
-      initialOrderAppliedRef.current = initialOrderId;
-      if (initialOrderApplyingRef.current === initialOrderId) {
-        initialOrderApplyingRef.current = null;
+      await loadTransactionIntoRegister(initialTransactionId);
+      initialTransactionAppliedRef.current = initialTransactionId;
+      if (initialTransactionApplyingRef.current === initialTransactionId) {
+        initialTransactionApplyingRef.current = null;
       }
-      onInitialOrderConsumed?.();
+      onInitialTransactionConsumed?.();
     })();
-    return () => {
-      cancelled = true;
-      if (initialOrderApplyingRef.current === initialOrderId) {
-        initialOrderApplyingRef.current = null;
-      }
-    };
-  }, [initialOrderId, loadOrderIntoRegister, onInitialOrderConsumed, saleHydrated]);
+  }, [initialTransactionId, loadTransactionIntoRegister, onInitialTransactionConsumed, saleHydrated]);
 
   useEffect(() => {
     if (!initialWeddingPosLink?.member?.customer_id) return;
@@ -2624,11 +2613,11 @@ export default function Cart({
 
       <PosExchangeWizard
         open={exchangeWizardOpen}
-        initialOrderId={exchangeWizardInitialOrderId}
+        initialTransactionId={exchangeWizardInitialTransactionId}
         customer={selectedCustomer}
         onClose={() => {
           setExchangeWizardOpen(false);
-          setExchangeWizardInitialOrderId(null);
+          setExchangeWizardInitialTransactionId(null);
         }}
         sessionId={sessionId}
         baseUrl={baseUrl}

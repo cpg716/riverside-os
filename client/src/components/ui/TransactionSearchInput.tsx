@@ -5,8 +5,8 @@ import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { formatMoney, parseMoney } from "../../lib/money";
 
-interface OrderSearchResult {
-  order_id: string;
+interface TransactionSearchResult {
+  transaction_id: string;
   booked_at: string;
   status: string;
   total_price: string;
@@ -14,16 +14,16 @@ interface OrderSearchResult {
   balance_due: string;
   customer_name: string | null;
   party_name: string | null;
-  order_kind: string;
+  transaction_kind: string;
 }
 
-interface PagedOrdersResponse {
-  items: OrderSearchResult[];
+interface PagedTransactionsResponse {
+  items: TransactionSearchResult[];
   total_count: number;
 }
 
-interface OrderSearchInputProps {
-  onSelect: (order: OrderSearchResult) => void;
+interface TransactionSearchInputProps {
+  onSelect: (transaction: TransactionSearchResult) => void;
   placeholder?: string;
   className?: string;
   autoFocus?: boolean;
@@ -31,19 +31,19 @@ interface OrderSearchInputProps {
   initialQuery?: string;
 }
 
-export default function OrderSearchInput({
+export default function TransactionSearchInput({
   onSelect,
-  placeholder = "Search orders by name, phone, or Short ID…",
+  placeholder = "Search transactions by name, phone, or Short ID…",
   className = "",
   autoFocus = false,
   disabled,
   initialQuery = "",
-}: OrderSearchInputProps) {
+}: TransactionSearchInputProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
   
   const [query, setQuery] = useState(initialQuery);
-  const [results, setResults] = useState<OrderSearchResult[]>([]);
+  const [results, setResults] = useState<TransactionSearchResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -56,17 +56,17 @@ export default function OrderSearchInput({
     }
     setLoading(true);
     try {
-      // Use the standard orders listing with search param
+      // Use the standard transactions listing with search param
       const res = await fetch(
         `${baseUrl}/api/transactions?search=${encodeURIComponent(q)}&limit=10`,
         { headers: mergedPosStaffHeaders(backofficeHeaders) }
       );
       if (res.ok) {
-        const data = await res.json() as PagedOrdersResponse;
+        const data = await res.json() as PagedTransactionsResponse;
         setResults(data.items || []);
       }
     } catch (err) {
-      console.error("Order search failed", err);
+      console.error("Transaction search failed", err);
     } finally {
       setLoading(false);
     }
@@ -123,12 +123,12 @@ export default function OrderSearchInput({
           ) : results.length > 0 ? (
             <ul className="py-1">
               {results.map((o) => (
-                <li key={o.order_id}>
+                <li key={o.transaction_id}>
                   <button
                     type="button"
                     onClick={() => {
                       onSelect(o);
-                      setQuery(o.customer_name ?? o.order_id.slice(0, 8));
+                      setQuery(o.customer_name ?? o.transaction_id.slice(0, 8));
                       setResults([]);
                       setIsOpen(false);
                     }}
@@ -148,7 +148,7 @@ export default function OrderSearchInput({
                        </div>
                        <div className="flex items-center gap-2 mt-0.5">
                          <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                           #{o.order_id.slice(0, 8)}
+                           #{o.transaction_id.slice(0, 8)}
                          </span>
                          {o.party_name && (
                            <span className="text-[9px] font-bold text-app-warning truncate border-l border-app-border pl-2">
@@ -167,7 +167,7 @@ export default function OrderSearchInput({
               ))}
             </ul>
           ) : (
-            <div className="p-4 text-center text-xs text-app-text-muted">No orders matched your search.</div>
+            <div className="p-4 text-center text-xs text-app-text-muted">No transactions matched your search.</div>
           )}
         </div>
       )}
