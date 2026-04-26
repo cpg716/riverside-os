@@ -1,8 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileText, RefreshCw, Save } from "lucide-react";
+import { CheckCircle2, FileText, Image as ImageIcon, RefreshCw, Save } from "lucide-react";
 import { transform } from "receiptline";
+import RiversideReceiptLogo from "../../assets/images/logo1.png";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+
+const EPSON_RECEIPT_CPL = 42;
+const EPSON_RECEIPT_PAPER = "80mm";
+const RECEIPT_LOGO_WIDTH_PX = 180;
 
 export interface ReceiptConfig {
   store_name: string;
@@ -12,12 +17,87 @@ export interface ReceiptConfig {
   show_loyalty_earned: boolean;
   show_loyalty_balance: boolean;
   show_barcode: boolean;
+  show_logo?: boolean;
   header_lines: string[];
   footer_lines: string[];
   timezone?: string;
   receipt_studio_project_json?: unknown;
   receipt_studio_exported_html?: string | null;
   receipt_thermal_mode?: string;
+  receiptline_template?: string | null;
+}
+
+const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
+{{STORE_NAME}}
+{{HEADER_LINES}}
+{{RECEIPT_TITLE}}
+{{RECEIPT_ID}}
+{{RECEIPT_DATE}}
+{{CUSTOMER_LINE}}
+---
+{{ITEM_LINES}}
+{{PAYMENT_BLOCK}}
+{{TOTAL_LINE}}
+{{PAID_LINE}}
+{{BALANCE_LINE}}
+{{TENDER_LINE}}
+{{STATUS_LINE}}
+{{TAX_EXEMPT_LINE}}
+---
+{{FOOTER_LINES}}
+{{CUT}}`;
+
+function linesToText(lines: string[]) {
+  return lines.join("\n");
+}
+
+function textToLines(value: string) {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+}
+
+function escapeReceiptlineText(value: string) {
+  return value
+    .replace(/\\/g, "\\\\")
+    .replace(/\|/g, "\\|")
+    .replace(/\{/g, "\\{")
+    .replace(/\}/g, "\\}");
+}
+
+function centeredLines(lines: string[]) {
+  return lines
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => `^${escapeReceiptlineText(line)}`)
+    .join("\n");
+}
+
+function receiptTemplateWithLogoSlot(template: string, showLogo: boolean) {
+  if (!showLogo || template.includes("{{LOGO_IMAGE}}")) {
+    return template;
+  }
+  return `{{LOGO_IMAGE}}\n${template}`;
+}
+
+async function loadReceiptLogoBase64() {
+  const image = new Image();
+  image.decoding = "async";
+  image.src = RiversideReceiptLogo;
+  await image.decode();
+
+  const scale = RECEIPT_LOGO_WIDTH_PX / image.naturalWidth;
+  const canvas = document.createElement("canvas");
+  canvas.width = RECEIPT_LOGO_WIDTH_PX;
+  canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return "";
+
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL("image/png").replace(/^data:image\/png;base64,/, "");
 }
 
 export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
@@ -26,6 +106,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const [cfg, setCfg] = useState<ReceiptConfig | null>(null);
   const [settingsReady, setSettingsReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
 
   const load = useCallback(async () => {
     setSettingsReady(false);
@@ -50,6 +131,20 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    let mounted = true;
+    loadReceiptLogoBase64()
+      .then((value) => {
+        if (mounted) setReceiptLogoBase64(value);
+      })
+      .catch(() => {
+        if (mounted) setReceiptLogoBase64("");
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const saveReceiptSettings = async () => {
     if (!cfg) return;
@@ -82,23 +177,49 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
     );
   }
 
-  const getReceiptLineMarkup = () => {
-    return `${cfg.store_name}
-{address: ${cfg.show_address ? "Enabled" : "Disabled"}}
-{phone: ${cfg.show_phone ? "Enabled" : "Disabled"}}
-^^^RECEIPT
----
-Item A | $10.00
-Item B | $20.00
----
-Total | $30.00
----
-Thank you for shopping at
-${cfg.store_name}
-    `;
-  };
+  const showLogo = cfg.show_logo !== false;
+  const effectiveTemplate = receiptTemplateWithLogoSlot(
+    cfg.receiptline_template?.trim() || DEFAULT_RECEIPTLINE_TEMPLATE,
+    showLogo,
+  );
+  const getReceiptLineMarkup = () =>
+    effectiveTemplate
+      .replace(
+        "{{LOGO_IMAGE}}",
+        showLogo && receiptLogoBase64 ? `{image:${receiptLogoBase64}}` : "",
+      )
+      .replace("{{STORE_NAME}}", `^${escapeReceiptlineText(cfg.store_name)}`)
+      .replace("{{HEADER_LINES}}", centeredLines(cfg.header_lines))
+      .replace("{{RECEIPT_TITLE}}", "^^^RECEIPT")
+      .replace("{{RECEIPT_ID}}", "^Receipt TXN-66736")
+      .replace("{{RECEIPT_DATE}}", "^04/26/2026 02:14 AM")
+      .replace("{{CUSTOMER_LINE}}", "Customer: Chris Garcia")
+      .replace(
+        "{{ITEM_LINES}}",
+        [
+          "1x 100% Lambswool Sweater | $83.80",
+          "SKU I-1003713601",
+          "Taken home today",
+          cfg.show_loyalty_earned ? "Loyalty earned | 84 pts" : "",
+          cfg.show_loyalty_balance ? "Loyalty balance | 1,240 pts" : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+      )
+      .replace("{{PAYMENT_BLOCK}}", "")
+      .replace("{{TOTAL_LINE}}", "^Total | ^$83.80")
+      .replace("{{PAID_LINE}}", "Paid | $83.80")
+      .replace("{{BALANCE_LINE}}", "")
+      .replace("{{TENDER_LINE}}", "Tender | Cash")
+      .replace("{{STATUS_LINE}}", "Status | Paid")
+      .replace("{{TAX_EXEMPT_LINE}}", "")
+      .replace("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
+      .replace("{{CUT}}", "=");
 
-  const receiptLineSvg = transform(getReceiptLineMarkup(), { cpl: 42, encoding: "cp437" });
+  const receiptLineSvg = transform(getReceiptLineMarkup(), {
+    cpl: EPSON_RECEIPT_CPL,
+    encoding: "cp437",
+  });
 
   return (
     <div className="space-y-8">
@@ -112,7 +233,7 @@ ${cfg.store_name}
               Receipt Settings
             </h2>
             <p className="max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-              Standard Epson receipts use structured ESC/POS output for the TM-m30III. Use this panel for receipt header, footer, and section visibility.
+              Standard Epson receipts use structured ESC/POS output for the TM-m30III. Edit the store identity, header and footer lines, and receipt sections that print on the customer copy.
             </p>
           </div>
         </div>
@@ -125,7 +246,7 @@ ${cfg.store_name}
               Primary Engine
             </h3>
             <p className="max-w-2xl text-xs font-semibold leading-relaxed text-app-text-muted">
-              Epson ESC/POS is the active production receipt path. HTML designer modes are no longer exposed for register receipts.
+              ReceiptLine markdown is the active Epson template. ROS merges sale data into this template, previews it as SVG, then prints it through the Epson ESC/POS path.
             </p>
           </div>
           <span className="w-fit rounded-full border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">
@@ -166,19 +287,58 @@ ${cfg.store_name}
             </div>
 
             <div className="space-y-6">
-              <label className="block">
-                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                  Store Identifier (Header)
-                </span>
-                <input
-                  value={cfg.store_name}
-                  onChange={(e) => setCfg({ ...cfg, store_name: e.target.value })}
-                  className="ui-input mt-2 w-full text-lg font-black italic tracking-tighter"
-                />
-              </label>
+              <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+                <label className="block lg:col-span-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                    Store Identifier (Top Line)
+                  </span>
+                  <input
+                    value={cfg.store_name}
+                    onChange={(e) => setCfg({ ...cfg, store_name: e.target.value })}
+                    className="ui-input mt-2 w-full text-lg font-black italic tracking-tighter"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                    Header Lines
+                  </span>
+                  <textarea
+                    value={linesToText(cfg.header_lines)}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, header_lines: textToLines(e.target.value) })
+                    }
+                    rows={5}
+                    className="ui-input mt-2 min-h-32 w-full resize-y font-mono text-xs leading-relaxed"
+                    placeholder={"Open daily 10-6\nAlterations pickup at rear counter"}
+                  />
+                  <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
+                    One centered receipt line per row.
+                  </p>
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                    Footer Lines
+                  </span>
+                  <textarea
+                    value={linesToText(cfg.footer_lines)}
+                    onChange={(e) =>
+                      setCfg({ ...cfg, footer_lines: textToLines(e.target.value) })
+                    }
+                    rows={5}
+                    className="ui-input mt-2 min-h-32 w-full resize-y font-mono text-xs leading-relaxed"
+                    placeholder={"Thank you for shopping with us!\nVisit us again soon."}
+                  />
+                  <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
+                    Prints at the bottom before the receipt cut.
+                  </p>
+                </label>
+              </div>
 
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 {[
+                  ["show_logo", "Receipt Logo", "Top image"],
                   ["show_address", "Store Address", "123 Main St..."],
                   ["show_phone", "Phone Number", "(555) 123..."],
                   ["show_email", "Email Contact", "sales@..."],
@@ -216,22 +376,57 @@ ${cfg.store_name}
                   </label>
                 ))}
               </div>
+
+              <label className="block">
+                <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                  ReceiptLine Template
+                </span>
+                <textarea
+                  value={effectiveTemplate}
+                  onChange={(e) =>
+                    setCfg({ ...cfg, receiptline_template: e.target.value })
+                  }
+                  rows={15}
+                  spellCheck={false}
+                  className="ui-input mt-2 min-h-72 w-full resize-y font-mono text-xs leading-relaxed"
+                />
+                <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                  Tokens are replaced by ROS at print time. Keep line items, totals, and payment tokens in the template so receipts remain financially complete.
+                </p>
+                <div className="mt-3 flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
+                  <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-app-accent" aria-hidden />
+                  <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                    The logo token prints a thermal-sized monochrome-friendly PNG at the top of the receipt. Use the Receipt Logo toggle to hide it without removing the token from the template.
+                  </p>
+                </div>
+              </label>
+
+              <div className="rounded-xl border border-app-border bg-app-surface-2 p-4">
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
+                  Available Tokens
+                </p>
+                <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
+                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{ITEM_LINES}} {{PAYMENT_BLOCK}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{FOOTER_LINES}} {{CUT}}"}
+                </p>
+              </div>
             </div>
           </section>
         </div>
         <div className="xl:col-span-5">
           <section className="ui-card h-full bg-app-surface/30 p-8">
             <h3 className="mb-6 text-[10px] font-black uppercase tracking-widest text-app-text">
-              Thermal Preview (Epson)
+              {EPSON_RECEIPT_PAPER} Epson preview
             </h3>
-            <div className="flex justify-center overflow-hidden rounded-[2rem] bg-[#f0f0f0] p-8 shadow-inner">
+            <div className="flex justify-center overflow-x-auto rounded-[2rem] bg-[#f0f0f0] p-4 shadow-inner sm:p-6">
               <div
+                className="receiptline-preview w-full max-w-[360px] [&_svg]:h-auto [&_svg]:w-full"
                 dangerouslySetInnerHTML={{ __html: receiptLineSvg }}
-                style={{ transform: "scale(1.2)", transformOrigin: "top center" }}
               />
             </div>
             <p className="mt-6 text-center text-[10px] font-bold italic text-app-text-muted">
-              Preview approximates the standard 42-column Epson receipt layout.
+              Preview uses the {EPSON_RECEIPT_PAPER} Epson customer receipt
+              layout. ReceiptLine formats text at {EPSON_RECEIPT_CPL} characters
+              per line for this template.
             </p>
           </section>
         </div>

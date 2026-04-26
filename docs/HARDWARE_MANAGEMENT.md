@@ -35,6 +35,8 @@ The **Printers & Scanners** panel in the Back Office and the **Terminal Override
 
 **POS Accessibility (v0.2.1+)**: The Printers & Scanners hub remains one of the two allowed Settings subsections in POS mode, ensuring floor staff can troubleshoot or reconfigure local hardware without requiring administrative Back Office access.
 
+In POS, the same panel opens as **Register Hardware**. It shows the active receipt endpoint, cash drawer mode, and tag station at the top, then provides lane-safe actions for **Check connection**, **Print test**, **Open drawer**, and scanner input testing.
+
 ### Cash Drawer
 Register #1 uses the cash drawer attached to the Epson TM-m30III receipt printer. ROS sends the ESC/POS drawer kick command from the desktop app when the completed sale tender summary contains **CASH** or **CHECK**. Card, gift card, account credit, and other non-cash tenders do not open the drawer. Receipt reprints do not intentionally kick the drawer again. The local toggle is stored as `ros.hardware.cashDrawer.enabled`.
 
@@ -43,7 +45,7 @@ Register #1 uses the cash drawer attached to the Epson TM-m30III receipt printer
 ## 3. Printer Modes
 
 ### Thermal (Receipts)
-The production receipt path is **Standard Epson**: ROS generates structured ESC/POS output for Epson TM-m30III-compatible receipt printers. Receipt content is controlled by the standard receipt settings: store name, header/footer lines, visibility toggles, and receipt sections.
+The production receipt path is **Standard Epson**: ROS generates a merged ReceiptLine document, previews it as SVG in Receipt Settings, and prints Epson ESC/POS through the local printer bridge. Receipt content is controlled by the standard receipt settings: store name, header/footer lines, visibility toggles, receipt sections, and the ReceiptLine template.
 
 The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no legacy saved HTML template exists.
 

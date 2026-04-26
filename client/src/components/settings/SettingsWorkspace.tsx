@@ -77,6 +77,7 @@ export interface ReceiptConfig {
   receipt_studio_project_json?: unknown;
   receipt_studio_exported_html?: string | null;
   receipt_thermal_mode?: string;
+  receiptline_template?: string | null;
 }
 
 export interface BackupSettings {
@@ -104,6 +105,7 @@ interface BackupFile {
 interface SettingsWorkspaceProps {
   activeSection?: string;
   settingsActiveSection?: string;
+  mode?: "backoffice" | "pos";
   bugReportsDeepLinkId?: string | null;
   onBugReportsDeepLinkConsumed?: () => void;
   onOpenQbo?: () => void;
@@ -129,6 +131,7 @@ type IntegrationCardItem = {
 export default function SettingsWorkspace({
   activeSection,
   settingsActiveSection,
+  mode = "backoffice",
   bugReportsDeepLinkId,
   onBugReportsDeepLinkConsumed,
   onOpenQbo,
@@ -577,7 +580,8 @@ export default function SettingsWorkspace({
         {/* Content Area - Full Workspace */}
         <main className="flex-1 scroll-smooth">
           <div
-            className="p-10 w-full animate-in fade-in slide-in-from-bottom-4 duration-500"
+            data-testid="settings-workspace-content"
+            className="w-full animate-in fade-in slide-in-from-bottom-4 p-4 duration-500 sm:p-6 lg:p-10"
           >
             {activeTab === "profile" && (
               <StaffProfilePanel />
@@ -910,7 +914,7 @@ export default function SettingsWorkspace({
                   </p>
                 }
               >
-                <PrintersAndScannersPanel />
+                <PrintersAndScannersPanel mode={mode} />
               </Suspense>
             )}
             {activeTab === "register" && (
@@ -1102,7 +1106,7 @@ export default function SettingsWorkspace({
                     securely.
                   </p>
                 </header>
-                <section className="ui-card p-10">
+                <section className="ui-card p-4 sm:p-6 lg:p-10">
                   <RemoteAccessPanel />
                 </section>
               </div>
@@ -1193,7 +1197,7 @@ export default function SettingsWorkspace({
             )}
 
             {activeTab === "general" && (
-              <div className="space-y-12">
+              <div className="space-y-8 sm:space-y-12">
                 <header className="mb-10">
                   <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
                     System Settings
@@ -1205,7 +1209,7 @@ export default function SettingsWorkspace({
 
 
                 {hasPermission("settings.admin") ? (
-                  <section className="ui-card p-8 max-w-2xl">
+                  <section className="ui-card max-w-2xl p-4 sm:p-6 lg:p-8">
                     <div className="mb-4 flex items-start gap-3">
                       <Star
                         className="mt-0.5 h-5 w-5 shrink-0 text-app-accent"
@@ -1289,7 +1293,7 @@ export default function SettingsWorkspace({
                   </section>
                 ) : null}
 
-                <section className="ui-card p-8 max-w-4xl">
+                <section className="ui-card max-w-4xl p-4 sm:p-6 lg:p-8">
                   <div className="mb-4 flex items-start gap-3">
                     <ClipboardList
                       className="mt-0.5 h-5 w-5 shrink-0 text-app-accent"

@@ -205,6 +205,8 @@ pub struct ReceiptConfig {
     pub show_loyalty_balance: bool,
     #[serde(default)]
     pub show_barcode: bool,
+    #[serde(default = "default_true")]
+    pub show_logo: bool,
     #[serde(default)]
     pub header_lines: Vec<String>,
     #[serde(default = "default_footer")]
@@ -222,6 +224,10 @@ pub struct ReceiptConfig {
     /// `escpos` = standard Epson TM receipt path. Studio HTML modes remain optional.
     #[serde(default = "default_receipt_thermal_mode")]
     pub receipt_thermal_mode: String,
+    /// ReceiptLine markdown template for Epson receipts. When empty, ROS builds a standard
+    /// template from the structured receipt settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub receiptline_template: Option<String>,
 }
 
 fn default_store_name() -> String {
@@ -266,12 +272,14 @@ impl Default for ReceiptConfig {
             show_loyalty_earned: true,
             show_loyalty_balance: true,
             show_barcode: false,
+            show_logo: true,
             header_lines: Vec::new(),
             footer_lines: default_footer(),
             timezone: default_timezone(),
             receipt_studio_project_json: None,
             receipt_studio_exported_html: None,
             receipt_thermal_mode: default_receipt_thermal_mode(),
+            receiptline_template: None,
         }
     }
 }

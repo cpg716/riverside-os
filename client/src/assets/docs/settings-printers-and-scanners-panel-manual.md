@@ -17,7 +17,7 @@ _Linked component: `client/src/components/settings/PrintersAndScannersPanel.tsx`
 
 ## What this is
 
-This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, so changes apply to the lane where they are made.
+This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, but POS opens a Register Hardware view with lane-focused readiness and test actions.
 
 ## When to use it
 
@@ -30,13 +30,15 @@ Use this panel when opening a new lane, replacing a printer, checking scanner in
 3. Leave **Open cash drawer on cash/check** enabled for Register #1 when the drawer is attached to the Epson receipt printer.
 4. Enter the tag printer IP for the Zebra 2844 clothing tag station on the host PC.
 5. Enter the reports printer target when the workstation uses a dedicated reports bridge.
-6. Use **Check connection** for the receipt printer in the Riverside desktop app.
-7. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
+6. In POS, use **Print test** to send a short Epson test receipt and **Open drawer** to test the attached cash drawer.
+7. Use **Check connection** for the receipt printer in the Riverside desktop app.
+8. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
 
 ## Tips
 
 - Receipt printing uses Epson ESC/POS for the TM-m30III path.
 - The cash drawer opens only on CASH and CHECK sales from the Register #1 desktop app.
+- The POS Register Hardware view shows the active receipt address, cash drawer state, and Zebra tag target at the top of the page.
 - Item tags use the Zebra 2844/ZPL station on the host PC.
 - Browser/PWA mode can save the same settings, but live receipt-printer readiness checks run in the desktop app.
 - USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.

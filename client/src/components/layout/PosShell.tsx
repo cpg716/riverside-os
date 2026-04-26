@@ -496,6 +496,7 @@ export default function PosShell({
             <div className="flex min-h-0 flex-1 flex-col overflow-auto">
               <Suspense fallback={<div className="flex flex-1 items-center justify-center p-8 text-center text-sm font-black italic uppercase tracking-[0.3em] text-app-text-muted opacity-20">Synchronizing Settings...</div>}>
                 <SettingsWorkspace 
+                  mode="pos"
                   activeSection={activeSubSection}
                   posSessionId={sessionId}
                   posCashierCode={cashierCode}

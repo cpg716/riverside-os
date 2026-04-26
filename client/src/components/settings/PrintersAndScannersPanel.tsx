@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import {
   Barcode,
   CheckCircle2,
+  CircleDollarSign,
   Printer,
   RefreshCw,
   ScanLine,
@@ -9,6 +10,7 @@ import {
 } from "lucide-react";
 import {
   checkReceiptPrinterConnection,
+  printRawEscPosBase64,
   resolvePrinterAddress,
 } from "../../lib/printerBridge";
 import { isTauri } from "@tauri-apps/api/core";
@@ -59,7 +61,21 @@ function getStored(key: string, fallback: string) {
   return window.localStorage.getItem(key) ?? fallback;
 }
 
-export default function PrintersAndScannersPanel() {
+function escposBase64FromAscii(text: string) {
+  const bytes = [
+    0x1b, 0x40,
+    ...Array.from(text).map((ch) => ch.charCodeAt(0) & 0xff),
+    0x0a, 0x0a, 0x0a,
+    0x1d, 0x56, 0x41, 0x00,
+  ];
+  return btoa(String.fromCharCode(...bytes));
+}
+
+export default function PrintersAndScannersPanel({
+  mode = "backoffice",
+}: {
+  mode?: "backoffice" | "pos";
+}) {
   const { toast } = useToast();
   const initialValues = useMemo(
     () =>
@@ -82,6 +98,8 @@ export default function PrintersAndScannersPanel() {
     () => getStored("ros.hardware.cashDrawer.enabled", "true") !== "false",
   );
   const [testing, setTesting] = useState<PrinterKey | null>(null);
+  const [drawerTesting, setDrawerTesting] = useState(false);
+  const [testPrinting, setTestPrinting] = useState(false);
   const [lastScan, setLastScan] = useState("");
 
   const saveValue = (key: string, value: string) => {
@@ -119,6 +137,41 @@ export default function PrintersAndScannersPanel() {
     }
   };
 
+  const printTestReceipt = async () => {
+    setTestPrinting(true);
+    try {
+      const printer = resolvePrinterAddress("receipt");
+      const now = new Date().toLocaleString();
+      await printRawEscPosBase64(
+        escposBase64FromAscii(`Riverside OS\nRegister #1 printer test\n${now}\n\nEpson TM-m30III ESC/POS`),
+        printer.ip,
+        printer.port,
+      );
+      toast("Test receipt sent to the Epson station.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Test receipt failed", "error");
+    } finally {
+      setTestPrinting(false);
+    }
+  };
+
+  const openCashDrawerTest = async () => {
+    setDrawerTesting(true);
+    try {
+      const printer = resolvePrinterAddress("receipt");
+      await printRawEscPosBase64("G3AAMvo=", printer.ip, printer.port);
+      toast("Cash drawer kick sent.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Cash drawer test failed", "error");
+    } finally {
+      setDrawerTesting(false);
+    }
+  };
+
+  const receiptIp = values["ros.hardware.printer.receipt.ip"]?.trim() || "Not set";
+  const receiptPort = values["ros.hardware.printer.receipt.port"]?.trim() || "9100";
+  const tagIp = values["ros.hardware.printer.tag.ip"]?.trim() || "Not set";
+
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
       <header className="mb-2">
@@ -128,14 +181,38 @@ export default function PrintersAndScannersPanel() {
           </div>
           <div className="min-w-0 flex-1 space-y-2">
             <h2 className="text-3xl font-black italic tracking-tighter uppercase text-app-text">
-              Printers & Scanners
+              {mode === "pos" ? "Register Hardware" : "Printers & Scanners"}
             </h2>
             <p className="max-w-3xl text-sm font-medium leading-relaxed text-app-text-muted">
-              Workstation hardware settings are stored on this device. Back Office and POS use the same keys, so updates here apply immediately to the current lane.
+              {mode === "pos"
+                ? "Register lane hardware lives on this device: Epson receipts, the attached cash drawer, Zebra clothing tags, and scanner input."
+                : "Workstation hardware settings are stored on this device. Back Office and POS use the same keys, so updates here apply immediately to the current lane."}
             </p>
           </div>
         </div>
       </header>
+
+      {mode === "pos" ? (
+        <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
+          {[
+            ["Receipt", `${receiptIp}:${receiptPort}`, "Epson TM-m30III"],
+            ["Drawer", cashDrawerEnabled ? "Cash/check only" : "Disabled", "Attached to receipt printer"],
+            ["Tags", tagIp, "Zebra 2844 clothing tags"],
+          ].map(([label, value, helper]) => (
+            <div key={label} className="ui-card p-5">
+              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {label}
+              </p>
+              <p className="mt-2 text-lg font-black tracking-tight text-app-text">
+                {value}
+              </p>
+              <p className="mt-1 text-xs font-semibold text-app-text-muted">
+                {helper}
+              </p>
+            </div>
+          ))}
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-5 xl:grid-cols-3">
         {PRINTERS.map((printer) => {
@@ -227,6 +304,37 @@ export default function PrintersAndScannersPanel() {
                 )}
                 {printer.key === "receipt" ? "Check connection" : "Confirm setting"}
               </button>
+
+              {mode === "pos" && printer.key === "receipt" ? (
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    onClick={() => void printTestReceipt()}
+                    disabled={testPrinting}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-bg px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-2 disabled:opacity-50"
+                  >
+                    {testPrinting ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Printer className="h-4 w-4" />
+                    )}
+                    Print test
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void openCashDrawerTest()}
+                    disabled={drawerTesting || !cashDrawerEnabled}
+                    className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-colors hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
+                  >
+                    {drawerTesting ? (
+                      <RefreshCw className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <CircleDollarSign className="h-4 w-4" />
+                    )}
+                    Open drawer
+                  </button>
+                </div>
+              ) : null}
             </div>
           );
         })}

@@ -1799,10 +1799,13 @@ async fn get_transaction_receipt_escpos(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
+    let receiptline_markdown =
+        receipt_escpos::build_receiptline_markdown(&receipt_order, &receipt_cfg, &params);
     let bytes = receipt_escpos::build_receipt_escpos(&receipt_order, &receipt_cfg, params);
     let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
     Ok(Json(serde_json::json!({
         "escpos_base64": escpos_base64,
+        "receiptline_markdown": receiptline_markdown,
         "printer_language": "escpos",
         "printer_family": "epson_tm_m30iii"
     })))

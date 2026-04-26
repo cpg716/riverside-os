@@ -1,9 +1,11 @@
 # Receipt Settings and delivery (print, email, text)
 
 Staff manage production receipt content in **Settings → Receipt Settings**. The active register print path is:
-- **Standard Epson**: structured ESC/POS output for Epson TM-m30III-compatible receipt printers, with a 42-column preview powered by **`receiptline`**.
+- **Standard Epson**: structured ESC/POS output for Epson TM-m30III-compatible 80mm receipt printers, with a ReceiptLine preview using the template's configured character-per-line layout.
 
-Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`). Legacy Studio fields may still exist for older saved templates, but the active Settings UI no longer exposes the HTML designer.
+The editor exposes the store identifier, receipt logo toggle, editable header lines, editable footer lines, section toggles, and the underlying **ReceiptLine markdown template**. ROS merges transaction data into the template, previews the result as SVG, and POS prefers that same merged ReceiptLine document when generating Epson ESC/POS for print. If the client-side ReceiptLine transform fails, POS falls back to the server-generated ESC/POS payload.
+
+Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`), including **`receiptline_template`**. Legacy Studio fields may still exist for older saved templates, but the active Settings UI no longer exposes the HTML designer.
 
 **Thermal Preview:** `client/src/components/settings/ReceiptBuilderPanel.tsx` using **`receiptline`**. **Standard ESC/POS:** `server/src/logic/receipt_escpos.rs`, `GET /api/transactions/{transaction_id}/receipt.escpos`. **Legacy HTML fallback / email view:** `server/src/logic/receipt_studio_html.rs`. **POS UI:** `client/src/components/pos/ReceiptSummaryModal.tsx`. Hardware management is centralized in the **Printers & Scanners** hub (`client/src/components/settings/PrintersAndScannersPanel.tsx`).
 
@@ -34,7 +36,9 @@ Email and text flows **do not** use `receipt_thermal_mode`; they use standard HT
 - Server loads **`receipt_studio_exported_html`**. If a legacy template exists, it runs **`merge_receipt_studio_html(tpl, order, cfg, gift)`**; otherwise it runs **`render_standard_receipt_html(order, cfg, gift)`**.
 - Empty Studio HTML no longer blocks receipt viewing.
 
-**Settings → Receipt Settings** preview is rendered in the client with **`receiptline`**.
+**Settings → Receipt Settings** preview is rendered in the client with **`receiptline`**. The paper target is the 80mm Epson customer receipt; the character-per-line value is the ReceiptLine formatting width for the current template, not the physical paper width.
+
+The top logo uses ReceiptLine's image property (`{image: base64-png}`) through the controlled `{{LOGO_IMAGE}}` token. ROS resizes the Riverside logo for thermal output before it is merged into the printable ReceiptLine document.
 
 **Thermal ZPL:** **`GET /api/orders/{order_id}/receipt.zpl`** supports the same **`gift`** and **`order_item_ids`** query parameters (full order is the default when omitted).
 

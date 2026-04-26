@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { isTauri } from "@tauri-apps/api/core";
+import { transform } from "receiptline";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -74,6 +75,14 @@ type OrderDetail = {
   review_invite_sent_at?: string | null;
   review_invite_suppressed_at?: string | null;
 };
+
+function binaryStringToBase64(value: string) {
+  let binary = "";
+  for (let i = 0; i < value.length; i += 1) {
+    binary += String.fromCharCode(value.charCodeAt(i) & 0xff);
+  }
+  return btoa(binary);
+}
 
 export default function ReceiptSummaryModal({
   transactionId,
@@ -320,7 +329,10 @@ export default function ReceiptSummaryModal({
           cache: "no-store",
         });
         if (!res.ok) throw new Error("Receipt generation failed");
-        const escposPayload = (await res.json()) as { escpos_base64?: string };
+        const escposPayload = (await res.json()) as {
+          escpos_base64?: string;
+          receiptline_markdown?: string;
+        };
         if (
           typeof escposPayload.escpos_base64 !== "string" ||
           !escposPayload.escpos_base64
@@ -331,7 +343,22 @@ export default function ReceiptSummaryModal({
         const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
         const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100");
 
-        await printRawEscPosBase64(escposPayload.escpos_base64, printerIp, printerPort);
+        let printableBase64 = escposPayload.escpos_base64;
+        if (typeof escposPayload.receiptline_markdown === "string" && escposPayload.receiptline_markdown.trim()) {
+          try {
+            const receiptlineCommand = transform(escposPayload.receiptline_markdown, {
+              cpl: 42,
+              encoding: "cp437",
+              command: "escpos",
+              cutting: true,
+            });
+            printableBase64 = binaryStringToBase64(String(receiptlineCommand));
+          } catch (receiptlineError) {
+            console.warn("ReceiptLine print transform failed; using server ESC/POS fallback", receiptlineError);
+          }
+        }
+
+        await printRawEscPosBase64(printableBase64, printerIp, printerPort);
         setPrintingSuccessMessage(
           `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
         );
