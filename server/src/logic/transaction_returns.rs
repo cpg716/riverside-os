@@ -180,14 +180,16 @@ pub async fn apply_transaction_returns(
         if is_fulfilled && line_commission > Decimal::ZERO {
             crate::logic::commission_events::insert_return_adjustment_event(
                 &mut tx,
-                transaction_id,
-                oid,
-                return_line_id,
-                line.quantity,
-                sold_qty,
-                line_commission,
-                line.reason.as_deref().unwrap_or("return"),
-                staff_id,
+                crate::logic::commission_events::ReturnCommissionAdjustment {
+                    transaction_id,
+                    transaction_line_id: oid,
+                    return_line_id,
+                    returned_qty: line.quantity,
+                    sold_qty,
+                    original_commission: line_commission,
+                    reason: line.reason.clone().unwrap_or_else(|| "return".to_string()),
+                    created_by_staff_id: staff_id,
+                },
             )
             .await?;
         }

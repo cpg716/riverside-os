@@ -16,6 +16,18 @@ pub struct ManualCommissionAdjustment {
     pub created_by_staff_id: Uuid,
 }
 
+#[derive(Debug, Clone)]
+pub struct ReturnCommissionAdjustment {
+    pub transaction_id: Uuid,
+    pub transaction_line_id: Uuid,
+    pub return_line_id: Uuid,
+    pub returned_qty: i32,
+    pub sold_qty: i32,
+    pub original_commission: Decimal,
+    pub reason: String,
+    pub created_by_staff_id: Option<Uuid>,
+}
+
 pub async fn upsert_fulfilled_transaction_events(
     tx: &mut Transaction<'_, Postgres>,
     transaction_id: Uuid,
@@ -138,20 +150,17 @@ pub async fn upsert_fulfilled_transaction_events(
 
 pub async fn insert_return_adjustment_event(
     tx: &mut Transaction<'_, Postgres>,
-    transaction_id: Uuid,
-    transaction_line_id: Uuid,
-    return_line_id: Uuid,
-    returned_qty: i32,
-    sold_qty: i32,
-    original_commission: Decimal,
-    reason: &str,
-    created_by_staff_id: Option<Uuid>,
+    adjustment_input: ReturnCommissionAdjustment,
 ) -> Result<(), sqlx::Error> {
-    if returned_qty <= 0 || sold_qty <= 0 || original_commission <= Decimal::ZERO {
+    if adjustment_input.returned_qty <= 0
+        || adjustment_input.sold_qty <= 0
+        || adjustment_input.original_commission <= Decimal::ZERO
+    {
         return Ok(());
     }
     let adjustment = -round_money_usd(
-        original_commission * Decimal::from(returned_qty) / Decimal::from(sold_qty),
+        adjustment_input.original_commission * Decimal::from(adjustment_input.returned_qty)
+            / Decimal::from(adjustment_input.sold_qty),
     );
     if adjustment == Decimal::ZERO {
         return Ok(());
@@ -198,14 +207,14 @@ pub async fn insert_return_adjustment_event(
         DO NOTHING
         "#,
     )
-    .bind(transaction_id)
-    .bind(transaction_line_id)
-    .bind(return_line_id)
+    .bind(adjustment_input.transaction_id)
+    .bind(adjustment_input.transaction_line_id)
+    .bind(adjustment_input.return_line_id)
     .bind(adjustment)
-    .bind(returned_qty)
-    .bind(sold_qty)
-    .bind(reason)
-    .bind(created_by_staff_id)
+    .bind(adjustment_input.returned_qty)
+    .bind(adjustment_input.sold_qty)
+    .bind(adjustment_input.reason)
+    .bind(adjustment_input.created_by_staff_id)
     .execute(&mut **tx)
     .await?;
 
