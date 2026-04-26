@@ -8,30 +8,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.3.2] — 2026-04-26
 ### Added
 - **Exchange/Return Wizard Redesign**: 
-  - Comprehensive UI overhaul with a larger `3xl` width modal to eliminate vertical scrolling.
-  - Applied "WowDash" glassmorphism with `backdrop-blur-xl` and themed surface tokens.
-  - Implemented phase-based navigation with guided "Active Instruction" panels for staff.
-  - High-fidelity item cards with max-return indicators and improved typography.
+  - Comprehensive UI overhaul with a larger `3xl` width modal and "WowDash" glassmorphism (`backdrop-blur-xl`).
+  - Phase-based navigation with guided "Active Instruction" panels and high-fidelity item triage.
 - **60-Day Global Return Policy**:
-  - Implemented a system-wide policy allowing any staff member to process returns/exchanges for transactions up to 60 days old.
-  - Transactions beyond the 60-day window now automatically trigger a mandatory Manager PIN verification (`orders.modify` permission).
-  - Added a "Global Register Policy" card to the Staff Access settings to document this guardrail for administrators.
+  - Unified policy allowing returns/exchanges up to 60 days from any session.
+  - Automatic escalation to **Manager PIN** override for transactions older than 60 days.
 - **RBAC Auto-Synchronization**:
-  - Role updates in staff profiles now automatically regenerate the staff member's effective permissions from the new role's defaults.
-  - Preserves manual overrides while ensuring the staff member attains the mandatory baseline of their new role.
-- **Codex & ROSIE Integration**: 
-  - Codified `codex_prompt_template.md` as a non-negotiable invariant in `AGENTS.md` to enforce a narrow audit mandate and ROSIE safety rails for all AI operations.
-  - Automated syncing of `max_discount_percent` from role pricing templates on profile update and new hire creation.
-  - Preserves existing manual permission overrides during role transitions.
+  - Profile role updates now automatically sync `staff_permission` sets and `max_discount_percent` while preserving manual overrides.
+- **Hardware & Receipts**:
+  - **Logo Support**: Added `ReceiptLine` logo support for thermal printers.
+  - **Rich Attribution**: Receipts now include Cashier and Salesperson names.
+  - **Builder Refinement**: Enhanced Receipt Builder panel with ESC/POS logic hardening and dedicated settings endpoint.
+- **POS Intelligence**:
+  - **Barcode Scanning**: Support for transaction lookup via receipt barcode scan.
+  - **Tender Hardening**: Restricted purchased gift cards to the register and clarified shipping paths.
+  - **Event Tracking**: Enhanced register payment tracking and detailed error event logging.
+- **Mobile & PWA**:
+  - Comprehensive small-screen workspace layout improvements for PWA use.
+  - Expanded E2E coverage for small-screen audit and responsive flows.
+- **Help Center**: Added controlled authoring for in-app help documentation.
 
 ### Changed
-- **Unified Transaction Nomenclature**: Finalized the systematic renaming of "Orders" to **"Transactions"** across all financial ledger UI, API endpoints, and permission labels. 
-- Updated the Permission Catalog documentation in the UI to reflect the 60-day Manager PIN requirement on the `Edit transaction lines` permission.
+- **Unified Transaction Nomenclature**: Finalized the systematic renaming of "Orders" to **"Transactions"** across all financial ledger UI, API endpoints, and permission labels (e.g., `OrderSearchInput` → `TransactionSearchInput`).
+- **Commission Architecture**: Reworked commissions into a dedicated reporting ledger for better auditability.
+- **QBO Bridge**: Aligned staging logic with the revenue recognition basis.
+- **Workspace UI**: Harmonized layouts between Orders and Alterations hubs.
+- **Permissions**: Updated the Permission Catalog documentation in the UI to reflect the 60-day Manager PIN requirement.
 
 ### Fixed
-- Resolved a critical 422 Unprocessable Entity error in the Return Wizard caused by a schema mismatch on transaction line IDs.
-- Fixed React "unique key" warnings in the Exchange/Return item lists.
-- Fixed backend compilation errors in `TransactionDetailResponse` and related summaries following the nomenclature refactor.
+- **Tax Integrity**: Hardened tax category controls and server-side checkout validation truth.
+- **Meilisearch**: Resolved orders index synchronization and health status reporting bugs.
+- **UI Navigation**: Fixed Operations dashboard card navigation and commission drilldown row keys.
+- **Hardware**: Fixed alignment and wrapping bugs in ESC/POS receipt lines; tightened Epson hardware handshake.
+- **Return Wizard**: Resolved a critical 422 Unprocessable Entity error caused by a schema mismatch on transaction line IDs and fixed walk-in exchange status checks.
+- **React**: Fixed "unique key" warnings in the Exchange/Return item lists.
+- **Backend**: Fixed compilation errors in `TransactionDetailResponse` and related summaries following the nomenclature refactor.
+- **Correctness**: Fixed commission return adjustment drift and cargo fmt/clippy warnings in server.
 
 
 ## [0.3.1] — 2026-04-25
