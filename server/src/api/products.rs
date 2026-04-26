@@ -1696,7 +1696,7 @@ async fn patch_product_model(
         set_tax_category_override = true;
         tax_category_override_value = Some(category);
         n += 1;
-        let after = format!("{:?}", category).to_ascii_lowercase();
+        let after = format!("{category:?}").to_ascii_lowercase();
         if current.tax_category_override.as_deref() != Some(after.as_str()) {
             before_values.insert(
                 "tax_category_override".to_string(),
