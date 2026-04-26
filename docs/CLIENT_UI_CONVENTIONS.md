@@ -144,7 +144,7 @@ To prevent "buried" interactive elements in complex nested workflows (e.g., open
 - **E2E:** Prefer **`E2E_BASE_URL=http://localhost:5173`** (see **`.cursorrules`** / **`AGENTS.md`**). Layout smoke: **`client/e2e/pwa-responsive.spec.ts`**.
 - Release gate: **`cd client && npm run build`**.
 
-**Last reviewed:** 2026-04-15 (v0.2.0 WowDash Pass)
+**Last reviewed:** 2026-04-26 (v0.3.3 Stacking & Portaling Sweep)
 
 ## POS Register Design & Financial Parity
 

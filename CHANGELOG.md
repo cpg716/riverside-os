@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
  
+## [0.3.3] — 2026-04-26
+### Changed
+- **Standardized Stacking Tiers & Portaling Mandate (v0.3.3+)**: Completed a systemic sweep of the entire UI overlay architecture to resolve "buried" interactive elements.
+  - Every Modal, Drawer, Wizard, and system prompt now uses `createPortal` targeting `#drawer-root` in `index.html`.
+  - Enforced tiered z-index: **`z-100`** (Drawers/Hubs), **`z-200`** (Modals/Wizards), **`z-300`** (System Priority — Toasts, PWA Prompts).
+  - All overlays use the **`.ui-overlay-backdrop`** CSS class for consistent background layering behavior.
+  - Added the `Standardized Stacking Tiers & Portaling Mandate` section to `docs/CLIENT_UI_CONVENTIONS.md` and `UI_STANDARDS.md`.
+
+### Fixed
+- **Transaction Detail Drawer sub-modals** (Refund, Receipt, Attach to Wedding) no longer render behind their parent drawer.
+- **Inventory Control Board** modals (Stock Adjustment, Maintenance/Damaged, Tag Print) portaled and stacked correctly.
+- **Cart** inline Edit Order Payment modal portaled correctly.
+- **`InventoryControlBoard.tsx`**: Added missing `createPortal` import from `react-dom`.
+- **`PwaUpdatePrompt.tsx`**: Resolved a structural parsing error (premature function close) that caused `showInstallPrompt` and `handleInstall` to be inaccessible. Both the Update and Install prompt branches are now correctly structured within the component.
+- Extended E2E coverage in `ui-portaling-stacking.spec.ts` for refund modal stacking, receipt modal stacking, and inventory adjustment portaling.
+
 ## [0.3.2] — 2026-04-26
 ### Added
 - **Exchange/Return Wizard Redesign**: 
@@ -251,6 +267,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Receipt Privacy & Internal Filtering**: Standardized staff names on receipts as "First Name + Last Initial" and automated the filtering of internal SPIFF/Combo lines from customer-facing output.
 - **CI/CD Resilience Hardening**: Implemented 30s Playwright buffers and codified 'GitHub CI Resilience' rules in `AGENTS.md` to ensure zero-failure deployments.
 - **Navigation Sync**: Synchronized 'daily-sales' ID between Operations and Sidebar to maintain flawless navigation.
+
 
 ## [v0.1.8-alpha] - 2026-04-10 (Baseline)
 ### Added
