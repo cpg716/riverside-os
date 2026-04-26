@@ -16,15 +16,17 @@ _Linked component: `client/src/components/pos/ReceiptSummaryModal.tsx`._
 
 ## What this is
 
-This is the post-sale receipt screen shown after checkout succeeds. It confirms that the sale is complete, then lets staff print the receipt, retry printing if needed, or send the receipt by SMS or email.
+This is the post-sale receipt screen shown after checkout succeeds. It confirms that the sale is complete, then lets staff print, view, text, or email the customer receipt. Gift receipts open in a separate selection window so the main completion screen stays focused on finishing the sale.
 
 ## How to use it
 
-1. Confirm the sale total and tender summary at the top of the screen.
-2. Use **Print receipt** for the standard customer copy or **Print gift receipt** for the gift version.
-3. If printing fails, read the warning panel carefully. The sale is already complete even if the printer did not respond.
-4. Use **Retry** or **Check station printer** before starting the next customer if the printer path is the problem.
-5. If needed, send the receipt by **SMS** or **email** from the same screen.
+1. Confirm the sale total and tender summary.
+2. Use **Print receipt**, **Text receipt**, or **Email receipt** for the standard customer copy.
+3. Use **View receipt** to preview the receipt and choose **Receipt printer** or **Reports printer** from the preview window.
+4. Use **Gift receipt** only when a gift copy is needed. Select the included lines, then choose print, text, or email inside that window.
+5. If a customer is attached, phone and email prefill from the customer profile. Staff may edit them for this receipt and use **Save** when the profile should be updated.
+6. If printing fails, read the warning panel carefully. The sale is already complete even if the printer did not respond.
+7. Use **Retry** or **Check station printer** before starting the next customer if the printer path is the problem.
 
 ## Tips
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   AlertTriangle,
   CheckCircle2,
+  Eye,
   Gift,
   Mail,
   MessageSquare,
@@ -111,6 +112,11 @@ export default function ReceiptSummaryModal({
   const [savingContact, setSavingContact] = useState(false);
   const [skipReviewInvite, setSkipReviewInvite] = useState(false);
   const [reviewInviteSaving, setReviewInviteSaving] = useState(false);
+  const [giftDialogOpen, setGiftDialogOpen] = useState(false);
+  const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
+  const [receiptPreviewHtml, setReceiptPreviewHtml] = useState<string | null>(null);
+  const [receiptPreviewLoading, setReceiptPreviewLoading] = useState(false);
+  const [receiptPreviewError, setReceiptPreviewError] = useState<string | null>(null);
   /** Per line; only lines checked here are included on the next gift receipt. */
   const [giftLinePick, setGiftLinePick] = useState<Record<string, boolean>>({});
 
@@ -641,6 +647,67 @@ export default function ReceiptSummaryModal({
     });
   };
 
+  const fetchReceiptHtml = async (
+    opts?: { gift?: boolean; transactionLineIds?: string[] },
+  ) => {
+    if (!transactionId) throw new Error("Missing transaction.");
+    const q = buildReceiptQuery(opts);
+    const res = await fetch(
+      `${baseUrl}/api/transactions/${transactionId}/receipt.html${q}`,
+      {
+        headers: getAuthHeaders(),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) throw new Error("Receipt preview could not load.");
+    return res.text();
+  };
+
+  const openReceiptPreview = async () => {
+    setReceiptPreviewOpen(true);
+    setReceiptPreviewLoading(true);
+    setReceiptPreviewError(null);
+    setReceiptPreviewHtml(null);
+    try {
+      setReceiptPreviewHtml(await fetchReceiptHtml());
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Receipt preview could not load.";
+      setReceiptPreviewError(message);
+    } finally {
+      setReceiptPreviewLoading(false);
+    }
+  };
+
+  const printReceiptOnReportPrinter = async () => {
+    try {
+      const html = receiptPreviewHtml ?? (await fetchReceiptHtml());
+      const w = window.open("", "_blank", "noopener,noreferrer");
+      if (!w) {
+        throw new Error("Popup blocked — allow popups to print the report copy.");
+      }
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      requestAnimationFrame(() => {
+        try {
+          w.print();
+        } catch {
+          /* Browser print errors are surfaced by the browser UI. */
+        }
+      });
+      toast("Receipt opened for the reports printer.", "success");
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Could not open receipt print view.";
+      toast(message, "error");
+    }
+  };
+
+  const compactActionButton =
+    "inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text shadow-sm transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation sm:text-[11px]";
+
   return (
     <div
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 dark:bg-black/70"
@@ -651,9 +718,8 @@ export default function ReceiptSummaryModal({
         paddingRight: "max(0.75rem, env(safe-area-inset-right))",
       }}
     >
-      {/* 24" 1080p: lg/xl widen dialog; iPad Pro 11: md+ = two columns, 44px+ taps, dvh height */}
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:rounded-[2.5rem] lg:max-w-5xl xl:max-w-[72rem]">
-        <div className="relative flex max-h-[min(90dvh,42rem)] flex-col gap-4 overflow-hidden p-5 text-app-text sm:gap-4 sm:p-6 lg:max-h-[min(88vh,43rem)] lg:gap-5 lg:p-7">
+      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:rounded-[2rem] lg:max-w-4xl">
+        <div className="relative flex max-h-[min(90dvh,35rem)] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:p-6 lg:p-7">
           <button
             type="button"
             onClick={() => void closeWithReviewChoice()}
@@ -796,107 +862,66 @@ export default function ReceiptSummaryModal({
             ) : null}
           </div>
 
-          <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 sm:gap-3">
+          <div className="grid shrink-0 grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-5">
             <button
               type="button"
               disabled={printing || !transactionDetail}
               onClick={() => void handlePrint()}
-              className="group flex min-h-[56px] w-full items-center justify-between rounded-2xl border-b-8 border-emerald-800 bg-emerald-600 px-4 py-2 text-left text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 sm:min-h-[4.25rem] touch-manipulation"
+              className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border-b-8 border-emerald-800 bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-[0.99] disabled:opacity-60 touch-manipulation sm:text-[11px]"
             >
-              <div className="flex min-w-0 flex-col">
-                <span className="text-[9px] font-black uppercase tracking-widest text-emerald-950/70 lg:text-[10px]">
-                  Thermal printer
-                </span>
-                <span className="truncate text-sm font-black tracking-tight sm:text-base lg:text-lg">
-                  {printing ? "Generating…" : "Print receipt"}
-                </span>
-              </div>
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 text-white shadow-md transition-transform group-hover:scale-105 sm:h-12 sm:w-12">
-                <Printer size={22} />
-              </div>
+              <Printer className="h-4 w-4 shrink-0" />
+              {printing ? "Generating…" : "Print receipt"}
             </button>
             <button
               type="button"
-              disabled={printing || !transactionDetail || giftPickEmpty}
-              onClick={() => void runGiftPrint()}
-              className="group flex min-h-[56px] w-full items-center justify-between rounded-2xl border-2 border-violet-500 bg-[color-mix(in_srgb,violet_22%,var(--app-surface-2))] px-4 py-2 text-left text-app-text shadow-md transition-all hover:bg-[color-mix(in_srgb,violet_30%,var(--app-surface-2))] active:scale-[0.99] disabled:opacity-60 dark:border-violet-400 sm:min-h-[4.25rem] touch-manipulation"
+              disabled={!transactionDetail}
+              onClick={() => void openReceiptPreview()}
+              className={compactActionButton}
             >
-              <div className="flex min-w-0 flex-col">
-                <span className="text-[9px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300 lg:text-[10px]">
-                  Gift option
-                </span>
-                <span className="truncate text-sm font-black tracking-tight sm:text-base lg:text-lg">
-                  {printing ? "Generating…" : "Print gift receipt"}
-                </span>
-              </div>
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-violet-600/25 text-violet-700 dark:text-violet-300">
-                <Gift size={22} strokeWidth={2} />
-              </div>
+              <Eye className="h-4 w-4 shrink-0" />
+              View receipt
+            </button>
+            <button
+              type="button"
+              disabled={sendingSms || !transactionDetail}
+              onClick={() => void sendSmsReceipt("standard")}
+              className={compactActionButton}
+            >
+              <MessageSquare className="h-4 w-4 shrink-0 text-emerald-700 dark:text-emerald-300" />
+              {sendingSms ? "Sending…" : "Text receipt"}
+            </button>
+            <button
+              type="button"
+              disabled={sendingEmail || !transactionDetail}
+              onClick={() => void sendEmailReceipt("standard")}
+              className={compactActionButton}
+            >
+              <Mail className="h-4 w-4 shrink-0 text-sky-700 dark:text-sky-300" />
+              {sendingEmail ? "Sending…" : "Email receipt"}
+            </button>
+            <button
+              type="button"
+              disabled={!transactionDetail || itemRows.length === 0}
+              onClick={() => setGiftDialogOpen(true)}
+              className="inline-flex min-h-[56px] items-center justify-center gap-2 rounded-2xl border-2 border-violet-500 bg-[color-mix(in_srgb,violet_16%,var(--app-surface-2))] px-3 text-[10px] font-black uppercase tracking-widest text-violet-800 shadow-sm transition-colors hover:bg-[color-mix(in_srgb,violet_24%,var(--app-surface-2))] disabled:opacity-50 dark:text-violet-200 sm:text-[11px]"
+            >
+              <Gift className="h-4 w-4 shrink-0" />
+              Gift receipt
             </button>
           </div>
 
-          <div className="grid min-h-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] xl:gap-4">
-          {itemRows.length > 0 ? (
-            <div className="rounded-2xl border border-app-border bg-app-surface-2 px-4 py-3 sm:px-5 sm:py-4">
-              <div className="mb-2 flex items-center gap-2">
-                <Gift className="h-4 w-4 text-violet-600 dark:text-violet-400" strokeWidth={2} />
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text">
-                  Gift receipt lines
+          {cust ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-app-border bg-app-surface-2 p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="shrink-0 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Customer · {cust.first_name} {cust.last_name}
+                </p>
+                <p className="text-[9px] font-semibold text-app-text-muted">
+                  Profile contact is prefilled. Edits apply to this receipt unless saved.
                 </p>
               </div>
-              <p className="mb-3 text-[9px] font-semibold leading-snug text-app-text-muted">
-                Uncheck items to leave off this gift copy. SMS and email gift actions use the same
-                selection. Staff names on customer receipts use first name and last initial only.
-              </p>
-              <ul className="mb-1 max-h-28 space-y-1.5 overflow-y-auto pr-1 text-left">
-                {itemRows.map((it) => (
-                  <li key={it.transaction_line_id}>
-                    <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-app-border bg-app-surface px-2 py-1.5 touch-manipulation">
-                      <input
-                        type="checkbox"
-                        checked={giftLinePick[it.transaction_line_id] !== false}
-                        onChange={(e) =>
-                          setGiftLinePick((p) => ({
-                            ...p,
-                            [it.transaction_line_id]: e.target.checked,
-                          }))
-                        }
-                        className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
-                      />
-                      <span className="min-w-0 text-[11px] font-semibold leading-snug text-app-text">
-                        <span className="tabular-nums">{it.quantity}×</span> {it.product_name}
-                        <span className="block text-[9px] font-normal text-app-text-muted">
-                          {it.sku}
-                        </span>
-                        {it.gift_card_load_code ? (
-                          <span className="mt-1 block text-[9px] font-semibold text-violet-700 dark:text-violet-300">
-                            Gift card {maskGiftCardCode(it.gift_card_load_code)}
-                          </span>
-                        ) : null}
-                      </span>
-                    </label>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : transactionDetail ? (
-            <p className="rounded-2xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
-              Line items are not listed for this transaction here. Gift and full receipts still include all
-              lines from the server when you print.
-            </p>
-          ) : (
-            <p className="rounded-2xl border border-dashed border-app-border bg-app-surface-2 px-3 py-2 text-center text-[10px] font-semibold text-app-text-muted">
-              Loading transaction…
-            </p>
-          )}
-
-          {cust ? (
-            <div className="flex flex-col gap-3">
-              <p className="shrink-0 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Customer · {cust.first_name} {cust.last_name}
-              </p>
-              <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-3 lg:gap-4">
-                <div className="flex min-h-0 flex-col rounded-xl border border-app-border bg-app-surface-2 p-3 sm:p-4">
+              <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto]">
+                <div className="min-w-0">
                   <label className="block shrink-0">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-app-text-muted md:text-[10px]">
                       Mobile
@@ -905,7 +930,7 @@ export default function ReceiptSummaryModal({
                       type="tel"
                       value={phoneDraft}
                       onChange={(e) => setPhoneDraft(e.target.value)}
-                      className="ui-input mt-1 min-h-11 w-full text-base md:text-base"
+                      className="ui-input mt-1 min-h-10 w-full text-sm"
                       placeholder="Mobile number"
                       autoComplete="tel"
                     />
@@ -915,26 +940,8 @@ export default function ReceiptSummaryModal({
                       SMS receipt needs a phone number on file or entered above.
                     </p>
                   ) : null}
-                  <button
-                    type="button"
-                    disabled={sendingSms}
-                    onClick={() => void sendSmsReceipt("standard")}
-                    className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-emerald-600/35 bg-[color-mix(in_srgb,var(--app-success)_14%,var(--app-surface))] px-3 text-[10px] font-black uppercase tracking-widest text-emerald-800 transition-colors hover:bg-[color-mix(in_srgb,var(--app-success)_22%,var(--app-surface))] disabled:opacity-50 dark:text-emerald-200 md:text-[11px]"
-                  >
-                    <MessageSquare className="h-4 w-4 shrink-0" />
-                    {sendingSms ? "Sending…" : "Send SMS receipt"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={sendingSms || giftPickEmpty}
-                    onClick={() => void sendSmsReceipt("gift")}
-                    className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-500/40 bg-[color-mix(in_srgb,violet_12%,var(--app-surface))] px-3 text-[10px] font-black uppercase tracking-widest text-violet-800 transition-colors hover:bg-[color-mix(in_srgb,violet_18%,var(--app-surface))] disabled:opacity-50 dark:text-violet-200 md:text-[11px]"
-                  >
-                    <Gift className="h-4 w-4 shrink-0" />
-                    {sendingSms ? "Sending…" : "Send SMS gift receipt"}
-                  </button>
                 </div>
-                <div className="flex min-h-0 flex-col rounded-xl border border-app-border bg-app-surface-2 p-3 sm:p-4">
+                <div className="min-w-0">
                   <label className="block shrink-0">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-app-text-muted md:text-[10px]">
                       Email
@@ -943,7 +950,7 @@ export default function ReceiptSummaryModal({
                       type="email"
                       value={emailDraft}
                       onChange={(e) => setEmailDraft(e.target.value)}
-                      className="ui-input mt-1 min-h-11 w-full text-base md:text-base"
+                      className="ui-input mt-1 min-h-10 w-full text-sm"
                       placeholder="Email address"
                       autoComplete="email"
                     />
@@ -953,44 +960,17 @@ export default function ReceiptSummaryModal({
                       Email receipt needs an address on file or entered above.
                     </p>
                   ) : null}
-                  <button
-                    type="button"
-                    disabled={sendingEmail}
-                    onClick={() => void sendEmailReceipt("standard")}
-                    className="mt-3 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-sky-600/35 bg-[color-mix(in_srgb,var(--app-accent-2)_14%,var(--app-surface))] px-3 text-[10px] font-black uppercase tracking-widest text-sky-900 transition-colors hover:bg-[color-mix(in_srgb,var(--app-accent-2)_22%,var(--app-surface))] disabled:opacity-50 dark:text-sky-200 md:text-[11px]"
-                  >
-                    <Mail className="h-4 w-4 shrink-0" />
-                    {sendingEmail ? "Sending…" : "Send email receipt"}
-                  </button>
-                  <button
-                    type="button"
-                    disabled={sendingEmail || giftPickEmpty}
-                    onClick={() => void sendEmailReceipt("gift")}
-                    className="mt-2 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-500/40 bg-[color-mix(in_srgb,violet_12%,var(--app-surface))] px-3 text-[10px] font-black uppercase tracking-widest text-violet-800 transition-colors hover:bg-[color-mix(in_srgb,violet_18%,var(--app-surface))] disabled:opacity-50 dark:text-violet-200 md:text-[11px]"
-                  >
-                    <Gift className="h-4 w-4 shrink-0" />
-                    {sendingEmail ? "Sending…" : "Send email gift receipt"}
-                  </button>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => void saveCustomerContact()}
+                  disabled={savingContact || !contactChanged}
+                  className="inline-flex min-h-10 items-center justify-center gap-2 self-end rounded-xl border border-app-border bg-app-surface px-3 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation"
+                >
+                  <Save size={13} />
+                  {savingContact ? "Saving…" : "Save"}
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => void saveCustomerContact()}
-                disabled={savingContact}
-                className="inline-flex min-h-11 w-full shrink-0 items-center justify-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 text-[10px] font-black uppercase tracking-widest text-app-text transition-colors hover:bg-app-surface-3 disabled:opacity-50 touch-manipulation md:text-[11px]"
-              >
-                <Save size={14} />
-                {savingContact ? "Saving…" : "Save phone & email to account"}
-              </button>
-              {contactChanged ? (
-                <p className="shrink-0 text-[10px] font-semibold leading-snug text-app-text-muted">
-                  You can send with the contact typed above right now. Use save if this should stay on the customer account for future receipts.
-                </p>
-              ) : null}
-              <p className="shrink-0 text-[9px] leading-snug text-app-text-muted">
-                Email sends inline HTML from Receipt Builder (not an attachment). SMS uses a receipt
-                image when MMS is supported; otherwise plain summary. Requires Podium in Integrations.
-              </p>
               {reviewInviteEligible ? (
                 <label className="flex shrink-0 cursor-pointer items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 touch-manipulation">
                   <input
@@ -1000,7 +980,7 @@ export default function ReceiptSummaryModal({
                     className="mt-0.5 h-4 w-4 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
                   />
                   <span className="text-left text-[10px] font-semibold leading-snug text-app-text">
-                    Send post-sale review invite for this fully fulfilled sale. This is on by default, and staff can turn it off for this transaction.
+                    Send post-sale review invite for this fully fulfilled sale.
                   </span>
                 </label>
               ) : transactionDetail?.review_invite_sent_at || transactionDetail?.review_invite_suppressed_at ? (
@@ -1015,7 +995,6 @@ export default function ReceiptSummaryModal({
               SMS or email.
             </p>
           )}
-          </div>
 
           <button
             type="button"
@@ -1043,6 +1022,176 @@ export default function ReceiptSummaryModal({
           ) : null}
         </div>
       </div>
+
+      {giftDialogOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4">
+          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface text-app-text shadow-2xl">
+            <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-600/15 text-violet-700 dark:text-violet-300">
+                  <Gift className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-violet-700 dark:text-violet-300">
+                    Gift receipt
+                  </p>
+                  <h3 className="text-lg font-black tracking-tight">
+                    Choose lines and delivery
+                  </h3>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setGiftDialogOpen(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-surface-3 hover:text-app-text"
+                aria-label="Close gift receipt"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-[70dvh] space-y-4 overflow-y-auto p-5">
+              {itemRows.length > 0 ? (
+                <ul className="space-y-2 text-left">
+                  {itemRows.map((it) => (
+                    <li key={it.transaction_line_id}>
+                      <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 touch-manipulation">
+                        <input
+                          type="checkbox"
+                          checked={giftLinePick[it.transaction_line_id] !== false}
+                          onChange={(e) =>
+                            setGiftLinePick((p) => ({
+                              ...p,
+                              [it.transaction_line_id]: e.target.checked,
+                            }))
+                          }
+                          className="mt-0.5 h-5 w-5 shrink-0 rounded border border-app-input-border bg-app-surface accent-[var(--app-accent)]"
+                        />
+                        <span className="min-w-0 text-sm font-bold leading-snug text-app-text">
+                          <span className="tabular-nums">{it.quantity}×</span>{" "}
+                          {it.product_name}
+                          <span className="block text-[10px] font-semibold text-app-text-muted">
+                            {it.sku}
+                          </span>
+                          {it.gift_card_load_code ? (
+                            <span className="mt-1 block text-[10px] font-semibold text-violet-700 dark:text-violet-300">
+                              Gift card {maskGiftCardCode(it.gift_card_load_code)}
+                            </span>
+                          ) : null}
+                        </span>
+                      </label>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-3 text-sm font-semibold text-app-text-muted">
+                  Line items are not listed for this transaction here. Gift receipts still include all lines from the server.
+                </p>
+              )}
+              {cust ? (
+                <p className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2 text-[10px] font-semibold text-app-text-muted">
+                  Text and email use the phone/email currently shown on the sale complete screen.
+                </p>
+              ) : null}
+              <div className="grid gap-2 sm:grid-cols-3">
+                <button
+                  type="button"
+                  disabled={printing || giftPickEmpty}
+                  onClick={() => void runGiftPrint()}
+                  className="inline-flex min-h-12 items-center justify-center gap-2 rounded-xl border border-violet-500 bg-violet-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-md hover:bg-violet-500 disabled:opacity-50"
+                >
+                  <Printer className="h-4 w-4" />
+                  {printing ? "Printing…" : "Print"}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingSms || giftPickEmpty}
+                  onClick={() => void sendSmsReceipt("gift")}
+                  className={compactActionButton}
+                >
+                  <MessageSquare className="h-4 w-4" />
+                  {sendingSms ? "Sending…" : "Text"}
+                </button>
+                <button
+                  type="button"
+                  disabled={sendingEmail || giftPickEmpty}
+                  onClick={() => void sendEmailReceipt("gift")}
+                  className={compactActionButton}
+                >
+                  <Mail className="h-4 w-4" />
+                  {sendingEmail ? "Sending…" : "Email"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {receiptPreviewOpen ? (
+        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4">
+          <div className="flex max-h-[88dvh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-app-border bg-app-surface text-app-text shadow-2xl">
+            <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Receipt preview
+                </p>
+                <h3 className="text-lg font-black tracking-tight">
+                  Transaction #{transactionDetail?.transaction_display_id ?? transactionId?.split("-")[0]}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setReceiptPreviewOpen(false)}
+                className="flex h-11 w-11 items-center justify-center rounded-full border border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-surface-3 hover:text-app-text"
+                aria-label="Close receipt preview"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 p-5 lg:grid-cols-[minmax(0,1fr)_14rem]">
+              <div className="min-h-[28rem] overflow-hidden rounded-2xl border border-app-border bg-white">
+                {receiptPreviewLoading ? (
+                  <div className="flex h-full items-center justify-center text-sm font-bold text-app-text-muted">
+                    Loading receipt…
+                  </div>
+                ) : receiptPreviewError ? (
+                  <div className="flex h-full items-center justify-center px-6 text-center text-sm font-bold text-app-danger">
+                    {receiptPreviewError}
+                  </div>
+                ) : (
+                  <iframe
+                    title="Receipt preview"
+                    srcDoc={receiptPreviewHtml ?? ""}
+                    className="h-full min-h-[28rem] w-full bg-white"
+                  />
+                )}
+              </div>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={printing || !transactionDetail}
+                  onClick={() => void handlePrint()}
+                  className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-b-8 border-emerald-800 bg-emerald-600 px-3 text-[10px] font-black uppercase tracking-widest text-white shadow-md hover:bg-emerald-500 disabled:opacity-50"
+                >
+                  <Printer className="h-4 w-4" />
+                  Receipt printer
+                </button>
+                <button
+                  type="button"
+                  disabled={!transactionDetail}
+                  onClick={() => void printReceiptOnReportPrinter()}
+                  className={`${compactActionButton} w-full`}
+                >
+                  <Printer className="h-4 w-4" />
+                  Reports printer
+                </button>
+                <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
+                  Receipt printer sends to the station thermal printer. Reports printer opens the formatted receipt for the workstation report printer.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
