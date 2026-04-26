@@ -18,6 +18,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added a "Global Register Policy" card to the Staff Access settings to document this guardrail for administrators.
 - **RBAC Auto-Synchronization**:
   - Role updates in staff profiles now automatically regenerate the staff member's effective permissions from the new role's defaults.
+  - Preserves manual overrides while ensuring the staff member attains the mandatory baseline of their new role.
+- **Codex & ROSIE Integration**: 
+  - Codified `codex_prompt_template.md` as a non-negotiable invariant in `AGENTS.md` to enforce a narrow audit mandate and ROSIE safety rails for all AI operations.
   - Automated syncing of `max_discount_percent` from role pricing templates on profile update and new hire creation.
   - Preserves existing manual permission overrides during role transitions.
 

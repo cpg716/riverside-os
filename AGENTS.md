@@ -258,6 +258,11 @@ cargo sqlx prepare --workspace
  ### RBAC Auto-Synchronization (v0.3.2+)
  - **Profile Parity**: Changing a staff member's **Role** in the Back Office profile MUST automatically synchronize their **`staff_permission`** set and **`max_discount_percent`** from the new role's template.
  - **Manual Overrides**: The synchronization logic must attempt to preserve existing manual user overrides while ensuring the staff member attains the mandatory baseline of their new role.
+ 
+ ### Codex & ROSIE Invariants (v0.3.2+)
+ - **Narrow Audit Mandate**: When given directions, the agent MUST adhere to the structured mindset defined in **`codex_prompt_template.md`**. This includes tracing behavior end-to-end, identifying real (not theoretical) issues, and proposing the smallest correct fix.
+ - **ROSIE Safety Rails**: When touching AI features (ROSIE), the agent MUST strictly follow the **ROSIE Rules** in **`codex_prompt_template.md`** (No raw SQL, no RBAC bypass, server-validated tool execution, and user-confirmed mutations).
+ - **Scope Locking**: Do not broaden scope, switch branches, or redesign entire systems unless explicitly requested.
 
 ---
 
