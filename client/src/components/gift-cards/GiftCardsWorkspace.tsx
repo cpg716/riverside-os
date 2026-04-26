@@ -74,11 +74,10 @@ function giftCardEventLabel(eventKind: string): string {
 }
 
 interface IssueFormProps {
-  kind: "purchased" | "donated";
   onDone: () => void;
 }
 
-function IssueForm({ kind, onDone }: IssueFormProps) {
+function IssueForm({ onDone }: IssueFormProps) {
   const { backofficeHeaders } = useBackofficeAuth();
   const [code, setCode] = useState("");
   const [amount, setAmount] = useState("");
@@ -96,8 +95,7 @@ function IssueForm({ kind, onDone }: IssueFormProps) {
     if (amtCents <= 0) { setErr("Enter a positive amount."); return; }
     setBusy(true);
     try {
-      const endpoint = kind === "purchased" ? "issue-purchased" : "issue-donated";
-      const res = await fetch(`${BASE}/api/gift-cards/${endpoint}`, {
+      const res = await fetch(`${BASE}/api/gift-cards/issue-donated`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...(backofficeHeaders() as Record<string, string>) },
         body: JSON.stringify({
@@ -123,7 +121,7 @@ function IssueForm({ kind, onDone }: IssueFormProps) {
   return (
     <div className="ui-card p-5 space-y-4 max-w-sm">
       <h3 className="text-sm font-black uppercase tracking-wide text-app-text">
-        Issue {kind === "purchased" ? "Purchased" : "Donated / Giveaway"} Card
+        Issue Donated / Giveaway Card
       </h3>
       {err && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{err}</p>}
       <label className="block">
@@ -152,12 +150,7 @@ function IssueForm({ kind, onDone }: IssueFormProps) {
         <span className="text-xs font-bold uppercase tracking-wide text-app-text-muted">Notes (optional)</span>
         <input value={notes} onChange={e => setNotes(e.target.value)} className="ui-input mt-1 w-full" />
       </label>
-      {kind === "purchased" && (
-        <p className="text-xs text-app-text-muted">9-year expiry · Liability at issue.</p>
-      )}
-      {kind === "donated" && (
-        <p className="text-xs text-app-text-muted">1-year expiry · No liability until redeemed.</p>
-      )}
+      <p className="text-xs text-app-text-muted">1-year expiry · No liability until redeemed.</p>
       <button onClick={submit} disabled={busy} className="ui-btn-primary w-full">
         {busy ? "Issuing…" : "Issue card"}
       </button>
@@ -293,19 +286,10 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
 
   const selectedCard = cards.find((card) => card.id === selectedCardId) ?? null;
 
-
-  if (activeSection === "issue-purchased") {
-    return (
-      <div className="p-6">
-        <IssueForm kind="purchased" onDone={() => void load()} />
-      </div>
-    );
-  }
-
   if (activeSection === "issue-donated") {
     return (
       <div className="p-6">
-        <IssueForm kind="donated" onDone={() => void load()} />
+        <IssueForm onDone={() => void load()} />
       </div>
     );
   }
@@ -424,7 +408,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
           <div className="flex flex-col items-center py-16 gap-4">
             <CreditCard className="h-10 w-10 text-app-text-muted" />
             <p className="text-sm text-app-text-muted">No gift cards found.</p>
-            <p className="text-xs text-app-text-muted">Use "Issue Purchased" or "Issue Donated" in the sidebar.</p>
+            <p className="text-xs text-app-text-muted">Purchased gift cards are sold from Register. Use Issue Donated for approved giveaway cards.</p>
           </div>
         ) : (
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.9fr)]">

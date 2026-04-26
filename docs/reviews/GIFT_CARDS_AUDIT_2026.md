@@ -10,12 +10,12 @@ The Riverside OS Gift Card subsystem provides a closed-loop value storage and re
 ### 2.1 Card Taxonomy
 | Kind | Use Case | Liability? | Expiry |
 | :--- | :--- | :--- | :--- |
-| **Purchased** | Sold at POS or issued as credit. | ✅ Yes | 9 Years |
+| **Purchased** | Sold or reloaded through Register. | ✅ Yes | 9 Years |
 | **Loyalty Reward** | Exchanged for CRM points. | ❌ No | 1 Year |
 | **Donated / Giveaway** | Promotional / Community support. | ❌ No | 1 Year |
 
 ### 2.2 Back Office Management (`GiftCardsWorkspace.tsx`)
-- **Issuance**: Separate workflows for liability-based (purchased) vs. non-liability (donated) issuance.
+- **Issuance**: Back Office supports non-liability donated/giveaway issuance only. Purchased cards are Register-only so sale, tender, card event, and liability accounting stay linked.
 - **Voiding**: Safe voiding workflow with a confirmation modal and negative ledger entry for remaining balance.
 - **Status Mapping**: Correctly maps statuses: `active`, `depleted`, `void`.
 

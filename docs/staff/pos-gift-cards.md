@@ -24,9 +24,9 @@ Use POS **Gift Cards** for balance lookup and use the **Register** gift card but
 The card is only credited after the full sale is paid. If checkout does not complete, the card is not loaded.
 After the sale, the receipt summary shows the loaded card as a masked code so staff can confirm the right card was credited.
 
-### Sell a new gift card in Back Office
+### Back Office gift card limits
 
-Use Back Office for direct issue flows such as donated cards or manager-approved manual issuance.
+Back Office is for lookup, void review, and donated/giveaway issuance. Customer-paid purchased gift cards must be sold or reloaded through **Register** so the sale, tender, card event, and gift card liability are tracked together.
 
 ### Redeem toward checkout
 

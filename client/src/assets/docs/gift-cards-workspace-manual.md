@@ -2,7 +2,7 @@
 id: gift-cards-workspace
 title: "Gift Cards Workspace"
 order: 1010
-summary: "Back Office gift card guide for looking up cards, issuing purchased or donated cards, and voiding cards safely."
+summary: "Back Office gift card guide for looking up cards, issuing donated cards, and voiding cards safely."
 source: client/src/components/gift-cards/GiftCardsWorkspace.tsx
 last_scanned: 2026-04-21
 tags: gift-cards, back-office, staff-manual
@@ -10,25 +10,27 @@ tags: gift-cards, back-office, staff-manual
 
 # Gift Cards Workspace
 
-Use this Back Office screen to look up gift cards, issue new purchased or donated cards, and void cards when store policy allows it.
+Use this Back Office screen to look up gift cards, issue donated/giveaway cards, and void cards when store policy allows it. Purchased gift cards are sold or reloaded from Register only.
 
 ## What this screen is for
 
 - Review open cards and current liability totals.
 - Look up a card by code, kind, or status.
 - Review recent activity for the selected card.
-- Issue a purchased gift card or a donated card.
+- Issue a donated/giveaway card.
 - Void a card when a manager has approved it.
 
 ## What this screen is not for
 
 - Regular register redemption during checkout.
+- Customer-paid purchased gift card sales or reloads. Use **Register → Gift Card** so the sale, tender, card event, and gift card liability stay together.
 - Loyalty reward issuance from the monthly loyalty flow.
 - Manual balance corrections without approval.
 
 ## Card kinds
 
-- **Purchased**: customer-paid gift cards. These reduce gift card liability when redeemed.
+- **Purchased**: customer-paid gift cards sold from Register. These increase gift card liability when sold/loaded and reduce gift card liability when redeemed.
+- **Loyalty reward**: rewards issued from the loyalty workflow. These are not purchased-card liabilities.
 - **Donated / giveaway**: promotional cards. These do not use the purchased gift card liability path.
 
 ## How to use it
@@ -47,13 +49,6 @@ Use this Back Office screen to look up gift cards, issue new purchased or donate
 - Linked customer, if any
 - Notes
 - Recent activity such as issued, loaded, used at checkout, refunded to card, and voided
-
-### Issue a purchased card
-
-1. Open **Issue Purchased**.
-2. Enter the card code and amount.
-3. Link a customer if helpful.
-4. Confirm the new card appears in the list with the expected balance.
 
 ### Issue a donated card
 

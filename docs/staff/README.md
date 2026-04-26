@@ -1,6 +1,6 @@
 # Staff help hub (Riverside OS)
 
-Staff-facing guides for **training**, **floor support**, and future **in-app / AI help** (RAG over this folder plus linked **`docs/*.md`** and root runbooks listed in the manifest). **AI / prompt authors:** see [**`../AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md) for which document to use when (reporting vs procedures vs permissions vs live store SOP).
+Staff-facing guides for **training**, **floor support**, and future **in-app / AI help** (RAG over this folder plus linked **`docs/*.md`** and root runbooks listed in the manifest). **AI / prompt authors:** see [**`../AI_CONTEXT_FOR_ASSISTANTS.md`**](../AI_CONTEXT_FOR_ASSISTANTS.md) for which document to use when (reporting vs procedures vs permissions vs live store SOP).
 
 Each article is structured so you can:
 
@@ -166,12 +166,12 @@ Source: `client/src/components/pos/PosSidebar.tsx` (`PosTabId`).
 | Weddings | [pos-weddings.md](pos-weddings.md) |
 | Alterations (shown only with **alterations.manage**) | [pos-alterations.md](pos-alterations.md) |
 | Inventory | [pos-inventory.md](pos-inventory.md) |
-| Orders | [pos-orders.md](pos-orders.md) |
+| Orders | [transactions-back-office.md](transactions-back-office.md) |
 | Reports | [pos-reports.md](pos-reports.md) |
 | Gift Cards | [pos-gift-cards.md](pos-gift-cards.md) |
 | Loyalty | [pos-loyalty.md](pos-loyalty.md) |
-| Layaways | [pos-layaways.md](pos-layaways.md) |
-| Shipping | [pos-shipping.md](pos-shipping.md) |
+| Layaways | [../LAYAWAY_OPERATIONS.md](../LAYAWAY_OPERATIONS.md) |
+| Shipping | [../SHIPPING_AND_SHIPMENTS_HUB.md](../SHIPPING_AND_SHIPMENTS_HUB.md) |
 | Settings | [pos-settings.md](pos-settings.md) |
 
 ---

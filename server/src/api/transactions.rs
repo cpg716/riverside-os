@@ -1595,14 +1595,18 @@ async fn process_refund(
             gift_card_ops::GiftCardOpError::BadRequest(m) => TransactionError::InvalidPayload(m),
         })?;
         if let Some(object) = refund_metadata.as_object_mut() {
+            let canonical_sub_type =
+                gift_card_ops::canonical_gift_card_sub_type_for_kind(&refund_plan.card_kind)
+                    .map_err(|e| TransactionError::InvalidPayload(e.to_string()))?;
             object.insert(
                 "gift_card_code".to_string(),
                 json!(refund_plan.normalized_code),
             );
             object.insert(
                 "gift_card_card_kind".to_string(),
-                json!(refund_plan.card_kind),
+                json!(refund_plan.card_kind.clone()),
             );
+            object.insert("sub_type".to_string(), json!(canonical_sub_type));
             object.insert("balance_after".to_string(), json!(refund_plan.new_balance));
         }
     }

@@ -155,7 +155,7 @@ pub async fn propose_daily_journal(
             .await?;
     let mut warnings: Vec<String> = vec![
         format!("Journal uses recognized fulfillment activity on store-local business date {activity_date} ({business_timezone}); shipped orders recognize at label purchase / in-transit / delivered events. Deposit release posts from checkout `applied_deposit_amount` metadata; verify `liability_deposit` + revenue mappings before sync."),
-        "Gift card: purchased-card redemptions debit `liability_gift_card` / default; loyalty and donated cards debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
+        "Gift card: purchased-card sales credit `liability_gift_card` / default, purchased-card redemptions debit that liability, and loyalty/donated redemptions debit `expense_loyalty` / default when checkout stores canonical gift card metadata. Unmapped cases fall back to tender mapping.".to_string(),
         "Revenue/COGS/tax for recognized transactions use effective qty (sold minus returns). Returns booked today add contra lines; re-run past dates after returns to restate recognition-day nets.".to_string(),
     ];
 
@@ -271,6 +271,53 @@ pub async fn propose_daily_journal(
                     serde_json::json!({ "kind": "cash_rounding", "amount": rounding_total }),
                 ],
             });
+        }
+    }
+
+    #[derive(sqlx::FromRow)]
+    struct GiftCardLoadAgg {
+        total: Option<Decimal>,
+        load_count: i64,
+    }
+    let gift_card_load: GiftCardLoadAgg = sqlx::query_as(
+        r#"
+        SELECT
+            COALESCE(SUM((oi.unit_price * oi.quantity)::numeric(14, 2)), 0)::numeric(14, 2) AS total,
+            COUNT(*)::bigint AS load_count
+        FROM transaction_lines oi
+        INNER JOIN transactions o ON o.id = oi.transaction_id
+        INNER JOIN products p ON p.id = oi.product_id
+        WHERE o.status::text <> 'cancelled'
+          AND p.pos_line_kind = 'pos_gift_card_load'
+          AND (o.booked_at AT TIME ZONE reporting.effective_store_timezone())::date = $1::date
+        "#,
+    )
+    .bind(activity_date)
+    .fetch_one(pool)
+    .await?;
+
+    let gift_card_load_total = gift_card_load.total.unwrap_or(Decimal::ZERO).round_dp(2);
+    if gift_card_load_total > Decimal::ZERO {
+        if let Some((aid, aname)) =
+            qbo_map_with_misc_fallback(pool, "liability_gift_card", "default", None).await?
+        {
+            lines.push(JournalLine {
+                qbo_account_id: aid,
+                qbo_account_name: aname,
+                debit: Decimal::ZERO,
+                credit: gift_card_load_total,
+                memo: "Purchased gift card liability issued".to_string(),
+                detail: vec![serde_json::json!({
+                    "kind": "purchased_gift_card_load",
+                    "load_count": gift_card_load.load_count,
+                    "amount": gift_card_load_total
+                })],
+            });
+        } else {
+            warnings.push(
+                "Purchased gift card loads were excluded from merchandise revenue but no `liability_gift_card` / default mapping exists for the liability credit."
+                    .to_string(),
+            );
         }
     }
 

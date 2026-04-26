@@ -683,7 +683,6 @@ function App() {
         const sec = linkStr(link, "section") || "inventory";
         const allowedG = new Set([
           "inventory",
-          "issue-purchased",
           "issue-donated",
         ]);
         setActiveSubSection(allowedG.has(sec) ? sec : "inventory");

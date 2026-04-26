@@ -10,7 +10,9 @@
 
 ## How to use these tabs
 
-Use **Gift Cards** for card lookup, issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, but Riverside now checks the real card type during checkout so purchased, loyalty, and donated cards follow the right accounting path.
+Use **Gift Cards** for card lookup, donated/giveaway issuance, and voids. Use **Loyalty** for points economics. Cashiers redeem gift cards in POS, but Riverside now checks the real card type during checkout so purchased, loyalty, and donated cards follow the right accounting path.
+
+Purchased gift cards are sold or reloaded from **Register** only. Do not issue customer-paid gift card value from Back Office.
 
 ---
 
@@ -25,15 +27,6 @@ Use **Gift Cards** for card lookup, issuance, and voids. Use **Loyalty** for poi
 3. Select a row to read **initial value**, **remaining balance**, **status**, **customer link**, and **recent activity**.
 4. Use the activity panel to confirm whether the card was **issued**, **loaded**, **used at checkout**, **refunded to card**, or **voided**.
 5. **Void** only with written SOP — it changes **liability** and may need accounting notice.
-
-### Issue Purchased
-
-**Purpose:** Create a purchased gift card record when store policy allows Back Office issue.
-
-1. **Gift Cards** → **Issue Purchased**.
-2. Enter **amount** / **SKU** / **quantity** per training.
-3. Confirm the new card appears in **Card Inventory** with correct balance.
-4. Give the customer **gift receipt** or activation slip per store policy.
 
 ### Issue Donated
 
@@ -80,7 +73,7 @@ Use **Gift Cards** for card lookup, issuance, and voids. Use **Loyalty** for poi
 
 ## POS coordination
 
-If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**.
+If POS says a gift card type does not match, check the card record in Back Office first. Purchased cards should be sold/reloaded from **Register** and redeemed as **Paid**. Loyalty reward cards should be redeemed as **Loyalty**. Donated cards should be redeemed as **Donated**.
 
 ## Helping a coworker
 

@@ -238,7 +238,7 @@ test.describe("Loyalty redemption contract", () => {
       "E2E loyalty wrong card type",
     );
 
-    const issueRes = await request.post(`${apiBase()}/api/gift-cards/issue-purchased`, {
+    const issueRes = await request.post(`${apiBase()}/api/gift-cards/pos-load-purchased`, {
       headers: {
         "Content-Type": "application/json",
         ...staffHeaders(),

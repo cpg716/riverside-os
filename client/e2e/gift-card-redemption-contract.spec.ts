@@ -65,7 +65,7 @@ async function issueGiftCard(
   code: string,
   amount: string,
 ) {
-  const endpoint = kind === "purchased" ? "issue-purchased" : "issue-donated";
+  const endpoint = kind === "purchased" ? "pos-load-purchased" : "issue-donated";
   const res = await request.post(`${apiBase()}/api/gift-cards/${endpoint}`, {
     headers: {
       ...staffHeaders(),
@@ -222,6 +222,24 @@ test.describe("Gift card redemption accounting contract", () => {
     const events = await lookupGiftCardEvents(request, redeemCode);
     expect(events[0]?.event_kind).toBe("redeemed");
     expect(events[0]?.balance_after).toBe(card.current_balance);
+  });
+
+  test("purchased gift cards cannot be issued from the Back Office API", async ({
+    request,
+  }) => {
+    const res = await request.post(`${apiBase()}/api/gift-cards/issue-purchased`, {
+      headers: {
+        ...staffHeaders(),
+        "Content-Type": "application/json",
+      },
+      data: {
+        code: `GC-BO-BLOCKED-${Date.now()}`,
+        amount: "25.00",
+      },
+      failOnStatusCode: false,
+    });
+
+    expect([404, 405]).toContain(res.status());
   });
 
   test("donated gift card blocks mismatched subtype selection with a staff-safe error", async ({
