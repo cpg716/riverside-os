@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page, type APIRequestContext } from "@playwright/test";
 import {
   ensurePosRegisterSessionOpen,
   ensurePosSaleCashierSignedIn,
@@ -68,9 +68,7 @@ type RefundQueueRow = {
   is_open: boolean;
 };
 
-async function verifyAdminStaffId(
-  request: Parameters<typeof test>[0]["request"],
-): Promise<string> {
+async function verifyAdminStaffId(request: APIRequestContext): Promise<string> {
   const res = await request.post(`${apiBase()}/api/staff/verify-cashier-code`, {
     data: {
       cashier_code: e2eAdminCode(),
@@ -85,13 +83,19 @@ async function verifyAdminStaffId(
 }
 
 async function primeBackofficeSession(
-  page: Parameters<typeof test>[0]["page"],
-  request: Parameters<typeof test>[0]["request"],
+  page: Page,
+  request: APIRequestContext,
 ): Promise<string> {
   const staffId = await verifyAdminStaffId(request);
   const code = e2eAdminCode();
   await page.addInitScript(
-    ({ seededCode, seededStaffId }) => {
+    ({
+      seededCode,
+      seededStaffId,
+    }: {
+      seededCode: string;
+      seededStaffId: string;
+    }) => {
       window.sessionStorage.setItem(
         "ros.backoffice.session.v1",
         JSON.stringify({
@@ -110,7 +114,7 @@ async function primeBackofficeSession(
 }
 
 async function ensureSessionToken(
-  request: Parameters<typeof test>[0]["request"],
+  request: APIRequestContext,
 ): Promise<{ sessionId: string; sessionToken: string }> {
   const listRes = await request.get(`${apiBase()}/api/sessions/list-open`, {
     headers: adminHeaders(),
@@ -161,7 +165,7 @@ async function ensureSessionToken(
 }
 
 async function createDeterministicProduct(
-  request: Parameters<typeof test>[0]["request"],
+  request: APIRequestContext,
   actorStaffId: string,
 ): Promise<{ productId: string; variantId: string; sku: string }> {
   const suffix = `${Date.now()}-${Math.floor(Math.random() * 10_000)}`;
