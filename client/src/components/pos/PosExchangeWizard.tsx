@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { ArrowLeftRight, X, Loader2, Package } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
@@ -220,15 +221,18 @@ export default function PosExchangeWizard({
 
   if (!open) return null;
 
-  return (
+  return createPortal(
     <div
-      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
+      className="ui-overlay-backdrop !z-[200]"
       role="dialog"
       aria-modal="true"
       aria-label="Exchange/Return wizard"
       data-testid="pos-exchange-wizard-dialog"
     >
-      <div className="ui-card flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface/80 backdrop-blur-xl shadow-2xl sm:max-h-[min(720px,90vh)] sm:max-w-3xl sm:rounded-2xl">
+      <div 
+        className="ui-card flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface/80 backdrop-blur-xl shadow-2xl sm:max-h-[min(720px,90vh)] sm:max-w-3xl sm:rounded-2xl"
+        onClick={e => e.stopPropagation()}
+      >
         <div className="flex items-center justify-between border-b border-app-border/50 px-6 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-accent/10 text-app-accent shadow-inner">
@@ -500,6 +504,7 @@ export default function PosExchangeWizard({
           }}
         />
       ) : null}
-    </div>
+    </div>,
+    document.getElementById("drawer-root")!
   );
 }

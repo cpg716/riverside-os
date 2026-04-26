@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, ShieldCheck } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -88,8 +89,14 @@ export default function ManagerApprovalModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[200] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4 backdrop-blur-md"
+      onClick={onClose}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -198,6 +205,7 @@ export default function ManagerApprovalModal({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

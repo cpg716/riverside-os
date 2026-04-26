@@ -217,8 +217,7 @@ export default function BugReportFlow({
 
   return createPortal(
     <div
-      className="ui-overlay-backdrop"
-      style={{ zIndex: 80 }}
+      className="ui-overlay-backdrop !z-[300]"
       role="presentation"
       onPointerDown={(e) => {
         if (e.target === e.currentTarget) onClose();

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X, Keyboard, Hash } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -86,8 +87,14 @@ export default function PromptModal({
     }
   };
 
-  return (
-    <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div
+      className="ui-overlay-backdrop flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -190,6 +197,7 @@ export default function PromptModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

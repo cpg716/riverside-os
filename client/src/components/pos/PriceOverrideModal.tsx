@@ -1,4 +1,5 @@
 import React, { useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Check, Tag, X } from "lucide-react";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
@@ -40,8 +41,14 @@ export default function PriceOverrideModal({
     onApply(priceCents / 100, reason);
   };
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div 
+      className="ui-overlay-backdrop !z-[200]"
+      onClick={onCancel}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -49,6 +56,7 @@ export default function PriceOverrideModal({
         aria-labelledby={titleId}
         tabIndex={-1}
         className="ui-modal w-full max-w-none rounded-t-3xl outline-none sm:max-w-sm sm:rounded-3xl"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="ui-modal-header flex items-center justify-between">
           <div className="flex items-center gap-2 text-[var(--app-accent)]">
@@ -112,6 +120,7 @@ export default function PriceOverrideModal({
           </button>
         </form>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

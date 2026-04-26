@@ -1,4 +1,5 @@
 import { AlertTriangle, Check, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 
@@ -57,9 +58,14 @@ export default function ConfirmationModal({
   };
 
   const styles = getVariantStyles();
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
 
-  return (
-    <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+  return createPortal(
+    <div
+      className="ui-overlay-backdrop flex items-center justify-center p-4"
+      onClick={onClose}
+    >
       <div
         ref={dialogRef}
         role="dialog"
@@ -121,6 +127,7 @@ export default function ConfirmationModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }

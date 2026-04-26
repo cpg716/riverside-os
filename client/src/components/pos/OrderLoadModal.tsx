@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Package, Clock, AlertCircle, ArrowRight, CreditCard } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
@@ -221,9 +222,9 @@ export default function OrderLoadModal({
 
   if (!isOpen) return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
-      <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[84vh] sm:w-[min(920px,calc(100vw-2rem))] sm:rounded-2xl">
+  return createPortal(
+    <div className="ui-overlay-backdrop !z-[200]">
+      <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[84vh] sm:w-[min(920px,calc(100vw-2rem))] sm:rounded-2xl" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Package size={20} className="text-blue-600" />
@@ -408,11 +409,12 @@ export default function OrderLoadModal({
           )}
         </div>
       </div>
-      {paymentOrder ? (
-        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:px-4">
+      {paymentOrder && (
+        <div className="ui-overlay-backdrop !z-[210]">
           <div
             className="w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-sm sm:rounded-2xl"
             data-testid="pos-order-payment-entry-modal"
+            onClick={e => e.stopPropagation()}
           >
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
@@ -470,7 +472,8 @@ export default function OrderLoadModal({
             </div>
           </div>
         </div>
-      ) : null}
-    </div>
+      )}
+    </div>,
+    document.getElementById("drawer-root")!
   );
 }

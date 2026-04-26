@@ -1628,7 +1628,7 @@ export default function CustomersWorkspace({
         </button>
       </FloatingBulkBar>
 
-      {mergeOpen ? (
+      {mergeOpen ? createPortal(
         <div className="ui-overlay-backdrop flex items-center justify-center p-4">
           <div
             ref={mergeDialogRef}
@@ -1725,7 +1725,8 @@ export default function CustomersWorkspace({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root")!
       ) : null}
 
       {picked ? (

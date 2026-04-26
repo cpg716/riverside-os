@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { AlertTriangle, Bug, Download, RefreshCw } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -454,9 +455,9 @@ export default function BugReportsSettingsPanel({
         </>
       )}
 
-      {detail ? (
+      {detail ? createPortal(
         <div
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className="ui-overlay-backdrop"
           role="presentation"
           onPointerDown={() => setDetail(null)}
         >
@@ -464,7 +465,7 @@ export default function BugReportsSettingsPanel({
             role="dialog"
             aria-modal="true"
             aria-label="Bug report detail"
-            className="ui-card flex max-h-[min(92vh,900px)] w-full max-w-3xl flex-col overflow-hidden shadow-2xl [-webkit-overflow-scrolling:touch]"
+            className="ui-modal flex max-h-[min(92vh,900px)] w-full max-w-3xl flex-col overflow-hidden shadow-2xl [-webkit-overflow-scrolling:touch]"
             onPointerDown={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b border-app-border px-5 py-4">
@@ -686,12 +687,13 @@ export default function BugReportsSettingsPanel({
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root")!
       ) : null}
 
-      {eventDetail ? (
+      {eventDetail ? createPortal(
         <div
-          className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+          className="ui-overlay-backdrop"
           role="presentation"
           onPointerDown={() => setEventDetail(null)}
         >
@@ -762,7 +764,8 @@ export default function BugReportsSettingsPanel({
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.getElementById("drawer-root")!
       ) : null}
 
       {statusConfirm ? (

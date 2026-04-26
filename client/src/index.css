@@ -402,8 +402,15 @@ html[data-theme="dark"] :where(
     background: color-mix(in srgb, var(--app-accent) 9%, var(--app-surface-2));
     color: var(--app-text);
   }
+  /**
+   * Standard Stacking Context Tiers:
+   * z-0..40: Shell (Sidebar, TopBar)
+   * z-100:   Drawers (DetailDrawer, SearchDrawers)
+   * z-200:   Modals (Confirmation, Prompt, Overrides)
+   * z-300:   System (Bug Report, Global Error, Toasts)
+   */
   .ui-overlay-backdrop {
-    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/35 p-4 backdrop-blur-[2px];
+    @apply fixed inset-0 z-[200] flex items-center justify-center bg-black/35 p-4 backdrop-blur-md;
   }
   .ui-modal {
     @apply ui-card w-full max-w-md overflow-hidden shadow-2xl;
@@ -639,7 +646,7 @@ html[data-theme="dark"] :where(
 
   /* Premium Depth Enhancements */
   .ui-overlay-backdrop {
-    @apply fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-md;
+    @apply fixed inset-0 z-[200] flex items-center justify-center bg-black/40 p-4 backdrop-blur-md;
   }
 
   .ui-modal {

@@ -778,7 +778,7 @@ export default function ReceiptSummaryModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[120] bg-black/40 backdrop-blur-sm transition-opacity"
+      className="ui-overlay-backdrop !z-[200]"
       onClick={(e) => {
         e.stopPropagation();
         onClose();

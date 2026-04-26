@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Dispatch, SetStateAction } from "react";
 import {
   CreditCard,
@@ -1503,19 +1504,22 @@ export default function NexoCheckoutDrawer({
           </div>
         </div>
 
-        {showStripeSimulation && (
-          <div className="absolute inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md p-6 sm:p-12 animate-in fade-in duration-300">
-            <StripeReaderSimulation
-              amountCents={pendingStripeCentsRef.current}
-              moto={tab === "card_manual"}
-              onSuccess={(meta) => handleStripeSuccess(meta)}
-              onCancel={() => {
-                setShowStripeSimulation(false);
-                setStripeIntent(null);
-                pendingStripeCentsRef.current = 0;
-              }}
-            />
-          </div>
+        {showStripeSimulation && createPortal(
+          <div className="ui-overlay-backdrop !z-[200]">
+            <div className="w-full max-w-lg p-6 sm:p-12 animate-in zoom-in-95 duration-200">
+              <StripeReaderSimulation
+                amountCents={pendingStripeCentsRef.current}
+                moto={tab === "card_manual"}
+                onSuccess={(meta) => handleStripeSuccess(meta)}
+                onCancel={() => {
+                  setShowStripeSimulation(false);
+                  setStripeIntent(null);
+                  pendingStripeCentsRef.current = 0;
+                }}
+              />
+            </div>
+          </div>,
+          document.getElementById("drawer-root")!
         )}
       </div>
     </DetailDrawer>

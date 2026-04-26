@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   Elements,
   CardElement,
@@ -103,6 +104,7 @@ function VaultForm({
               last4: "xxxx",
               exp_month: 0,
               exp_year: 0,
+              // Note: the server handles full PM retrieval from Stripe using the ID
             }),
           },
         );
@@ -177,9 +179,18 @@ export default function StripeVaultCardModal(props: StripeVaultCardModalProps) {
     void init();
   }, [props.baseUrl, props.headers]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-      <div className="relative w-full max-w-md overflow-hidden rounded-[2.5rem] border border-white/10 bg-app-text p-8 shadow-2xl animate-in zoom-in-95 duration-300">
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
+
+  return createPortal(
+    <div 
+      className="fixed inset-0 z-[200] flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-300 p-4"
+      onClick={props.onClose}
+    >
+      <div 
+        className="relative w-full max-w-md overflow-hidden rounded-[2.5rem] border border-white/10 bg-app-text p-8 shadow-2xl animate-in zoom-in-95 duration-300"
+        onClick={(e) => e.stopPropagation()}
+      >
         <button
           onClick={props.onClose}
           className="absolute right-6 top-6 rounded-full p-2 text-white/40 hover:bg-white/10 hover:text-white"
@@ -227,6 +238,7 @@ export default function StripeVaultCardModal(props: StripeVaultCardModalProps) {
           </p>
         </div>
       </div>
-    </div>
+    </div>,
+    root
   );
 }
