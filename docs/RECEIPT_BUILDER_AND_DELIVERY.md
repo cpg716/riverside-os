@@ -3,7 +3,7 @@
 Staff manage production receipt content in **Settings → Receipt Settings**. The active register print path is:
 - **Standard Epson**: structured ESC/POS output for Epson TM-m30III-compatible 80mm receipt printers, with a ReceiptLine preview using the template's configured character-per-line layout.
 
-The editor exposes the store identifier, receipt logo toggle, editable header lines, editable footer lines, section toggles, and the underlying **ReceiptLine markdown template**. ROS merges transaction data into the template, previews the result as SVG, and POS prefers that same merged ReceiptLine document when generating Epson ESC/POS for print. If the client-side ReceiptLine transform fails, POS falls back to the server-generated ESC/POS payload.
+The editor exposes the full Riverside Men's Shop logo toggle, store contact fields, editable header lines, editable footer lines, section toggles, a **Print Test** action, and the underlying **ReceiptLine markdown template**. ROS merges transaction data into the template, previews it as SVG, and POS prefers that same merged ReceiptLine document when generating Epson ESC/POS for print. If the client-side ReceiptLine transform fails, POS falls back to the server-generated ESC/POS payload.
 
 Persistence lives in **`store_settings.receipt_config`** (`ReceiptConfig`), including **`receiptline_template`**. Legacy Studio fields may still exist for older saved templates, but the active Settings UI no longer exposes the HTML designer.
 
@@ -38,7 +38,7 @@ Email and text flows **do not** use `receipt_thermal_mode`; they use standard HT
 
 **Settings → Receipt Settings** preview is rendered in the client with **`receiptline`**. The paper target is the 80mm Epson customer receipt; the character-per-line value is the ReceiptLine formatting width for the current template, not the physical paper width.
 
-The top logo uses ReceiptLine's image property (`{image: base64-png}`) through the controlled `{{LOGO_IMAGE}}` token. ROS resizes the Riverside logo for thermal output before it is merged into the printable ReceiptLine document.
+The top logo uses ReceiptLine's image property (`{image: base64-png}`) through the controlled `{{LOGO_IMAGE}}` token. ROS resizes the full Riverside Men's Shop logo lockup for thermal output before it is merged into the printable ReceiptLine document.
 
 **Thermal ZPL:** **`GET /api/orders/{order_id}/receipt.zpl`** supports the same **`gift`** and **`order_item_ids`** query parameters (full order is the default when omitted).
 

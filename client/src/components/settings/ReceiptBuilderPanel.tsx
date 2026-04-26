@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
-import { CheckCircle2, FileText, Image as ImageIcon, RefreshCw, Save } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileText, Image as ImageIcon, RefreshCw, RotateCcw, Save } from "lucide-react";
 import { transform } from "receiptline";
-import RiversideReceiptLogo from "../../assets/images/logo1.png";
+import RiversideReceiptLogo from "../../assets/images/riverside_logo.jpg";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import { printRawEscPosBase64, resolvePrinterAddress } from "../../lib/printerBridge";
 import { useToast } from "../ui/ToastProviderLogic";
 
 const EPSON_RECEIPT_CPL = 42;
 const EPSON_RECEIPT_PAPER = "80mm";
-const RECEIPT_LOGO_WIDTH_PX = 180;
+const RECEIPT_LOGO_WIDTH_PX = 384;
 
 export interface ReceiptConfig {
   store_name: string;
@@ -18,6 +19,9 @@ export interface ReceiptConfig {
   show_loyalty_balance: boolean;
   show_barcode: boolean;
   show_logo?: boolean;
+  store_address?: string;
+  store_phone?: string;
+  store_email?: string;
   header_lines: string[];
   footer_lines: string[];
   timezone?: string;
@@ -28,7 +32,6 @@ export interface ReceiptConfig {
 }
 
 const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
-{{STORE_NAME}}
 {{HEADER_LINES}}
 {{RECEIPT_TITLE}}
 {{RECEIPT_ID}}
@@ -44,6 +47,7 @@ const DEFAULT_RECEIPTLINE_TEMPLATE = `{{LOGO_IMAGE}}
 {{STATUS_LINE}}
 {{TAX_EXEMPT_LINE}}
 ---
+{{BARCODE_IMAGE}}
 {{FOOTER_LINES}}
 {{CUT}}`;
 
@@ -74,11 +78,25 @@ function centeredLines(lines: string[]) {
     .join("\n");
 }
 
-function receiptTemplateWithLogoSlot(template: string, showLogo: boolean) {
-  if (!showLogo || template.includes("{{LOGO_IMAGE}}")) {
-    return template;
+function binaryStringToBase64(value: string) {
+  let binary = "";
+  for (let i = 0; i < value.length; i += 1) {
+    binary += String.fromCharCode(value.charCodeAt(i) & 0xff);
   }
-  return `{{LOGO_IMAGE}}\n${template}`;
+  return btoa(binary);
+}
+
+function receiptTemplateWithSlots(template: string, showLogo: boolean, showBarcode: boolean) {
+  let next = template;
+  if (showLogo && !next.includes("{{LOGO_IMAGE}}")) {
+    next = `{{LOGO_IMAGE}}\n${next}`;
+  }
+  if (showBarcode && !next.includes("{{BARCODE_IMAGE}}")) {
+    next = next.includes("{{FOOTER_LINES}}")
+      ? next.replace("{{FOOTER_LINES}}", "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}")
+      : `${next}\n{{BARCODE_IMAGE}}`;
+  }
+  return next;
 }
 
 async function loadReceiptLogoBase64() {
@@ -106,6 +124,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   const [cfg, setCfg] = useState<ReceiptConfig | null>(null);
   const [settingsReady, setSettingsReady] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [testPrinting, setTestPrinting] = useState(false);
   const [receiptLogoBase64, setReceiptLogoBase64] = useState("");
 
   const load = useCallback(async () => {
@@ -178,10 +197,17 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
   }
 
   const showLogo = cfg.show_logo !== false;
-  const effectiveTemplate = receiptTemplateWithLogoSlot(
+  const effectiveTemplate = receiptTemplateWithSlots(
     cfg.receiptline_template?.trim() || DEFAULT_RECEIPTLINE_TEMPLATE,
     showLogo,
+    cfg.show_barcode === true,
   );
+  const headerLineValues = [
+    cfg.show_address ? cfg.store_address?.trim() || "2760 Delaware Ave, Buffalo, NY" : "",
+    cfg.show_phone ? cfg.store_phone?.trim() || "(716) 876-2424" : "",
+    cfg.show_email ? cfg.store_email?.trim() || "service@riversidemensshop.com" : "",
+    ...cfg.header_lines,
+  ].filter(Boolean);
   const getReceiptLineMarkup = () =>
     effectiveTemplate
       .replace(
@@ -189,7 +215,7 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
         showLogo && receiptLogoBase64 ? `{image:${receiptLogoBase64}}` : "",
       )
       .replace("{{STORE_NAME}}", `^${escapeReceiptlineText(cfg.store_name)}`)
-      .replace("{{HEADER_LINES}}", centeredLines(cfg.header_lines))
+      .replace("{{HEADER_LINES}}", centeredLines(headerLineValues))
       .replace("{{RECEIPT_TITLE}}", "^^^RECEIPT")
       .replace("{{RECEIPT_ID}}", "^Receipt TXN-66736")
       .replace("{{RECEIPT_DATE}}", "^04/26/2026 02:14 AM")
@@ -213,8 +239,31 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
       .replace("{{TENDER_LINE}}", "Tender | Cash")
       .replace("{{STATUS_LINE}}", "Status | Paid")
       .replace("{{TAX_EXEMPT_LINE}}", "")
+      .replace("{{BARCODE_IMAGE}}", cfg.show_barcode ? "{code:TXN-66736;option:code128,hri}" : "")
       .replace("{{FOOTER_LINES}}", centeredLines(cfg.footer_lines))
       .replace("{{CUT}}", "=");
+
+  const requiredTokens = ["{{ITEM_LINES}}", "{{TOTAL_LINE}}", "{{PAID_LINE}}", "{{TENDER_LINE}}"];
+  const missingRequiredTokens = requiredTokens.filter((token) => !effectiveTemplate.includes(token));
+
+  const printTestReceipt = async () => {
+    setTestPrinting(true);
+    try {
+      const command = transform(getReceiptLineMarkup(), {
+        cpl: EPSON_RECEIPT_CPL,
+        encoding: "cp437",
+        command: "escpos",
+        cutting: true,
+      });
+      const printer = resolvePrinterAddress("receipt");
+      await printRawEscPosBase64(binaryStringToBase64(String(command)), printer.ip, printer.port);
+      toast("Test receipt sent to the Epson receipt printer.", "success");
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Test receipt failed", "error");
+    } finally {
+      setTestPrinting(false);
+    }
+  };
 
   const receiptLineSvg = transform(getReceiptLineMarkup(), {
     cpl: EPSON_RECEIPT_CPL,
@@ -284,13 +333,26 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 )}
                 Apply
               </button>
+              <button
+                type="button"
+                onClick={() => void printTestReceipt()}
+                disabled={testPrinting}
+                className="flex h-10 items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-5 text-[10px] font-black uppercase tracking-widest text-emerald-700 transition-all hover:bg-emerald-500/15 disabled:opacity-50 dark:text-emerald-300"
+              >
+                {testPrinting ? (
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                ) : (
+                  <FileText size={14} />
+                )}
+                Print Test
+              </button>
             </div>
 
             <div className="space-y-6">
               <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
                 <label className="block lg:col-span-2">
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                    Store Identifier (Top Line)
+                    Store Identifier
                   </span>
                   <input
                     value={cfg.store_name}
@@ -301,19 +363,55 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
 
                 <label className="block">
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
-                    Header Lines
+                    Store Address
+                  </span>
+                  <input
+                    value={cfg.store_address ?? ""}
+                    onChange={(e) => setCfg({ ...cfg, store_address: e.target.value })}
+                    className="ui-input mt-2 w-full text-sm font-bold"
+                    placeholder="2760 Delaware Ave, Buffalo, NY"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                    Store Phone
+                  </span>
+                  <input
+                    value={cfg.store_phone ?? ""}
+                    onChange={(e) => setCfg({ ...cfg, store_phone: e.target.value })}
+                    className="ui-input mt-2 w-full text-sm font-bold"
+                    placeholder="(716) 876-2424"
+                  />
+                </label>
+
+                <label className="block lg:col-span-2">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                    Store Email
+                  </span>
+                  <input
+                    value={cfg.store_email ?? ""}
+                    onChange={(e) => setCfg({ ...cfg, store_email: e.target.value })}
+                    className="ui-input mt-2 w-full text-sm font-bold"
+                    placeholder="service@riversidemensshop.com"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
+                    Extra Header Lines
                   </span>
                   <textarea
                     value={linesToText(cfg.header_lines)}
                     onChange={(e) =>
                       setCfg({ ...cfg, header_lines: textToLines(e.target.value) })
                     }
-                    rows={5}
-                    className="ui-input mt-2 min-h-32 w-full resize-y font-mono text-xs leading-relaxed"
+                    rows={4}
+                    className="ui-input mt-2 min-h-28 w-full resize-y font-mono text-xs leading-relaxed"
                     placeholder={"Open daily 10-6\nAlterations pickup at rear counter"}
                   />
                   <p className="mt-2 text-[10px] font-semibold text-app-text-muted">
-                    One centered receipt line per row.
+                    Optional centered service notes below the store contact lines.
                   </p>
                 </label>
 
@@ -381,6 +479,40 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   ReceiptLine Template
                 </span>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {[
+                    ["Logo", "{{LOGO_IMAGE}}"],
+                    ["Header", "{{HEADER_LINES}}"],
+                    ["Items", "{{ITEM_LINES}}"],
+                    ["Totals", "{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}"],
+                    ["Barcode", "{{BARCODE_IMAGE}}"],
+                    ["Cut", "{{CUT}}"],
+                  ].map(([label, token]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() =>
+                        setCfg({
+                          ...cfg,
+                          receiptline_template: `${effectiveTemplate.trimEnd()}\n${token}`,
+                        })
+                      }
+                      className="rounded-lg border border-app-border bg-app-surface-2 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-app-text transition-colors hover:border-app-accent"
+                    >
+                      Add {label}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCfg({ ...cfg, receiptline_template: DEFAULT_RECEIPTLINE_TEMPLATE })
+                    }
+                    className="inline-flex items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[9px] font-black uppercase tracking-widest text-amber-700 transition-colors hover:bg-amber-500/15"
+                  >
+                    <RotateCcw className="h-3 w-3" />
+                    Reset Standard
+                  </button>
+                </div>
                 <textarea
                   value={effectiveTemplate}
                   onChange={(e) =>
@@ -393,10 +525,18 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                 <p className="mt-2 text-[10px] font-semibold leading-relaxed text-app-text-muted">
                   Tokens are replaced by ROS at print time. Keep line items, totals, and payment tokens in the template so receipts remain financially complete.
                 </p>
+                {missingRequiredTokens.length > 0 ? (
+                  <div className="mt-3 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" aria-hidden />
+                    <p className="text-[10px] font-bold leading-relaxed text-amber-800">
+                      Missing financial receipt tokens: {missingRequiredTokens.join(", ")}.
+                    </p>
+                  </div>
+                ) : null}
                 <div className="mt-3 flex items-start gap-3 rounded-xl border border-app-border bg-app-surface-2 p-3">
                   <ImageIcon className="mt-0.5 h-4 w-4 shrink-0 text-app-accent" aria-hidden />
                   <p className="text-[10px] font-semibold leading-relaxed text-app-text-muted">
-                    The logo token prints a thermal-sized monochrome-friendly PNG at the top of the receipt. Use the Receipt Logo toggle to hide it without removing the token from the template.
+                    The logo token prints the full Riverside Men's Shop logo lockup at the top of the receipt. Use the Receipt Logo toggle to hide it without removing the token from the template.
                   </p>
                 </div>
               </label>
@@ -406,17 +546,27 @@ export default function ReceiptBuilderPanel({ baseUrl }: { baseUrl: string }) {
                   Available Tokens
                 </p>
                 <p className="mt-2 font-mono text-[10px] leading-relaxed text-app-text-muted">
-                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{ITEM_LINES}} {{PAYMENT_BLOCK}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{FOOTER_LINES}} {{CUT}}"}
+                  {"{{LOGO_IMAGE}} {{STORE_NAME}} {{HEADER_LINES}} {{RECEIPT_TITLE}} {{RECEIPT_ID}} {{RECEIPT_DATE}} {{CUSTOMER_LINE}} {{ITEM_LINES}} {{PAYMENT_BLOCK}} {{TOTAL_LINE}} {{PAID_LINE}} {{BALANCE_LINE}} {{TENDER_LINE}} {{STATUS_LINE}} {{TAX_EXEMPT_LINE}} {{BARCODE_IMAGE}} {{FOOTER_LINES}} {{CUT}}"}
                 </p>
               </div>
             </div>
           </section>
         </div>
         <div className="xl:col-span-5">
-          <section className="ui-card h-full bg-app-surface/30 p-8">
+          <section className="ui-card sticky top-24 h-fit bg-app-surface/30 p-8">
             <h3 className="mb-6 text-[10px] font-black uppercase tracking-widest text-app-text">
               {EPSON_RECEIPT_PAPER} Epson preview
             </h3>
+            <div className="mb-4 rounded-2xl border border-app-border bg-white p-4">
+              <img
+                src={RiversideReceiptLogo}
+                alt="Riverside Men's Shop receipt logo"
+                className="mx-auto max-h-20 w-full max-w-sm object-contain"
+              />
+              <p className="mt-3 text-center text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                Active receipt logo
+              </p>
+            </div>
             <div className="flex justify-center overflow-x-auto rounded-[2rem] bg-[#f0f0f0] p-4 shadow-inner sm:p-6">
               <div
                 className="receiptline-preview w-full max-w-[360px] [&_svg]:h-auto [&_svg]:w-full"

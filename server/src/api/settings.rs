@@ -208,6 +208,12 @@ pub struct ReceiptConfig {
     #[serde(default = "default_true")]
     pub show_logo: bool,
     #[serde(default)]
+    pub store_address: String,
+    #[serde(default)]
+    pub store_phone: String,
+    #[serde(default)]
+    pub store_email: String,
+    #[serde(default)]
     pub header_lines: Vec<String>,
     #[serde(default = "default_footer")]
     pub footer_lines: Vec<String>,
@@ -273,6 +279,9 @@ impl Default for ReceiptConfig {
             show_loyalty_balance: true,
             show_barcode: false,
             show_logo: true,
+            store_address: String::new(),
+            store_phone: String::new(),
+            store_email: String::new(),
             header_lines: Vec::new(),
             footer_lines: default_footer(),
             timezone: default_timezone(),

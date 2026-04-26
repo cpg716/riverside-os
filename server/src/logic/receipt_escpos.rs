@@ -12,8 +12,9 @@ use crate::logic::receipt_zpl::{order_status_label, ReceiptOrderForZpl};
 use crate::models::DbFulfillmentType;
 
 const CPL: usize = 42;
-const RECEIPT_LOGO_WIDTH_PX: u32 = 180;
-const RECEIPT_LOGO_PNG: &[u8] = include_bytes!("../../../client/src/assets/images/logo1.png");
+const RECEIPT_LOGO_WIDTH_PX: u32 = 384;
+const RECEIPT_LOGO_IMAGE: &[u8] =
+    include_bytes!("../../../client/src/assets/images/riverside_logo.jpg");
 
 fn ascii_clean(s: &str) -> String {
     s.chars()
@@ -43,7 +44,7 @@ fn receiptline_escape(s: &str) -> String {
 }
 
 fn receiptline_logo_image() -> String {
-    let Ok(img) = image::load_from_memory(RECEIPT_LOGO_PNG) else {
+    let Ok(img) = image::load_from_memory(RECEIPT_LOGO_IMAGE) else {
         return String::new();
     };
     let img = img.into_rgba8();
@@ -78,11 +79,19 @@ fn receiptline_logo_image() -> String {
     format!("{{image:{b64}}}")
 }
 
-fn receipt_template_with_logo_slot(template: &str, show_logo: bool) -> String {
-    if !show_logo || template.contains("{{LOGO_IMAGE}}") {
-        return template.to_string();
+fn receipt_template_with_slots(template: &str, show_logo: bool, show_barcode: bool) -> String {
+    let mut next = template.to_string();
+    if show_logo && !next.contains("{{LOGO_IMAGE}}") {
+        next = format!("{{{{LOGO_IMAGE}}}}\n{next}");
     }
-    format!("{{{{LOGO_IMAGE}}}}\n{template}")
+    if show_barcode && !next.contains("{{BARCODE_IMAGE}}") {
+        next = if next.contains("{{FOOTER_LINES}}") {
+            next.replace("{{FOOTER_LINES}}", "{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}")
+        } else {
+            format!("{next}\n{{{{BARCODE_IMAGE}}}}")
+        };
+    }
+    next
 }
 
 fn push_line(out: &mut Vec<u8>, line: &str) {
@@ -314,6 +323,36 @@ fn centered_lines(lines: &[String]) -> String {
         .join("\n")
 }
 
+fn receipt_header_lines(cfg: &ReceiptConfig) -> Vec<String> {
+    let mut lines = Vec::new();
+    if cfg.show_address {
+        let value = cfg.store_address.trim();
+        lines.push(if value.is_empty() {
+            "2760 Delaware Ave, Buffalo, NY".to_string()
+        } else {
+            value.to_string()
+        });
+    }
+    if cfg.show_phone {
+        let value = cfg.store_phone.trim();
+        lines.push(if value.is_empty() {
+            "(716) 876-2424".to_string()
+        } else {
+            value.to_string()
+        });
+    }
+    if cfg.show_email {
+        let value = cfg.store_email.trim();
+        lines.push(if value.is_empty() {
+            "service@riversidemensshop.com".to_string()
+        } else {
+            value.to_string()
+        });
+    }
+    lines.extend(cfg.header_lines.iter().cloned());
+    lines
+}
+
 fn receiptline_item_lines(d: &ReceiptOrderForZpl, gift: bool) -> String {
     let mut lines = Vec::new();
     for it in &d.items {
@@ -370,7 +409,7 @@ fn receiptline_payment_lines(d: &ReceiptOrderForZpl) -> String {
 }
 
 fn default_receiptline_template() -> &'static str {
-    "{{LOGO_IMAGE}}\n{{STORE_NAME}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{FOOTER_LINES}}\n{{CUT}}"
+    "{{LOGO_IMAGE}}\n{{HEADER_LINES}}\n{{RECEIPT_TITLE}}\n{{RECEIPT_ID}}\n{{RECEIPT_DATE}}\n{{CUSTOMER_LINE}}\n---\n{{ITEM_LINES}}\n{{PAYMENT_BLOCK}}\n{{TOTAL_LINE}}\n{{PAID_LINE}}\n{{BALANCE_LINE}}\n{{TENDER_LINE}}\n{{STATUS_LINE}}\n{{TAX_EXEMPT_LINE}}\n---\n{{BARCODE_IMAGE}}\n{{FOOTER_LINES}}\n{{CUT}}"
 }
 
 pub fn build_receiptline_markdown(
@@ -383,7 +422,7 @@ pub fn build_receiptline_markdown(
         Some(value) if !value.is_empty() => value,
         _ => default_receiptline_template(),
     };
-    let template = receipt_template_with_logo_slot(template, cfg.show_logo);
+    let template = receipt_template_with_slots(template, cfg.show_logo, cfg.show_barcode);
     let title = if gift {
         "^^^GIFT RECEIPT"
     } else {
@@ -430,7 +469,7 @@ pub fn build_receiptline_markdown(
         String::new()
     };
     let store_name = format!("^{}", receiptline_escape(&cfg.store_name));
-    let header_lines = centered_lines(&cfg.header_lines);
+    let header_lines = centered_lines(&receipt_header_lines(cfg));
     let receipt_id = format!("^Receipt {}", receipt_ref(d));
     let receipt_date = format!("^{}", receipt_date(d, cfg));
     let item_lines = receiptline_item_lines(d, gift);
@@ -452,6 +491,14 @@ pub fn build_receiptline_markdown(
     } else {
         String::new()
     };
+    let barcode_image = if cfg.show_barcode {
+        format!(
+            "{{code:{};option:code128,hri}}",
+            receiptline_escape(&receipt_ref(d))
+        )
+    } else {
+        String::new()
+    };
 
     template
         .replace("{{LOGO_IMAGE}}", &logo_image)
@@ -469,6 +516,7 @@ pub fn build_receiptline_markdown(
         .replace("{{TENDER_LINE}}", &tender_line)
         .replace("{{STATUS_LINE}}", &status_line)
         .replace("{{TAX_EXEMPT_LINE}}", &tax_exempt_line)
+        .replace("{{BARCODE_IMAGE}}", &barcode_image)
         .replace("{{FOOTER_LINES}}", &footer_lines)
         .replace("{{CUT}}", "=")
         .lines()
