@@ -31,6 +31,7 @@ use crate::logic::loyalty as loyalty_logic;
 use crate::logic::podium::{self, looks_like_email};
 use crate::logic::podium_reviews;
 use crate::logic::pos_rms_charge;
+use crate::logic::receipt_escpos;
 use crate::logic::receipt_plain_text;
 use crate::logic::receipt_studio_html;
 use crate::logic::receipt_zpl;
@@ -840,6 +841,10 @@ pub fn router() -> Router<AppState> {
         .route(
             "/{transaction_id}/receipt.zpl",
             get(get_transaction_receipt_zpl),
+        )
+        .route(
+            "/{transaction_id}/receipt.escpos",
+            get(get_transaction_receipt_escpos),
         )
         .route(
             "/{transaction_id}/receipt.html",
@@ -1762,6 +1767,47 @@ async fn get_transaction_receipt_zpl(
         })
 }
 
+async fn get_transaction_receipt_escpos(
+    State(state): State<AppState>,
+    Path(transaction_id): Path<Uuid>,
+    Query(params): Query<std::collections::HashMap<String, String>>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, TransactionError> {
+    let register_session_id = params
+        .get("register_session_id")
+        .and_then(|s| Uuid::parse_str(s.trim()).ok());
+    authorize_transaction_read_bo_or_register(
+        &state,
+        &headers,
+        transaction_id,
+        register_session_id,
+    )
+    .await?;
+    let detail = load_transaction_detail(&state.db, transaction_id).await?;
+
+    let item_ids = receipt_query_transaction_line_ids(&params);
+    let receipt_order = detail.receipt_for_zpl_filtered(item_ids.as_deref())?;
+
+    let receipt_cfg: crate::api::settings::ReceiptConfig =
+        sqlx::query_scalar::<_, serde_json::Value>(
+            "SELECT receipt_config FROM store_settings WHERE id = 1",
+        )
+        .fetch_optional(&state.db)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default();
+
+    let bytes = receipt_escpos::build_receipt_escpos(&receipt_order, &receipt_cfg, params);
+    let escpos_base64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+    Ok(Json(serde_json::json!({
+        "escpos_base64": escpos_base64,
+        "printer_language": "escpos",
+        "printer_family": "epson_tm_m30iii"
+    })))
+}
+
 async fn get_transaction_receipt_html(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,
@@ -1800,7 +1846,7 @@ async fn get_transaction_receipt_html(
         .as_deref()
         .unwrap_or("");
     let body = if tpl.trim().is_empty() {
-        "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>Receipt</title></head><body><p>No Receipt Builder HTML template configured.</p></body></html>".to_string()
+        receipt_studio_html::render_standard_receipt_html(&receipt_order, &receipt_cfg, gift)
     } else {
         receipt_studio_html::merge_receipt_studio_html(tpl, &receipt_order, &receipt_cfg, gift)
     };
@@ -1901,17 +1947,6 @@ async fn post_transaction_receipt_send_email(
         .and_then(|v| serde_json::from_value(v).ok())
         .unwrap_or_default();
 
-    let tpl = receipt_cfg
-        .receipt_studio_exported_html
-        .as_deref()
-        .unwrap_or("");
-    if tpl.trim().is_empty() {
-        return Err(TransactionError::InvalidPayload(
-            "Receipt Builder HTML is not configured. Export HTML from Settings → Receipt Builder."
-                .to_string(),
-        ));
-    }
-
     let item_ids = if body.transaction_line_ids.is_empty() {
         None
     } else {
@@ -1919,13 +1954,21 @@ async fn post_transaction_receipt_send_email(
     };
     let receipt_order = detail.receipt_for_zpl_filtered(item_ids)?;
 
-    let merged = receipt_studio_html::merge_receipt_studio_html(
-        tpl,
-        &receipt_order,
-        &receipt_cfg,
-        body.gift,
-    );
-    let html = receipt_studio_html::wrap_receipt_fragment_for_podium_email_inline(&merged);
+    let tpl = receipt_cfg
+        .receipt_studio_exported_html
+        .as_deref()
+        .unwrap_or("");
+    let html = if tpl.trim().is_empty() {
+        receipt_studio_html::render_standard_receipt_html(&receipt_order, &receipt_cfg, body.gift)
+    } else {
+        let merged = receipt_studio_html::merge_receipt_studio_html(
+            tpl,
+            &receipt_order,
+            &receipt_cfg,
+            body.gift,
+        );
+        receipt_studio_html::wrap_receipt_fragment_for_podium_email_inline(&merged)
+    };
 
     let order_ref: String = transaction_id
         .simple()

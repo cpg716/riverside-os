@@ -219,7 +219,7 @@ pub struct ReceiptConfig {
     /// Last exported HTML from Studio (used for server-side merge + POS HTML print path).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub receipt_studio_exported_html: Option<String>,
-    /// `zpl` = legacy thermal (`receipt.zpl`). `studio_html` = merged HTML in browser print dialog.
+    /// `escpos` = standard Epson TM receipt path. Studio HTML modes remain optional.
     #[serde(default = "default_receipt_thermal_mode")]
     pub receipt_thermal_mode: String,
 }
@@ -241,7 +241,7 @@ fn default_footer() -> Vec<String> {
 }
 
 fn default_receipt_thermal_mode() -> String {
-    "zpl".to_string()
+    "escpos".to_string()
 }
 
 fn default_rosie_speech_rate() -> f32 {

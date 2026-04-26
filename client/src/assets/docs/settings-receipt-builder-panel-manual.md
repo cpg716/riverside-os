@@ -1,15 +1,15 @@
 ---
 id: settings-receipt-builder-panel
-title: "Receipt Builder Panel (settings)"
+title: "Receipt Settings Panel (settings)"
 order: 1097
-summary: "Draft maintainer scaffold for client/src/components/settings/ReceiptBuilderPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Adjust standard Epson receipt content for receipt printing and delivery."
 source: client/src/components/settings/ReceiptBuilderPanel.tsx
-last_scanned: 2026-04-23
-tags: settings-receipt-builder-panel, component, auto-scaffold
-status: draft
+last_scanned: 2026-04-26
+tags: settings-receipt-builder-panel, settings, receipt, printing
+status: approved
 ---
 
-# Receipt Builder Panel (settings)
+# Receipt Settings Panel (settings)
 
 <!-- help:component-source -->
 _Linked component: `client/src/components/settings/ReceiptBuilderPanel.tsx`._
@@ -17,42 +17,37 @@ _Linked component: `client/src/components/settings/ReceiptBuilderPanel.tsx`._
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Receipt Settings controls what appears on customer receipts. The production path is **Standard Epson**, which prints structured ESC/POS receipts on Epson TM-m30III-compatible printers.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this panel when changing the receipt header, footer, or receipt sections used for receipt output.
 
-## Before you start
+## How to use it
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+1. Open **Settings → Receipt Settings**.
+2. Edit the store identifier and section toggles.
+3. Use the preview to review the standard receipt shape.
+4. Click **Apply** to save the standard receipt settings.
 
-## Steps
+## Tips
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
-
-## What to watch for
-
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Use **Printers & Scanners** to set the workstation receipt printer IP.
+- Epson ESC/POS is the active production receipt path.
+- The old HTML designer is not part of normal receipt setup.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+New receipt settings apply to future receipt previews, printed receipts, text receipts, and email receipts.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
+- Printers & Scanners controls the workstation printer IP and scanner test.
+- POS sale completion uses these receipt settings after checkout.
+- Podium receipt delivery uses the same standard receipt content when no legacy HTML template exists.
 
 ## Screenshots
 
-Add PNGs under `../images/help/settings-receipt-builder-panel/` and replace this example with governed screenshots.
+Use governed screenshots from `../images/help/settings-receipt-builder-panel/` when this manual is refreshed.
 
 ![Example](../images/help/settings-receipt-builder-panel/example.png)
-

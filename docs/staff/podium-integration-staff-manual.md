@@ -16,7 +16,7 @@
 
 - Send **automatic** texts/emails (e.g. pickup ready, alteration ready) using your wording.
 - Let staff **reply** to customers from the **customer profile** without opening Podium’s full Inbox.
-- Send **email / text receipts** from the POS when Receipt Builder is set up.
+- Send **email / text receipts** from the POS using the standard receipt content.
 - Show **new customer texts/emails** as **notifications** you can open into the right profile.
 
 This guide is **how to work in Riverside**. It does not replace Podium’s own help site or your store’s legal/consent policies.
@@ -86,7 +86,7 @@ This guide is **how to work in Riverside**. It does not replace Podium’s own h
 
 1. Complete checkout until **Receipt summary** appears.
 2. Choose **email receipt** and/or **text receipt** as your SOP allows.
-3. If email fails with a message about **Receipt Builder** or empty template, the store has not saved receipt HTML—manager or **Settings → Receipt Builder**.
+3. If email fails, ask a manager to check Podium readiness, the customer email address, and server error logs.
 
 Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
@@ -120,7 +120,7 @@ Details: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 | **No Messages tab** | Confirm **Relationship Hub** access | [CUSTOMER_HUB_AND_RBAC.md](../CUSTOMER_HUB_AND_RBAC.md) |
 | **Send failed / Podium unavailable** | Readiness + toggles + location UID | Manager / IT |
 | **Automated SMS never fires** | Customer **opt-in** + valid phone + template not empty | Admin + [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
-| **Receipt email fails** | Receipt Builder exported HTML saved | Settings admin |
+| **Receipt email fails** | Podium email enabled, location UID, customer email, server logs | Settings admin |
 | **Widget missing on public site** | Not a cashier task—**IT** + storefront flags | [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md) |
 
 ---

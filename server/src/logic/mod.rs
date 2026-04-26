@@ -55,6 +55,7 @@ pub mod pricing_limits;
 pub mod procurement;
 pub mod product_catalog_analysis;
 pub mod qbo_journal;
+pub mod receipt_escpos;
 pub mod receipt_escpos_raster;
 pub mod receipt_plain_text;
 pub mod receipt_privacy;

@@ -54,10 +54,12 @@ import manual_49_raw from "../../assets/docs/qbo-mapping-matrix-manual.md?raw";
 import manual_50_raw from "../../assets/docs/qbo-workspace-manual.md?raw";
 import manual_51_raw from "../../assets/docs/settings-counterpoint-sync-settings-panel-manual.md?raw";
 import manual_52_raw from "../../assets/docs/settings-meilisearch-settings-panel-manual.md?raw";
-import manual_53_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
-import manual_54_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
-import manual_55_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
-import manual_56_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
+import manual_53_raw from "../../assets/docs/settings-receipt-builder-panel-manual.md?raw";
+import manual_54_raw from "../../assets/docs/settings-remote-access-panel-manual.md?raw";
+import manual_55_raw from "../../assets/docs/settings-stripe-settings-panel-manual.md?raw";
+import manual_56_raw from "../../assets/docs/staff-commission-payouts-panel-manual.md?raw";
+import manual_57_raw from "../../assets/docs/settings-printers-and-scanners-panel-manual.md?raw";
+import manual_58_raw from "../../assets/docs/staff-commission-manager-workspace-manual.md?raw";
 
 export const HELP_MANUALS: HelpManual[] = [
   {
@@ -432,31 +434,45 @@ export const HELP_MANUALS: HelpManual[] = [
     tags: ["settings","meilisearch","search","reindex"],
   },
   {
+    id: "settings-receipt-builder-panel",
+    title: "Receipt Settings Panel (settings)",
+    summary: "Adjust standard Epson receipt content for receipt printing and delivery.",
+    markdown: manual_53_raw,
+    tags: ["settings-receipt-builder-panel","settings","receipt","printing"],
+  },
+  {
     id: "settings-remote-access-panel",
     title: "Remote Access Panel",
     summary: "Use this panel on the dedicated Windows host machine to start Shop Host for local satellites and connect Tailscale for separate remote access.",
-    markdown: manual_53_raw,
+    markdown: manual_54_raw,
     tags: ["settings-remote-access-panel","remote-access","tailscale","host-mode"],
   },
   {
     id: "settings-stripe-settings-panel",
     title: "Stripe & Merchant Hub (settings)",
     summary: "High-level integration manual for card processing, fee reconciliation, and QBO clearing account workflows.",
-    markdown: manual_54_raw,
+    markdown: manual_55_raw,
     tags: ["settings-stripe-settings-panel","merchant-processing","reconciliation","stripe","qbo"],
   },
   {
     id: "staff-commission-payouts-panel",
     title: "Commission Reports Panel (staff)",
     summary: "Review fulfillment-based commission reporting by staff and period.",
-    markdown: manual_55_raw,
+    markdown: manual_56_raw,
     tags: ["staff-commission-payouts-panel","component","commission","reporting"],
+  },
+  {
+    id: "settings-printers-and-scanners-panel",
+    title: "Printers And Scanners Panel (settings)",
+    summary: "Configure workstation receipt, tag, report printer targets and verify scanner input.",
+    markdown: manual_57_raw,
+    tags: ["settings-printers-and-scanners-panel","settings","printers","scanners","hardware"],
   },
   {
     id: "staff-commission-manager-workspace",
     title: "Commission Manager Workspace (staff)",
     summary: "Use Staff → Commissions for commission reports, fixed SPIFFs, and combo incentives.",
-    markdown: manual_56_raw,
+    markdown: manual_58_raw,
     tags: ["staff-commission-manager-workspace","component","commission","reporting","incentives"],
   },
 ];

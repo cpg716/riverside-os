@@ -145,8 +145,8 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/orders/{order_id}` | Order detail + lines + tenders (read auth: BO or register session). |
 | GET | `/api/orders/{order_id}/audit` | **`order_activity_log`** (see §7). |
 | GET | `/api/orders/{order_id}/receipt.zpl` | Receipt ZPL (reporting less common; label/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
-| GET | `/api/orders/{order_id}/receipt.html` | Merged Receipt Builder HTML (or placeholder if template unset). Same auth as order detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
-| POST | `/api/orders/{order_id}/receipt/send-email` | Podium **email** with inline HTML body; requires exported template. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| GET | `/api/orders/{order_id}/receipt.html` | Receipt HTML using a legacy saved template when present, otherwise standard receipt HTML. Same auth as order detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
+| POST | `/api/orders/{order_id}/receipt/send-email` | Podium **email** with inline receipt HTML body. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
 | POST | `/api/orders/{order_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
 
 ### `/api/sessions/*`

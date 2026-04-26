@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-04-26T04:50:05.733Z",
+  "generated_at": "2026-04-26T05:50:09.584Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 57,
-  "draft_manual_count": 108,
+  "published_manual_count": 59,
+  "draft_manual_count": 105,
   "manuals": [
     {
       "id": "pos",
@@ -5460,8 +5460,8 @@
     },
     {
       "id": "settings-receipt-builder-panel",
-      "title": "Receipt Builder Panel (settings)",
-      "status": "draft",
+      "title": "Receipt Settings Panel (settings)",
+      "status": "approved",
       "source_path": "client/src/assets/docs/settings-receipt-builder-panel-manual.md",
       "required_buckets": [
         {
@@ -5498,55 +5498,7 @@
         }
       ],
       "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
-      "errors": [],
-      "warnings": []
-    },
-    {
-      "id": "settings-receipt-studio-editor",
-      "title": "Receipt Studio Editor (settings)",
-      "status": "draft",
-      "source_path": "client/src/assets/docs/settings-receipt-studio-editor-manual.md",
-      "required_buckets": [
-        {
-          "key": "purpose",
-          "label": "Purpose / what this is",
-          "present": true
-        },
-        {
-          "key": "steps",
-          "label": "Numbered steps / how to use it",
-          "present": true
-        },
-        {
-          "key": "guardrails",
-          "label": "What to watch for / common mistakes / tips",
-          "present": true
-        }
-      ],
-      "optional_buckets": [
-        {
-          "key": "when",
-          "label": "When to use it / prerequisites / permissions",
-          "present": true
-        },
-        {
-          "key": "outcome",
-          "label": "What happens next / expected result",
-          "present": true
-        },
-        {
-          "key": "related",
-          "label": "Related workflows",
-          "present": true
-        }
-      ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -6011,7 +5963,7 @@
     {
       "id": "settings-printers-and-scanners-panel",
       "title": "Printers And Scanners Panel (settings)",
-      "status": "draft",
+      "status": "approved",
       "source_path": "client/src/assets/docs/settings-printers-and-scanners-panel-manual.md",
       "required_buckets": [
         {
@@ -6047,10 +5999,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 7,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },

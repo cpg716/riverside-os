@@ -19,8 +19,8 @@ Riverside OS tracks three distinct "Hardware Nodes" per workstation. Each docume
 
 | Node Type | Protocol | Storage Key | Description |
 |-----------|----------|-------------|-------------|
-| **Receipt Station** | ESC/POS (TCP) | `ros.hardware.printer.receipt.ip` | Primary customer thermal printer. Handles sales records and gift receipts. |
-| **Tag Station** | ZPL (TCP) | `ros.hardware.printer.tag.ip` | Item label printer (Zebra compatible). Handles SKU/inventory tags. |
+| **Receipt Station** | ESC/POS (TCP) | `ros.hardware.printer.receipt.ip` | Primary Epson TM-m30III customer thermal printer. Handles sales records, gift receipts, and the attached Register #1 cash drawer. |
+| **Tag Station** | ZPL (TCP) | `ros.hardware.printer.tag.ip` | Zebra 2844 clothing tag printer on the host PC. Handles SKU/inventory tags. |
 | **Reporting Station** | TCP / System | `ros.hardware.printer.report.ip` | Full-page document printer. Handles audit logs, shift summaries, and manifest reports. |
 
 ---
@@ -35,16 +35,17 @@ The **Printers & Scanners** panel in the Back Office and the **Terminal Override
 
 **POS Accessibility (v0.2.1+)**: The Printers & Scanners hub remains one of the two allowed Settings subsections in POS mode, ensuring floor staff can troubleshoot or reconfigure local hardware without requiring administrative Back Office access.
 
+### Cash Drawer
+Register #1 uses the cash drawer attached to the Epson TM-m30III receipt printer. ROS sends the ESC/POS drawer kick command from the desktop app when the completed sale tender summary contains **CASH** or **CHECK**. Card, gift card, account credit, and other non-cash tenders do not open the drawer. Receipt reprints do not intentionally kick the drawer again. The local toggle is stored as `ros.hardware.cashDrawer.enabled`.
+
 ---
 
 ## 3. Printer Modes
 
 ### Thermal (Receipts)
-Located in **Settings → Receipt Builder**, staff can choose between three modes for the thermal bridge:
+The production receipt path is **Standard Epson**: ROS generates structured ESC/POS output for Epson TM-m30III-compatible receipt printers. Receipt content is controlled by the standard receipt settings: store name, header/footer lines, visibility toggles, and receipt sections.
 
-1. **ZPL (Legacy)**: Legacy text-based Zebra routing. Fast but lacks visual flexibility.
-2. **ESC/POS Raster**: (Standard v0.2.0+) Merged HTML → Canvas → ESC/POS Graphics. Supports custom fonts, logos, and high-fidelity layouts.
-3. **Studio HTML**: Bypasses the bridge and uses the standard browser `window.print()` dialog.
+The previous HTML receipt designer is no longer exposed in the active Settings UI. Receipt view, email, and text delivery use the standard receipt renderer when no legacy saved HTML template exists.
 
 ### Document Auto-Routing
 The `printerBridge.ts` module includes an intelligent dispatcher that resolves the correct station based on document metadata:
@@ -64,7 +65,7 @@ await autoRoutePrint({
 
 Riverside OS treats barcode scanners as standard **HID (Human Interface Device)** inputs. 
 
-- **Configuration**: Scanners should be configured in "HID Keyboard Mode" with a carriage return suffix (`\n`).
+- **Configuration**: USB scanners on the host PC and Bluetooth scanners on iPad/phone should be configured in "HID Keyboard Mode" with a carriage return suffix (`\n`).
 - **Input Tracking**: The application detects high-velocity input strings and automatically focuses global search or the POS cart to process the scanned SKU.
 - **Validation**: The **Printers & Scanners** hub includes a live testing area to verify that scanner events are being captured correctly by the system.
 
@@ -75,5 +76,5 @@ When setting up a new lane:
 1. Ensure the printer has a static IP address on the local network.
 2. Verify the IP is reachable from the workstation (ping test).
 3. Enter the IP into the **Printers & Scanners** hub.
-4. Run a **Test Print** to verify the bridge link.
+4. Run **Check connection** for the receipt printer from the desktop app, or confirm the saved IP from browser/POS mode.
 5. In the POS, verify that **Auto-Print** toggles are set according to staff preference.

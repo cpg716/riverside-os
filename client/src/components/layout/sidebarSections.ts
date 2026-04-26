@@ -98,7 +98,7 @@ export const SIDEBAR_SUB_SECTIONS: Record<SidebarTabId, SubItem[]> = {
     { id: "backups", label: "Data & Backups" },
     { id: "printing", label: "Printers & Scanners" },
     { id: "register", label: "Terminal Overrides" },
-    { id: "receipt-builder", label: "Receipt Builder" },
+    { id: "receipt-builder", label: "Receipt Settings" },
     { id: "tag-designer", label: "Tag Designer" },
     { id: "integrations", label: "Integrations" },
     { id: "staff-access-defaults", label: "Staff Access Defaults" },

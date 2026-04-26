@@ -85,6 +85,113 @@ fn build_payment_applications(order: &ReceiptOrderForZpl) -> String {
     format!("<div style=\"margin-top:8px;font-size:12px\"><strong>Applied payments</strong>{rows}</div>")
 }
 
+pub fn render_standard_receipt_html(
+    order: &ReceiptOrderForZpl,
+    cfg: &ReceiptConfig,
+    gift: bool,
+) -> String {
+    let tz: Tz = cfg.timezone.parse().unwrap_or(chrono_tz::America::New_York);
+    let local_time = order.booked_at.with_timezone(&tz);
+    let order_ref = order
+        .transaction_id
+        .simple()
+        .to_string()
+        .chars()
+        .take(8)
+        .collect::<String>()
+        .to_uppercase();
+    let customer = order
+        .customer
+        .as_ref()
+        .map(|c| c.display_name.clone())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "Walk-in".to_string());
+    let header_lines = cfg
+        .header_lines
+        .iter()
+        .map(|l| format!("<div>{}</div>", html_escape(l)))
+        .collect::<Vec<_>>()
+        .join("");
+    let footer_lines = cfg
+        .footer_lines
+        .iter()
+        .map(|l| format!("<div>{}</div>", html_escape(l)))
+        .collect::<Vec<_>>()
+        .join("");
+    let items_html = if gift {
+        build_items_table_gift(order)
+    } else {
+        build_items_table(order)
+    };
+    let totals_html = if gift {
+        "<div class=\"muted\">Pricing omitted for gift receipt.</div>".to_string()
+    } else {
+        format!(
+            r#"<div class="totals">
+  <div><span>Total</span><strong>{}</strong></div>
+  <div><span>Paid</span><strong>{}</strong></div>
+  <div><span>Balance</span><strong>{}</strong></div>
+  <div><span>Tender</span><strong>{}</strong></div>
+  {}
+</div>"#,
+            order.total_price,
+            order.amount_paid,
+            order.balance_due,
+            html_escape(&order.payment_methods_summary),
+            build_payment_applications(order)
+        )
+    };
+
+    format!(
+        r#"<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Receipt {order_ref}</title>
+  <style>
+    :root {{ color-scheme: light; }}
+    body {{ margin:0; background:#f4f4f5; color:#111827; font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }}
+    .paper {{ width:320px; margin:24px auto; background:#fff; padding:22px 18px; border-radius:14px; box-shadow:0 20px 45px rgba(15,23,42,.16); }}
+    .center {{ text-align:center; }}
+    .store {{ font-weight:900; font-size:20px; letter-spacing:.02em; text-transform:uppercase; }}
+    .title {{ margin-top:10px; font-weight:900; text-transform:uppercase; letter-spacing:.16em; font-size:11px; }}
+    .muted {{ color:#6b7280; font-size:12px; line-height:1.35; }}
+    .rule {{ border-top:1px dashed #9ca3af; margin:14px 0; }}
+    table td {{ padding:5px 0; vertical-align:top; border-bottom:1px solid #f3f4f6; }}
+    .totals {{ margin-top:8px; font-size:13px; }}
+    .totals > div {{ display:flex; justify-content:space-between; gap:12px; padding:3px 0; }}
+    .totals strong {{ text-align:right; }}
+    @media print {{ body {{ background:#fff; }} .paper {{ margin:0 auto; box-shadow:none; border-radius:0; }} }}
+  </style>
+</head>
+<body>
+  <main class="paper">
+    <div class="center">
+      <div class="store">{store}</div>
+      <div class="muted">{header_lines}</div>
+      <div class="title">{title}</div>
+      <div class="muted">Receipt {order_ref}</div>
+      <div class="muted">{date}</div>
+    </div>
+    <div class="rule"></div>
+    <div class="muted">Customer: {customer}</div>
+    <div class="rule"></div>
+    {items_html}
+    <div class="rule"></div>
+    {totals_html}
+    <div class="rule"></div>
+    <div class="center muted">{footer_lines}</div>
+  </main>
+</body>
+</html>"#,
+        store = html_escape(&cfg.store_name),
+        title = if gift { "Gift receipt" } else { "Receipt" },
+        date = local_time.format("%m/%d/%Y %I:%M %p"),
+        customer = html_escape(&customer),
+    )
+}
+
 fn replace_all(haystack: &mut String, needle: &str, repl: &str) {
     *haystack = haystack.replace(needle, repl);
 }

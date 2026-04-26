@@ -18,7 +18,7 @@ When Podium is **configured on the server** and **enabled in Settings**, Riversi
 |------------|-------------------------|
 | **Operational SMS** | Text customers for **ready for pickup**, **alteration ready**, and similar triggers using templates you edit in Settings. |
 | **Operational email** | Send **HTML email** for the same kinds of events, plus **appointment confirmation** (when that flow runs), and **loyalty redeem** notices when staff opt in on redeem. |
-| **POS receipts** | After checkout, **email** a merged receipt (HTML) or **text** a short message or **picture MMS** (PNG) of the receipt when the Receipt Builder layout is available. |
+| **POS receipts** | After checkout, **email** standard receipt HTML or **text** a short receipt message. |
 | **Customer CRM threads** | Show **SMS and email** history on the customer profile, **reply** from Riverside, and optionally store a **Podium conversation URL** for reference. |
 | **Inbound messages** | If Podium is allowed to call Riverside’s **webhook**, new customer texts/emails can appear as threads and **notifications** (see section 7). |
 | **Web chat on your site** | Paste Podium’s widget snippet so the public storefront can load it (optional build flag). |
@@ -160,8 +160,8 @@ If something should have sent but did not, verify: **env credentials**, **locati
 
 After **Complete sale**, the **Receipt summary** step can:
 
-- **Email receipt** — merged Receipt Builder HTML as inline email via Podium (**requires** saved exported HTML in Receipt Builder).
-- **Text receipt** — plain SMS **or** MMS with **PNG** of the receipt when the client can rasterize HTML and Podium attachment limits allow.
+- **Email receipt** — standard receipt HTML as inline email via Podium.
+- **Text receipt** — plain SMS receipt text.
 
 Details, limits, and error behavior: [RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md).
 
@@ -197,7 +197,7 @@ Full roadmap: [PLAN_PODIUM_REVIEWS.md](../PLAN_PODIUM_REVIEWS.md).
 |---------|----------------|
 | **Connect Podium** fails | Redirect URI mismatch; HTTPS vs HTTP; client override `VITE_PODIUM_OAUTH_REDIRECT_URI`; Podium app client id/secret. |
 | **No SMS** | `sms_send_enabled`, location UID, credentials, customer phone, SMS opt-in, template not empty when required. |
-| **No email** | `email_send_enabled`, location UID, customer email, template; Receipt Builder exported HTML for email receipts. |
+| **No email** | `email_send_enabled`, location UID, customer email, and server logs for Podium delivery errors. |
 | **502 / Podium unavailable** in UI | Server logs; Podium status; token refresh; API base override. |
 | **Inbound never appears** | Webhook URL reachable; secret/signature; `RIVERSIDE_PODIUM_INBOUND_DISABLED` accidentally on; Podium event types. |
 | **Widget missing on site** | `VITE_STOREFRONT_EMBEDS`; snippet saved; CSP blocking scripts—see [PODIUM_STOREFRONT_CSP_AND_PRIVACY.md](../PODIUM_STOREFRONT_CSP_AND_PRIVACY.md). |

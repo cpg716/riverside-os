@@ -55,8 +55,10 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("qbo-workspace", "client/src/assets/docs/qbo-workspace-manual.md"),
     ("settings-counterpoint-sync-settings-panel", "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md"),
     ("settings-meilisearch-settings-panel", "client/src/assets/docs/settings-meilisearch-settings-panel-manual.md"),
+    ("settings-receipt-builder-panel", "client/src/assets/docs/settings-receipt-builder-panel-manual.md"),
     ("settings-remote-access-panel", "client/src/assets/docs/settings-remote-access-panel-manual.md"),
     ("settings-stripe-settings-panel", "client/src/assets/docs/settings-stripe-settings-panel-manual.md"),
     ("staff-commission-payouts-panel", "client/src/assets/docs/staff-commission-payouts-panel-manual.md"),
+    ("settings-printers-and-scanners-panel", "client/src/assets/docs/settings-printers-and-scanners-panel-manual.md"),
     ("staff-commission-manager-workspace", "client/src/assets/docs/staff-commission-manager-workspace-manual.md"),
 ];

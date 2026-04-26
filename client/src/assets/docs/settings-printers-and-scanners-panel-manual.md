@@ -2,11 +2,11 @@
 id: settings-printers-and-scanners-panel
 title: "Printers And Scanners Panel (settings)"
 order: 1109
-summary: "Draft maintainer scaffold for client/src/components/settings/PrintersAndScannersPanel.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Configure workstation receipt, tag, report printer targets and verify scanner input."
 source: client/src/components/settings/PrintersAndScannersPanel.tsx
-last_scanned: 2026-04-23
-tags: settings-printers-and-scanners-panel, component, auto-scaffold
-status: draft
+last_scanned: 2026-04-26
+tags: settings-printers-and-scanners-panel, settings, printers, scanners, hardware
+status: approved
 ---
 
 # Printers And Scanners Panel (settings)
@@ -17,42 +17,42 @@ _Linked component: `client/src/components/settings/PrintersAndScannersPanel.tsx`
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+This panel stores the current workstation's hardware targets. Back Office and POS use the same local settings, so changes apply to the lane where they are made.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Use this panel when opening a new lane, replacing a printer, checking scanner input, or troubleshooting receipt delivery after a completed sale.
 
-## Before you start
+## How to use it
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+1. Open **Settings → Printers & Scanners**.
+2. Enter the receipt printer IP and port for the Epson TM-m30III receipt station.
+3. Leave **Open cash drawer on cash/check** enabled for Register #1 when the drawer is attached to the Epson receipt printer.
+4. Enter the tag printer IP for the Zebra 2844 clothing tag station on the host PC.
+5. Enter the reports printer target when the workstation uses a dedicated reports bridge.
+6. Use **Check connection** for the receipt printer in the Riverside desktop app.
+7. Focus the scanner test field and scan a barcode to confirm HID keyboard input is reaching ROS.
 
-## Steps
+## Tips
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
-
-## What to watch for
-
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- Receipt printing uses Epson ESC/POS for the TM-m30III path.
+- The cash drawer opens only on CASH and CHECK sales from the Register #1 desktop app.
+- Item tags use the Zebra 2844/ZPL station on the host PC.
+- Browser/PWA mode can save the same settings, but live receipt-printer readiness checks run in the desktop app.
+- USB scanner hardware on PC and Bluetooth scanner hardware on iPad/phone should be configured as HID keyboard input with an Enter suffix.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+The workstation immediately uses the saved local printer targets for receipt, tag, and report actions.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
+- Receipt Settings controls Epson receipt content.
+- POS sale completion uses the receipt printer target.
+- Inventory tag printing uses the tag station target.
 
 ## Screenshots
 
-Add PNGs under `../images/help/settings-printers-and-scanners-panel/` and replace this example with governed screenshots.
+Use governed screenshots from `../images/help/settings-printers-and-scanners-panel/` when this manual is refreshed.
 
 ![Example](../images/help/settings-printers-and-scanners-panel/example.png)
-

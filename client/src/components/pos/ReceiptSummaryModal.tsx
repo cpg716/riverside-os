@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -12,11 +13,9 @@ import {
   ArrowRight,
   Save,
 } from "lucide-react";
-import { isTauri } from "@tauri-apps/api/core";
 import {
   checkReceiptPrinterConnection,
   printRawEscPosBase64,
-  printZplReceipt,
   resolvePrinterAddress,
 } from "../../lib/printerBridge";
 import { receiptHtmlToPngBase64 } from "../../lib/receiptHtmlToPng";
@@ -102,6 +101,7 @@ export default function ReceiptSummaryModal({
   const [printingSuccessMessage, setPrintingSuccessMessage] = useState<
     string | null
   >(null);
+  const [cashDrawerKicked, setCashDrawerKicked] = useState(false);
   const [checkingPrinter, setCheckingPrinter] = useState(false);
   const [printerCheckMessage, setPrinterCheckMessage] = useState<string | null>(
     null,
@@ -138,6 +138,36 @@ export default function ReceiptSummaryModal({
     [registerSessionId],
   );
 
+  const shouldKickCashDrawer = useCallback(() => {
+    if (!isTauri()) return false;
+    if (window.localStorage.getItem("ros.hardware.cashDrawer.enabled") === "false") {
+      return false;
+    }
+    const tenderSummary = transactionDetail?.payment_methods_summary ?? "";
+    return /\b(CASH|CHECK|CHEQUE)\b/i.test(tenderSummary);
+  }, [transactionDetail?.payment_methods_summary]);
+
+  const openCashDrawerForSale = useCallback(async () => {
+    if (cashDrawerKicked || !shouldKickCashDrawer()) return;
+    const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
+    const printerPort = parseInt(
+      localStorage.getItem("ros.hardware.printer.receipt.port") || "9100",
+      10,
+    );
+    try {
+      await printRawEscPosBase64("G3AAMvo=", printerIp, printerPort);
+      setCashDrawerKicked(true);
+    } catch (e) {
+      console.error("Cash drawer kick failed", e);
+      toast("Cash drawer did not open. Check the Epson receipt printer connection.", "error");
+    }
+  }, [cashDrawerKicked, shouldKickCashDrawer, toast]);
+
+  useEffect(() => {
+    setCashDrawerKicked(false);
+    setTransactionDetail(null);
+  }, [transactionId]);
+
   useEffect(() => {
     const rows = transactionDetail?.items;
     if (!rows?.length) {
@@ -154,6 +184,11 @@ export default function ReceiptSummaryModal({
       return next;
     });
   }, [transactionId, transactionDetail?.items]);
+
+  useEffect(() => {
+    if (!transactionDetail) return;
+    void openCashDrawerForSale();
+  }, [transactionDetail, openCashDrawerForSale]);
 
   useEffect(() => {
     if (!transactionId) return;
@@ -280,84 +315,23 @@ export default function ReceiptSummaryModal({
             : undefined,
         );
 
-        const studioReady = transactionDetail?.receipt_studio_layout_available === true;
-
-        if (studioReady && transactionDetail?.receipt_thermal_mode === "escpos_raster") {
-          const hres = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.html${q}`, {
-            headers: getAuthHeaders(),
-            cache: "no-store",
-          });
-          if (!hres.ok) throw new Error("Receipt HTML generation failed");
-          const fragment = await hres.text();
-          const pngB64 = await receiptHtmlToPngBase64(fragment);
-          const conv = await fetch(`${baseUrl}/api/hardware/escpos-from-png`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              ...getAuthHeaders(),
-            },
-            body: JSON.stringify({ png_base64: pngB64 }),
-          });
-          if (!conv.ok) {
-            const err = (await conv.json().catch(() => ({}))) as { error?: string };
-            throw new Error(err.error ?? "Raster receipt conversion failed");
-          }
-          const j = (await conv.json()) as { escpos_base64?: string };
-          if (typeof j.escpos_base64 !== "string" || !j.escpos_base64) {
-            throw new Error("Missing ESC/POS payload from server");
-          }
-          const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
-          const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100", 10);
-          await printRawEscPosBase64(j.escpos_base64, printerIp, printerPort);
-          setPrintingSuccessMessage(
-            `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
-          );
-          return;
-        }
-
-        if (studioReady && transactionDetail?.receipt_thermal_mode === "studio_html") {
-          const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.html${q}`, {
-            headers: getAuthHeaders(),
-            cache: "no-store",
-          });
-          if (!res.ok) throw new Error("Receipt HTML generation failed");
-          const html = await res.text();
-          const w = window.open("", "_blank", "noopener,noreferrer");
-          if (!w) {
-            throw new Error("Popup blocked — allow popups to print the studio receipt.");
-          }
-          w.document.open();
-          w.document.write(html);
-          w.document.close();
-          w.focus();
-          requestAnimationFrame(() => {
-            try {
-              w.print();
-            } catch {
-              /* ignore */
-            }
-          });
-          setPrintingSuccessMessage(
-            `${opts?.gift ? "Gift receipt" : "Receipt"} opened in the print window.`,
-          );
-          return;
-        }
-
-        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.zpl${q}`, {
+        const res = await fetch(`${baseUrl}/api/transactions/${transactionId}/receipt.escpos${q}`, {
           headers: getAuthHeaders(),
           cache: "no-store",
         });
         if (!res.ok) throw new Error("Receipt generation failed");
-        const zpl = await res.text();
+        const escposPayload = (await res.json()) as { escpos_base64?: string };
+        if (
+          typeof escposPayload.escpos_base64 !== "string" ||
+          !escposPayload.escpos_base64
+        ) {
+          throw new Error("Missing ESC/POS receipt payload from server");
+        }
 
         const printerIp = localStorage.getItem("ros.hardware.printer.receipt.ip") || "127.0.0.1";
         const printerPort = parseInt(localStorage.getItem("ros.hardware.printer.receipt.port") || "9100");
 
-        if (!isTauri()) {
-          throw new Error("Physical printing requires the Riverside OS Desktop App.");
-        }
-
-        await printZplReceipt(zpl, printerIp, printerPort);
+        await printRawEscPosBase64(escposPayload.escpos_base64, printerIp, printerPort);
         setPrintingSuccessMessage(
           `${opts?.gift ? "Gift receipt" : "Receipt"} sent to the station printer.`,
         );
@@ -375,7 +349,13 @@ export default function ReceiptSummaryModal({
         setPrinting(false);
       }
     },
-    [transactionId, baseUrl, buildReceiptQuery, getAuthHeaders, transactionDetail, toast],
+    [
+      transactionId,
+      baseUrl,
+      buildReceiptQuery,
+      getAuthHeaders,
+      toast,
+    ],
   );
 
   const runPrinterCheck = useCallback(async () => {
@@ -710,7 +690,7 @@ export default function ReceiptSummaryModal({
 
   return (
     <div
-      className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 dark:bg-black/70"
+      className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 dark:bg-black/70 sm:items-center"
       style={{
         paddingTop: "max(0.75rem, env(safe-area-inset-top))",
         paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
@@ -718,8 +698,8 @@ export default function ReceiptSummaryModal({
         paddingRight: "max(0.75rem, env(safe-area-inset-right))",
       }}
     >
-      <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:rounded-[2rem] lg:max-w-4xl">
-        <div className="relative flex max-h-[min(90dvh,35rem)] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:p-6 lg:p-7">
+      <div className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-[0_32px_64px_-16px_rgba(0,0,0,0.35)] animate-in zoom-in-95 duration-200 dark:shadow-[0_32px_64px_-12px_rgba(0,0,0,0.65)] sm:max-w-2xl sm:rounded-[2rem] lg:max-w-4xl">
+        <div className="relative flex max-h-[96dvh] flex-col gap-4 overflow-y-auto p-4 text-app-text sm:max-h-[min(90dvh,35rem)] sm:p-6 lg:p-7">
           <button
             type="button"
             onClick={() => void closeWithReviewChoice()}
@@ -920,7 +900,7 @@ export default function ReceiptSummaryModal({
                   Profile contact is prefilled. Edits apply to this receipt unless saved.
                 </p>
               </div>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-[1fr_1fr_auto]">
+              <div className="grid grid-cols-1 gap-2 lg:grid-cols-[1fr_1fr_auto]">
                 <div className="min-w-0">
                   <label className="block shrink-0">
                     <span className="text-[9px] font-bold uppercase tracking-wider text-app-text-muted md:text-[10px]">
@@ -1024,8 +1004,8 @@ export default function ReceiptSummaryModal({
       </div>
 
       {giftDialogOpen ? (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4">
-          <div className="w-full max-w-2xl overflow-hidden rounded-3xl border border-app-border bg-app-surface text-app-text shadow-2xl">
+        <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4">
+          <div className="w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-w-2xl sm:rounded-3xl">
             <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-violet-600/15 text-violet-700 dark:text-violet-300">
@@ -1049,7 +1029,7 @@ export default function ReceiptSummaryModal({
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <div className="max-h-[70dvh] space-y-4 overflow-y-auto p-5">
+            <div className="max-h-[80dvh] space-y-4 overflow-y-auto p-4 sm:max-h-[70dvh] sm:p-5">
               {itemRows.length > 0 ? (
                 <ul className="space-y-2 text-left">
                   {itemRows.map((it) => (
@@ -1127,8 +1107,8 @@ export default function ReceiptSummaryModal({
       ) : null}
 
       {receiptPreviewOpen ? (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/35 p-4">
-          <div className="flex max-h-[88dvh] w-full max-w-4xl flex-col overflow-hidden rounded-3xl border border-app-border bg-app-surface text-app-text shadow-2xl">
+        <div className="fixed inset-0 z-[140] flex items-end justify-center bg-black/35 p-0 sm:items-center sm:p-4">
+          <div className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface text-app-text shadow-2xl sm:max-h-[88dvh] sm:max-w-4xl sm:rounded-3xl">
             <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
