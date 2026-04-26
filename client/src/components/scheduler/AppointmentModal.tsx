@@ -263,17 +263,20 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-app-bg/80 backdrop-blur-md p-4 animate-in fade-in zoom-in duration-200">
-      <div className="w-full max-w-2xl rounded-3xl border border-app-border bg-app-surface shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+    <div className="animate-in fade-in zoom-in fixed inset-0 z-[100] flex items-end justify-center bg-app-bg/80 p-0 backdrop-blur-md duration-200 sm:items-center sm:p-4">
+      <div
+        data-testid="appointment-modal"
+        className="flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[90vh] sm:max-w-2xl sm:rounded-3xl"
+      >
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-6">
+        <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-4 sm:p-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-app-accent text-white shadow-lg shadow-app-accent/20">
               <Calendar size={24} />
             </div>
             <div>
-              <h3 className="text-xl font-black italic tracking-tighter text-app-text uppercase">
+              <h3 className="text-lg font-black italic tracking-tighter text-app-text uppercase sm:text-xl">
                 {initialData ? 'Update Appointment' : 'Book Appointment'}
               </h3>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted opacity-60">
@@ -287,9 +290,9 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
         </div>
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto no-scrollbar p-8 space-y-8">
+        <form onSubmit={handleSubmit} className="flex-1 space-y-6 overflow-y-auto p-4 sm:space-y-8 sm:p-8 no-scrollbar">
           
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-8">
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Appointment Type</label>
               <div className="relative">
@@ -318,7 +321,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-8">
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Date</label>
               <input
@@ -437,7 +440,7 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-8">
             <div className="space-y-2">
               <label className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Contact Phone</label>
               <input
@@ -461,42 +464,44 @@ const AppointmentModal: React.FC<AppointmentModalProps> = ({ isOpen, onClose, on
           
           {/* Status Actions for Editing */}
           {initialData?.id && (
-            <div className="flex gap-3 pt-4 border-t border-app-border">
+            <div className="flex flex-wrap gap-3 border-t border-app-border pt-4">
               <button
                 type="button"
                 onClick={() => handleStatusUpdate('Attended')}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-emerald-600/10 border border-emerald-500/30 py-3 text-[10px] font-black uppercase tracking-widest text-emerald-500 hover:bg-emerald-600 hover:text-white transition-all"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-600/10 py-3 text-[10px] font-black uppercase tracking-widest text-emerald-500 transition-all hover:bg-emerald-600 hover:text-white sm:flex-1 sm:w-auto"
               >
                 <CheckCircle size={14} /> Mark Attended
               </button>
               <button
                 type="button"
                 onClick={() => handleStatusUpdate('Missed')}
-                className="flex-1 flex items-center justify-center gap-2 rounded-xl bg-amber-600/10 border border-amber-500/30 py-3 text-[10px] font-black uppercase tracking-widest text-amber-500 hover:bg-amber-600 hover:text-white transition-all"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-amber-500/30 bg-amber-600/10 py-3 text-[10px] font-black uppercase tracking-widest text-amber-500 transition-all hover:bg-amber-600 hover:text-white sm:flex-1 sm:w-auto"
               >
                 <AlertTriangle size={14} /> Mark Missed
               </button>
               <button
                 type="button"
                 onClick={handleDelete}
-                className="flex items-center justify-center gap-2 rounded-xl bg-red-600/10 border border-red-500/30 px-6 py-3 text-[10px] font-black uppercase tracking-widest text-red-500 hover:bg-red-600 hover:text-white transition-all"
+                className="flex w-full items-center justify-center gap-2 rounded-xl border border-red-500/30 bg-red-600/10 px-6 py-3 text-[10px] font-black uppercase tracking-widest text-red-500 transition-all hover:bg-red-600 hover:text-white sm:w-auto"
               >
                 <Trash size={14} />
               </button>
             </div>
           )}
 
-          <div className="flex justify-end gap-4 pt-6 border-t border-app-border">
+          <div className="sticky bottom-0 -mx-4 flex flex-wrap justify-end gap-3 border-t border-app-border bg-app-surface px-4 pt-4 pb-2 sm:static sm:mx-0 sm:px-0 sm:pt-6 sm:pb-0">
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-app-text-muted hover:text-app-text transition-colors"
+              data-testid="appointment-modal-cancel"
+              className="w-full px-6 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-app-text-muted transition-colors hover:text-app-text sm:w-auto"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="rounded-full bg-app-accent px-10 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-xl shadow-app-accent/20 hover:scale-[1.02] active:scale-95 transition-all"
+              data-testid="appointment-modal-submit"
+              className="w-full rounded-full bg-app-accent px-10 py-3 text-[11px] font-black uppercase tracking-[0.2em] text-white shadow-xl shadow-app-accent/20 transition-all active:scale-95 hover:scale-[1.02] sm:w-auto"
             >
               {initialData ? 'Update Schedule' : 'Create Appointment'}
             </button>

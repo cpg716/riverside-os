@@ -2,6 +2,12 @@
 
 Date: 2026-04-26
 
+## Status
+
+- In-scope items: DONE
+- Remaining in-scope items: 0
+- Out-of-scope by direction: Counterpoint sync and QBO mapping surfaces
+
 ## Scope
 
 This audit scans the React/Tauri client for layout patterns that commonly break or degrade PWA, tablet, and phone use. It focuses on production workspaces and shared shell components under `client/src`.
@@ -171,3 +177,43 @@ Minimum smoke routes:
 - Inventory
 - Settings / Counterpoint Sync
 
+## Execution Progress (2026-04-26)
+
+Completed in this pass:
+
+- High-frequency POS modal and drawer mobile treatment was expanded across register flows (checkout, close/handoff, gift card load, alteration intake, shipping, exchange/suit swap, approvals, cash adjust, price override, and receipt summary).
+- POS cart shell was adjusted for true small-screen behavior (single-column stack on phones, two-column split only at `lg+`) to reduce pointer interception and action-bar reachability problems.
+- Shared drawer behavior in `DetailDrawer` was updated to improve bottom-sheet ergonomics and root-level scrolling behavior on compact screens.
+- Back Office mobile sidebar stacking was corrected (`client/src/components/layout/Sidebar.tsx`) so workspace content no longer intercepts sidebar taps on phone viewports.
+- `ShipmentsHubSection` now renders a compact mobile card list instead of forcing a table-first layout on phones/tablets, while preserving the desktop table view.
+- `InventoryControlBoard` now contains horizontal overflow inside the board shell, reduces rigid minimum widths on small screens, and keeps quick-pick controls usable with compact horizontal scrolling.
+- `CustomerRelationshipHubDrawer` now renders compact small-screen card layouts for transaction/order history and measurement archive rows, with existing table layouts preserved for desktop.
+- `StaffWorkspace` audit events now render compact card rows on small screens (`staff-audit-cards`) while preserving the desktop audit table (`staff-audit-table`), and audit/team filter controls now wrap without fixed-width crowding on phones.
+- `ReportsWorkspace` now renders compact card lists for row-based report outputs (`reports-detail-cards`) and row-object report outputs (`reports-detail-row-object-cards`) on small screens while preserving desktop tables.
+- `SchedulerWorkspace` search popover and week grid minimum widths were reduced for better phone/tablet horizontal fit.
+- `LoyaltyWorkspace` settings/adjust columns now avoid fixed-width side-panel squeeze on compact screens, issuance-history action buttons remain touch-accessible on small screens (`loyalty-history-actions`), and small-screen stat cards use tighter min-width sizing.
+- `GiftCardsWorkspace` now exposes deterministic responsive mode hooks (`gift-cards-card-list`, `gift-cards-table`) and improves compact header/action wrapping on smaller screens.
+- `SchedulerWorkspace` day/week grid time columns now compress on very small screens and date-range controls wrap without horizontal clipping.
+- `StaffWorkspace` team bulk controls now stack cleanly on compact screens (`staff-team-bulk-controls`) with full-width action buttons for tap reliability.
+- `ReportsWorkspace` detail header + filter controls now use compact full-width stacking on small screens (`reports-detail-filters`) to prevent horizontal crowding.
+- `CategoryManager` now reduces compact indentation and fixed-width create-form pressure, with mobile-first stacking and reduced nested-scroll trapping.
+- `AppointmentModal` now stacks phone/notes fields correctly on small screens, keeps status and footer actions tap-reachable with compact full-width controls, and exposes `appointment-modal` for deterministic viewport testing.
+- `SettingsWorkspace` content density was normalized for compact screens (responsive root/workspace padding and card spacing for general/remote sections) via `settings-workspace-content`.
+
+New small-screen smoke coverage added:
+
+- `client/e2e/pos-small-screen-smoke.spec.ts` (phone/tablet/iPad/desktop): POS register baseline + checkout drawer reachability.
+- `client/e2e/pos-modal-smoke.spec.ts` (phone/tablet): gift-card modal to completed sale flow with tender application/finalize assertions.
+- `client/e2e/backoffice-workspace-nav-smoke.spec.ts` (phone/tablet/iPad/desktop): customers, orders, gift cards, loyalty, appointments, inventory, and settings navigation stability.
+- `client/e2e/backoffice-mobile-workflow-smoke.spec.ts` (phone/tablet/iPad/desktop): deeper workflow interaction checks for scheduler controls, inventory receive-stock handoff, customers shipments subsection, gift-card refresh actions, and loyalty eligible-customer refresh.
+- `client/e2e/customer-relationship-mobile-cards.spec.ts` (phone/tablet/iPad/desktop): mocked deterministic coverage that opens the customer relationship drawer and verifies compact card rendering for transaction history + measurement archive on small screens while preserving table behavior on larger layouts.
+- `client/e2e/reports-mobile-cards.spec.ts` (phone/tablet/iPad/desktop): mocked deterministic coverage for margin pivot and NYS tax audit responses to verify compact card rendering on small screens and table rendering on desktop.
+- `client/e2e/gift-cards-mobile-cards.spec.ts` (phone/tablet/iPad/desktop): mocked deterministic coverage for gift-card inventory responsive rendering (compact cards on small screens vs table on larger layouts).
+- `client/e2e/scheduler-mobile-ergonomics.spec.ts` (phone/tablet/iPad/desktop): verifies compact scheduler week-grid time-column sizing and search popover width behavior across viewports.
+- `client/e2e/loyalty-eligible-mobile.spec.ts` (phone/tablet/iPad/desktop): verifies loyalty eligible-list row/action visibility and compact action reachability on small screens.
+- `client/e2e/settings-mobile-sections.spec.ts` (phone/tablet/iPad/desktop): verifies compact Settings workspace routing and visibility for General, Help Center, and Bug Reports sections.
+- `client/e2e/alterations-register-lookup-mobile.spec.ts` (phone/tablet/iPad/desktop): verifies compact Alterations interaction and register lookup viability through POS product search on the register surface.
+
+Explicitly deferred per current direction:
+
+- Counterpoint sync and QBO mapping audit items are out of scope for this implementation batch.

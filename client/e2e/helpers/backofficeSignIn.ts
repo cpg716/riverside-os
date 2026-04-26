@@ -49,14 +49,32 @@ export async function selectBackofficeStaffMember(
 
 export async function ensureMainNavigationVisible(page: Page) {
   const mainNav = page.getByRole("navigation", { name: "Main Navigation" });
-  if (await mainNav.isVisible().catch(() => false)) {
+  const navReady = async () => {
+    const visible = await mainNav.isVisible().catch(() => false);
+    if (!visible) return false;
+    return (
+      (await mainNav
+        .evaluate((el) => {
+          const rect = el.getBoundingClientRect();
+          return rect.width >= 120 && rect.height >= 120 && rect.right > 0;
+        })
+        .catch(() => false)) ?? false
+    );
+  };
+
+  if (await navReady()) {
     return mainNav;
   }
   const menuToggle = page.getByRole("button", { name: "Toggle menu" });
   if (await menuToggle.isVisible().catch(() => false)) {
     await menuToggle.click();
   }
-  await expect(mainNav).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(navReady, {
+      timeout: 20_000,
+      message: "Main Navigation never became interactive",
+    })
+    .toBeTruthy();
   return mainNav;
 }
 
@@ -97,13 +115,26 @@ export async function openBackofficeSidebarTab(
     dashboard: /^insights(?:\s+bo)?$/i,
     settings: /^settings(?:\s+bo)?$/i,
   };
-  const tabButton = mainNav.getByRole("button", {
-    name: tabLabelPatterns[tabId],
-  });
+  const resolveTabButton = () =>
+    mainNav.getByRole("button", {
+      name: tabLabelPatterns[tabId],
+    });
+  let tabButton = resolveTabButton();
   await expect(tabButton).toBeVisible({ timeout: 15_000 });
   await tabButton.scrollIntoViewIfNeeded().catch(() => {});
   await expect(tabButton).toBeEnabled();
-  await tabButton.click();
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      await resolveTabButton().click({ timeout: 5_000 });
+      tabButton = resolveTabButton();
+      break;
+    } catch (error) {
+      if (attempt === 2) throw error;
+      tabButton = resolveTabButton();
+      await expect(tabButton).toBeVisible({ timeout: 10_000 });
+      await expect(tabButton).toBeEnabled({ timeout: 10_000 });
+    }
+  }
   if (tabId === "register") {
     return tabButton;
   }

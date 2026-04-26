@@ -1,7 +1,7 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import {
   e2eBackofficeStaffCode,
-  openBackofficeSidebarTab,
+  ensureMainNavigationVisible,
 } from "./backofficeSignIn";
 
 function e2eBackofficeStaffName(): string {
@@ -115,6 +115,9 @@ async function selectFirstStaffMember(dialog: Locator): Promise<void> {
 
 async function waitForPosRegisterPanel(page: Page): Promise<void> {
   const shell = page.getByTestId("pos-shell-root");
+  if (!(await shell.isVisible().catch(() => false))) {
+    await enterPosShell(page);
+  }
   await expect(shell).toBeVisible({ timeout: 20_000 });
 
   if ((await shell.getAttribute("data-pos-active-tab").catch(() => null)) !== "register") {
@@ -306,63 +309,43 @@ export async function attachNewCustomerToSale(
 }
 
 export async function enterPosShell(page: Page): Promise<void> {
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await openBackofficeSidebarTab(page, "register");
-    const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+  const posNav = page.getByRole("navigation", { name: "POS Navigation" });
+  if (await posNav.isVisible().catch(() => false)) {
+    return;
+  }
+
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    if (await posNav.isVisible().catch(() => false)) {
+      return;
+    }
+
     const enterPosButton = page.getByRole("button", {
       name: /^(enter|return) to pos$/i,
     });
-    const posDashboardPlaceholder = page.getByText(
-      /pos-dashboard module coming soon\./i,
-    );
-    const operationsOverview = page.getByRole("heading", {
-      name: /operations overview/i,
-    });
-
-    const readLandingState = async () => {
-      if (await posNav.isVisible().catch(() => false)) return "nav";
-      if (await enterPosButton.isVisible().catch(() => false)) return "launch";
-      if (await posDashboardPlaceholder.isVisible().catch(() => false)) {
-        return "placeholder";
-      }
-      if (await operationsOverview.isVisible().catch(() => false)) {
-        return "backoffice";
-      }
-      return "pending";
-    };
-
-    await expect
-      .poll(readLandingState, {
-        timeout: 10_000,
-        message: "POS entry never reached a recognizable shell state",
-      })
-      .not.toBe("pending");
-
-    const landingState = await readLandingState();
-
-    if (landingState === "launch") {
-      await expect(enterPosButton).toBeEnabled();
+    if (await enterPosButton.isVisible().catch(() => false)) {
+      await expect(enterPosButton).toBeEnabled({ timeout: 10_000 });
       await enterPosButton.click();
-      await expect(posNav).toBeVisible({ timeout: 20_000 });
-    }
-
-    await expect
-      .poll(readLandingState, {
-        timeout: 5_000,
-        message: "POS shell never stabilized after entry",
-      })
-      .not.toBe("pending");
-
-    const settledState = await readLandingState();
-    if (settledState === "nav") {
-      return;
-    }
-    if (settledState === "backoffice" || settledState === "placeholder") {
+      if (await posNav.isVisible().catch(() => false)) {
+        return;
+      }
+      await page.waitForTimeout(600);
       continue;
     }
+
+    const mainNav = await ensureMainNavigationVisible(page).catch(() => null);
+    if (mainNav) {
+      const boPosButton = mainNav.getByRole("button", { name: /^pos$/i });
+      if (await boPosButton.isVisible().catch(() => false)) {
+        await boPosButton.scrollIntoViewIfNeeded().catch(() => {});
+        await boPosButton.click({ timeout: 5_000 }).catch(() => {});
+      }
+    }
+
+    if (await posNav.isVisible().catch(() => false)) {
+      return;
+    }
+    await page.waitForTimeout(800);
   }
 
-  await expect(
-    page.getByRole("navigation", { name: "POS Navigation" }),
-  ).toBeVisible({ timeout: 20_000 });
+  await expect(posNav).toBeVisible({ timeout: 20_000 });
 }
