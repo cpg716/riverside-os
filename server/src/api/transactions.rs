@@ -1725,8 +1725,6 @@ async fn process_refund(
     Ok(Json(json!({ "status": "ok" })))
 }
 
-
-
 async fn get_transaction_receipt_escpos(
     State(state): State<AppState>,
     Path(transaction_id): Path<Uuid>,

@@ -375,7 +375,11 @@ fn receiptline_item_lines(d: &ReceiptOrderForZpl, gift: bool) -> String {
             lines.push(format!("SKU {}", receiptline_escape(&it.sku)));
         } else {
             lines.push(name);
-            lines.push(format!("SKU {} | {}", receiptline_escape(&it.sku), money(it.unit_price)));
+            lines.push(format!(
+                "SKU {} | {}",
+                receiptline_escape(&it.sku),
+                money(it.unit_price)
+            ));
             if let Some(orig) = it.original_unit_price {
                 if orig > it.unit_price && orig > Decimal::ZERO {
                     lines.push(format!("Reg {} Sale {}", money(orig), money(it.unit_price)));
@@ -521,7 +525,7 @@ pub fn build_receiptline_markdown(
 
     let loyalty_earned_line = if !gift && cfg.show_loyalty_earned {
         match loyalty.points_earned {
-            Some(pts) if pts > 0 => format!("Loyalty earned | {} pts", pts),
+            Some(pts) if pts > 0 => format!("Loyalty earned | {pts} pts"),
             _ => String::new(),
         }
     } else {
@@ -529,7 +533,7 @@ pub fn build_receiptline_markdown(
     };
     let loyalty_balance_line = if !gift && cfg.show_loyalty_balance {
         match loyalty.points_balance {
-            Some(bal) => format!("Loyalty balance | {} pts", bal),
+            Some(bal) => format!("Loyalty balance | {bal} pts"),
             _ => String::new(),
         }
     } else {
