@@ -422,14 +422,14 @@ export default function CloseRegisterModal({
 
   if (registerLane != null && registerLane !== 1) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-w-md animate-workspace-snap outline-none"
+          className="ui-modal w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
         >
           <div className="ui-modal-header">
             <h2 id={titleId} className="text-lg font-black text-app-text">
@@ -455,14 +455,14 @@ export default function CloseRegisterModal({
 
   if (!reconcileCashierCode) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-w-md animate-workspace-snap outline-none"
+          className="ui-modal w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
         >
           <div className="ui-modal-header">
             <h2 id={titleId} className="text-lg font-black text-app-text">
@@ -498,14 +498,14 @@ export default function CloseRegisterModal({
     const canSubmitDenom = hasBillCounts || coinOk || fullOk;
 
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-h-[95vh] max-w-lg overflow-y-auto rounded-3xl animate-workspace-snap outline-none"
+          className="ui-modal max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-lg sm:rounded-3xl"
         >
           <div className="ui-modal-header flex items-center justify-between">
             <div className="flex gap-2">
@@ -567,14 +567,14 @@ export default function CloseRegisterModal({
 
   if (reconError) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-w-md animate-workspace-snap outline-none"
+          className="ui-modal w-full max-w-none rounded-t-3xl animate-workspace-snap outline-none sm:max-w-md sm:rounded-3xl"
         >
           <div className="ui-modal-header text-app-danger font-black uppercase text-xs tracking-widest">
             <h2 id={titleId}>Error</h2>
@@ -597,7 +597,7 @@ export default function CloseRegisterModal({
 
   if (!recon) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
@@ -605,7 +605,7 @@ export default function CloseRegisterModal({
           aria-labelledby={titleId}
           aria-busy="true"
           tabIndex={-1}
-          className="ui-modal flex max-w-xs flex-col items-center justify-center gap-4 p-8 animate-pulse outline-none"
+          className="ui-modal flex w-full max-w-none flex-col items-center justify-center gap-4 rounded-t-3xl p-8 animate-pulse outline-none sm:max-w-xs sm:rounded-3xl"
         >
           <h2 id={titleId} className="sr-only">
             Calculating reconciliation
@@ -628,14 +628,14 @@ export default function CloseRegisterModal({
     Math.abs(discrepancyCents) > MANDATORY_NOTE_OVER_USD * 100;
 
   return (
-    <div className="ui-overlay-backdrop">
+    <div className="ui-overlay-backdrop items-end p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal flex max-h-[95vh] max-w-3xl flex-col rounded-3xl animate-workspace-snap outline-none"
+        className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl animate-workspace-snap outline-none sm:max-h-[95vh] sm:max-w-3xl sm:rounded-3xl"
       >
         <div className="ui-modal-header flex flex-wrap items-center justify-between gap-4">
           <div>

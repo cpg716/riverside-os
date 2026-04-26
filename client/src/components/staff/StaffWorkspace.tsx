@@ -16,6 +16,7 @@ import { formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
 import { staffAvatarUrl } from "../../lib/staffAvatars";
 import StaffEditDrawer, { type HubRow } from "./StaffEditDrawer";
 import { useToast } from "../ui/ToastProviderLogic";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 const baseUrl = getBaseUrl();
 
@@ -53,6 +54,7 @@ export default function StaffWorkspace({
   tasksFocusInstanceId,
   onTasksFocusConsumed,
 }: StaffWorkspaceProps) {
+  const isCompactLayout = useMediaQuery("(max-width: 1023px)");
   const { toast } = useToast();
   const {
     backofficeHeaders,
@@ -138,6 +140,20 @@ export default function StaffWorkspace({
     if (tab !== "audit") return;
     void refreshAccessLog();
   }, [tab, refreshAccessLog]);
+
+  const filteredAccessLog = useMemo(() => {
+    const query = auditSearchInput.trim().toLowerCase();
+    if (!query) {
+      return accessLog;
+    }
+    return accessLog.filter((row) => {
+      return (
+        row.staff_name.toLowerCase().includes(query) ||
+        row.event_kind.toLowerCase().includes(query) ||
+        JSON.stringify(row.metadata).toLowerCase().includes(query)
+      );
+    });
+  }, [accessLog, auditSearchInput]);
 
   const openEdit = (r: HubRow) => {
     setEditRow(r);
@@ -418,7 +434,7 @@ export default function StaffWorkspace({
         <section className="ui-card flex flex-col p-4 gap-4">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex w-full max-w-2xl flex-wrap items-center gap-3">
-              <div className="relative min-w-[18rem] flex-1">
+              <div className="relative min-w-0 flex-1 sm:min-w-[18rem]">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted" />
                 <input
                   type="text"
@@ -431,14 +447,14 @@ export default function StaffWorkspace({
               <select
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value as StaffStatusFilter)}
-                className="ui-input min-w-[12rem] px-3 py-2"
+                className="ui-input w-full min-w-[10rem] px-3 py-2 sm:w-auto sm:min-w-[12rem]"
               >
                 <option value="active">Active Staff</option>
                 <option value="inactive">Inactive Staff</option>
                 <option value="all">All Staff</option>
               </select>
             </div>
-            <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted">
+            <p className="w-full text-[10px] font-bold uppercase tracking-widest text-app-text-muted lg:w-auto">
               {filteredRoster.length} Showing · {roster.length} Total · {roster.filter(r => r.is_active).length} Active
             </p>
           </div>
@@ -464,12 +480,15 @@ export default function StaffWorkspace({
                   </span>
                 ) : null}
               </div>
-              <div className="flex flex-wrap items-center gap-2">
+              <div
+                data-testid="staff-team-bulk-controls"
+                className="grid w-full grid-cols-1 gap-2 sm:flex sm:w-auto sm:flex-wrap sm:items-center"
+              >
                 <select
                   value={bulkRole}
                   onChange={(e) => setBulkRole(e.target.value as StaffRole)}
                   disabled={bulkBusy || selectedStaffIds.length === 0}
-                  className="ui-input min-w-[11rem] px-3 py-2 disabled:opacity-50"
+                  className="ui-input w-full min-w-[9.5rem] px-3 py-2 disabled:opacity-50 sm:w-auto sm:min-w-[11rem]"
                 >
                   <option value="sales_support">Sales Support</option>
                   <option value="staff_support">Staff Support</option>
@@ -481,7 +500,7 @@ export default function StaffWorkspace({
                   type="button"
                   disabled={bulkBusy || selectedStaffIds.length === 0}
                   onClick={() => void bulkSetRole()}
-                  className="ui-btn-secondary px-3 py-2 disabled:opacity-50"
+                  className="ui-btn-secondary w-full px-3 py-2 disabled:opacity-50 sm:w-auto"
                 >
                   Set Staff Type
                 </button>
@@ -489,7 +508,7 @@ export default function StaffWorkspace({
                   type="button"
                   disabled={bulkBusy || selectedStaffIds.length === 0}
                   onClick={() => void bulkSetActive(true)}
-                  className="ui-btn-secondary px-3 py-2 disabled:opacity-50"
+                  className="ui-btn-secondary w-full px-3 py-2 disabled:opacity-50 sm:w-auto"
                 >
                   Make Active
                 </button>
@@ -497,7 +516,7 @@ export default function StaffWorkspace({
                   type="button"
                   disabled={bulkBusy || selectedStaffIds.length === 0}
                   onClick={() => void bulkSetActive(false)}
-                  className="ui-btn-secondary px-3 py-2 disabled:opacity-50"
+                  className="ui-btn-secondary w-full px-3 py-2 disabled:opacity-50 sm:w-auto"
                 >
                   Deactivate
                 </button>
@@ -510,7 +529,7 @@ export default function StaffWorkspace({
               {filteredRoster.map((r) => (
                 <div
                   key={r.id}
-                  className="ui-card flex flex-col p-4 active:bg-app-surface-2 transition-colors cursor-pointer select-none"
+                  className="ui-card flex touch-manipulation cursor-pointer select-none flex-col p-4 transition-colors active:bg-app-surface-2"
                   onClick={() => openEdit(r)}
                 >
                 <div className="flex items-start justify-between gap-2">
@@ -618,8 +637,8 @@ export default function StaffWorkspace({
               Chronological PIN and high-authority events (checkout, overrides,
               register, payouts, attribution edits).
             </p>
-            <div className="flex gap-4 items-center">
-              <div className="relative w-64">
+            <div className="flex w-full flex-wrap items-center gap-3 sm:w-auto sm:justify-end">
+              <div className="relative w-full sm:w-64">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-app-text-muted" />
                 <input
                   className="ui-input w-full pl-8 py-1.5 text-xs"
@@ -632,42 +651,72 @@ export default function StaffWorkspace({
                 type="button"
                 disabled={accessLogLoading}
                 onClick={() => void refreshAccessLog()}
-                className="ui-btn-secondary px-3 py-1.5"
+                className="ui-btn-secondary w-full px-3 py-1.5 sm:w-auto"
               >
                 Refresh
               </button>
             </div>
           </div>
           <div className="ui-card">
-            <table className="w-full text-left text-xs">
-              <thead className="sticky top-0 border-b border-app-border bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                <tr>
-                  <th className="px-3 py-2">When (UTC)</th>
-                  <th className="px-3 py-2">Staff</th>
-                  <th className="px-3 py-2">Event</th>
-                  <th className="px-3 py-2">Metadata</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-app-border font-mono text-[11px]">
+            {isCompactLayout ? (
+              <div data-testid="staff-audit-cards" className="space-y-3 p-3">
                 {accessLogLoading && accessLog.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">
-                      Loading…
-                    </td>
-                  </tr>
+                  <p className="rounded-xl border border-app-border bg-app-surface px-3 py-8 text-center text-sm text-app-text-muted">
+                    Loading…
+                  </p>
                 ) : null}
-                {accessLog
-                  .filter((row) => {
-                    if (!auditSearchInput.trim()) return true;
-                    const q = auditSearchInput.toLowerCase();
-                    return (
-                      row.staff_name.toLowerCase().includes(q) ||
-                      row.event_kind.toLowerCase().includes(q) ||
-                      JSON.stringify(row.metadata).toLowerCase().includes(q)
-                    );
-                  })
-                  .map((row) => (
-                    <tr key={row.id} className="align-top hover:bg-app-surface-2 transition-colors">
+                {filteredAccessLog.map((row) => (
+                  <article
+                    key={row.id}
+                    className="rounded-2xl border border-app-border bg-app-surface px-3 py-3 text-xs shadow-sm"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-mono text-[11px] text-app-text-muted">
+                        {new Date(row.created_at).toISOString().replace("T", " ").slice(0, 19)}
+                      </p>
+                      <p className="rounded-full border border-app-accent/20 bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-[var(--app-accent)]">
+                        {row.event_kind}
+                      </p>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <img
+                        src={staffAvatarUrl(row.staff_avatar_key)}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded-full border border-app-border object-cover"
+                      />
+                      <span className="font-semibold text-app-text">{row.staff_name}</span>
+                    </div>
+                    <p className="mt-2 break-all font-mono text-[11px] text-app-text-muted">
+                      {JSON.stringify(row.metadata)}
+                    </p>
+                  </article>
+                ))}
+                {!accessLogLoading && filteredAccessLog.length === 0 ? (
+                  <p className="rounded-xl border border-app-border bg-app-surface px-3 py-8 text-center text-sm text-app-text-muted">
+                    No events yet.
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <table data-testid="staff-audit-table" className="w-full text-left text-xs">
+                <thead className="sticky top-0 border-b border-app-border bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                  <tr>
+                    <th className="px-3 py-2">When (UTC)</th>
+                    <th className="px-3 py-2">Staff</th>
+                    <th className="px-3 py-2">Event</th>
+                    <th className="px-3 py-2">Metadata</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-app-border font-mono text-[11px]">
+                  {accessLogLoading && accessLog.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">
+                        Loading…
+                      </td>
+                    </tr>
+                  ) : null}
+                  {filteredAccessLog.map((row) => (
+                    <tr key={row.id} className="align-top transition-colors hover:bg-app-surface-2">
                       <td className="whitespace-nowrap px-3 py-2 text-app-text-muted">
                         {new Date(row.created_at).toISOString().replace("T", " ").slice(0, 19)}
                       </td>
@@ -689,15 +738,16 @@ export default function StaffWorkspace({
                       </td>
                     </tr>
                   ))}
-                {!accessLogLoading && accessLog.length === 0 ? (
-                  <tr>
-                    <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">
-                      No events yet.
-                    </td>
-                  </tr>
-                ) : null}
-              </tbody>
-            </table>
+                  {!accessLogLoading && filteredAccessLog.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">
+                        No events yet.
+                      </td>
+                    </tr>
+                  ) : null}
+                </tbody>
+              </table>
+            )}
           </div>
         </section>
       ) : null}

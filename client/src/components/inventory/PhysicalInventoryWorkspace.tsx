@@ -44,6 +44,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import VariantSearchInput from "../ui/VariantSearchInput";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 const BASE_URL = getBaseUrl();
 
@@ -193,6 +194,7 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
   const [newExcludeReserved, setNewExcludeReserved] = useState(false);
   const [newExcludeLayaway, setNewExcludeLayaway] = useState(false);
   const [newNotes, setNewNotes] = useState("");
+  const isCompactLayout = useMediaQuery("(max-width: 1023px)");
 
   // ─────────────────────────────────────────────────────────────────────────────
   // Data loading
@@ -700,8 +702,53 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 <ClipboardList className="mb-3" size={32} />
                 <p className="text-[10px] font-black uppercase tracking-[0.3em]">No count history</p>
               </div>
+            ) : isCompactLayout ? (
+              <div className="space-y-2 p-3" data-testid="physical-session-cards">
+                {sessions.map((s) => (
+                  <article
+                    key={s.id}
+                    className="rounded-xl border border-app-border bg-app-surface-2/60 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-mono text-sm font-black text-app-accent">
+                          {s.session_number}
+                        </p>
+                        <p className="mt-1 text-[11px] font-semibold capitalize text-app-text-muted">
+                          {s.scope} scope
+                        </p>
+                      </div>
+                      <StatusBadge status={s.status} />
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-app-text">
+                      <p>
+                        <span className="font-black text-app-text-muted">Started:</span>{" "}
+                        {fmt(s.started_at)}
+                      </p>
+                      <p className="text-right">
+                        <span className="font-black text-app-text-muted">Items:</span>{" "}
+                        {s.total_counted ?? 0}
+                      </p>
+                    </div>
+                    {s.status === "open" || s.status === "reviewing" ? (
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveSession(s);
+                            setShowCancelConfirm(true);
+                          }}
+                          className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-red-600"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    ) : null}
+                  </article>
+                ))}
+              </div>
             ) : (
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs" data-testid="physical-session-table">
                 <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   <tr>
                     <th className="px-6 py-4">Internal Serial</th>
@@ -877,9 +924,45 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                 className="ui-input h-10 w-full rounded-xl border-app-border/70 bg-app-surface pl-10 pr-4 text-xs font-bold focus:ring-4 focus:ring-app-accent/10"
               />
             </div>
-            <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
+          <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
+            {isCompactLayout ? (
+              <div className="space-y-2 p-3" data-testid="physical-count-cards">
+                {filteredCounts.length === 0 ? (
+                  <p className="px-3 py-10 text-center text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40">
+                    No resources captured in active filter
+                  </p>
+                ) : (
+                  filteredCounts.map((c) => (
+                    <article
+                      key={c.id}
+                      className="rounded-xl border border-app-border bg-app-surface-2/60 p-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="truncate font-black uppercase italic tracking-tight text-app-text">
+                            {c.product_name}
+                          </p>
+                          <p className="truncate text-[10px] text-app-text-muted">
+                            {c.variation_label}
+                          </p>
+                          <p className="mt-1 font-mono text-xs font-bold text-app-text-muted">
+                            {c.sku}
+                          </p>
+                        </div>
+                        <span className="inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-app-accent/10 px-2 text-xs font-black text-app-accent">
+                          {c.counted_qty}
+                        </span>
+                      </div>
+                      <p className="mt-2 text-right text-[10px] italic text-app-text-muted opacity-60">
+                        {new Date(c.last_scanned_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+                      </p>
+                    </article>
+                  ))
+                )}
+              </div>
+            ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-xs" data-testid="physical-count-table">
                   <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                     <tr>
                       <th className="px-6 py-4">Resource</th>
@@ -897,12 +980,12 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                         </td>
                         <td className="px-6 py-4 font-mono font-bold text-app-text-muted">{c.sku}</td>
                         <td className="px-6 py-4 text-center">
-                           <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-app-accent/10 font-black text-app-accent shadow-sm">
-                             {c.counted_qty}
-                           </span>
+                          <span className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-app-accent/10 font-black text-app-accent shadow-sm">
+                            {c.counted_qty}
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-right text-[10px] text-app-text-muted opacity-40 italic">
-                          {new Date(c.last_scanned_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          {new Date(c.last_scanned_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
                         </td>
                       </tr>
                     ))}
@@ -914,8 +997,9 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                   </tbody>
                 </table>
               </div>
-            </div>
-          </DashboardGridCard>
+            )}
+          </div>
+        </DashboardGridCard>
         </div>
 
         <ConfirmationModal
@@ -1037,8 +1121,59 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
             />
           </div>
           <div className="overflow-hidden rounded-[2.5rem] border border-app-border/50 bg-app-surface shadow-sm">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+            {isCompactLayout ? (
+              <div className="space-y-2 p-3" data-testid="physical-review-cards">
+                {filteredReview.map((r) => (
+                  <article
+                    key={r.variant_id}
+                    className="rounded-xl border border-app-border bg-app-surface-2/60 p-3"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-black uppercase italic tracking-tight text-app-text">
+                          {r.product_name}
+                        </p>
+                        <p className="truncate text-[10px] text-app-text-muted">
+                          {r.sku} · {r.variation_label}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingCountId(r.count_id);
+                          setEditQty(String(r.adjusted_qty ?? r.counted_qty));
+                          setEditNote(r.review_note ?? "");
+                        }}
+                        className="rounded-lg p-2 text-app-text-muted hover:bg-app-surface hover:text-app-accent"
+                      >
+                        <Edit3 size={16} />
+                      </button>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <p><span className="font-black text-app-text-muted">Expected:</span> {r.stock_at_start}</p>
+                      <p><span className="font-black text-app-text-muted">Counted:</span> {r.counted_qty}</p>
+                      <p><span className="font-black text-app-text-muted">Sales Since:</span> {r.sales_since_start}</p>
+                      <p className="text-right">
+                        <span className={`inline-flex items-center gap-1.5 h-7 px-2 rounded-lg text-[10px] font-black uppercase tracking-widest ${
+                          r.delta === 0 ? "bg-app-surface-2 text-app-text-muted" :
+                          r.delta < 0 ? "bg-rose-500/10 text-rose-500 border border-rose-500/20" :
+                          "bg-emerald-500/10 text-emerald-600 border border-emerald-500/20"
+                        }`}>
+                          {r.delta > 0 ? `+${r.delta}` : r.delta}
+                        </span>
+                      </p>
+                    </div>
+                  </article>
+                ))}
+                {filteredReview.length === 0 ? (
+                  <p className="px-3 py-10 text-center text-[10px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40">
+                    No discrepancies in active filter
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs" data-testid="physical-review-table">
                 <thead className="bg-app-surface-2 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                   <tr>
                     <th className="px-6 py-4">Resource Identity</th>
@@ -1093,9 +1228,17 @@ export default function PhysicalInventoryWorkspace(): React.JSX.Element {
                       </td>
                     </tr>
                   ))}
+                  {filteredReview.length === 0 ? (
+                    <tr className="opacity-40">
+                      <td colSpan={6} className="px-6 py-20 text-center font-black uppercase tracking-[0.3em] text-[10px]">
+                        No discrepancies in active filter
+                      </td>
+                    </tr>
+                  ) : null}
                 </tbody>
               </table>
             </div>
+            )}
           </div>
         </DashboardGridCard>
 

@@ -612,7 +612,7 @@ export default function RegisterOverlay({
 
   if (BYPASS && booting) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
@@ -620,7 +620,7 @@ export default function RegisterOverlay({
           aria-labelledby={titleId}
           aria-busy="true"
           tabIndex={-1}
-          className="ui-modal max-w-[420px] animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none"
+          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-[420px] sm:rounded-[32px]"
         >
           <h2 id={titleId} className="sr-only">
             Initializing register
@@ -640,14 +640,14 @@ export default function RegisterOverlay({
 
   if (BYPASS && error) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-w-[420px] overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none"
+          className="ui-modal w-full max-w-none overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-[420px] sm:rounded-[32px]"
         >
           <div className="ui-modal-body space-y-4 p-8 text-center">
             <h2 id={titleId} className="text-lg font-black text-app-text">
@@ -696,7 +696,7 @@ export default function RegisterOverlay({
 
   if (adminCheckingPrimary) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
@@ -704,7 +704,7 @@ export default function RegisterOverlay({
           aria-labelledby={titleId}
           aria-busy="true"
           tabIndex={-1}
-          className="ui-modal max-w-md animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none"
+          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-md sm:rounded-[32px]"
         >
           <div className="ui-modal-body flex flex-col items-center gap-4 p-8 text-center">
             <h2 id={titleId} className="sr-only">
@@ -722,14 +722,14 @@ export default function RegisterOverlay({
 
   if (adminChoosePrimaryPath) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-w-lg animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none bg-app-bg-alt/95 backdrop-blur-xl"
+          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 bg-app-bg-alt/95 shadow-2xl outline-none backdrop-blur-xl sm:max-w-lg sm:rounded-[32px]"
         >
           <div className="ui-modal-body p-8 sm:p-10 space-y-8">
             <div className="text-center">
@@ -790,14 +790,14 @@ export default function RegisterOverlay({
 
   if (adminWaitingForElsewhere) {
     return (
-      <div className="ui-overlay-backdrop">
+      <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
         <div
           ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
           tabIndex={-1}
-          className="ui-modal max-w-md animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none"
+          className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 shadow-2xl outline-none sm:max-w-md sm:rounded-[32px]"
         >
           <div className="ui-modal-body space-y-4 p-6 sm:p-8">
             <div className="text-center">
@@ -848,14 +848,14 @@ export default function RegisterOverlay({
   }
 
   return (
-    <div className="ui-overlay-backdrop">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal max-w-4xl animate-workspace-snap overflow-hidden rounded-[32px] border border-app-border/40 shadow-2xl outline-none bg-app-bg-alt/95 backdrop-blur-xl"
+        className="ui-modal w-full max-w-none animate-workspace-snap overflow-hidden rounded-t-3xl border border-app-border/40 bg-app-bg-alt/95 shadow-2xl outline-none backdrop-blur-xl sm:max-w-4xl sm:rounded-[32px]"
       >
         <form
           onSubmit={(e) => void onSubmit(e)}
@@ -1080,7 +1080,7 @@ export default function RegisterOverlay({
                           required
                           value={openingFloat}
                           onChange={(e) => setOpeningFloat(e.target.value)}
-                          className="ui-input w-full p-5 pl-12 text-center font-mono text-3xl font-black bg-app-bg/60 border-transparent focus:border-app-accent/50 transition-all rounded-xl"
+                          className="ui-input w-full rounded-xl border-transparent bg-app-bg/60 p-4 pl-11 text-center font-mono text-2xl font-black transition-all focus:border-app-accent/50 sm:p-5 sm:pl-12 sm:text-3xl"
                         />
                       </div>
                     ) : (
@@ -1088,7 +1088,7 @@ export default function RegisterOverlay({
                         <p className="font-mono text-4xl font-black text-app-text-muted/30 tracking-tight">
                           $0.00
                         </p>
-                        <p className="text-[10px] text-center text-app-text-muted opacity-80 leading-relaxed max-w-[220px]">
+                        <p className="max-w-[220px] text-center text-[10px] leading-relaxed text-app-text-muted opacity-80">
                           Satellite lane: float is managed through the primary
                           drawer on Register #1.
                         </p>
@@ -1108,7 +1108,7 @@ export default function RegisterOverlay({
                     credential.length !== 4 ||
                     (registerLane > 1 && !primarySessionId)
                   }
-                  className="ui-btn-primary h-20 w-full text-base font-black rounded-2xl shadow-xl shadow-app-accent/20 hover:shadow-app-accent/30 transition-all group overflow-hidden relative"
+                  className="ui-btn-primary group relative h-16 w-full overflow-hidden rounded-2xl text-sm font-black shadow-xl shadow-app-accent/20 transition-all hover:shadow-app-accent/30 sm:h-20 sm:text-base"
                 >
                   <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:animate-shimmer" />
                   <span className="relative flex items-center justify-center gap-3">

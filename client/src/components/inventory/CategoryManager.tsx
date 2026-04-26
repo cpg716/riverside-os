@@ -5,6 +5,7 @@ import { apiUrl } from "../../lib/apiUrl";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 interface CategoryNode {
   id: string;
@@ -130,6 +131,7 @@ function CategoryVariationAxisEditor({
 }
 
 export default function CategoryManager() {
+  const isCompactLayout = useMediaQuery("(max-width: 1023px)");
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
   const apiAuth = useCallback(
@@ -273,11 +275,12 @@ export default function CategoryManager() {
     inheritedExempt: boolean;
   }) => {
     const effectiveExempt = inheritedExempt || node.is_clothing_footwear;
+    const depthIndent = Math.min(depth * (isCompactLayout ? 16 : 28), isCompactLayout ? 56 : 280);
     return (
       <div className="space-y-4">
         <div
-          className="group relative flex items-center justify-between rounded-[2rem] border border-app-border bg-app-surface px-6 py-5 transition-all hover:bg-app-accent/5 hover:border-app-accent/20 shadow-sm"
-          style={{ marginInlineStart: `${depth * 28}px` }}
+          className="group relative flex flex-wrap items-center justify-between gap-4 rounded-[2rem] border border-app-border bg-app-surface px-4 py-4 shadow-sm transition-all hover:border-app-accent/20 hover:bg-app-accent/5 sm:px-6 sm:py-5"
+          style={{ marginInlineStart: `${depthIndent}px` }}
         >
            {/* Visual connection line if depth > 0 */}
            {depth > 0 && (
@@ -298,7 +301,7 @@ export default function CategoryManager() {
              </div>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex w-full items-center justify-end gap-4 sm:w-auto sm:gap-6">
             <div className="text-right hidden sm:block">
                 <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-tight">Tax Implication</p>
                 <select
@@ -315,7 +318,7 @@ export default function CategoryManager() {
                 </select>
             </div>
 
-            <div className="h-10 w-px bg-app-border/40" />
+            <div className="hidden h-10 w-px bg-app-border/40 sm:block" />
 
             <div className="hidden xl:flex flex-col items-end">
                 <span className={`text-[9px] font-black uppercase tracking-widest leading-tight ${effectiveExempt ? 'text-app-success' : 'text-app-text-muted opacity-40'}`}>
@@ -351,8 +354,8 @@ export default function CategoryManager() {
   };
 
   return (
-    <div className="flex h-full flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
-      <div className="flex items-center justify-between px-2">
+    <div className="animate-in fade-in slide-in-from-bottom-8 flex min-h-0 flex-1 flex-col gap-6 duration-700 sm:gap-8">
+      <div className="flex items-center justify-between px-1 sm:px-2">
         <div>
           <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Item Groups</h3>
           <h2 className="text-2xl font-black tracking-tight text-app-text">Categories</h2>
@@ -366,8 +369,8 @@ export default function CategoryManager() {
       </div>
 
       {/* Modernized Quick Create Registry Bar */}
-      <section className="rounded-[2.5rem] border border-app-border bg-app-surface p-8 shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
-         <div className="grid gap-6 md:grid-cols-[1fr_240px_180px_180px_160px]">
+      <section className="rounded-[2rem] border border-app-border bg-app-surface p-4 shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)] sm:rounded-[2.5rem] sm:p-8">
+         <div className="grid gap-4 sm:gap-6 md:grid-cols-[1fr_240px_180px_180px_160px]">
             <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted px-2">Category Name</label>
                 <input
@@ -434,9 +437,9 @@ export default function CategoryManager() {
          </div>
       </section>
 
-      <div className="grid min-h-0 flex-1 gap-8 lg:grid-cols-[1fr_360px]">
+      <div className="grid min-h-0 flex-1 gap-6 sm:gap-8 lg:grid-cols-[1fr_360px]">
         {/* TREE VIEW */}
-        <div className="min-h-0 space-y-6 overflow-y-auto no-scrollbar pb-20 pr-4">
+        <div className="min-h-0 space-y-6 overflow-visible pb-8 sm:pb-20 lg:overflow-y-auto lg:pr-4 no-scrollbar">
           {loading ? (
              <div className="flex flex-col items-center py-20 opacity-20">
                 <FolderTree size={64} className="animate-pulse" />
@@ -455,14 +458,14 @@ export default function CategoryManager() {
         </div>
 
         {/* AUDIT ASIDE */}
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-[2.5rem] border border-app-border bg-app-surface shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)]">
+        <aside className="flex min-h-0 flex-col overflow-visible rounded-[2rem] border border-app-border bg-app-surface shadow-[0_16px_36px_rgba(15,23,42,0.06),0_4px_10px_rgba(15,23,42,0.04)] sm:rounded-[2.5rem] lg:overflow-hidden">
           <div className="flex items-center justify-between border-b border-app-border px-8 py-6 bg-app-surface-2">
             <div className="flex items-center gap-3 text-app-text-muted">
               <History size={18} className="text-app-accent" />
               <h4 className="text-[11px] font-black uppercase tracking-[0.2em]">Recent Changes</h4>
             </div>
           </div>
-          <div className="flex-1 min-h-0 space-y-4 overflow-y-auto p-6 no-scrollbar">
+          <div className="min-h-0 flex-1 space-y-4 overflow-visible p-4 sm:p-6 lg:overflow-y-auto no-scrollbar">
             {groupedAudit.length === 0 ? (
               <div className="flex flex-col items-center py-20 opacity-20">
                 <Clock3 size={32} />

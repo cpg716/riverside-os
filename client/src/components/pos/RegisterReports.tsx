@@ -885,7 +885,7 @@ export default function RegisterReports({
           ) : (
             <div className="flex flex-col">
               <div className="flex flex-wrap items-center gap-2 border-b border-app-border bg-app-surface-2 px-4 py-3 sm:px-6">
-                <div className="flex gap-1 rounded-xl border border-app-border bg-app-surface-2 p-1">
+                <div className="no-scrollbar flex gap-1 overflow-x-auto rounded-xl border border-app-border bg-app-surface-2 p-1">
                   {[
                     { id: "recent" as const, label: "Recent" },
                     { id: "today" as const, label: "Today" },
@@ -900,7 +900,7 @@ export default function RegisterReports({
                   ))}
                 </div>
                 {zPreset === "custom" && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
                     <input type="date" value={customFromZ} onChange={(e) => setCustomFromZ(e.target.value)} className="ui-input rounded-lg px-3 py-2 text-sm" />
                     <span className="text-app-text-muted">to</span>
                     <input type="date" value={customToZ} onChange={(e) => setCustomToZ(e.target.value)} className="ui-input rounded-lg px-3 py-2 text-sm" />
@@ -918,7 +918,7 @@ export default function RegisterReports({
                       See which drawers are still open, which till group is already closing, and where staff should avoid duplicate close work.
                     </p>
                   </div>
-                  <div className="grid min-w-[240px] gap-2 sm:grid-cols-3">
+                  <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-3">
                     {[
                       ["Active sessions", String(coordinationSummary.activeSessions)],
                       ["Open drawers", String(coordinationSummary.openDrawers)],

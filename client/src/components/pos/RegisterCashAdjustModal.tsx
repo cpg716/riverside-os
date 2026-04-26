@@ -79,14 +79,14 @@ export default function RegisterCashAdjustModal({
   };
 
   return (
-    <div className="ui-overlay-backdrop">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal outline-none"
+        className="ui-modal w-full max-w-none rounded-t-3xl outline-none sm:max-w-lg sm:rounded-3xl"
       >
         <div className="ui-modal-header mb-0 flex items-center justify-between">
           <h2 id={titleId} className="text-lg font-black uppercase tracking-tight text-app-text">

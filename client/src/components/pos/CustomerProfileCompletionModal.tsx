@@ -120,10 +120,10 @@ export default function CustomerProfileCompletionModal({
   };
 
   return (
-    <div className="ui-overlay-backdrop z-[60]">
+    <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
-        className="ui-modal max-h-[90vh] max-w-lg overflow-y-auto outline-none"
+        className="ui-modal max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl outline-none sm:max-h-[90vh] sm:max-w-lg sm:rounded-3xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

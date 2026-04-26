@@ -120,10 +120,10 @@ export default function ProductIntelligenceDrawer({
       />
 
       <div 
-        className={`fixed inset-y-0 right-0 z-50 w-full max-w-md bg-app-bg shadow-2xl transition-transform duration-500 ease-out border-l border-app-border ${variantId ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[96dvh] w-full rounded-t-3xl border border-app-border bg-app-bg shadow-2xl transition-transform duration-500 ease-out sm:inset-y-0 sm:bottom-auto sm:right-0 sm:max-h-none sm:w-full sm:max-w-md sm:rounded-none sm:border-l sm:border-t-0 ${variantId ? 'translate-y-0 sm:translate-x-0' : 'translate-y-full sm:translate-y-0 sm:translate-x-full'}`}
       >
         <div className="flex h-full flex-col overflow-hidden">
-          <div className="flex items-center justify-between border-b border-app-border bg-app-surface px-6 py-3">
+          <div className="flex items-center justify-between border-b border-app-border bg-app-surface px-4 py-3 sm:px-6">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-600">
                 <Package size={20} />
@@ -141,7 +141,7 @@ export default function ProductIntelligenceDrawer({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto no-scrollbar pb-32">
+          <div className="no-scrollbar flex-1 overflow-y-auto pb-28 sm:pb-32">
             {loading ? (
               <div className="flex h-full items-center justify-center space-y-4 flex-col">
                 <div className="h-12 w-12 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent" />
@@ -153,7 +153,7 @@ export default function ProductIntelligenceDrawer({
                 <p className="text-lg font-bold text-app-text">{error}</p>
               </div>
             ) : data ? (
-              <div className="space-y-6 p-6">
+              <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
                 {/* 1. Identity & Selection (TOP) */}
                 <div className="relative overflow-hidden rounded-3xl bg-app-surface-2 border border-app-border p-6 shadow-xl">
                    <div className="absolute -right-4 -top-4 opacity-10 text-app-text">
@@ -174,7 +174,7 @@ export default function ProductIntelligenceDrawer({
                    </div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                    <div className="rounded-2xl border border-emerald-100 bg-emerald-50 content-center p-4">
                       <p className="text-[10px] font-black uppercase tracking-widest text-emerald-600 mb-1">Stock On-Hand</p>
                       <p className="text-3xl font-black text-emerald-700 tabular-nums leading-none">{data.stock_on_hand}</p>

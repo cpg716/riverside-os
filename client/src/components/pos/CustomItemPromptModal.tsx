@@ -244,12 +244,12 @@ export default function CustomItemPromptModal({
 
   return (
     <div
-      className={`fixed inset-0 z-[120] flex items-center justify-center p-4 transition-all ${
+      className={`fixed inset-0 z-[120] flex items-end justify-center p-0 transition-all sm:items-center sm:p-4 ${
         isOpen ? "opacity-100" : "pointer-events-none opacity-0"
       }`}
     >
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative w-full max-w-sm overflow-hidden rounded-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200">
+      <div className="relative max-h-[96dvh] w-full max-w-none overflow-y-auto rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in zoom-in-95 duration-200 sm:max-h-[90vh] sm:max-w-sm sm:overflow-hidden sm:rounded-3xl">
         <div className="border-b border-app-border bg-app-surface-2 px-6 py-4">
           <h3 className="text-lg font-black uppercase italic tracking-tighter text-app-text">
             Custom Order

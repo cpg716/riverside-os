@@ -354,13 +354,13 @@ export default function PosAlterationIntakeModal({
 
   return (
     <div
-      className="fixed inset-0 z-[85] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[85] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Alteration intake"
       data-testid="pos-alteration-intake-dialog"
     >
-      <div className="ui-card flex max-h-[92vh] w-full max-w-4xl flex-col overflow-hidden border border-app-border bg-app-surface shadow-2xl">
+      <div className="ui-card flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[92vh] sm:max-w-4xl sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Scissors className="h-5 w-5 text-app-accent" />
@@ -389,8 +389,8 @@ export default function PosAlterationIntakeModal({
           </div>
         ) : null}
 
-        <div className="grid min-h-0 flex-1 gap-0 overflow-hidden lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="min-h-0 overflow-y-auto p-5">
+        <div className="grid min-h-0 flex-1 gap-0 overflow-y-auto lg:overflow-hidden lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="min-h-0 overflow-visible p-4 sm:p-5 lg:overflow-y-auto">
             <div className="mb-4 flex flex-wrap gap-2">
               {SOURCE_OPTIONS.map((option) => (
                 <button
@@ -628,7 +628,7 @@ export default function PosAlterationIntakeModal({
             ) : null}
           </div>
 
-          <div className="min-h-0 overflow-y-auto border-t border-app-border bg-app-surface-2/50 p-5 lg:border-l lg:border-t-0">
+          <div className="min-h-0 overflow-visible border-t border-app-border bg-app-surface-2/50 p-4 sm:p-5 lg:overflow-y-auto lg:border-l lg:border-t-0">
             <div className="space-y-4">
               <div className="rounded-xl border border-app-border bg-app-surface p-3">
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">

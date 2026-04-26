@@ -90,10 +90,10 @@ export default function PosCustomerMeasurementsDrawer({
   if (!open) return null;
 
   return (
-    <div className="ui-overlay-backdrop">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
-        className="ui-modal flex max-h-[min(92vh,720px)] w-full max-w-lg flex-col overflow-hidden outline-none"
+        className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[min(92vh,720px)] sm:max-w-lg sm:rounded-3xl"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}

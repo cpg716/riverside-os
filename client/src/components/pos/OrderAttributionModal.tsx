@@ -174,22 +174,22 @@ export default function OrderAttributionModal({
   };
 
   return (
-    <div className="ui-overlay-backdrop">
+    <div className="fixed inset-0 z-[130] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal flex max-h-[95vh] max-w-4xl flex-col outline-none bg-app-bg-alt/95 backdrop-blur-2xl"
+        className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none bg-app-bg-alt/95 backdrop-blur-2xl sm:max-h-[95vh] sm:max-w-4xl sm:rounded-3xl"
       >
-        <div className="ui-modal-header flex items-center justify-between border-b-4 border-app-border bg-app-surface px-8 py-6">
+        <div className="ui-modal-header flex items-center justify-between border-b-4 border-app-border bg-app-surface px-4 py-4 sm:px-8 sm:py-6">
           <div className="flex items-center gap-4">
-             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 shadow-inner">
-                <ShieldCheck size={28} />
+             <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500 shadow-inner sm:h-12 sm:w-12">
+                <ShieldCheck className="h-5 w-5 sm:h-7 sm:w-7" />
              </div>
              <div>
-                <h2 id={titleId} className="text-xl font-black text-app-text tracking-tight">
+                <h2 id={titleId} className="text-lg font-black tracking-tight text-app-text sm:text-xl">
                   Correct attribution
                 </h2>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted italic">
@@ -200,7 +200,7 @@ export default function OrderAttributionModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex h-12 w-12 items-center justify-center rounded-2xl bg-app-surface-2 border-4 border-app-border text-app-text-muted hover:border-amber-500 hover:text-app-text transition-all active:scale-90 shadow-lg"
+            className="flex h-10 w-10 items-center justify-center rounded-2xl border-4 border-app-border bg-app-surface-2 text-app-text-muted shadow-lg transition-all hover:border-amber-500 hover:text-app-text active:scale-90 sm:h-12 sm:w-12"
             aria-label="Close"
           >
             <X size={24} />
@@ -220,14 +220,14 @@ export default function OrderAttributionModal({
           ) : detail ? (
             <>
               {/* Left Column: Data Entry */}
-              <div className="flex-1 p-8 space-y-8 border-r-4 border-app-border/40">
+              <div className="flex-1 space-y-8 border-b-4 border-app-border/40 p-4 sm:p-8 lg:border-b-0 lg:border-r-4">
                 <div className="space-y-4">
                   <div className="flex items-center justify-between">
                     <h3 className="text-xs font-black uppercase tracking-[0.2em] text-app-text italic">1. Line Attribution</h3>
                     {detail.operator_name && <span className="text-[9px] font-bold text-app-text-muted uppercase tracking-widest opacity-50">Origin: {detail.operator_name}</span>}
                   </div>
                   
-                  <div className="space-y-3 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+                  <div className="custom-scrollbar max-h-[40vh] space-y-3 overflow-y-auto pr-2 sm:max-h-[400px]">
                     {detail.items.map((it) => (
                       <div key={it.order_item_id} className="group relative rounded-2xl border-4 border-app-border bg-app-surface p-4 transition-all hover:border-app-accent/40 shadow-sm">
                         <div className="flex justify-between items-start mb-3">
@@ -283,7 +283,7 @@ export default function OrderAttributionModal({
               </div>
 
               {/* Right Column: Authorization Gate or Final Actions */}
-              <div className={`flex flex-col justify-center gap-8 border-t-4 lg:border-t-0 border-app-border ${hasAccess ? 'w-full lg:w-[300px] bg-app-surface/40' : 'w-full lg:w-[400px] bg-app-surface-2/40'} p-8`}>
+              <div className={`flex flex-col justify-center gap-8 border-t-4 border-app-border p-4 sm:p-8 lg:border-t-0 ${hasAccess ? 'w-full lg:w-[300px] bg-app-surface/40' : 'w-full lg:w-[400px] bg-app-surface-2/40'}`}>
                 {!hasAccess ? (
                   <>
                     <div className="text-center space-y-2">

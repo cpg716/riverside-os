@@ -202,11 +202,11 @@ export default function WeddingLookupDrawer({
       ) ?? 0;
 
   return (
-    <div className="fixed inset-0 z-[110] flex justify-end bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="h-full w-[450px] bg-app-surface shadow-2xl flex flex-col border-l border-app-border animate-in slide-in-from-right duration-300">
+    <div className="fixed inset-0 z-[110] flex items-end justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 sm:items-stretch sm:justify-end">
+      <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl animate-in slide-in-from-bottom duration-300 sm:h-full sm:w-[450px] sm:max-h-none sm:rounded-none sm:border-l sm:border-t-0 sm:slide-in-from-right">
         {/* Header */}
-        <div className="p-6 border-b border-app-border flex items-center justify-between bg-app-surface sticky top-0 z-20">
-          <div className="flex items-center gap-3">
+        <div className="sticky top-0 z-20 flex items-center justify-between border-b border-app-border bg-app-surface p-4 sm:p-6">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
             {selectedParty ? (
               <button 
                 onClick={() => setSelectedParty(null)}
@@ -219,8 +219,8 @@ export default function WeddingLookupDrawer({
                 <Users size={20} />
               </div>
             )}
-            <div>
-              <h2 className="text-lg font-black uppercase italic tracking-tighter text-app-text leading-tight">
+            <div className="min-w-0">
+              <h2 className="truncate text-lg font-black uppercase italic leading-tight tracking-tighter text-app-text">
                 {selectedParty ? selectedParty.party_name : "Wedding Lookup"}
               </h2>
               <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
@@ -234,7 +234,7 @@ export default function WeddingLookupDrawer({
                    onOpenFullParty(selectedParty.id);
                    onClose();
                  }}
-                 className="ml-auto h-9 px-4 flex items-center gap-2 rounded-xl bg-app-accent/10 border border-app-accent/20 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-sm"
+                 className="h-9 px-3 sm:ml-auto sm:px-4 flex items-center gap-2 rounded-xl bg-app-accent/10 border border-app-accent/20 text-[9px] font-black uppercase tracking-widest text-app-accent hover:bg-app-accent hover:text-white transition-all shadow-sm"
                >
                  <Heart size={14} fill="currentColor" />
                  Manage Party
@@ -251,7 +251,7 @@ export default function WeddingLookupDrawer({
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-4 no-scrollbar">
+        <div className="no-scrollbar flex-1 overflow-y-auto p-3 sm:p-4">
           {!selectedParty ? (
             <div className="space-y-4">
               <div className="relative">
@@ -368,7 +368,7 @@ export default function WeddingLookupDrawer({
                       {!groupPayMode ? (
                         <button
                           onClick={(e) => { e.stopPropagation(); onLinkMember(member, selectedParty.party_name); }}
-                          className="flex h-10 items-center justify-center gap-2 rounded-2xl bg-app-accent px-4 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 hover:bg-app-accent-hover active:scale-95 transition-all"
+                          className="flex h-10 items-center justify-center gap-2 rounded-2xl bg-app-accent px-3 sm:px-4 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-app-accent/20 hover:bg-app-accent-hover active:scale-95 transition-all"
                         >
                           <UserPlus size={14} />
                           Link
@@ -406,8 +406,8 @@ export default function WeddingLookupDrawer({
 
         {/* Footer for Group Pay */}
         {groupPayMode && selectedMemberIds.size > 0 && (
-          <div className="absolute bottom-0 inset-x-0 p-6 bg-app-surface border-t border-app-border shadow-[0_-20px_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom duration-300">
-            <div className="flex items-center justify-between mb-4">
+          <div className="absolute inset-x-0 bottom-0 border-t border-app-border bg-app-surface p-4 shadow-[0_-20px_40px_rgba(0,0,0,0.1)] animate-in slide-in-from-bottom duration-300 sm:p-6">
+            <div className="mb-2 flex flex-col gap-3 sm:mb-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">Payout Group ({selectedMemberIds.size})</p>
                 <p className="text-2xl font-black italic tracking-tighter text-app-text leading-none mt-1">
@@ -416,7 +416,7 @@ export default function WeddingLookupDrawer({
               </div>
               <button
                 onClick={handleGroupPaySubmit}
-                className="flex items-center gap-3 h-14 px-8 rounded-3xl bg-emerald-600 text-white font-black uppercase tracking-widest italic shadow-xl shadow-emerald-500/20 border-b-8 border-emerald-800 active:translate-y-1 active:border-b-4 transition-all"
+                className="flex h-14 w-full items-center justify-center gap-3 rounded-3xl border-b-8 border-emerald-800 bg-emerald-600 px-5 text-[11px] font-black uppercase tracking-widest italic text-white shadow-xl shadow-emerald-500/20 transition-all active:translate-y-1 active:border-b-4 sm:w-auto sm:px-8"
               >
                 Add Combined to Cart
               </button>

@@ -25,6 +25,7 @@ import {
 } from "./LoyaltyLogic";
 import type { Customer } from "../pos/CustomerSelector";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 interface LoyaltyPipelineStats {
   total_points_liability: number;
@@ -182,9 +183,9 @@ function SettingsPanel({
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 min-h-[600px] animate-in slide-in-from-bottom-4 duration-700">
+    <div className="animate-in slide-in-from-bottom-4 flex min-h-0 flex-col gap-6 duration-700 lg:min-h-[600px] lg:flex-row">
       {/* Configuration Column */}
-      <div className="w-full lg:w-[400px] space-y-6">
+      <div className="w-full space-y-6 lg:max-w-[400px]">
         <div className="ui-card relative overflow-hidden border-app-border p-6 group">
           <div className="absolute top-0 left-0 w-1 h-full bg-amber-500 rounded-full" />
           <div className="flex items-center gap-3 mb-6">
@@ -239,8 +240,8 @@ function SettingsPanel({
       </div>
 
       {/* Designer Column */}
-      <div className="flex flex-1 flex-col overflow-hidden ui-card p-0 group">
-        <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-6">
+      <div className="flex flex-1 flex-col overflow-visible ui-card p-0 group lg:overflow-hidden">
+        <div className="flex flex-col gap-3 border-b border-app-border bg-app-surface-2 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
           <div className="flex items-center gap-3">
             <div className="p-2 rounded-xl bg-purple-500/10 text-purple-600 ring-1 ring-purple-500/20">
               <Mail className="h-5 w-5" />
@@ -251,7 +252,7 @@ function SettingsPanel({
             </div>
           </div>
           
-          <div className="flex items-center gap-1.5 rounded-xl bg-app-surface px-1 py-1">
+          <div className="flex flex-wrap items-center gap-1.5 rounded-xl bg-app-surface px-1 py-1">
             {["{{first_name}}", "{{reward_amount}}", "{{card_code}}"].map(tag => (
               <button 
                 key={tag}
@@ -264,12 +265,12 @@ function SettingsPanel({
           </div>
         </div>
 
-        <div className="flex-1 relative">
+        <div className="relative min-h-[320px] flex-1 lg:min-h-0">
            <textarea
              value={template}
              onChange={e => setTemplate(e.target.value)}
              placeholder="Write the reward-card message here..."
-             className="w-full h-full p-8 bg-transparent text-sm font-mono leading-relaxed text-app-text resize-none focus:outline-none placeholder:opacity-20 tabular-nums"
+             className="h-full w-full resize-none bg-transparent p-4 text-sm font-mono leading-relaxed text-app-text placeholder:opacity-20 tabular-nums focus:outline-none sm:p-6 lg:p-8"
            />
            <div className="absolute bottom-6 right-6 flex items-center gap-2">
               <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted opacity-40">Markdown supported</span>
@@ -348,9 +349,9 @@ function AdjustPanel() {
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-6 animate-in fade-in slide-in-from-right-4 duration-700">
+    <div className="animate-in fade-in slide-in-from-right-4 flex flex-col gap-6 duration-700 lg:flex-row">
       {/* Entry Column */}
-      <div className="w-full lg:w-[450px] space-y-6">
+      <div className="w-full space-y-6 lg:max-w-[450px]">
         <div className="ui-card relative overflow-hidden border-app-border p-6">
           <div className="absolute top-0 right-0 p-4 opacity-[0.05] grayscale">
              <RefreshCw size={100} className={busy ? "animate-spin" : ""} />
@@ -499,16 +500,16 @@ function EligibleList({
   }, [load]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex flex-1 flex-col">
       <div className="border-b border-app-border px-6 py-5 bg-app-surface-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-black tracking-tight text-app-text">Customers Ready for Reward</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
               {customers.length} members currently at or above threshold
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto">
             <button
               type="button"
               onClick={() => void load()}
@@ -530,7 +531,7 @@ function EligibleList({
           </div>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-4 sm:p-6 no-scrollbar">
+      <div className="p-4 sm:p-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-10 w-10 border-b-2 border-app-accent rounded-full animate-spin" />
@@ -548,7 +549,7 @@ function EligibleList({
                <span className="text-[9px] font-black uppercase tracking-[0.2em]">Customer</span>
                <span className="text-[9px] font-black uppercase tracking-[0.2em] px-10">Points Status</span>
                <span className="text-[9px] font-black uppercase tracking-[0.2em]">Contact & Location</span>
-               <span className="text-[9px] font-black uppercase tracking-[0.2em] w-[200px] text-right">Operations</span>
+               <span className="text-right text-[9px] font-black uppercase tracking-[0.2em]">Operations</span>
             </div>
 
             <div className="space-y-3">
@@ -557,7 +558,11 @@ function EligibleList({
                 const pointsValue = c.loyalty_points.toLocaleString();
                 
                 return (
-                  <div key={c.id} className="group relative flex flex-col gap-4 rounded-[28px] border border-app-border bg-app-surface lg:flex-row lg:items-center lg:gap-0 p-4 lg:p-0 transition-all duration-500 hover:border-app-warning/20 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)]">
+                  <div
+                    key={c.id}
+                    data-testid="loyalty-eligible-row"
+                    className="group relative flex flex-col gap-4 rounded-[28px] border border-app-border bg-app-surface p-4 transition-all duration-500 hover:border-app-warning/20 hover:shadow-[0_18px_36px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)] lg:flex-row lg:items-center lg:gap-0 lg:p-0"
+                  >
                     {/* ID & Basic Info */}
                     <div className="lg:w-[1fr] lg:flex-1 lg:pl-6 lg:py-4">
                       <div className="flex items-center gap-4">
@@ -598,7 +603,7 @@ function EligibleList({
                        <div className="flex flex-col gap-1.5">
                           <div className="flex items-center gap-2 text-xs font-black text-app-text">
                              <Mail size={14} className="text-app-text-muted opacity-40" />
-                             <span className="truncate max-w-[160px]">{c.email || "No email"}</span>
+                             <span className="max-w-[220px] truncate lg:max-w-[160px]">{c.email || "No email"}</span>
                           </div>
                           <div className="flex items-center gap-2 text-[10px] font-bold text-app-text-muted">
                              <TrendingUp size={14} className="text-app-success/50" />
@@ -609,7 +614,7 @@ function EligibleList({
 
                     {/* Ops */}
                     <div className="lg:pr-6 py-2 lg:py-4">
-                       <div className="flex items-center gap-2 justify-end">
+                       <div data-testid="loyalty-eligible-actions" className="flex items-center gap-2 justify-end">
                          <button
                            type="button"
                            onClick={() => setRedeemCustomer(c)}
@@ -678,9 +683,9 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
   const template = settings?.loyalty_letter_template;
 
   return (
-    <div className="flex flex-1 flex-col bg-app-surface scale-in-center overflow-hidden">
+    <div className="flex flex-1 flex-col bg-app-surface scale-in-center">
       <div className="border-b border-app-border px-6 py-5 bg-app-surface-2">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-black tracking-tight text-app-text">Reward Card History</h2>
             <p className="text-[10px] font-bold uppercase tracking-widest text-app-text-muted mt-1">
@@ -690,14 +695,14 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
           <button
             type="button"
             onClick={() => void load()}
-            className="group flex items-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-app-surface-2 transition-all"
+            className="group flex w-full items-center justify-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm transition-all hover:bg-app-surface-2 sm:w-auto"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-purple-500" : "text-app-text-muted group-hover:text-purple-500"}`} />
             Refresh History
           </button>
         </div>
       </div>
-      <div className="flex-1 overflow-auto p-6 no-scrollbar">
+      <div className="p-4 sm:p-6">
         {loading ? (
           <div className="flex flex-col items-center justify-center py-32 space-y-4">
              <div className="h-12 w-12 border-b-2 border-purple-500 rounded-full animate-spin" />
@@ -711,7 +716,11 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
         ) : (
           <div className="flex flex-col gap-3">
             {issuances.map(row => (
-              <div key={row.reward_id} className="group flex flex-col gap-4 rounded-[24px] border border-app-border bg-app-surface p-5 transition-all duration-500 lg:flex-row lg:items-center lg:gap-0 hover:border-app-accent/20 hover:shadow-[0_16px_32px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)]">
+              <div
+                key={row.reward_id}
+                data-testid="loyalty-history-row"
+                className="group flex flex-col gap-4 rounded-[24px] border border-app-border bg-app-surface p-5 transition-all duration-500 hover:border-app-accent/20 hover:shadow-[0_16px_32px_rgba(15,23,42,0.08),0_4px_10px_rgba(15,23,42,0.05)] lg:flex-row lg:items-center lg:gap-0"
+              >
                   {/* ID & Basic Info */}
                   <div className="lg:w-[1fr] lg:flex-1">
                     <div className="flex items-center gap-4">
@@ -764,7 +773,10 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
 
                 {/* Actions */}
                 <div className="lg:pr-2">
-                   <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 group-hover:translate-x-0 translate-x-2 transition-all duration-300">
+                   <div
+                     data-testid="loyalty-history-actions"
+                     className="flex translate-x-0 items-center justify-end gap-2 opacity-100 transition-all duration-300 lg:translate-x-2 lg:opacity-0 lg:group-hover:translate-x-0 lg:group-hover:opacity-100"
+                   >
                      {row.card_code && (
                        <button
                          type="button"
@@ -795,6 +807,7 @@ function IssuancesHistory({ settings }: { settings?: LoyaltySettings | null }) {
 }
 
 export default function LoyaltyWorkspace({ activeSection }: { activeSection: string }) {
+  const isCompactLayout = useMediaQuery("(max-width: 1023px)");
   const { backofficeHeaders } = useBackofficeAuth();
   const [stats, setStats] = useState<LoyaltyPipelineStats | null>(null);
   const [settings, setSettings] = useState<LoyaltySettings | null>(null);
@@ -835,14 +848,17 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
   return (
     <div className="flex flex-1 flex-col bg-transparent">
       {/* Executive Summary Strip */}
-      <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+      <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
         {[
           { label: "Points On Accounts", val: stats?.total_points_liability.toLocaleString() ?? "—", icon: Coins, color: "text-amber-500", bg: "bg-amber-500/10", border: "border-amber-500/20", trend: "Current total" },
           { label: "Ready For Reward", val: stats?.eligible_customers_count.toLocaleString() ?? "—", icon: UserCheck, color: "text-sky-500", bg: "bg-sky-500/10", border: "border-sky-500/20", trend: "At threshold" },
           { label: "Reward Cards Issued", val: stats?.lifetime_rewards_issued.toLocaleString() ?? "—", icon: Award, color: "text-emerald-500", bg: "bg-emerald-500/10", border: "border-emerald-500/20", trend: "All time" },
           { label: "Recent Adjustments", val: stats?.active_30d_adjustments.toLocaleString() ?? "—", icon: TrendingUp, color: "text-purple-500", bg: "bg-purple-500/10", border: "border-purple-500/20", trend: "Last 30 days" },
         ].map((s, idx) => (
-          <div key={idx} className={`relative flex min-w-[240px] flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} bg-app-surface p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] group transition-transform duration-500 hover:scale-[1.02]`}>
+          <div
+            key={idx}
+            className={`group relative flex ${isCompactLayout ? "min-w-[210px]" : "min-w-[240px]"} flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} bg-app-surface p-5 shadow-[0_12px_28px_rgba(15,23,42,0.06),0_2px_6px_rgba(15,23,42,0.04)] transition-transform duration-500 hover:scale-[1.02]`}
+          >
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
                <s.icon size={80} />
             </div>
@@ -860,10 +876,10 @@ export default function LoyaltyWorkspace({ activeSection }: { activeSection: str
         ))}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
+      <div className="flex flex-1 flex-col p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
+        <div className="flex flex-1 flex-col rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
           {activeSection === "adjust" ? (
-            <div className="flex-1 overflow-auto p-6"><AdjustPanel /></div>
+            <div className="p-4 sm:p-6"><AdjustPanel /></div>
           ) : activeSection === "settings" ? (
             <div className="flex-1 overflow-auto">
               <SettingsPanel 

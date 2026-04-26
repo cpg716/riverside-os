@@ -137,7 +137,7 @@ export default function LayawayWorkspace({
 
         <form 
             onSubmit={(e) => { e.preventDefault(); void loadLayaways(); }}
-            className="flex gap-2"
+            className="flex flex-col gap-2 sm:flex-row"
         >
           <div className="group relative flex-1">
             <Search className="absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-app-text-muted group-focus-within:text-app-accent" />
@@ -152,7 +152,7 @@ export default function LayawayWorkspace({
           <button
             type="submit"
             disabled={loading}
-            className="flex h-12 items-center gap-2 rounded-2xl bg-app-accent px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-lg active:scale-95 disabled:opacity-50"
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl bg-app-accent px-6 text-[10px] font-black uppercase tracking-widest text-white shadow-lg active:scale-95 disabled:opacity-50 sm:w-auto"
           >
             {loading ? <Loader2 className="h-5 w-5 animate-spin" /> : "Search"}
           </button>
@@ -260,8 +260,8 @@ export default function LayawayWorkspace({
       </div>
 
       {/* Summary Footer */}
-      <div className="shrink-0 border-t border-app-border bg-app-surface-2 px-6 py-3">
-        <div className="flex items-center justify-between">
+      <div className="shrink-0 border-t border-app-border bg-app-surface-2 px-4 py-3 sm:px-6">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-xs font-bold text-app-text-muted">
                 Showing {items.length} of {totalCount} matching layaways
             </p>

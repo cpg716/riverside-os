@@ -11,6 +11,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import IntegrationBrandLogo from "../ui/IntegrationBrandLogo";
 import { CheckCircle2 } from "lucide-react";
@@ -88,6 +89,7 @@ export default function ShipmentsHubSection({
   );
   const canView = hasPermission("shipments.view");
   const canManage = hasPermission("shipments.manage");
+  const isCompactList = useMediaQuery("(max-width: 1023px)");
 
   const [openOnly, setOpenOnly] = useState(true);
   const [items, setItems] = useState<ShipmentListItem[]>([]);
@@ -534,62 +536,118 @@ export default function ShipmentsHubSection({
               </p>
             </div>
           ) : (
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead className="sticky top-0 border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                <tr>
-                  <th className="px-3 py-2">Created</th>
-                  <th className="px-3 py-2">Source</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Customer</th>
-                  <th className="px-3 py-2">Ship to</th>
-                  <th className="px-3 py-2">Order</th>
-                  <th className="px-3 py-2">Tracking</th>
-                  <th className="px-3 py-2 text-right">Ship $</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-app-border/60">
+            isCompactList ? (
+              <div className="space-y-2 p-2">
                 {items.map((row) => (
-                  <tr
+                  <button
                     key={row.id}
-                    className={`cursor-pointer hover:bg-app-surface-2/60 ${
-                      detailId === row.id ? "bg-app-accent/10" : ""
+                    type="button"
+                    className={`w-full rounded-xl border px-3 py-3 text-left transition-colors ${
+                      detailId === row.id
+                        ? "border-app-accent bg-app-accent/10"
+                        : "border-app-border bg-app-surface hover:bg-app-surface-2"
                     }`}
                     onClick={() => void openDetail(row.id)}
                   >
-                    <td className="px-3 py-2 text-xs text-app-text-muted">
-                      {new Date(row.created_at).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-xs font-semibold">
-                      {sourceLabel[row.source] ?? row.source}
-                    </td>
-                    <td className="px-3 py-2 text-xs">{row.status}</td>
-                    <td className="px-3 py-2 text-xs">
-                      {row.customer_first_name || row.customer_last_name
-                        ? `${row.customer_first_name ?? ""} ${row.customer_last_name ?? ""}`.trim()
-                        : "—"}
-                    </td>
-                    <td className="max-w-[160px] truncate px-3 py-2 text-xs text-app-text-muted">
-                      {row.dest_summary?.trim() || "—"}
-                    </td>
-                    <td className="px-3 py-2 font-mono text-xs">
-                      {row.order_id ? row.order_id.slice(0, 8) : "—"}
-                    </td>
-                    <td className="max-w-[120px] truncate px-3 py-2 text-xs">
-                      {row.tracking_number ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right text-xs tabular-nums">
-                      {moneyOrDash(
-                        row.shipping_charged_usd ?? row.quoted_amount_usd,
-                      )}
-                    </td>
-                  </tr>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-black uppercase tracking-widest text-app-text">
+                          {sourceLabel[row.source] ?? row.source}
+                        </p>
+                        <p className="mt-1 text-xs text-app-text-muted">
+                          {new Date(row.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {row.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <p className="min-w-0 truncate text-app-text">
+                        <span className="font-black text-app-text-muted">Customer:</span>{" "}
+                        {row.customer_first_name || row.customer_last_name
+                          ? `${row.customer_first_name ?? ""} ${row.customer_last_name ?? ""}`.trim()
+                          : "—"}
+                      </p>
+                      <p className="min-w-0 truncate text-app-text">
+                        <span className="font-black text-app-text-muted">Tracking:</span>{" "}
+                        {row.tracking_number ?? "—"}
+                      </p>
+                      <p className="min-w-0 truncate text-app-text">
+                        <span className="font-black text-app-text-muted">Ship to:</span>{" "}
+                        {row.dest_summary?.trim() || "—"}
+                      </p>
+                      <p className="text-right font-black tabular-nums text-app-text">
+                        {moneyOrDash(row.shipping_charged_usd ?? row.quoted_amount_usd)}
+                      </p>
+                    </div>
+                    {row.order_id ? (
+                      <p className="mt-2 text-[11px] text-app-text-muted">
+                        <span className="font-black uppercase tracking-widest">Order</span>{" "}
+                        <span className="font-mono">{row.order_id.slice(0, 8)}</span>
+                      </p>
+                    ) : null}
+                  </button>
                 ))}
-              </tbody>
-            </table>
+              </div>
+            ) : (
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="sticky top-0 border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  <tr>
+                    <th className="px-3 py-2">Created</th>
+                    <th className="px-3 py-2">Source</th>
+                    <th className="px-3 py-2">Status</th>
+                    <th className="px-3 py-2">Customer</th>
+                    <th className="px-3 py-2">Ship to</th>
+                    <th className="px-3 py-2">Order</th>
+                    <th className="px-3 py-2">Tracking</th>
+                    <th className="px-3 py-2 text-right">Ship $</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-app-border/60">
+                  {items.map((row) => (
+                    <tr
+                      key={row.id}
+                      className={`cursor-pointer hover:bg-app-surface-2/60 ${
+                        detailId === row.id ? "bg-app-accent/10" : ""
+                      }`}
+                      onClick={() => void openDetail(row.id)}
+                    >
+                      <td className="px-3 py-2 text-xs text-app-text-muted">
+                        {new Date(row.created_at).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-xs font-semibold">
+                        {sourceLabel[row.source] ?? row.source}
+                      </td>
+                      <td className="px-3 py-2 text-xs">{row.status}</td>
+                      <td className="px-3 py-2 text-xs">
+                        {row.customer_first_name || row.customer_last_name
+                          ? `${row.customer_first_name ?? ""} ${row.customer_last_name ?? ""}`.trim()
+                          : "—"}
+                      </td>
+                      <td className="max-w-[160px] truncate px-3 py-2 text-xs text-app-text-muted">
+                        {row.dest_summary?.trim() || "—"}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        {row.order_id ? row.order_id.slice(0, 8) : "—"}
+                      </td>
+                      <td className="max-w-[120px] truncate px-3 py-2 text-xs">
+                        {row.tracking_number ?? "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right text-xs tabular-nums">
+                        {moneyOrDash(
+                          row.shipping_charged_usd ?? row.quoted_amount_usd,
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
           )}
         </div>
 
-        <div className="flex min-h-0 flex-col gap-3 overflow-hidden rounded-2xl border border-app-border bg-app-surface p-4">
+        <div className="flex min-h-0 flex-col gap-3 overflow-visible rounded-2xl border border-app-border bg-app-surface p-4 lg:overflow-hidden">
           <div className="flex items-center gap-2 border-b border-app-border pb-2">
             <Truck size={18} className="text-sky-600" />
             <h3 className="text-sm font-black uppercase tracking-widest text-app-text">

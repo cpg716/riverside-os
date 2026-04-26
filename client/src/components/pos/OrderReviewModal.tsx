@@ -77,10 +77,10 @@ export default function OrderReviewModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="flex max-h-[90vh] w-full max-w-lg flex-col rounded-3xl border border-app-border bg-app-surface shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[90vh] sm:max-w-lg sm:rounded-3xl">
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-app-border px-6 py-4">
+        <div className="flex items-center justify-between border-b border-app-border px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/20">
               <Package size={20} className="text-amber-500" />
@@ -100,7 +100,7 @@ export default function OrderReviewModal({
         </div>
 
         {/* Order Items */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6">
           <div className="space-y-3">
             {items.map((item) => (
               <div
@@ -155,7 +155,7 @@ export default function OrderReviewModal({
           <div className="mt-6 space-y-4">
             <h3 className="text-xs font-black uppercase tracking-wider text-app-text-muted">Priority</h3>
             
-            <div className="flex gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
                 onClick={() => setIsRush(!isRush)}
@@ -207,7 +207,7 @@ export default function OrderReviewModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between border-t border-app-border px-6 py-4">
+        <div className="flex flex-col gap-3 border-t border-app-border px-4 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
           <div>
             <p className="text-xs text-app-text-muted">Order Total</p>
             <p className="text-2xl font-black text-app-text">${(orderTotal / 100).toFixed(2)}</p>
@@ -215,7 +215,7 @@ export default function OrderReviewModal({
           <button
             type="button"
             onClick={handleContinue}
-            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-8 py-4 text-lg font-bold text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-98"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-lg transition-all hover:bg-emerald-500 active:scale-98 sm:w-auto sm:text-lg"
           >
             Continue to Payment
             <ArrowRight size={20} />

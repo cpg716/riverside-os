@@ -108,10 +108,10 @@ export default function Sidebar({
 
   return (
     <aside
-      className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
+      className={`ui-rail z-[70] md:z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
         collapsed 
           ? "w-0 -translate-x-full md:w-16 md:translate-x-0 md:px-2" 
-          : "fixed inset-y-0 left-0 w-[240px] px-4 md:sticky md:w-[220px] md:px-0"
+          : "fixed left-0 top-[84px] bottom-0 w-[240px] px-4 md:sticky md:w-[220px] md:px-0"
       }`}
     >
       {/* Brand row */}

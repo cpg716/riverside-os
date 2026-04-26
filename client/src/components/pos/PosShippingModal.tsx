@@ -212,7 +212,7 @@ export default function PosShippingModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 font-sans">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center p-0 font-sans sm:items-center sm:p-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/50"
@@ -224,7 +224,7 @@ export default function PosShippingModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="relative flex max-h-[min(640px,90vh)] w-full max-w-lg flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl"
+        className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(640px,90vh)] sm:max-w-lg sm:rounded-2xl"
       >
         <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
           <div className="flex items-center gap-2">

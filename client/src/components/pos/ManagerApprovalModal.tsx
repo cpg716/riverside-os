@@ -89,14 +89,14 @@ export default function ManagerApprovalModal({
   if (!isOpen) return null;
 
   return (
-    <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal w-full max-w-sm animate-in zoom-in-95 duration-300 outline-none rounded-[32px] overflow-hidden bg-app-bg-alt/95 backdrop-blur-2xl border-4 border-app-border"
+        className="ui-modal w-full max-w-none animate-in zoom-in-95 overflow-hidden rounded-t-3xl border-4 border-app-border bg-app-bg-alt/95 outline-none backdrop-blur-2xl duration-300 sm:max-w-sm sm:rounded-[32px]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b-4 border-app-border px-6 py-5 bg-app-surface">

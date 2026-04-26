@@ -96,14 +96,14 @@ export default function RegisterShiftHandoffModal({
   };
 
   return (
-    <div className="ui-overlay-backdrop flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal w-full max-w-md animate-in zoom-in-95 duration-300 outline-none rounded-[32px] overflow-hidden"
+        className="ui-modal w-full max-w-none animate-in zoom-in-95 overflow-hidden rounded-t-3xl outline-none duration-300 sm:max-w-md sm:rounded-[32px]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-app-border px-8 py-6 bg-app-surface-2">

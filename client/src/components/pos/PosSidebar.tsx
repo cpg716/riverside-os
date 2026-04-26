@@ -89,7 +89,7 @@ export default function PosSidebar({
       className={`ui-rail z-40 flex shrink-0 flex-col border-r border-app-border py-5 text-app-text transition-all duration-300 ease-material md:sticky md:top-[84px] md:h-[calc(100vh-84px)] overflow-y-auto custom-scrollbar ${
         collapsed
           ? "w-16 px-2 justify-between"
-          : "w-[240px] px-4 lg:w-[260px] lg:px-5"
+          : "w-[220px] px-3 sm:w-[240px] sm:px-4 lg:w-[260px] lg:px-5"
       }`}
     >
       <div className="flex flex-col flex-1">

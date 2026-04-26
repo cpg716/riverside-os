@@ -234,12 +234,12 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col overflow-hidden bg-app-bg p-4 sm:p-6 touch-manipulation"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-app-bg p-4 touch-manipulation sm:p-6 lg:overflow-hidden"
       onClick={(e) => e.stopPropagation()}
     >
       {!pickerProduct ? (
         <>
-          <header className="mb-4 flex shrink-0 items-center justify-between gap-3 sm:mb-6">
+          <header className="mb-4 flex shrink-0 flex-col gap-3 sm:mb-6 sm:flex-row sm:items-center sm:justify-between">
             <div className="min-w-0">
               <h2 className="text-lg font-black tracking-tight text-app-text sm:text-xl">
                 Inventory
@@ -270,7 +270,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
             />
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar">
+          <div className="min-h-0 flex-1 overflow-visible lg:overflow-y-auto no-scrollbar">
             <div className="flex flex-col gap-3 pb-4">
               {products.map((product) => {
                 const { variantCount, priceLabel, stockTotal } =
@@ -341,7 +341,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
           </div>
         </>
       ) : (
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="flex min-h-0 flex-1 flex-col overflow-visible lg:overflow-hidden">
           <div className="mb-3 flex shrink-0 items-start gap-2 sm:mb-4">
             <button
               type="button"
@@ -361,7 +361,7 @@ export default function ProcurementHub({ onAddItemToCart }: ProcurementHubProps)
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto no-scrollbar pb-4">
+          <div className="min-h-0 flex-1 overflow-visible pb-4 lg:overflow-y-auto no-scrollbar">
             <div className="flex flex-col gap-3">
               {pickerVariants.map((v) => (
                 <div

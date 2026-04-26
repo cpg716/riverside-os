@@ -5,6 +5,7 @@ import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import { centsToFixed2, formatUsdFromCents, parseMoneyToCents } from "../../lib/money";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 
 const BASE = getBaseUrl();
@@ -71,6 +72,126 @@ function fmtDateTime(s: string): string {
 
 function giftCardEventLabel(eventKind: string): string {
   return EVENT_LABELS[eventKind] ?? eventKind.replaceAll("_", " ");
+}
+
+interface SelectedCardPanelProps {
+  selectedCard: GiftCardRow | null;
+  selectedEvents: GiftCardEventRow[];
+  eventsLoading: boolean;
+  isSmallScreen: boolean;
+}
+
+function SelectedCardPanel({
+  selectedCard,
+  selectedEvents,
+  eventsLoading,
+  isSmallScreen,
+}: SelectedCardPanelProps) {
+  if (!selectedCard) {
+    return (
+      <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface px-4 py-12 text-center text-sm text-app-text-muted">
+        Select a gift card to view balance details and recent activity.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+          Selected card
+        </p>
+        <p className="mt-1 font-mono text-lg font-black tracking-tight text-app-accent">
+          {selectedCard.code}
+        </p>
+        <p className="mt-1 text-xs font-semibold text-app-text-muted">
+          {KIND_LABELS[selectedCard.card_kind] ?? selectedCard.card_kind}
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3 text-xs">
+        <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>
+          <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmt(selectedCard.current_balance)}</p>
+        </div>
+        <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Original</p>
+          <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmt(selectedCard.original_value)}</p>
+        </div>
+      </div>
+
+      <div className="grid gap-2 text-xs text-app-text">
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+          <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Status</span>
+          <span className="font-bold">{selectedCard.card_status}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+          <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Expires</span>
+          <span className="font-bold">{fmtDate(selectedCard.expires_at)}</span>
+        </div>
+        <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
+          <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Tracked to</span>
+          <span className="font-bold text-right">{selectedCard.customer_name ?? "—"}</span>
+        </div>
+      </div>
+
+      {selectedCard.notes ? (
+        <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Notes</p>
+          <p className="mt-1 text-xs font-semibold text-app-text">{selectedCard.notes}</p>
+        </div>
+      ) : null}
+
+      <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            Recent activity
+          </p>
+          {eventsLoading ? (
+            <span className="text-[10px] font-semibold text-app-text-muted">Loading…</span>
+          ) : null}
+        </div>
+        {selectedEvents.length === 0 ? (
+          <p className="text-xs text-app-text-muted">
+            No activity has been recorded for this card yet.
+          </p>
+        ) : (
+          <ul className={isSmallScreen ? "space-y-2" : "max-h-[24rem] space-y-2 overflow-y-auto pr-1"}>
+            {selectedEvents.map((event) => (
+              <li
+                key={event.id}
+                className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs font-black text-app-text">
+                      {giftCardEventLabel(event.event_kind)}
+                    </p>
+                    <p className="mt-1 text-[10px] text-app-text-muted">
+                      {fmtDateTime(event.created_at)}
+                      {event.transaction_id ? ` · sale ${event.transaction_id.slice(0, 8)}…` : ""}
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-xs font-black tabular-nums text-app-text">
+                      {parseMoneyToCents(event.amount) < 0 ? "-" : "+"}
+                      {fmt(event.amount)}
+                    </p>
+                    <p className="text-[10px] font-semibold text-app-text-muted">
+                      Balance {fmt(event.balance_after)}
+                    </p>
+                  </div>
+                </div>
+                {event.notes ? (
+                  <p className="mt-2 text-[10px] text-app-text-muted">{event.notes}</p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
 }
 
 interface IssueFormProps {
@@ -173,6 +294,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
   const [selectedEvents, setSelectedEvents] = useState<GiftCardEventRow[]>([]);
   const [eventsLoading, setEventsLoading] = useState(false);
   const { toast } = useToast();
+  const isSmallScreen = useMediaQuery("(max-width: 1023px)");
 
   const stats = useMemo(() => ({
     openCount: summary?.open_cards_count ?? 0,
@@ -296,7 +418,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
 
   return (
     <div className="flex flex-1 flex-col bg-transparent">
-      <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
+      <div className="no-scrollbar flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2">
         {[
           {
             label: "Open Cards",
@@ -335,7 +457,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             trend: "community",
           },
         ].map((s, idx) => (
-          <div key={idx} className={`flex min-w-[240px] flex-1 items-center gap-5 rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl relative overflow-hidden group hover:scale-[1.02] transition-transform duration-500`}>
+          <div key={idx} className={`group relative flex min-w-[210px] flex-1 items-center gap-5 overflow-hidden rounded-[28px] border ${s.border} ${s.bg} p-5 shadow-sm backdrop-blur-3xl transition-transform duration-500 hover:scale-[1.02] sm:min-w-[240px]`}>
             <div className="absolute top-0 right-0 p-4 opacity-[0.03] group-hover:opacity-[0.07] transition-opacity duration-700">
                <s.icon size={80} />
             </div>
@@ -353,10 +475,10 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
         ))}
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
+      <div className="flex flex-1 flex-col p-4 sm:p-6 sm:pt-4 animate-workspace-snap">
+        <div className="flex flex-1 flex-col rounded-[24px] border border-app-border bg-app-surface shadow-2xl">
           <div className="border-b border-app-border px-6 py-5 bg-app-surface-2/10 backdrop-blur-md">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-500/10 text-emerald-600 ring-1 ring-emerald-500/20">
                   <BadgeDollarSign className="h-5 w-5" />
@@ -371,7 +493,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
                   </p>
                 </div>
               </div>
-              <button onClick={load} className="group flex items-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm hover:bg-app-surface-2 transition-all">
+              <button onClick={load} className="group flex w-full items-center justify-center gap-2 rounded-xl border border-app-border/50 bg-app-surface px-4 py-2 text-[10px] font-black uppercase tracking-widest shadow-sm transition-all hover:bg-app-surface-2 sm:w-auto">
                 <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin text-emerald-500" : "text-app-text-muted group-hover:text-emerald-500"}`} />
                 Refresh Cards
               </button>
@@ -401,7 +523,7 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto p-4">
+          <div className="p-4 sm:p-5">
         {loading ? (
           <p className="py-12 text-center text-sm text-app-text-muted">Loading…</p>
         ) : cards.length === 0 ? (
@@ -411,8 +533,87 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             <p className="text-xs text-app-text-muted">Purchased gift cards are sold from Register. Use Issue Donated for approved giveaway cards.</p>
           </div>
         ) : (
-          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.9fr)]">
-          <table className="w-full text-sm">
+          <div className={isSmallScreen ? "space-y-3" : "grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_minmax(20rem,0.9fr)]"}>
+          {isSmallScreen ? (
+            <div data-testid="gift-cards-card-list" className="space-y-3">
+              {cards.map((c) => {
+                const selected = selectedCardId === c.id;
+                return (
+                  <article
+                    key={c.id}
+                    className={`rounded-[20px] border p-4 transition-colors ${
+                      selected
+                        ? "border-app-accent bg-app-accent/5"
+                        : "border-app-border bg-app-surface-2/50"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <button
+                        type="button"
+                        className="min-w-0 text-left"
+                        onClick={() => setSelectedCardId(c.id)}
+                      >
+                        <p className="font-mono text-sm font-black tracking-tight text-app-accent">{c.code}</p>
+                        <p className="mt-1 text-[10px] font-semibold uppercase tracking-wider text-app-text-muted">
+                          {KIND_LABELS[c.card_kind] ?? c.card_kind}
+                        </p>
+                      </button>
+                      {c.card_status === "active" ? (
+                        <button
+                          type="button"
+                          onClick={() => initiateVoid(c.id)}
+                          disabled={voidingId === c.id}
+                          className="rounded-lg p-2 text-app-text-muted hover:bg-app-danger/10 hover:text-app-danger transition-all"
+                          title="Void card"
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <div className="rounded-xl border border-app-border bg-app-surface px-2.5 py-2">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-app-text-muted">Balance</p>
+                        <p className="mt-1 font-black tabular-nums text-app-text">{fmt(c.current_balance)}</p>
+                      </div>
+                      <div className="rounded-xl border border-app-border bg-app-surface px-2.5 py-2">
+                        <p className="text-[10px] font-black uppercase tracking-wide text-app-text-muted">Original</p>
+                        <p className="mt-1 font-black tabular-nums text-app-text">{fmt(c.original_value)}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-2 grid gap-1.5 text-[11px] text-app-text">
+                      <p className="flex justify-between gap-2">
+                        <span className="font-semibold text-app-text-muted">Status</span>
+                        <span className="font-black">{c.card_status}</span>
+                      </p>
+                      <p className="flex justify-between gap-2">
+                        <span className="font-semibold text-app-text-muted">Expires</span>
+                        <span className="font-black">{fmtDate(c.expires_at)}</span>
+                      </p>
+                      <p className="flex justify-between gap-2">
+                        <span className="font-semibold text-app-text-muted">Customer</span>
+                        <span className="truncate font-black">{c.customer_name ?? "—"}</span>
+                      </p>
+                    </div>
+
+                    {selected ? (
+                      <div className="mt-3 border-t border-app-border pt-3">
+                        <SelectedCardPanel
+                          selectedCard={c}
+                          selectedEvents={selectedEvents}
+                          eventsLoading={eventsLoading}
+                          isSmallScreen={isSmallScreen}
+                        />
+                      </div>
+                    ) : null}
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            <>
+          <table data-testid="gift-cards-table" className="w-full text-sm">
             <thead>
               <tr className="border-b border-app-border text-left">
                 <th className="pb-3 pr-4 text-[10px] font-black uppercase tracking-widest text-app-text-muted">Code</th>
@@ -476,108 +677,15 @@ export default function GiftCardsWorkspace({ activeSection }: { activeSection: s
             </tbody>
           </table>
           <aside className="rounded-[24px] border border-app-border bg-app-surface-2/70 p-4 shadow-sm">
-            {selectedCard ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Selected card
-                  </p>
-                  <p className="mt-1 font-mono text-lg font-black tracking-tight text-app-accent">
-                    {selectedCard.code}
-                  </p>
-                  <p className="mt-1 text-xs font-semibold text-app-text-muted">
-                    {KIND_LABELS[selectedCard.card_kind] ?? selectedCard.card_kind}
-                  </p>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3 text-xs">
-                  <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Balance</p>
-                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmt(selectedCard.current_balance)}</p>
-                  </div>
-                  <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Original</p>
-                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">{fmt(selectedCard.original_value)}</p>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 text-xs text-app-text">
-                  <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
-                    <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Status</span>
-                    <span className="font-bold">{selectedCard.card_status}</span>
-                  </div>
-                  <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
-                    <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Expires</span>
-                    <span className="font-bold">{fmtDate(selectedCard.expires_at)}</span>
-                  </div>
-                  <div className="flex items-start justify-between gap-3 rounded-2xl border border-app-border bg-app-surface px-3 py-2">
-                    <span className="font-black uppercase tracking-widest text-[10px] text-app-text-muted">Tracked to</span>
-                    <span className="font-bold text-right">{selectedCard.customer_name ?? "—"}</span>
-                  </div>
-                </div>
-
-                {selectedCard.notes ? (
-                  <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Notes</p>
-                    <p className="mt-1 text-xs font-semibold text-app-text">{selectedCard.notes}</p>
-                  </div>
-                ) : null}
-
-                <div className="rounded-2xl border border-app-border bg-app-surface px-3 py-3">
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                      Recent activity
-                    </p>
-                    {eventsLoading ? (
-                      <span className="text-[10px] font-semibold text-app-text-muted">Loading…</span>
-                    ) : null}
-                  </div>
-                  {selectedEvents.length === 0 ? (
-                    <p className="text-xs text-app-text-muted">
-                      No activity has been recorded for this card yet.
-                    </p>
-                  ) : (
-                    <ul className="max-h-[24rem] space-y-2 overflow-y-auto pr-1">
-                      {selectedEvents.map((event) => (
-                        <li
-                          key={event.id}
-                          className="rounded-xl border border-app-border bg-app-surface-2 px-3 py-2"
-                        >
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-xs font-black text-app-text">
-                                {giftCardEventLabel(event.event_kind)}
-                              </p>
-                              <p className="mt-1 text-[10px] text-app-text-muted">
-                                {fmtDateTime(event.created_at)}
-                                {event.transaction_id ? ` · sale ${event.transaction_id.slice(0, 8)}…` : ""}
-                              </p>
-                            </div>
-                            <div className="shrink-0 text-right">
-                              <p className="text-xs font-black tabular-nums text-app-text">
-                                {parseMoneyToCents(event.amount) < 0 ? "-" : "+"}
-                                {fmt(event.amount)}
-                              </p>
-                              <p className="text-[10px] font-semibold text-app-text-muted">
-                                Balance {fmt(event.balance_after)}
-                              </p>
-                            </div>
-                          </div>
-                          {event.notes ? (
-                            <p className="mt-2 text-[10px] text-app-text-muted">{event.notes}</p>
-                          ) : null}
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="flex h-full items-center justify-center rounded-2xl border border-dashed border-app-border bg-app-surface px-4 py-12 text-center text-sm text-app-text-muted">
-                Select a gift card to view balance details and recent activity.
-              </div>
-            )}
+            <SelectedCardPanel
+              selectedCard={selectedCard}
+              selectedEvents={selectedEvents}
+              eventsLoading={eventsLoading}
+              isSmallScreen={isSmallScreen}
+            />
           </aside>
+          </>
+          )}
           </div>
         )}
       </div>

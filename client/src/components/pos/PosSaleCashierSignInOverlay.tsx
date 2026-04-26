@@ -69,8 +69,8 @@ export default function PosSaleCashierSignInOverlay({
       aria-modal="true"
       aria-labelledby="pos-sale-cashier-title"
     >
-      <div className="w-full max-w-md overflow-hidden rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
-        <div className="relative border-b border-app-border bg-app-surface-2 px-8 py-6 text-center">
+      <div className="max-h-[calc(100dvh-2rem)] w-full max-w-md overflow-y-auto rounded-[32px] border border-app-border/40 bg-app-surface shadow-2xl">
+        <div className="relative border-b border-app-border bg-app-surface-2 px-5 py-5 text-center sm:px-8 sm:py-6">
           {onCancel && (
             <button
               type="button"
@@ -94,7 +94,7 @@ export default function PosSaleCashierSignInOverlay({
             Sign-in for this sale
           </h1>
         </div>
-        <div className="space-y-6 px-8 py-8">
+        <div className="space-y-5 px-5 py-5 sm:space-y-6 sm:px-8 sm:py-8">
           {error ? (
             <p className="rounded-2xl border border-app-danger/20 bg-app-danger/5 px-4 py-3 text-center text-xs font-bold text-app-danger">
               {error}

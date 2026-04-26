@@ -75,15 +75,15 @@ export default function RegisterSettings({
   };
 
   return (
-    <div className="flex h-full flex-col bg-app-bg text-app-text">
-      <header className="shrink-0 border-b border-app-border bg-app-surface px-8 py-6 shadow-sm">
+    <div className="flex min-h-0 flex-1 flex-col bg-app-bg text-app-text">
+      <header className="shrink-0 border-b border-app-border bg-app-surface px-4 py-4 shadow-sm sm:px-8 sm:py-6">
         <h2 className="text-2xl font-black tracking-tight italic">Terminal Overrides</h2>
         <p className="text-xs font-semibold uppercase tracking-widest text-app-text-muted mt-1">
           Hardware Bridging & Device Logic
         </p>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-8 space-y-10 no-scrollbar">
+      <div className="no-scrollbar flex-1 overflow-y-auto p-4 space-y-8 sm:p-8 sm:space-y-10">
         <div className="mx-auto max-w-3xl space-y-12 pb-20">
           
 

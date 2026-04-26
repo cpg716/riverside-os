@@ -153,12 +153,12 @@ export default function PosSuitSwapWizard({
 
   return (
     <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[80] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4"
       role="dialog"
       aria-modal="true"
       aria-label="Suit swap wizard"
     >
-      <div className="ui-card flex max-h-[min(640px,90vh)] w-full max-w-lg flex-col overflow-hidden border border-app-border bg-app-surface shadow-xl">
+      <div className="ui-card flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-xl sm:max-h-[min(640px,90vh)] sm:max-w-lg sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-app-border px-4 py-3">
           <div className="flex items-center gap-2">
             <Shirt className="h-5 w-5 text-emerald-600" />

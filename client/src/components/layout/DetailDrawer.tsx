@@ -62,7 +62,7 @@ export default function DetailDrawer({
   return createPortal(
     <div
       ref={dialogRef}
-      className="fixed inset-0 z-[100] flex justify-end overflow-hidden font-sans outline-none"
+      className="fixed inset-0 z-[100] flex items-end justify-end overflow-hidden font-sans outline-none sm:items-stretch"
       role="dialog"
       aria-modal="true"
       aria-labelledby={title ? titleId : undefined}
@@ -77,7 +77,7 @@ export default function DetailDrawer({
       />
 
       <div
-        className={`relative flex h-full w-full ${panelMaxClassName} animate-[drawerSlide_0.22s_ease-out] flex-col border-l border-app-border bg-app-surface shadow-[0_24px_60px_-34px_rgba(20,20,20,0.45)]`}
+        className={`relative flex h-[92vh] w-full ${panelMaxClassName} animate-[drawerRise_0.22s_ease-out] flex-col rounded-t-2xl border border-app-border bg-app-surface shadow-[0_24px_60px_-34px_rgba(20,20,20,0.45)] sm:h-full sm:animate-[drawerSlide_0.22s_ease-out] sm:rounded-none sm:border-y-0 sm:border-r-0 sm:border-l`}
       >
         {title && (
           <header className={`shrink-0 border-b border-app-border bg-app-surface-2 ${subtitle ? 'px-4 py-4 sm:px-6' : 'px-4 py-3 sm:px-6'}`}>
@@ -128,6 +128,10 @@ export default function DetailDrawer({
         @keyframes drawerSlide {
           from { transform: translateX(100%); opacity: 0.95; }
           to { transform: translateX(0); opacity: 1; }
+        }
+        @keyframes drawerRise {
+          from { transform: translateY(100%); opacity: 0.95; }
+          to { transform: translateY(0); opacity: 1; }
         }
       `}</style>
     </div>,

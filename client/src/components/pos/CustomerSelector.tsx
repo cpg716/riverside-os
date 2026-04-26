@@ -322,7 +322,7 @@ export default function CustomerSelector({
                   <span className="text-[10px] font-bold tabular-nums tracking-widest">{selectedCustomer.phone}</span>
                 )}
                 {selectedCustomer.email && (
-                  <span className="text-[10px] font-bold truncate max-w-[140px] italic">{selectedCustomer.email}</span>
+                  <span className="max-w-[120px] truncate text-[10px] font-bold italic sm:max-w-[180px]">{selectedCustomer.email}</span>
                 )}
               </div>
             </div>
@@ -349,7 +349,7 @@ export default function CustomerSelector({
                   className="inline-flex items-center gap-1 rounded-lg bg-app-surface/95 px-2 py-1.5 text-left text-[11px] font-bold text-blue-900 shadow-sm hover:bg-app-surface dark:text-sky-100"
                 >
                   <Gem size={12} className="shrink-0 text-app-accent" />
-                  <span className="max-w-[140px] truncate">{w.party_name}</span>
+                  <span className="max-w-[120px] truncate sm:max-w-[180px]">{w.party_name}</span>
                   <span className="text-app-text-muted">\u00b7 {w.event_date}</span>
                 </button>
               ))}
@@ -377,8 +377,8 @@ export default function CustomerSelector({
           />
 
           {query.trim().length >= 2 && (
-            <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-[min(70vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38]">
-               <div className="max-h-[min(65vh,26rem)] overflow-y-auto no-scrollbar">
+            <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38]">
+               <div className="max-h-[min(72vh,26rem)] overflow-y-auto no-scrollbar">
                {showWalkInOption && (
                  <button
                    type="button"

@@ -358,7 +358,7 @@ export default function RegisterLookupHub({
         </form>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-4 sm:px-6">
         {tab === "giftcard" && (
           <div className="mb-8">
             <div className="mb-2 flex items-center justify-between gap-2">
@@ -382,53 +382,82 @@ export default function RegisterLookupHub({
                 to view history).
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-app-border">
-                <table className="w-full min-w-[520px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-app-border bg-app-surface-2">
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Code
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Kind
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Balance
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Expires
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Tracked to
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border/40">
-                    {openCards.map((r) => (
-                      <tr key={r.id} className="hover:bg-app-accent/5">
-                        <td className="px-3 py-2 font-mono text-xs font-black text-app-accent">
-                          {r.code}
-                        </td>
-                        <td className="px-3 py-2 text-xs font-semibold text-app-text-muted">
-                          {KIND_LABELS[r.card_kind] ?? r.card_kind}
-                        </td>
-                        <td className="px-3 py-2 font-black tabular-nums text-app-text">
+              <div>
+                <div className="space-y-2.5 sm:hidden">
+                  {openCards.map((r) => (
+                    <article
+                      key={r.id}
+                      className="rounded-xl border border-app-border bg-app-surface p-3 shadow-sm"
+                    >
+                      <div className="mb-2 flex items-start justify-between gap-2">
+                        <p className="font-mono text-xs font-black text-app-accent">{r.code}</p>
+                        <p className="text-lg font-black tabular-nums text-app-text">
                           ${centsToFixed2(parseMoneyToCents(r.current_balance))}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-app-text-muted whitespace-nowrap">
-                          {r.expires_at
-                            ? new Date(r.expires_at).toLocaleDateString()
-                            : "—"}
-                        </td>
-                        <td className="max-w-[140px] truncate px-3 py-2 text-xs text-app-text-muted">
-                          {r.card_kind === "purchased"
-                            ? "—"
-                            : (r.customer_name ?? "—")}
-                        </td>
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-app-text-muted">
+                        <p>
+                          <span className="font-black uppercase tracking-wide text-app-text">Kind:</span>{" "}
+                          {KIND_LABELS[r.card_kind] ?? r.card_kind}
+                        </p>
+                        <p className="text-right">
+                          <span className="font-black uppercase tracking-wide text-app-text">Expires:</span>{" "}
+                          {r.expires_at ? new Date(r.expires_at).toLocaleDateString() : "—"}
+                        </p>
+                        <p className="col-span-2 truncate">
+                          <span className="font-black uppercase tracking-wide text-app-text">
+                            Tracked:
+                          </span>{" "}
+                          {r.card_kind === "purchased" ? "—" : (r.customer_name ?? "—")}
+                        </p>
+                      </div>
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto rounded-xl border border-app-border sm:block">
+                  <table className="w-full min-w-[520px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-app-border bg-app-surface-2">
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Code
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Kind
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Balance
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Expires
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Tracked to
+                        </th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-app-border/40">
+                      {openCards.map((r) => (
+                        <tr key={r.id} className="hover:bg-app-accent/5">
+                          <td className="px-3 py-2 font-mono text-xs font-black text-app-accent">
+                            {r.code}
+                          </td>
+                          <td className="px-3 py-2 text-xs font-semibold text-app-text-muted">
+                            {KIND_LABELS[r.card_kind] ?? r.card_kind}
+                          </td>
+                          <td className="px-3 py-2 font-black tabular-nums text-app-text">
+                            ${centsToFixed2(parseMoneyToCents(r.current_balance))}
+                          </td>
+                          <td className="whitespace-nowrap px-3 py-2 text-xs text-app-text-muted">
+                            {r.expires_at ? new Date(r.expires_at).toLocaleDateString() : "—"}
+                          </td>
+                          <td className="max-w-[140px] truncate px-3 py-2 text-xs text-app-text-muted">
+                            {r.card_kind === "purchased" ? "—" : (r.customer_name ?? "—")}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
             <p className="mt-2 text-[10px] leading-snug text-app-text-muted">
@@ -472,44 +501,75 @@ export default function RegisterLookupHub({
                 No customers are at the threshold yet.
               </p>
             ) : (
-              <div className="overflow-x-auto rounded-xl border border-app-border">
-                <table className="w-full min-w-[480px] text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-app-border bg-app-surface-2">
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Name
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Points
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
-                        Phone
-                      </th>
-                      <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted"></th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-app-border/40">
-                    {eligible.map((c) => (
-                      <tr key={c.id} className="hover:bg-app-accent/5">
-                        <td className="px-3 py-2 font-bold text-app-text">{loyaltyEligibleDisplayName(c)}</td>
-                        <td className="px-3 py-2 font-black tabular-nums text-app-accent">
+              <div>
+                <div className="space-y-2.5 sm:hidden">
+                  {eligible.map((c) => (
+                    <article
+                      key={c.id}
+                      className="rounded-xl border border-app-border bg-app-surface p-3 shadow-sm"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold text-app-text">{loyaltyEligibleDisplayName(c)}</p>
+                          <p className="text-xs text-app-text-muted">{c.phone ?? "No phone on file"}</p>
+                        </div>
+                        <p className="text-right text-lg font-black tabular-nums text-app-accent">
                           {c.loyalty_points.toLocaleString()}
-                        </td>
-                        <td className="px-3 py-2 text-xs text-app-text-muted">{c.phone ?? "—"}</td>
-                        <td className="px-3 py-2 text-right">
-                          <button
-                            type="button"
-                            disabled={!loyaltySummary}
-                            onClick={() => setRedeemCustomer(c)}
-                            className="rounded-lg border border-emerald-600/30 bg-emerald-600/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-200 disabled:opacity-50 touch-manipulation"
-                          >
-                            Redeem
-                          </button>
-                        </td>
+                          <span className="ml-1 text-[10px] font-bold uppercase text-app-text-muted">
+                            pts
+                          </span>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={!loyaltySummary}
+                        onClick={() => setRedeemCustomer(c)}
+                        className="mt-3 w-full rounded-lg border border-emerald-600/30 bg-emerald-600/15 px-3 py-2 text-[10px] font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-200 disabled:opacity-50 touch-manipulation"
+                      >
+                        Redeem
+                      </button>
+                    </article>
+                  ))}
+                </div>
+                <div className="hidden overflow-x-auto rounded-xl border border-app-border sm:block">
+                  <table className="w-full min-w-[480px] text-left text-sm">
+                    <thead>
+                      <tr className="border-b border-app-border bg-app-surface-2">
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Name
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Points
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted">
+                          Phone
+                        </th>
+                        <th className="px-3 py-2 text-[9px] font-black uppercase tracking-wider text-app-text-muted"></th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    </thead>
+                    <tbody className="divide-y divide-app-border/40">
+                      {eligible.map((c) => (
+                        <tr key={c.id} className="hover:bg-app-accent/5">
+                          <td className="px-3 py-2 font-bold text-app-text">{loyaltyEligibleDisplayName(c)}</td>
+                          <td className="px-3 py-2 font-black tabular-nums text-app-accent">
+                            {c.loyalty_points.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2 text-xs text-app-text-muted">{c.phone ?? "—"}</td>
+                          <td className="px-3 py-2 text-right">
+                            <button
+                              type="button"
+                              disabled={!loyaltySummary}
+                              onClick={() => setRedeemCustomer(c)}
+                              className="rounded-lg border border-emerald-600/30 bg-emerald-600/15 px-3 py-1.5 text-[10px] font-black uppercase tracking-wide text-emerald-800 dark:text-emerald-200 disabled:opacity-50 touch-manipulation"
+                            >
+                              Redeem
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
             <p className="mt-2 text-[10px] text-app-text-muted">
@@ -531,7 +591,7 @@ export default function RegisterLookupHub({
             <p className="text-center text-sm font-bold text-app-text">
               Multiple customers match — pick one
             </p>
-            <ul className="max-h-[min(60vh,24rem)] space-y-2 overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-3">
+            <ul className="space-y-2 rounded-2xl border border-app-border bg-app-surface p-3 sm:max-h-[min(60vh,24rem)] sm:overflow-y-auto">
               {customerPickList.map((h) => (
                 <li key={h.id}>
                   <button
@@ -662,7 +722,7 @@ export default function RegisterLookupHub({
                   <History className="h-4 w-4" />
                   Historical activity
                 </h3>
-                <ul className="max-h-[min(50vh,22rem)] space-y-2 overflow-y-auto">
+                <ul className="space-y-2 sm:max-h-[min(50vh,22rem)] sm:overflow-y-auto">
                   {giftEvents.map((h) => (
                     <li
                       key={h.id}

@@ -11,6 +11,7 @@ import {
   type ReportUrlContext,
 } from "../../lib/reportsCatalog";
 import { openProfessionalTablePrint } from "../pos/zReportPrint";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 
 const baseUrl = getBaseUrl();
 
@@ -76,6 +77,7 @@ export default function ReportsWorkspace({
   onNavigateRegisterReports,
   onNavigateCommissionPayouts,
 }: Props) {
+  const isCompactLayout = useMediaQuery("(max-width: 1023px)");
   const { backofficeHeaders, hasPermission, permissionsLoaded, staffRole } =
     useBackofficeAuth();
   const apiAuth = useCallback(
@@ -262,48 +264,50 @@ export default function ReportsWorkspace({
               <ChevronLeft className="h-4 w-4" aria-hidden />
               Library
             </button>
-            <span className="text-sm font-black text-app-text">{selected.title}</span>
+            <span className="min-w-0 flex-1 basis-full text-sm font-black text-app-text sm:basis-auto">
+              {selected.title}
+            </span>
             <button
               type="button"
               disabled={loading}
               onClick={() => void runLoad(selected)}
-              className="ui-btn-secondary ml-auto inline-flex items-center gap-1 rounded-xl px-3 py-2 text-xs font-bold uppercase"
+              className="ui-btn-secondary inline-flex w-full items-center justify-center gap-1 rounded-xl px-3 py-2 text-xs font-bold uppercase sm:ml-auto sm:w-auto"
             >
               <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} aria-hidden />
               Refresh
             </button>
           </div>
 
-          <div className="flex flex-wrap items-end gap-3">
+          <div data-testid="reports-detail-filters" className="flex flex-wrap items-end gap-3">
             {showRange ? (
               <>
-                <label className="flex flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted">
+                <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
                   From
                   <input
                     type="date"
                     value={from}
                     onChange={(e) => setRange((x) => ({ ...x, from: e.target.value }))}
-                    className="ui-input rounded-xl px-3 py-2 text-sm font-semibold"
+                    className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                   />
                 </label>
-                <label className="flex flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted">
+                <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
                   To
                   <input
                     type="date"
                     value={to}
                     onChange={(e) => setRange((x) => ({ ...x, to: e.target.value }))}
-                    className="ui-input rounded-xl px-3 py-2 text-sm font-semibold"
+                    className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                   />
                 </label>
               </>
             ) : null}
             {showBasis ? (
-              <label className="flex flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted">
+              <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
                 Basis
                 <select
                   value={basis}
                   onChange={(e) => setBasis(e.target.value)}
-                  className="ui-input rounded-xl px-3 py-2 text-sm font-semibold"
+                  className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                 >
                   <option value="booked">Booked (sale date)</option>
                   <option value="completed">Completed (recognition)</option>
@@ -311,12 +315,12 @@ export default function ReportsWorkspace({
               </label>
             ) : null}
             {showGroup ? (
-              <label className="flex flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted">
+              <label className="flex w-full flex-col gap-1 text-[10px] font-black uppercase text-app-text-muted sm:w-auto">
                 Group by
                 <select
                   value={groupBy}
                   onChange={(e) => setGroupBy(e.target.value)}
-                  className="ui-input rounded-xl px-3 py-2 text-sm font-semibold"
+                  className="ui-input w-full rounded-xl px-3 py-2 text-sm font-semibold sm:w-auto"
                 >
                   {PIVOT_GROUP_OPTIONS.map((o) => (
                     <option key={o.id} value={o.id}>
@@ -382,22 +386,42 @@ export default function ReportsWorkspace({
               payload &&
               typeof payload === "object" &&
               !Array.isArray(payload) ? (
-                <div className="overflow-auto rounded-xl border border-app-border">
-                  <table className="w-full min-w-[480px] text-left text-sm">
-                    <tbody>
-                      {Object.entries(payload as Record<string, unknown>).map(([k, v]) => (
-                        <tr key={k} className="border-b border-app-border">
-                          <th className="whitespace-nowrap bg-app-surface-2 px-3 py-2 font-bold text-app-text">
-                            {k}
-                          </th>
-                          <td className="px-3 py-2 font-semibold text-app-text-muted">
-                            {toCellString(v)}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                isCompactLayout ? (
+                  <dl
+                    data-testid="reports-detail-row-object-cards"
+                    className="grid gap-2 sm:grid-cols-2"
+                  >
+                    {Object.entries(payload as Record<string, unknown>).map(([k, v]) => (
+                      <div
+                        key={k}
+                        className="rounded-xl border border-app-border bg-app-surface px-3 py-2"
+                      >
+                        <dt className="text-[10px] font-black uppercase text-app-text-muted">{k}</dt>
+                        <dd className="mt-1 text-sm font-semibold text-app-text">{toCellString(v)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ) : (
+                  <div className="overflow-auto rounded-xl border border-app-border">
+                    <table
+                      data-testid="reports-detail-row-object-table"
+                      className="w-full min-w-[480px] text-left text-sm"
+                    >
+                      <tbody>
+                        {Object.entries(payload as Record<string, unknown>).map(([k, v]) => (
+                          <tr key={k} className="border-b border-app-border">
+                            <th className="whitespace-nowrap bg-app-surface-2 px-3 py-2 font-bold text-app-text">
+                              {k}
+                            </th>
+                            <td className="px-3 py-2 font-semibold text-app-text-muted">
+                              {toCellString(v)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
               ) : null}
 
               {(selected.responseKind === "best_sellers" ||
@@ -465,33 +489,60 @@ export default function ReportsWorkspace({
               ) : null}
 
               {tableRows.length > 0 ? (
-                <div className="overflow-auto rounded-xl border border-app-border">
-                  <table
-                    data-testid="reports-detail-table"
-                    className="w-full min-w-[640px] border-collapse text-left text-xs"
-                  >
-                    <thead>
-                      <tr className="border-b border-app-border bg-app-surface-2">
-                        {keysFromRows(tableRows).map((k) => (
-                          <th key={k} className="whitespace-nowrap px-3 py-2 font-black text-app-text">
-                            {k}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableRows.map((row, i) => (
-                        <tr key={i} className="border-b border-app-border/70">
+                isCompactLayout ? (
+                  <div data-testid="reports-detail-cards" className="space-y-3">
+                    {tableRows.map((row, i) => (
+                      <article
+                        key={i}
+                        className="rounded-xl border border-app-border bg-app-surface px-3 py-3"
+                      >
+                        <dl className="space-y-2">
                           {keysFromRows(tableRows).map((k) => (
-                            <td key={k} className="px-3 py-2 font-semibold text-app-text-muted">
-                              {toCellString(row[k])}
-                            </td>
+                            <div
+                              key={k}
+                              className="grid grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)] items-start gap-2 text-xs"
+                            >
+                              <dt className="truncate font-black uppercase tracking-wide text-app-text-muted">
+                                {k}
+                              </dt>
+                              <dd className="break-all font-semibold text-app-text">
+                                {toCellString(row[k])}
+                              </dd>
+                            </div>
+                          ))}
+                        </dl>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="overflow-auto rounded-xl border border-app-border">
+                    <table
+                      data-testid="reports-detail-table"
+                      className="w-full min-w-[640px] border-collapse text-left text-xs"
+                    >
+                      <thead>
+                        <tr className="border-b border-app-border bg-app-surface-2">
+                          {keysFromRows(tableRows).map((k) => (
+                            <th key={k} className="whitespace-nowrap px-3 py-2 font-black text-app-text">
+                              {k}
+                            </th>
                           ))}
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody>
+                        {tableRows.map((row, i) => (
+                          <tr key={i} className="border-b border-app-border/70">
+                            {keysFromRows(tableRows).map((k) => (
+                              <td key={k} className="px-3 py-2 font-semibold text-app-text-muted">
+                                {toCellString(row[k])}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )
               ) : null}
 
               {selected.responseKind === "row_object" ||

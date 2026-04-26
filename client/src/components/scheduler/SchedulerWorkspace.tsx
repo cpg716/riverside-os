@@ -6,6 +6,7 @@ import ConfirmationModal from '../ui/ConfirmationModal';
 import { formatPhone } from '../../lib/utils.ts';
 import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
+import { useMediaQuery } from '../../hooks/useMediaQuery';
 
 // Helper for formatting dates to match original UX
 const formatApptDate = (date: Date) => {
@@ -39,6 +40,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   onDeepLinkAppointmentConsumed,
 }) => {
   const { backofficeHeaders } = useBackofficeAuth();
+  const isCompactLayout = useMediaQuery("(max-width: 639px)");
   const wmHeaders = useMemo(() => mergedPosStaffHeaders(backofficeHeaders), [backofficeHeaders]);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
@@ -218,8 +220,8 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
   return (
     <div className="flex flex-1 flex-col bg-app-surface">
       {/* Header Controls (1:1 UI/UX Restoration) */}
-      <div className="flex items-center justify-between border-b border-app-border bg-app-surface-2 p-4 no-print">
-        <div className="flex items-center gap-4">
+      <div className="flex flex-col gap-3 border-b border-app-border bg-app-surface-2 p-4 no-print xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
           <div className="flex items-center gap-2">
             <Calendar className="text-app-accent" size={20} />
             <div>
@@ -232,7 +234,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             </div>
           </div>
           
-          <div className="flex items-center bg-app-surface rounded-lg border border-app-border p-1 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-app-border bg-app-surface p-1 shadow-sm">
             <button
               type="button"
               onClick={handlePrev}
@@ -243,7 +245,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             </button>
             <input
               type="date"
-              className="bg-transparent px-3 text-xs font-bold text-app-text outline-none"
+              className="min-w-0 bg-transparent px-3 text-xs font-bold text-app-text outline-none"
               value={selectedDate.toISOString().split('T')[0]}
               onChange={(e) => {
                 if (e.target.value) {
@@ -261,7 +263,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
               <ChevronRight size={16} />
             </button>
             
-            <div className="ml-4 flex rounded-md bg-app-surface-2 p-0.5 border border-app-border">
+            <div className="flex rounded-md border border-app-border bg-app-surface-2 p-0.5">
               <button
                 type="button"
                 onClick={() => setViewMode('day')}
@@ -287,12 +289,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             Today
           </button>
 
-          <div className="relative group/search ml-4">
+          <div className="relative group/search lg:ml-4">
             <Search className={`absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 transition-colors ${searchQuery ? 'text-app-accent' : 'text-app-text-muted'}`} />
             <input
               type="text"
               placeholder="Meilisearch appointments…"
-              className="ui-input h-10 w-64 pl-10 pr-10 text-[11px] font-bold"
+              data-testid="scheduler-search-input"
+              className="ui-input h-10 w-full min-w-0 pl-10 pr-10 text-[11px] font-bold lg:w-64"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onFocus={() => setIsSearching(true)}
@@ -308,7 +311,10 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             )}
 
             {isSearching && searchQuery.trim() && (
-              <div className="absolute top-full left-0 mt-2 w-[400px] max-h-[500px] overflow-y-auto rounded-2xl border border-app-border bg-app-surface shadow-2xl z-[100] p-4 text-left">
+              <div
+                data-testid="scheduler-search-popover"
+                className="absolute top-full left-0 z-[100] mt-2 max-h-[500px] w-[min(96vw,28rem)] overflow-y-auto rounded-2xl border border-app-border bg-app-surface p-4 text-left shadow-2xl sm:w-[min(92vw,400px)]"
+              >
                 <div className="flex items-center justify-between mb-3 px-1">
                   <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Search Results</span>
                   <button onClick={() => setIsSearching(false)} className="text-app-text-muted hover:text-app-text"><X size={14}/></button>
@@ -346,7 +352,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
           </div>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex w-full flex-wrap gap-2 xl:w-auto">
           <button
             type="button"
             onClick={() => window.print()}
@@ -374,7 +380,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
       <div className="flex-1 overflow-auto no-scrollbar bg-app-bg/50 p-4 print:p-0">
         {viewMode === 'day' ? (
           <div className="mx-auto max-w-5xl rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/10 overflow-hidden print:border-0 print:shadow-none">
-            <div className="grid grid-cols-[100px_1fr] divide-y divide-app-border/40">
+            <div className={`grid ${isCompactLayout ? "grid-cols-[72px_1fr]" : "grid-cols-[100px_1fr]"} divide-y divide-app-border/40`}>
               {timeSlots.map(time => {
                 const dateStr = selectedDate.toISOString().split('T')[0];
                 const slotAppts = appointments.filter(a => a.datetime === `${dateStr}T${time}:00`);
@@ -403,10 +409,13 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             </div>
           </div>
         ) : (
-          <div className="w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/10 print:border-0 [-webkit-overflow-scrolling:touch]">
-            <div className="min-w-[720px] overflow-hidden md:min-w-[960px] xl:min-w-[1200px]">
+          <div
+            data-testid="scheduler-week-grid-shell"
+            className="w-full min-w-0 overflow-x-auto overscroll-x-contain rounded-2xl border border-app-border bg-app-surface shadow-2xl shadow-black/10 print:border-0 [-webkit-overflow-scrolling:touch]"
+          >
+            <div className="min-w-[420px] overflow-hidden sm:min-w-[560px] md:min-w-[740px] xl:min-w-[940px]">
              {/* Week Grid Header */}
-             <div className="grid grid-cols-[100px_repeat(7,1fr)] border-b border-app-border bg-app-surface-2 sticky top-0 z-10">
+             <div className={`sticky top-0 z-10 grid ${isCompactLayout ? "grid-cols-[72px_repeat(7,minmax(84px,1fr))]" : "grid-cols-[100px_repeat(7,1fr)]"} border-b border-app-border bg-app-surface-2`}>
                 <div className="p-4 border-r border-app-border/40 bg-app-surface-3"></div>
                 {weekDates.map(date => {
                     const isToday = date.toDateString() === new Date().toDateString();
@@ -424,14 +433,17 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
              </div>
              
              {/* Week Grid Body */}
-             <div className="grid grid-cols-[100px_repeat(7,1fr)] divide-y divide-app-border/40">
+             <div className={`grid ${isCompactLayout ? "grid-cols-[72px_repeat(7,minmax(84px,1fr))]" : "grid-cols-[100px_repeat(7,1fr)]"} divide-y divide-app-border/40`}>
                 {timeSlots.map(time => {
                     const hour = parseInt(time.split(':')[0]);
                     const displayTime = `${hour > 12 ? hour - 12 : hour}:${time.split(':')[1]} ${hour >= 12 ? 'PM' : 'AM'}`;
 
                     return (
                         <React.Fragment key={time}>
-                            <div className="flex items-center justify-end border-r border-app-border/40 bg-app-surface-2 p-4 text-[10px] font-black tracking-widest text-app-text-muted opacity-60 sticky left-0 z-[1]">
+                            <div
+                                data-testid="scheduler-week-time-cell"
+                                className="sticky left-0 z-[1] flex items-center justify-end border-r border-app-border/40 bg-app-surface-2 p-4 text-[10px] font-black tracking-widest text-app-text-muted opacity-60"
+                            >
                                 {displayTime}
                             </div>
                             {weekDates.map(date => {

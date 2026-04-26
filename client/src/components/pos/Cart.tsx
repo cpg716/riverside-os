@@ -1264,14 +1264,11 @@ export default function Cart({
 
   return (
     <div
-      className="relative grid h-full w-full bg-app-bg overflow-hidden"
+      className="relative grid h-full w-full bg-app-bg overflow-y-auto lg:overflow-hidden lg:[grid-template-columns:minmax(0,1fr)_clamp(300px,28vw,376px)]"
       data-testid="pos-register-cart-shell"
       data-sale-hydrated={saleHydrated ? "true" : "false"}
       data-cashier-blocked={!checkoutOperator ? "true" : "false"}
       data-register-ready={saleHydrated && !!checkoutOperator ? "true" : "false"}
-      style={{
-        gridTemplateColumns: "minmax(0, 1fr) clamp(332px, 25vw, 376px)",
-      }}
       onPointerDownCapture={() => onCartInteraction?.()}
       onFocusCapture={() => onCartInteraction?.()}
     >
@@ -1346,7 +1343,7 @@ export default function Cart({
                     className="hidden shrink-0 text-app-accent sm:block"
                     aria-hidden
                   />
-                  <label className="flex min-w-0 max-w-full shrink-0 items-center gap-2 sm:max-w-[min(100%,22.5rem)]">
+                  <label className="flex min-w-0 max-w-full basis-full items-center gap-2 sm:basis-auto sm:max-w-[min(100%,22.5rem)]">
                     <span className="shrink-0 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                       Salesperson
                     </span>
@@ -1361,7 +1358,7 @@ export default function Cart({
                         setPrimarySalespersonId(id);
                       }}
                       placeholder="Select Salesperson..."
-                      className="min-w-[12rem]"
+                      className="w-full sm:min-w-[12rem]"
                     />
                   </label>
                   {lines.some((l) => (l.salesperson_id?.trim() ?? "") !== "") ? (
@@ -1851,7 +1848,7 @@ export default function Cart({
         </div>
 
         {/* ── Keypad — uses all remaining space ── */}
-        <div className="flex min-h-0 flex-1 flex-col px-2.5 pb-2 pt-2">
+        <div className="flex min-h-0 flex-1 flex-col px-2 pb-2 pt-2 sm:px-2.5">
           {/* Display / mode hint */}
           <div className="mb-2 shrink-0 rounded-xl border border-app-border/60 bg-app-surface-2/80 px-3 py-2">
             <p className="text-[9px] font-black uppercase leading-snug tracking-widest text-app-text-muted">
@@ -1862,7 +1859,7 @@ export default function Cart({
                 : "Select a line, then tap Qty or Sale price"}
             </p>
             <p
-              className="mt-0.5 text-right text-xl font-black tabular-nums text-app-text"
+              className="mt-0.5 text-right text-lg font-black tabular-nums text-app-text sm:text-xl"
               aria-live="polite"
             >
               {selectedLineKey ? (keypadBuffer || "0") : "—"}
@@ -1877,17 +1874,17 @@ export default function Cart({
                   type="button"
                   disabled={!selectedLineKey}
                   onClick={() => handleNumpadKey(key)}
-                  className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-xl font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 ${key === "CLEAR" ? "border-app-danger/35 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border/40 bg-app-surface text-app-text hover:bg-app-surface-3"}`}
-                >
-                  {key}
-                </button>
+                className={`flex cursor-pointer items-center justify-center rounded-xl border-b-4 text-lg font-black transition-all duration-150 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl ${key === "CLEAR" ? "border-app-danger/35 bg-app-danger/10 text-app-danger hover:bg-app-danger/18 focus-visible:ring-app-danger/20" : "border-app-border/40 bg-app-surface text-app-text hover:bg-app-surface-3"}`}
+              >
+                {key}
+              </button>
               ))}
               {/* Row 5: %, $, Apply */}
               <button
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("%")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-xl font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-lg font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl"
               >
                 %
               </button>
@@ -1895,7 +1892,7 @@ export default function Cart({
                 type="button"
                 disabled={!selectedLineKey}
                 onClick={() => handleNumpadKey("$")}
-                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-xl font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35"
+                className="flex cursor-pointer items-center justify-center rounded-xl border-b-4 border-app-info bg-app-info text-lg font-black text-white shadow-xl shadow-app-info/20 transition-all duration-150 hover:brightness-110 active:translate-y-0.5 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-info/25 disabled:cursor-not-allowed disabled:opacity-35 sm:text-xl"
               >
                 $
               </button>
@@ -1967,13 +1964,13 @@ export default function Cart({
              }}
              className={`ui-touch-target group relative flex h-[4.25rem] w-full items-center justify-between rounded-2xl border-b-[6px] transition-all duration-150 active:translate-y-0.5 active:scale-[0.98] shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-success/25 ${hasCheckoutWork ? 'bg-app-success border-app-success text-white hover:brightness-110 shadow-app-success/40' : 'bg-app-surface-2 border-app-border text-app-text-muted cursor-not-allowed opacity-50'}`}
            >
-             <div className="flex flex-col items-start pl-5">
+             <div className="flex flex-col items-start pl-3 sm:pl-5">
                 <span className="text-[9px] font-black uppercase tracking-[0.28em] opacity-70">
                   {selectedCustomer ? `${selectedCustomer.first_name} ${selectedCustomer.last_name} — Pay` : "Walk-in — Pay"}
                 </span>
-                <span className="text-3xl font-black tabular-nums tracking-tighter italic">${centsToFixed2(totals.totalCents)}</span>
+                <span className="text-2xl font-black tabular-nums tracking-tighter italic sm:text-3xl">${centsToFixed2(totals.totalCents)}</span>
              </div>
-             <div className="mr-4 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-white/20 transition-transform group-hover:scale-105">
+             <div className="mr-2 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/20 transition-transform group-hover:scale-105 sm:mr-4 sm:h-11 sm:w-11">
                 <span className="text-lg font-black uppercase italic">Pay</span>
              </div>
            </button>
@@ -1981,9 +1978,9 @@ export default function Cart({
       </aside>
 
       {editingOrderPaymentLine ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:px-4">
           <div
-            className="w-full max-w-sm rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+            className="w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-sm sm:rounded-2xl"
             data-testid="pos-order-payment-edit-modal"
           >
             <div className="mb-4 flex items-center justify-between gap-3">
@@ -2141,7 +2138,7 @@ export default function Cart({
         variant="info"
       />
       {parkedListOpen ? (
-        <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 font-sans">
+        <div className="fixed inset-0 z-[110] flex items-end justify-center p-0 font-sans sm:items-center sm:p-4">
           <button
             type="button"
             className="absolute inset-0 bg-black/50"
@@ -2149,7 +2146,7 @@ export default function Cart({
             aria-label="Close parked sales"
           />
           <div
-            className="relative flex max-h-[min(560px,85vh)] w-full max-w-md flex-col overflow-hidden rounded-2xl border border-app-border bg-app-surface shadow-2xl"
+            className="relative flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[min(560px,85vh)] sm:max-w-md sm:rounded-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="parked-sales-title"
@@ -2235,7 +2232,7 @@ export default function Cart({
         </div>
       ) : null}
       {parkedCustomerPrompt ? (
-        <div className="fixed inset-0 z-[115] flex items-center justify-center p-4 font-sans">
+        <div className="fixed inset-0 z-[115] flex items-end justify-center p-0 font-sans sm:items-center sm:p-4">
           <button
             type="button"
             className="absolute inset-0 bg-black/50"
@@ -2243,7 +2240,7 @@ export default function Cart({
             aria-label="Dismiss parked sale prompt"
           />
           <div
-            className="relative w-full max-w-md rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+            className="relative w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-md sm:rounded-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="parked-customer-prompt-title"

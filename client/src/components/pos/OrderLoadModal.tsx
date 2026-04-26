@@ -222,8 +222,8 @@ export default function OrderLoadModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-      <div className="flex w-[min(920px,calc(100vw-2rem))] max-h-[84vh] flex-col rounded-2xl border border-app-border bg-app-surface shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4">
+      <div className="flex max-h-[96dvh] w-full max-w-none flex-col rounded-t-3xl border border-app-border bg-app-surface shadow-2xl sm:max-h-[84vh] sm:w-[min(920px,calc(100vw-2rem))] sm:rounded-2xl">
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Package size={20} className="text-blue-600" />
@@ -239,7 +239,7 @@ export default function OrderLoadModal({
           <span className="font-medium text-app-text">{customerName}</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4">
+        <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
               <span className="animate-pulse text-app-text-muted">Loading orders...</span>
@@ -409,9 +409,9 @@ export default function OrderLoadModal({
         </div>
       </div>
       {paymentOrder ? (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 px-4 backdrop-blur-sm">
+        <div className="fixed inset-0 z-[60] flex items-end justify-center bg-black/40 p-0 backdrop-blur-sm sm:items-center sm:px-4">
           <div
-            className="w-full max-w-sm rounded-2xl border border-app-border bg-app-surface p-5 shadow-2xl"
+            className="w-full max-w-none rounded-t-3xl border border-app-border bg-app-surface p-5 shadow-2xl sm:max-w-sm sm:rounded-2xl"
             data-testid="pos-order-payment-entry-modal"
           >
             <div className="mb-4 flex items-center justify-between gap-3">

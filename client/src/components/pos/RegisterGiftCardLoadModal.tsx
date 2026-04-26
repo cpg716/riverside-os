@@ -185,14 +185,14 @@ export default function RegisterGiftCardLoadModal({
       : "—";
 
   return (
-    <div className="ui-overlay-backdrop">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-4">
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
         tabIndex={-1}
-        className="ui-modal flex max-h-[90vh] w-[min(44rem,calc(100vw-1.25rem))] max-w-none flex-col overflow-hidden outline-none"
+        className="ui-modal flex max-h-[96dvh] w-full max-w-none flex-col overflow-hidden rounded-t-3xl outline-none sm:max-h-[90vh] sm:w-[min(44rem,calc(100vw-1.25rem))] sm:rounded-3xl"
       >
         <div className="flex shrink-0 items-center justify-between border-b border-app-border/70 bg-app-surface-2 px-5 py-4">
           <div className="flex items-center gap-3">
@@ -222,7 +222,7 @@ export default function RegisterGiftCardLoadModal({
           </button>
         </div>
 
-        <div className="grid flex-1 grid-cols-1 gap-5 overflow-hidden p-5 sm:grid-cols-2 sm:gap-6 sm:p-6">
+        <div className="grid flex-1 grid-cols-1 gap-5 overflow-y-auto p-4 sm:grid-cols-2 sm:gap-6 sm:overflow-hidden sm:p-6">
           <div className="flex min-h-0 flex-col gap-3">
             <p className="text-xs leading-snug text-app-text-muted">
               Key the value, then scan the card. Complete checkout to activate
@@ -304,7 +304,7 @@ export default function RegisterGiftCardLoadModal({
               </p>
             </div>
 
-            <div className="ui-panel ui-tint-success flex min-h-[8.5rem] flex-1 flex-col p-4">
+            <div className="ui-panel ui-tint-success flex min-h-[8.5rem] flex-1 flex-col p-3.5 sm:p-4">
               <p className="mb-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
                 Card data (before checkout)
               </p>

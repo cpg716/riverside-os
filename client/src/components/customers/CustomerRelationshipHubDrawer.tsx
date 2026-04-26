@@ -32,6 +32,7 @@ import ShipmentsHubSection from "./ShipmentsHubSection";
 import AddressAutocompleteInput from "../ui/AddressAutocompleteInput";
 import CustomerSearchInput from "../ui/CustomerSearchInput";
 import TransactionDetailDrawer from "../orders/TransactionDetailDrawer";
+import { useMediaQuery } from "../../hooks/useMediaQuery";
 import {
   customerLifecycleBadgeClassName,
   customerLifecycleDescription,
@@ -290,6 +291,7 @@ export function CustomerRelationshipHubDrawer({
   const canOrdersView = hasPermission("orders.view");
   const canShipmentsView = hasPermission("shipments.view");
   const canAlterationsView = hasPermission("alterations.manage");
+  const isCompactHub = useMediaQuery("(max-width: 1023px)");
   const backofficeOrderOpener =
     onOpenOrderInBackoffice ?? onOpenTransactionInBackoffice;
   const [tab, setTab] = useState<HubTab>("profile");
@@ -1319,75 +1321,139 @@ export function CustomerRelationshipHubDrawer({
           ) : null}
 
           {orderHistoryRows.length > 0 ? (
-            <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-app-border">
-              <table className="w-full min-w-[640px] text-left text-sm">
-                <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  <tr>
-                    <th className="px-3 py-2">Booked</th>
-                    <th className="px-3 py-2">
-                      {tab === "transactions" ? "Transaction" : "Order"}
-                    </th>
-                    <th className="px-3 py-2">Channel</th>
-                    <th className="px-3 py-2">Status</th>
-                    <th className="px-3 py-2 text-right">Total</th>
-                    <th className="px-3 py-2 text-right">Paid</th>
-                    <th className="px-3 py-2 text-right">Balance</th>
-                    <th className="px-3 py-2 text-right">Lines</th>
-                    <th className="px-3 py-2">Salesperson</th>
-                    <th className="px-3 py-2" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-app-border/60">
-                  {orderHistoryRows.map((row) => (
-                    <tr
-                      key={row.transaction_id}
-                      className="hover:bg-app-surface-2/50"
-                    >
-                      <td className="px-3 py-2 text-xs text-app-text-muted">
-                        {new Date(row.booked_at).toLocaleString()}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-xs">
-                        <div className="flex items-center gap-2">
-                          <span>{row.transaction_display_id}</span>
-                          {row.is_counterpoint_import ? (
-                            <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-zinc-600">
-                              CP
-                            </span>
-                          ) : null}
-                        </div>
-                        {row.counterpoint_customer_code ? (
-                          <div className="mt-1 text-[9px] font-bold text-app-text-muted">
-                            CP #{row.counterpoint_customer_code}
-                          </div>
-                        ) : null}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-app-text-muted">
+            isCompactHub ? (
+              <div className="space-y-2">
+                {orderHistoryRows.map((row) => (
+                  <article
+                    key={row.transaction_id}
+                    className="rounded-xl border border-app-border bg-app-surface p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-mono text-xs font-black text-app-text">
+                          {row.transaction_display_id}
+                        </p>
+                        <p className="mt-1 text-[11px] text-app-text-muted">
+                          {new Date(row.booked_at).toLocaleString()}
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-app-border bg-app-surface-2 px-2 py-1 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        {row.status}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                      <p>
+                        <span className="font-black text-app-text-muted">Channel:</span>{" "}
                         {row.sale_channel === "web"
                           ? "Web"
                           : row.sale_channel === "register"
                             ? "Store"
                             : (row.sale_channel ?? "—")}
-                      </td>
-                      <td className="px-3 py-2 text-xs font-semibold">
-                        {row.status}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
-                        {fmtMoney(row.total_price)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-app-text-muted">
-                        {fmtMoney(row.amount_paid)}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
-                        {fmtMoney(row.balance_due)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
+                      </p>
+                      <p className="text-right tabular-nums">
+                        <span className="font-black text-app-text-muted">Lines:</span>{" "}
                         {row.item_count}
-                      </td>
-                      <td className="px-3 py-2 text-xs text-app-text-muted">
+                      </p>
+                      <p className="font-mono tabular-nums">
+                        <span className="font-black text-app-text-muted">Total:</span>{" "}
+                        {fmtMoney(row.total_price)}
+                      </p>
+                      <p className="text-right font-mono tabular-nums">
+                        <span className="font-black text-app-text-muted">Paid:</span>{" "}
+                        {fmtMoney(row.amount_paid)}
+                      </p>
+                      <p className="font-mono tabular-nums">
+                        <span className="font-black text-app-text-muted">Balance:</span>{" "}
+                        {fmtMoney(row.balance_due)}
+                      </p>
+                      <p className="truncate text-right">
+                        <span className="font-black text-app-text-muted">Salesperson:</span>{" "}
                         {row.primary_salesperson_name ?? "—"}
-                      </td>
-                      <td className="px-3 py-2">
-                        {tab === "transactions" || tab === "orders" ? (
+                      </p>
+                    </div>
+                    <div className="mt-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTransactionId(row.transaction_id);
+                        }}
+                        className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
+                      >
+                        {tab === "transactions" ? "Open Transaction" : "Open Order"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            ) : (
+              <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-app-border">
+                <table className="w-full min-w-[640px] text-left text-sm">
+                  <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                    <tr>
+                      <th className="px-3 py-2">Booked</th>
+                      <th className="px-3 py-2">
+                        {tab === "transactions" ? "Transaction" : "Order"}
+                      </th>
+                      <th className="px-3 py-2">Channel</th>
+                      <th className="px-3 py-2">Status</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                      <th className="px-3 py-2 text-right">Paid</th>
+                      <th className="px-3 py-2 text-right">Balance</th>
+                      <th className="px-3 py-2 text-right">Lines</th>
+                      <th className="px-3 py-2">Salesperson</th>
+                      <th className="px-3 py-2" />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-app-border/60">
+                    {orderHistoryRows.map((row) => (
+                      <tr
+                        key={row.transaction_id}
+                        className="hover:bg-app-surface-2/50"
+                      >
+                        <td className="px-3 py-2 text-xs text-app-text-muted">
+                          {new Date(row.booked_at).toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs">
+                          <div className="flex items-center gap-2">
+                            <span>{row.transaction_display_id}</span>
+                            {row.is_counterpoint_import ? (
+                              <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-zinc-600">
+                                CP
+                              </span>
+                            ) : null}
+                          </div>
+                          {row.counterpoint_customer_code ? (
+                            <div className="mt-1 text-[9px] font-bold text-app-text-muted">
+                              CP #{row.counterpoint_customer_code}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-app-text-muted">
+                          {row.sale_channel === "web"
+                            ? "Web"
+                            : row.sale_channel === "register"
+                              ? "Store"
+                              : (row.sale_channel ?? "—")}
+                        </td>
+                        <td className="px-3 py-2 text-xs font-semibold">
+                          {row.status}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                          {fmtMoney(row.total_price)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs tabular-nums text-app-text-muted">
+                          {fmtMoney(row.amount_paid)}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-xs tabular-nums">
+                          {fmtMoney(row.balance_due)}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums">
+                          {row.item_count}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-app-text-muted">
+                          {row.primary_salesperson_name ?? "—"}
+                        </td>
+                        <td className="px-3 py-2">
                           <button
                             type="button"
                             onClick={() => {
@@ -1399,13 +1465,13 @@ export function CustomerRelationshipHubDrawer({
                               ? "Open Transaction"
                               : "Open Order"}
                           </button>
-                        ) : null}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
           ) : null}
 
           {orderHistoryRows.length > 0 &&
@@ -2394,49 +2460,86 @@ export function CustomerRelationshipHubDrawer({
                         Archive
                       </h4>
                       {vault && vault.history.length > 0 ? (
-                        <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-app-border">
-                          <table className="w-full min-w-[400px] text-left text-sm md:min-w-[520px]">
-                            <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                              <tr>
-                                <th className="px-3 py-2">Date</th>
-                                <th className="px-3 py-2">Neck</th>
-                                <th className="px-3 py-2">Chest</th>
-                                <th className="px-3 py-2">Waist</th>
-                                <th className="px-3 py-2">Sleeve</th>
-                                <th className="px-3 py-2">Inseam</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {vault.history.map((row) => (
-                                <tr
-                                  key={row.id}
-                                  className="border-b border-app-border/50"
-                                >
-                                  <td className="px-3 py-2 text-xs text-app-text-muted">
-                                    {new Date(
-                                      row.measured_at,
-                                    ).toLocaleDateString()}
-                                  </td>
-                                  <td className="px-3 py-2 font-mono text-xs">
+                        isCompactHub ? (
+                          <div className="space-y-2">
+                            {vault.history.map((row) => (
+                              <article
+                                key={row.id}
+                                className="rounded-xl border border-app-border bg-app-surface p-3 text-xs"
+                              >
+                                <p className="mb-2 font-black uppercase tracking-widest text-app-text-muted">
+                                  {new Date(row.measured_at).toLocaleDateString()}
+                                </p>
+                                <div className="grid grid-cols-2 gap-2 font-mono">
+                                  <p>
+                                    <span className="font-black text-app-text-muted">Neck:</span>{" "}
                                     {row.neck ?? "—"}
-                                  </td>
-                                  <td className="px-3 py-2 font-mono text-xs">
+                                  </p>
+                                  <p>
+                                    <span className="font-black text-app-text-muted">Chest:</span>{" "}
                                     {row.chest ?? "—"}
-                                  </td>
-                                  <td className="px-3 py-2 font-mono text-xs">
+                                  </p>
+                                  <p>
+                                    <span className="font-black text-app-text-muted">Waist:</span>{" "}
                                     {row.waist ?? "—"}
-                                  </td>
-                                  <td className="px-3 py-2 font-mono text-xs">
+                                  </p>
+                                  <p>
+                                    <span className="font-black text-app-text-muted">Sleeve:</span>{" "}
                                     {row.sleeve ?? "—"}
-                                  </td>
-                                  <td className="px-3 py-2 font-mono text-xs">
+                                  </p>
+                                  <p className="col-span-2">
+                                    <span className="font-black text-app-text-muted">Inseam:</span>{" "}
                                     {row.inseam ?? "—"}
-                                  </td>
+                                  </p>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="w-full min-w-0 overflow-x-auto rounded-xl border border-app-border">
+                            <table className="w-full min-w-[400px] text-left text-sm md:min-w-[520px]">
+                              <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                <tr>
+                                  <th className="px-3 py-2">Date</th>
+                                  <th className="px-3 py-2">Neck</th>
+                                  <th className="px-3 py-2">Chest</th>
+                                  <th className="px-3 py-2">Waist</th>
+                                  <th className="px-3 py-2">Sleeve</th>
+                                  <th className="px-3 py-2">Inseam</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
+                              </thead>
+                              <tbody>
+                                {vault.history.map((row) => (
+                                  <tr
+                                    key={row.id}
+                                    className="border-b border-app-border/50"
+                                  >
+                                    <td className="px-3 py-2 text-xs text-app-text-muted">
+                                      {new Date(
+                                        row.measured_at,
+                                      ).toLocaleDateString()}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-xs">
+                                      {row.neck ?? "—"}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-xs">
+                                      {row.chest ?? "—"}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-xs">
+                                      {row.waist ?? "—"}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-xs">
+                                      {row.sleeve ?? "—"}
+                                    </td>
+                                    <td className="px-3 py-2 font-mono text-xs">
+                                      {row.inseam ?? "—"}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )
                       ) : (
                         <p className="text-sm text-app-text-muted">
                           No archived measurement rows yet.

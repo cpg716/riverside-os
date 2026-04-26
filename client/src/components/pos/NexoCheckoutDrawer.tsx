@@ -839,7 +839,7 @@ export default function NexoCheckoutDrawer({
                </div>
             </div>
            
-            <div className="flex items-center gap-6 w-full sm:w-auto">
+            <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-6">
               {/* Tax Exempt Toggle Column */}
               <div className="flex flex-col gap-1 items-end">
                 <button
@@ -877,11 +877,11 @@ export default function NexoCheckoutDrawer({
                  <span className="text-sm font-bold uppercase text-app-text truncate">{operator?.fullName || "SYSTEM"}</span>
               </div>
 
-              <div className="flex gap-3">
+              <div className="flex w-full gap-3 sm:w-auto">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="px-6 py-2 text-xs font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text"
+                  className="px-4 py-2 text-xs font-black uppercase tracking-widest text-app-text-muted transition-colors hover:text-app-text sm:px-6"
                 >
                   Cancel
                 </button>
@@ -891,7 +891,7 @@ export default function NexoCheckoutDrawer({
                   data-testid="pos-finalize-checkout"
                   title={completeDisabledReason}
                   onClick={handleFinalize}
-                  className={`h-14 min-w-[170px] rounded-2xl flex items-center justify-center gap-2 px-8 text-sm font-black uppercase tracking-[0.2em] transition-all ${
+                  className={`flex h-14 w-full items-center justify-center gap-2 rounded-2xl px-6 text-sm font-black uppercase tracking-[0.2em] transition-all sm:min-w-[170px] sm:w-auto sm:px-8 ${
                     canFinalize 
                       ? "bg-app-accent text-white shadow-xl shadow-app-accent/30 hover:brightness-110 active:scale-[0.98]" 
                       : "bg-zinc-800 text-zinc-600 cursor-not-allowed"
@@ -911,7 +911,7 @@ export default function NexoCheckoutDrawer({
          </div>
       }
     >
-      <div className="flex flex-col h-full bg-app-bg overflow-hidden relative">
+      <div className="relative flex h-full flex-col bg-app-bg overflow-hidden">
         
         {busy && (
           <div className="absolute inset-0 z-50 bg-white/60 dark:bg-black/60 backdrop-blur-md flex flex-col items-center justify-center">
@@ -1000,34 +1000,36 @@ export default function NexoCheckoutDrawer({
             </div>
           )}
 
-        <div className="flex-1 p-4 sm:p-5 flex flex-col min-h-0">
-          <div className="flex items-start justify-center gap-5 min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-5">
+          <div className="flex min-h-0 flex-1 flex-col items-stretch gap-4 lg:flex-row lg:items-start lg:justify-center lg:gap-5">
             
             {/* 1. Tender Tabs Matrix (Left) */}
-            <div className="w-48 shrink-0 flex flex-col gap-2 overflow-y-auto no-scrollbar pb-4">
+            <div className="w-full shrink-0 pb-1 lg:w-48 lg:pb-4">
               <span className="text-[10px] font-black uppercase tracking-[0.25em] text-app-text-muted mb-2 px-1 opacity-60">Revenue Methods</span>
-              {tenderTabIds.map((id) => {
-                const meta = TAB_META[id];
-                const Icon = meta.icon;
-                const isActive = tab === id;
-                return (
-                  <button
-                    key={id}
-                    type="button"
-                    data-testid={id === "rms_charge" ? "pos-tender-rms-charge" : undefined}
-                    onClick={() => { setTab(id); setKeypad(""); }}
-                    className={`flex items-center gap-4 px-4 h-16 rounded-2xl transition-all w-full text-left shadow-sm ${isActive ? meta.active + " scale-[1.02] z-10" : meta.idle}`}
-                  >
-                    <Icon size={20} className={isActive ? "" : "opacity-40"} />
-                    <span className="text-[11px] font-black uppercase tracking-widest truncate">{meta.label}</span>
-                  </button>
-                );
-              })}
+              <div className="no-scrollbar flex gap-2 overflow-x-auto lg:flex-col lg:overflow-y-auto lg:overflow-x-visible">
+                {tenderTabIds.map((id) => {
+                  const meta = TAB_META[id];
+                  const Icon = meta.icon;
+                  const isActive = tab === id;
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      data-testid={id === "rms_charge" ? "pos-tender-rms-charge" : undefined}
+                      onClick={() => { setTab(id); setKeypad(""); }}
+                      className={`flex h-14 min-w-[132px] items-center gap-3 rounded-2xl px-3 text-left shadow-sm transition-all sm:min-w-[160px] lg:h-16 lg:w-full lg:min-w-0 lg:gap-4 lg:px-4 ${isActive ? `${meta.active} scale-[1.02] z-10` : meta.idle}`}
+                    >
+                      <Icon size={20} className={isActive ? "" : "opacity-40"} />
+                      <span className="truncate text-[10px] font-black uppercase tracking-widest lg:text-[11px]">{meta.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             <div className="flex-1 min-w-0 flex flex-col gap-4">
               <div className="bg-app-surface border border-app-border rounded-2xl p-4 sm:p-5 shadow-sm flex flex-col">
-                <div className="flex items-end justify-between border-b border-app-border pb-4 mb-5">
+                <div className="mb-5 flex flex-col gap-3 border-b border-app-border pb-4 sm:flex-row sm:items-end sm:justify-between">
                   <div className="flex flex-col gap-2">
                     <span className="text-[9px] font-black uppercase tracking-widest text-app-text-muted leading-none opacity-60">
                       Quick Amount
@@ -1049,14 +1051,14 @@ export default function NexoCheckoutDrawer({
                       </button>
                     </div>
                   </div>
-                  <div className="text-5xl font-black tabular-nums tracking-tighter italic text-app-text leading-none">
+                  <div className="text-3xl font-black tabular-nums tracking-tighter italic leading-none text-app-text sm:text-4xl lg:text-5xl">
                     ${keypad || "0.00"}
                   </div>
                 </div>
 
                 <div className="flex flex-col gap-4">
                   <div className="flex justify-center">
-                    <div className="w-96">
+                    <div className="w-full max-w-md">
                       <NumericPinKeypad
                         value={keypad}
                         onChange={setKeypad}
@@ -1116,7 +1118,7 @@ export default function NexoCheckoutDrawer({
                   tab === "check" ||
                   tab === "rms_charge" ||
                   (rmsPaymentCollectionMode && ["cash", "check"].includes(tab))) && (
-                  <div className="mt-6 max-h-[32vh] overflow-y-auto border-t border-app-border pt-6 pr-1 animate-in slide-in-from-top-2">
+                  <div className="mt-6 max-h-[42vh] overflow-y-auto border-t border-app-border pt-6 pr-1 animate-in slide-in-from-top-2 sm:max-h-[32vh]">
                     {tab === "rms_charge" && (
                       <div className="space-y-3">
                         <div className="rounded-xl border border-app-border bg-app-bg px-4 py-3">
@@ -1348,7 +1350,7 @@ export default function NexoCheckoutDrawer({
 
                     {tab === "gift_card" && (
                       <div className="flex flex-col sm:flex-row gap-4">
-                        <div className="flex gap-1 p-1 bg-app-bg border border-app-border rounded-xl w-72">
+                        <div className="flex w-full gap-1 rounded-xl border border-app-border bg-app-bg p-1 sm:w-72">
                           {GIFT_CARD_TYPES.map(t => (
                             <button key={t} type="button" onClick={() => setGiftCardSubType(t)} className={`flex-1 h-10 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all ${giftCardSubType === t ? "bg-app-accent text-white" : "text-app-text-muted hover:text-app-text"}`}>{giftCardTypeLabel(t)}</button>
                           ))}
@@ -1395,7 +1397,7 @@ export default function NexoCheckoutDrawer({
             </div>
 
             {/* 3. Ledger & Summary (Right) */}
-            <div className="w-72 shrink-0 flex flex-col gap-4 h-full min-h-0">
+            <div className="flex h-full min-h-0 w-full shrink-0 flex-col gap-4 lg:w-72">
               <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 text-white shadow-xl flex flex-col min-h-0 flex-1">
                 <div className="flex items-center justify-between mb-3">
                    <h5 className="text-[9px] font-black uppercase tracking-[0.2em] text-zinc-500 italic opacity-80">Ledger Flow</h5>

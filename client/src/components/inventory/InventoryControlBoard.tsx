@@ -1258,7 +1258,7 @@ export default function InventoryControlBoard({
           <select
             value={vendorId}
             onChange={(e) => setVendorId(e.target.value)}
-            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
+            className="ui-input h-11 w-full rounded-2xl border-app-border/70 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10 sm:w-auto sm:min-w-[14rem]"
           >
             <option value="">All vendors</option>
             {vendors.map((vendor) => (
@@ -1273,7 +1273,7 @@ export default function InventoryControlBoard({
               setQuickPick(null);
               setCategoryId(e.target.value);
             }}
-            className="ui-input h-11 min-w-[14rem] rounded-2xl border-app-border/70 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10"
+            className="ui-input h-11 w-full rounded-2xl border-app-border/70 px-4 text-[11px] font-black uppercase tracking-[0.16em] text-app-text shadow-sm focus:border-app-accent focus:ring-4 focus:ring-app-accent/10 sm:w-auto sm:min-w-[14rem]"
           >
             <option value="">All categories</option>
             {categories.map((category) => (
@@ -1304,26 +1304,28 @@ export default function InventoryControlBoard({
             setHighValueOnly(!highValueOnly),
           )}
           {discoveryBtn(webOnly, "On web", () => setWebOnly(!webOnly))}
-          <div className="h-6 w-px bg-app-border mx-2" />
-          <div className="flex flex-wrap gap-2">
-            {[
-              ["suits", "Suits"],
-              ["shirts", "Shirts"],
-              ["alterations", "Alterations"],
-            ].map(([id, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => toggleQuickPick(id as NonNullable<QuickPick>)}
-                className={`rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
-                  quickPick === id
-                    ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
-                    : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border hover:bg-app-surface"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          <div className="w-full overflow-x-auto pb-1 no-scrollbar sm:w-auto sm:overflow-visible sm:pb-0">
+            <div className="flex items-center gap-2">
+              <div className="mx-1 h-6 w-px shrink-0 bg-app-border" />
+              {[
+                ["suits", "Suits"],
+                ["shirts", "Shirts"],
+                ["alterations", "Alterations"],
+              ].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => toggleQuickPick(id as NonNullable<QuickPick>)}
+                  className={`shrink-0 rounded-full border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-all ${
+                    quickPick === id
+                      ? "border-app-accent bg-app-accent text-white shadow-lg shadow-app-accent/20"
+                      : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-input-border hover:bg-app-surface"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -1400,9 +1402,9 @@ export default function InventoryControlBoard({
         </div>
       </div>
 
-      <div className="ui-card ui-tint-neutral flex flex-col">
+      <div className="ui-card ui-tint-neutral flex flex-col overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
         <div 
-          className="min-w-[1000px] outline-none"
+          className="min-w-[760px] outline-none lg:min-w-[1000px]"
           onFocus={() => setTableFocus(true)}
           onBlur={() => setTableFocus(false)}
           onKeyDown={onTableKeyDown}
