@@ -250,6 +250,7 @@ export default function Cart({
 
   const [activeDiscountEvents, setActiveDiscountEvents] = useState<ActiveDiscountEvent[]>([]);
   const [selectedDiscountEventId, setSelectedDiscountEventId] = useState("");
+  const [exchangeWizardInitialOrderId, setExchangeWizardInitialOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch(`${baseUrl}/api/discount-events/active`, { headers: apiAuth() as Record<string, string> })
@@ -797,6 +798,50 @@ export default function Cart({
   const initialOrderAppliedRef = useRef<string | null>(null);
   const [exchangeWizardOpen, setExchangeWizardOpen] = useState(false);
   const [shippingModalOpen, setShippingModalOpen] = useState(false);
+
+  const handleTransactionBarcode = useCallback(async (shortId: string) => {
+    try {
+      const res = await fetch(`${baseUrl}/api/transactions?search=${encodeURIComponent(shortId)}&limit=5`, { headers: apiAuth() as Record<string, string> });
+      if (!res.ok) throw new Error("API error");
+      const data = await res.json();
+      const items = Array.isArray(data.items) ? data.items : [];
+      const txn = items.find((i: { transaction_id: string; display_id: string; status: string; customer_id?: string }) => 
+        (i.transaction_id || "").toLowerCase().startsWith(shortId.toLowerCase()) ||
+        (i.display_id || "").toLowerCase().includes(shortId.toLowerCase())
+      );
+      if (!txn) {
+        toast("Receipt barcode not found in the system.", "error");
+        return;
+      }
+      if (txn.status === "fulfilled") {
+        setExchangeWizardInitialOrderId(txn.transaction_id);
+        setExchangeWizardOpen(true);
+      } else {
+        if (txn.customer_id) {
+          const cRes = await fetch(`${baseUrl}/api/customers/${txn.customer_id}`, { headers: apiAuth() as Record<string, string> });
+          if (cRes.ok) {
+            const c = await cRes.json();
+            setSelectedCustomer({
+              id: String(c.id),
+              first_name: c.first_name,
+              last_name: c.last_name,
+              customer_code: c.customer_code ?? "",
+              company_name: c.company_name ?? null,
+              email: c.email ?? null,
+              phone: c.phone ?? null
+            });
+            setOrderLoadOpen(true);
+          } else {
+            toast("Could not load the customer for this order.", "error");
+          }
+        } else {
+          toast("Order has no customer attached.", "error");
+        }
+      }
+    } catch {
+      toast("Failed to look up receipt barcode", "error");
+    }
+  }, [baseUrl, apiAuth, toast, setSelectedCustomer]);
   
   // --- Staff PIN Verification Logic ---
   const [salePinBusy, setSalePinBusy] = useState(false);
@@ -1176,7 +1221,15 @@ export default function Cart({
   );
 
   useScanner({
-    onScan: (code) => handleLaserScan(code, runSearch),
+    onScan: (code) => {
+      const trimmed = code.trim();
+      const txnMatch = trimmed.match(/^TXN-([0-9A-Fa-f]{8})$/i);
+      if (txnMatch) {
+         void handleTransactionBarcode(txnMatch[1]);
+      } else {
+         handleLaserScan(code, runSearch);
+      }
+    },
     enabled: !scannerOverlayOpen && saleHydrated,
   });
 
@@ -2571,7 +2624,11 @@ export default function Cart({
 
       <PosExchangeWizard
         open={exchangeWizardOpen}
-        onClose={() => setExchangeWizardOpen(false)}
+        initialOrderId={exchangeWizardInitialOrderId}
+        onClose={() => {
+          setExchangeWizardOpen(false);
+          setExchangeWizardInitialOrderId(null);
+        }}
         sessionId={sessionId}
         baseUrl={baseUrl}
         apiAuth={() => ({ ...apiAuth() })}

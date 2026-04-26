@@ -63,6 +63,7 @@ const EXCHANGE_WORKFLOW_STEPS: WorkflowStep[] = [
 
 export default function PosExchangeWizard({
   open,
+  initialOrderId,
   onClose,
   sessionId,
   baseUrl,
@@ -70,6 +71,7 @@ export default function PosExchangeWizard({
   onContinueToReplacement,
 }: {
   open: boolean;
+  initialOrderId?: string | null;
   onClose: () => void;
   sessionId: string;
   baseUrl: string;
@@ -101,11 +103,7 @@ export default function PosExchangeWizard({
     setReturnQtyDraft({});
   }, []);
 
-  useEffect(() => {
-    if (!open) reset();
-  }, [open, reset]);
-
-  const loadOrder = async (id: string) => {
+  const loadOrder = useCallback(async (id: string) => {
     setLoading(true);
     try {
       const res = await fetch(`${baseUrl}/api/transactions/${encodeURIComponent(id)}?${sessionQs}`, {
@@ -132,7 +130,15 @@ export default function PosExchangeWizard({
     } finally {
       setLoading(false);
     }
-  };
+  }, [baseUrl, sessionQs, apiAuth, toast]);
+
+  useEffect(() => {
+    if (open && initialOrderId) {
+      void loadOrder(initialOrderId);
+    } else if (!open) {
+      reset();
+    }
+  }, [open, initialOrderId, reset, loadOrder]);
 
   const submitReturns = async () => {
     if (!detail) return;
