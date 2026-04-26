@@ -375,39 +375,65 @@ test.describe("Alterations safety", () => {
       "Open order vest",
     );
 
-    const cards = page.getByTestId("alteration-workbench-card");
-    await expect(cards.filter({ hasText: "Current sale suit jacket" })).toContainText(
+    const dueTodayCards = page
+      .getByTestId("alteration-workbench-section-due_today")
+      .getByTestId("alteration-workbench-card");
+    const readyCards = page
+      .getByTestId("alteration-workbench-section-ready")
+      .getByTestId("alteration-workbench-card");
+    const inWorkCards = page
+      .getByTestId("alteration-workbench-section-in_work")
+      .getByTestId("alteration-workbench-card");
+    const overdueCards = page
+      .getByTestId("alteration-workbench-section-overdue")
+      .getByTestId("alteration-workbench-card");
+    const intakeCards = page
+      .getByTestId("alteration-workbench-section-intake")
+      .getByTestId("alteration-workbench-card");
+    await expect(dueTodayCards.filter({ hasText: "Current sale suit jacket" })).toContainText(
       "Current sale",
     );
-    await expect(cards.filter({ hasText: "Stock navy blazer" })).toContainText(
+    await expect(readyCards.filter({ hasText: "Stock navy blazer" })).toContainText(
       "Stock/catalog item",
     );
-    await expect(cards.filter({ hasText: "Open order vest" })).toContainText("Existing order");
-    await expect(cards.filter({ hasText: "Charcoal tuxedo pants" })).toContainText(
+    await expect(inWorkCards.filter({ hasText: "Open order vest" })).toContainText("Existing order");
+    await expect(overdueCards.filter({ hasText: "Charcoal tuxedo pants" })).toContainText(
       "Past purchase",
     );
-    await expect(cards.filter({ hasText: "Customer-owned gown" })).toContainText(
+    await expect(intakeCards.filter({ hasText: "Customer-owned gown" })).toContainText(
       "Custom/manual item",
     );
-    await expect(page.getByText(/Source TXN-ORDER \/ garment line/i)).toBeVisible();
-    await expect(page.getByText("Charge noted: $15.00")).toBeVisible();
+    await expect(inWorkCards.getByText(/Source TXN-ORDER \/ garment line/i)).toBeVisible();
+    await expect(readyCards.getByText("Charge noted: $15.00")).toBeVisible();
 
     await page.getByTestId("alterations-due-filter-ready").click();
-    await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("alteration-workbench-section-ready")
+        .getByTestId("alteration-workbench-card"),
+    ).toHaveCount(1);
     await expect(page.getByTestId("alteration-workbench-section-ready")).toContainText(
       "Stock navy blazer",
     );
 
     await page.getByTestId("alterations-due-filter-all").click();
     await page.getByTestId("alterations-source-filter").selectOption("current_cart_item");
-    await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("alteration-workbench-section-due_today")
+        .getByTestId("alteration-workbench-card"),
+    ).toHaveCount(1);
     await expect(page.getByTestId("alteration-workbench-section-due_today")).toContainText(
       "Current sale suit jacket",
     );
 
     await page.getByTestId("alterations-source-filter").selectOption("all");
     await page.getByTestId("alterations-search").fill("vest");
-    await expect(page.getByTestId("alteration-workbench-card")).toHaveCount(1);
+    await expect(
+      page
+        .getByTestId("alteration-workbench-section-in_work")
+        .getByTestId("alteration-workbench-card"),
+    ).toHaveCount(1);
     await expect(page.getByTestId("alteration-workbench-section-in_work")).toContainText(
       "Open order vest",
     );

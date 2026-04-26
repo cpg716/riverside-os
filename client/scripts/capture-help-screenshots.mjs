@@ -254,6 +254,51 @@ async function enterPosShell(page) {
   });
 }
 
+async function waitForOverlayBackdropsHidden(page, timeout = 15000) {
+  const overlays = page.locator(".ui-overlay-backdrop");
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const visibleCount = await overlays
+      .evaluateAll(
+        (nodes) =>
+          nodes.filter((node) => {
+            const style = window.getComputedStyle(node);
+            const rect = node.getBoundingClientRect();
+            return (
+              style.visibility !== "hidden" &&
+              style.display !== "none" &&
+              rect.width > 0 &&
+              rect.height > 0
+            );
+          }).length,
+      )
+      .catch(() => 0);
+    if (visibleCount === 0) {
+      return;
+    }
+    await page.waitForTimeout(250);
+  }
+}
+
+async function openPosRegisterTabIfNeeded(page) {
+  const productSearch = page.getByTestId("pos-product-search");
+  const cashierDialog = page.getByRole("dialog", { name: /sign-in for this sale/i });
+  if (
+    (await productSearch.isVisible().catch(() => false)) ||
+    (await cashierDialog.isVisible().catch(() => false))
+  ) {
+    return;
+  }
+
+  await waitForOverlayBackdropsHidden(page);
+  const registerButton = page.getByTestId("pos-sidebar-tab-register");
+  await registerButton.waitFor({ state: "visible", timeout: 15000 });
+  const isCurrent = (await registerButton.getAttribute("aria-current").catch(() => null)) === "page";
+  if (!isCurrent) {
+    await registerButton.click();
+  }
+}
+
 async function ensurePosRegisterSessionOpen(page, { staffCode }) {
   const registerDialog = page.getByRole("dialog", { name: /riverside register/i });
   const posNav = page.getByRole("navigation", { name: "POS Navigation" });
@@ -280,6 +325,7 @@ async function ensurePosRegisterSessionOpen(page, { staffCode }) {
   }
   await registerDialog.getByRole("button", { name: /^open register$/i }).click();
   await registerDialog.waitFor({ state: "hidden", timeout: 30000 });
+  await waitForOverlayBackdropsHidden(page);
 }
 
 async function ensurePosSaleCashierSignedIn(page, { staffCode }) {
@@ -432,7 +478,7 @@ async function runSpec(page, api, spec, opts) {
       await prepareBase(page, opts);
       await enterPosShell(page);
       await ensurePosRegisterSessionOpen(page, opts);
-      await page.getByRole("button", { name: /^register$/i }).click();
+      await openPosRegisterTabIfNeeded(page);
       await ensurePosSaleCashierSignedIn(page, opts);
       await page.getByTestId("pos-product-search").waitFor({
         state: "visible",

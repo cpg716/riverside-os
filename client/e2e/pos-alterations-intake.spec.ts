@@ -382,8 +382,9 @@ test.describe("POS alteration intake", () => {
     });
 
     await page.getByRole("button", { name: "Alterations" }).click();
-    await expect(page.getByText("Hem sleeves")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("TXN-ALT-P3")).toBeVisible();
+    const intakeSection = page.getByTestId("alteration-workbench-section-intake");
+    await expect(intakeSection.getByText("Hem sleeves").first()).toBeVisible({ timeout: 20_000 });
+    await expect(intakeSection.getByText("TXN-ALT-P3")).toBeVisible();
   });
 
   test("existing order payment can be added, edited, removed, and sent at checkout", async ({

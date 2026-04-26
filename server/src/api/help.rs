@@ -92,12 +92,21 @@ struct ReindexSearchBody {
     full_reindex_fallback: bool,
 }
 
+#[derive(Debug, Deserialize, Default)]
+#[serde(default)]
+struct AidocsCoverageBody {
+    include_all: bool,
+    json: bool,
+}
+
 #[derive(Debug, Serialize)]
 struct AdminOpsStatusOut {
     meilisearch_configured: bool,
     meilisearch_indexing: bool,
     node_available: bool,
+    uv_available: bool,
     script_exists: bool,
+    aidocs_config_exists: bool,
     help_docs_dir_exists: bool,
 }
 
@@ -1664,6 +1673,10 @@ pub fn router() -> Router<AppState> {
             "/admin/ops/generate-manifest",
             post(admin_ops_generate_manifest),
         )
+        .route(
+            "/admin/ops/aidocs-coverage",
+            post(admin_ops_aidocs_coverage),
+        )
         .route("/admin/ops/reindex-search", post(admin_ops_reindex_search))
 }
 
@@ -2576,6 +2589,12 @@ async fn admin_ops_status(
         Ok(out) => out.status.success(),
         Err(_) => false,
     };
+    let mut uv_cmd = Command::new("uvx");
+    uv_cmd.arg("--version");
+    let uv_available = match uv_cmd.output().await {
+        Ok(out) => out.status.success(),
+        Err(_) => false,
+    };
 
     let meilisearch_indexing = if let Some(client) = &state.meilisearch {
         crate::logic::meilisearch_client::is_indexing(client).await
@@ -2589,12 +2608,15 @@ async fn admin_ops_status(
         .join("src")
         .join("assets")
         .join("docs");
+    let aidocs_config = repo_root().join("docs").join("aidocs-config.yml");
 
     Ok(Json(AdminOpsStatusOut {
         meilisearch_configured: state.meilisearch.is_some(),
         meilisearch_indexing,
         node_available,
+        uv_available,
         script_exists: script_path.exists(),
+        aidocs_config_exists: aidocs_config.exists(),
         help_docs_dir_exists: docs_dir.exists(),
     }))
 }
@@ -2648,6 +2670,49 @@ async fn admin_ops_generate_manifest(
         cmd.arg("--include-shadcn");
     }
 
+    cmd.current_dir(repo_root());
+
+    let out = run_command_capture(cmd).await?;
+    Ok(Json(serde_json::json!({
+        "status": if out.ok { "ok" } else { "error" },
+        "result": out
+    })))
+}
+
+async fn admin_ops_aidocs_coverage(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<AidocsCoverageBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _staff = middleware::require_staff_with_permission(&state, &headers, HELP_MANAGE)
+        .await
+        .map_err(|e| e.into_response())?;
+
+    let aidocs_config = repo_root().join("docs").join("aidocs-config.yml");
+    if !aidocs_config.exists() {
+        return Err((
+            axum::http::StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": format!("AIDocs config not found: {}", aidocs_config.display())
+            })),
+        )
+            .into_response());
+    }
+
+    let mut cmd = Command::new("uvx");
+    cmd.arg("--from")
+        .arg("aidocs")
+        .arg("aidocs")
+        .arg("coverage")
+        .arg("client/src/assets/docs")
+        .arg("--codebase")
+        .arg("client/src")
+        .arg("--format")
+        .arg(if body.json { "json" } else { "summary" })
+        .arg("--no-save");
+    if body.include_all {
+        cmd.arg("--all");
+    }
     cmd.current_dir(repo_root());
 
     let out = run_command_capture(cmd).await?;

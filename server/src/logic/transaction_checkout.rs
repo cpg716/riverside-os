@@ -378,6 +378,7 @@ struct ResolvedOrderPayment {
 struct ExistingOrderPaymentTarget {
     target_transaction_id: Uuid,
     display_id: String,
+    transaction_display_id: String,
     customer_id: Uuid,
     balance_due: Decimal,
     status: DbOrderStatus,
@@ -540,7 +541,11 @@ fn validate_order_payment_against_target(
             "order payment projected balance no longer matches current balance_due".to_string(),
         ));
     }
-    if !target.display_id.trim().is_empty() && target.display_id.trim() != payment.target_display_id
+    let display_id = target.display_id.trim();
+    let transaction_display_id = target.transaction_display_id.trim();
+    if !display_id.is_empty()
+        && display_id != payment.target_display_id
+        && transaction_display_id != payment.target_display_id
     {
         return Err(CheckoutError::InvalidPayload(
             "order payment target_display_id does not match target transaction".to_string(),
@@ -1610,7 +1615,7 @@ pub async fn execute_checkout(
         payload.customer_id =
             Some(crate::logic::customer_couple::resolve_effective_customer_id(pool, cid).await?);
     }
-    let order_payments = validate_order_payment_shape(
+    let mut order_payments = validate_order_payment_shape(
         payload.customer_id,
         customer_id_orig,
         &payload.order_payments,
@@ -2284,9 +2289,10 @@ pub async fn execute_checkout(
         ));
     }
 
-    for payment in &order_payments {
-        let target: Option<(Uuid, String, Option<Uuid>, Decimal, DbOrderStatus)> = sqlx::query_as(
-            r#"
+    for payment in &mut order_payments {
+        let target: Option<(Uuid, String, String, Option<Uuid>, Decimal, DbOrderStatus)> =
+            sqlx::query_as(
+                r#"
             SELECT
                 o.id,
                 COALESCE(
@@ -2301,6 +2307,7 @@ pub async fn execute_checkout(
                     o.display_id,
                     o.id::text
                 ) AS display_id,
+                o.display_id AS transaction_display_id,
                 o.customer_id,
                 o.balance_due,
                 o.status
@@ -2308,11 +2315,18 @@ pub async fn execute_checkout(
             WHERE o.id = $1
             FOR UPDATE
             "#,
-        )
-        .bind(payment.target_transaction_id)
-        .fetch_optional(&mut *tx)
-        .await?;
-        let Some((target_transaction_id, display_id, customer_id, balance_due, status)) = target
+            )
+            .bind(payment.target_transaction_id)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some((
+            target_transaction_id,
+            display_id,
+            transaction_display_id,
+            customer_id,
+            balance_due,
+            status,
+        )) = target
         else {
             return Err(CheckoutError::InvalidPayload(
                 "order payment target transaction not found".to_string(),
@@ -2332,12 +2346,14 @@ pub async fn execute_checkout(
         let target = ExistingOrderPaymentTarget {
             target_transaction_id,
             display_id,
+            transaction_display_id,
             customer_id,
             balance_due: balance_due.round_dp(2),
             status,
             line_count,
         };
         validate_order_payment_against_target(payment, &target)?;
+        payment.target_display_id = target.display_id;
     }
 
     let (order_fulfillment_method, order_ship_to, order_shipping_amt, pos_shippo_rate_object_id): (
@@ -4064,6 +4080,7 @@ mod tests {
         ExistingOrderPaymentTarget {
             target_transaction_id,
             display_id: "TXN-12345".to_string(),
+            transaction_display_id: "TXN-12345".to_string(),
             customer_id,
             balance_due,
             status: DbOrderStatus::Open,

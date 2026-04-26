@@ -323,7 +323,7 @@ test.describe("checkout tender financial contract", () => {
       kind: "existing_order_payment",
       client_line_id: "existing-order-balance",
       target_transaction_id: orderCheckout.transaction_id,
-      target_display_id: orderBefore.transaction_display_id,
+      target_display_id: expect.stringMatching(/^ORD-\d+$/),
       customer_id: fixture.customer.id,
       balance_before: "194.69",
       projected_balance_after: "0.00",

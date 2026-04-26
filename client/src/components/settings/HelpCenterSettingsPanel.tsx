@@ -14,6 +14,10 @@ import {
   Bot,
 } from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import {
+  rosieChatCompletions,
+  type RosieChatCompletionResponse,
+} from "../../lib/rosie";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
 
@@ -61,7 +65,9 @@ type OpsStatus = {
   meilisearch_configured: boolean;
   meilisearch_indexing: boolean;
   node_available: boolean;
+  uv_available: boolean;
   script_exists: boolean;
+  aidocs_config_exists: boolean;
   help_docs_dir_exists: boolean;
 };
 
@@ -82,9 +88,42 @@ type OpsLog = {
 type ManagerTab =
   | "library"
   | "editor"
+  | "ai-authoring"
   | "automation"
   | "search-index"
   | "rosie-readiness";
+
+function extractRosieText(response: RosieChatCompletionResponse): string {
+  if (typeof response.answer === "string" && response.answer.trim()) {
+    return response.answer.trim();
+  }
+  if (typeof response.content === "string" && response.content.trim()) {
+    return response.content.trim();
+  }
+  if (typeof response.response === "string" && response.response.trim()) {
+    return response.response.trim();
+  }
+  for (const choice of response.choices ?? []) {
+    if (typeof choice.text === "string" && choice.text.trim()) {
+      return choice.text.trim();
+    }
+    if (typeof choice.content === "string" && choice.content.trim()) {
+      return choice.content.trim();
+    }
+    const content = choice.message?.content;
+    if (typeof content === "string" && content.trim()) {
+      return content.trim();
+    }
+    if (Array.isArray(content)) {
+      const text = content
+        .map((part) => (typeof part.text === "string" ? part.text : ""))
+        .join("\n")
+        .trim();
+      if (text) return text;
+    }
+  }
+  return "";
+}
 
 export default function HelpCenterSettingsPanel() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
@@ -119,6 +158,13 @@ export default function HelpCenterSettingsPanel() {
   const [opsCleanupOrphans, setOpsCleanupOrphans] = useState(false);
   const [opsFullReindexFallback, setOpsFullReindexFallback] = useState(true);
   const [opsLastResult, setOpsLastResult] = useState<OpsResult | null>(null);
+  const [aidocsCoverageAll, setAidocsCoverageAll] = useState(false);
+  const [aidocsCoverageJson, setAidocsCoverageJson] = useState(false);
+  const [aiAuthoringInstructions, setAiAuthoringInstructions] = useState(
+    "Refresh this Help Center section for floor staff. Keep it practical, honest, and step-by-step. Preserve Riverside terms and avoid promising unbuilt features.",
+  );
+  const [aiDraft, setAiDraft] = useState("");
+  const [aiBusy, setAiBusy] = useState(false);
   const [opsLogs, setOpsLogs] = useState<OpsLog[]>([]);
   const [fullSyncBusy, setFullSyncBusy] = useState(false);
   const [fullSyncConfirmOpen, setFullSyncConfirmOpen] = useState(false);
@@ -570,6 +616,147 @@ export default function HelpCenterSettingsPanel() {
     }
   };
 
+  const runAidocsCoverage = async () => {
+    if (!canManage) return;
+    setOpsBusy(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/help/admin/ops/aidocs-coverage`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({
+            include_all: aidocsCoverageAll,
+            json: aidocsCoverageJson,
+          }),
+        },
+      );
+      const j = (await res.json().catch(() => ({}))) as {
+        status?: string;
+        result?: OpsResult;
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(j.error ?? `HTTP ${res.status}`);
+      }
+      const result = j.result ?? {
+        ok: false,
+        exit_code: null,
+        stdout: "",
+        stderr: "",
+      };
+      setOpsLastResult(result);
+      pushLog(
+        "ops.aidocs-coverage",
+        result.ok,
+        result.ok
+          ? "AIDocs coverage completed"
+          : `AIDocs coverage exited ${result.exit_code ?? "unknown"}`,
+      );
+      toast(
+        result.ok ? "AIDocs coverage completed" : "AIDocs coverage reported issues",
+        result.ok ? "success" : "error",
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "AIDocs coverage failed";
+      toast(msg, "error");
+      pushLog("ops.aidocs-coverage", false, msg);
+    } finally {
+      setOpsBusy(false);
+      void loadOpsStatus();
+    }
+  };
+
+  const draftSelectedManualWithRosie = async () => {
+    if (!detail || !canManage) {
+      toast("Select a Help manual before drafting with ROSIE", "error");
+      return;
+    }
+    setAiBusy(true);
+    setAiDraft("");
+    try {
+      const sourceMarkdown = useBundledBody
+        ? detail.bundled_markdown
+        : editorMarkdown;
+      const response = await rosieChatCompletions(
+        {
+          model: "local",
+          temperature: 0.2,
+          max_tokens: 1400,
+          messages: [
+            {
+              role: "system",
+              content: [
+                "You are ROSIE, Riverside OS's local Help Center maintainer.",
+                "Draft only staff-facing Help Center markdown for Riverside OS.",
+                "Write clear operational guidance for retail staff using the app.",
+                "Do not invent features, routes, reports, permissions, pricing, checkout behavior, or hardware behavior not present in the source.",
+                "Do not include raw internal UUIDs, SQL, implementation jargon, or developer-only notes.",
+                "Return only the markdown body. Do not wrap it in code fences.",
+              ].join("\n"),
+            },
+            {
+              role: "user",
+              content: [
+                `Manual ID: ${detail.manual_id}`,
+                `Bundled title: ${detail.bundled_title}`,
+                `Bundled summary: ${detail.bundled_summary || "(none)"}`,
+                "",
+                "Admin instructions:",
+                aiAuthoringInstructions.trim(),
+                "",
+                "Current manual markdown:",
+                sourceMarkdown,
+              ].join("\n"),
+            },
+          ],
+        },
+        {
+          headers: backofficeHeaders() as Record<string, string>,
+        },
+      );
+      const draft = extractRosieText(response)
+        .replace(/^```(?:markdown|md)?\s*/i, "")
+        .replace(/\s*```$/i, "")
+        .trim();
+      if (!draft) {
+        throw new Error("ROSIE returned an empty draft");
+      }
+      setAiDraft(draft);
+      pushLog(
+        "ops.rosie-author",
+        true,
+        `Drafted Help manual '${detail.manual_id}' with ROSIE`,
+      );
+      toast("ROSIE drafted a Help Center update for review", "success");
+    } catch (e) {
+      const msg =
+        e instanceof Error ? e.message : "ROSIE Help authoring failed";
+      pushLog("ops.rosie-author", false, msg);
+      toast(msg, "error");
+    } finally {
+      setAiBusy(false);
+    }
+  };
+
+  const applyRosieDraftToEditor = () => {
+    if (!aiDraft.trim()) return;
+    setUseBundledBody(false);
+    setEditorMarkdown(aiDraft);
+    setTab("editor");
+    pushLog(
+      "ops.rosie-author.apply",
+      true,
+      selectedId
+        ? `Applied ROSIE draft to editor for '${selectedId}'`
+        : "Applied ROSIE draft to editor",
+    );
+    toast("Draft moved into the editor. Review it, then save.", "success");
+  };
+
   const runHelpReindex = async () => {
     if (!canManage) return;
     setOpsBusy(true);
@@ -766,6 +953,15 @@ export default function HelpCenterSettingsPanel() {
             }`}
           >
             <FilePenLine size={14} /> Editor
+          </button>
+          <button
+            type="button"
+            onClick={() => setTab("ai-authoring")}
+            className={`ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-xs font-black uppercase tracking-wider ${
+              tab === "ai-authoring" ? "ring-2 ring-app-accent" : ""
+            }`}
+          >
+            <Bot size={14} /> AI authoring
           </button>
           <button
             type="button"
@@ -1321,6 +1517,123 @@ export default function HelpCenterSettingsPanel() {
         </div>
       )}
 
+      {tab === "ai-authoring" && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(300px,420px)_1fr]">
+          <section className="rounded-xl border border-app-border bg-app-surface p-4">
+            <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-app-text">
+              <Bot size={16} /> ROSIE Help authoring
+            </h3>
+            <p className="mt-1 text-xs text-app-text-muted">
+              Use ROSIE/Gemma to draft staff-readable Help Center markdown from
+              the selected bundled manual. Drafts are review-only until an admin
+              applies and saves them.
+            </p>
+
+            <div className="mt-4 rounded-lg border border-app-border bg-app-surface-2/40 p-3 text-xs text-app-text">
+              <p className="font-black uppercase tracking-widest text-app-text-muted">
+                Selected manual
+              </p>
+              <p className="mt-1 font-mono">
+                {detail?.manual_id ||
+                  selectedId ||
+                  "Select a manual in Library or Editor"}
+              </p>
+              <p className="mt-2 text-app-text-muted">
+                Source: {useBundledBody ? "bundled markdown" : "current editor body"}
+              </p>
+            </div>
+
+            <label className="mt-4 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+              Instructions for ROSIE
+            </label>
+            <textarea
+              className="ui-input mt-2 min-h-32 w-full text-sm"
+              value={aiAuthoringInstructions}
+              onChange={(e) => setAiAuthoringInstructions(e.target.value)}
+              spellCheck
+            />
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => void draftSelectedManualWithRosie()}
+                disabled={aiBusy || !detail}
+                className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm font-bold"
+              >
+                <Bot size={16} /> {aiBusy ? "Drafting…" : "Draft with ROSIE"}
+              </button>
+              <button
+                type="button"
+                onClick={applyRosieDraftToEditor}
+                disabled={!aiDraft.trim()}
+                className="ui-btn-secondary inline-flex items-center gap-2 px-4 py-2 text-sm font-bold"
+              >
+                <FilePenLine size={16} /> Apply draft to editor
+              </button>
+            </div>
+
+            <div className="mt-5 border-t border-app-border pt-4">
+              <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-app-text">
+                <Sparkles size={14} /> AIDocs coverage
+              </h4>
+              <p className="mt-1 text-xs text-app-text-muted">
+                AIDocs checks what app surfaces are mentioned in Help manuals.
+                Use it to find coverage gaps; ROSIE handles the writing pass.
+              </p>
+              <div className="mt-3 space-y-2">
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={aidocsCoverageAll}
+                    onChange={(e) => setAidocsCoverageAll(e.target.checked)}
+                    className="rounded border-app-border"
+                  />
+                  Include documented and undocumented items
+                </label>
+                <label className="flex cursor-pointer items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={aidocsCoverageJson}
+                    onChange={(e) => setAidocsCoverageJson(e.target.checked)}
+                    className="rounded border-app-border"
+                  />
+                  JSON output
+                </label>
+              </div>
+              <button
+                type="button"
+                onClick={() => void runAidocsCoverage()}
+                disabled={opsBusy}
+                className="ui-btn-secondary mt-3 inline-flex items-center gap-2 px-4 py-2 text-sm font-bold"
+              >
+                <Search size={16} /> Run AIDocs coverage
+              </button>
+            </div>
+          </section>
+
+          <section className="rounded-xl border border-app-border bg-app-surface p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-widest text-app-text">
+                  Draft preview
+                </h3>
+                <p className="mt-1 text-xs text-app-text-muted">
+                  Review carefully before applying. The editor save step remains
+                  the publish control.
+                </p>
+              </div>
+              <span className="rounded-full border border-app-border bg-app-surface-2/60 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                {aiDraft.trim() ? "Draft ready" : aiBusy ? "Working" : "No draft"}
+              </span>
+            </div>
+            <pre className="mt-3 min-h-[520px] overflow-y-auto rounded-xl border border-app-border bg-app-bg p-4 text-xs text-app-text whitespace-pre-wrap">
+              {aiDraft.trim() ||
+                "Select a manual, add instructions, then run Draft with ROSIE."}
+            </pre>
+          </section>
+        </div>
+      )}
+
       {tab === "automation" && (
         <div className="grid gap-4 lg:grid-cols-[minmax(280px,360px)_1fr]">
           <section className="rounded-xl border border-app-border bg-app-surface p-4">
@@ -1498,9 +1811,25 @@ export default function HelpCenterSettingsPanel() {
                 </span>
               </div>
               <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
+                uv/AIDocs runner available:{" "}
+                <span className="font-bold">
+                  {opsStatus ? (opsStatus.uv_available ? "yes" : "no") : "…"}
+                </span>
+              </div>
+              <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
                 Manifest script found:{" "}
                 <span className="font-bold">
                   {opsStatus ? (opsStatus.script_exists ? "yes" : "no") : "…"}
+                </span>
+              </div>
+              <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
+                AIDocs config found:{" "}
+                <span className="font-bold">
+                  {opsStatus
+                    ? opsStatus.aidocs_config_exists
+                      ? "yes"
+                      : "no"
+                    : "…"}
                 </span>
               </div>
               <div className="rounded border border-app-border bg-app-surface-2/40 p-2">
