@@ -1,5 +1,7 @@
 # CoreCard Sandbox / Live Validation Runbook
 
+Status: **Canonical sandbox/live validation runbook** for a real CoreCard tenant. For the complete RMS Charge documentation map, start with [RMS_CHARGE.md](./RMS_CHARGE.md).
+
 This runbook is the operational checklist for validating the existing RiversideOS RMS Charge / CoreCredit / CoreCard integration against a real CoreCard sandbox or live tenant.
 
 It is intentionally narrow. It does not redesign the integration and it does not replace the fake-host E2E suite.

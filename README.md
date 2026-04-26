@@ -114,8 +114,8 @@ Environment variables:
 | `RIVERSIDE_MEILISEARCH_API_KEY` | _(unset)_ | Optional; Meilisearch master/API key when the instance requires auth (match **`MEILI_MASTER_KEY`** in Compose for local dev) |
 | `RIVERSIDE_METABASE_ADMIN_EMAIL` / `RIVERSIDE_METABASE_ADMIN_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for Admin staff in local/RC runs. |
 | `RIVERSIDE_METABASE_STAFF_EMAIL` / `RIVERSIDE_METABASE_STAFF_PASSWORD` | _(unset)_ | Optional local shared-auth credentials used by **`/api/insights/metabase-launch`** when JWT SSO is off. Put these in **`server/.env`** if you expect automatic Metabase sign-in for staff-class Metabase sessions in local/RC runs. |
-| `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **Planned** (**ROSIE**): Axum BFF upstream for **`POST /api/help/rosie/v1/chat/completions`** — **`docs/PLAN_LOCAL_LLM_HELP.md`** § Ship decision |
-| `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **Planned** (**ROSIE**): Tauri **direct** loopback vs **Axum** fallback — same doc; full table **`DEVELOPER.md`** |
+| `RIVERSIDE_LLAMA_UPSTREAM` | _(unset)_ | **ROSIE** Axum fallback upstream for **`POST /api/help/rosie/v1/chat/completions`** — start at **`docs/AI.md`**, then **`docs/ROSIE_HOST_STACK.md`** |
+| `VITE_ROSIE_LLM_DIRECT` / `VITE_ROSIE_LLM_HOST` / `VITE_ROSIE_LLM_PORT` | _(unset)_ | **ROSIE** Tauri **direct** loopback vs **Axum** fallback — start at **`docs/AI.md`**, then **`docs/ROSIE_HOST_STACK.md`** |
 | `RIVERSIDE_MORNING_DIGEST_HOUR_LOCAL` | `7` | Optional; local hour (0–23) for admin morning notification digest — **`DEVELOPER.md`**, **`docs/PLAN_NOTIFICATION_CENTER.md`** |
 
 Production browser releases require **`RIVERSIDE_STRICT_PRODUCTION=true`** together with **`RIVERSIDE_CORS_ORIGINS`**, **`RIVERSIDE_STORE_CUSTOMER_JWT_SECRET`**, an explicit **`FRONTEND_DIST`**, a live **`STRIPE_SECRET_KEY`**, a live **`STRIPE_PUBLIC_KEY`**, an absolute **`RIVERSIDE_BACKUP_DIR`**, and a non-default **`QBO_TOKEN_ENC_KEY`** before QBO activation. Local development may use the permissive defaults, but RC/production signoff should treat those envs as mandatory. **`STRIPE_WEBHOOK_SECRET`** remains optional unless that deployment expects signed Stripe webhook reconciliation.
@@ -131,7 +131,7 @@ cd client && npm run lint        # ESLint check
 cd client && npm run build       # tsc --noEmit + vite build
 ```
 
-**Reporting routes:** when adding **GET** APIs used by **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`ThingsBeforeLaunch.md`** § LLM). Booked vs recognition semantics: **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** and **`docs/REPORTING_BOOKED_AND_RECOGNITION.md`**. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Ops model: **`docs/METABASE_REPORTING.md`**, **`docs/PLAN_METABASE_INSIGHTS_EMBED.md`**. Order and Wedding Order rules: **[`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`](docs/TRANSACTIONS_AND_WEDDING_ORDERS.md)**.
+**Reporting routes:** start with **[`docs/REPORTING.md`](docs/REPORTING.md)**. When adding **GET** APIs used by **Reports**, **Insights**, **Metabase**, or other analytics surfaces, refresh **`docs/AI_REPORTING_DATA_CATALOG.md`** (hint: `python3 scripts/scan_axum_get_routes_hint.py`). **Pair that file** with **`docs/AI_CONTEXT_FOR_ASSISTANTS.md`** (routing, RBAC safety, Help vs reporting, **ROSIE** launch posture — **`docs/PLAN_LOCAL_LLM_HELP.md`**, **`ThingsBeforeLaunch.md`** § LLM). Booked vs recognition semantics live in **[`docs/REPORTING_BOOKED_AND_FULFILLED.md`](docs/REPORTING_BOOKED_AND_FULFILLED.md)** with **[`docs/BOOKED_VS_FULFILLED.md`](docs/BOOKED_VS_FULFILLED.md)** as the concept primer. Layaway lifecycle: **[`docs/LAYAWAY_OPERATIONS.md`](docs/LAYAWAY_OPERATIONS.md)**. Order and Wedding Order rules: **[`docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`](docs/TRANSACTIONS_AND_WEDDING_ORDERS.md)**.
 
 ## E2E tests (Playwright)
 
@@ -166,7 +166,7 @@ For complete pre-release validation (service boot order, lint/build gates, and E
 
 ## Migrations
 
-Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files currently extend through **`163_dashboard_read_path_indexes.sql`** (see `migrations/`). Duplicate numeric prefixes exist in this repo, so migration comparisons must use full filenames, not just numeric ceilings. Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**; ROS Dev Center v1 core schema: **149–150**.
+Apply via **`./scripts/apply-migrations-docker.sh`** (ledger in `migrations/00_ros_migration_ledger.sql`). Compare ledger vs schema: **`./scripts/migration-status-docker.sh`** (probes in **`scripts/ros_migration_build_probes.sql`**, maintained through the latest numbered file). Full table: **`DEVELOPER.md`**. Latest numbered files currently extend through **`167_product_tax_category_override.sql`** (see `migrations/`). Duplicate numeric prefixes exist in this repo, so migration comparisons must use full filenames, not just numeric ceilings. Feature migrations **51–52**: **`docs/PLAN_NOTIFICATION_CENTER.md`**; weather **46–48**: **`docs/WEATHER_VISUAL_CROSSING.md`**; ROS Dev Center v1 core schema: **149–150**.
 
 | # | Highlights |
 |---|------------|
@@ -188,20 +188,27 @@ Riverside OS maintains a strict **Source of Truth** policy for Counterpoint inte
 | Path | Role | Audience |
 |------|------|----------|
 | `README.md` | Overview, quick start, migrations summary | Everyone |
+| `docs/README.md` | Documentation index and search guide | Everyone |
 | `CHANGELOG.md` | Detailed version history and release notes | Everyone |
 | `DEVELOPER.md` | Architecture, API overview, migrations table, runbooks | Developers |
 | `AGENTS.md` | Invariants, edit map, commands, migration cheat sheet | Agents / devs |
 | `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md` | Rules around non-takeaway fulfillment, deposit liabilities vs revenue, and reserving stock pending arrival. | Developers / ops |
+| `docs/TRANSACTIONS.md` | Transactions front door: fulfillment orders, pickup, returns, deposits, layaways | Developers / ops |
 | `docs/ORBSTACK_GUIDE.md` | Local Docker management, context switch, VirtioFS | Devs |
 | `docs/STAFF_PERMISSIONS.md` | RBAC keys, middleware, client gating | Devs |
 | `docs/ONLINE_STORE.md` | Public `/shop`, API, CMS, Studio editor | Devs / ops |
 | `docs/SEARCH_AND_PAGINATION.md` | Search semantics, optional Meilisearch | Devs |
-| `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint one-time migration bridge, mapping, heartbeats, retirement path | Ops / devs |
-| `docs/STAFF_SCHEDULE_XLSX_IMPORTER.md` | Staff Schedule Maker weekly grid + `.xlsx` import format and troubleshooting | Ops / devs |
+| `docs/COUNTERPOINT.md` | Counterpoint front door: bridge, one-time import, staging, mapping, retirement | Ops / devs |
+| `docs/COUNTERPOINT_SYNC_GUIDE.md` | Counterpoint engineering guide, mapping, heartbeats, provenance | Ops / devs |
+| `docs/RMS_CHARGE.md` | RMS Charge / CoreCard front door: architecture, operations, security, QBO, staff manuals | Ops / devs |
+| `docs/CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md` | Podium, reviews, storefront widget, and notification-center front door | Ops / devs |
+| `docs/AI.md` | AI / ROSIE front door: runtime, safety, reporting allowlists, retired ROS-AI history | Devs / ops |
+| `docs/STAFF_SCHEDULE_AND_CALENDAR.md` | Staff scheduling, floor calendar, weekly grid, day exceptions, and related APIs | Ops / devs |
 | `docs/TRANSACTION_RETURNS_EXCHANGES.md` | Refunds, returns, exchanges | Devs |
 | `docs/STAFF_TASKS_AND_REGISTER_SHIFT.md` | Checklists, tasks, register shift primary | Devs / ops |
 | `docs/PLAN_BUG_REPORTS.md` | In-app bug report architecture and triage | Devs / ops |
 | `docs/RECEIPT_BUILDER_AND_DELIVERY.md`| ZPL / Thermal templates and Podium delivery | Devs / ops |
+| `docs/REPORTING.md` | Reporting front door: basis, Reports, Insights, Metabase, commissions | Devs / ops |
 | `docs/COMMISSION_AND_SPIFF_OPERATIONS.md` | Commission Manager, SPIFF rules, and combo rewards | Ops / devs |
 | `docs/SHIPPING_AND_SHIPMENTS_HUB.md` | Shippo, Registry, and Hub operations | Devs / ops |
 | `docs/WISEPOS_E_SETUP_STRIPE.md` | Stripe Terminal WisePOS E reset and server-driven flow | Ops / devs |

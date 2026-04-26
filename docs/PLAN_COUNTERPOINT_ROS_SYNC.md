@@ -1,5 +1,7 @@
 # Counterpoint v8.2 → Riverside OS (unified data map + Settings console)
 
+**Status:** **Partially implemented / active ops roadmap.** Core catalog, gift-card, ticket, staff, heartbeat, staging, and Settings monitoring paths are implemented; loyalty-policy ingest and other business-decision items remain deferred. Pair with **[`COUNTERPOINT_SYNC_GUIDE.md`](./COUNTERPOINT_SYNC_GUIDE.md)** for operator-facing setup.
+
 **Role:** Implementation roadmap for NCR Counterpoint SQL → ROS PostgreSQL ingest, Windows bridge, and Back Office Settings monitoring.  
 **Companion:** [counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt), [counterpoint-bridge/README.md](../counterpoint-bridge/README.md).  
 **Cursor plan:** synced with workspace planning; edit this file as the source of truth in git.

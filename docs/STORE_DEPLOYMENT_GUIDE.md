@@ -73,7 +73,7 @@ The app supports **multiple open register terminals** (migration **66**) sharing
 
 - **Rust binary** for the API (`cargo build --release` in `server/`, or your CI artifact). The server pins **Rust 1.88+** in **`server/rust-toolchain.toml`** (**`ort`** / **fastembed** for staff-help embeddings); use that toolchain in CI and release builds.
 - **Production web bundle** `client/dist` copied next to the deployment layout your runbook uses (Axum serves this folder in production).
-- **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply all migrations in `migrations/` in order (see [`DEVELOPER.md`](../DEVELOPER.md)). If you ship ROS-AI help, set **`RIVERSIDE_REPO_ROOT`** to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`** and run **`POST /api/ai/admin/reindex-docs`** after upgrades that change staff docs — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
+- **Database**: PostgreSQL reachable via **`DATABASE_URL`**. Apply all migrations in `migrations/` in order (see [`DEVELOPER.md`](../DEVELOPER.md)). If you ship changed in-app Help manuals, run **`npm run generate:help`** before packaging and rebuild the optional Meilisearch **`ros_help`** index after deploy — [`MANUAL_CREATION.md`](MANUAL_CREATION.md). Current AI / ROSIE docs start at [`AI.md`](AI.md); the old **`POST /api/ai/admin/reindex-docs`** flow is retired.
 
 ### 3.2 Windows desktop app (Register 1 + Back office)
 
@@ -265,7 +265,7 @@ This section matches a common Riverside deployment: **Zebra** scanners and label
 
 ### 6.1 Epson TM-m30III and ZPL (read carefully)
 
-Today, the POS **Sale complete** flow loads **`GET /api/orders/{order_id}/receipt.zpl`** and sends the response as **ZPL** over **TCP** (default port **9100**) via **`printZplReceipt`** in [`client/src/lib/printerBridge.ts`](../client/src/lib/printerBridge.ts).
+Today, the POS **Sale complete** flow loads **`GET /api/transactions/{transaction_id}/receipt.zpl`** and sends the response as **ZPL** over **TCP** (default port **9100**) via **`printZplReceipt`** in [`client/src/lib/printerBridge.ts`](../client/src/lib/printerBridge.ts).
 
 **ZPL is Zebra’s wire format.** The **Epson TM-m30III** expects **ESC/POS** (or driver-mediated printing), **not ZPL**, on a **raw** socket. Pointing the current ZPL job at the Epson’s raw **9100** port will **not** produce a correct receipt.
 

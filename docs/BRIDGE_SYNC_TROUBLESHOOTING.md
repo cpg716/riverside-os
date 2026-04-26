@@ -1,5 +1,7 @@
 # Bridge Sync Troubleshooting Guide
 
+**Status:** Counterpoint bridge troubleshooting supplement. For the full Counterpoint doc map, start at [`COUNTERPOINT.md`](COUNTERPOINT.md).
+
 The Counterpoint Bridge is the vital link between your legacy data and Riverside OS. This guide helps you diagnose and fix common synchronization issues.
 
 ## 1. Connection Resilience (The Retry Loop)

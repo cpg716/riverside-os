@@ -1,7 +1,9 @@
-# Porting New Features to OLD UI - Implementation Plan
+# Historical Porting Plan: New Features to Legacy UI
+
+**Status:** **Superseded / historical.** This was a one-time porting checklist for an older UI transition. Do not treat the component list below as current shell guidance; use **[`DEVELOPER.md`](../DEVELOPER.md)**, **[`docs/CLIENT_UI_CONVENTIONS.md`](./CLIENT_UI_CONVENTIONS.md)**, and **[`docs/ROS_UI_CONSISTENCY_PLAN.md`](./ROS_UI_CONSISTENCY_PLAN.md)** for current UI architecture.
 
 ## Overview
-Carefully adding new features from the overhaul stash while maintaining OLD UI styling.
+Historical checklist for carefully adding features from an overhaul stash while preserving the then-current legacy UI styling.
 
 ---
 
@@ -9,7 +11,7 @@ Carefully adding new features from the overhaul stash while maintaining OLD UI s
 
 ### 1. CommandPalette (Cmd+K)
 - **File**: `client/src/components/layout/CommandPalette.tsx`
-- **Status**: ✅ Written with OLD UI styling
+- **Status**: Written with the legacy styling of that period
 - **Next**: Wire into App.tsx with Cmd+K trigger
 - **Test**: Press Cmd+K, search works, navigation works
 
@@ -48,7 +50,7 @@ These require careful diff analysis - port only functionality, apply OLD styling
 
 ## Implementation Notes
 
-- All new components MUST use OLD UI tokens:
+- At the time, all new components used legacy UI tokens:
   - `--app-surface`, `--app-border`, `--app-text`, `--app-accent`
   - Existing component patterns as reference
   - NO new colors from the broken overhaul
@@ -56,7 +58,7 @@ These require careful diff analysis - port only functionality, apply OLD styling
 - Testing protocol:
   - `npm run lint` = 0 errors
   - `npm run build` = passes  
-  - Manual test = feature works + looks like OLD UI
+  - Manual test = feature works + matches the legacy UI
 
 ---
 

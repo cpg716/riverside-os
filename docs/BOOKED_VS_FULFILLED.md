@@ -1,5 +1,7 @@
 # Booked vs. Fulfilled Reporting — Riverside OS
 
+**Status:** Conceptual explainer. The canonical technical implementation source is [`REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md); the reporting doc map is [`REPORTING.md`](REPORTING.md).
+
 Riverside OS uses a "Fulfilled-Recognition" model for financial and tax liability. This document explains the distinction between the **Booked Date** (the initial sale) and the **Fulfilled Date** (the revenue recognition event).
 
 ## Definitions
@@ -54,4 +56,4 @@ Strictly **Fulfilled-only**. Payouts are calculated based on the margin of lines
 - **Orders**: Items are booked and moved to `reserved_stock` upon arrival. Revenue is deferred until pickup (Fulfillment).
 
 ---
-*For staff workflows, see [Transaction Pickup Manual](docs/staff/transaction-pickup-manual.md) and [Layaway Manual](docs/staff/layaway-manual.md).*
+*For staff workflows, see [Transactions Back Office](staff/transactions-back-office.md), [Transaction Fulfillment and Pickup](TRANSACTION_FULFILLMENT_AND_PICKUP.md), and [Layaway Operations](LAYAWAY_OPERATIONS.md).*

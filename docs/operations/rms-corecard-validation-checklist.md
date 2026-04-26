@@ -1,5 +1,7 @@
 # RMS Charge / CoreCard Validation Checklist
 
+Status: **Operator validation checklist** for sandbox/live RMS Charge signoff. For setup and context, start with [RMS_CHARGE.md](../RMS_CHARGE.md) and [CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md](../CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md).
+
 ## SECTION 1 — BEFORE YOU START
 
 - [ ] I have sandbox/live CoreCard credentials configured

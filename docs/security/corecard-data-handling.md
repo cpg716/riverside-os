@@ -1,5 +1,7 @@
 # CoreCard Data Handling and Security
 
+Status: **Canonical RMS Charge security and data-handling reference**. For the complete documentation map, start with [RMS_CHARGE.md](../RMS_CHARGE.md).
+
 This document describes the current security and data-handling expectations for the RiversideOS RMS Charge / CoreCard integration.
 
 ## Core rules

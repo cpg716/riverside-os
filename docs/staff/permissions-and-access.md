@@ -85,7 +85,7 @@ Riverside OS uses **Role-Based Authorization** to reduce friction for administra
 | Symptom | What to try first | If that fails |
 |--------|-------------------|---------------|
 | Tab visible yesterday, gone today | **Role** or **override** changed | Admin reviews **Audit** |
-| **403** on one action only | Sub-permission (e.g. refund vs view) | [orders-back-office.md](orders-back-office.md) |
+| **403** on one action only | Sub-permission (e.g. refund vs view) | [transactions-back-office.md](transactions-back-office.md) |
 | Manager cannot lock out admin | By design — admin full catalog | Owner changes role in DB / policy |
 | POS sees different menu than BO | Extra **session** checks | [pos-register-cart.md](pos-register-cart.md) |
 

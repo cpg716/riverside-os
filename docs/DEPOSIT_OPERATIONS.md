@@ -1,5 +1,7 @@
 # Deposit Operations — Riverside OS
 
+**Status:** Canonical deposit, open-deposit, release, and forfeiture reference. For the full transactions doc map, start at [`TRANSACTIONS.md`](TRANSACTIONS.md).
+
 Deposits are the foundational financial mechanism in Riverside OS for all deferred-fulfillment sales. Every time a customer commits to a purchase but does not take home the merchandise that same day, a deposit captures the funds as a **liability** — not revenue — preserving tax and commission accuracy until physical pickup.
 
 This document covers every deposit form the system supports, how the POS register processes them, how they flow through QBO accounting, and the edge cases staff should understand.

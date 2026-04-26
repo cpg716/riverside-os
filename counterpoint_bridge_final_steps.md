@@ -1,6 +1,6 @@
 # 🏁 Counterpoint Bridge: Final Completion Checklist
 **Updated:** 2026-04-09
-**Status:** Verification & "Hyper-Speed" Tuning (Active)
+**Status:** Historical final-steps checklist. Current Counterpoint documentation starts at [`docs/COUNTERPOINT.md`](docs/COUNTERPOINT.md); use [`docs/COUNTERPOINT_ONE_TIME_IMPORT.md`](docs/COUNTERPOINT_ONE_TIME_IMPORT.md) for cutover, validation, reset, and bridge retirement.
 
 We have finalized the sync for Counterpoint v8.2. Based on SQL-OUTPUT and performance tuning, the bridge is now in a "Gold Master" state.
 
@@ -33,4 +33,3 @@ We have verified and mapped the following v8.2 specific tables:
 
 > [!IMPORTANT]
 > The bridge is now optimized for speed and reliability. If any entity shows `Invalid column name`, do not turn it off—verify the column name in SSMS and update your `.env` to match.
-

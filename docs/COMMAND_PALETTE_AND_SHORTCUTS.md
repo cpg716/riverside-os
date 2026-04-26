@@ -1,5 +1,7 @@
 # Global Command Palette & Navigation
 
+**Status:** Historical / superseded. The standalone `CommandPalette` component was removed; current universal lookup behavior lives in the global search drawer host at `client/src/components/layout/GlobalSearchDrawers.tsx` and the app-level drawer wiring in `client/src/App.tsx`.
+
 Riverside OS includes a system-wide Command Palette for instant navigation and data retrieval, optimized for keyboard-first throughput.
 
 ## Shortcut: `Cmd+K` (or `Ctrl+K`)
@@ -24,8 +26,8 @@ Jump instantly between the core workspaces:
 
 ## Technical Implementation
 
-### Component: `CommandPalette.tsx`
-*   **Location**: `client/src/components/layout/CommandPalette.tsx`
+### Component: `GlobalSearchDrawers.tsx`
+*   **Location**: `client/src/components/layout/GlobalSearchDrawers.tsx`
 *   **API Sources**: 
     *   `/api/customers/browse?q=...`
     *   `/api/products/control-board?search=...`

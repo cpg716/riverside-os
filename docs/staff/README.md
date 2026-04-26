@@ -16,7 +16,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 
 **Canonical machine list:** [`CORPUS.manifest.json`](CORPUS.manifest.json) — single source of truth for embed/index jobs (`docs/staff/**` plus cross-linked first-party docs such as **`TILL_GROUP_AND_REGISTER_OPEN`**, **`REGISTER_DASHBOARD`**, runbooks at repo root).
 
-**After you change the manifest or staff Markdown:** run **`npm run verify:ai-docs`** (drift check), then have an admin call **`POST /api/ai/admin/reindex-docs`** or run **`npm run reindex:staff-docs`** from the repo root while the API is up — see **[`../ROS_AI_HELP_CORPUS.md`](../ROS_AI_HELP_CORPUS.md)** (hybrid FTS + trigram + vector embeddings, env **`AI_EMBEDDINGS_ENABLED`**, **`RIVERSIDE_REPO_ROOT`**).
+**After you change staff Markdown:** update this index and the manifest when applicable. For in-app Help manuals, update **`client/src/assets/docs/*-manual.md`**, run **`npm run generate:help`**, and rebuild the optional Meilisearch **`ros_help`** index via Settings → Integrations → Rebuild or **`./scripts/ros-meilisearch-reindex-local.sh`**. Do **not** use the retired **`POST /api/ai/admin/reindex-docs`** path; current AI / ROSIE docs start at **[`../AI.md`](../AI.md)**.
 
 **Completeness:** Every Back Office subsection in `SIDEBAR_SUB_SECTIONS` and every POS rail tab in `PosTabId` maps to exactly one staff article (or a clearly labeled subsection within it). When you add a sidebar item in code, add a row to the checklists below and extend the linked guide the same day.
 
@@ -44,7 +44,8 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | Operations Hub (Dashboard, Daily Sales, Pickup Queue, Podium Inbox, Reviews) | [operations-home.md](operations-home.md) |
 | POS tab → Register (launchpad) | [register-tab-back-office.md](register-tab-back-office.md) |
 | Till group, multi-lane Z (reference) | [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md) |
-| Parked cart + RMS / RMS90 ledger (reference) | [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md) |
+| RMS Charge documentation map | [../RMS_CHARGE.md](../RMS_CHARGE.md) |
+| Parked cart + RMS / RMS90 ledger (engineering reference) | [../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md) |
 | RMS Charge overview | [rms-charge-overview.md](rms-charge-overview.md) |
 | RMS Charge accounts | [rms-charge-accounts.md](rms-charge-accounts.md) |
 | RMS Charge transactions | [rms-charge-transactions.md](rms-charge-transactions.md) |
@@ -67,6 +68,7 @@ Use **exact sidebar names** from the app (Back Office and POS rails). For engine
 | ROS Dev Center (admin ops) | [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md), [settings-back-office.md](settings-back-office.md) |
 | Podium integration (staff SOP) | [podium-integration-staff-manual.md](podium-integration-staff-manual.md) |
 | Podium integration (full reference) | [Podium_Integration_Manual.md](Podium_Integration_Manual.md) |
+| Podium + notification documentation map | [../CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md](../CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md) |
 | NuORDER integration (wholesale sync) | [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md) |
 | Bug reports — **submit** (any staff) | [bug-reports-submit-manual.md](bug-reports-submit-manual.md) |
 | Bug reports — **admin triage** | [bug-reports-admin-manual.md](bug-reports-admin-manual.md) |
@@ -142,7 +144,7 @@ Source of truth for labels: `client/src/components/layout/sidebarSections.ts` (`
 | Settings | Receipt Builder | [../RECEIPT_BUILDER_AND_DELIVERY.md](../RECEIPT_BUILDER_AND_DELIVERY.md) (product doc; staff: test receipts after edits) |
 | Settings | Integrations | [settings-back-office.md](settings-back-office.md) |
 | Settings | Staff access defaults | [settings-back-office.md](settings-back-office.md) |
-| Settings | Counterpoint | [../COUNTERPOINT_SYNC_GUIDE.md](../COUNTERPOINT_SYNC_GUIDE.md), [../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md](../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) |
+| Settings | Counterpoint | [../COUNTERPOINT.md](../COUNTERPOINT.md), [../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md](../COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) |
 | Settings | ROS Dev Center | [settings-back-office.md](settings-back-office.md), [../ROS_DEV_CENTER.md](../ROS_DEV_CENTER.md) |
 | Settings | NuORDER | [../NUORDER_INTEGRATION.md](../NUORDER_INTEGRATION.md) |
 | Settings | Online store | [settings-back-office.md](settings-back-office.md), [../ONLINE_STORE.md](../ONLINE_STORE.md) |

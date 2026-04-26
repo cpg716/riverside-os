@@ -2,7 +2,7 @@
 
 > **FUTURE ADDITION:** **Online Store** channel items below **rate estimates** on **`/shop`** — i.e. **Stripe checkout + `rate_quote_id` binding**, **guest-initiated label purchase**, and **web-specific post-payment automation** — stay **deferred** until **[`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)** Phase C checkout exists. Implement and test **POS**, **Back Office Orders**, and **Shipments hub** first.
 
-**Status:** **Partially implemented.** Foundation + unified registry are documented in **[`docs/SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (migrations **74**–**75**, rate quotes, **`/api/shipments`**, POS/store rate endpoints). This document remains the **roadmap** for labels, webhooks, late-bound fulfillment gates, and deeper order/workspace UX. **Cross-cutting tracker** (Podium + notifications + reviews): **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**.
+**Status:** **Partially implemented roadmap/deep spec.** Foundation + unified registry are documented in **[`SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md)** (migrations **74**–**75**, rate quotes, **`/api/shipments`**, POS/store rate endpoints). This document remains the **roadmap** for labels, webhooks, late-bound fulfillment gates, and deeper transaction/workspace UX. **Cross-cutting tracker** (Podium + notifications + reviews): **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**.
 
 Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) integration in **two channels**:
 
@@ -20,7 +20,7 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 - **Labels**: purchase through Shippo; persist **tracking URL**, **carrier**, **label PDF URL** (or Shippo object id for re-fetch).
 - **Web + POS** share **`logic/shippo.rs`** (no duplicated HTTP).
 - **Audit**: who bought the label, cost, linked `order_id`.
-- **Late-bound shipping $**: Many in-store orders **do not** have a final shipping charge at sale time (unknown weight, ship-later, or “we’ll quote when it’s packed”). ROS must support **adding or finalizing the shipping charge later**, including at **fulfillment transitions** (e.g. when staff marks items **ready to ship** or completes **pickup / delivered** steps in Back Office or POS (**Register** cart) — see **`mark_order_pickup`** in [`server/src/api/orders.rs`](../server/src/api/orders.rs)).
+- **Late-bound shipping $**: Many in-store orders **do not** have a final shipping charge at sale time (unknown weight, ship-later, or “we’ll quote when it’s packed”). ROS must support **adding or finalizing the shipping charge later**, including at **fulfillment transitions** (e.g. when staff marks items **ready to ship** or completes **pickup / delivered** steps in Back Office or POS (**Register** cart) — see **`mark_transaction_pickup`** in [`server/src/api/transactions.rs`](../server/src/api/transactions.rs)).
 
 ## Non-goals (initial phase)
 
@@ -79,9 +79,9 @@ Cross-cutting plan for **Shippo** ([Shippo API](https://goshippo.com/docs/)) int
 
 1. Cashier attaches customer + items; taps **“Ship order”**.
 2. Enter/edit **ship-to** (or pull from **`customers`** address fields).
-3. **`POST /api/orders/{id}/shipping/rates`** or pre-checkout **`POST /api/pos/shipping/rates`** with **line items** → Shippo rates.
+3. **`POST /api/transactions/{id}/shipping/rates`** or pre-checkout **`POST /api/pos/shipping/rates`** with **line items** → Shippo rates.
 4. Cashier picks rate → server stores quote on **draft order** or passes into **`POST /checkout`** payload.
-5. **Optional** post-payment: **`POST /api/orders/{id}/shipping/buy-label`** — `orders.modify` + open register session rules as applicable.
+5. **Optional** post-payment: **`POST /api/transactions/{id}/shipping/buy-label`** — `orders.modify` + open register session rules as applicable.
 
 ### Late-bound shipping (charge not known at order start)
 
@@ -91,12 +91,12 @@ Retail reality: staff often sell the order **before** they know **package weight
 |----------|----------|
 | **Checkout without shipping $** | Order may complete with **`fulfillment_method = ship`** (or equivalent) and **`shipping_amount_usd = 0`** / unset, plus **ship_to** captured or deferred until packing. |
 | **Add charge when “ready”** | When moving lines toward **fulfillment** — e.g. marking **ready for delivery**, **packed**, or using the existing **pickup / mark fulfilled** flow — if the order is **ship** and shipping is still unset or zero, **prompt staff** (Back Office **Orders** + POS **Register**) to **Get Shippo rates → add shipping line** before or as part of that step. |
-| **Order already paid** | Adding shipping increases **balance due**; require **`orders.modify`** (and Register rules) to **collect additional tender** or record **account charge**, then **`recalc_order_totals`** — same discipline as other post-sale adjustments. |
+| **Order already paid** | Adding shipping increases **balance due**; require **`orders.modify`** (and Register rules) to **collect additional tender** or record **account charge**, then **`recalc_transaction_totals`** — same discipline as other post-sale adjustments. |
 | **Open / partial pay** | Apply quoted shipping before final payment; **`rate_quote_id`** or server-side re-quote at fulfillment time. |
 
 **UI principle:** Any surface that changes fulfillment state (“ready”, “pickup complete”, “ship this”) for a **ship** order should **gate** or **wizard-link** to **Add shipping** if `shipping_amount_usd` is missing or policy requires a label before dispatch.
 
-**Implementation note:** Wire explicitly to [`mark_order_pickup`](../server/src/api/orders.rs) callers (and parallel BO actions) so staff cannot mark a **ship** order fully fulfilled without either a configured **$0 ship** override (admin) or a **non-zero shipping line** + optional label workflow — product rules TBD per store.
+**Implementation note:** Wire explicitly to [`mark_transaction_pickup`](../server/src/api/transactions.rs) callers (and parallel BO actions) so staff cannot mark a **ship** order fully fulfilled without either a configured **$0 ship** override (admin) or a **non-zero shipping line** + optional label workflow — product rules TBD per store.
 
 ---
 
@@ -120,7 +120,7 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 |---------|----------|
 | **[`Cart.tsx`](../client/src/components/pos/Cart.tsx)** or checkout drawer | **“Shipping”** action: modal for address + rate picker + preview of added **$** line (when known at sale time). |
 | **Order detail** ([`OrdersWorkspace.tsx`](../client/src/components/orders/OrdersWorkspace.tsx)) | For `fulfillment_method = ship`: **Add / edit shipping** anytime before dispatch (rates + line); tracking, **Reprint label**, **Buy label** if not yet purchased. |
-| **Fulfillment / pickup flows** | When staff mark items **ready** or **pickup / delivered** ([`mark_order_pickup`](../server/src/api/orders.rs)): if order ships and shipping not finalized, **offer or require** the Shippo quote → charge step (see **Late-bound shipping** above). |
+| **Fulfillment / pickup flows** | When staff mark items **ready** or **pickup / delivered** ([`mark_transaction_pickup`](../server/src/api/transactions.rs)): if order ships and shipping not finalized, **offer or require** the Shippo quote → charge step (see **Late-bound shipping** above). |
 | **Permissions** | **`orders.modify`** for adding shipping to open order; **`orders.*`** + optional **`shipping.purchase_label`** if you want to restrict label spend. |
 
 ### Stock
@@ -141,7 +141,7 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 
 - API + POS UI: quote → add **shipping line** to checkout; persist on order.
 - Receipt shows shipping line.
-- **Late path:** same **rates → line** from **Orders** workspace and at **fulfillment / pickup** transitions when shipping was **unknown at checkout**; optional validation hook before **`mark_order_pickup`** completes for **ship** orders.
+- **Late path:** same **rates → line** from **Orders** workspace and at **fulfillment / pickup** transitions when shipping was **unknown at checkout**; optional validation hook before **`mark_transaction_pickup`** completes for **ship** orders.
 
 ### Phase 2 — Web store
 
@@ -185,4 +185,4 @@ Tie-in with **§6 destination tax** in [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ON
 
 - [Shippo API documentation](https://goshippo.com/docs/)
 - [`PLAN_ONLINE_STORE_MODULE.md`](./PLAN_ONLINE_STORE_MODULE.md)
-- [`server/src/logic/order_checkout.rs`](../server/src/logic/order_checkout.rs)
+- [`server/src/logic/transaction_checkout.rs`](../server/src/logic/transaction_checkout.rs)

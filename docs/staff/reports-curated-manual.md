@@ -30,7 +30,7 @@ Use **Insights** (Metabase) when you need to **explore**, save ad-hoc questions,
 4. When the detail shows **From** / **To**, pick the **date range** (store-local dates as shown by the control).
 5. When **Basis** appears, choose:
    - **Booked (sale date)** — when the sale was rung (pipeline / “what we sold”).
-   - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). Same ideas as Metabase reporting; see **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** if you need detail.
+   - **Completed (recognition)** — when qualifying fulfillment events happened (pickup / ship per your store rules). Same ideas as Metabase reporting; see **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** if you need detail.
 6. For **Sales pivot** and **Margin pivot** (Admin only), use **Group by** to change the breakdown (brand, category, salesperson, customer, or day).
 7. Use **Refresh** if you change filters. Use **CSV** (when shown) to download the current table.
 
@@ -72,7 +72,7 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 |--------|-------------------|---------------|
 | No **Reports** tab | Missing **insights.view** | Admin / **[STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)** |
 | Tile missing | Need an extra key (e.g. **register.reports**) or margin is **Admin only** | Admin |
-| Empty or truncated table | Widen dates; **Basis** may exclude rows you expect | Manager / **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** |
+| Empty or truncated table | Widen dates; **Basis** may exclude rows you expect | Manager / **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** |
 | Error after open | Note the message; retry **Refresh** | IT if it persists |
 | Need a chart or custom cut | Use **Open Insights (Metabase)** | Metabase training |
 
@@ -90,7 +90,7 @@ Exact titles in the app may vary slightly as the catalog is updated; trust the *
 
 - **[insights-back-office.md](insights-back-office.md)** — Metabase shell and **commission reports**
 - **[../AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)** — Curated Reports v1 table and API reference
-- **[../REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)** — Booked vs recognition
+- **[../REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)** — Booked vs recognition
 - **[../POS_PARKED_SALES_AND_RMS_CHARGES.md](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** — RMS charge vs payment
 - **[pos-reports.md](pos-reports.md)** — POS **Reports** rail
 

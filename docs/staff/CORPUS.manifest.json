@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "description": "Canonical list of Markdown indexed for staff help (POST /api/ai/help): everything under docs/staff/ (except _TEMPLATE.md) plus first-party docs linked from those guides (docs/*.md and a few repo-root runbooks). Paths are relative to the repo root. For operator routing (which doc/API when), see docs/AI_CONTEXT_FOR_ASSISTANTS.md — do not mix that file into staff citations unless intentional.",
+  "description": "Canonical staff-facing Markdown list for help/search and assistant grounding: everything under docs/staff/ (except _TEMPLATE.md) plus first-party docs linked from those guides (docs/*.md and a few repo-root runbooks). Paths are relative to the repo root. Current Help Center search uses ros_help / GET /api/help/search; the old POST /api/ai/help path is retired. For operator routing (which doc/API when), see docs/AI_CONTEXT_FOR_ASSISTANTS.md — do not mix that file into staff citations unless intentional.",
   "files": [
     "docs/staff/README.md",
     "docs/staff/00-getting-started.md",
@@ -54,6 +54,7 @@
     "docs/staff/bug-reports-submit-manual.md",
     "docs/staff/bug-reports-admin-manual.md",
     "docs/staff/permissions-and-access.md",
+    "docs/staff/universal-search.md",
     "docs/staff/working-offline.md",
     "docs/STAFF_PERMISSIONS.md",
     "BACKUP_RESTORE_GUIDE.md",

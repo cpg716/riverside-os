@@ -1,5 +1,7 @@
 # Riverside OS POS Section Review (April 2026)
 
+**Status:** Historical review snapshot. Use current POS, transactions, payments, and RMS Charge docs for canonical behavior.
+
 This review covers the Point of Sale (POS) subsystem, focusing on checkout logic, hardware bridging, and offline resilience.
 
 ## 1. Checkout & Payment Ledger

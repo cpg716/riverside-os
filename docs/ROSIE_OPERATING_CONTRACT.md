@@ -1,5 +1,7 @@
 # ROSIE Operating Contract
 
+Status: **Canonical ROSIE safety and operating contract**. For the full AI / ROSIE documentation map, start with [AI.md](AI.md).
+
 ## Purpose
 ROSIE (RiversideOS Intelligence Engine) is an assistive system.
 It never becomes a system of record and never mutates business logic autonomously.

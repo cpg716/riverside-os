@@ -1,5 +1,7 @@
 # Counterpoint bridge and ingest — operator manual
 
+**Status:** Canonical operator manual for the Counterpoint bridge. For the full Counterpoint doc map, start at [`COUNTERPOINT.md`](COUNTERPOINT.md).
+
 Full runbook for **NCR Counterpoint (SQL Server) → Riverside OS (PostgreSQL)** using the Windows **Node bridge**, optional **staging queue**, and **Settings → Integrations → Counterpoint** hub. Data flow is **one way**: Counterpoint → ROS.
 
 For migration planning, treat this as a **one-time import tool**. After a successful cutover, ROS becomes the system of record and the bridge should be retired.

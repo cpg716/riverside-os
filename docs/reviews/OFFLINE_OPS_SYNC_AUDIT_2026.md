@@ -14,7 +14,7 @@ Riverside OS includes a sophisticated "Offline-First" capability for the Point o
 
 ### 2.2 Replay & Idempotency
 - **Flush Strategy**: The client listens for the browser's `online` event to automatically trigger a "Flush" of the pending queue.
-- **Server Guardrails**: Each checkout payload includes a unique `checkout_client_id`. The server's `order_checkout.rs` uses this for **Idempotency**, ensuring that if a client retries a sync that was partially processed, no duplicate orders or double-payments are created.
+- **Server Guardrails**: Each checkout payload includes a unique `checkout_client_id`. The server's `transaction_checkout.rs` uses this for **Idempotency**, ensuring that if a client retries a sync that was partially processed, no duplicate orders or double-payments are created.
 
 ## 3. Floor Visibility & Feedback
 - **Header Indicators**: An `OfflineBanner` component provides top-of-screen status ("Offline Mode" vs "Connected") and a count of **Pending Syncs**.

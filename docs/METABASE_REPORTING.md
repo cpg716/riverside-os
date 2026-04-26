@@ -1,5 +1,7 @@
 # Metabase reporting (Riverside OS)
 
+**Status:** Canonical Metabase architecture and access model. For the wider reporting doc map, start at [`REPORTING.md`](REPORTING.md).
+
 This note ties **Back Office Insights** (Metabase in an iframe) to **data governance** work. It pairs with **Back Office → Reports** (curated API tiles): Riverside **Admin role** gates **Margin pivot** in Reports; **Metabase staff vs admin logins** gate margin and private exploration in Insights.
 
 **Booked vs fulfilled:** See **[`docs/REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md)** — migration **`106_reporting_order_recognition.sql`**, **`reporting.order_recognition_at`**, **`daily_order_totals_fulfilled`**.

@@ -10,7 +10,7 @@ Short definitions for terms that appear in Riverside OS, training, and technical
 | **Action Board** | Prioritized operational queue (formerly "Morning Compass") showing wedding tasks and alerts. |
 | **Allocation** | Reserving physical units for a specific **Order** so they aren't sold to someone else. |
 | **Appointment** | A scheduled store visit; can be generic or linked to a specific wedding party. |
-| **Available stock** | What you can sell from inventory that is not already promised: on-hand minus **reserved** (see [abstracts/orders-and-stock.md](abstracts/orders-and-stock.md)). |
+| **Available stock** | What you can sell from inventory that is not already promised: on-hand minus **reserved** (see [abstracts/transactions-and-stock.md](abstracts/transactions-and-stock.md)). |
 | **Back Office** | Desktop-oriented shell: Operations, Inventory, Weddings, Settings, etc. Signed in with a **PIN**. |
 | **Bag Tag** | A 2x1 thermal label generated for individual items in an order (?mode=bag-tag). |
 | **Balance due** | Amount still owed on an order after payments and credits. |

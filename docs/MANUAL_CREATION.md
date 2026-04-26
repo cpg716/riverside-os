@@ -6,13 +6,24 @@ Riverside OS ships **staff-facing guides** inside the app: open **Help** (circle
 
 ---
 
-## Single source of truth: `client/src/assets/docs/*-manual.md`
+## Help Center source: `client/src/assets/docs/*-manual.md`
 
 There is **no** separate `config/help-manuals.json`. The Help Center discovers every file named **`<id>-manual.md`** in:
 
 `client/src/assets/docs/`
 
 Examples: `pos-manual.md` → manual id **`pos`**; `insights-manual.md` → **`insights`** (Back Office Insights / Metabase + commission payouts).
+
+These files are the source of truth for **what the app serves in the Help Center**. They are not automatically the source of truth for business rules, architecture, permissions, or financial behavior. When a Help manual conflicts with a canonical domain doc, staff procedure, or runbook, update the Help manual to match the canonical source.
+
+Canonicality is based on the document's role, not whether the content was generated or agent-authored:
+
+| Lane | Role |
+|---|---|
+| `docs/*.md` and root runbooks | Canonical domain, integration, operations, and engineering truth. |
+| `docs/staff/*.md` | Canonical staff-facing procedures and training language. |
+| `client/src/assets/docs/*-manual.md` | In-app Help content that should mirror canonical docs and staff procedures. |
+| `status: draft` / `auto-scaffold` manuals | Help scaffolds; not policy/training truth until promoted. |
 
 ### Optional YAML front matter (metadata only)
 

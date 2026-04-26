@@ -39,4 +39,4 @@ Use the Shipments Hub to manage packed-but-not-delivered orders, tracking number
 - Delivery status should match real carrier progress, not internal intent.
 - Use the fuller shipping guide when the question is about quoting or the original POS shipping setup.
 
-_For the full guide on shipping workflows, see the [Shipping & Fulfillment Guide](pos-shipping-manual)._
+_For the full guide on shipping workflows, see the [Shipping & Fulfillment Guide](pos-shipping-manual.md)._

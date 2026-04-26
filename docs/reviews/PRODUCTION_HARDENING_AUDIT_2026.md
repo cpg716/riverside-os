@@ -1,5 +1,7 @@
 # Riverside OS Production Hardening Audit
 
+**Status:** Historical production-hardening audit snapshot. Use current deployment, update, and release docs for canonical production guidance.
+
 **Date:** 2026-04-25  
 **Target topology:** Hybrid Tauri Host  
 **Version audited:** 0.3.0  

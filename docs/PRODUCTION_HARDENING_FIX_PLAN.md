@@ -1,5 +1,7 @@
 # Production Hardening Fix Plan
 
+**Status:** **Implemented with deployment follow-up.** Release-blocker and operational hardening items in this plan are marked implemented with verification notes below; the remaining non-code action is the Hybrid Tauri host restore drill / operator signoff called out in Batch 1.
+
 This plan resolves the audit findings in `docs/reviews/PRODUCTION_HARDENING_AUDIT_2026.md`.
 
 ## Batch 1: Release Blockers

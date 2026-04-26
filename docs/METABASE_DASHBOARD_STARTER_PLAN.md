@@ -1,5 +1,7 @@
 # Metabase Dashboard Starter Plan (Riverside OS)
 
+**Status:** **Reference starter / current guidance.** Use this as the recommended initial dashboard lineup; implementation and ops details remain in **[`METABASE_REPORTING.md`](./METABASE_REPORTING.md)** and **[`PLAN_METABASE_INSIGHTS_EMBED.md`](./PLAN_METABASE_INSIGHTS_EMBED.md)**.
+
 This is the recommended first-pass dashboard lineup for Riverside OS.
 
 Use it to build a clean, staff-friendly Metabase experience that feels operational, readable, and useful on day one.

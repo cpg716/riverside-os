@@ -1,6 +1,6 @@
 # Plan: Podium reviews (invites + Operations hub)
 
-**Status:** **Partially implemented** — **`store_settings.review_policy`** (**100**), **`ReceiptSummaryModal`** opt-out / defaults, **`POST /api/orders/{id}/review-invite`** (stub Podium path + idempotency fields), **Operations → Reviews** (**`reviews.view`**), admin **`review_invite_sent`** notification. **Live Podium review-invite API** (replace stub) and response workflows remain **roadmap**. **Tracker:** **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. **Gift / subset receipts** (print, email, text) share **`ReceiptSummaryModal`** with review UX — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**.
+**Status:** **Partially implemented roadmap/deep spec** — **`store_settings.review_policy`** (**100**), **`ReceiptSummaryModal`** opt-out / defaults, **`POST /api/transactions/{id}/review-invite`** (stub Podium path + idempotency fields), **Operations → Reviews** (**`reviews.view`**), admin **`review_invite_sent`** notification. Start with **[`CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md`](./CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md)** for the documentation map. **Live Podium review-invite API** (replace stub) and response workflows remain **roadmap**. **Tracker:** **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)**. **Gift / subset receipts** (print, email, text) share **`ReceiptSummaryModal`** with review UX — **`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**.
 
 **Depends on:** Podium OAuth (**`RIVERSIDE_PODIUM_*`**), **`podium_sms_config`** (**`location_uid`**, outbound toggles) — **[`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md)**. Receipt completion UX — **[`RECEIPT_BUILDER_AND_DELIVERY.md`](./RECEIPT_BUILDER_AND_DELIVERY.md)**.
 
@@ -59,7 +59,7 @@ Recommendation: **modal dismiss** + **idempotent** “invite already sent” gua
 ## Server (proposal)
 
 - **`logic/podium_reviews.rs`** (or extend **`podium.rs`**): create invite, list reviews, post response wrappers; map **`PodiumError`** to domain errors.
-- **Routes:** e.g. **`POST /api/orders/{id}/review-invite`** (staff/register-gated), **`GET /api/podium/reviews`** (Operations), webhooks extension if Podium emits review events (TBD).
+- **Routes:** e.g. **`POST /api/transactions/{id}/review-invite`** (staff/register-gated), **`GET /api/podium/reviews`** (Operations), webhooks extension if Podium emits review events (TBD).
 - **Migration:** columns on **`orders`**: **`review_invite_suppressed_at`**, **`review_invite_sent_at`**, **`podium_review_invite_id`** (nullable); optional **`podium_review_id`** when review received and correlated.
 
 ---

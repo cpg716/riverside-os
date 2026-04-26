@@ -8,19 +8,19 @@ All items below represent the full audit remediation executed against the codeba
 - [x] **CRIT-1** `middleware/mod.rs` — real admin header auth (x-riverside-staff-code + x-riverside-staff-pin, Admin role enforced)
 - [x] **CRIT-2** `auth/pins.rs` — PIN verification runs against stored Argon2 hash (was `let _ = pin;` bypass)
 - [x] **CRIT-3** `auth/pins.rs` — `authenticate_admin` enforces `DbStaffRole::Admin` (was accepting any active staff)
-- [x] **BUG-3** `orders.rs` — fixed malformed `COALESCE` SQL that crashed all order detail and receipt requests
-- [x] **BUG-5** `orders.rs` — `update_order_item` now opens the DB transaction before the UPDATE (was racing)
+- [x] **BUG-3** `transactions.rs` — fixed malformed `COALESCE` SQL that crashed all order detail and receipt requests
+- [x] **BUG-5** `transactions.rs` — `update_order_item` now opens the DB transaction before the UPDATE (was racing)
 - [x] **WED-1** `WeddingLookupDrawer.tsx` — Simplified Wedding Party view in POS with status pills
-- [x] **WED-2** `orders.rs` + `Cart.tsx` — **Group Wedding Payment System** with multi-member disbursements
+- [x] **WED-2** `transactions.rs` + `Cart.tsx` — **Group Wedding Payment System** with multi-member disbursements
 
 ### Sprint 2 — Data integrity + database
 - [x] **Migration 24** — 9 perf indexes, `session_ordinal BIGSERIAL`, `reserved_stock`, stock floor constraint, refund-queue uniqueness guard
 - [x] **Migrations 21–23 applied** — `order_activity_log`, `order_refund_queue`, barcode, gift cards, loyalty
-- [x] **INTEGRITY-1** `orders.rs` — Fulfilled status requires **all items picked up AND fully paid** (was pay-only gate)
-- [x] **BUG-4** `orders.rs` — `process_refund` guards against driving `amount_paid` negative (`GREATEST` protection)
-- [x] **INTEGRITY-2** `orders.rs` — customer name handles first-only or last-only correctly (was showing `None None`)
-- [x] **INTEGRITY-3** `orders.rs` — `ON CONFLICT … DO NOTHING` on refund queue prevents duplicates
-- [x] **INTEGRITY-4** `orders.rs` — stock decrement checks `rows_affected()`; returns 404 if variant missing
+- [x] **INTEGRITY-1** `transactions.rs` — Fulfilled status requires **all items picked up AND fully paid** (was pay-only gate)
+- [x] **BUG-4** `transactions.rs` — `process_refund` guards against driving `amount_paid` negative (`GREATEST` protection)
+- [x] **INTEGRITY-2** `transactions.rs` — customer name handles first-only or last-only correctly (was showing `None None`)
+- [x] **INTEGRITY-3** `transactions.rs` — `ON CONFLICT … DO NOTHING` on refund queue prevents duplicates
+- [x] **INTEGRITY-4** `transactions.rs` — stock decrement checks `rows_affected()`; returns 404 if variant missing
 - [x] **Q1 — Special/custom order stock model** implemented:
   - Checkout skips `stock_on_hand` for `special_order` / `custom` fulfillment types
   - `purchase_orders.rs` — PO receipt auto-allocates to `reserved_stock` for open special orders
@@ -34,14 +34,14 @@ All items below represent the full audit remediation executed against the codeba
 - [x] **BUG-1** `insights.rs` — N+1 momentum loop (70+ queries per request) → 1 batch query + HashMap pivot
 - [x] **UX-3** `insights.rs` — `SalesPivotResponse { rows, truncated }` wrapper; LIMIT 201 cap detection
 - [x] **PERF** `settings.rs` — `ReceiptConfig.timezone` IANA field (default `America/New_York`)
-- [x] **UX-1** `orders.rs` — ZPL receipt timestamps rendered in local timezone (`chrono-tz`)
+- [x] **UX-1** `transactions.rs` — ZPL receipt timestamps rendered in local timezone (`chrono-tz`)
 - [x] **Cargo.toml** — `chrono-tz = "0.9"`, `tracing = "0.1"`, `tracing-subscriber = "0.3"` added
 - [x] **Client** — Native Insights pivot UI retired; **Insights** = **`InsightsShell`** + Metabase iframe; commission ops in **`CommissionPayoutsPanel`** (Staff → Commission payouts)
 
 ### Sprint 4 — Observability + polish
 - [x] **OBS-1** `main.rs` — **`init_tracing_with_optional_otel`**: `RUST_LOG` **EnvFilter** + optional OTLP + fmt + **`ServerLogRing`** — **`docs/OBSERVABILITY_TRACING_AND_OPENTELEMETRY.md`**
 - [x] **OBS-2** All 26 `eprintln!` calls across 14 handler files replaced with structured `tracing::error!` / `tracing::warn!`
-- [x] **CODE-4** `orders.rs` — customer timeline notes only emit for milestones (`checkout`, `pickup`, `refund_processed`)
+- [x] **CODE-4** `transactions.rs` — customer timeline notes only emit for milestones (`checkout`, `pickup`, `refund_processed`)
 - [x] **CODE-1** `Sidebar.tsx` — `cashierName` and `isRegisterOpen` props hooked to live App state (no hardcoded "Jonathan Roy")
 - [x] **CODE-1** `App.tsx` — `cashierName` and `isRegisterOpen` wired into `<Sidebar>` component
 
@@ -66,7 +66,7 @@ All items below represent the full audit remediation executed against the codeba
 - [x] **Task 1** `SchedulerWorkspace.tsx` — 7-day Week View grid restoration.
 - [x] **Task 2** `customers.rs` — Advanced Customer Timeline (Appointments integrated).
 - [x] **Task 3** `messaging.rs` — Automated Messaging Engine (SMS/Email pickup triggers).
-- [x] **Task 4** `orders.rs` — Technical Polish (Bag Tag ZPL mode + Orders pagination).
+- [x] **Task 4** `transactions.rs` — Technical Polish (Bag Tag ZPL mode + Orders pagination).
 
 ### Sprint 8 — Bug reports + documentation alignment (2026-04)
 - [x] **BUG-RPT-1** Migrations **101–103** — **`staff_bug_report`**, **`server_log_snapshot`**, **`correlation_id`** / **`dismissed`** / triage fields, retention (**`RIVERSIDE_BUG_REPORT_RETENTION_DAYS`**); **`ServerLogRing`** / **`AppState.server_log_ring`** — **`docs/PLAN_BUG_REPORTS.md`**

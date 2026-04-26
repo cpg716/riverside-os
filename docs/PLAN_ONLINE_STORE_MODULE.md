@@ -356,7 +356,7 @@ flowchart TB
 | POST | `/api/store/shipping/rates` | **Shipped** — body per [`store.rs`](../server/src/api/store.rs) / **`logic/shippo.rs`** (stub vs live per config; see [`PLAN_SHIPPO_SHIPPING.md`](./PLAN_SHIPPO_SHIPPING.md)). |
 | POST | `/api/products/variants/bulk-web-publish` | **Shipped** — `{ variant_ids, web_published }` (**`catalog.edit`**). |
 
-**POS / orders:** `POST /api/orders/.../shipping/rates`, `.../shipping/buy-label` — defined in Shippo plan.
+**POS / orders:** `POST /api/transactions/.../shipping/rates`, `.../shipping/buy-label` — defined in Shippo plan.
 
 ---
 

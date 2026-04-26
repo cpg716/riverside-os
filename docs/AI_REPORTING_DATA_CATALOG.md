@@ -1,5 +1,7 @@
 # AI and natural-language reporting — data source catalog (Riverside OS)
 
+**Status:** Canonical route and permission catalog for curated Reports, NL reporting, and reporting executors. For the reporting doc map, start at [`REPORTING.md`](REPORTING.md). For the AI / ROSIE doc map, start at [`AI.md`](AI.md).
+
 This document lists **data sources** a **staff-facing, RBAC-gated** **natural language reporting** feature could use to answer questions, build **tables**, or suggest **charts**. It is the **specification target** for a future **`POST /api/ai/reports/*`** BFF in [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) Pillar 4 — **that route family is not implemented in `server/` yet**; today’s executors (human or agent) should map intents to the **whitelisted `GET /api/insights/*`** and **`reporting.*`** views below, with the **same RBAC** as a direct REST call. **Every source used in production NL specs must be labeled for role access** per **§ RBAC labeling contract** below.
 
 **Companion (all AI personas):** For **intent routing** (procedure vs metric vs permission vs **ROSIE** planning), **live store SOP** (`GET /api/staff/store-sop`), and **safe answering rules**, read [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md) first. **This catalog** is the **API-level** map: whitelisted **GET** surfaces, curated **Reports** tiles, and Metabase **`reporting.*`** context — not a substitute for **`docs/staff/*`** procedure guides or **[`GET /api/help/search`](AI_CONTEXT_FOR_ASSISTANTS.md)** (procedures in **`ros_help`** when Meilisearch is configured; empty hits when not).
@@ -50,7 +52,7 @@ This document lists **data sources** a **staff-facing, RBAC-gated** **natural la
 | Data domain | Typical permission / pattern | Where detailed |
 |-------------|------------------------------|----------------|
 | Insights / pivots | **`insights.view`**; finalize = **`insights.commission_finalize`** (POST) | §0 `/api/insights/*`, §1 |
-| Orders / refunds | **`orders.view`**, **`orders.refund_process`**; some reads need register session | §0 `/api/orders/*`, §2 |
+| Orders / refunds | **`orders.view`**, **`orders.refund_process`**; some reads need register session | §0 `/api/transactions/*`, §2 |
 | Register / sessions | **`register.reports`** + session rules | §0 `/api/sessions/*`, §2 |
 | Customers (browse, hub, …) | Authenticated **staff** or **open POS session** (`require_customer_access`) for many reads/creates; sensitive writes use **`customers.merge`**, **`customers_duplicate_review`**, **`customer_groups.manage`**, **`store_credit.manage`** | §0 `/api/customers/*`, §5–7 |
 | Catalog / products | **`catalog.view`**, **`catalog.edit`** (mutations) | §0 `/api/products/*`, §3 |
@@ -112,7 +114,7 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | PUT | `/api/help/admin/manuals/{manual_id}` | **`help.manage`** — replace manual markdown / policy (**write** — outside NL read whitelist). |
 | DELETE | `/api/help/admin/manuals/{manual_id}` | **`help.manage`** |
 
-**NL reporting:** Do **not** answer “how do I void a sale?” from **`/api/insights/*`** alone; pair **help search** + [**`docs/staff/*`**](docs/staff/README.md) per [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md).
+**NL reporting:** Do **not** answer “how do I void a sale?” from **`/api/insights/*`** alone; pair **help search** + [**`docs/staff/*`**](staff/README.md) per [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md).
 
 ### `/api/insights/*`
 
@@ -136,18 +138,18 @@ The **Reports** sidebar tab ([`client/src/components/reports/ReportsWorkspace.ts
 | GET | `/api/insights/best-sellers` | **`insights.view`**. Query: **`from`**, **`to`**, **`basis`** (booked vs fulfilled — same as sales pivot), **`limit`** (default 100, max 500). Response: **`rows`** with **`variant_id`**, **`units_sold`**, **`net_sales`** (pre-tax line revenue `unit_price * quantity`), **`avg_unit_price`**, etc. |
 | GET | `/api/insights/dead-stock` | **`insights.view`**. Same date/`basis` params + **`limit`**; optional **`max_units_sold`** (default **0** — on-hand SKUs with at most that many units sold in the window). Response: **`rows`** with on-hand, reserved, **`units_sold_in_period`**, **`retail_value_on_hand`** (list at variant retail). |
 
-### `/api/orders/*`
+### `/api/transactions/*`
 
 | Method | Path | Notes |
 |--------|------|--------|
-| GET | `/api/orders/` | List/filter orders (**`orders.view`**). |
-| GET | `/api/orders/refunds/due` | Refund queue (**`orders.refund_process`**). |
-| GET | `/api/orders/{order_id}` | Order detail + lines + tenders (read auth: BO or register session). |
-| GET | `/api/orders/{order_id}/audit` | **`order_activity_log`** (see §7). |
-| GET | `/api/orders/{order_id}/receipt.zpl` | Receipt ZPL (reporting less common; label/reprint use case). Optional query **`gift`**, **`order_item_ids`** (subset lines). |
-| GET | `/api/orders/{order_id}/receipt.html` | Merged Receipt Builder HTML (or placeholder if template unset). Same auth as order detail; optional **`register_session_id`**, **`gift`**, **`order_item_ids`**. |
-| POST | `/api/orders/{order_id}/receipt/send-email` | Podium **email** with inline HTML body; requires exported template. Body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
-| POST | `/api/orders/{order_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`order_item_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| GET | `/api/transactions/` | List/filter orders (**`orders.view`**). |
+| GET | `/api/transactions/refunds/due` | Refund queue (**`orders.refund_process`**). |
+| GET | `/api/transactions/{transaction_id}` | Order detail + lines + tenders (read auth: BO or register session). |
+| GET | `/api/transactions/{transaction_id}/audit` | **`order_activity_log`** (see §7). |
+| GET | `/api/transactions/{transaction_id}/receipt.zpl` | Receipt ZPL (reporting less common; label/reprint use case). Optional query **`gift`**, **`transaction_line_ids`** (subset lines). |
+| GET | `/api/transactions/{transaction_id}/receipt.html` | Merged Receipt Builder HTML (or placeholder if template unset). Same auth as order detail; optional **`register_session_id`**, **`gift`**, **`transaction_line_ids`**. |
+| POST | `/api/transactions/{transaction_id}/receipt/send-email` | Podium **email** with inline HTML body; requires exported template. Body may include **`gift`**, **`transaction_line_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
+| POST | `/api/transactions/{transaction_id}/receipt/send-sms` | Podium **SMS** or **MMS** (optional **`png_base64`**); body may include **`gift`**, **`transaction_line_ids`**. [**`docs/RECEIPT_BUILDER_AND_DELIVERY.md`**](RECEIPT_BUILDER_AND_DELIVERY.md). |
 
 ### `/api/sessions/*`
 
@@ -422,16 +424,16 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 
 | Source | Route area | Typical permission | Useful fields / filters |
 |--------|------------|-------------------|-------------------------|
-| Order list / detail | `/api/orders/*` | [**`orders.view`**](docs/STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
-| **Order activity / audit** | `GET /api/orders/{order_id}/audit` | **`orders.view`** + same read auth as order (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per order, last 100) |
-| Refund queue | `/api/orders/*` | **`orders.refund_process`** | Open refund work |
+| Order list / detail | `/api/transactions/*` | [**`orders.view`**](STAFF_PERMISSIONS.md) (+ modify/refund keys for writes) | Status, **booked_at**, **fulfilled_at**, **balance_due**, customer link, lines, tenders, returns |
+| **Order activity / audit** | `GET /api/transactions/{transaction_id}/audit` | **`orders.view`** + same read auth as order (BO or register session) | **`order_activity_log`**: **event_kind**, **summary**, **metadata**, **created_at** (per order, last 100) |
+| Refund queue | `/api/transactions/*` | **`orders.refund_process`** | Open refund work |
 | Customer order history | `/api/customers/{id}/order-history` | Customer + order read paths | Timeline for one customer |
 | Sessions / X-report | `/api/sessions/*` | Register session + **`register.reports`** patterns | Tender mix, session-level reconciliation |
 | Register metrics (attributed sales) | `GET /api/staff/self/register-metrics` | Staff auth; role-gated in logic | **line_count**, **attributed_gross**, store **calendar date** |
 
 **NL examples:** “Open orders with balance”, “Orders fulfilled Tuesday”, “Refunds pending”.
 
-**Implementation:** [`server/src/api/orders.rs`](../server/src/api/orders.rs), [`server/src/api/sessions.rs`](../server/src/api/sessions.rs), [`server/src/logic/register_staff_metrics.rs`](../server/src/logic/register_staff_metrics.rs).
+**Implementation:** [`server/src/api/transactions.rs`](../server/src/api/transactions.rs), [`server/src/api/sessions.rs`](../server/src/api/sessions.rs), [`server/src/logic/register_staff_metrics.rs`](../server/src/logic/register_staff_metrics.rs).
 
 ---
 
@@ -448,7 +450,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Vendors | `/api/vendors/*`, `/api/vendors/{id}/hub`, `/brands` | **`catalog.view`** / procurement | Vendor codes, brand rollups. |
 | Categories | `/api/categories/*`, `/tree`, `/audit` | **`catalog.view`** | Tree, **is_clothing_footwear**, audit log. |
 | Discount events | `/api/discount-events/*` | **`catalog.view`** | Events, **active**, variant membership, **`/usage-report`** (aggregated **`discount_event_usage`** by date range). |
-| Physical inventory | `/api/inventory/physical/*` | [**`physical_inventory.view`**](INVENTORY_GUIDE.md) (+ mutate keys for writes) | Sessions list, **active**, **session by id**, **review** snapshot, counts (via detail). |
+| Physical inventory | `/api/inventory/physical/*` | [**`physical_inventory.view`**](../INVENTORY_GUIDE.md) (+ mutate keys for writes) | Sessions list, **active**, **session by id**, **review** snapshot, counts (via detail). |
 
 **NL examples:** “Low available stock by category”, “Open POs by vendor”, “Discount event usage last 90 days”, “Product timeline for SKU X”.
 
@@ -465,7 +467,7 @@ These endpoints are built for **pivot-style** and **ops** reporting. They are th
 | Core profile | `GET /api/customers/{id}`, `/profile` | Customer read | Identity, flags, marketing opt-in. |
 | Hub | `GET /api/customers/{id}/hub` | Customer read | Aggregated CRM hub payload. |
 | Timeline | `GET /api/customers/{id}/timeline` | Customer read | Activity stream (§7). |
-| Order history | `GET /api/customers/{id}/order-history` | Customer + [**`orders.view`**](docs/STAFF_PERMISSIONS.md) patterns | Receipt list for one person. |
+| Order history | `GET /api/customers/{id}/order-history` | Customer + [**`orders.view`**](STAFF_PERMISSIONS.md) patterns | Receipt list for one person. |
 | Measurements | `GET /api/customers/{id}/measurements` | Customer read | Sizing vault. |
 | Store credit | `GET /api/customers/{id}/store-credit` | **`store_credit.manage`** / read rules | Liability snapshot. |
 | Weddings link | `GET /api/customers/{id}/weddings` | **`weddings.view`** | Parties tied to customer. |
@@ -528,14 +530,14 @@ These are **event streams** and **trails**, not sales pivots. Many are **PII-sen
 
 | Source | Route | Permission | Notes |
 |--------|-------|------------|--------|
-| **Customer timeline** | `GET /api/customers/{customer_id}/timeline` | Customer read paths as implemented | **Merged** stream: milestones (e.g. checkout, fulfillment, refund per product rules), [**`customer_timeline_notes`**](docs/CUSTOMER_HUB_AND_RBAC.md), **`wedding_activity_log`** references, etc. Built in [`server/src/api/customers.rs`](../server/src/api/customers.rs) (`build_customer_timeline`). |
+| **Customer timeline** | `GET /api/customers/{customer_id}/timeline` | Customer read paths as implemented | **Merged** stream: milestones (e.g. checkout, fulfillment, refund per product rules), [**`customer_timeline_notes`**](CUSTOMER_HUB_AND_RBAC.md), **`wedding_activity_log`** references, etc. Built in [`server/src/api/customers.rs`](../server/src/api/customers.rs) (`build_customer_timeline`). |
 | **Manual timeline note** | `POST /api/customers/{customer_id}/notes` | Per route | Staff-authored notes (not automatic system log). |
 
 AGENTS.md notes **customer timeline** emits only **business** milestones for some edits — NL answers should not assume every field change appears here.
 
 ### Order-level audit
 
-Already listed in **§2**: `GET /api/orders/{order_id}/audit` → **`order_activity_log`**.
+Already listed in **§2**: `GET /api/transactions/{transaction_id}/audit` → **`order_activity_log`**.
 
 Additional **structured** audit may live on **order lines** (e.g. **price_override_audit** in checkout payload) — expose only via **order detail** / **line** APIs if surfaced; do not invent SQL.
 
@@ -649,7 +651,7 @@ When implementing Pillar 4, consider allowing **only** combinations like. **Each
 - **Time:** `from`, `to`, **`basis`**: sale vs pickup — **inherits** from chosen sales API (usually **`insights.view`** when backed by **`/api/insights/sales-pivot`**).
 - **Sales group_by:** brand, salesperson, category, customer, date — **`insights.view`** when backed by **`/api/insights/sales-pivot`**; **customer** grouping may imply **customer-identifying** output → ensure same gates as pivot + CRM rules.
 - **Metrics:** gross_revenue, tax_collected, order_count, line_units (pivot); **Admin-only** margin pivot adds **cost_of_goods**, **gross_margin**, **margin_percent**; commission buckets; register discrepancy; wedding health counts — **split by backing route**: pivot/commission/register/wedding rows each list their own keys (see §1).
-- **Orders / lines (non-pivot):** any spec that calls **`/api/orders/*`** — **`orders.view`** (+ session rules where the REST layer requires them).
+- **Orders / lines (non-pivot):** any spec that calls **`/api/transactions/*`** — **`orders.view`** (+ session rules where the REST layer requires them).
 - **Catalog / procurement:** control-board, PO list, vendor hub — **`catalog.view`** / **`procurement.view`** as in §3.
 - **Audit (optional v2):** staff_access_log recent window; per-order `order_activity_log`; per-customer timeline; category_audit_log — **separate** `required_permissions` per stream (**`staff.view_audit`**, **`orders.view`**, staff/POS customer access, **`catalog.view`**, etc.) and **export** policies aligned with Insights.
 
@@ -725,7 +727,7 @@ Train on mapping **utterances** → **first API** (after permissions):
 | “**RMS** / R2S **charge** export” | **`GET /api/insights/rms-charges`** | **`insights.view`** |
 | “RMS list on **customer**” | **`GET /api/customers/rms-charge/records`** | **`customers.rms_charge`** |
 | “**Best sellers** / dead stock / slow movers” | **`GET /api/insights/best-sellers`**, **`dead-stock`** | **`insights.view`** |
-| “Open **orders** / refund queue / one order detail” | **`GET /api/orders/`**, **`/refunds/due`**, **`/{id}`** | **`orders.view`** / **`orders.refund_process`** |
+| “Open **orders** / refund queue / one order detail” | **`GET /api/transactions/`**, **`/refunds/due`**, **`/{id}`** | **`orders.view`** / **`orders.refund_process`** |
 
 ### 15.6 Metabase vs REST (when the model should answer which)
 
@@ -754,7 +756,7 @@ Prefix each with a **system** reminder: “Only use Riverside APIs and documents
 ## References
 
 - [**`AI_CONTEXT_FOR_ASSISTANTS.md`**](AI_CONTEXT_FOR_ASSISTANTS.md) — routing: procedures vs §15; **ROSIE** **§13** runtime contract; training §9–§12
-- [**`PLAN_LOCAL_LLM_HELP.md`**](PLAN_LOCAL_LLM_HELP.md) — **three-document bundle**, tool **“Hands”** table, system prompt stub, architecture (**ROSIE** not shipped by default)
+- [**`PLAN_LOCAL_LLM_HELP.md`**](PLAN_LOCAL_LLM_HELP.md) — **three-document bundle**, tool **“Hands”** table, system prompt stub, architecture, and ROSIE runtime rollout constraints
 - [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) — Pillar 4 saved reports + narrate + RBAC parity; retired **`/api/ai`** (**migration 78**)
 - [`ThingsBeforeLaunch.md`](../ThingsBeforeLaunch.md) — Metabase Staff vs Admin, **migration 107**, LLM go-live checklist
 - [**`PLAN_HELP_CENTER.md`**](../PLAN_HELP_CENTER.md), [**`docs/MANUAL_CREATION.md`**](MANUAL_CREATION.md) — **`ros_help`**, manual ingest, **`help.manage`**

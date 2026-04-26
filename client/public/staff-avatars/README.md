@@ -10,10 +10,10 @@ From `client/`:
 npm run generate:staff-avatars
 ```
 
-This runs `scripts/generate-staff-avatars.mjs`, which:
+This runs `client/scripts/generate-staff-avatars.mjs`, which:
 
 - Writes SVG files here
-- Regenerates `src/lib/staffAvatarCatalog.generated.ts`
+- Regenerates `client/src/lib/staffAvatarCatalog.generated.ts`
 - Regenerates `server/src/auth/staff_avatar_allowlist.inc`
 
 ## License

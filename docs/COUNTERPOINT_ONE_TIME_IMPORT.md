@@ -1,6 +1,8 @@
 # Counterpoint → Riverside OS: one-time import runbook
 
-Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS PostgreSQL. Pair with [`docs/COUNTERPOINT_SYNC_GUIDE.md`](COUNTERPOINT_SYNC_GUIDE.md) for token, bridge install, and field mapping.
+**Status:** Canonical one-time migration, validation, reset, and retirement runbook. For the full Counterpoint doc map, start at [`COUNTERPOINT.md`](COUNTERPOINT.md).
+
+Directed migration from Counterpoint (SQL Server + Windows bridge) into ROS PostgreSQL. Pair with [`COUNTERPOINT_SYNC_GUIDE.md`](COUNTERPOINT_SYNC_GUIDE.md) for token, bridge install, and field mapping.
 
 This path is intended for a **single controlled import and validation cycle**. After cutover, **Riverside OS becomes the system of record** and the Counterpoint bridge should be retired.
 

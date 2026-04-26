@@ -1,5 +1,7 @@
 # Layaway Operations — Riverside OS
 
+**Status:** Canonical layaway lifecycle reference. For the full transactions doc map, start at [`TRANSACTIONS.md`](TRANSACTIONS.md).
+
 Layaways allow customers to reserve in-stock items with a deposit and pay over time. This document covers the lifecycle, inventory impact, and financial handling of Layaways.
 
 ## Lifecycle
@@ -63,4 +65,4 @@ If a customer fails to complete a layaway:
 3. Hand over items and complete transaction.
 
 ---
-*Staff Manuals: [Layaway Manual](docs/staff/layaway-manual.md) | [Order Pickup Manual](docs/staff/order-pickup-manual.md)*
+*Staff workflows: [Transactions Back Office](staff/transactions-back-office.md) | [POS Register Cart](staff/pos-register-cart.md)*

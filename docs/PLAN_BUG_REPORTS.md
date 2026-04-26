@@ -45,7 +45,7 @@ Let any **authenticated staff** submit a bug report from the running app with a 
 | Submit + modal | `client/src/components/bug-report/BugReportFlow.tsx` |
 | Admin panel | `client/src/components/settings/BugReportsSettingsPanel.tsx` |
 | Settings wiring | `client/src/components/settings/SettingsWorkspace.tsx` |
-| Router/CORS | `client/src/App.tsx`, `client/src/components/layout/Header.tsx`, `client/src/components/layout/PosShell.tsx` |
+| Router/CORS | `client/src/App.tsx`, `client/src/components/layout/GlobalTopBar.tsx`, `client/src/components/layout/PosShell.tsx` |
 | RBAC map | `client/src/context/BackofficeAuthContext.tsx` (`settings:bug-reports`) |
 | Sidebar | `client/src/components/layout/sidebarSections.ts` |
 

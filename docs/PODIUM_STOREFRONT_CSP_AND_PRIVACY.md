@@ -1,5 +1,7 @@
 # Podium storefront widget: CSP and privacy
 
+Status: **Operational checklist** for public storefront Podium widget CSP/privacy review. For the broader Podium and notification documentation map, start with [CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md](./CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md).
+
 Use this checklist when enabling **`VITE_STOREFRONT_EMBEDS=true`** on a public bundle that loads **`GET /api/public/storefront-embeds`** (see **`StorefrontEmbedHost`** in the client shell). For the first-party **`/shop`** surface and store APIs, see **`docs/ONLINE_STORE.md`**.
 
 ## Content-Security-Policy (CSP)

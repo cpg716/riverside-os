@@ -91,9 +91,9 @@ Add to checkout:
 | OrderReviewModal.tsx | NEW |
 | OrderLoadModal.tsx | NEW - load customer's orders |
 | CustomerSelector.tsx | Walk-in to bottom |
-| orders.rs | by-customer endpoint, order-items |
-| order_checkout.rs | New payload fields |
-| order_recalc.rs | Balance recalc logic |
+| transactions.rs | by-customer endpoint, order-items |
+| transaction_checkout.rs | New payload fields |
+| transaction_recalc.rs | Balance recalc logic |
 | migrations/132_*.sql | stripe_payment_method_id column |
 
 ---

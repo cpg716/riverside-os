@@ -1,5 +1,7 @@
 # Riverside OS Technical Audit (April 2026)
 
+**Status:** Historical technical audit snapshot. Use current domain docs and [../README.md](../README.md) for canonical behavior.
+
 This document summarizes the technical state of the Riverside OS codebase across backend and frontend domains, focusing on architectural invariants, financial integrity, and security.
 
 ## Core Pillars

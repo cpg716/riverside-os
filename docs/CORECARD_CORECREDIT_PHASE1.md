@@ -1,5 +1,7 @@
 # CoreCredit / CoreCard Phase 1
 
+Status: **Historical implementation note**. For current RMS Charge documentation, start with [RMS_CHARGE.md](./RMS_CHARGE.md), then use [CORECARD_CORECREDIT_FULL_ARCHITECTURE.md](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md).
+
 This file is the implementation-history note for Phase 1.
 
 Phase 1 established the foundation for the unified `RMS Charge` tender:
@@ -25,10 +27,10 @@ Phase 1 established the foundation for the unified `RMS Charge` tender:
 For current operational behavior, use:
 
 - architecture:
-  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
+  [`CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
 - Back Office staff guides:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-overview.md`](./staff/rms-charge-overview.md)
+  [`staff/rms-charge-overview.md`](./staff/rms-charge-overview.md)
 - POS staff guide:
-  [`/Users/cpg/riverside-os/docs/staff/pos-rms-charge.md`](./staff/pos-rms-charge.md)
+  [`staff/pos-rms-charge.md`](./staff/pos-rms-charge.md)
 - engineering detail:
-  [`/Users/cpg/riverside-os/docs/POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)
+  [`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)

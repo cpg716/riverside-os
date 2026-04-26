@@ -39,7 +39,7 @@ Located in the **Cart toolbar** (next to Layaway toggle). Activates only when a 
 
 Returns open transactions (status NOT IN 'fulfilled', 'cancelled', 'void_sale').
 
-### TransactionLoadModal
+### OrderLoadModal
 
 Displays customer's open transactions with:
 - Transaction total, balance due, status
@@ -117,7 +117,7 @@ When a transaction is created with Ship fulfillment, the customer can save a car
 
 ### Checkout Flow
 
-1. **TransactionReviewModal**: Select saved card OR enter new card
+1. **OrderReviewModal**: Select saved card OR enter new card
 2. **Saved to transaction**: stripe_payment_method_id stored at checkout
 3. **At pickup**: Charge saved card for remaining balance + shipping
 
@@ -171,8 +171,8 @@ Transactions are recognized as revenue at **fulfillment time** (not booking). Se
 
 | File | Purpose |
 |------|---------|
-| `client/src/components/pos/TransactionLoadModal.tsx` | Customer transaction loader UI |
-| `client/src/components/pos/TransactionReviewModal.tsx` | Transaction review before payment |
+| `client/src/components/pos/OrderLoadModal.tsx` | Customer transaction loader UI |
+| `client/src/components/pos/OrderReviewModal.tsx` | Transaction review before payment |
 | `server/src/api/transactions.rs` | API: list_transactions, mark_transaction_pickup |
 | `server/src/logic/transaction_recalc.rs` | Balance recalculation |
 | `server/src/logic/transaction_checkout.rs` | Checkout with fulfillment fields |

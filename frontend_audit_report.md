@@ -26,8 +26,8 @@ The original findings below were re-checked against the current tree:
 | Staff PIN / secrets in offline queue | **Pass** — `enqueueCheckout` persists headers only after `headersSafeForOfflinePersist()` in `client/src/lib/posRegisterAuth.ts`, which strips **`x-riverside-staff-pin`**, **`Authorization`**, and **`Cookie`** (case-insensitive). Flush merges **live** headers from `getLiveAuthHeaders`. |
 | `window.open` / PWA | **Documented** — See **`REMOTE_ACCESS_GUIDE.md`** § *PWA: popup windows*. |
 | Design tokens (`slate` / `zinc` / `fuchsia`) | **Improved** — POS, settings, wedding-manager subtree, and related surfaces aligned to **`app.*`** primitives where previously called out. |
-| `OrderAttributionModal` headers | **OK** — Uses `mergedPosStaffHeaders` so register **POS session token** is sent for `GET /api/orders/:id` and staff list; matches server **staff or POS session** gates. |
-| `ui-touch-target` | **Done** — **POS** sidebar / **Cart** / **Nexo**, **Header** menu + chevron, **Appointments** toolbar (date nav, Today, Print, New Appt, day/week toggles). |
+| `OrderAttributionModal` headers | **OK** — Uses `mergedPosStaffHeaders` so register **POS session token** is sent for `GET /api/transactions/:id` and staff list; matches server **staff or POS session** gates. |
+| `ui-touch-target` | **Done** — **POS** sidebar / **Cart** / **Nexo**, **GlobalTopBar** menu + chevron, **Appointments** toolbar (date nav, Today, Print, New Appt, day/week toggles). |
 | Wide `min-w-[…]` grids | **Done** — **Customers** / **Insights** / **scheduler** week: **`min-w-0`**, **`overflow-x-auto`**, **`overscroll-x-contain`**, breakpoint inner widths (**`min-w-[720px]`** … **`xl:min-w-[1200px]`** on week grid). |
 | `axios` in wedding-manager | **N/A** — `lib/api.js` uses **`fetch`** (`wmJson`, SSE); no axios import. |
 
@@ -86,7 +86,7 @@ The original findings below were re-checked against the current tree:
 ### 1.5 `mergedPosStaffHeaders` vs `backofficeHeaders()`
 
 **Imports / uses `mergedPosStaffHeaders`:**  
-`InventoryControlBoard.tsx`, `ProductIntelligenceDrawer.tsx`, `Cart.tsx`, `GlobalSearchDrawers.tsx`, `RegisterLookupHub.tsx`, `CustomerRelationshipHubDrawer.tsx`, `CustomersWorkspace.tsx`, `Header.tsx`, `AppointmentModal.tsx`, `CustomerSelector.tsx`, `CustomerProfileCompletionModal.tsx`, `ProcurementHub.tsx`, plus definition in `lib/posRegisterAuth.ts`.
+`InventoryControlBoard.tsx`, `ProductIntelligenceDrawer.tsx`, `Cart.tsx`, `GlobalSearchDrawers.tsx`, `RegisterLookupHub.tsx`, `CustomerRelationshipHubDrawer.tsx`, `CustomersWorkspace.tsx`, `GlobalTopBar.tsx`, `AppointmentModal.tsx`, `CustomerSelector.tsx`, `CustomerProfileCompletionModal.tsx`, `ProcurementHub.tsx`, plus definition in `lib/posRegisterAuth.ts`.
 
 **Uses `backofficeHeaders()` only (no merge in file):**  
 `StaffWorkspace.tsx`, `OrdersWorkspace.tsx`, `CommissionPayoutsPanel.tsx`, `QboWorkspace.tsx`, `StaffAccessPanels.tsx`, `PhysicalInventoryWorkspace.tsx`, `OrderAttributionModal.tsx`, `BackofficeAuthContext.tsx` (definition / permissions fetch).
@@ -113,7 +113,7 @@ The original findings below were re-checked against the current tree:
 ### 1.8 `ui-touch-target` usage
 
 - **`client/src/index.css`** — class definition  
-- **`Header.tsx`** — mobile menu  
+- **`GlobalTopBar.tsx`** — mobile menu and shell actions
 - **`PosShell.tsx`** — collapsed sidebar chevron  
 - **`PosSidebar.tsx`**, **`Cart.tsx`**, **`NexoCheckoutDrawer.tsx`** — register flows  
 - **`SchedulerWorkspace.tsx`** — appointments toolbar (date nav, Today, Print)  
@@ -195,7 +195,7 @@ Files with at least one `min-w-[` utility (TSX/JSX):
 
 1. ~~**Remove PIN from offline queue snapshots**~~ — **Done** (`headersSafeForOfflinePersist` + live merge on flush).  
 2. ~~**Reduce or breakpoint-gate** wide grids~~ — **Done** for **scheduler week** (scroll shell + responsive `min-w-[720px]` … `xl:min-w-[1200px]`); CRM/insights use scroll shells from prior pass.  
-3. ~~**Expand** `ui-touch-target`~~ — **Done** for **Appointments** header actions (nav, Today, Print, New Appt, day/week) plus earlier POS/header work.  
+3. ~~**Expand** `ui-touch-target`~~ — **Done** for **Appointments** header actions (nav, Today, Print, New Appt, day/week) plus earlier POS / GlobalTopBar work.
 4. ~~**Align** `OrderAttributionModal` headers~~ — **Verified** (merged headers for register order reads).  
 5. ~~**Document** `window.open` flows for PWA~~ — **Done** (`REMOTE_ACCESS_GUIDE.md`).  
 6. ~~**Optional:** migrate `wedding-manager/lib/api.js` from axios to `fetch`~~ — **N/A**: `api.js` already uses **`fetch`** via `wmJson` / SSE; axios is not imported in app source (only transitive deps).
@@ -243,7 +243,7 @@ client/src/components/inventory/VendorHub.tsx
 client/src/components/inventory/labelPrint.ts
 client/src/components/layout/DetailDrawer.tsx
 client/src/components/layout/GlobalSearchDrawers.tsx
-client/src/components/layout/Header.tsx
+client/src/components/layout/GlobalTopBar.tsx
 client/src/components/layout/InsightsShell.tsx
 client/src/components/layout/PosShell.tsx
 client/src/components/layout/PwaUpdatePrompt.tsx

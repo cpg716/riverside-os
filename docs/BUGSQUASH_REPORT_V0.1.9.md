@@ -18,16 +18,16 @@ This report summarizes the final "nook and cranny" audit performed to stabilize 
 
 ### 2. Standalone Group Pay Support
 *   **Requirement:** Enable "Pay for someone else" (Wedding Payouts) even if the customer isn't buying any items for themselves today.
-*   **Solution:** Relaxed checkout validation in `order_checkout.rs` and `Cart.tsx`.
+*   **Solution:** Relaxed checkout validation in `transaction_checkout.rs` and `Cart.tsx`.
     *   The system now allows a "Zero Item" checkout IF `wedding_disbursements` (group pay) are present.
     *   This ensures "complete sale" works even when the cart contains NO physical items, routing the payment correctly to the chosen wedding members' accounts.
 
 ### 3. Financial Integrity: The "Iron Cage" Tax Hardening
 *   **Identified Risk:** Client-side "tax ratio" math was identified as a risk for NYS Publication 718-C compliance. 
-*   **Solution:** Implemented **Server-Side Tax Hardening** in `server/src/logic/order_checkout.rs`.
+*   **Solution:** Implemented **Server-Side Tax Hardening** in `server/src/logic/transaction_checkout.rs`.
     *   The server now ignores client-supplied tax values.
     *   It re-calculates `state_tax` and `local_tax` using the `logic::tax` module for every line item, ensuring threshold rules are applied with server-side authority (e.g., $110 threshold).
-*   **Drift Prevention:** Hardened `recalc_order_totals` to include `shipping_amount_usd` in the final price aggregation, preventing ledger discrepancies during line returns.
+*   **Drift Prevention:** Hardened `recalc_transaction_totals` to include `shipping_amount_usd` in the final price aggregation, preventing ledger discrepancies during line returns.
 
 ### 4. Search & Data Consistency: CRM Merge Sync
 *   **Identified Risk:** Stale data in Meilisearch after a customer merge (slave record remaining in search results).

@@ -63,9 +63,9 @@ The POS `Cart` implements an 'Intelligent' search strategy that prioritizes spee
 
 ## Post-sale returns and restock
 
-When staff record **line returns** (`POST /api/orders/{id}/returns`), **takeaway** lines that are already **fulfilled** (picked up) default to **restocking**: `product_variants.stock_on_hand` increases by the returned quantity. **Order** / **wedding order** lines do not get an automatic floor restock (merchandise was never decremented at checkout the same way as takeaway). Optional per-line **`restock`** on the request overrides the default.
+When staff record **line returns** (`POST /api/transactions/{id}/returns`), **takeaway** lines that are already **fulfilled** (picked up) default to **restocking**: `product_variants.stock_on_hand` increases by the returned quantity. **Order** / **wedding order** lines do not get an automatic floor restock (merchandise was never decremented at checkout the same way as takeaway). Optional per-line **`restock`** on the request overrides the default.
 
-Effective sellable quantity on an order is **original line qty minus** summed **`order_return_lines`**; totals and loyalty accrual math use that effective qty (see **`docs/ORDERS_RETURNS_EXCHANGES.md`**).
+Effective sellable quantity on an order is **original line qty minus** summed **`order_return_lines`**; totals and loyalty accrual math use that effective qty (see **`docs/TRANSACTION_RETURNS_EXCHANGES.md`**).
 
 ## Data Structure
 

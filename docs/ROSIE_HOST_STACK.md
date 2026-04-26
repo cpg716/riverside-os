@@ -1,5 +1,7 @@
 # ROSIE Host Stack
 
+Status: **Canonical ROSIE runtime/deployment source of truth**. For the full AI / ROSIE documentation map, start with [AI.md](AI.md).
+
 ## Purpose
 This file is the canonical source of truth for the approved ROSIE Host runtime stack.
 

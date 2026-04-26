@@ -1,5 +1,7 @@
 # PLAN: Riverside OS v0.2.0 — Polish & Excellence (The Cinematic Shift)
 
+**Status:** **Historical / superseded by v0.3.x operational refinement.** Keep this as design history for the v0.2.0 polish push; current UI rules live in **[`AGENTS.md`](../AGENTS.md)**, **[`docs/CLIENT_UI_CONVENTIONS.md`](./CLIENT_UI_CONVENTIONS.md)**, and **[`docs/ROS_UI_CONSISTENCY_PLAN.md`](./ROS_UI_CONSISTENCY_PLAN.md)**.
+
 Objective: Elevate Riverside OS from a feature-complete "Beta" to a pixel-perfect, production-hardened, premium retail platform. We are transitioning from functional components to a "Cinematic GUI" standard characterized by deep contrast, fluid motion, and brand-first aesthetics.
 
 ---

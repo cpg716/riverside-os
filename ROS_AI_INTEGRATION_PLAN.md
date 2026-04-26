@@ -1,12 +1,14 @@
 ---
 name: ROS AI — retired in-app stack
 overview: >
-  The former ROS-AI platform (pgvector **`ai_doc_chunk`**, saved NL reports, **`POST /api/ai/*`**, llama worker) was **removed** by migration **`78`**. Staff help today is **Help Center** + **`GET /api/help/search`** (migration **79**, **`PLAN_HELP_CENTER.md`**). **Forward-looking** assistant **ROSIE** (**RiversideOS Intelligence Engine**): local LLM / multimodal help on **Windows 11** (**Axum + Tauri**, inference **sidecar**, whitelisted tools, privacy, Help Center **Ask ROSIE** UX)—**`docs/PLAN_LOCAL_LLM_HELP.md`**. This root file stays the **retirement pointer** plus a short bridge; pre-78 detail remains **historical** only.
+  The former ROS-AI platform (pgvector **`ai_doc_chunk`**, saved NL reports, **`POST /api/ai/*`**, llama worker) was **removed** by migration **`78`**. Staff help today is **Help Center** + **`GET /api/help/search`** (migration **79**, **`PLAN_HELP_CENTER.md`**). Current assistant work is **ROSIE** (**RiversideOS Intelligence Engine**): local LLM / multimodal help on **Windows 11** (**Axum + Tauri**, inference **sidecar**, whitelisted tools, privacy, Help Center **Ask ROSIE** UX)—start at **`docs/AI.md`**, then **`docs/PLAN_LOCAL_LLM_HELP.md`**. This root file stays the **retirement pointer** plus a short bridge; pre-78 detail remains **historical** only.
 todos: []
 isProject: false
 ---
 
 # ROS AI integration — status (2026)
+
+**Status:** **Retired / historical pointer.** The former in-app ROS-AI database stack was removed by migration **78**. Current help/search architecture is Help Center + `GET /api/help/search`; current assistant work belongs in **[`docs/AI.md`](docs/AI.md)** and **[`docs/PLAN_LOCAL_LLM_HELP.md`](docs/PLAN_LOCAL_LLM_HELP.md)**.
 
 > **Browser / PDF note:** If you opened this from a Markdown preview that hides YAML, the first lines above are **frontmatter** stating this file is a **retirement pointer** for the **removed** in-app stack, not an active build spec for new DB AI tables.
 >
@@ -20,7 +22,7 @@ isProject: false
 | Search | **`GET /api/help/search`** (`server/src/api/help.rs`); optional **`RIVERSIDE_MEILISEARCH_URL`** index **`ros_help`** — **`docs/SEARCH_AND_PAGINATION.md`**, **`PLAN_HELP_CENTER.md`**, **`docs/MANUAL_CREATION.md`** |
 | Overrides / RBAC | Migration **79**: **`help_manual_policy`**, **`help.manage`** |
 | Duplicate review (CRM) | **`customer_duplicate_review_queue`** (from migration **62**) and **`customers_duplicate_review`** / **`customers.merge`** (**64**) — **not** dependent on LLM; merge remains **`POST /api/customers/merge`** |
-| **ROSIE** — RiversideOS Intelligence Engine (**planning only**) | **[`docs/PLAN_LOCAL_LLM_HELP.md`](docs/PLAN_LOCAL_LLM_HELP.md)** — **not shipped**. In-product home: **Help Center** **Ask ROSIE** (alongside Browse + Search). Baseline: **Windows 11** for **Axum** + **Tauri**; local inference as a **sidecar** (e.g. llama.cpp-class, **CPU-first** then **CUDA / Vulkan / DirectML** per build—not **ROCm**-as-default); **Axum** remains the **trust boundary** (RBAC, Postgres); model **tools** are **whitelisted** reads only (**`help_search`**, **[`docs/AI_REPORTING_DATA_CATALOG.md`](docs/AI_REPORTING_DATA_CATALOG.md)** specs including Curated Reports v1, CRM reads with permission parity)—**no** ad-hoc SQL. **Go-live status check:** **[`ThingsBeforeLaunch.md`](ThingsBeforeLaunch.md)** § **LLM / staff “AI”**. |
+| **ROSIE** — RiversideOS Intelligence Engine | **[`docs/AI.md`](docs/AI.md)**, **[`docs/PLAN_LOCAL_LLM_HELP.md`](docs/PLAN_LOCAL_LLM_HELP.md)**. In-product home: **Help Center** **Ask ROSIE** (alongside Browse + Search) when Settings + Host runtime are configured. Baseline: **Windows 11** for **Axum** + **Tauri**; local inference as a **sidecar** (e.g. llama.cpp-class, **CPU-first** then **CUDA / Vulkan / DirectML** per build—not **ROCm**-as-default); **Axum** remains the **trust boundary** (RBAC, Postgres); model **tools** are **whitelisted** reads only (**`help_search`**, **[`docs/AI_REPORTING_DATA_CATALOG.md`](docs/AI_REPORTING_DATA_CATALOG.md)** specs including Curated Reports v1, CRM reads with permission parity)—**no** ad-hoc SQL. |
 
 There is **no** **`/api/ai`** router, **`AiCompletion`**, **`ros-gemma`**, or **`ai_doc_chunk`** in a database that has applied migration **78**.
 

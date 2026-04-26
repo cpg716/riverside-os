@@ -1,5 +1,7 @@
 # Commission Reporting and Incentives
 
+**Status:** Canonical operator-facing commission and SPIFF guidance. For reporting basis rules, see [`REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md); for the full reporting doc map, see [`REPORTING.md`](REPORTING.md).
+
 Riverside OS commissions are being simplified into a reporting-first system for Riverside Men's Shop.
 
 The intended store rule is:

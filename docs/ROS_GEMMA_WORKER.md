@@ -2,6 +2,8 @@
 
 > **Optional / historical (2026)** — The in-app **`/api/ai/*`** path and **`ai_doc_chunk`** table were **retired** (migration **78**). This worker is **not** required for shipped Help Center search. Any **new** local inference is **ROSIE** (**RiversideOS Intelligence Engine**) per **`docs/PLAN_LOCAL_LLM_HELP.md`** — not a revival of this worker as-is; see **`ROS_AI_INTEGRATION_PLAN.md`**.
 
+Status: **Retired historical worker reference**. For current AI / ROSIE documentation, start with [AI.md](AI.md).
+
 **Purpose:** Small process that serves **`POST /v1/complete`** so **riverside-server** stays isolated from LLM memory and crashes.
 
 **Architecture:** The main API calls the worker on loopback (**`AI_BASE_URL`**, default **`http://127.0.0.1:8787`**). Inference runs in **llama-server** (GGUF); **ros-gemma** maps Riverside’s JSON to **`POST /v1/chat/completions`** on that server.

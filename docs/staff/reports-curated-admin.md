@@ -45,7 +45,7 @@ Server routes must enforce the **same** rules as today (margin pivot **Admin** o
 
 ## Booked vs recognition (basis)
 
-Many tiles pass **`basis`** (`booked` vs `completed` / recognition). Store policy and definitions are documented in **[REPORTING_BOOKED_AND_RECOGNITION.md](../REPORTING_BOOKED_AND_RECOGNITION.md)**. Train managers on which basis to use before **payroll** or **tax** discussions.
+Many tiles pass **`basis`** (`booked` vs `completed` / recognition). Store policy and definitions are documented in **[REPORTING_BOOKED_AND_FULFILLED.md](../REPORTING_BOOKED_AND_FULFILLED.md)**. Train managers on which basis to use before **payroll** or **tax** discussions.
 
 ---
 

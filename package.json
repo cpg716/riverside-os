@@ -6,6 +6,7 @@
   "scripts": {
     "bump": "node scripts/bump-version.mjs",
     "help:aidocs:check": "uvx --from aidocs aidocs check",
+    "docs:check": "python3 scripts/verify_docs.py",
     "generate:help": "cd client && npm run generate:help",
     "generate:help:screenshots": "cd client && npm run generate:help:screenshots",
     "generate:help:refresh": "bash scripts/help-center-refresh.sh",

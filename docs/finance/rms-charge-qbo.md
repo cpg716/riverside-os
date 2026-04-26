@@ -1,5 +1,7 @@
 # RMS Charge and QBO Guide
 
+Status: **Canonical RMS Charge QBO/accounting reference**. For the complete documentation map, start with [RMS_CHARGE.md](../RMS_CHARGE.md).
+
 This guide explains the implemented RiversideOS accounting expectations for RMS Charge activity.
 
 ## Two RMS financial paths
@@ -87,6 +89,6 @@ Finance/admin should still confirm in external systems:
 ## Related docs
 
 - reconciliation:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-reconciliation.md`](../staff/rms-charge-reconciliation.md)
+  [`staff/rms-charge-reconciliation.md`](../staff/rms-charge-reconciliation.md)
 - architecture:
-  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](../CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
+  [`CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](../CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)

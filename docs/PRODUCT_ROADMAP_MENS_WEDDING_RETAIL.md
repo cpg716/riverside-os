@@ -29,8 +29,8 @@ These are **already implemented** in meaningful depth; they differentiate ROS fr
 ### 2.1 Wedding and party commerce
 
 - **Parties, members, pipeline** — Wedding workspace and APIs; member status, linkage to customers and orders
-- **Checkout with wedding context** — `wedding_member_id`, fulfillment mapping (e.g. wedding vs special order) in `server/src/api/orders.rs`
-- **Group payments** — `wedding_disbursements` on `CheckoutRequest`: one payer, allocations to member balances via payment logic and `recalc_order_totals` patterns (see [`AGENTS.md`](../AGENTS.md) disbursement rules)
+- **Checkout with wedding context** — `wedding_member_id`, fulfillment mapping (e.g. wedding vs special order) in `server/src/api/transactions.rs`
+- **Group payments** — `wedding_disbursements` on `CheckoutRequest`: one payer, allocations to member balances via payment logic and `recalc_transaction_totals` patterns (see [`AGENTS.md`](../AGENTS.md) disbursement rules)
 - **Receipts and logistics** — Bag tags, ZPL modes, thermal paths documented in [`DEVELOPER.md`](../DEVELOPER.md)
 
 ### 2.2 Core retail and register

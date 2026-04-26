@@ -123,7 +123,7 @@ Pay attention to:
 - `FRONTEND_DIST` (explicit deployed static bundle path)
 - `RIVERSIDE_HTTP_BIND` / firewall alignment — [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) section 4
 - Optional caps and integrations (`RIVERSIDE_MAX_BODY_BYTES`, weather, backup S3, etc.)
-- ROS-AI help RAG: **`RIVERSIDE_REPO_ROOT`** (absolute path to the deployed tree that contains **`docs/staff/CORPUS.manifest.json`**) if you use **`POST /api/ai/admin/reindex-docs`**; **`AI_EMBEDDINGS_ENABLED`** to disable ONNX embeddings on constrained hosts — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md)
+- Help Center search: if you ship new or changed in-app manuals, run **`npm run generate:help`** before packaging and rebuild the optional Meilisearch **`ros_help`** index after deploy. Current AI / ROSIE docs start at [`AI.md`](AI.md); the old **`POST /api/ai/admin/reindex-docs`** flow is retired.
 
 ### 5.6 Start the API
 
@@ -136,7 +136,7 @@ Before announcing “all clear”:
 1. Load the app in a browser at your production origin; confirm login.
 2. Open **Register** (or Back Office): one read path (e.g. search) and one low-risk write if policy allows.
 3. Optional: `SELECT version FROM ros_schema_migrations ORDER BY version;` — last row should match the latest `NN_*.sql` you shipped (compare with release notes / repo **`migrations/`**). For deeper drift checks in dev/Docker, see [`scripts/migration-status-docker.sh`](../scripts/migration-status-docker.sh) and [`scripts/ros_migration_build_probes.sql`](../scripts/ros_migration_build_probes.sql) (adapt queries to your prod DB as needed).
-4. If you ship **new or changed** `docs/staff/**` or **`CORPUS.manifest.json`**, run a **staff help reindex** once the API is up (**`settings.admin`**) — [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md).
+4. If you ship **new or changed** in-app Help manuals under `client/src/assets/docs/`, run **`npm run generate:help`** before packaging and rebuild **`ros_help`** once the API is up when Meilisearch is configured — [`MANUAL_CREATION.md`](MANUAL_CREATION.md). If you ship **new or changed** `docs/staff/**`, run the corpus drift check (`python3 scripts/verify_ai_knowledge_drift.py`) and update [`docs/staff/README.md`](staff/README.md) / [`docs/staff/CORPUS.manifest.json`](staff/CORPUS.manifest.json) as needed.
 
 ### 5.8 Post-update smoke matrix (required before all-clear)
 
@@ -211,7 +211,8 @@ If you must revert after a failed or bad update:
 | [`BACKUP_RESTORE_GUIDE.md`](../BACKUP_RESTORE_GUIDE.md) | Backup API, restore cautions |
 | [`DEVELOPER.md`](../DEVELOPER.md) | Env vars, migration index |
 | [`README.md`](../README.md) | Dev quick start; Docker migration scripts for local dev |
-| [`docs/ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) | Staff help RAG reindex after deploy; **`RIVERSIDE_REPO_ROOT`**, embeddings env |
+| [`AI.md`](AI.md) | AI / ROSIE documentation map, current Help Center search, and retired ROS-AI pointers |
+| [`MANUAL_CREATION.md`](MANUAL_CREATION.md) | In-app Help manuals, `generate:help`, and optional `ros_help` search index |
 | [`docs/STAFF_TASKS_AND_REGISTER_SHIFT.md`](STAFF_TASKS_AND_REGISTER_SHIFT.md) | Migrations **55–56**: register shift primary, staff recurring tasks, new RBAC keys |
 | [`docs/STAFF_SCHEDULE_AND_CALENDAR.md`](STAFF_SCHEDULE_AND_CALENDAR.md) | Migrations **57–58**: floor staff schedule, **`staff_effective_working_day`**, morning dashboard **`today_floor_staff`** |
 | [`scripts/apply-migrations-psql.sh`](../scripts/apply-migrations-psql.sh) | Production-friendly migration apply via `psql` + `DATABASE_URL` |

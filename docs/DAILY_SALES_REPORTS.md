@@ -1,5 +1,7 @@
 # Daily Sales Reports (Register Reports)
 
+**Status:** Canonical daily register reporting behavior. For reporting basis rules and the wider reporting doc map, see [`REPORTING_BOOKED_AND_FULFILLED.md`](REPORTING_BOOKED_AND_FULFILLED.md) and [`REPORTING.md`](REPORTING.md).
+
 ## Overview
 
 The Daily Sales Reports in Riverside OS provide store managers and cashiers with real-time sales analytics, transaction details, and register session tracking. The reports are accessible via the Back Office Operations tab or POS Register REPORTS button.

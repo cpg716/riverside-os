@@ -33,7 +33,7 @@ Remaining **optional** hardening: Playwright / E2E refresh (**Appendix B.4**); p
 | `server/src/services/vendor_hub.rs` | `f64` for `avg_lead_time_days` | **OK** — operational lead time, not currency. |
 | `server/src/logic/weather.rs` | `f32` for temperature / precipitation | **OK** — environmental simulation, not money. |
 | `server/src/api/payments.rs` | `ToPrimitive::to_i64()` on `Decimal` | **OK** — converts USD `Decimal` to whole cents for Stripe `i64`; arithmetic stays in `Decimal` until conversion. |
-| `server/src/api/orders.rs` | `ToPrimitive::to_i64()` for refund cents | **OK** — same pattern as payments. |
+| `server/src/api/transactions.rs` | `ToPrimitive::to_i64()` for refund cents | **OK** — same pattern as payments. |
 | `server/src/logic/loyalty.rs` | `to_i64()` | **OK** — points / ledger integer paths, not currency floats. |
 | `server/src/logic/importer.rs` | `ToPrimitive` import + `to_i32()` on rounded `Decimal` | **OK** — quantity-like integers from `Decimal`, not `f64` money math. |
 
@@ -95,8 +95,8 @@ The table below recorded the **pre-remediation** risk surface. **Current code** 
 
 ### Strong examples
 
-- **`checkout`** (`orders.rs`): Single `db.begin()` before order insert, line items, takeaway stock decrements, gift card `FOR UPDATE`, payment rows, allocations, wedding updates; `commit` after `recalc_order_totals`.
-- **`mark_order_pickup`**: Transaction covers fulfillment flags, optional full-fulfill status, **special_order / wedding_order / custom** `stock_on_hand` + `reserved_stock` decrements, `recalc_order_totals`.
+- **`checkout`** (`transactions.rs`): Single `db.begin()` before order insert, line items, takeaway stock decrements, gift card `FOR UPDATE`, payment rows, allocations, wedding updates; `commit` after `recalc_transaction_totals`.
+- **`mark_transaction_pickup`**: Transaction covers fulfillment flags, optional full-fulfill status, **special_order / wedding_order / custom** `stock_on_hand` + `reserved_stock` decrements, `recalc_transaction_totals`.
 - **`process_refund`**, **`add_order_item`**, **`update_order_item`**, **`delete_order_item`**, **`patch_order`** (status branch), **`patch_order_attribution`**, **`post_order_exchange_link`**: use explicit transactions where multiple rows change.
 - **`logic/physical_inventory::publish_session`**: `pool.begin()`, per-variant `stock_on_hand` update + `inventory_transactions` + audit + session status in one transaction.
 - **`logic/order_returns::apply_order_returns`**: `pool.begin()` with `FOR UPDATE` on order and lines.
@@ -130,7 +130,7 @@ High-stakes flows **checkout**, **pickup**, **returns** (in logic layer), and **
 
 **Consistent** with invariant `stock_on_hand - reserved_stock` (clamped).
 
-### Checkout (`orders.rs`)
+### Checkout (`transactions.rs`)
 
 - **Takeaway:** `stock_on_hand -= qty` with guard `stock_on_hand >= qty`.
 - **Special / wedding (persisted):** **no** `stock_on_hand` decrement at checkout (comment: stock arrives via PO → `reserved_stock`).
@@ -139,7 +139,7 @@ High-stakes flows **checkout**, **pickup**, **returns** (in logic layer), and **
 
 Receiving increases `stock_on_hand` and, for open special-order demand, bumps **`reserved_stock`** (see grep-backed logic around `reserved_stock = reserved_stock + $1` with fulfillment filters).
 
-### Pickup (`mark_order_pickup`)
+### Pickup (`mark_transaction_pickup`)
 
 SQL updates `product_variants` for lines with fulfillment in `('special_order','custom','wedding_order')`:
 
@@ -192,7 +192,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 
 ### Still heavy / worth monitoring
 
-- **`orders.rs`** remains very large: ZPL receipt generation, list SQL building, and checkout orchestration live in the API module. Consider moving ZPL and complex list queries to `logic/` or `services/` over time.
+- **`transactions.rs`** remains very large: ZPL receipt generation, list SQL building, and checkout orchestration live in the API module. Consider moving ZPL and complex list queries to `logic/` or `services/` over time.
 - **`weddings.rs`** is a large monolith with SQL and orchestration inline — primary **maintainability** concern, not necessarily a correctness bug.
 
 ---
@@ -231,7 +231,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 | `unsafe` | **None**. |
 | `todo!` / `unimplemented!` | **None**. |
 | `pool.begin()` / `db.begin()` | See §3; files: `api/inventory`, `api/orders`, `api/products`, `api/loyalty`, `api/staff`, `api/purchase_orders`, `api/categories`, `logic/loyalty`, `logic/importer`, `logic/order_returns`, `logic/counterpoint_sync`, `logic/lightspeed_customers`, `logic/physical_inventory` (two paths). |
-| `std::env::var` | `main.rs` (DB, Stripe, Counterpoint, CORS, dist, body limit, bind), `api/orders.rs` (optional webhook URL), `logic/backups.rs` (S3 keys). |
+| `std::env::var` | `main.rs` (DB, Stripe, Counterpoint, CORS, dist, body limit, bind), `api/transactions.rs` (optional webhook URL), `logic/backups.rs` (S3 keys). |
 
 ### A.2 `server/src` file map (every file, one line each)
 
@@ -248,7 +248,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 |------|------|
 | `mod.rs` | `AppState`, `build_router()`, nests all route modules. |
 | `inventory.rs` | Scan, scan-resolve, batch-scan, intelligence; **partial** auth. |
-| `orders.rs` | Checkout, list/detail, pickup, refunds, returns, ZPL, attribution. |
+| `transactions.rs` | Checkout, list/detail, pickup, refunds, returns, ZPL, attribution. |
 | `products.rs` | CRUD-ish catalog, control board, import, matrix, variants. |
 | `insights.rs` | Sales pivot (`group_by` incl. customer), commission, register history, tax audit, etc. |
 | `loyalty.rs` | Settings, eligible list, adjust, redeem, ledger. |
@@ -310,7 +310,7 @@ Matches documented lifecycle: reserved units leave both on hand and reserved whe
 | `physical_inventory.rs` | Scan resolve, session lifecycle, publish tx. |
 | `weather.rs` | Synthetic weather snapshot. |
 | `messaging.rs` | Ready-for-pickup triggers (log-based provider). |
-| `order_recalc.rs` | Balance / totals recompute. |
+| `transaction_recalc.rs` | Balance / totals recompute. |
 | `order_returns.rs` | Return lines + restock + refund queue in tx. |
 | `gift_card_ops.rs` | Shared gift-card domain (used from checkout/refunds). |
 | `checkout_validate.rs` | Server-side checkout line reconciliation. |
@@ -409,23 +409,23 @@ Base URL prefix omitted; all paths are under **`/api/...`** as registered in `se
 |--------|------|--------|-------------|
 | * | `/sessions`, `/sessions/active`, `/sessions/{id}`, counts, review, publish, … | ✅ | Uses `PHYSICAL_INVENTORY_VIEW` / `PHYSICAL_INVENTORY_MUTATE` — verify every handler path (spot-check when implementing). |
 
-#### `/api/orders`
+#### `/api/transactions`
 
 | Method | Path | Status | Remediation |
 |--------|------|--------|-------------|
 | GET | `/` | ✅ | BO `orders.view` or register session scoping. |
 | GET | `/refunds/due` | ✅ | `orders.refund_process`. |
 | POST | `/checkout` | ✅ | `require_pos_register_session_for_checkout`. |
-| PATCH | `/{order_id}/attribution` | ✅ | Manager PIN + `orders.edit_attribution`. |
-| POST | `/{order_id}/pickup` | ✅ | BO `orders.modify` or register session + allocation rule. |
-| GET | `/{order_id}/audit` | ✅ | Same read model as order detail. |
-| POST | `/{order_id}/refunds/process` | ✅ | `orders.refund_process` + open session. |
-| POST | `/{order_id}/returns` | ✅ | Same as modify / register path. |
-| POST | `/{order_id}/exchange-link` | ✅ | `orders.modify`. |
-| POST | `/{order_id}/items` | ✅ | `orders.modify`. |
-| PATCH/DELETE | `/{order_id}/items/{order_item_id}` | ✅ | `orders.modify`. |
-| GET/PATCH | `/{order_id}` | ✅ | View vs cancel/modify split. |
-| GET | `/{order_id}/receipt.zpl` | ✅ | **`authorize_order_read_bo_or_register`** (same model as order read + optional `register_session_id`). |
+| PATCH | `/{transaction_id}/attribution` | ✅ | Manager PIN + `orders.edit_attribution`. |
+| POST | `/{transaction_id}/pickup` | ✅ | BO `orders.modify` or register session + allocation rule. |
+| GET | `/{transaction_id}/audit` | ✅ | Same read model as order detail. |
+| POST | `/{transaction_id}/refunds/process` | ✅ | `orders.refund_process` + open session. |
+| POST | `/{transaction_id}/returns` | ✅ | Same as modify / register path. |
+| POST | `/{transaction_id}/exchange-link` | ✅ | `orders.modify`. |
+| POST | `/{transaction_id}/items` | ✅ | `orders.modify`. |
+| PATCH/DELETE | `/{transaction_id}/items/{transaction_line_id}` | ✅ | `orders.modify`. |
+| GET/PATCH | `/{transaction_id}` | ✅ | View vs cancel/modify split. |
+| GET | `/{transaction_id}/receipt.zpl` | ✅ | **`authorize_transaction_read_bo_or_register`** (same model as order read + optional `register_session_id`). |
 
 #### `/api/products`
 

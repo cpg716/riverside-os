@@ -17,7 +17,7 @@ The system categorizes gift card redemptions into three distinct business flows 
 ### 2.2 POS Workflow (`NexoCheckoutDrawer`)
 - **UI Logic**: When the "Gift Card" tender tab is selected (lines 178-182), staff are presented with a three-way toggle to select the card's classification.
 - **Validation**: The frontend enforces that a code must be scanned/entered and a classification must be selected before the payment split can be applied to the ledger.
-- **Deduplication**: The backend verifies (via `order_checkout.rs`) that the `sub_type` metadata is provided specifically for gift card methods, preventing mis-tagging of cash or card tenders.
+- **Deduplication**: The backend verifies (via `transaction_checkout.rs`) that the `sub_type` metadata is provided specifically for gift card methods, preventing mis-tagging of cash or card tenders.
 
 ## 3. Financial & Accounting Differential
 

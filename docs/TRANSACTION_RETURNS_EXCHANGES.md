@@ -1,5 +1,7 @@
 # Transactions: refunds, line returns, exchanges, and post-sale adjustments
 
+**Status:** Canonical returns, refunds, exchanges, voids, and post-sale adjustment reference. For the full transactions doc map, start at [`TRANSACTIONS.md`](TRANSACTIONS.md).
+
 Operational reference for **Back Office** and **register** flows after migrations **`36_orders_rbac_permissions.sql`** and **`37_order_returns_and_exchange.sql`**. Optional idempotent replays use **`transactions.checkout_client_id`** from **`38_register_pos_token_and_checkout_idempotency.sql`**. Implementation lives in `server/src/api/transactions.rs`, `server/src/logic/transaction_recalc.rs`, `server/src/logic/transaction_returns.rs`, `server/src/logic/suit_component_swap.rs`, `server/src/logic/gift_card_ops.rs`, and `client/src/components/orders/OrdersWorkspace.tsx`.
 
 For **staff keys and middleware**, see **`docs/STAFF_PERMISSIONS.md`**. For **special-transaction stock** (checkout vs PO vs pickup), see **`INVENTORY_GUIDE.md`** and **`AGENTS.md`**.
@@ -91,7 +93,7 @@ When the client cannot send Back Office staff headers (e.g. receipt modal on the
 
 - **Recommended operational pattern:** return lines on the original transaction (and process refund queue as needed), then **new checkout** for the replacement merchandise; link the two transactions with **exchange-link** for reporting.
 
-- **POS Exchange Wizard** (register): [`PosExchangeWizard`](client/src/components/pos/PosExchangeWizard.tsx) — load original transaction (same register session), record line returns, then continue to the cart for replacement checkout. After checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically when both legs are on the session. Back Office still supports manual link and refunds.
+- **POS Exchange Wizard** (register): [`PosExchangeWizard`](../client/src/components/pos/PosExchangeWizard.tsx) — load original transaction (same register session), record line returns, then continue to the cart for replacement checkout. After checkout, `POST /api/transactions/{original}/exchange-link?register_session_id=…` runs automatically when both legs are on the session. Back Office still supports manual link and refunds.
 
 ---
 

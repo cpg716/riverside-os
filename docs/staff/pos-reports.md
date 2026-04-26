@@ -27,7 +27,7 @@
 
 1. Open **Reports** with a **low-traffic** session or training mode if your store uses it.
 2. Walk through **each tender line**: cash, card, gift card, store credit, etc.
-3. Explain that **voids** and **returns** change these totals — compare to **Orders** if numbers look odd.
+3. Explain that **voids** and **returns** change these totals — compare to **Transactions** if numbers look odd.
 
 ### End-of-shift handoff
 
@@ -59,7 +59,7 @@
 ## See also
 
 - [pos-dashboard.md](pos-dashboard.md)
-- [orders-back-office.md](orders-back-office.md)
+- [transactions-back-office.md](transactions-back-office.md)
 - [../REGISTER_DASHBOARD.md](../REGISTER_DASHBOARD.md)
 - [../STAFF_PERMISSIONS.md](../STAFF_PERMISSIONS.md)
 - [../TILL_GROUP_AND_REGISTER_OPEN.md](../TILL_GROUP_AND_REGISTER_OPEN.md)

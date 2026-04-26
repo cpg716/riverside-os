@@ -30,7 +30,7 @@ The client project was in a "non-buildable" state due to cumulative technical de
 Ensuring "Penny-Perfect" accuracy across different calculation engines (SQL vs. Rust).
 
 - **SQL vs. Rust Rounding Drift**:
-    - **Finding**: Although the server uses `rust_decimal`, the aggregate SUM logic in [order_recalc.rs](file:///Users/cpg/riverside-os/server/src/logic/order_recalc.rs) was susceptible to sub-penny precision drift if raw floats ever ingressed via Counterpoint/Lightspeed imports.
+    - **Finding**: Although the server uses `rust_decimal`, the aggregate SUM logic in [transaction_recalc.rs](file:///Users/cpg/riverside-os/server/src/logic/transaction_recalc.rs) was susceptible to sub-penny precision drift if raw floats ever ingressed via Counterpoint/Lightspeed imports.
     - **Resolution**: Introduced explicit `ROUND()` and `::numeric` casting in the `total_price` SQL summation. This ensures the database's "source of truth" for totals precisely matches the sum of the individual lines.
 - **Commission Intermediate Math**:
     - **Finding**: High-volume SPIFF calculations needed validation to ensure intermediate results weren't truncated before the final sum.
@@ -62,7 +62,7 @@ One of the primary goals was an "Iron Cage" for financial data.
 | `App.tsx` | OK | 0 Syntax Errors |
 | `LoyaltyWorkspace.tsx` | OK | Refactored for Type Safety |
 | `CommissionManagerWorkspace.tsx` | OK | Fully Functional Combo Builder |
-| `order_recalc.rs` | HARDENED | "Iron Cage" SQL Aggregates |
+| `transaction_recalc.rs` | HARDENED | "Iron Cage" SQL Aggregates |
 | `sales_commission.rs` | AUDITED | Production-Ready |
 
 ---

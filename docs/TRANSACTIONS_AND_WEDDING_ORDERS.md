@@ -1,5 +1,7 @@
 # Transactions and Fulfillment Orders — Riverside OS
 
+**Status:** Canonical domain model for the Transaction vs Fulfillment Order split. For the full transactions doc map, start at [`TRANSACTIONS.md`](TRANSACTIONS.md).
+
 Riverside OS employs a decoupled **transaction-centric architecture** that separates the financial tracking of user purchases (Transactions) from the logistical process of acquiring and delivering items (Fulfillment Orders).
 
 ## Core Architecture

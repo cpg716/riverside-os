@@ -1,5 +1,7 @@
 # Commission Reporting Ledger
 
+**Status:** **Implemented core / retained as design trace.** Immutable commission events and reporting-first commission operations are in the codebase; current operator guidance lives in **[`COMMISSION_AND_SPIFF_OPERATIONS.md`](./COMMISSION_AND_SPIFF_OPERATIONS.md)** and reporting surfaces in **[`AI_REPORTING_DATA_CATALOG.md`](./AI_REPORTING_DATA_CATALOG.md)**.
+
 Riverside OS commissions use an immutable reporting ledger for earned commission, fixed incentives, return adjustments, and manual adjustments.
 
 ## Goal

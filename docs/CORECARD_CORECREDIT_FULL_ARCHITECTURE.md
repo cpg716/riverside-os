@@ -1,8 +1,10 @@
 # RMS Charge / CoreCredit / CoreCard Full Architecture
 
+Status: **Canonical RMS Charge architecture reference**. For the complete documentation map, start with [RMS_CHARGE.md](./RMS_CHARGE.md).
+
 This document is the current architectural source of truth for RiversideOS RMS Charge operations.
 
-Use this file when you need to understand how the implemented system works end to end. Use the staff manuals in [`/Users/cpg/riverside-os/docs/staff`](./staff) for role-based procedures, and use [`/Users/cpg/riverside-os/docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](./CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md) for real sandbox or live tenant validation.
+Use this file when you need to understand how the implemented system works end to end. Use the staff manuals in [`staff/`](./staff) for role-based procedures, and use [`CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](./CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md) for real sandbox or live tenant validation.
 
 ## Purpose
 
@@ -360,30 +362,30 @@ Important rule:
 ## Role-Based Reading Guide
 
 - POS staff:
-  [`/Users/cpg/riverside-os/docs/staff/pos-rms-charge.md`](./staff/pos-rms-charge.md)
+  [`staff/pos-rms-charge.md`](./staff/pos-rms-charge.md)
 - Back Office overview:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-overview.md`](./staff/rms-charge-overview.md)
+  [`staff/rms-charge-overview.md`](./staff/rms-charge-overview.md)
 - Account linking and status:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-accounts.md`](./staff/rms-charge-accounts.md)
+  [`staff/rms-charge-accounts.md`](./staff/rms-charge-accounts.md)
 - Transactions:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-transactions.md`](./staff/rms-charge-transactions.md)
+  [`staff/rms-charge-transactions.md`](./staff/rms-charge-transactions.md)
 - Exceptions:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-exceptions.md`](./staff/rms-charge-exceptions.md)
+  [`staff/rms-charge-exceptions.md`](./staff/rms-charge-exceptions.md)
 - Reconciliation:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-reconciliation.md`](./staff/rms-charge-reconciliation.md)
+  [`staff/rms-charge-reconciliation.md`](./staff/rms-charge-reconciliation.md)
 - Operations:
-  [`/Users/cpg/riverside-os/docs/operations/rms-corecard-runbook.md`](./operations/rms-corecard-runbook.md)
+  [`operations/rms-corecard-runbook.md`](./operations/rms-corecard-runbook.md)
 - Security:
-  [`/Users/cpg/riverside-os/docs/security/corecard-data-handling.md`](./security/corecard-data-handling.md)
+  [`security/corecard-data-handling.md`](./security/corecard-data-handling.md)
 - Finance:
-  [`/Users/cpg/riverside-os/docs/finance/rms-charge-qbo.md`](./finance/rms-charge-qbo.md)
+  [`finance/rms-charge-qbo.md`](./finance/rms-charge-qbo.md)
 
 ## Historical Implementation Notes
 
 The implementation history remains documented in:
 
-- [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_PHASE1.md`](./CORECARD_CORECREDIT_PHASE1.md)
-- [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_PHASE2.md`](./CORECARD_CORECREDIT_PHASE2.md)
-- [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_PHASE3.md`](./CORECARD_CORECREDIT_PHASE3.md)
+- [`CORECARD_CORECREDIT_PHASE1.md`](./CORECARD_CORECREDIT_PHASE1.md)
+- [`CORECARD_CORECREDIT_PHASE2.md`](./CORECARD_CORECREDIT_PHASE2.md)
+- [`CORECARD_CORECREDIT_PHASE3.md`](./CORECARD_CORECREDIT_PHASE3.md)
 
 Those files now serve as phase history. This document is the operational architecture reference.

@@ -1,5 +1,7 @@
 # Plan: In-app Help Center
 
+**Status:** **Completed / shipped foundation.** The drawer, manual corpus, help routes, and managed help search are implemented; use **[`docs/MANUAL_CREATION.md`](docs/MANUAL_CREATION.md)** for the current manual workflow and **[`docs/PLAN_LOCAL_LLM_HELP.md`](docs/PLAN_LOCAL_LLM_HELP.md)** for ROSIE / future help automation. The checklist below is retained as the original implementation plan and design trace.
+
 **Overview:** Add a Help slideout (`DetailDrawer`) opened from a `?` control next to notifications in both Back Office and POS shells, backed by shipped Markdown manuals under `client/src/assets/docs/`. **Search** should use the same **Meilisearch** stack already used for catalog/customer/order search ([docs/SEARCH_AND_PAGINATION.md](docs/SEARCH_AND_PAGINATION.md), [server/src/logic/meilisearch_client.rs](server/src/logic/meilisearch_client.rs), `RIVERSIDE_MEILISEARCH_URL`) via a dedicated help index and a thin **`GET /api/help/search`** (or similar) endpoint, with a **client-side fallback** when Meilisearch is not configured. Include a repo doc (`docs/MANUAL_CREATION.md`) for the repeatable manual-creation workflow.
 
 ## Implementation todos
@@ -11,7 +13,7 @@
 | help-search-api | `GET /api/help/search?q=` (staff-authenticated): query Meilisearch, return `manual_id`, section anchor/slug, snippet fields; map errors to empty results + log ([server/src/logic/meilisearch_search.rs](server/src/logic/meilisearch_search.rs) pattern) |
 | help-content-layer | Create help-manifest, raw MD imports, heading/TOC parser, image path rewrite for Vite assets or `public/` URLs; **fallback** in-drawer substring/chunk scan when Meili unavailable |
 | help-drawer-ui | Implement `HelpCenterDrawer` (`DetailDrawer`, search, TOC, article, result navigation with heading ids) |
-| shell-wiring | App-level `helpOpen` state; Help button in `Header.tsx` and `PosShell.tsx`; single drawer instance |
+| shell-wiring | App-level `helpOpen` state; Help button in `GlobalTopBar.tsx` and `PosShell.tsx`; single drawer instance |
 | manual-creation-doc | Author `docs/MANUAL_CREATION.md` (procedure, paths, Playwright, aidocs, prompt template); register pos-manual in manifest |
 | verify-build | Run client build, quick manual QA of Help in BO and POS |
 | help-e2e-smoke (optional) | Playwright: open Help from BO + POS, assert drawer + at least one search path (API or fallback) |
@@ -21,7 +23,7 @@
 ## Goals
 
 - **UI:** Upper-right **Help** control (`CircleHelp` from `lucide-react`, `aria-label="Help"`) beside the notification bell in:
-  - [client/src/components/layout/Header.tsx](client/src/components/layout/Header.tsx) (Back Office)
+  - [client/src/components/layout/GlobalTopBar.tsx](client/src/components/layout/GlobalTopBar.tsx) (Back Office)
   - [client/src/components/layout/PosShell.tsx](client/src/components/layout/PosShell.tsx) (POS top bar; mirror placement with `NotificationCenterBell`)
 - **Behavior:** Opens a **slideout only** using existing [client/src/components/layout/DetailDrawer.tsx](client/src/components/layout/DetailDrawer.tsx) (same pattern as [client/src/components/notifications/NotificationCenterDrawer.tsx](client/src/components/notifications/NotificationCenterDrawer.tsx)), not a new workspace tab.
 - **Content:** Markdown manuals produced by your procedure (already started with [client/src/assets/docs/pos-manual.md](client/src/assets/docs/pos-manual.md) + images under `client/src/assets/images/help/pos/`).

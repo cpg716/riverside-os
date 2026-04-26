@@ -22,7 +22,7 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 | Theme + Tailwind `dark:` | **Done** | `darkMode: ["selector", '[data-theme="dark"]']`; [`rosDocumentTheme.ts`](../client/src/lib/rosDocumentTheme.ts). Staff shell is the focus; `/shop` may still read shared theme from storage when someone visits the guest app—**not** maintaining storefront UI right now. |
 | Typography utilities + docs | **Done** | `ui-type-chrome` / `ui-type-instruction` / `ui-type-title`; `UI_STANDARDS.md` + `CLIENT_UI_CONVENTIONS.md`. |
 | Shared overlays | **Done** | Confirmation/Prompt/DetailDrawer/Toast patterns applied. |
-| Layout chrome | **Done** | Header (incl. global search hints), Sidebar badges, register modals (`RegisterRequiredModal`, `RegisterPickModal`), token-based shell. |
+| Layout chrome | **Done** | GlobalTopBar (incl. global search hints), Sidebar badges, register modals (`RegisterRequiredModal`, `RegisterPickModal`), token-based shell. |
 | Back Office workspaces | **Done** * | Major surfaces use app tokens; inventory (**`InventoryControlBoard`**, **`MatrixHubGrid`**) got explicit typography + dark fixes. Other tabs were grepped clean for `bg-white` / `text-[7px|8px]` on TSX workspaces. |
 | POS (`pos/*`, rails) | **Done** * | Nexo/Cart/WeddingLookup/VariantSelection/ProductIntelligence/Stripe sim/SmartButton + settings Counterpoint pill; **`text-[7px]` / `text-[8px]`** removed repo-wide under `client/src/**/*.{tsx,jsx}`. Intentional **`bg-white/alpha`** on dark POS heroes (e.g. receipt summary) kept. |
 | Wedding Manager tree | **Mostly done** | Bulk `bg-white` / `text-navy-*` → app tokens; **`PartyDetail`** top bar and several call sites use neutral/white-opacity + `text-app-*` where Phase 5 optional pass landed. **Residual:** many **`bg-navy-900`** / **`navy-*`** brand blocks elsewhere in WM (dashboard tabs, modals, calendars)—leave unless a screen needs dark-mode legibility. |
@@ -38,7 +38,7 @@ Order of execution: **foundation → Back Office → POS → WM tree → QA** (s
 - [x] Fix Tailwind `darkMode` to follow `data-theme` (selector strategy); document in `docs/CLIENT_UI_CONVENTIONS.md`
 - [x] Add `ui-type-chrome` / `ui-type-instruction` (+ title guidance) in `client/src/index.css`; update `UI_STANDARDS.md` / `docs/CLIENT_UI_CONVENTIONS.md`
 - [x] Shared overlays: `ConfirmationModal` + `PromptModal` body typography; `PromptModal` `aria-describedby`; `DetailDrawer` subtitle; toast dismiss `aria-label`
-- [x] Full pass: Header, Sidebar, `AppMainColumn`, global search host, `RegisterRequiredModal` / `RegisterPickModal`, shell toasts (theme + instructional type)
+- [x] Full pass: GlobalTopBar, Sidebar, `AppMainColumn`, global search host, `RegisterRequiredModal` / `RegisterPickModal`, shell toasts (theme + instructional type)
 - [x] Full pass: BO tabs per `UI_WORKSPACE_INVENTORY` (incremental + grep baseline; inventory panels explicitly hardened)
 - [x] Full pass: `PosShell` destinations + `pos/*` modals/drawers for typography tokens and `8px` hygiene (see table above)
 - [x] Wedding `wedding-manager/**/*.jsx` token sweep (bulk) + targeted legibility; **leave** deliberate navy/gold brand chrome unless spec changes
@@ -85,7 +85,7 @@ For **each** primary component below: (a) fix misclassified instructional copy (
 
 ### Layout / global chrome
 
-- [`Header.tsx`](../client/src/components/layout/Header.tsx), [`Sidebar.tsx`](../client/src/components/layout/Sidebar.tsx), `AppMainColumn` in `App.tsx`, global search / `GlobalSearchDrawer`, [`RegisterRequiredModal.tsx`](../client/src/components/layout/RegisterRequiredModal.tsx), [`RegisterPickModal.tsx`](../client/src/components/layout/RegisterPickModal.tsx), notification drawer shell, [`HelpCenterDrawer.tsx`](../client/src/components/help/HelpCenterDrawer.tsx).
+- [`GlobalTopBar.tsx`](../client/src/components/layout/GlobalTopBar.tsx), [`Sidebar.tsx`](../client/src/components/layout/Sidebar.tsx), `AppMainColumn` in `App.tsx`, global search / [`GlobalSearchDrawers.tsx`](../client/src/components/layout/GlobalSearchDrawers.tsx), [`RegisterRequiredModal.tsx`](../client/src/components/layout/RegisterRequiredModal.tsx), [`RegisterPickModal.tsx`](../client/src/components/layout/RegisterPickModal.tsx), notification drawer shell, [`HelpCenterDrawer.tsx`](../client/src/components/help/HelpCenterDrawer.tsx).
 
 ### Back Office (by sidebar tab)
 

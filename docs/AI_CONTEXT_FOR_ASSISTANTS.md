@@ -1,6 +1,8 @@
 # AI context guide — answering Riverside OS questions
 
-This document is for **prompt authors**, **server-side system prompts**, **fine-tuning / instruction-tuning datasets**, and **implementers** wiring in-app help (**`GET /api/help/search`** over **`ros_help`**), admin reporting, or external assistants (ChatGPT projects, Cursor rules, future **ROSIE**). The legacy **`POST /api/ai/help`** + **`ai_doc_chunk`** path was **retired** (migration **78**) — see **`ROS_AI_INTEGRATION_PLAN.md`**. **`docs/staff/*`** remains the **primary** procedure truth; this file teaches **how to route**, **what not to invent**, and **how APIs + RBAC + SOP fit together**.
+This document is for **prompt authors**, **server-side system prompts**, **fine-tuning / instruction-tuning datasets**, and **implementers** wiring in-app help (**`GET /api/help/search`** over **`ros_help`**), admin reporting, external assistants (ChatGPT projects, Cursor rules), or **ROSIE**. The legacy **`POST /api/ai/help`** + **`ai_doc_chunk`** path was **retired** (migration **78**) — see **`ROS_AI_INTEGRATION_PLAN.md`**. **`docs/staff/*`** remains the **primary** procedure truth; this file teaches **how to route**, **what not to invent**, and **how APIs + RBAC + SOP fit together**.
+
+**Status:** **Canonical assistant-routing and safety guide**. For the full AI / ROSIE documentation map, start with **[`AI.md`](AI.md)**.
 
 **Using this doc to train an LLM:** Sections **1–8** are **factual routing and invariants**. Sections **§9–§12** are **behavioral supervision** (preference ordering, anti-patterns, worked dialogue). **§13** is the **ROSIE runtime contract** (implementers: system prompt + tool executor). For **numeric reporting** supervision (dates, **`basis`**, which GET to call), add **[`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §15**. **Product architecture** for ROSIE lives in **[`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md)** (three-document bundle).
 
@@ -10,10 +12,10 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 
 | Doc | Scope |
 |-----|--------|
-| **This file** | **Intent routing** and **safety**: which source to open first, when to refuse, corpus vs live APIs, **ROSIE** = planning only. |
+| **This file** | **Intent routing** and **safety**: which source to open first, when to refuse, corpus vs live APIs, and ROSIE runtime policy. |
 | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) | **Operational / analytic reads**: exhaustive **`/api/*`** inventory (**§0**), curated **Reports** tiles → routes, **Metabase** + **`reporting.*`** context, Pillar 4 whitelist sketch. Use for “what GET exists?” — never for arbitrary SQL. |
 | [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) | Pillars, retired **`/api/ai`** + **`ai_doc_chunk`** (**migration 78**), design principles for saved report specs. |
-| [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) | **ROSIE** engineering: **three-document contract** (this file + reporting catalog + plan), tool **“Hands”** table, system prompt stub, voice/vision phases, Windows 11 — **not shipped** until product says so. |
+| [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) | **ROSIE** engineering: **three-document contract** (this file + reporting catalog + plan), tool **“Hands”** table, system prompt stub, voice/vision phases, Windows 11, and runtime rollout constraints. |
 | [`ThingsBeforeLaunch.md`](../ThingsBeforeLaunch.md) | Ops checklist: **Metabase** logins (**Staff vs Admin**), **migration 107**, **LLM / staff “AI”** status. |
 | [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md) + [`MANUAL_CREATION.md`](MANUAL_CREATION.md) | Shipped **Help Center**: **`GET /api/help/search`**, **`ros_help`**, manuals under `client/src/assets/docs/*-manual.md`. |
 
@@ -28,7 +30,7 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 | **Store-specific policy** | Live: **`GET /api/staff/store-sop`** (authenticated staff). Empty `markdown` means nothing configured. | Local rules: who approves voids, cash tolerance, manager phone, hours. **Prefer this over guessing** when the API is available. |
 | **Procedures & UI** | **`docs/staff/*`** indexed by [`staff/CORPUS.manifest.json`](staff/CORPUS.manifest.json) + hub [`staff/README.md`](staff/README.md) | “Where do I click?”, “How do I…”, POS vs Back Office, troubleshooting tables, EOD flow. |
 | **Live help retrieval (server)** | **`GET /api/help/search`** + **`PLAN_HELP_CENTER.md`**, [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) (historical **`ai_doc_chunk`** era) | Current: **`ros_help`** corpus, optional Meilisearch — **`docs/MANUAL_CREATION.md`**. Old doc describes pre-**78** chunking only. |
-| **ROSIE (planned local assistant)** | [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md), [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) | **ROSIE** = **RiversideOS Intelligence Engine**; future **Ask ROSIE** in Help Center; **not shipped**—same safety as help + reporting catalogs (**no** ad-hoc SQL). |
+| **ROSIE local assistant** | [`AI.md`](AI.md), [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md), [`ROSIE_HOST_STACK.md`](ROSIE_HOST_STACK.md) | **ROSIE** = **RiversideOS Intelligence Engine**; Help Center **Ask ROSIE** depends on workstation Settings + Host runtime availability; same safety as help + reporting catalogs (**no** ad-hoc SQL). |
 | **Terms & quick routing** | [`staff/GLOSSARY.md`](staff/GLOSSARY.md), [`staff/FAQ.md`](staff/FAQ.md), [`staff/ERROR-AND-TOAST-GUIDE.md`](staff/ERROR-AND-TOAST-GUIDE.md) | Definitions, “403”, “Complete Sale grayed out”, intent → one deep link. |
 | **Permission keys & RBAC** | [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md) (also in corpus manifest) | “Why is my tab missing?”, which key gates refunds, catalog, settings. Pair with [`staff/permissions-and-access.md`](staff/permissions-and-access.md) for plain language. |
 | **Till group / lanes / combined Z** | [`TILL_GROUP_AND_REGISTER_OPEN.md`](TILL_GROUP_AND_REGISTER_OPEN.md) + [`staff/register-tab-back-office.md`](staff/register-tab-back-office.md), [`staff/EOD-AND-OPEN-CLOSE.md`](staff/EOD-AND-OPEN-CLOSE.md) | “Why can’t Register #2 open?”, “Who runs Z?”, admin vs floor open flow, **`register.session_attach`**. Prefer **staff** articles for training tone; use **TILL_GROUP** for exact API/UI behavior. |
@@ -38,11 +40,11 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 | **In-app Help manuals (header)** | [`MANUAL_CREATION.md`](MANUAL_CREATION.md); raw Markdown under `client/src/assets/docs/*-manual.md` (**pos**, **reports**, **insights**) | Short staff guides in the **Help** drawer; regenerate with `npm run generate:help` after editing manuals. |
 | **Engineering & repo layout** | [`DEVELOPER.md`](../DEVELOPER.md), [`AGENTS.md`](../AGENTS.md) | Stack, migrations summary, handler invariants, where to change code. Use for **developer** questions, not cashier training. |
 | **Public online store / guest `/shop`** | [`ONLINE_STORE.md`](ONLINE_STORE.md), [`PLAN_ONLINE_STORE_MODULE.md`](PLAN_ONLINE_STORE_MODULE.md) | **`/api/store`**, **`/api/store/account/*`** (JWT customer accounts, migration **77**), **`/shop`** + **`/shop/account`**, CMS pages, cart session, PLP **`search`**, **`online_store.manage`**; roadmap (Stripe, Insights channel). Not in staff RAG corpus by default. |
-| **Shipments / Shippo hub** | [`SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md), [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §0 | **`GET /api/shipments`**, **`GET /api/shipments/{id}`** (**`shipments.view`**); rates/labels (**`shipments.manage`**). **`shipment_event`** feeds **recognition** timing for shipped orders — pair with **`REPORTING_BOOKED_AND_RECOGNITION.md`** when explaining revenue vs ship date. |
+| **Shipments / Shippo hub** | [`SHIPPING_AND_SHIPMENTS_HUB.md`](SHIPPING_AND_SHIPMENTS_HUB.md), [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §0 | **`GET /api/shipments`**, **`GET /api/shipments/{id}`** (**`shipments.view`**); rates/labels (**`shipments.manage`**). **`shipment_event`** feeds **recognition** timing for shipped orders — pair with **`REPORTING_BOOKED_AND_FULFILLED.md`** when explaining revenue vs ship date. |
 | **Directory search (inventory, CRM, orders, weddings, PLP)** | [`SEARCH_AND_PAGINATION.md`](SEARCH_AND_PAGINATION.md), [`STORE_DEPLOYMENT_GUIDE.md`](STORE_DEPLOYMENT_GUIDE.md) | Optional **Meilisearch** (**`RIVERSIDE_MEILISEARCH_*`**) with PostgreSQL hydration and **ILIKE** fallback; admin **Settings → Integrations → Meilisearch** full reindex. Not the same as staff-help RAG (**`ROS_AI_HELP_CORPUS.md`**). |
 | **Product intent & roadmap** | [`AI_INTEGRATION_OUTLOOK.md`](AI_INTEGRATION_OUTLOOK.md), [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md), [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) | What AI / **ROSIE** features are planned, pillars, safety boundaries. |
-| **In-store LLM / sidecar “AI” (not shipped)** | [`ThingsBeforeLaunch.md`](../ThingsBeforeLaunch.md) § **LLM / staff “AI”**; [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) | **Status check at launch** — local inference + optional chat gateway is **planning-only** until product ships it. Do **not** tell staff an in-app LLM exists by default. |
-| **Notification inbox (bundled alerts)** | Staff: [`staff/pos-dashboard.md`](staff/pos-dashboard.md), [`staff/operations-home.md`](staff/operations-home.md); engineering: [`PLAN_NOTIFICATION_CENTER.md`](PLAN_NOTIFICATION_CENTER.md), [`NOTIFICATION_GENERATORS_AND_OPS.md`](NOTIFICATION_GENERATORS_AND_OPS.md) | “One line for many low-stock SKUs / POs / tasks,” “Register preview says open inbox,” **expand the row in the bell drawer** to see items and tap through. Broadcasts: expand for full message. |
+| **In-store LLM / sidecar “AI”** | [`AI.md`](AI.md), [`ROSIE_HOST_STACK.md`](ROSIE_HOST_STACK.md), [`PLAN_LOCAL_LLM_HELP.md`](PLAN_LOCAL_LLM_HELP.md) | Local inference and chat are ROSIE features gated by configuration and runtime availability. Do not promise availability on a workstation until Settings and Host status confirm it. |
+| **Notification inbox (bundled alerts)** | Start: [`CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md`](CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md); staff: [`staff/pos-dashboard.md`](staff/pos-dashboard.md), [`staff/operations-home.md`](staff/operations-home.md); engineering: [`PLAN_NOTIFICATION_CENTER.md`](PLAN_NOTIFICATION_CENTER.md), [`NOTIFICATION_GENERATORS_AND_OPS.md`](NOTIFICATION_GENERATORS_AND_OPS.md) | “One line for many low-stock SKUs / POs / tasks,” “Register preview says open inbox,” **expand the row in the bell drawer** to see items and tap through. Broadcasts: expand for full message. |
 | **Back Office shell / register hydrate** | [`ROS_UI_CONSISTENCY_PLAN.md`](ROS_UI_CONSISTENCY_PLAN.md) Phase 5; `client/src/components/layout/RegisterSessionBootstrap.tsx` | **`applyShellForLoggedInRole`** when **open till `session_id` changes**. With **no till**, repeated bootstrap does **not** snap **`activeTab`** back to Operations for unchanged staff credentials (Reports / Staff / QBO remain usable). |
 
 ---
@@ -50,24 +52,24 @@ This document is for **prompt authors**, **server-side system prompts**, **fine-
 ## 2. Routing cheatsheet (intent → first source)
 
 - **“I can’t see [tab]” / 403** → `permissions-and-access.md` → `STAFF_PERMISSIONS.md` → suggest **Role access** / **User overrides** in **Staff**.
-- **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `orders-back-office.md` → technical detail `TRANSACTION_RETURNS_EXCHANGES.md` (link only if needed).
-- **“Special order / reserved / available stock”** → `abstracts/special-orders-and-stock.md` → `INVENTORY_GUIDE.md` (repo root) for depth.
+- **“How do I refund / void / exchange?”** → `abstracts/returns-refunds-exchanges.md` → `transactions-back-office.md` → technical detail `TRANSACTION_RETURNS_EXCHANGES.md` (link only if needed).
+- **“Special order / reserved / available stock”** → `abstracts/transactions-and-stock.md` → `INVENTORY_GUIDE.md` (repo root) for depth.
 - **“Wedding group pay”** → `abstracts/wedding-group-pay.md` → `WEDDING_GROUP_PAY_AND_RETURNS.md`.
 - **“What reports or data can I query?”** → `AI_REPORTING_DATA_CATALOG.md` §0 inventory of GETs.
 - **“What is ROSIE / Ask ROSIE in Help?”** → **Three-document bundle:** `PLAN_LOCAL_LLM_HELP.md` (architecture + tools + prompt stub), this file **§13**, `AI_REPORTING_DATA_CATALOG.md` (§0 **`report_id`** allowlist + §15 time/`basis`); retirement vs **`/api/ai`** → `ROS_AI_INTEGRATION_PLAN.md`.
 - **“Register reports / Z-close / drawer / session list”** → Curated **`register_sessions`**, **`register_day_activity`**, **`register_override_mix`** + §15 **`basis`** (`AI_REPORTING_DATA_CATALOG.md`); procedures (**who runs Z**, multi-lane) → `docs/TILL_GROUP_AND_REGISTER_OPEN.md`, `docs/staff/pos-reports.md`, `docs/staff/EOD-AND-OPEN-CLOSE.md`. **Tool JSON** for numbers; staff docs for steps.
 - **“Inventory on hand / reserved / on order / OOS / movements”** → `GET /api/inventory/intelligence/{variant_id}`, control-board/scan (`AI_REPORTING_DATA_CATALOG.md` §3); stock rules → root **`INVENTORY_GUIDE.md`**, **`AGENTS.md`** special-order fulfillment; PO “on order” only with documented procurement reads + **`procurement.view`**. **Never** invent quantities.
-- **“Back Office Reports tiles / margin pivot / booked vs completed”** → `staff/reports-curated-manual.md` (procedures), `staff/reports-curated-admin.md` (RBAC + policy), `REPORTING_BOOKED_AND_RECOGNITION.md`.
+- **“Back Office Reports tiles / margin pivot / booked vs completed”** → `staff/reports-curated-manual.md` (procedures), `staff/reports-curated-admin.md` (RBAC + policy), `REPORTING_BOOKED_AND_FULFILLED.md`.
 - **“Insights / Metabase / who sees margin”** → `staff/insights-back-office.md`, `METABASE_REPORTING.md` (staff-class vs admin-class **Metabase** logins — not Riverside PIN alone).
 - **“Customer hub won’t open / tab missing / can’t add note”** → `staff/customers-back-office.md` + `staff/permissions-and-access.md` (**`customers.hub_view`**, **`hub_edit`**, **`timeline`**, **`measurements`**, **`orders.view`**) → `CUSTOMER_HUB_AND_RBAC.md` for route-level detail.
 - **“Where is the API route defined?”** → `server/src/api/mod.rs` **`build_router`** (named in catalog intro).
 - **Errors / offline** → `ERROR-AND-TOAST-GUIDE.md`, `working-offline.md`, `OFFLINE_OPERATIONAL_PLAYBOOK.md`.
 - **Multi-lane register / Z on #1 / admin opens #2** → `register-tab-back-office.md`, `pos-reports.md`, `TILL_GROUP_AND_REGISTER_OPEN.md`.
 - **Go-live / Metabase setup / margin governance** → root **`ThingsBeforeLaunch.md`** (Metabase Staff vs Admin logins, **`metabase_ro`**, migration **107**); then **`METABASE_REPORTING.md`**.
-- **Local LLM / in-store “AI assistant” (what exists today)** → **`ThingsBeforeLaunch.md`** § LLM / staff “AI”; **`PLAN_LOCAL_LLM_HELP.md`** (**design** — not a shipped cashier feature until explicitly released).
+- **Local LLM / in-store “AI assistant”** → **`AI.md`**, **`ROSIE_HOST_STACK.md`**, and **`PLAN_LOCAL_LLM_HELP.md`**. Treat ROSIE as available only when the Help drawer/settings and Host runtime report it configured.
 - **Parked sale / RMS or RMS90 tender / “Submit R2S charge” notification** → `pos-register-cart.md`, `POS_PARKED_SALES_AND_RMS_CHARGES.md`; **R2S payment on customer charge** (**PAYMENT** search, **Customers → RMS charge**) → same technical doc + `customers-back-office.md`; reporting slice → `AI_REPORTING_DATA_CATALOG.md` (**`/api/insights/rms-charges`**, **`/api/customers/rms-charge/records`**).
 - **Bundled inbox row / “N items — open inbox” on Register** → `pos-dashboard.md`, `operations-home.md`: open the **bell**, **tap the bundled row** to expand the list (or tap a routable row once to jump). Engineering detail → `PLAN_NOTIFICATION_CENTER.md`.
-- **Shipments / tracking / Shippo hub** → `SHIPPING_AND_SHIPMENTS_HUB.md`; list + detail reads → **`AI_REPORTING_DATA_CATALOG.md`** **`/api/shipments/*`** (**`shipments.view`** / **`shipments.manage`**); recognition semantics for shipped revenue → `REPORTING_BOOKED_AND_RECOGNITION.md`.
+- **Shipments / tracking / Shippo hub** → `SHIPPING_AND_SHIPMENTS_HUB.md`; list + detail reads → **`AI_REPORTING_DATA_CATALOG.md`** **`/api/shipments/*`** (**`shipments.view`** / **`shipments.manage`**); recognition semantics for shipped revenue → `REPORTING_BOOKED_AND_FULFILLED.md`.
 
 ---
 
@@ -141,7 +143,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 | Customer hub route or tab behavior | [`CUSTOMER_HUB_AND_RBAC.md`](CUSTOMER_HUB_AND_RBAC.md), [`staff/customers-back-office.md`](staff/customers-back-office.md) |
 | Wedding **`GET /actions`** shape / `party_balance_due` | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) §0, [`staff/weddings-back-office.md`](staff/weddings-back-office.md) |
 | AI behavior / pillars | [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md), this file if routing changes |
-| Help **retrieval** (FTS / trigram / vectors) or **reindex** contract | [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md), [`API_AI.md`](API_AI.md) |
+| Help Center search / `ros_help` / manual generation | [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md), [`AI.md`](AI.md) |
 | New Back Office tab / lazy import / major overlay | [`CLIENT_UI_CONVENTIONS.md`](CLIENT_UI_CONVENTIONS.md), [`client/UI_WORKSPACE_INVENTORY.md`](../client/UI_WORKSPACE_INVENTORY.md) tab table and sweep notes |
 | Curated **Reports** catalog tile or API | [`AI_REPORTING_DATA_CATALOG.md`](AI_REPORTING_DATA_CATALOG.md) Curated table; `client/src/lib/reportsCatalog.ts` + `client/src/components/reports/ReportsWorkspace.tsx`; [`staff/reports-curated-manual.md`](staff/reports-curated-manual.md) / [`staff/reports-curated-admin.md`](staff/reports-curated-admin.md); E2E **`client/e2e/reports-workspace.spec.ts`** |
 | Metabase Staff vs Admin login policy | [`METABASE_REPORTING.md`](METABASE_REPORTING.md), [`ThingsBeforeLaunch.md`](../ThingsBeforeLaunch.md), Settings **Insights** copy in `InsightsIntegrationSettings.tsx` |
@@ -158,7 +160,7 @@ Do not embed live PINs or session tokens in prompts sent to third-party models.
 | **`docs/AI_REPORTING_DATA_CATALOG.md` §0** | New **`GET`** (or read-shaped) route not documented | **Process:** any PR that adds a public read under `server/src/api/` should update §0 in the same PR ([`AGENTS.md`](../AGENTS.md)). **Advisory tool:** `python3 scripts/scan_axum_get_routes_hint.py` prints route path fragments from lines that mention **`get(`** — you must mentally prefix the **`/api/...` nest** from [`server/src/api/mod.rs`](../server/src/api/mod.rs) `build_router`; nested routers (e.g. `staff/schedule`) still need manual composition. There is no safe fully automatic diff without an OpenAPI spec or codegen. |
 | **Staff sidebar coverage** | New `SidebarTabId` / `PosTabId` without a guide row | Compare [`client/src/components/layout/sidebarSections.ts`](../client/src/components/layout/sidebarSections.ts) (`SidebarTabId`, `SIDEBAR_SUB_SECTIONS`), [`Sidebar.tsx`](../client/src/components/layout/Sidebar.tsx), and [`PosSidebar.tsx`](../client/src/components/pos/PosSidebar.tsx) to the checklist in [`staff/README.md`](staff/README.md) (**Reports** tab → `reports-curated-*.md`; **Operations** subsections include **Dashboard**, **Inbox**, **Reviews**, **Register reports** — legacy **`activity`** deep link normalizes to **dashboard** in `App.tsx`). |
 | **RBAC keys** | New permission without docs | Update [`STAFF_PERMISSIONS.md`](STAFF_PERMISSIONS.md) and [`staff/permissions-and-access.md`](staff/permissions-and-access.md) when keys are user-visible. |
-| **Help ingest / hybrid ranking** | Chunking, env, or merge weights change in code without operator docs | Update [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) and [`API_AI.md`](API_AI.md) when `ai_docs.rs` / `ai_embed.rs` behavior changes. |
+| **Help ingest / `ros_help` ranking** | Help manual generation, search indexing, or help route behavior changes without operator docs | Update [`MANUAL_CREATION.md`](MANUAL_CREATION.md), [`PLAN_HELP_CENTER.md`](../PLAN_HELP_CENTER.md), and [`AI.md`](AI.md). Use [`ROS_AI_HELP_CORPUS.md`](ROS_AI_HELP_CORPUS.md) / [`API_AI.md`](API_AI.md) only when documenting the retired pre-78 stack. |
 
 **CI suggestion:** add a job step `python3 scripts/verify_ai_knowledge_drift.py` next to **`npm run check:server`** / **`npm run build`** so the corpus never ships broken or incomplete.
 
@@ -190,7 +192,7 @@ When a question is **ambiguous**, the **preferred** behavior is to **name the fo
 | “Margin by category” | **`margin-pivot`** (Admin) vs **revenue-only** pivot | Margin requires **Riverside Admin** + **Admin-class Metabase** context; **`insights.view`** alone is insufficient — state that. |
 | “RMS charge” | **Charge** (tender) vs **payment** (cash/check collection) | Point to **`POS_PARKED_SALES_AND_RMS_CHARGES.md`**; **insights** export vs **Customers → RMS charge**. |
 | “Parked sale” | Server **Park** row vs **local draft** `ros_pos_active_sale` | Both exist; **Z-close** purges server park; local draft is **browser** persistence — **`docs/staff/pos-register-cart.md`**. |
-| “AI / chat / ROSIE” | Shipped Help only vs future local LLM | **Default truthful answer:** Help Center + search today; **ROSIE** is **planned** — **`PLAN_LOCAL_LLM_HELP.md`**. Never imply **`/api/ai`** or embeddings tables post-**78**. |
+| “AI / chat / ROSIE” | Help search vs configured ROSIE vs retired `/api/ai` | **Default truthful answer:** Help Center + search are current; **ROSIE** is available only when enabled/configured on the workstation — start with **`AI.md`** and **`ROSIE_HOST_STACK.md`**. Never imply **`/api/ai`** or embeddings tables post-**78**. |
 | “Can’t see Reports / Insights” | Missing **`insights.view`** vs Metabase login class vs Insights disabled | Separate **Riverside RBAC** from **Metabase** user — **`METABASE_REPORTING.md`**. |
 
 ---
@@ -202,12 +204,12 @@ Use these as **synthetic preference pairs** (helpful vs harmful) for DPO / RLAIF
 **A — Procedure question**
 
 - **Bad:** “Open the database and run `SELECT * FROM orders` to see voids.”
-- **Good:** “Voids follow **`orders.*` RBAC** and the refund/void flows in **`docs/staff/orders-back-office.md`**. If your role shows 403, check **Staff → Role access** for **`orders.void_sale`** (or your store’s policy in **`GET /api/staff/store-sop`**).”
+- **Good:** “Voids follow **`orders.*` RBAC** and the refund/void flows in **`docs/staff/transactions-back-office.md`**. If your role shows 403, check **Staff → Role access** for **`orders.void_sale`** (or your store’s policy in **`GET /api/staff/store-sop`**).”
 
 **B — Number question without tools**
 
 - **Bad:** “Last month’s sales were probably around $120k.”
-- **Good:** “I don’t have your live **`GET /api/insights/sales-pivot`** results here. In **Back Office → Reports**, pick **Sales pivot** with the date range, or use **Insights** if your **Metabase** login can access that dashboard. **Booked vs completed** changes the answer — see **`REPORTING_BOOKED_AND_RECOGNITION.md`**.“
+- **Good:** “I don’t have your live **`GET /api/insights/sales-pivot`** results here. In **Back Office → Reports**, pick **Sales pivot** with the date range, or use **Insights** if your **Metabase** login can access that dashboard. **Booked vs completed** changes the answer — see **`REPORTING_BOOKED_AND_FULFILLED.md`**.“
 
 **C — Permission bypass**
 

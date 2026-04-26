@@ -74,7 +74,7 @@ When the daily staging journal is generated:
 | `server/src/logic/money.rs` | Backend rounding utility (`calculate_swedish_rounding`) |
 | `client/src/lib/money.ts` | Frontend rounding utility (`calculateSwedishRounding`) |
 | `server/src/models/mod.rs` | Order model updates for rounding fields |
-| `server/src/logic/order_checkout.rs` | Persistence of rounding metadata during checkout |
+| `server/src/logic/transaction_checkout.rs` | Persistence of rounding metadata during checkout |
 | `server/src/logic/qbo_journal.rs` | Aggregation and mapping of rounding to the daily journal |
 | `client/src/components/pos/NexoCheckoutDrawer.tsx` | UI calculation and display of rounding adjustments |
 

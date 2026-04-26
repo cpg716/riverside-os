@@ -47,7 +47,7 @@
 
 ## After close (Back Office)
 
-- **Orders → Open Orders:** clear stragglers or document — [orders-back-office.md](orders-back-office.md).
+- **Transactions → Open Transactions:** clear stragglers or document — [transactions-back-office.md](transactions-back-office.md).
 - **Insights** or **QBO** (if used): per accounting schedule — [insights-back-office.md](insights-back-office.md), [qbo-bridge.md](qbo-bridge.md).
 
 ---

@@ -1,5 +1,7 @@
 # Riverside OS UI/UX Review (April 2026)
 
+**Status:** Historical UI/UX review snapshot. Use [../CLIENT_UI_CONVENTIONS.md](../CLIENT_UI_CONVENTIONS.md) and current shell docs for canonical UI guidance.
+
 This document details the visual standards and ergonomic design of the Riverside OS (ROS) user interface.
 
 ## 1. Aesthetic Identity

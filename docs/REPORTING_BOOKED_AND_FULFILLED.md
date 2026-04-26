@@ -1,5 +1,7 @@
 # Booked vs Fulfilled reporting
 
+**Status:** Canonical technical source for reporting basis, fulfillment recognition timing, and API / Metabase alignment. For the financial concept explainer, see [`BOOKED_VS_FULFILLED.md`](BOOKED_VS_FULFILLED.md). For the full reporting doc map, start at [`REPORTING.md`](REPORTING.md).
+
 Riverside OS uses two time axes for revenue-style analytics:
 
 | Axis | Meaning | Typical use |

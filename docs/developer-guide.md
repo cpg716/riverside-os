@@ -64,42 +64,42 @@ Manages navigation between different tabs and sub-sections, as well as deep link
 
 ### Key Files and Directories
 
-- **`src/components/MainShell.js`**: The main shell component file.
-- **`src/components/PosShell.js`**: Manages the Point of Sale interface.
-- **`src/components/InsightsShell.js`**: Provides access to analytics and reporting tools.
-- **`src/components/WeddingShell.js`**: Manages wedding-related functionalities.
-- **`src/components/SidebarNavigation.js`**: Handles sidebar navigation.
-- **`src/components/GlobalSearchDrawer.js`**: Facilitates global search functionality.
-- **`src/components/Modals.js`**: Contains modals for closing the register.
-- **`src/components/Drawers.js`**: Contains drawers for help center and bug reports.
+- **`client/src/App.tsx`**: Owns the main shell state, `AppMainColumn`, deep links, global drawer state, and POS / Insights / Wedding shell switching.
+- **`client/src/components/layout/GlobalTopBar.tsx`**: Provides the persistent top bar, staff identity controls, global search entry, Help, Bug Report, and notification bell.
+- **`client/src/components/layout/PosShell.tsx`**: Manages the Point of Sale interface.
+- **`client/src/components/layout/InsightsShell.tsx`**: Provides access to analytics and reporting tools.
+- **`client/src/components/layout/WeddingShell.tsx`**: Manages wedding-related functionality.
+- **`client/src/components/layout/Sidebar.tsx`**: Handles Back Office sidebar navigation.
+- **`client/src/components/layout/GlobalSearchDrawers.tsx`**: Hosts global search result drawers for customers, products, wedding party customers, and related routed results.
+- **`client/src/components/layout/DetailDrawer.tsx`**: Shared drawer shell used by help, notification, and operational slideouts.
 
 ### State Management
 
-The main shell component uses React's state management to handle different modes and UI elements. You can modify the state variables in `MainShell.js` to control the behavior of the component.
+The main shell component uses React's state management to handle different modes and UI elements. Modify the shell state in `client/src/App.tsx` unless a mode-specific shell already owns the behavior.
 
 ### Conditional Rendering
 
-Conditional rendering is handled using React's conditional rendering syntax. You can modify the conditions in `MainShell.js` to render different components based on the current mode.
+Conditional rendering is handled in `client/src/App.tsx`, which renders the POS, Insights, Wedding, or Back Office workspace tree based on the current mode.
 
 ### Deep Link Handling
 
-Deep link handling is managed by parsing the URL and updating the state accordingly. You can modify the deep link handling logic in `MainShell.js` to support additional features.
+Deep link handling is managed by parsing the URL and updating shell state accordingly. Extend the deep-link logic in `client/src/App.tsx` and keep corresponding sidebar / route mappings synchronized.
 
 ### Permissions and Access Control
 
-Permissions and access control are managed by checking user roles and permissions. You can modify the permission checks in `MainShell.js` to enforce different access levels.
+Permissions and access control are managed by checking user roles and permissions. Update permission checks near the owning workspace or route guard rather than adding ad hoc shell bypasses.
 
 ### Theme Mode
 
-Theme mode is managed by toggling a state variable that controls the theme. You can modify the theme toggle logic in `MainShell.js` to support additional themes.
+Theme mode is managed through the shared app theme helpers and `client/src/App.tsx` shell state.
 
 ### Error Handling and Loading States
 
-Error handling and loading states are managed using React's error boundaries and loading indicators. You can modify the error handling and loading state logic in `MainShell.js` to improve user experience.
+Error handling and loading states are managed using the app shell, global overlays, and owning workspaces. Keep user-facing operational failures on the established toast / overlay patterns.
 
 ### Navigation and Routing
 
-Navigation and routing are managed using React Router. You can modify the routing configuration in `MainShell.js` to support additional routes and navigation options.
+Navigation and routing are managed through `client/src/App.tsx`, sidebar section mappings, and deep-link handlers. Update those mappings together when adding routes or navigation options.
 
 ## Conclusion
 

@@ -1,5 +1,7 @@
 # Notification generators and operations
 
+Status: **Canonical notification operations reference** for migrations, env vars, code paths, bundled payloads, and deep-link behavior. For the broader messaging and notification map, start with [CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md](./CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md).
+
 Short ops and developer reference for **automated inbox items** beyond the narrative in [`PLAN_NOTIFICATION_CENTER.md`](./PLAN_NOTIFICATION_CENTER.md). Use that plan for architecture, RBAC, and UI; use this file for **migrations**, **env vars**, and **where code lives**.
 
 ## Migrations
@@ -12,7 +14,7 @@ Short ops and developer reference for **automated inbox items** beyond the narra
 | **68** [`68_pos_parked_and_rms_charge_audit.sql`](../migrations/68_pos_parked_and_rms_charge_audit.sql) | `pos_parked_sale`, `pos_parked_sale_audit`, `pos_rms_charge_record` | Checkout-driven **`rms_r2s_charge`** fan-out to **sales_support** after RMS / RMS90 tender — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
 | **69** [`69_rms_charge_payment_line.sql`](../migrations/69_rms_charge_payment_line.sql) | `products.pos_line_kind`, `pos_rms_charge_record.record_kind`, nullable `task_instance.assignment_id` | R2S **payment** checkout creates ad-hoc **Sales Support** **tasks** (not the same as **`rms_r2s_charge`** notifications) — **[`POS_PARKED_SALES_AND_RMS_CHARGES.md`](./POS_PARKED_SALES_AND_RMS_CHARGES.md)** |
 
-Apply with `./scripts/apply-migrations-docker.sh`; drift check with `./scripts/migration-status-docker.sh` (probes in `scripts/ros_migration_build_probes.sql` through the latest numbered migration, currently **97** — see **`DEVELOPER.md`**).
+Apply with `./scripts/apply-migrations-docker.sh`; drift check with `./scripts/migration-status-docker.sh` (probes in `scripts/ros_migration_build_probes.sql` through the latest numbered migration; current repo ceiling is tracked in **`DEVELOPER.md`**).
 
 ## Environment variables (server)
 

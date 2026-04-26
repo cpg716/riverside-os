@@ -1,5 +1,7 @@
 # Plan: App-wide Notification Center (Riverside OS)
 
+**Status:** **Completed / shipped foundation.** This remains the architecture and historical implementation plan for notifications; current operational behavior is summarized in **[`NOTIFICATION_GENERATORS_AND_OPS.md`](./NOTIFICATION_GENERATORS_AND_OPS.md)**. Start with **[`CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md`](./CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md)** for the full messaging and notification documentation map.
+
 Version-controlled implementation plan for a **PostgreSQL-backed** notification system: per-staff read/completed state, audit logging, **bell + slideout** (`DetailDrawer`) on **Back Office**, **POS (`PosShell`)**, and **Wedding** shells, **admin broadcast** with audience targeting, **retention** (archive after 30 days, browse history up to 1 year), **system event generators** (orders, weddings, pickup, alterations, QBO, procurement/PO), and **shared wiring** with Podium messaging per **[`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md)** ( **`read-all`**, **`messaging_unread_nudge`** ).
 
 **Related:** **Cross-cutting tracker** — [`PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md`](./PLAN_SHIPPO_PODIUM_NOTIFICATIONS_AND_REVIEWS.md). Podium env + webhook deep spec — [`PLAN_PODIUM_SMS_INTEGRATION.md`](./PLAN_PODIUM_SMS_INTEGRATION.md). **Ops quick reference** (migrations **60–61**, env vars, code paths, deep links): [`NOTIFICATION_GENERATORS_AND_OPS.md`](./NOTIFICATION_GENERATORS_AND_OPS.md).
@@ -20,7 +22,7 @@ Version-controlled implementation plan for a **PostgreSQL-backed** notification 
 
 ## Current state
 
-- **Shipped:** bell + [`DetailDrawer`](../client/src/components/layout/DetailDrawer.tsx) on Back Office ([`Header.tsx`](../client/src/components/layout/Header.tsx) in `AppMainColumn`), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx); provider [`NotificationCenterContext.tsx`](../client/src/context/NotificationCenterContext.tsx).
+- **Shipped:** bell + [`DetailDrawer`](../client/src/components/layout/DetailDrawer.tsx) on Back Office ([`GlobalTopBar.tsx`](../client/src/components/layout/GlobalTopBar.tsx) inside the `AppMainColumn` shell), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx); provider [`NotificationCenterContext.tsx`](../client/src/context/NotificationCenterContext.tsx).
 - **Staff identity**: [`BackofficeAuthContext`](../client/src/context/BackofficeAuthContext.tsx) + headers; POS has `cashierCode` / session; [`staff`](../migrations/01_initial_schema.sql) + [`staff_role`](../migrations/17_staff_authority.sql) (`admin` | `salesperson` | `sales_support`).
 - **Audit precedent**: [`staff_access_log`](../migrations/17_staff_authority.sql) + [`log_staff_access`](../server/src/auth/pins.rs).
 - **Deep links precedent**: `ordersDeepLinkOrderId` + `setActiveTab("orders")` in `App.tsx`; `navigateWedding(partyId)` / `pendingWmPartyId`.
@@ -96,7 +98,7 @@ Logic: [`server/src/logic/notifications.rs`](../server/src/logic/notifications.r
 - **`NotificationCenterBell`** + **`NotificationCenterDrawer`** (wraps `DetailDrawer`): Inbox / History; **compact** rows (kind + title); **broadcast** tap expands full message; **bundle** tap expands item list; routable single-row tap → navigate (**`notificationDeepLink.ts`**). **Inbox** **Dismiss** → **`POST /.../archive`**. **[`RegisterDashboard`](../client/src/components/pos/RegisterDashboard.tsx)** — short preview (“N items — open inbox to expand” for bundles) + Read / Complete / Dismiss.
 - **`BroadcastComposer`**: when `notifications.broadcast` (or admin).
 
-**Mount points:** [`Header.tsx`](../client/src/components/layout/Header.tsx), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx).
+**Mount points:** [`GlobalTopBar.tsx`](../client/src/components/layout/GlobalTopBar.tsx), [`PosShell.tsx`](../client/src/components/layout/PosShell.tsx), [`WeddingShell.tsx`](../client/src/components/layout/WeddingShell.tsx).
 
 **Navigation contract:** `handleNotificationNavigate` in [`App.tsx`](../client/src/App.tsx) — tab switch, wedding mode, POS mode, `ordersDeepLinkOrderId`, `pendingWmPartyId`, **alterations**, **PO / procurement**, **QBO staging**, **settings** (`profile` / `general` / `backups`), **inventory list + product hub**, **`staff_tasks`** + **`instance_id`** (Staff → Tasks drawer via **`StaffTasksPanel`** props through **`AppMainColumn`** / **`StaffWorkspace`**).
 

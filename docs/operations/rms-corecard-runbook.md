@@ -1,5 +1,7 @@
 # RMS Charge / CoreCard Operations Runbook
 
+Status: **Canonical operations runbook** for monitoring and recovery. For the complete RMS Charge documentation map, start with [RMS_CHARGE.md](../RMS_CHARGE.md).
+
 This runbook is for operational monitoring and recovery of the RMS Charge / CoreCard integration already implemented in RiversideOS.
 
 ## Daily checks
@@ -104,10 +106,10 @@ Review:
 ## Companion docs
 
 - architecture:
-  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](../CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
+  [`CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](../CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
 - exceptions:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-exceptions.md`](../staff/rms-charge-exceptions.md)
+  [`staff/rms-charge-exceptions.md`](../staff/rms-charge-exceptions.md)
 - reconciliation:
-  [`/Users/cpg/riverside-os/docs/staff/rms-charge-reconciliation.md`](../staff/rms-charge-reconciliation.md)
+  [`staff/rms-charge-reconciliation.md`](../staff/rms-charge-reconciliation.md)
 - finance:
-  [`/Users/cpg/riverside-os/docs/finance/rms-charge-qbo.md`](../finance/rms-charge-qbo.md)
+  [`finance/rms-charge-qbo.md`](../finance/rms-charge-qbo.md)

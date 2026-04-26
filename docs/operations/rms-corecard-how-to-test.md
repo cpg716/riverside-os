@@ -1,5 +1,7 @@
 # How to Test RMS Charge / CoreCard Integration
 
+Status: **Local/fake-host test guide** for RMS Charge. For the complete documentation map, start with [RMS_CHARGE.md](../RMS_CHARGE.md).
+
 ## SECTION 1 — LOCAL (FAKE HOST) SETUP
 
 Use the existing local E2E stack script:
@@ -158,7 +160,7 @@ npm run validate:corecard:sandbox
 ```
 
 3. Follow:
-   [`/Users/cpg/riverside-os/docs/CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](../CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md)
+   [`CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md`](../CORECARD_SANDBOX_LIVE_VALIDATION_RUNBOOK.md)
 
 Important warnings:
 

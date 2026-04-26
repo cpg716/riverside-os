@@ -21,7 +21,7 @@ The system distinguishes three primary fulfillment modes at the cart level:
 The link between POS and Procurement is mathematically enforced:
 - **Reserved Stock:** When a variant is received on a Purchase Order, the system queries for open `special_order` lines and automatically moves the incoming units to `reserved_stock`.
 - **Available vs. On-Hand:** `available_stock = stock_onhand - reserved_stock`. This prevents staff from selling a suit off the floor that was specifically ordered for an existing customer.
-- **Pickup Execution:** The `mark_order_pickup` endpoint is the terminal state. It decrements both `stock_on_hand` and `reserved_stock` simultaneously, ensuring the ledger and physical shelf stay in sync.
+- **Pickup Execution:** The `mark_transaction_pickup` endpoint is the terminal state. It decrements both `stock_on_hand` and `reserved_stock` simultaneously, ensuring the ledger and physical shelf stay in sync.
 
 ---
 

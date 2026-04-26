@@ -1,5 +1,7 @@
 # AI integration outlook — Riverside OS
 
+Status: **Product outlook / evaluation guide**. For current AI / ROSIE implementation and retired-stack status, start with [AI.md](AI.md).
+
 This document captures **product-grounded** ideas for using AI in ROS: benefits to staff and customers, constraints that match how the app is built, and a sensible rollout order. It is **not** a commitment to build any feature; it is a reference for planning and evaluation.
 
 For stack and invariants (money as `Decimal`, thin handlers, RBAC), see **`DEVELOPER.md`**, **`AGENTS.md`**, and **`docs/STAFF_PERMISSIONS.md`**.

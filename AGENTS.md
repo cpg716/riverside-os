@@ -58,18 +58,19 @@ Before making substantial changes, read these in order:
 
 1. **`.cursorrules`** — Non-negotiable project rules (Rust/Axum/sqlx/money/handler thinness)
 2. **`README.md`** — Overview, quick start, documentation catalog
-3. **`DEVELOPER.md`** — Architecture, folder map, runbooks, API overview, migration references
-4. **`CHANGELOG.md`** — Recent shipped behavior and current direction
-5. **`docs/releases/`** — Current release notes, PR summary, and GitHub release copy when working near a release cut
+3. **`docs/README.md`** — Documentation index and search guide
+4. **`DEVELOPER.md`** — Architecture, folder map, runbooks, API overview, migration references
+5. **`CHANGELOG.md`** — Recent shipped behavior and current direction
+6. **`docs/releases/`** — Current release notes, PR summary, and GitHub release copy when working near a release cut
 
 Then read the domain doc most relevant to the task.
 
 ### Domain docs to consult before changing business-critical behavior
 
-- **Orders / wedding orders / fulfillment** — `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`
+- **Orders / wedding orders / fulfillment** — `docs/TRANSACTIONS.md`, `docs/TRANSACTIONS_AND_WEDDING_ORDERS.md`
 - **Deposits** — `docs/DEPOSIT_OPERATIONS.md`
 - **Returns / refunds / exchanges** — `docs/TRANSACTION_RETURNS_EXCHANGES.md`
-- **Revenue recognition / reporting basis** — `docs/BOOKED_VS_FULFILLED.md`, `docs/REPORTING_BOOKED_AND_RECOGNITION.md`
+- **Revenue recognition / reporting basis** — `docs/REPORTING.md`, `docs/REPORTING_BOOKED_AND_FULFILLED.md`, `docs/BOOKED_VS_FULFILLED.md`
 - **Layaway lifecycle** — `docs/LAYAWAY_OPERATIONS.md`
 - **Staff permissions / auth** — `docs/STAFF_PERMISSIONS.md`
 - **Customer Hub / RBAC** — `docs/CUSTOMER_HUB_AND_RBAC.md`
@@ -77,11 +78,12 @@ Then read the domain doc most relevant to the task.
 - **Hardware / Printers / Scanners** — `docs/HARDWARE_MANAGEMENT.md`
 - **ROS Dev Center / Ops command center** — `docs/ROS_DEV_CENTER.md`
 - **Appointments / scheduler** — `docs/APPOINTMENTS_AND_CALENDAR.md`
-- **Notification center** — `docs/PLAN_NOTIFICATION_CENTER.md`
+- **Notification center / Podium messaging** — `docs/CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md`, `docs/NOTIFICATION_GENERATORS_AND_OPS.md`, `docs/PLAN_NOTIFICATION_CENTER.md`
 - **Stripe vault / credits** — `docs/STRIPE_POWER_INTEGRATION.md`
 - **Shipping / Shippo** — `docs/SHIPPING_AND_SHIPMENTS_HUB.md`
 - **Online store** — `docs/ONLINE_STORE.md`
-- **Counterpoint bridge / sync** — `docs/COUNTERPOINT_SYNC_GUIDE.md`, `docs/PLAN_COUNTERPOINT_ROS_SYNC.md`
+- **Counterpoint bridge / sync** — `docs/COUNTERPOINT.md`, `docs/COUNTERPOINT_SYNC_GUIDE.md`, `docs/COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`
+- **AI / ROSIE / assistant routing** — `docs/AI.md`, `docs/ROSIE_HOST_STACK.md`, `docs/ROSIE_OPERATING_CONTRACT.md`, `docs/AI_CONTEXT_FOR_ASSISTANTS.md`
 - **UI conventions** — `docs/CLIENT_UI_CONVENTIONS.md`, `docs/ROS_UI_CONSISTENCY_PLAN.md`
 - **Staff manuals impacted by workflow changes** — `docs/staff/README.md`
 
@@ -319,19 +321,19 @@ Do not decrement `stock_on_hand` at checkout for `DbFulfillmentType::Order` (Spe
 | POS / checkout UX                            | `client/src/components/pos/`                                                                                                                                       |
 | Register manager dashboard                   | `client/src/components/pos/RegisterDashboard.tsx`, `PosShell.tsx`, `PosSidebar.tsx`, related server staff metrics                                                  |
 | Till group / multi-lane register             | `server/src/api/sessions.rs`, `client/src/components/pos/RegisterOverlay.tsx`, `CloseRegisterModal.tsx`, register gate context                                     |
-| Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx` |
+| Parked sales / RMS charges                   | `server/src/logic/pos_parked_sales.rs`, `server/src/logic/pos_rms_charge.rs`, `server/src/api/pos*.rs`, `client/src/components/pos/*`, `RmsChargeAdminSection.tsx`; docs start at `docs/RMS_CHARGE.md` |
 | Shell / layout / drawers                     | `client/src/components/layout/`                                                                                                                                    |
 | Unified Engine / Host Mode                   | `client/src-tauri/src/unified_server.rs`, `server/src/launcher.rs`                                                                                                 |
 | Customers CRM / Hub                          | `client/src/components/customers/`                                                                                                                                 |
 | Transactions / fulfillment / returns         | `server/src/api/transactions.rs`, `server/src/logic/`, `client/src/components/orders/`                                                                             |
 | Scheduler / appointments                     | `client/src/components/scheduler/`, `client/src/lib/weddingApi.ts`                                                                                                 |
 | Inventory / control board / importer         | `client/src/components/inventory/`, related server inventory routes                                                                                                |
-| Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI                                                                            |
+| Notifications / inbox                        | `server/src/api/notifications.rs`, `server/src/logic/notifications.rs`, notification UI; docs start at `docs/CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md`             |
 | ROS Dev Center ops board / guarded actions   | `server/src/api/ops.rs`, `server/src/logic/ops_dev_center.rs`, `client/src/components/settings/RosDevCenterPanel.tsx`, `docs/ROS_DEV_CENTER.md`                 |
 | Staff tasks / scheduling                     | `server/src/api/tasks.rs`, `server/src/logic/tasks.rs`, `server/src/logic/staff_schedule.rs`, `client/src/components/tasks/`                                       |
 | Settings / Hardware / Scanners               | `server/src/api/settings.rs`, `PrintersAndScannersPanel.tsx`, `SettingsWorkspace.tsx`                                                                                                               |
 | Weather / Visual Crossing                    | `server/src/logic/weather.rs`, `server/src/api/weather.rs`, settings UI                                                                                            |
-| Podium SMS / inbox / reviews                 | `server/src/logic/podium*.rs`, `messaging.rs`, `api/webhooks.rs`, customer podium routes, Settings + Inbox UI                                                      |
+| Podium SMS / inbox / reviews                 | `server/src/logic/podium*.rs`, `messaging.rs`, `api/webhooks.rs`, customer podium routes, Settings + Inbox UI; docs start at `docs/CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md` |
 | Meilisearch                                  | `server/src/logic/meilisearch_*.rs`, `api/help.rs`, settings reindex UI                                                                                            |
 | Online store                                 | `server/src/api/store*.rs`, `server/src/logic/store_*.rs`, `client/src/components/store*`, `PublicStorefront.tsx`                                                  |
 | Stripe vault / credits                       | `server/src/logic/stripe_vault.rs`, `server/src/api/payments.rs`, `StripeVaultCardModal.tsx`, POS checkout UI                                                      |
@@ -817,6 +819,8 @@ Use this section as a repo map and extended reference, not as the primary source
 - `docs/SEARCH_AND_PAGINATION.md`
 - `docs/OFFLINE_OPERATIONAL_PLAYBOOK.md`
 - `docs/WEATHER_VISUAL_CROSSING.md`
+- `docs/AI.md`
+- `docs/CUSTOMER_MESSAGING_AND_NOTIFICATIONS.md`
 - `docs/PLAN_NOTIFICATION_CENTER.md`
 - `docs/PLAN_PODIUM_SMS_INTEGRATION.md`
 - `docs/PLAN_PODIUM_REVIEWS.md`

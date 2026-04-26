@@ -1,5 +1,7 @@
 # CoreCard / CoreCredit Phase 2
 
+Status: **Historical implementation note**. For current RMS Charge documentation, start with [RMS_CHARGE.md](./RMS_CHARGE.md), then use [CORECARD_CORECREDIT_FULL_ARCHITECTURE.md](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md).
+
 This file is the implementation-history note for Phase 2.
 
 Phase 2 turned RMS Charge into a live host-posted flow:
@@ -26,8 +28,8 @@ Phase 2 turned RMS Charge into a live host-posted flow:
 For current operational behavior, use:
 
 - architecture:
-  [`/Users/cpg/riverside-os/docs/CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
+  [`CORECARD_CORECREDIT_FULL_ARCHITECTURE.md`](./CORECARD_CORECREDIT_FULL_ARCHITECTURE.md)
 - operations runbook:
-  [`/Users/cpg/riverside-os/docs/operations/rms-corecard-runbook.md`](./operations/rms-corecard-runbook.md)
+  [`operations/rms-corecard-runbook.md`](./operations/rms-corecard-runbook.md)
 - finance guide:
-  [`/Users/cpg/riverside-os/docs/finance/rms-charge-qbo.md`](./finance/rms-charge-qbo.md)
+  [`finance/rms-charge-qbo.md`](./finance/rms-charge-qbo.md)

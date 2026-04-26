@@ -2,6 +2,8 @@
 
 > **Historical (pre–migration 78)** — Table **`ai_doc_chunk`** and **`vector`** were **dropped** by **`78_retire_ros_ai_tables.sql`**. Current staff help indexes **`ros_help`** and **`GET /api/help/search`** — **`PLAN_HELP_CENTER.md`**, **`docs/MANUAL_CREATION.md`**. The sections below describe the **old** RAG pipeline for reference and git archaeology.
 
+Status: **Retired historical reference**. For current AI / ROSIE and Help Center documentation, start with [AI.md](AI.md).
+
 Operational guide for **Pillar 1** contextual help *(retired)*: what was indexed, how retrieval worked, and how to **rebuild** chunks and **embeddings** after doc changes.
 
 **Retirement pointer:** [`ROS_AI_INTEGRATION_PLAN.md`](../ROS_AI_INTEGRATION_PLAN.md) · **Old HTTP contract (not served):** [`docs/API_AI.md`](API_AI.md) · **Staff authoring:** [`docs/staff/README.md`](staff/README.md) · **Assistant routing:** [`docs/AI_CONTEXT_FOR_ASSISTANTS.md`](AI_CONTEXT_FOR_ASSISTANTS.md)

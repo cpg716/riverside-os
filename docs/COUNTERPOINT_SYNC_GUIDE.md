@@ -1,9 +1,13 @@
 # Counterpoint v8.2 → Riverside OS: Sync Guide
 
+**Status:** Canonical engineering guide for Counterpoint ingest, bridge setup, mapping, status, and provenance. For the full Counterpoint doc map, start at [`COUNTERPOINT.md`](COUNTERPOINT.md).
+
 End-to-end reference for setting up and operating the one-way data ingest from **NCR Counterpoint v8.2 SQL Server** into **ROS PostgreSQL**. Covers server configuration, Windows bridge installation, entity mapping, monitoring via Settings UI, and provenance tagging.
 
 **Companion docs:**
+- [`COUNTERPOINT.md`](COUNTERPOINT.md) — front door for Counterpoint docs
 - [`COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md`](COUNTERPOINT_BRIDGE_OPERATOR_MANUAL.md) — **operator manual**: direct vs staging, hub, prerequisites, bridge/API updates, troubleshooting
+- [`COUNTERPOINT_ONE_TIME_IMPORT.md`](COUNTERPOINT_ONE_TIME_IMPORT.md) — one-time cutover, validation, reset, and bridge retirement runbook
 - [`PLAN_COUNTERPOINT_ROS_SYNC.md`](PLAN_COUNTERPOINT_ROS_SYNC.md) — implementation roadmap and schema mapping tables
 - [`counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt`](../counterpoint-bridge/INSTALL_ON_COUNTERPOINT_SERVER.txt) — quick-start instructions for the Windows operator
 - [`counterpoint-bridge/.env.example`](../counterpoint-bridge/.env.example) — full `.env` reference with example SQL

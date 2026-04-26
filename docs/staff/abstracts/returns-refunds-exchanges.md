@@ -16,7 +16,7 @@
 ## Escalation
 
 - Large refunds, **tax-exempt** corrections, or anything that **feels** like fraud → manager.
-- Detail screens: [../orders-back-office.md](../orders-back-office.md), [../pos-register-cart.md](../pos-register-cart.md).
+- Detail screens: [../transactions-back-office.md](../transactions-back-office.md), [../pos-register-cart.md](../pos-register-cart.md).
 
 ---
 

@@ -1,7 +1,7 @@
 # ROS-AI HTTP API (internal reference)
 
 > **RETIRED — historical contract only (2026-04)**  
-> Migration **`78_retire_ros_ai_tables.sql`** removed the in-app AI database artifacts and RBAC keys. Current servers **do not** mount **`/api/ai/*`**. Use **Help Center** manuals, **`GET /api/help/search`**, and optional Meilisearch (**`docs/SEARCH_AND_PAGINATION.md`**, **`PLAN_HELP_CENTER.md`**, **`ROS_AI_INTEGRATION_PLAN.md`** at repo root). The sections below document the **pre-78** API for archaeology and RAG ideas only.
+> Migration **`78_retire_ros_ai_tables.sql`** removed the in-app AI database artifacts and RBAC keys. Current servers **do not** mount **`/api/ai/*`**. Use **Help Center** manuals, **`GET /api/help/search`**, optional Meilisearch, and ROSIE routes under **`/api/help/rosie/v1/*`** where enabled. Start with **[`AI.md`](AI.md)**. The sections below document the **pre-78** API for archaeology and RAG ideas only.
 
 **Base path:** *(was)* `/api/ai/*` on the Axum server. **Auth:** staff headers (`x-riverside-staff-code`, PIN when required) unless noted. **Kill switch:** `AI_ENABLED=false` returns **503** on most routes.
 
