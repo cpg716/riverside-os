@@ -791,7 +791,7 @@ pub async fn get_effective_day_details(
                 ELSE swa.shift_label
             END
         FROM staff s
-        LEFT JOIN staff_weekly_availability a ON s.id = a.staff_id AND a.weekday = $3
+        LEFT JOIN staff_weekly_availability swa ON s.id = swa.staff_id AND swa.weekday = $3
         LEFT JOIN staff_weekly_schedule sws
             ON sws.staff_id = s.id
            AND sws.status = 'published'
@@ -856,14 +856,14 @@ pub async fn list_effective_schedule_for_date_range(
             staff_effective_working_day(s.id, d.date) AS working,
             CASE
                 WHEN e.id IS NOT NULL THEN e.shift_label
-                WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, a.shift_label)
-                ELSE a.shift_label
+                WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, swa.shift_label)
+                ELSE swa.shift_label
             END AS shift_label
         FROM staff s
         CROSS JOIN dates d
-        LEFT JOIN staff_weekly_availability a
-            ON s.id = a.staff_id
-           AND a.weekday = EXTRACT(DOW FROM d.date)::int
+        LEFT JOIN staff_weekly_availability swa
+            ON s.id = swa.staff_id
+           AND swa.weekday = EXTRACT(DOW FROM d.date)::int
         LEFT JOIN staff_weekly_schedule sws
             ON sws.staff_id = s.id
            AND sws.status = 'published'
