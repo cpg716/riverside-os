@@ -78,7 +78,7 @@ pub async fn list_working_floor_staff_for_date(
            AND swd.weekday = $3
         LEFT JOIN staff_day_exception e ON s.id = e.staff_id AND e.exception_date = $1
         WHERE s.is_active = TRUE
-          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+          AND s.role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
           AND staff_effective_working_day(s.id, $1)
         ORDER BY
           CASE s.role
@@ -132,7 +132,7 @@ pub async fn resolve_floor_staff_id_by_name(
         r#"
         SELECT id FROM staff
         WHERE is_active = TRUE
-          AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+          AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
           AND lower(trim(full_name)) = lower(trim($1::text))
         ORDER BY id ASC
         LIMIT 1
@@ -267,7 +267,7 @@ pub async fn list_week_schedule_for_week(
             ON swa.staff_id = s.id
            AND swa.weekday = gs.day
         WHERE s.is_active = TRUE
-          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+          AND s.role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
         ORDER BY
           CASE s.role
             WHEN 'salesperson' THEN 1
@@ -492,7 +492,7 @@ pub async fn put_weekly_availability_in_tx(
         r#"
         SELECT EXISTS(
             SELECT 1 FROM staff
-            WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+            WHERE id = $1 AND is_active = TRUE AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
         )
         "#,
     )
@@ -568,7 +568,7 @@ async fn assert_floor_staff(pool: &PgPool, staff_id: Uuid) -> Result<(), StaffSc
         r#"
         SELECT EXISTS(
             SELECT 1 FROM staff
-            WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+            WHERE id = $1 AND is_active = TRUE AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
         )
         "#,
     )
@@ -901,7 +901,7 @@ pub async fn list_effective_schedule_for_date_range(
             ON s.id = e.staff_id
            AND e.exception_date = d.date
         WHERE s.is_active = TRUE
-          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+          AND s.role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
           AND d.date >= $1
           AND d.date <= $2
         ORDER BY
@@ -933,7 +933,7 @@ pub async fn list_master_template(pool: &PgPool) -> Result<Vec<MasterTemplateRow
             ON swa.staff_id = s.id 
            AND swa.weekday = gs.day
         WHERE s.is_active = TRUE
-          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+          AND s.role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
         ORDER BY s.full_name, gs.day
         "#,
     )
