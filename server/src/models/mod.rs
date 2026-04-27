@@ -136,6 +136,9 @@ pub enum DbStaffScheduleExceptionKind {
     Pto,
     MissedShift,
     ExtraShift,
+    Vacation,
+    DoctorsAppt,
+    Other,
 }
 
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]

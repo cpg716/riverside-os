@@ -33,7 +33,7 @@ fn normalize_week_start(d: NaiveDate) -> NaiveDate {
 
 #[derive(Debug, Deserialize)]
 pub struct RangeQuery {
-    pub staff_id: Uuid,
+    pub staff_id: Option<Uuid>,
     pub from: NaiveDate,
     pub to: NaiveDate,
 }
@@ -50,6 +50,8 @@ pub struct WeekdayEntry {
     pub weekday: i16,
     pub works: bool,
     pub shift_label: Option<String>,
+    #[serde(default)]
+    pub base_works: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -203,6 +205,7 @@ pub fn router() -> Router<AppState> {
         .route("/weekly/{staff_id}", get(get_weekly))
         .route("/weekly", put(put_weekly))
         .route("/weekly/bulk", post(post_bulk_weekly))
+        .route("/weekly/template", get(get_weekly_template))
         .route(
             "/weeks/{week_start}",
             get(get_week_schedule)
@@ -210,6 +213,7 @@ pub fn router() -> Router<AppState> {
                 .delete(delete_week_schedule),
         )
         .route("/weeks/{week_start}/publish", post(publish_week_schedule))
+        .route("/weeks/{week_start}/clone", post(post_clone_week))
         .route("/weekly-view", get(get_weekly_view))
         .route(
             "/exceptions",
@@ -379,6 +383,7 @@ async fn get_week_schedule(
             weekday: row.weekday,
             works: row.works,
             shift_label: row.shift_label,
+            base_works: row.base_works,
         });
     }
 
@@ -586,4 +591,71 @@ async fn get_validate_booking(
         .await
         .map_err(map_err)?;
     Ok(Json(json!({ "ok": true })))
+}
+async fn get_weekly_template(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<WeekStaffScheduleResponse>>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_VIEW)
+        .await
+        .map_err(map_gate)?;
+
+    let rows = staff_schedule::list_master_template(&state.db)
+        .await
+        .map_err(StaffScheduleError::Database)
+        .map_err(map_err)?;
+
+    let mut grouped: HashMap<Uuid, WeekStaffScheduleResponse> = HashMap::new();
+    for row in rows {
+        let entry = grouped
+            .entry(row.staff_id)
+            .or_insert_with(|| WeekStaffScheduleResponse {
+                staff_id: row.staff_id,
+                full_name: row.full_name.clone(),
+                role: row.role,
+                status: None,
+                weekdays: Vec::with_capacity(7),
+            });
+        entry.weekdays.push(WeekdayEntry {
+            weekday: row.weekday,
+            works: row.works,
+            shift_label: row.shift_label,
+            base_works: row.base_works,
+        });
+    }
+
+    let mut rows: Vec<WeekStaffScheduleResponse> = grouped
+        .into_values()
+        .map(|mut row| {
+            row.weekdays.sort_by_key(|d| d.weekday);
+            row
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        role_order_value(a.role)
+            .cmp(role_order_value(b.role))
+            .then(a.full_name.cmp(&b.full_name))
+    });
+
+    Ok(Json(rows))
+}
+
+async fn post_clone_week(
+    State(state): State<AppState>,
+    Path(week_start): Path<NaiveDate>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_editor(&state, &headers).await?;
+    let normalized_week_start = normalize_week_start(week_start);
+
+    let copied = staff_schedule::clone_week_schedule_week(&state.db, actor, normalized_week_start)
+        .await
+        .map_err(map_err)?;
+
+    Ok(Json(json!({
+        "ok": true,
+        "week_start": normalized_week_start,
+        "copied_days": copied,
+    })))
 }

@@ -170,16 +170,16 @@ pub async fn ensure_salesperson_booking_allowed(
 pub async fn list_eligible_staff(pool: &PgPool) -> Result<Vec<EligibleStaffRow>, sqlx::Error> {
     sqlx::query_as::<_, EligibleStaffRow>(
         r#"
-        SELECT id, full_name, role
-        FROM staff
-        WHERE is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+        -- Include 'admin' so the owner can add themselves to the schedule
+        WHERE is_active = TRUE AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
         ORDER BY
           CASE role
             WHEN 'salesperson' THEN 1
             WHEN 'sales_support' THEN 2
             WHEN 'staff_support' THEN 2
             WHEN 'alterations' THEN 3
-            ELSE 4
+            WHEN 'admin' THEN 4
+            ELSE 5
           END,
           full_name ASC
         "#,
@@ -204,6 +204,7 @@ pub struct WeeklyScheduleInstanceRow {
     pub works: bool,
     pub shift_label: Option<String>,
     pub schedule_status: Option<String>,
+    pub base_works: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -251,7 +252,8 @@ pub async fn list_week_schedule_for_week(
                 WHEN sws.status = 'draft' THEN 'draft'::text
                 WHEN sws.status = 'archived' THEN 'archived'::text
                 ELSE NULL
-            END AS schedule_status
+            END AS schedule_status,
+            COALESCE(swa.works, FALSE) AS base_works
         FROM staff s
         CROSS JOIN generate_series(0,6) AS gs(day)
         LEFT JOIN staff_weekly_schedule sws
@@ -298,6 +300,26 @@ pub async fn upsert_week_schedule_for_week(
     let week_start = normalize_week_start(week_start);
 
     let mut tx = pool.begin().await?;
+
+    // Authoritative sync: identify staff members currently in the DB for this week who are NOT in our input list.
+    let input_ids: std::collections::HashSet<Uuid> = rows.iter().map(|r| r.staff_id).collect();
+    let current_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT staff_id FROM staff_weekly_schedule WHERE week_start = $1",
+    )
+    .bind(week_start)
+    .fetch_all(&mut *tx)
+    .await?;
+
+    for cid in current_ids {
+        if !input_ids.contains(&cid) {
+            sqlx::query("DELETE FROM staff_weekly_schedule WHERE staff_id = $1 AND week_start = $2")
+                .bind(cid)
+                .bind(week_start)
+                .execute(&mut *tx)
+                .await?;
+        }
+    }
+
     for row in rows {
         let staff_id = row.staff_id;
         if row.weekdays.is_empty() {
@@ -328,7 +350,7 @@ pub async fn upsert_week_schedule_for_week(
             r#"
             SELECT EXISTS(
                 SELECT 1 FROM staff
-                WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+                WHERE id = $1 AND is_active = TRUE AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
             )
             "#,
         )
@@ -511,6 +533,7 @@ pub async fn put_weekly_availability_in_tx(
 pub struct ExceptionRow {
     pub id: Uuid,
     pub staff_id: Uuid,
+    pub full_name: String,
     pub exception_date: NaiveDate,
     pub kind: DbStaffScheduleExceptionKind,
     pub shift_label: Option<String>,
@@ -519,16 +542,18 @@ pub struct ExceptionRow {
 
 pub async fn list_exceptions_range(
     pool: &PgPool,
-    staff_id: Uuid,
+    staff_id: Option<Uuid>,
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<Vec<ExceptionRow>, sqlx::Error> {
     sqlx::query_as::<_, ExceptionRow>(
         r#"
-        SELECT id, staff_id, exception_date, kind, shift_label, notes
-        FROM staff_day_exception
-        WHERE staff_id = $1 AND exception_date >= $2 AND exception_date <= $3
-        ORDER BY exception_date ASC
+        SELECT e.id, e.staff_id, s.full_name, e.exception_date, e.kind, e.shift_label, e.notes
+        FROM staff_day_exception e
+        INNER JOIN staff s ON s.id = e.staff_id
+        WHERE ($1::uuid IS NULL OR e.staff_id = $1)
+          AND e.exception_date >= $2 AND e.exception_date <= $3
+        ORDER BY e.exception_date ASC, s.full_name ASC
         "#,
     )
     .bind(staff_id)
@@ -895,4 +920,93 @@ pub async fn list_effective_schedule_for_date_range(
     .bind(to)
     .fetch_all(pool)
     .await
+}
+pub async fn list_master_template(pool: &PgPool) -> Result<Vec<MasterTemplateRow>, sqlx::Error> {
+    sqlx::query_as::<_, MasterTemplateRow>(
+        r#"
+        SELECT s.id AS staff_id, s.full_name, s.role, gs.day::smallint AS weekday,
+               COALESCE(swa.works, FALSE) AS works,
+               swa.shift_label
+        FROM staff s
+        CROSS JOIN (SELECT generate_series(0, 6) AS day) gs
+        LEFT JOIN staff_weekly_availability swa 
+            ON swa.staff_id = s.id 
+           AND swa.weekday = gs.day
+        WHERE s.is_active = TRUE
+          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+        ORDER BY s.full_name, gs.day
+        "#,
+    )
+    .fetch_all(pool)
+    .await
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct MasterTemplateRow {
+    pub staff_id: Uuid,
+    pub full_name: String,
+    pub role: crate::models::DbStaffRole,
+    pub weekday: i16,
+    pub works: bool,
+    pub shift_label: Option<String>,
+}
+
+pub async fn clone_week_schedule_week(
+    pool: &PgPool,
+    actor_id: Uuid,
+    target_week_start: NaiveDate,
+) -> Result<u64, StaffScheduleError> {
+    let source_week_start = target_week_start - Duration::days(7);
+
+    let mut tx = pool.begin().await?;
+
+    // Check if source exists
+    let source_exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM staff_weekly_schedule WHERE week_start = $1 AND status = 'published')",
+    )
+    .bind(source_week_start)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    if !source_exists {
+        return Err(StaffScheduleError::BadRequest(
+            "Source week (previous week) is not published".into(),
+        ));
+    }
+
+    // Delete existing target if any (draft or published)
+    sqlx::query("DELETE FROM staff_weekly_schedule WHERE week_start = $1")
+        .bind(target_week_start)
+        .execute(&mut *tx)
+        .await?;
+
+    // Create new draft
+    sqlx::query(
+        r#"
+        INSERT INTO staff_weekly_schedule (week_start, status, created_by, updated_by)
+        VALUES ($1, 'draft', $2, $2)
+        "#,
+    )
+    .bind(target_week_start)
+    .bind(actor_id)
+    .execute(&mut *tx)
+    .await?;
+
+    // Copy days
+    let copied = sqlx::query(
+        r#"
+        INSERT INTO staff_weekly_schedule_day (week_start, staff_id, weekday, works, shift_label)
+        SELECT $1, staff_id, weekday, works, shift_label
+        FROM staff_weekly_schedule_day
+        WHERE week_start = $2
+        "#,
+    )
+    .bind(target_week_start)
+    .bind(source_week_start)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected();
+
+    tx.commit().await?;
+    Ok(copied)
 }

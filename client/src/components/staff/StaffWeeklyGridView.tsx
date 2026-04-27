@@ -10,6 +10,8 @@ import {
   RotateCcw,
   Printer,
   AlertCircle,
+  UserPlus,
+  Trash2,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -27,11 +29,12 @@ interface WeeklyEntry {
   weekday: number;
   works: boolean;
   shift_label: string | null;
+  base_works?: boolean;
 }
 
 interface StaffSchedule {
   staff_id: string;
-  staff_name: string;
+  full_name: string;
   role: string;
   status: string | null;
   weekdays: WeeklyEntry[];
@@ -41,6 +44,16 @@ type UnresolvedImportRow = {
   name: string;
   daySchedule: Array<{ weekday: number; shiftVal: string }>;
 };
+
+interface WeekException {
+  id: string;
+  staff_id: string;
+  full_name: string;
+  exception_date: string;
+  kind: string;
+  shift_label: string | null;
+  notes: string | null;
+}
 
 type NameLookup = {
   exact: Map<string, EligibleStaff>;
@@ -118,9 +131,11 @@ const ROLE_GROUP_ORDER: Array<Array<string>> = [
   ["sales_support", "salesperson_support", "sales support"],
   ["staff_support", "support"],
   ["alterations", "tailor", "tailors"],
+  ["admin", "administrator", "owner"],
 ];
 
 const ROLE_GROUP_LABEL: Record<string, string> = {
+  admin: "Executive / Owner",
   salesperson: "Sales Persons",
   sales_support: "Support",
   staff_support: "Support",
@@ -610,6 +625,8 @@ export default function StaffWeeklyGridView() {
   const [discarding, setDiscarding] = useState(false);
   const [parseResults, setParseResults] = useState<{ success: number; missing: string[] } | null>(null);
   const [dirtyStaff, setDirtyStaff] = useState<Set<string>>(new Set());
+  const [weekExceptions, setWeekExceptions] = useState<WeekException[]>([]);
+  const [planningMode, setPlanningMode] = useState<"week" | "template">("week");
   const [weekCursor, setWeekCursor] = useState(defaultWeekStart);
 
   const headers = useMemo(() => backofficeHeaders(), [backofficeHeaders]);
@@ -621,9 +638,30 @@ export default function StaffWeeklyGridView() {
     [weekStart, weekEnd],
   );
 
-  const hasDraft = useMemo(() => schedules.some((s) => s.status === "draft"), [schedules]);
-  const hasPublished = useMemo(() => schedules.some((s) => s.status === "published"), [schedules]);
+  const hasDraft = useMemo(() => planningMode === "week" && schedules.some((s) => s.status === "draft"), [schedules, planningMode]);
+  const hasPublished = useMemo(() => planningMode === "week" && schedules.some((s) => s.status === "published"), [schedules, planningMode]);
   const unsaved = useMemo(() => dirtyStaff.size > 0, [dirtyStaff]);
+
+  const coverageStats = useMemo(() => {
+    const stats = Array.from({ length: 7 }, () => ({
+      sales: 0,
+      support: 0,
+      tailors: 0,
+    }));
+
+    schedules.forEach((s) => {
+      const label = roleLabel(s.role);
+      s.weekdays.forEach((day, idx) => {
+        if (day.works) {
+          if (label === "Sales Persons") stats[idx].sales++;
+          else if (label === "Support") stats[idx].support++;
+          else if (label === "Tailors") stats[idx].tailors++;
+        }
+      });
+    });
+
+    return stats;
+  }, [schedules]);
 
   const setStaffDirty = useCallback((staffId: string, isDirty: boolean) => {
     setDirtyStaff((prev) => {
@@ -641,7 +679,7 @@ export default function StaffWeeklyGridView() {
     const sorted = [...rows].sort((a, b) => {
       const order = roleSortOrder(a.role) - roleSortOrder(b.role);
       if (order !== 0) return order;
-      return a.staff_name.localeCompare(b.staff_name);
+      return a.full_name.localeCompare(b.full_name);
     });
     setSchedules(sorted);
     setDirtyStaff(new Set());
@@ -650,9 +688,16 @@ export default function StaffWeeklyGridView() {
     const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const [eligRes, weekRes] = await Promise.all([
-        fetch(`${baseUrl}/api/staff/schedule/eligible`, { headers }),
-        fetch(`${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`, { headers }),
+      const endpoints = planningMode === "template" 
+        ? [`${baseUrl}/api/staff/schedule/eligible`, `${baseUrl}/api/staff/schedule/weekly/template`]
+        : [`${baseUrl}/api/staff/schedule/eligible`, `${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`];
+
+      const [eligRes, weekRes, excRes] = await Promise.all([
+        fetch(endpoints[0], { headers }),
+        fetch(endpoints[1], { headers }),
+        planningMode === "week"
+          ? fetch(`${baseUrl}/api/staff/schedule/exceptions?from=${weekStartParam}&to=${toYmdLocal(weekEnd)}`, { headers })
+          : Promise.resolve(null)
       ]);
 
       if (!eligRes.ok) {
@@ -678,12 +723,18 @@ export default function StaffWeeklyGridView() {
         }),
       }));
       setScheduleRows(normalizedRows);
+
+      if (excRes && excRes.ok) {
+        setWeekExceptions(await excRes.json());
+      } else {
+        setWeekExceptions([]);
+      }
     } catch (e) {
       toast(e instanceof Error ? e.message : "Load failed", "error");
     } finally {
       setLoading(false);
     }
-  }, [headers, toast, weekStartParam]);
+  }, [headers, toast, weekStartParam, weekEnd, planningMode]);
 
   useEffect(() => {
     void loadData();
@@ -707,6 +758,54 @@ export default function StaffWeeklyGridView() {
     setStaffDirty(staffId, true);
   };
 
+  const handleAddStaff = (staffId: string) => {
+    if (!canEdit) return;
+    const staff = eligible.find((e) => e.id === staffId);
+    if (!staff) return;
+    
+    if (schedules.some((s) => s.staff_id === staffId)) {
+      toast(`${staff.full_name} is already in the schedule for this week.`, "info");
+      return;
+    }
+
+    const newRow: StaffSchedule = {
+      staff_id: staffId,
+      full_name: staff.full_name,
+      role: staff.role,
+      status: "draft",
+      weekdays: WEEKDAY_LABELS.map((_, weekday) => ({
+        weekday,
+        works: false,
+        shift_label: null,
+      })),
+    };
+
+    setSchedules((prev) => {
+      const next = [...prev, newRow].sort((a, b) => {
+        const order = roleSortOrder(a.role) - roleSortOrder(b.role);
+        if (order !== 0) return order;
+        return a.full_name.localeCompare(b.full_name);
+      });
+      return next;
+    });
+    setStaffDirty(staffId, true);
+    toast(`${staff.full_name} added to schedule.`, "success");
+  };
+
+  const handleRemoveStaff = (staffId: string) => {
+    if (!canEdit) return;
+    const staff = schedules.find((s) => s.staff_id === staffId);
+    if (!staff) return;
+
+    setSchedules((prev) => prev.filter((s) => s.staff_id !== staffId));
+    setDirtyStaff((prev) => {
+      const next = new Set(prev);
+      next.add("reconcile"); // Ensure unsaved is true
+      return next;
+    });
+    toast(`${staff.full_name} removed from this week's schedule.`, "info");
+  };
+
   const handleSaveAll = async () => {
     if (!canEdit) return;
     if (!unsaved) {
@@ -727,8 +826,12 @@ export default function StaffWeeklyGridView() {
         })),
       };
 
-      const res = await fetch(`${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`, {
-        method: "PUT",
+      const url = planningMode === "template"
+        ? `${baseUrl}/api/staff/schedule/weekly/bulk`
+        : `${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`;
+
+      const res = await fetch(url, {
+        method: planningMode === "template" ? "POST" : "PUT",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(payload),
       });
@@ -743,10 +846,31 @@ export default function StaffWeeklyGridView() {
         throw new Error((b as { error?: string }).error ?? "Save failed");
       }
 
-      toast("Weekly draft saved for selected week.", "success");
+      toast(planningMode === "template" ? "Master template saved." : "Weekly draft saved for selected week.", "success");
       await loadData();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Save failed", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleCloneWeek = async () => {
+    if (!canEdit) return;
+    setSaving(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}/clone`, {
+        method: "POST",
+        headers,
+      });
+      if (!res.ok) {
+        const b = await res.json().catch(() => ({}));
+        throw new Error((b as { error?: string }).error ?? "Clone failed");
+      }
+      toast("Cloned previous week's published schedule.", "success");
+      await loadData();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Clone failed", "error");
     } finally {
       setSaving(false);
     }
@@ -952,73 +1076,118 @@ export default function StaffWeeklyGridView() {
             <LayoutGrid className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="text-xl font-black tracking-tight text-app-text">Master Weekly Schedule</h3>
+            <h3 className="text-xl font-black tracking-tight text-app-text">
+              {planningMode === "template" ? "Master Template Editor" : "Scheduler"}
+            </h3>
             <p className="text-xs font-bold text-app-text-muted">
-              Pick a week, import from Excel, save as draft, and publish. Published weeks override the
-              MASTER template for that week.
+              {planningMode === "template" 
+                ? "Editing the default recurring availability for all floor staff." 
+                : "Plan specific weeks, clone from previous, or import from Excel. Published weeks override the template."}
             </p>
           </div>
         </div>
 
+        <div className="flex items-center gap-1 rounded-2xl bg-app-surface-2 p-1 border border-app-border">
+          <button
+            type="button"
+            onClick={() => setPlanningMode("week")}
+            className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              planningMode === "week"
+                ? "bg-white text-app-text shadow-sm"
+                : "text-app-text-muted hover:text-app-text"
+            }`}
+          >
+            Weekly Planning
+          </button>
+          <button
+            type="button"
+            onClick={() => setPlanningMode("template")}
+            className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+              planningMode === "template"
+                ? "bg-white text-app-text shadow-sm"
+                : "text-app-text-muted hover:text-app-text"
+            }`}
+          >
+            Master Template
+          </button>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
-          <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-1">
-            <button
-              type="button"
-              className="ui-btn-secondary px-3 py-1 text-xs"
-              onClick={() =>
-                setWeekCursor((current) => {
-                  const next = new Date(current);
-                  next.setDate(next.getDate() - 7);
-                  return next;
-                })
-              }
-            >
-              Prev week
-            </button>
-            <CalendarRange size={14} className="text-app-text-muted" />
-            <span className="text-xs font-black uppercase tracking-wider text-app-text">{weekLabel}</span>
-            <button
-              type="button"
-              className="ui-btn-secondary px-3 py-1 text-xs"
-              onClick={() =>
-                setWeekCursor((current) => {
-                  const next = new Date(current);
-                  next.setDate(next.getDate() + 7);
-                  return next;
-                })
-              }
-            >
-              Next week
-            </button>
-            <input
-              type="date"
-              className="ui-input h-8 w-36 px-2 text-xs"
-              value={weekStartParam}
-              onChange={(e) => {
-                const next = new Date(`${e.target.value}T12:00:00`);
-                if (!Number.isNaN(next.getTime())) {
-                  setWeekCursor(next);
+          {planningMode === "week" && (
+            <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-1">
+              <button
+                type="button"
+                className="ui-btn-secondary px-3 py-1 text-xs"
+                onClick={() =>
+                  setWeekCursor((current) => {
+                    const next = new Date(current);
+                    next.setDate(next.getDate() - 7);
+                    return next;
+                  })
                 }
-              }}
-            />
-          </div>
+              >
+                Prev week
+              </button>
+              <CalendarRange size={14} className="text-app-text-muted" />
+              <span className="text-xs font-black uppercase tracking-wider text-app-text">{weekLabel}</span>
+              <button
+                type="button"
+                className="ui-btn-secondary px-3 py-1 text-xs"
+                onClick={() =>
+                  setWeekCursor((current) => {
+                    const next = new Date(current);
+                    next.setDate(next.getDate() + 7);
+                    return next;
+                  })
+                }
+              >
+                Next week
+              </button>
+              <input
+                type="date"
+                className="ui-input h-8 w-36 px-2 text-xs"
+                value={weekStartParam}
+                onChange={(e) => {
+                  const next = new Date(`${e.target.value}T12:00:00`);
+                  if (!Number.isNaN(next.getTime())) {
+                    setWeekCursor(next);
+                  }
+                }}
+              />
+            </div>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-app-border px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-            {statusText}
+            {planningMode === "template" ? "Store-wide Template" : statusText}
           </span>
-          <button
-            type="button"
-            className={`ui-btn-secondary flex items-center gap-2 px-3 py-2 text-xs ${
-              !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
-            }`}
-            disabled={!canEdit || (!hasDraft && !hasPublished)}
-            onClick={handleDiscardDraft}
-          >
-            {discarding ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
-            Clear Overrides
-          </button>
+          {planningMode === "week" && (
+            <button
+              type="button"
+              className={`ui-btn-secondary flex items-center gap-2 px-3 py-2 text-xs ${
+                !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
+              }`}
+              disabled={!canEdit || loading}
+              onClick={handleCloneWeek}
+            >
+              <RotateCcw size={14} />
+              Copy Previous Week
+            </button>
+          )}
+          {planningMode === "week" && (
+            <button
+              type="button"
+              className={`ui-btn-secondary flex items-center gap-2 px-3 py-2 text-xs ${
+                !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
+              }`}
+              disabled={!canEdit || (!hasDraft && !hasPublished)}
+              onClick={handleDiscardDraft}
+            >
+              {discarding ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+              Clear Overrides
+            </button>
+          )}
           <button
             type="button"
             className={`ui-btn-secondary flex items-center gap-2 px-3 py-2 text-xs ${
@@ -1064,6 +1233,32 @@ export default function StaffWeeklyGridView() {
           </button>
         </div>
       </div>
+
+      {planningMode === "week" && weekExceptions.length > 0 && (
+        <div className="rounded-2xl border border-app-accent/20 bg-app-accent/5 p-4 print:hidden">
+          <div className="flex items-center gap-2 text-app-accent">
+            <CalendarDays size={18} />
+            <h4 className="text-sm font-black uppercase">Time Off Requests This Week</h4>
+          </div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+            {weekExceptions
+              .filter((ex) => ex.kind !== "extra_shift")
+              .map((ex) => (
+                <div key={ex.id} className="flex items-center gap-2 rounded-xl bg-white p-2 shadow-sm dark:bg-app-surface-3">
+                  <div className="h-2 w-2 rounded-full bg-app-accent" />
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black uppercase text-app-text">
+                      {ex.full_name || "Unknown"} — {ex.exception_date}
+                    </span>
+                    <span className="text-[10px] font-bold text-app-text-muted">
+                      {ex.kind.replace("_", " ").toUpperCase()}: {ex.notes || "No notes"}
+                    </span>
+                  </div>
+                </div>
+              ))}
+          </div>
+        </div>
+      )}
 
       {parseResults && parseResults.missing.length > 0 && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20 print:hidden">
@@ -1111,25 +1306,65 @@ export default function StaffWeeklyGridView() {
               {schedules.map((s) => (
                 <tr key={s.staff_id} className="group hover:bg-app-surface-2 transition-colors">
                   <td className="sticky left-0 bg-app-surface group-hover:bg-app-surface-2 z-10 border-r border-app-border px-4 py-3 align-middle font-black text-app-text">
-                    <div className="truncate" title={s.staff_name}>
-                      {s.staff_name}
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex flex-col truncate">
+                        <div className="truncate" title={s.full_name}>
+                          {s.full_name}
+                        </div>
+                        <div className="text-[10px] uppercase text-app-text-muted">{roleLabel(s.role)}</div>
+                      </div>
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveStaff(s.staff_id)}
+                          className="p-1.5 rounded-lg text-app-text-muted hover:text-red-500 hover:bg-red-500/10 transition-colors opacity-0 group-hover:opacity-100"
+                          title="Remove from week"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      )}
                     </div>
-                    <div className="text-[10px] uppercase text-app-text-muted">{roleLabel(s.role)}</div>
                   </td>
-                  {s.weekdays.map((w, i) => (
-                    <td key={i} className="px-1 py-1 align-middle">
-                      <input
-                        type="text"
-                        disabled={!canEdit}
-                        className={`w-full rounded-xl border border-transparent bg-transparent px-2 py-3 text-center text-xs font-black transition-all focus:border-app-accent focus:bg-white focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${
-                          !w.works ? "text-app-text-muted opacity-40 italic" : "text-app-text"
-                        }`}
-                        value={w.shift_label || (w.works ? "" : "OFF")}
-                        onChange={(ev) => handleShiftChange(s.staff_id, w.weekday, ev.target.value)}
-                        placeholder="OFF"
-                      />
-                    </td>
-                  ))}
+                  {s.weekdays.map((w, i) => {
+                    const ymd = toYmdLocal(addDays(sundayStart(weekCursor), i));
+                    const conflict = weekExceptions.find(
+                      (ex) => ex.staff_id === s.staff_id && ex.exception_date === ymd && ex.kind !== "extra_shift"
+                    );
+                    const isOverride = w.works && !w.base_works;
+
+                    return (
+                      <td key={i} className="px-1 py-1 align-middle">
+                        <div className="relative group/cell">
+                          <input
+                            type="text"
+                            disabled={!canEdit}
+                            className={`w-full rounded-xl border-2 px-2 py-3 text-center text-xs font-black transition-all focus:border-app-accent focus:bg-white focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${
+                              !w.works 
+                                ? "border-transparent text-app-text-muted opacity-40 italic bg-transparent" 
+                                : conflict
+                                  ? "border-red-500/50 bg-red-500/5 text-red-700 dark:text-red-300"
+                                  : isOverride
+                                    ? "border-amber-500/50 bg-amber-500/5 text-amber-700 dark:text-amber-300"
+                                    : "border-transparent bg-transparent text-app-text"
+                            }`}
+                            value={w.shift_label || (w.works ? "" : "OFF")}
+                            onChange={(ev) => handleShiftChange(s.staff_id, w.weekday, ev.target.value)}
+                            placeholder="OFF"
+                          />
+                          {conflict && (
+                            <div className="absolute -top-1 -right-1 z-20 rounded-full bg-red-500 p-0.5 text-white shadow-sm opacity-0 group-hover/cell:opacity-100 transition-opacity">
+                              <AlertCircle size={10} />
+                            </div>
+                          )}
+                          {isOverride && !conflict && (
+                            <div className="absolute -top-1 -right-1 z-20 rounded-full bg-amber-500 p-0.5 text-white shadow-sm opacity-0 group-hover/cell:opacity-100 transition-opacity">
+                              <AlertCircle size={10} />
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-3 text-center text-[10px] font-black">
                     <span
                       className={`rounded-full px-2 py-1 text-xs ${
@@ -1145,6 +1380,38 @@ export default function StaffWeeklyGridView() {
                   </td>
                 </tr>
               ))}
+
+              {/* Coverage Summary Row */}
+              <tr className="bg-app-surface-3/50 font-black text-[10px] uppercase tracking-widest print:bg-white">
+                <td className="sticky left-0 bg-app-surface-3/50 z-10 border-r border-app-border px-4 py-4 align-middle text-app-text-muted print:bg-white">
+                  Daily Coverage Summary
+                </td>
+                {coverageStats.map((stat, i) => (
+                  <td key={i} className="px-4 py-4 text-center border-r border-app-border last:border-r-0">
+                    <div className="flex flex-col gap-1">
+                      <div className="flex justify-between gap-2">
+                        <span className="text-app-text-muted">Sales:</span>
+                        <span className={stat.sales > 0 ? "text-app-accent" : "text-app-text-muted/30"}>
+                          {stat.sales}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2 border-t border-app-border/10 pt-1">
+                        <span className="text-app-text-muted">Support:</span>
+                        <span className={stat.support > 0 ? "text-app-accent-blue" : "text-app-text-muted/30"}>
+                          {stat.support}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2 border-t border-app-border/10 pt-1">
+                        <span className="text-app-text-muted">Tailors:</span>
+                        <span className={stat.tailors > 0 ? "text-app-accent-green" : "text-app-text-muted/30"}>
+                          {stat.tailors}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                ))}
+                <td className="bg-app-surface-3/50 print:bg-white"></td>
+              </tr>
               {schedules.length === 0 && (
                 <tr>
                   <td colSpan={9} className="px-4 py-12 text-center text-app-text-muted italic">
@@ -1155,25 +1422,174 @@ export default function StaffWeeklyGridView() {
               )}
             </tbody>
           </table>
+          
+          {canEdit && (
+            <div className="p-4 border-t border-app-border bg-app-surface-2/30">
+              <div className="flex items-center gap-4 max-w-sm">
+                <div className="relative flex-1">
+                  <select
+                    className="ui-input w-full pl-9 pr-4 text-xs appearance-none"
+                    defaultValue=""
+                    onChange={(e) => {
+                      if (e.target.value) {
+                        handleAddStaff(e.target.value);
+                        e.target.value = "";
+                      }
+                    }}
+                  >
+                    <option value="" disabled>Add staff member to week...</option>
+                    {eligible
+                      .filter(e => !schedules.some(s => s.staff_id === e.id))
+                      .sort((a, b) => a.full_name.localeCompare(b.full_name))
+                      .map(e => (
+                        <option key={e.id} value={e.id}>{e.full_name} ({roleLabel(e.role)})</option>
+                      ))
+                    }
+                  </select>
+                  <div className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted">
+                    <UserPlus size={14} />
+                  </div>
+                </div>
+                <p className="text-[10px] text-app-text-muted uppercase font-black tracking-widest">
+                  {eligible.filter(e => !schedules.some(s => s.staff_id === e.id)).length} Available
+                </p>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
+      <SchedulePrintView 
+        schedules={schedules} 
+        weekLabel={weekLabel} 
+      />
+
       <style>{`
+        @media screen {
+          .print-only { display: none !important; }
+        }
         @media print {
-          @page { size: landscape; margin: 1cm; }
+          @page { size: landscape; margin: 0; }
+          html, body { margin: 0 !important; padding: 0 !important; height: 100vh !important; overflow: hidden !important; }
           body * { visibility: hidden; }
-          .print\\:hidden { display: none !important; }
-          .print\\:border-none { border: none !important; }
-          .print\\:shadow-none { shadow: none !important; }
-          .ui-card { border: none !important; box-shadow: none !important; }
-          table { width: 100% !important; border: 1px solid #eee !important; }
-          th, td { border: 1px solid #eee !important; visibility: visible !important; }
-          input { visibility: visible !important; border: none !important; background: transparent !important; }
-          .workspace-snap { visibility: visible !important; position: absolute; left: 0; top: 0; width: 100%; }
-          .workspace-snap * { visibility: visible !important; }
-          .sticky { position: static !important; }
+          .print-only, .print-only * { visibility: visible !important; }
+          .print-only { 
+            display: block !important; 
+            position: fixed !important; 
+            left: 0 !important; 
+            top: 0 !important; 
+            width: 100% !important;
+            height: 100% !important;
+            background: white !important;
+            color: black !important;
+            padding: 0.5cm !important;
+            padding-top: 0 !important;
+            margin: 0 !important;
+            overflow: hidden !important;
+          }
+          .no-print { display: none !important; }
+          
+          /* Force page break behavior */
+          table { page-break-inside: avoid; width: 100% !important; border: 2px solid black !important; }
+          tr { page-break-inside: avoid; }
         }
       `}</style>
+    </div>
+  );
+}
+
+/**
+ * High-fidelity print view that mimics the RMS Schedules 2026 Excel layout.
+ * Designed to fit on a single landscape page for store posting.
+ */
+function SchedulePrintView({ 
+  schedules, 
+  weekLabel 
+}: { 
+  schedules: StaffSchedule[], 
+  weekLabel: string 
+}) {
+  const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const sundayShifts = schedules
+    .filter(s => s.weekdays[0].works)
+    .map(s => ({ name: s.full_name, shift: s.weekdays[0].shift_label || "Working" }));
+
+  return (
+    <div className="print-only font-sans text-black">
+      <div className="text-center mb-4">
+        <h1 className="text-3xl font-black uppercase tracking-[0.15em] leading-tight">
+          Riverside Men's Shop
+        </h1>
+        <div className="mt-1 h-0.5 w-48 bg-black mx-auto" />
+        <p className="text-lg font-black mt-2 uppercase tracking-widest">
+          Store Schedule: {weekLabel}
+        </p>
+      </div>
+
+      <table className="w-full border-collapse border-[2.5px] border-black">
+        <thead>
+          <tr className="bg-gray-100">
+            <th className="border-[1.5px] border-black p-2 text-left text-xs font-black uppercase bg-gray-200/50">
+              Staff Member
+            </th>
+            {printDays.map((day) => (
+              <th 
+                key={day} 
+                className="border-[1.5px] border-black p-2 text-center text-xs font-black uppercase"
+              >
+                {day}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {schedules.map((s) => (
+            <tr key={s.staff_id}>
+              <td className="border-[1.5px] border-black px-3 py-1.5 font-black text-xs uppercase bg-gray-50/50 whitespace-nowrap">
+                {s.full_name}
+                <div className="text-[8px] font-bold text-gray-500 leading-tight">
+                  {s.role.replace("_", " ")}
+                </div>
+              </td>
+              {s.weekdays.slice(1).map((w, i) => (
+                <td 
+                  key={i} 
+                  className={`border-[1.5px] border-black px-2 py-1.5 text-center text-[11px] font-black ${
+                    !w.works ? "bg-gray-100 text-gray-400 italic" : "text-black"
+                  }`}
+                >
+                  {w.works ? (w.shift_label || "Working") : "OFF"}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div className="mt-4 flex justify-between items-start gap-8">
+        <div className="flex-1">
+          {sundayShifts.length > 0 && (
+            <div className="border-[2px] border-red-600 p-2 rounded-sm bg-red-50/30">
+              <h4 className="text-[10px] font-black uppercase text-red-600 tracking-widest mb-1">
+                Sunday Exception Hours / Events
+              </h4>
+              <div className="flex flex-wrap gap-x-4 gap-y-1">
+                {sundayShifts.map(ss => (
+                  <div key={ss.name} className="text-[11px] font-black text-red-700">
+                    {ss.name}: <span className="uppercase">{ss.shift}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="text-right text-[9px] font-black uppercase tracking-widest text-gray-400 whitespace-nowrap pt-1">
+          <div>Riverside OS • Staff Scheduler</div>
+          <div>Authorized Week: {weekLabel}</div>
+          <div className="mt-1">Printed {new Date().toLocaleDateString()}</div>
+        </div>
+      </div>
     </div>
   );
 }

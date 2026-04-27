@@ -40,6 +40,20 @@ export interface HubRow {
   employee_customer_code?: string | null;
 }
 
+interface WeeklyAvailabilityEntry {
+  weekday: number;
+  works: boolean;
+  shift_label?: string;
+}
+
+interface ExceptionRow {
+  id: string;
+  exception_date: string;
+  kind: string;
+  notes?: string;
+  shift_label?: string;
+}
+
 interface StaffEditDrawerProps {
   staff: HubRow;
   open: boolean;
@@ -78,7 +92,7 @@ export default function StaffEditDrawer({
   const { toast } = useToast();
 
   const [tab, setTab] = useState<
-    "overview" | "permissions" | "economics" | "lifecycle"
+    "overview" | "permissions" | "economics" | "lifecycle" | "attendance"
   >("overview");
   const [busy, setBusy] = useState(false);
   const [loadingPerms, setLoadingPerms] = useState(false);
@@ -110,24 +124,48 @@ export default function StaffEditDrawer({
   const [employeeCustomerCode, setEmployeeCustomerCode] = useState("");
   const [detachEmployeeCustomer, setDetachEmployeeCustomer] = useState(false);
 
+  // Attendance State
+  const [weeklyAvailability, setWeeklyAvailability] = useState<WeeklyAvailabilityEntry[]>([]);
+  const [attendanceHistory, setAttendanceHistory] = useState<ExceptionRow[]>([]);
+
   const [granted, setGranted] = useState<string[]>([]);
 
   const loadPermissions = useCallback(async () => {
+    if (staff.id === "NEW") return;
     setLoadingPerms(true);
     try {
       const res = await fetch(
         `${baseUrl}/api/staff/admin/${encodeURIComponent(staff.id)}/permissions`,
-        {
-          headers: backofficeHeaders(),
-        },
+        { headers: backofficeHeaders() }
       );
-      if (!res.ok) throw new Error("Could not load permissions");
-      const d = await res.json();
-      setGranted(Array.isArray(d.granted) ? [...d.granted] : []);
+      if (res.ok) {
+        const data = await res.json();
+        setGranted(data.permissions || []);
+      }
     } catch {
-      toast("Failed to load staff permissions", "error");
+      toast("Could not load permissions", "error");
     } finally {
       setLoadingPerms(false);
+    }
+  }, [staff.id, backofficeHeaders, toast]);
+
+  const loadAttendance = useCallback(async () => {
+    if (staff.id === "NEW") return;
+    try {
+      const [availRes, historyRes] = await Promise.all([
+        fetch(`${baseUrl}/api/staff/schedule/weekly/${encodeURIComponent(staff.id)}`, {
+          headers: backofficeHeaders(),
+        }),
+        fetch(`${baseUrl}/api/staff/schedule/exceptions?staff_id=${encodeURIComponent(staff.id)}&from=2024-01-01&to=2030-12-31`, {
+          headers: backofficeHeaders(),
+        }),
+      ]);
+      if (availRes.ok) setWeeklyAvailability(await availRes.json());
+      if (historyRes.ok) setAttendanceHistory(await historyRes.json());
+    } catch {
+      toast("Failed to load attendance data", "error");
+    } finally {
+      // nothing
     }
   }, [staff.id, backofficeHeaders, toast]);
 
@@ -157,7 +195,15 @@ export default function StaffEditDrawer({
     } else {
       setGranted([]);
     }
-  }, [open, staff, loadPermissions]);
+
+    if (staff.id !== "NEW") {
+      void loadAttendance();
+    } else {
+      // Default availability for new staff
+      setWeeklyAvailability([0, 1, 2, 3, 4, 5, 6].map((w) => ({ weekday: w, works: w !== 0, shift_label: "" })));
+      setAttendanceHistory([]);
+    }
+  }, [open, staff, loadPermissions, loadAttendance]);
 
   const save = async () => {
     setBusy(true);
@@ -250,26 +296,39 @@ export default function StaffEditDrawer({
       }
 
       // PIN Update
-      if (hasPermission("staff.manage_pins") && nextPin.length === 4) {
-        const pinRes = await fetch(
-          `${baseUrl}/api/staff/admin/${encodeURIComponent(effectiveId)}/set-pin`,
+      if (staff.id !== "NEW" && nextPin.length === 4) {
+        const pr = await fetch(
+          `${baseUrl}/api/staff/admin/${encodeURIComponent(staff.id)}/pin`,
           {
-            method: "POST",
+            method: "PATCH",
             headers: {
               "Content-Type": "application/json",
               ...backofficeHeaders(),
             },
             body: JSON.stringify({ pin: nextPin }),
-          },
+          }
         );
-        const pinBody = await pinRes.json().catch(() => ({}));
-        if (!pinRes.ok) {
-          throw new Error(
-            typeof pinBody.error === "string"
-              ? `PIN update failed: ${pinBody.error}`
-              : "PIN update failed",
-          );
+        if (!pr.ok) {
+          const p = await pr.json().catch(() => ({}));
+          throw new Error(typeof p.error === "string" ? p.error : "PIN update failed");
         }
+      }
+
+      // Attendance Update
+      if (staff.id !== "NEW") {
+        await fetch(`${baseUrl}/api/staff/schedule/weekly`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...backofficeHeaders() },
+          body: JSON.stringify({ staff_id: effectiveId, weekdays: weeklyAvailability }),
+        });
+      } else {
+         // For NEW staff, we currently rely on the server's default seeding,
+         // but we could also send a PUT here after creation.
+         await fetch(`${baseUrl}/api/staff/schedule/weekly`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json", ...backofficeHeaders() },
+          body: JSON.stringify({ staff_id: effectiveId, weekdays: weeklyAvailability }),
+        });
       }
 
       toast("Staff profile updated", "success");
@@ -366,11 +425,12 @@ export default function StaffEditDrawer({
             { id: "overview", label: "Overview", icon: User },
             { id: "economics", label: "Economics", icon: Percent },
             { id: "permissions", label: "Permissions", icon: Shield },
-            { id: "lifecycle", label: "Lifecycle", icon: Calendar },
+            { id: "attendance", label: "Attendance", icon: Calendar },
+            { id: "lifecycle", label: "Lifecycle", icon: RefreshCw },
           ].map((t) => (
             <button
               key={t.id}
-              onClick={() => setTab(t.id as "overview" | "permissions" | "economics" | "lifecycle")}
+              onClick={() => setTab(t.id as typeof tab)}
               className={`flex items-center gap-2 border-b-2 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-all ${
                 tab === t.id
                   ? "border-app-accent text-app-text"
@@ -713,6 +773,98 @@ export default function StaffEditDrawer({
             </div>
           )}
 
+          {tab === "attendance" && (
+            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
+                  Weekly Availability
+                </h3>
+                <p className="text-[10px] text-app-text-muted">
+                  Set the recurring work pattern for this staff member.
+                </p>
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                  {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label, wd) => {
+                    const entry = weeklyAvailability.find((a) => a.weekday === wd) || { works: false, shift_label: "" };
+                    return (
+                      <div key={label} className="flex flex-col gap-1">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm bg-app-surface-2/30">
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-app-border"
+                            checked={entry.works}
+                            onChange={(e) => {
+                              const next = [...weeklyAvailability];
+                              const idx = next.findIndex((a) => a.weekday === wd);
+                              if (idx >= 0) {
+                                next[idx] = { ...next[idx], works: e.target.checked };
+                              } else {
+                                next.push({ weekday: wd, works: e.target.checked, shift_label: "" });
+                              }
+                              setWeeklyAvailability(next);
+                            }}
+                          />
+                          <span className="font-bold">{label}</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Shift"
+                          className="ui-input h-8 px-2 text-[10px] font-bold"
+                          value={entry.shift_label || ""}
+                          disabled={!entry.works}
+                          onChange={(e) => {
+                            const next = [...weeklyAvailability];
+                            const idx = next.findIndex((a) => a.weekday === wd);
+                            if (idx >= 0) {
+                              next[idx] = { ...next[idx], shift_label: e.target.value };
+                              setWeeklyAvailability(next);
+                            }
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              <section className="space-y-4">
+                <h3 className="text-[11px] font-black uppercase tracking-widest text-app-text-muted">
+                  Time Off & History
+                </h3>
+                <div className="rounded-2xl border border-app-border bg-app-surface-2/30 overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-app-surface-2 text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                      <tr>
+                        <th className="px-4 py-2">Date</th>
+                        <th className="px-4 py-2">Type</th>
+                        <th className="px-4 py-2">Notes</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-app-border">
+                      {attendanceHistory.length === 0 ? (
+                        <tr>
+                          <td colSpan={3} className="px-4 py-8 text-center text-app-text-muted italic">
+                            No attendance history recorded.
+                          </td>
+                        </tr>
+                      ) : (
+                        attendanceHistory.map((ex) => (
+                          <tr key={ex.id}>
+                            <td className="px-4 py-2 font-bold">{ex.exception_date}</td>
+                            <td className="px-4 py-2">
+                              <span className="rounded-full bg-app-surface-2 px-2 py-0.5 text-[10px] font-black uppercase">
+                                {ex.kind.replace("_", " ")}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2 text-app-text-muted">{ex.notes || "—"}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </section>
+            </div>
+          )}
           {tab === "lifecycle" && (
             <div className="space-y-8 animate-in fade-in slide-in-from-bottom-2 duration-300">
               <section className="space-y-4">

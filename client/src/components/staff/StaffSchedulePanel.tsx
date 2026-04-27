@@ -75,10 +75,10 @@ function formatWeekLabel(from: Date, to: Date): string {
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const EXCEPTION_KINDS = [
-  { value: "sick", label: "Sick" },
   { value: "pto", label: "PTO" },
-  { value: "missed_shift", label: "Missed shift" },
-  { value: "extra_shift", label: "Extra shift (working)" },
+  { value: "vacation", label: "Vacation" },
+  { value: "doctors_appt", label: "Doctors Appt" },
+  { value: "other", label: "Other" },
 ] as const;
 
 function kindLabel(k: string): string {
@@ -114,7 +114,7 @@ export default function StaffSchedulePanel() {
 	const [absReassignTo, setAbsReassignTo] = useState("");
 	const [absBusy, setAbsBusy] = useState(false);
 
-	const [viewMode, setViewMode] = useState<"weekly" | "individual" | "master">("weekly");
+	const [viewMode, setViewMode] = useState<"weekly" | "staff" | "scheduler">("weekly");
 	const [weekCursor, setWeekCursor] = useState(() => new Date());
 	const [weeklyViewRows, setWeeklyViewRows] = useState<WeeklyViewStaff[]>([]);
 	const [loadingWeeklyView, setLoadingWeeklyView] = useState(false);
@@ -141,6 +141,11 @@ export default function StaffSchedulePanel() {
 	    };
 	  });
 	}, [weekCursor]);
+
+  const activeStaff = useMemo(
+    () => eligible.find((e) => e.id === staffId),
+    [eligible, staffId]
+  );
 
   const loadEligible = useCallback(async () => {
     const res = await fetch(`${baseUrl}/api/staff/schedule/eligible`, { headers });
@@ -386,8 +391,8 @@ export default function StaffSchedulePanel() {
           <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">Staff schedules</p>
           <h1 className="text-xl font-black text-app-text">Schedule workspace</h1>
           <p className="text-xs text-app-text-muted">
-            MASTER is used for building templates; INDIVIDUAL is for per-person edits; WEEKLY is the
-            main store view.
+            WEEKLY is for viewing published schedules; STAFF is for personnel profiles; SCHEDULER is
+            for making and editing schedules.
           </p>
         </div>
         <div className="flex gap-2 p-1 rounded-2xl bg-app-surface-2 border border-app-border">
@@ -405,27 +410,27 @@ export default function StaffSchedulePanel() {
           </button>
           <button
             type="button"
-            onClick={() => setViewMode("individual")}
+            onClick={() => setViewMode("staff")}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-              viewMode === "individual"
+              viewMode === "staff"
                 ? "bg-app-accent text-white shadow-lg shadow-app-accent/20"
                 : "text-app-text-muted hover:text-app-text"
             }`}
           >
             <User size={14} />
-            Individual
+            Staff
           </button>
           <button
             type="button"
-            onClick={() => setViewMode("master")}
+            onClick={() => setViewMode("scheduler")}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${
-              viewMode === "master"
+              viewMode === "scheduler"
                 ? "bg-app-accent text-white shadow-lg shadow-app-accent/20"
                 : "text-app-text-muted hover:text-app-text"
             }`}
           >
             <LayoutGrid size={14} />
-            Master
+            Scheduler
           </button>
         </div>
       </div>
@@ -534,28 +539,54 @@ export default function StaffSchedulePanel() {
         </>
       ) : null}
 
-      {viewMode === "individual" ? (
+      {viewMode === "staff" ? (
         <>
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_srgb,var(--app-accent)_14%,var(--app-surface-2))] text-[var(--app-accent)]">
-                <CalendarDays className="h-5 w-5" aria-hidden />
+          <div className="flex flex-wrap items-center justify-between gap-6 border-b border-app-border pb-6">
+            <div className="flex items-center gap-5">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-app-accent/10 text-app-accent ring-1 ring-app-accent/20 shadow-lg shadow-app-accent/5">
+                {activeStaff ? (
+                  <span className="text-xl font-black uppercase tracking-tighter">
+                    {activeStaff.full_name.split(" ").map(n => n[0]).join("").slice(0, 2)}
+                  </span>
+                ) : (
+                  <CalendarDays className="h-8 w-8 opacity-80" aria-hidden />
+                )}
               </div>
-              <div>
-                <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Floor staff
-                </p>
-                <h3 className="text-lg font-black text-app-text">Work schedule</h3>
-                <p className="text-xs text-app-text-muted">
-                  Salesperson and sales support weekly hours, sick days, and PTO. Appointments and daily
-                  tasks follow this calendar.
-                </p>
+              <div className="space-y-1">
+                {activeStaff ? (
+                  <>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-accent">
+                      Managing Schedule
+                    </p>
+                    <h3 className="text-2xl font-black text-app-text tracking-tight">
+                      {activeStaff.full_name}
+                    </h3>
+                    <p className="text-sm font-medium text-app-text-muted">
+                      {activeStaff.role}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted">
+                      Individual
+                    </p>
+                    <h3 className="text-2xl font-black text-app-text tracking-tight">
+                      Team Attendance
+                    </h3>
+                    <p className="text-sm font-medium text-app-text-muted">
+                      Select a staff member to view and edit their availability.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
-            <label className="min-w-[12rem] text-[10px] font-black uppercase text-app-text-muted">
-              Team member
+
+            <div className="flex flex-col gap-1.5 min-w-[200px]">
+              <label className="text-[10px] font-black uppercase tracking-wider text-app-text-muted px-1">
+                Select Team Member
+              </label>
               <select
-                className="ui-input mt-1 w-full text-sm font-bold"
+                className="ui-input w-full text-base font-black bg-app-surface-2/50 border-app-accent/20 focus:border-app-accent focus:ring-4 focus:ring-app-accent/10 transition-all cursor-pointer"
                 value={staffId}
                 onChange={(e) => setStaffId(e.target.value)}
               >
@@ -566,140 +597,133 @@ export default function StaffSchedulePanel() {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
           </div>
 
           {!staffId ? (
             <p className="text-sm text-app-text-muted">No schedule-eligible staff found.</p>
           ) : (
-            <>
-              <div className="grid gap-6 lg:grid-cols-2">
-                <div className="ui-card space-y-4 p-4">
-                  <h4 className="text-sm font-black text-app-text">Weekly pattern</h4>
-                  <p className="text-xs text-app-text-muted">
-                    0 = Sunday through 6 = Saturday. Uncheck days they are normally off.
-                  </p>
-                  <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-                      {WEEKDAY_LABELS.map((label, wd) => (
-                        <div key={label} className="flex flex-col gap-1">
-                          <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm bg-app-surface-2/30">
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 rounded border-app-border"
-                              checked={weeklyWorks[wd]}
-                              disabled={!canEdit}
-                              onChange={(e) => {
-                                const next = [...weeklyWorks];
-                                next[wd] = e.target.checked;
-                                setWeeklyWorks(next);
-                              }}
-                            />
-                            <span className="font-bold">{label}</span>
-                          </label>
+            <div className="grid gap-6 lg:grid-cols-2">
+              <div className="ui-card space-y-4 p-4">
+                <h4 className="text-sm font-black text-app-text">Weekly Availability</h4>
+                <p className="text-xs text-app-text-muted">
+                  Set the recurring work pattern for this staff member.
+                </p>
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                    {WEEKDAY_LABELS.map((label, wd) => (
+                      <div key={label} className="flex flex-col gap-1">
+                        <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-app-border px-3 py-2 text-sm bg-app-surface-2/30">
                           <input
-                            type="text"
-                            placeholder="Shift (optional)"
-                            className="ui-input h-8 px-2 text-[10px] font-bold"
-                            value={weeklyShiftLabels[wd]}
-                            disabled={!canEdit || !weeklyWorks[wd]}
+                            type="checkbox"
+                            className="h-4 w-4 rounded border-app-border"
+                            checked={weeklyWorks[wd]}
+                            disabled={!canEdit}
                             onChange={(e) => {
-                              const next = [...weeklyShiftLabels];
-                              next[wd] = e.target.value;
-                              setWeeklyShiftLabels(next);
+                              const next = [...weeklyWorks];
+                              next[wd] = e.target.checked;
+                              setWeeklyWorks(next);
                             }}
                           />
-                        </div>
-                      ))}
-                    </div>
+                          <span className="font-bold">{label}</span>
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Shift"
+                          className="ui-input h-8 px-2 text-[10px] font-bold"
+                          value={weeklyShiftLabels[wd]}
+                          disabled={!canEdit || !weeklyWorks[wd]}
+                          onChange={(e) => {
+                            const next = [...weeklyShiftLabels];
+                            next[wd] = e.target.value;
+                            setWeeklyShiftLabels(next);
+                          }}
+                        />
+                      </div>
+                    ))}
                   </div>
-                  <button
-                    type="button"
-                    disabled={!canEdit || savingWeekly}
-                    onClick={() => void saveWeekly()}
-                    className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:opacity-50"
-                  >
-                    {savingWeekly ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Save weekly pattern
-                  </button>
-                  {!canEdit ? (
-                    <p className="text-xs text-app-text-muted">
-                      You need tasks.manage or staff.manage_access to edit schedules.
-                    </p>
-                  ) : null}
                 </div>
-
-                <div className="ui-card space-y-4 p-4">
-                  <h4 className="text-sm font-black text-app-text">Single-day exception</h4>
-                  <p className="text-xs text-app-text-muted">
-                    Use <strong className="text-app-text">Extra shift</strong> when someone works on a
-                    day that is normally off (no appointment blocking).
-                  </p>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="text-[10px] font-black uppercase text-app-text-muted">
-                      Date
-                      <input
-                        type="date"
-                        className="ui-input mt-1 w-full text-sm font-bold"
-                        value={excDate}
-                        disabled={!canEdit}
-                        onChange={(e) => setExcDate(e.target.value)}
-                      />
-                    </label>
-                    <label className="text-[10px] font-black uppercase text-app-text-muted">
-                      Type
-                      <select
-                        className="ui-input mt-1 w-full text-sm font-bold"
-                        value={excKind}
-                        disabled={!canEdit}
-                        onChange={(e) => setExcKind(e.target.value)}
-                      >
-                        {EXCEPTION_KINDS.map((k) => (
-                          <option key={k.value} value={k.value}>
-                            {k.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  </div>
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="block text-[10px] font-black uppercase text-app-text-muted">
-                      Shift Label (optional)
-                      <input
-                        type="text"
-                        className="ui-input mt-1 w-full text-sm font-bold"
-                        value={excShiftLabel}
-                        disabled={!canEdit}
-                        onChange={(e) => setExcShiftLabel(e.target.value)}
-                        placeholder="e.g. 9:30-6"
-                      />
-                    </label>
-                    <label className="block text-[10px] font-black uppercase text-app-text-muted">
-                      Notes (optional)
-                      <input
-                        type="text"
-                        className="ui-input mt-1 w-full text-sm"
-                        value={excNotes}
-                        disabled={!canEdit}
-                        onChange={(e) => setExcNotes(e.target.value)}
-                        placeholder="e.g. Doctor note on file"
-                      />
-                    </label>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={!canEdit}
-                    onClick={() => void addException()}
-                    className="ui-btn-secondary px-4 py-2 text-sm disabled:opacity-50"
-                  >
-                    Save exception
-                  </button>
-                </div>
+                <button
+                  type="button"
+                  disabled={!canEdit || savingWeekly}
+                  onClick={() => void saveWeekly()}
+                  className="ui-btn-primary inline-flex items-center gap-2 px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  {savingWeekly ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  Save availability
+                </button>
               </div>
 
               <div className="ui-card space-y-4 p-4">
+                <h4 className="text-sm font-black text-app-text">Time off requests</h4>
+                <p className="text-xs text-app-text-muted">
+                  Record planned time away. These will be highlighted in the <strong>Scheduler</strong> to prevent double-booking.
+                </p>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="text-[10px] font-black uppercase text-app-text-muted">
+                    Date
+                    <input
+                      type="date"
+                      className="ui-input mt-1 w-full text-sm font-bold"
+                      value={excDate}
+                      disabled={!canEdit}
+                      onChange={(e) => setExcDate(e.target.value)}
+                    />
+                  </label>
+                  <label className="text-[10px] font-black uppercase text-app-text-muted">
+                    Type
+                    <select
+                      className="ui-input mt-1 w-full text-sm font-bold"
+                      value={excKind}
+                      disabled={!canEdit}
+                      onChange={(e) => setExcKind(e.target.value)}
+                    >
+                      {EXCEPTION_KINDS.map((k) => (
+                        <option key={k.value} value={k.value}>
+                          {k.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                    Shift Label (optional)
+                    <input
+                      type="text"
+                      className="ui-input mt-1 w-full text-sm font-bold"
+                      value={excShiftLabel}
+                      disabled={!canEdit}
+                      onChange={(e) => setExcShiftLabel(e.target.value)}
+                      placeholder="e.g. 9:30-6"
+                    />
+                  </label>
+                  <label className="block text-[10px] font-black uppercase text-app-text-muted">
+                    Notes (optional)
+                    <input
+                      type="text"
+                      className="ui-input mt-1 w-full text-sm"
+                      value={excNotes}
+                      disabled={!canEdit}
+                      onChange={(e) => setExcNotes(e.target.value)}
+                      placeholder="e.g. Doctor note on file"
+                    />
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  disabled={!canEdit}
+                  onClick={() => void addException()}
+                  className="ui-btn-primary px-4 py-2 text-sm disabled:opacity-50"
+                >
+                  Save request
+                </button>
+              </div>
+
+              <div className="ui-card space-y-4 p-4">
+                <h4 className="text-sm font-black text-app-text">Time & Attendance</h4>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h4 className="text-sm font-black text-app-text">Month view</h4>
+                  <p className="text-xs text-app-text-muted">History of requests and absences.</p>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
@@ -856,12 +880,12 @@ export default function StaffSchedulePanel() {
                   {absBusy ? "Saving…" : "Record absence"}
                 </button>
               </div>
-            </>
+            </div>
           )}
         </>
       ) : null}
 
-      {viewMode === "master" ? <StaffWeeklyGridView /> : null}
+      {viewMode === "scheduler" ? <StaffWeeklyGridView /> : null}
     </section>
   );
 }
