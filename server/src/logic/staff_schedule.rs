@@ -926,7 +926,8 @@ pub async fn list_master_template(pool: &PgPool) -> Result<Vec<MasterTemplateRow
         r#"
         SELECT s.id AS staff_id, s.full_name, s.role, gs.day::smallint AS weekday,
                COALESCE(swa.works, FALSE) AS works,
-               swa.shift_label
+               swa.shift_label,
+               COALESCE(swa.works, FALSE) AS base_works
         FROM staff s
         CROSS JOIN (SELECT generate_series(0, 6) AS day) gs
         LEFT JOIN staff_weekly_availability swa 
@@ -949,6 +950,7 @@ pub struct MasterTemplateRow {
     pub weekday: i16,
     pub works: bool,
     pub shift_label: Option<String>,
+    pub base_works: bool,
 }
 
 pub async fn clone_week_schedule_week(

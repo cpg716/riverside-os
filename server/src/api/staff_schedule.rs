@@ -545,7 +545,16 @@ async fn get_effective(
     middleware::require_staff_with_permission(&state, &headers, STAFF_VIEW)
         .await
         .map_err(map_gate)?;
-    let days = staff_schedule::list_effective_days(&state.db, q.staff_id, q.from, q.to)
+
+    let staff_id = q.staff_id.ok_or_else(|| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "error": "staff_id required" })),
+        )
+            .into_response()
+    })?;
+
+    let days = staff_schedule::list_effective_days(&state.db, staff_id, q.from, q.to)
         .await
         .map_err(StaffScheduleError::Database)
         .map_err(map_err)?;
