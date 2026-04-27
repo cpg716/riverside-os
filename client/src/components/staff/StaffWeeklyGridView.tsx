@@ -256,19 +256,6 @@ const fuzzyNameScore = (a: string, b: string): number => {
   return Math.max(0, baseDistance + bonusFirstToken + bonusLastToken);
 };
 
-const looksLikeNameToken = (candidate: string, input: string): boolean => {
-  const normalizedCandidate = normalizeName(candidate);
-  const normalizedInput = normalizeName(input);
-  if (!normalizedCandidate || !normalizedInput) return false;
-  if (normalizedCandidate === normalizedInput) return true;
-  if (
-    normalizedCandidate.startsWith(normalizedInput) ||
-    normalizedInput.startsWith(normalizedCandidate)
-  ) {
-    return true;
-  }
-  return fuzzyNameScore(normalizedCandidate, normalizedInput) <= 2;
-};
 
 const buildNameLookup = (rows: EligibleStaff[]): NameLookup => {
   const exact = new Map<string, EligibleStaff>();
@@ -347,7 +334,6 @@ const buildNameLookup = (rows: EligibleStaff[]): NameLookup => {
 const resolveStaffByName = (
   rowsByName: NameLookup,
   rawName: string,
-  disambiguateSingleToken = false,
   disallowedStaffIds = new Set<string>(),
 ): EligibleStaff | null => {
   const normalized = normalizeName(rawName);
@@ -367,81 +353,42 @@ const resolveStaffByName = (
 
   const firstTokenCandidates = firstToken ? rowsByName.bySingleToken.get(firstToken) ?? [] : [];
   const singleNameCandidates = rowsByName.bySingleName.get(normalized) ?? [];
-  const lastToken = tokens[tokens.length - 1];
-  const lastTokenCandidates = lastToken ? rowsByName.byLastToken.get(lastToken) ?? [] : [];
-  const lastInitialCandidates =
-    tokens.length >= 2 && lastToken
-      ? rowsByName.byLastInitial.get(`${lastToken[0]} ${tokens[0]}`) ?? []
-      : [];
 
   const eligibleSingleNameCandidates = singleNameCandidates.filter(
     (s) => !disallowedStaffIds.has(s.id),
   );
   if (eligibleSingleNameCandidates.length === 1) return eligibleSingleNameCandidates[0];
 
-  const eligibleFirstTokenCandidates = disambiguateSingleToken
-    ? firstTokenCandidates.filter((s) => !disallowedStaffIds.has(s.id))
-    : firstTokenCandidates;
-  if (eligibleFirstTokenCandidates.length === 1) return eligibleFirstTokenCandidates[0];
-
-  if (disambiguateSingleToken && firstTokenCandidates.length > 1 && firstToken) {
-    const eligible = eligibleFirstTokenCandidates;
-    if (eligible.length === 1) return eligible[0];
-    if (eligible.length > 1) {
-      return [...eligible]
-        .filter((candidate) => candidate.full_name.trim().toLowerCase().split(/\s+/).length === 1)
-        .sort((a, b) =>
-          a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }),
-        )[0];
-    }
-  }
-
-  const eligibleLastTokenCandidates = lastTokenCandidates.filter(
-    (s) => !disallowedStaffIds.has(s.id),
-  );
-  if (eligibleLastTokenCandidates.length === 1) return eligibleLastTokenCandidates[0];
-
-  const eligibleLastInitialCandidates = lastInitialCandidates.filter(
-    (s) => !disallowedStaffIds.has(s.id),
-  );
-  if (eligibleLastInitialCandidates.length === 1) return eligibleLastInitialCandidates[0];
-
-  const initialAliasCandidates = rowsByName.all
-    .map((staff) => {
-      const parts = normalizeName(staff.full_name).split(/\s+/).filter(Boolean);
-      if (parts.length < 2) return null;
-      const first = parts[0];
-      const last = parts[parts.length - 1];
-      if (!first || !last || first.length === 0 || last.length === 0) return null;
-      if (tokens.length < 2) return null;
-      if (tokens[0] !== first) return null;
-      if (tokens[1] !== last[0]) return null;
-      if (!looksLikeNameToken(first, tokens[0])) return null;
-      return { staff, score: fuzzyNameScore(rawName, staff.full_name) };
-    })
-    .filter(
-      (entry): entry is { staff: EligibleStaff; score: number } =>
-        entry !== null && !disallowedStaffIds.has(entry.staff.id),
-    )
-    .sort((a, b) => a.score - b.score);
-
-  if (initialAliasCandidates.length === 1) return initialAliasCandidates[0].staff;
-  if (initialAliasCandidates.length > 1 && initialAliasCandidates[0].score <= 2) {
-    return initialAliasCandidates[0].staff;
-  }
-
   if (tokens.length >= 2) {
-    const firstLast = `${tokens[0]} ${tokens[1]}`;
-    const firstLastMatches = rowsByName.byFirstLast.get(firstLast) ?? [];
-    const eligibleFirstLastMatches = firstLastMatches.filter((s) => !disallowedStaffIds.has(s.id));
-    if (eligibleFirstLastMatches.length === 1) return eligibleFirstLastMatches[0];
-
     const firstInitial = `${tokens[0]} ${tokens[1][0]}`;
     const firstInitialMatches = rowsByName.byFirstInitial.get(firstInitial) ?? [];
     const eligibleFirstInitialMatches = firstInitialMatches.filter(
       (s) => !disallowedStaffIds.has(s.id),
     );
     if (eligibleFirstInitialMatches.length === 1) return eligibleFirstInitialMatches[0];
+
+    const firstLast = `${tokens[0]} ${tokens[1]}`;
+    const firstLastMatches = rowsByName.byFirstLast.get(firstLast) ?? [];
+    const eligibleFirstLastMatches = firstLastMatches.filter((s) => !disallowedStaffIds.has(s.id));
+    if (eligibleFirstLastMatches.length === 1) return eligibleFirstLastMatches[0];
+  }
+
+  const eligibleFirstTokenCandidates = firstTokenCandidates.filter((s) => !disallowedStaffIds.has(s.id));
+  if (eligibleFirstTokenCandidates.length === 1) return eligibleFirstTokenCandidates[0];
+  if (eligibleFirstTokenCandidates.length > 1) {
+    // If multiple "Tom"s, pick the first one alphabetically by default
+    return [...eligibleFirstTokenCandidates].sort((a, b) =>
+      a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }),
+    )[0];
+  }
+
+  // FALLBACK: "Starts With" for nicknames like Sam -> Samantha
+  if (normalized.length >= 2) {
+    const startsWithCandidates = rowsByName.all.filter((s) => {
+      const first = normalizeName(s.full_name).split(/\s+/)[0];
+      return first.startsWith(normalized) && !disallowedStaffIds.has(s.id);
+    });
+    if (startsWithCandidates.length === 1) return startsWithCandidates[0];
   }
 
   const fuzzyCandidates = rowsByName.all.filter((s) => !disallowedStaffIds.has(s.id));
@@ -560,7 +507,7 @@ const parseWeekScheduleSheet = (
 
     totalRows += 1;
     const rowData = { name, daySchedule };
-    const staff = resolveStaffByName(nameLookup, name, false);
+    const staff = resolveStaffByName(nameLookup, name);
     if (staff) {
       recognizedRows.push(rowData);
     } else {
@@ -988,7 +935,7 @@ export default function StaffWeeklyGridView() {
         unresolvedRows.push(...parseResult.unrecognizedRows);
 
         for (const row of parseResult.recognizedRows) {
-          const staff = resolveStaffByName(nameLookup, row.name, false, matchedStaffIds);
+          const staff = resolveStaffByName(nameLookup, row.name, matchedStaffIds);
           if (!staff) continue;
           matchedStaffIds.add(staff.id);
           applyImportRow(nextSchedules, staff, row.daySchedule);
@@ -997,7 +944,7 @@ export default function StaffWeeklyGridView() {
       }
 
       for (const unresolved of unresolvedRows) {
-        const resolved = resolveStaffByName(nameLookup, unresolved.name, true, matchedStaffIds);
+        const resolved = resolveStaffByName(nameLookup, unresolved.name, matchedStaffIds);
         if (!resolved) {
           missingNames.add(unresolved.name);
           continue;
