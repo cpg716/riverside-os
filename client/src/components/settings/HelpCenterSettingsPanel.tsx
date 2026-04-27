@@ -376,19 +376,15 @@ export default function HelpCenterSettingsPanel() {
     });
 
     const valueTitle = (r: AdminManualRow) =>
-      (
-        r.title_override?.trim() ||
-        r.bundled_title ||
-        r.manual_id
-      ).toLowerCase();
+      String(r.title_override?.trim() || r.bundled_title || r.manual_id || "").toLowerCase();
     const valueOrder = (r: AdminManualRow) =>
       r.order_override != null ? r.order_override : r.bundled_order;
 
     filtered.sort((a, b) => {
       if (librarySort === "manual_id_asc")
-        return a.manual_id.localeCompare(b.manual_id);
+        return String(a.manual_id ?? "").localeCompare(String(b.manual_id ?? ""));
       if (librarySort === "manual_id_desc")
-        return b.manual_id.localeCompare(a.manual_id);
+        return String(b.manual_id ?? "").localeCompare(String(a.manual_id ?? ""));
       if (librarySort === "title_asc")
         return valueTitle(a).localeCompare(valueTitle(b));
       if (librarySort === "title_desc")

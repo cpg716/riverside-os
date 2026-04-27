@@ -4,6 +4,15 @@ import { type SearchResult } from "../components/pos/cart/PosSearchResultList";
 
 const POS_SEARCH_RESULT_CAP = 200;
 
+export function safeSearchResultLabel(item: Partial<SearchResult> | undefined | null): string {
+  if (!item) return "";
+  const name = typeof item.name === "string" ? item.name.trim() : "";
+  if (name) return name;
+  const sku = typeof item.sku === "string" ? item.sku.trim() : "";
+  if (sku) return sku;
+  return "";
+}
+
 interface UsePosSearchProps {
   baseUrl: string;
   apiAuth: () => Record<string, string>;
@@ -89,10 +98,24 @@ export function usePosSearch({
         headers: apiAuth(),
       }).then(async (res) => {
         if (res.ok) {
-          const r = (await res.json()) as SearchResult;
-          collected.push(r);
+          const r = (await res.json()) as Partial<SearchResult>;
+          const sku = typeof r.sku === "string" ? r.sku : String(r.sku ?? "");
+          const name = safeSearchResultLabel({ ...r, sku }) || sku;
+          collected.push({
+            ...(r as SearchResult),
+            product_id:
+              typeof r.product_id === "string"
+                ? r.product_id
+                : String(r.product_id ?? ""),
+            variant_id:
+              typeof r.variant_id === "string"
+                ? r.variant_id
+                : String(r.variant_id ?? ""),
+            sku,
+            name,
+          });
         }
-      })
+      }),
     );
 
     // 2. Control Board Fuzzy Search
@@ -104,21 +127,28 @@ export function usePosSearch({
         },
       ).then(async (res) => {
         if (res.ok) {
-          const data = await res.json() as { rows: Array<Record<string, unknown>> };
-          const mapped = (data.rows || []).map((r) => ({
-            product_id: r.product_id,
-            variant_id: r.variant_id,
-            sku: r.sku,
-            name: r.product_name,
-            variation_label: r.variation_label,
-            standard_retail_price: r.retail_price || 0,
-            unit_cost: r.cost_price || 0,
-            stock_on_hand: r.stock_on_hand || 0,
-            state_tax: r.state_tax || 0,
-            local_tax: r.local_tax || 0,
-            tax_category: r.tax_category as "clothing" | "footwear" | "other",
-            vendor_sku: (r.vendor_sku as string) || "",
-          }));
+          const data = (await res.json()) as {
+            rows: Array<Record<string, unknown>>;
+          };
+          const mapped = (data.rows || []).map((r) => {
+            const sku = String(r.sku ?? "");
+            const name = String(r.product_name ?? r.name ?? sku).trim() || sku;
+            return {
+              product_id: String(r.product_id ?? ""),
+              variant_id: String(r.variant_id ?? ""),
+              sku,
+              name,
+              variation_label:
+                typeof r.variation_label === "string" ? r.variation_label : null,
+              standard_retail_price: r.retail_price || 0,
+              unit_cost: r.cost_price || 0,
+              stock_on_hand: r.stock_on_hand || 0,
+              state_tax: r.state_tax || 0,
+              local_tax: r.local_tax || 0,
+              tax_category: r.tax_category as "clothing" | "footwear" | "other",
+              vendor_sku: (r.vendor_sku as string) || "",
+            };
+          });
           collected.push(...(mapped as SearchResult[]));
         }
       }),
@@ -127,7 +157,7 @@ export function usePosSearch({
     try {
       await Promise.all(requests);
       const seen = new Set<string>();
-      const finalResults = collected.filter(it => {
+      const finalResults = collected.filter((it) => {
         if (seen.has(it.variant_id)) return false;
         seen.add(it.variant_id);
         return true;
@@ -162,17 +192,21 @@ export function usePosSearch({
 
   const groupedSearchResults = useMemo(() => {
     const groups: Record<string, SearchResult[]> = {};
-    searchResults.forEach(r => {
+    searchResults.forEach((r) => {
       if (!groups[r.product_id]) groups[r.product_id] = [];
       groups[r.product_id].push(r);
     });
-    return Object.values(groups).sort((a,b) => {
+    return Object.values(groups).sort((a, b) => {
       const q = search.trim().toLowerCase();
-      const aExact = a.some(v => v.sku.toLowerCase() === q);
-      const bExact = b.some(v => v.sku.toLowerCase() === q);
+      const aExact = a.some((v) => String(v.sku ?? "").toLowerCase() === q);
+      const bExact = b.some((v) => String(v.sku ?? "").toLowerCase() === q);
       if (aExact && !bExact) return -1;
       if (!aExact && bExact) return 1;
-      return a[0].name.localeCompare(b[0].name);
+      return safeSearchResultLabel(a[0]).localeCompare(
+        safeSearchResultLabel(b[0]),
+        undefined,
+        { sensitivity: "base" },
+      );
     });
   }, [searchResults, search]);
 

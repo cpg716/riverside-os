@@ -96,6 +96,8 @@ const MONTH_TOKENS = new Set([
   "december",
 ]);
 
+const excludedStaffNames = new Set(["chris garcia"]);
+
 const DAY_LABEL_BLACKLIST = new Set(["master", "note change"]);
 
 const DAY_HEADER_MAP: Record<string, number> = {
@@ -168,6 +170,15 @@ const normalizeName = (name: string): string =>
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+const escapeForPrint = (value: unknown): string =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+const isExcludedStaffName = (name: string): boolean =>
+  excludedStaffNames.has(normalizeName(name));
 
 const normalizeMonthToken = (name: string): string =>
   normalizeName(name)
@@ -566,6 +577,199 @@ const formatWeekLabel = (from: Date, to: Date): string => {
 
 const defaultWeekStart = (): Date => sundayStart(new Date());
 
+const buildStaffPrintDocument = (schedules: StaffSchedule[], weekLabel: string): string => {
+  const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const printableSchedules = schedules.filter((s) => !isExcludedStaffName(s.full_name));
+  const rowCount = Math.max(printableSchedules.length, 1);
+  const compactMode = rowCount > 18;
+  const sundayShiftRows = printableSchedules.filter((s) => s.weekdays?.[0]?.works).length || 1;
+  const sundayShifts = printableSchedules
+    .filter((s) => s.weekdays?.[0]?.works)
+    .map((s) => ({
+      name: escapeForPrint(s.full_name),
+      shift: escapeForPrint(s.weekdays?.[0]?.shift_label || "Working"),
+    }));
+
+  const rows = printableSchedules
+    .map(
+      (s) => `
+        <tr>
+          <td class="staff">
+            <div class="staff-name">${escapeForPrint(s.full_name).toUpperCase()}</div>
+            <div class="staff-role">${escapeForPrint(s.role.replace("_", " ").toUpperCase())}</div>
+          </td>
+          ${printDays
+            .map((_, index) => {
+              const w = s.weekdays[index + 1];
+              const text = escapeForPrint(w?.works ? w.shift_label || "Working" : "OFF");
+              return `
+                <td class="${w?.works ? "work-cell" : "off-cell"}">
+                  ${text.toUpperCase()}
+                </td>
+              `;
+            })
+            .join("")}
+        </tr>
+      `,
+    )
+    .join("");
+
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Staff Schedule</title>
+  <style>
+    @page { size: letter landscape; margin: 5mm; }
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      min-height: 100%;
+      background: #fff;
+      color: #000;
+      overflow: hidden;
+    }
+    body { font-family: Arial, Helvetica, sans-serif; }
+    .print-page {
+      width: 100%;
+      height: 100%;
+      padding: 1mm 2mm 0.8mm;
+      transform-origin: top left;
+    }
+    .print-root {
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5mm;
+    }
+    .print-header {
+      text-align: center;
+    }
+    h1 { margin: 0; font-size: 40px; font-weight: 900; letter-spacing: 0.05em; text-transform: uppercase; }
+    .week-label { margin: 1px 0 0; font-size: 18px; font-weight: 900; text-transform: uppercase; }
+    .divider { margin: 4px auto 0; height: 1px; width: 180px; background: #111; }
+    .print-table-wrap { flex: 1 1 auto; min-height: 0; }
+    .schedule-table { width: 100%; border-collapse: collapse; table-layout: fixed; border: 2px solid #111; font-size: 12px; }
+    .schedule-table th,
+    .schedule-table td {
+      border: 1px solid #111;
+      padding: 1.5px 2px;
+      text-align: center;
+      line-height: 1.12;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .schedule-body tr { page-break-inside: avoid; }
+    .schedule-table th { background: #111; color: #fff; font-size: 10px; font-weight: 900; text-transform: uppercase; }
+    .staff { text-align: left !important; }
+    .staff-name { font-size: 15px; font-weight: 900; text-transform: uppercase; line-height: 1; overflow: hidden; text-overflow: ellipsis; }
+    .staff-role { font-size: 7px; color: #64748b; font-weight: 700; margin-top: 1px; text-transform: uppercase; white-space: nowrap; }
+    .work-cell { font-size: ${compactMode ? 12.5 : 13}px; font-weight: 900; }
+    .off-cell { color: #6b7280; font-size: ${compactMode ? 11.5 : 12}px; font-style: italic; font-weight: 900; }
+    .print-footer-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; margin-top: 1mm; }
+    .print-footer-left {
+      width: 58%;
+      border: 2px solid #b91c1c;
+      color: #7f1d1d;
+      padding: 2px 4px;
+      min-height: ${1.8 + Math.min(sundayShiftRows, 4) * 2.0}mm;
+      max-height: 18mm;
+      overflow: hidden;
+    }
+    .print-footer-left h4 { margin: 0 0 2px; font-size: 11px; font-weight: 900; text-transform: uppercase; }
+    .print-sunday-entry { font-size: 11px; font-weight: 900; line-height: 1.18; }
+    .print-footer-right { width: 33%; text-align: right; font-size: 9px; font-weight: 900; text-transform: uppercase; color: #6b7280; white-space: nowrap; line-height: 1.2; }
+    .print-footer-right div { margin: 0.5mm 0; }
+    .no-break { page-break-inside: avoid; }
+    .schedule-body { page-break-inside: auto; }
+    .fit-surface { overflow: hidden; }
+    @media print {
+      .print-page {
+        height: 100vh;
+        max-height: 100vh;
+      }
+      .staff-role { font-size: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="print-surface" class="fit-surface print-page">
+    <div class="print-root">
+      <div class="print-header">
+        <h1>Riverside Men's Shop</h1>
+        <div class="divider"></div>
+        <div class="week-label">Store Schedule: ${escapeForPrint(weekLabel)}</div>
+      </div>
+      <div class="print-table-wrap">
+        <table class="schedule-table no-break">
+          <thead>
+            <tr>
+              <th style="width: 26%">Staff Member</th>
+              ${printDays.map((day) => `<th>${day}</th>`).join("")}
+            </tr>
+          </thead>
+          <tbody class="schedule-body">
+            ${printableSchedules.length ? rows : `<tr><td colspan="7">NO STAFF SCHEDULED</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+      <div class="print-footer-row">
+        <div class="print-footer-left">
+          <h4>Sunday Exception Hours / Events</h4>
+          ${sundayShifts.length
+            ? sundayShifts
+                .map((s) => `<div class="print-sunday-entry">${s.name}: ${s.shift}</div>`)
+                .join("")
+            : `<div class="print-sunday-entry">NO SUNDAY EXCEPTION HOURS.</div>`}
+        </div>
+        <div class="print-footer-right">
+          <div>Riverside OS • Staff Scheduler</div>
+          <div>Authorized Week: ${escapeForPrint(weekLabel)}</div>
+          <div>Printed ${new Date().toLocaleDateString()}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    (function () {
+      const fitToPage = () => {
+        const surface = document.getElementById("print-surface");
+        const viewportW = window.innerWidth;
+        const viewportH = window.innerHeight;
+        if (!surface) return;
+
+        const rect = surface.getBoundingClientRect();
+        const scaleW = (viewportW - 16) / rect.width;
+        const scaleH = (viewportH - 16) / rect.height;
+        const scale = Math.min(1, scaleW, scaleH, 1);
+        if (scale < 0.995) {
+          surface.style.transform = "scale(" + scale.toFixed(4) + ")";
+        }
+        setTimeout(() => window.print(), 80);
+      };
+
+      const triggerPrint = () => {
+        requestAnimationFrame(() => {
+          fitToPage();
+        });
+      };
+
+      if (document.readyState === "complete") {
+        requestAnimationFrame(triggerPrint);
+      } else {
+        window.addEventListener("load", () => requestAnimationFrame(triggerPrint));
+      }
+    })();
+  </script>
+</body>
+</html>`;
+};
+
 export default function StaffWeeklyGridView() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
@@ -658,7 +862,8 @@ export default function StaffWeeklyGridView() {
         throw new Error("Could not load eligible staff.");
       }
       const staffList = (await eligRes.json()) as EligibleStaff[];
-      setEligible(staffList);
+      const visibleEligible = staffList.filter((staff) => !isExcludedStaffName(staff.full_name));
+      setEligible(visibleEligible);
 
       if (!weekRes.ok) {
         if (weekRes.status === 401) {
@@ -675,11 +880,12 @@ export default function StaffWeeklyGridView() {
           const match = row.weekdays.find((w) => w.weekday === weekday);
           return match ?? { weekday, works: false, shift_label: null };
         }),
-      }));
+      })).filter((schedule) => !isExcludedStaffName(schedule.full_name));
       setScheduleRows(normalizedRows);
 
       if (excRes && excRes.ok) {
-        setWeekExceptions(await excRes.json());
+        const exceptionRows = (await excRes.json()) as WeekException[];
+        setWeekExceptions(exceptionRows.filter((ex) => !isExcludedStaffName(ex.full_name)));
       } else {
         setWeekExceptions([]);
       }
@@ -1013,7 +1219,14 @@ export default function StaffWeeklyGridView() {
   }
 
   const handlePrint = () => {
-    window.print();
+    const doc = buildStaffPrintDocument(schedules, weekLabel);
+    const printWindow = window.open("", "_blank", "width=1400,height=900");
+    if (!printWindow) return;
+    printWindow.document.open();
+    printWindow.document.write(doc);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.onafterprint = () => printWindow.close();
   };
 
   const statusText = hasPublished
@@ -1413,146 +1626,6 @@ export default function StaffWeeklyGridView() {
         </div>
       </div>
 
-      <SchedulePrintView 
-        schedules={schedules} 
-        weekLabel={weekLabel} 
-      />
-
-      <style>{`
-        @media screen {
-          .print-only { display: none !important; }
-        }
-        @media print {
-          @page { size: landscape; margin: 0; }
-          html, body { margin: 0 !important; padding: 0 !important; height: 100vh !important; overflow: hidden !important; }
-          body * { visibility: hidden; }
-          .print-only, .print-only * { visibility: visible !important; }
-          .print-only { 
-            display: block !important; 
-            position: fixed !important; 
-            left: 0 !important; 
-            top: 0 !important; 
-            width: 100% !important;
-            height: 100% !important;
-            background: white !important;
-            color: black !important;
-            padding: 0.5cm !important;
-            padding-top: 0 !important;
-            margin: 0 !important;
-            overflow: hidden !important;
-          }
-          .no-print { display: none !important; }
-          
-          /* Force page break behavior */
-          table { page-break-inside: avoid; width: 100% !important; border: 2px solid black !important; }
-          tr { page-break-inside: avoid; }
-        }
-      `}</style>
-    </div>
-  );
-}
-
-/**
- * High-fidelity print view that mimics the RMS Schedules 2026 Excel layout.
- * Designed to fit on a single landscape page for store posting.
- */
-function SchedulePrintView({ 
-  schedules, 
-  weekLabel 
-}: { 
-  schedules: StaffSchedule[], 
-  weekLabel: string 
-}) {
-  const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const sundayShifts = schedules
-    .filter(s => s.weekdays[0].works)
-    .map(s => ({ name: s.full_name, shift: s.weekdays[0].shift_label || "Working" }));
-
-  return (
-    <div className="hidden print:block fixed inset-0 bg-white z-[9999] text-black font-sans">
-      <style>{`
-        @page { size: landscape; margin: 0; }
-        @media print {
-          body { margin: 0 !important; padding: 0 !important; }
-          .print-content { height: 100vh; padding: 10mm 15mm; display: flex; flex-direction: column; }
-        }
-      `}</style>
-      <div className="print-content">
-        <div className="text-center mb-4">
-          <h1 className="text-3xl font-black uppercase tracking-[0.15em] leading-tight">
-            Riverside Men's Shop
-          </h1>
-          <div className="mt-1 h-0.5 w-48 bg-black mx-auto" />
-          <p className="text-lg font-black mt-2 uppercase tracking-widest">
-            Store Schedule: {weekLabel}
-          </p>
-        </div>
-
-      <table className="w-full border-collapse border-[2.5px] border-black">
-        <thead>
-          <tr className="bg-black text-white">
-            <th className="border-[1.5px] border-black p-3 text-left text-sm font-black uppercase w-[180px]">
-              Staff Member
-            </th>
-            {printDays.map((day) => (
-              <th 
-                key={day} 
-                className="border-[1.5px] border-black p-3 text-center text-sm font-black uppercase"
-              >
-                {day}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="flex-1">
-          {schedules.map((s) => (
-            <tr key={s.staff_id} className="flex-1">
-              <td className="border-[1.5px] border-black px-4 py-2 font-black text-[12px] uppercase bg-gray-50/30 whitespace-nowrap">
-                <div className="leading-tight">{s.full_name}</div>
-                <div className="text-[9px] font-bold text-gray-400">
-                  {s.role.replace("_", " ")}
-                </div>
-              </td>
-              {s.weekdays.slice(1).map((w, i) => (
-                <td 
-                  key={i} 
-                  className={`border-[1.5px] border-black px-2 py-2 text-center text-sm font-black ${
-                    !w.works ? "bg-gray-100 text-gray-400 italic" : "text-black"
-                  }`}
-                >
-                  {w.works ? (w.shift_label || "Working") : "OFF"}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      <div className="mt-4 flex justify-between items-start gap-8">
-        <div className="flex-1">
-          {sundayShifts.length > 0 && (
-            <div className="border-[2px] border-red-600 p-2 rounded-sm bg-red-50/30">
-              <h4 className="text-[10px] font-black uppercase text-red-600 tracking-widest mb-1">
-                Sunday Exception Hours / Events
-              </h4>
-              <div className="flex flex-wrap gap-x-4 gap-y-1">
-                {sundayShifts.map(ss => (
-                  <div key={ss.name} className="text-[11px] font-black text-red-700">
-                    {ss.name}: <span className="uppercase">{ss.shift}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="text-right text-[9px] font-black uppercase tracking-widest text-gray-400 whitespace-nowrap pt-1">
-          <div>Riverside OS • Staff Scheduler</div>
-          <div>Authorized Week: {weekLabel}</div>
-          <div className="mt-1">Printed {new Date().toLocaleDateString()}</div>
-        </div>
-      </div>
-      </div>
     </div>
   );
 }

@@ -8,6 +8,38 @@ import { useBackofficeAuth } from '../../context/BackofficeAuthContextLogic';
 import { mergedPosStaffHeaders } from '../../lib/posRegisterAuth';
 import { useMediaQuery } from '../../hooks/useMediaQuery';
 
+interface PrintableRow {
+  key: string;
+  date?: string;
+  time: string;
+  customer: string;
+  type: string;
+  person: string;
+  phone: string;
+  notes: string;
+}
+
+const printEsc = (value: unknown) =>
+  String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+
+const printStyles = () => `
+  <style>
+    :root { color-scheme: light; }
+    @page { size: landscape; margin: 8mm; }
+    html, body { width: 100%; margin: 0; padding: 0; background: #fff; color: #000; }
+    body { font-family: Inter, Arial, sans-serif; }
+    h1 { margin: 0 0 10px; font-size: 32px; letter-spacing: 0.16em; text-transform: uppercase; text-align: center; }
+    p { margin: 0 0 8px; text-align: center; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #111; padding: 6px 8px; font-size: 11px; text-align: left; }
+    th { background: #111; color: #fff; text-transform: uppercase; }
+    tbody tr { page-break-inside: avoid; }
+  </style>
+`;
+
 // Helper for formatting dates to match original UX
 const formatApptDate = (date: Date) => {
   return date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
@@ -217,6 +249,183 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
     return dates;
   }, [selectedDate]);
 
+  const printableRows = useMemo<PrintableRow[]>(() => {
+    if (viewMode === "day") {
+      const dateStr = selectedDate.toISOString().split("T")[0];
+      const dayRows: PrintableRow[] = [];
+      timeSlots.forEach((time) => {
+        const slotAppts = appointments.filter((a) => a.datetime === `${dateStr}T${time}:00`);
+        if (slotAppts.length === 0) {
+          dayRows.push({
+            key: `${selectedDate.toISOString()}:${time}`,
+            time,
+            customer: "—",
+            type: "—",
+            person: "—",
+            phone: "",
+            notes: "—",
+          });
+          return;
+        }
+        slotAppts.forEach((appt) => {
+          dayRows.push({
+            key: appt.id,
+            time,
+            customer: appt.customerName || appt.customer_display_name || "Customer",
+            type: appt.appointment_type || appt.type || "Service",
+            person: appt.salesperson || "—",
+            phone: appt.phone || "",
+            notes: appt.notes || appt.status || "—",
+          });
+        });
+      });
+      return dayRows;
+    }
+
+    const weekRows: PrintableRow[] = [];
+    weekDates.forEach((date) => {
+      const dateLabel = date.toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "numeric",
+        day: "numeric",
+      });
+      const dateStr = date.toISOString().split("T")[0];
+      timeSlots.forEach((time) => {
+        const slotAppts = appointments.filter((a) => a.datetime === `${dateStr}T${time}:00`);
+        if (slotAppts.length === 0) {
+          weekRows.push({
+            key: `${dateStr}:${time}:empty`,
+            date: dateLabel,
+            time,
+            customer: "—",
+            type: "—",
+            person: "—",
+            phone: "",
+            notes: "—",
+          });
+          return;
+        }
+        slotAppts.forEach((appt) => {
+          weekRows.push({
+            key: appt.id,
+            date: dateLabel,
+            time,
+            customer: appt.customerName || appt.customer_display_name || "Customer",
+            type: appt.appointment_type || appt.type || "Service",
+            person: appt.salesperson || "—",
+            phone: appt.phone || "",
+            notes: appt.notes || appt.status || "—",
+          });
+        });
+      });
+    });
+    return weekRows;
+  }, [appointments, selectedDate, timeSlots, viewMode, weekDates]);
+
+  const printTitle = useMemo(() => {
+    if (viewMode === "day") return formatApptDate(selectedDate);
+    return `Week of ${formatApptDate(weekDates[0])} through ${formatApptDate(
+      weekDates[weekDates.length - 1],
+    )}`;
+  }, [selectedDate, viewMode, weekDates]);
+
+  const handlePrint = useCallback(() => {
+    const head = printStyles();
+    const title = printTitle;
+    const includeDateColumn = viewMode === "week";
+    const headers = [
+      ...(includeDateColumn ? ["Date"] : []),
+      "Time",
+      "Customer",
+      "Type",
+      "Salesperson",
+      "Phone",
+      "Notes",
+    ];
+    const bodyRows = printableRows
+      .map(
+        (row) => `
+          <tr>
+            ${includeDateColumn ? `<td>${printEsc(row.date)}</td>` : ""}
+            <td>${printEsc(row.time)}</td>
+            <td>${printEsc(row.customer)}</td>
+            <td>${printEsc(row.type)}</td>
+            <td>${printEsc(row.person)}</td>
+            <td>${printEsc(row.phone)}</td>
+            <td>${printEsc(row.notes)}</td>
+          </tr>
+        `,
+      )
+      .join("");
+
+    const doc = `<!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Print Schedule</title>
+          ${head}
+        </head>
+        <body>
+          <div>
+            <h1>Riverside Appointment Schedule</h1>
+            <p style="font-size: 16px; font-weight: 800; letter-spacing: .18em;">PRINT SCHEDULE</p>
+            <p style="font-size: 11px; color: #555; font-weight: 700; text-transform: uppercase;">${printEsc(title)}</p>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                ${headers.map((h) => `<th>${printEsc(h)}</th>`).join("")}
+              </tr>
+            </thead>
+            <tbody>
+              ${bodyRows}
+            </tbody>
+          </table>
+        </body>
+      </html>`;
+
+    const frame = document.createElement("iframe");
+    frame.setAttribute("aria-hidden", "true");
+    frame.style.position = "absolute";
+    frame.style.left = "0";
+    frame.style.top = "0";
+    frame.style.width = "1px";
+    frame.style.height = "1px";
+    frame.style.border = "0";
+    frame.style.pointerEvents = "none";
+    frame.style.opacity = "0";
+    frame.srcdoc = doc;
+
+    const cleanup = () => {
+      if (frame.parentNode) {
+        frame.parentNode.removeChild(frame);
+      }
+    };
+
+    frame.onload = () => {
+      const frameWindow = frame.contentWindow;
+      if (!frameWindow) {
+        cleanup();
+        window.print();
+        return;
+      }
+
+      frameWindow.focus();
+      const handleAfterPrint = () => {
+        cleanup();
+        frameWindow.removeEventListener("afterprint", handleAfterPrint);
+      };
+
+      frameWindow.addEventListener("afterprint", handleAfterPrint);
+      setTimeout(() => {
+        frameWindow.print();
+      }, 0);
+      setTimeout(cleanup, 1500);
+    };
+
+    document.body.appendChild(frame);
+  }, [printTitle, printableRows, viewMode]);
+
   return (
     <div className="flex flex-1 flex-col bg-app-surface">
       {/* Header Controls (1:1 UI/UX Restoration) */}
@@ -355,10 +564,10 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
         <div className="flex w-full flex-wrap gap-2 xl:w-auto">
           <button
             type="button"
-            onClick={() => window.print()}
+            onClick={handlePrint}
             className="ui-touch-target flex min-h-[44px] items-center gap-2 rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted transition-all hover:bg-app-surface-2 hover:text-app-text"
           >
-            <Printer size={14} /> Print
+            <Printer size={14} /> Print Schedule
           </button>
           <button
             type="button"
@@ -368,12 +577,6 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
             <Plus size={14} strokeWidth={3} /> New Appt
           </button>
         </div>
-      </div>
-
-      {/* Print-only Header */}
-      <div className="hidden print:block text-center p-8 bg-white text-black">
-        <h1 className="text-2xl font-black uppercase italic">{formatApptDate(selectedDate)}</h1>
-        <p className="text-sm font-bold opacity-70">DAILY APPOINTMENT SCHEDULE</p>
       </div>
 
       {/* Main Grid */}
@@ -495,6 +698,7 @@ const SchedulerWorkspace: React.FC<SchedulerWorkspaceProps> = ({
           variant="danger"
         />
       )}
+
     </div>
   );
 };
