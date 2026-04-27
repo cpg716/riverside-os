@@ -170,7 +170,8 @@ pub async fn ensure_salesperson_booking_allowed(
 pub async fn list_eligible_staff(pool: &PgPool) -> Result<Vec<EligibleStaffRow>, sqlx::Error> {
     sqlx::query_as::<_, EligibleStaffRow>(
         r#"
-        -- Include 'admin' so the owner can add themselves to the schedule
+        SELECT id, full_name, role
+        FROM staff
         WHERE is_active = TRUE AND role IN ('admin', 'salesperson', 'sales_support', 'staff_support', 'alterations')
         ORDER BY
           CASE role
