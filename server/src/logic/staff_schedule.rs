@@ -206,6 +206,7 @@ pub struct WeeklyScheduleInstanceRow {
     pub shift_label: Option<String>,
     pub schedule_status: Option<String>,
     pub base_works: bool,
+    pub is_highlighted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -213,6 +214,7 @@ pub struct WeekInputDay {
     pub weekday: i16,
     pub works: bool,
     pub shift_label: Option<String>,
+    pub is_highlighted: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -254,7 +256,15 @@ pub async fn list_week_schedule_for_week(
                 WHEN sws.status = 'archived' THEN 'archived'::text
                 ELSE NULL
             END AS schedule_status,
-            COALESCE(swa.works, FALSE) AS base_works
+            COALESCE(swa.works, FALSE) AS base_works,
+            COALESCE(
+                CASE
+                    WHEN sws.status IN ('draft','published') THEN swd.is_highlighted
+                    ELSE NULL
+                END,
+                swa.is_highlighted,
+                FALSE
+            ) AS is_highlighted
         FROM staff s
         CROSS JOIN generate_series(0,6) AS gs(day)
         LEFT JOIN staff_weekly_schedule sws
@@ -386,20 +396,23 @@ pub async fn upsert_week_schedule_for_week(
         .bind(staff_id)
         .bind(week_start)
         .execute(&mut *tx)
-        .await?;
-
-        for day in &row.weekdays {
+        for d in &row.weekdays {
             sqlx::query(
                 r#"
-                INSERT INTO staff_weekly_schedule_day (staff_id, week_start, weekday, works, shift_label)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO staff_weekly_schedule_day (staff_id, week_start, weekday, works, shift_label, is_highlighted)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (staff_id, week_start, weekday) DO UPDATE SET
+                    works = EXCLUDED.works,
+                    shift_label = EXCLUDED.shift_label,
+                    is_highlighted = EXCLUDED.is_highlighted
                 "#,
             )
             .bind(staff_id)
             .bind(week_start)
-            .bind(day.weekday)
-            .bind(day.works)
-            .bind(&day.shift_label)
+            .bind(d.weekday)
+            .bind(d.works)
+            .bind(d.shift_label.as_ref().map(str::trim).filter(|s| !s.is_empty()))
+            .bind(d.is_highlighted)
             .execute(&mut *tx)
             .await?;
         }
@@ -928,7 +941,8 @@ pub async fn list_master_template(pool: &PgPool) -> Result<Vec<MasterTemplateRow
         SELECT s.id AS staff_id, s.full_name, s.role, gs.day::smallint AS weekday,
                COALESCE(swa.works, FALSE) AS works,
                swa.shift_label,
-               COALESCE(swa.works, FALSE) AS base_works
+               COALESCE(swa.works, FALSE) AS base_works,
+               COALESCE(swa.is_highlighted, FALSE) AS is_highlighted
         FROM staff s
         CROSS JOIN (SELECT generate_series(0, 6) AS day) gs
         LEFT JOIN staff_weekly_availability swa 
@@ -952,6 +966,7 @@ pub struct MasterTemplateRow {
     pub works: bool,
     pub shift_label: Option<String>,
     pub base_works: bool,
+    pub is_highlighted: bool,
 }
 
 pub async fn clone_week_schedule_week(

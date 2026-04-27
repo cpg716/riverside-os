@@ -52,6 +52,8 @@ pub struct WeekdayEntry {
     pub shift_label: Option<String>,
     #[serde(default)]
     pub base_works: bool,
+    #[serde(default)]
+    pub is_highlighted: bool,
 }
 
 #[derive(Debug, Deserialize)]
