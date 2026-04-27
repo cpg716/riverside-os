@@ -1469,16 +1469,24 @@ function SchedulePrintView({
     .map(s => ({ name: s.full_name, shift: s.weekdays[0].shift_label || "Working" }));
 
   return (
-    <div className="print-only font-sans text-black">
-      <div className="text-center mb-4">
-        <h1 className="text-3xl font-black uppercase tracking-[0.15em] leading-tight">
-          Riverside Men's Shop
-        </h1>
-        <div className="mt-1 h-0.5 w-48 bg-black mx-auto" />
-        <p className="text-lg font-black mt-2 uppercase tracking-widest">
-          Store Schedule: {weekLabel}
-        </p>
-      </div>
+    <div className="hidden print:block fixed inset-0 bg-white z-[9999] text-black font-sans">
+      <style>{`
+        @page { size: landscape; margin: 0; }
+        @media print {
+          body { margin: 0 !important; padding: 0 !important; }
+          .print-content { height: 100vh; padding: 10mm 15mm; display: flex; flex-direction: column; }
+        }
+      `}</style>
+      <div className="print-content">
+        <div className="text-center mb-4">
+          <h1 className="text-3xl font-black uppercase tracking-[0.15em] leading-tight">
+            Riverside Men's Shop
+          </h1>
+          <div className="mt-1 h-0.5 w-48 bg-black mx-auto" />
+          <p className="text-lg font-black mt-2 uppercase tracking-widest">
+            Store Schedule: {weekLabel}
+          </p>
+        </div>
 
       <table className="w-full border-collapse border-[2.5px] border-black">
         <thead>
@@ -1499,22 +1507,20 @@ function SchedulePrintView({
         <tbody className="flex-1">
           {schedules.map((s) => (
             <tr key={s.staff_id} className="flex-1">
-              <td className="border-[1.5px] border-black px-4 py-4 font-black text-sm uppercase bg-gray-50/30 whitespace-nowrap">
+              <td className="border-[1.5px] border-black px-4 py-2 font-black text-[12px] uppercase bg-gray-50/30 whitespace-nowrap">
                 <div className="leading-tight">{s.full_name}</div>
-                <div className="text-[10px] font-bold text-gray-400 mt-0.5">
+                <div className="text-[9px] font-bold text-gray-400">
                   {s.role.replace("_", " ")}
                 </div>
               </td>
               {s.weekdays.slice(1).map((w, i) => (
                 <td 
                   key={i} 
-                  className={`border-[1.5px] border-black px-2 py-4 text-center text-lg font-black ${
+                  className={`border-[1.5px] border-black px-2 py-2 text-center text-sm font-black ${
                     !w.works ? "bg-gray-100 text-gray-400 italic" : "text-black"
                   }`}
                 >
-                  <span className="inline-block scale-y-110">
-                    {w.works ? (w.shift_label || "Working") : "OFF"}
-                  </span>
+                  {w.works ? (w.shift_label || "Working") : "OFF"}
                 </td>
               ))}
             </tr>
@@ -1545,6 +1551,7 @@ function SchedulePrintView({
           <div>Authorized Week: {weekLabel}</div>
           <div className="mt-1">Printed {new Date().toLocaleDateString()}</div>
         </div>
+      </div>
       </div>
     </div>
   );
