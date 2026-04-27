@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, type ChangeEvent } from "react";
 import { 
   FileUp, 
   Printer, 
@@ -41,8 +41,12 @@ type NameLookup = {
   exact: Map<string, EligibleStaff>;
   byClean: Map<string, EligibleStaff>;
   bySingleToken: Map<string, EligibleStaff[]>;
+  bySingleName: Map<string, EligibleStaff[]>;
   byFirstLast: Map<string, EligibleStaff[]>;
   byFirstInitial: Map<string, EligibleStaff[]>;
+  byLastToken: Map<string, EligibleStaff[]>;
+  byLastInitial: Map<string, EligibleStaff[]>;
+  all: EligibleStaff[];
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -93,47 +97,119 @@ const normalizeName = (name: string): string =>
 const cleanName = (name: string): string =>
   normalizeName(name).replace(/[^a-z0-9]+/g, " ").trim();
 
+const levenshteinDistance = (a: string, b: string): number => {
+  const aa = Array.from(a);
+  const bb = Array.from(b);
+  const matrix = Array.from({ length: aa.length + 1 }, (_, i) =>
+    Array.from({ length: bb.length + 1 }, (_, j) => (i === 0 ? j : j === 0 ? i : 0)),
+  );
+
+  for (let i = 1; i <= aa.length; i += 1) {
+    for (let j = 1; j <= bb.length; j += 1) {
+      const cost = aa[i - 1] === bb[j - 1] ? 0 : 1;
+      matrix[i][j] = Math.min(
+        matrix[i - 1][j] + 1,
+        matrix[i][j - 1] + 1,
+        matrix[i - 1][j - 1] + cost,
+      );
+    }
+  }
+
+  return matrix[aa.length][bb.length] ?? 0;
+};
+
+const fuzzyNameScore = (a: string, b: string): number => {
+  const na = cleanName(a);
+  const nb = cleanName(b);
+  if (!na || !nb) return Number.POSITIVE_INFINITY;
+
+  if (na === nb) return 0;
+
+  const tokensA = na.split(" ").filter(Boolean);
+  const tokensB = nb.split(" ").filter(Boolean);
+  const baseDistance = levenshteinDistance(na, nb);
+  const bonusFirstToken = tokensA[0] && tokensB[0] && tokensA[0] === tokensB[0] ? -1 : 0;
+  const bonusLastToken =
+    tokensA.length > 1 && tokensB.length > 1 && tokensA[tokensA.length - 1] === tokensB[tokensB.length - 1]
+      ? -1
+      : 0;
+
+  return Math.max(0, baseDistance + bonusFirstToken + bonusLastToken);
+};
+
 const buildNameLookup = (rows: EligibleStaff[]): NameLookup => {
   const exact = new Map<string, EligibleStaff>();
   const byClean = new Map<string, EligibleStaff>();
   const bySingleToken = new Map<string, EligibleStaff[]>();
+  const bySingleName = new Map<string, EligibleStaff[]>();
   const byFirstLast = new Map<string, EligibleStaff[]>();
   const byFirstInitial = new Map<string, EligibleStaff[]>();
+  const byLastToken = new Map<string, EligibleStaff[]>();
+  const byLastInitial = new Map<string, EligibleStaff[]>();
 
   for (const staff of rows) {
     const normalized = normalizeName(staff.full_name);
     const cleaned = cleanName(staff.full_name);
-    if (normalized) {
-      exact.set(normalized, staff);
-      if (!byClean.has(cleaned)) {
-        byClean.set(cleaned, staff);
-      }
-      const firstToken = normalized.split(/\s+/)[0];
-      if (firstToken) {
-        const current = bySingleToken.get(firstToken) ?? [];
-        current.push(staff);
-        bySingleToken.set(firstToken, current);
-      }
-      const parts = normalized.split(/\s+/).filter(Boolean);
-      if (parts.length >= 2) {
-        const first = parts[0];
-        const last = parts[parts.length - 1];
-        const firstLast = `${first} ${last}`;
-        const firstInitial = `${first} ${last[0]}`;
-        const firstLastBucket = byFirstLast.get(firstLast) ?? [];
-        firstLastBucket.push(staff);
-        byFirstLast.set(firstLast, firstLastBucket);
-        const firstInitialBucket = byFirstInitial.get(firstInitial) ?? [];
-        firstInitialBucket.push(staff);
-        byFirstInitial.set(firstInitial, firstInitialBucket);
-      }
-      const reversed = normalized.split(/\s+/).reverse().join(" ");
-      if (reversed && !byClean.has(reversed)) {
-        byClean.set(reversed, staff);
-      }
+    if (!normalized) {
+      continue;
+    }
+
+    exact.set(normalized, staff);
+    if (!byClean.has(cleaned)) {
+      byClean.set(cleaned, staff);
+    }
+
+    const parts = normalized.split(/\s+/).filter(Boolean);
+    const firstToken = parts[0];
+    if (firstToken) {
+      const current = bySingleToken.get(firstToken) ?? [];
+      current.push(staff);
+      bySingleToken.set(firstToken, current);
+    }
+
+    if (parts.length === 1) {
+      const current = bySingleName.get(firstToken) ?? [];
+      current.push(staff);
+      bySingleName.set(firstToken, current);
+    }
+
+    if (parts.length >= 2) {
+      const first = parts[0];
+      const last = parts[parts.length - 1];
+      const firstLast = `${first} ${last}`;
+      const firstInitial = `${first} ${last[0]}`;
+      const firstLastBucket = byFirstLast.get(firstLast) ?? [];
+      firstLastBucket.push(staff);
+      byFirstLast.set(firstLast, firstLastBucket);
+      const firstInitialBucket = byFirstInitial.get(firstInitial) ?? [];
+      firstInitialBucket.push(staff);
+      byFirstInitial.set(firstInitial, firstInitialBucket);
+
+      const lastInitial = `${last[0]} ${first}`;
+      const lastTokenBucket = byLastToken.get(last) ?? [];
+      lastTokenBucket.push(staff);
+      byLastToken.set(last, lastTokenBucket);
+      const lastInitialBucket = byLastInitial.get(lastInitial) ?? [];
+      lastInitialBucket.push(staff);
+      byLastInitial.set(lastInitial, lastInitialBucket);
+    }
+
+    const reversed = parts.slice().reverse().join(" ");
+    if (reversed && !byClean.has(reversed)) {
+      byClean.set(reversed, staff);
     }
   }
-  return { exact, byClean, bySingleToken, byFirstLast, byFirstInitial };
+  return {
+    exact,
+    byClean,
+    bySingleToken,
+    bySingleName,
+    byFirstLast,
+    byFirstInitial,
+    byLastToken,
+    byLastInitial,
+    all: rows,
+  };
 };
 
 const resolveStaffByName = (
@@ -144,6 +220,8 @@ const resolveStaffByName = (
 ): EligibleStaff | null => {
   const normalized = normalizeName(rawName);
   if (!normalized) return null;
+  const tokens = cleanName(rawName).split(/\s+/).filter(Boolean);
+  const firstToken = tokens[0];
 
   const exact = rowsByName.exact.get(normalized);
   if (exact) return exact;
@@ -154,10 +232,24 @@ const resolveStaffByName = (
     if (byClean) return byClean;
   }
 
-  const firstToken = normalized.split(/\s+/)[0];
   const firstTokenCandidates = firstToken
     ? rowsByName.bySingleToken.get(firstToken) ?? []
     : [];
+  const singleNameCandidates = rowsByName.bySingleName.get(normalized) ?? [];
+  const lastToken = tokens[tokens.length - 1];
+  const lastTokenCandidates = lastToken ? rowsByName.byLastToken.get(lastToken) ?? [] : [];
+  const lastInitialCandidates =
+    tokens.length >= 2 && lastToken
+      ? rowsByName.byLastInitial.get(`${lastToken[0]} ${tokens[0]}`) ?? []
+      : [];
+
+  const eligibleSingleNameCandidates = singleNameCandidates.filter(
+    (s) => !disallowedStaffIds.has(s.id),
+  );
+  if (eligibleSingleNameCandidates.length === 1) {
+    return eligibleSingleNameCandidates[0];
+  }
+
   const eligibleFirstTokenCandidates = disambiguateSingleToken
     ? firstTokenCandidates.filter((s) => !disallowedStaffIds.has(s.id))
     : firstTokenCandidates;
@@ -165,25 +257,104 @@ const resolveStaffByName = (
 
   if (disambiguateSingleToken && firstTokenCandidates.length > 1 && firstToken) {
     const eligible = eligibleFirstTokenCandidates;
+    if (eligible.length === 1) return eligible[0];
     if (eligible.length > 1) {
-      return [...eligible].sort((a, b) =>
-        a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }),
-      )[0];
+      return [...eligible]
+        .filter((candidate) => candidate.full_name.trim().toLowerCase().split(/\s+/).length === 1)
+        .sort((a, b) =>
+          a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }),
+        )[0];
     }
   }
 
-  const tokens = cleaned.split(/\s+/).filter(Boolean);
+  const eligibleLastTokenCandidates = lastTokenCandidates.filter(
+    (s) => !disallowedStaffIds.has(s.id),
+  );
+  if (eligibleLastTokenCandidates.length === 1) return eligibleLastTokenCandidates[0];
+
+  const eligibleLastInitialCandidates = lastInitialCandidates.filter(
+    (s) => !disallowedStaffIds.has(s.id),
+  );
+  if (eligibleLastInitialCandidates.length === 1) return eligibleLastInitialCandidates[0];
+
   if (tokens.length >= 2) {
     const firstLast = `${tokens[0]} ${tokens[1]}`;
     const firstLastMatches = rowsByName.byFirstLast.get(firstLast) ?? [];
-    if (firstLastMatches.length === 1) return firstLastMatches[0];
+    const eligibleFirstLastMatches = firstLastMatches.filter((s) => !disallowedStaffIds.has(s.id));
+    if (eligibleFirstLastMatches.length === 1) return eligibleFirstLastMatches[0];
 
     const firstInitial = `${tokens[0]} ${tokens[1][0]}`;
     const firstInitialMatches = rowsByName.byFirstInitial.get(firstInitial) ?? [];
-    if (firstInitialMatches.length === 1) return firstInitialMatches[0];
+    const eligibleFirstInitialMatches = firstInitialMatches.filter(
+      (s) => !disallowedStaffIds.has(s.id),
+    );
+    if (eligibleFirstInitialMatches.length === 1) return eligibleFirstInitialMatches[0];
   }
 
-  return null;
+  const fuzzyCandidates = rowsByName.all.filter((s) => !disallowedStaffIds.has(s.id));
+  let best: { score: number; staff: EligibleStaff } | null = null;
+  for (const candidate of fuzzyCandidates) {
+    const score = fuzzyNameScore(rawName, candidate.full_name);
+    if (score <= 3) {
+      if (!best || score < best.score) {
+        best = { score, staff: candidate };
+      }
+    }
+  }
+  return best?.staff ?? null;
+
+};
+
+const scanWorksheetForSchedule = (
+  worksheet: ExcelJS.Worksheet,
+): {
+  headerRowIndex: number;
+  staffNameCol: number;
+  colMap: Record<number, number>;
+} | null => {
+  let staffNameCol = 1;
+  let headerRowIndex = 1;
+  const bestColMap: Record<number, number> = {};
+  let bestScore = -1;
+
+  const headerScanLimit = Math.min(worksheet.rowCount, 12);
+  for (let rowIdx = 1; rowIdx <= headerScanLimit; rowIdx++) {
+    const row = worksheet.getRow(rowIdx);
+    const rowColMap: Record<number, number> = {};
+    let foundNameHeaderInRow = false;
+    let nameColForRow = 1;
+
+    row.eachCell((cell, colNumber) => {
+      const norm = normalizeHeader(cellText(cell));
+      if (!norm) return;
+      if (NAME_HEADER_KEYS.has(norm)) {
+        foundNameHeaderInRow = true;
+        nameColForRow = colNumber;
+      }
+      const weekday = DAY_HEADER_MAP[norm] ?? DAY_HEADER_MAP[norm.replace(".", "")];
+      if (weekday !== undefined) {
+        rowColMap[colNumber] = weekday;
+      }
+    });
+
+    const dayCount = Object.keys(rowColMap).length;
+    const score = dayCount + (foundNameHeaderInRow ? 0.5 : 0);
+    if (score > bestScore && score > 1) {
+      bestScore = score;
+      headerRowIndex = rowIdx;
+      staffNameCol = foundNameHeaderInRow ? nameColForRow : staffNameCol;
+      for (const k of Object.keys(bestColMap)) {
+        delete bestColMap[Number(k)];
+      }
+      Object.assign(bestColMap, rowColMap);
+    }
+  }
+
+  if (bestScore <= 1 || Object.keys(bestColMap).length === 0) {
+    return null;
+  }
+
+  return { headerRowIndex, staffNameCol, colMap: bestColMap };
 };
 
 const cellText = (cell: ExcelJS.Cell): string => {
@@ -207,6 +378,54 @@ const cellText = (cell: ExcelJS.Cell): string => {
       .trim();
   }
   return String(v).trim();
+};
+
+const parseWeekScheduleSheet = (
+  worksheet: ExcelJS.Worksheet,
+  nameLookup: NameLookup,
+): {
+  totalRows: number;
+  recognizedRows: UnresolvedImportRow[];
+  unrecognizedRows: UnresolvedImportRow[];
+} => {
+  const scan = scanWorksheetForSchedule(worksheet);
+  if (!scan) {
+    return { totalRows: 0, recognizedRows: [], unrecognizedRows: [] };
+  }
+
+  const recognizedRows: UnresolvedImportRow[] = [];
+  const unrecognizedRows: UnresolvedImportRow[] = [];
+  const { headerRowIndex, staffNameCol, colMap } = scan;
+  let totalRows = 0;
+
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber <= headerRowIndex) return;
+
+    const name = cellText(row.getCell(staffNameCol));
+    if (!name) return;
+
+    const daySchedule = Object.entries(colMap).map(([colInx, weekday]) => ({
+      weekday,
+      shiftVal: cellText(row.getCell(Number(colInx))),
+    }));
+    const hasAnyScheduleCell = daySchedule.some(({ shiftVal }) => shiftVal !== "");
+    if (!hasAnyScheduleCell) return;
+
+    totalRows += 1;
+    const rowData = { name, daySchedule };
+    const staff = resolveStaffByName(nameLookup, name, false);
+    if (staff) {
+      recognizedRows.push(rowData);
+    } else {
+      unrecognizedRows.push(rowData);
+    }
+  });
+
+  return {
+    recognizedRows,
+    unrecognizedRows,
+    totalRows,
+  };
 };
 
 export default function StaffWeeklyGridView() {
@@ -308,7 +527,7 @@ export default function StaffWeeklyGridView() {
     }
   };
 
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!canEdit) {
@@ -322,134 +541,97 @@ export default function StaffWeeklyGridView() {
     try {
       const workbook = new ExcelJS.Workbook();
       await workbook.xlsx.load(await file.arrayBuffer());
-      const worksheet = workbook.getWorksheet(1);
-      if (!worksheet) throw new Error("No worksheet found in Excel file");
+      if (workbook.worksheets.length === 0) {
+        throw new Error("No worksheet found in Excel file.");
+      }
 
       const nameLookup = buildNameLookup(eligible);
 
       const nextSchedules = [...schedules];
-      const missingNames: string[] = [];
-      let successCount = 0;
+      const missingNames = new Set<string>();
       const unresolvedRows: UnresolvedImportRow[] = [];
       const matchedStaffIds = new Set<string>();
+      const appliedStaffIds = new Set<string>();
+      let seenSheets = 0;
+      let totalParsedRows = 0;
 
-      // Map Excel column names to weekdays
-      // Excel likely has Name, Mon, Tue, Wed, Thu, Fri, Sat
-      // Weekday index in ROS: 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
-
-      let staffNameCol = 1;
-      let headerRowIndex = 1;
-      const bestColMap: Record<number, number> = {};
-      let bestScore = -1;
-
-      const headerScanLimit = Math.min(worksheet.rowCount, 12);
-      for (let rowIdx = 1; rowIdx <= headerScanLimit; rowIdx++) {
-        const row = worksheet.getRow(rowIdx);
-        const rowColMap: Record<number, number> = {};
-        let foundNameHeaderInRow = false;
-        let nameColForRow = 1;
-
-        row.eachCell((cell, colNumber) => {
-          const norm = normalizeHeader(cellText(cell));
-          if (!norm) return;
-          if (NAME_HEADER_KEYS.has(norm)) {
-            foundNameHeaderInRow = true;
-            nameColForRow = colNumber;
-          }
-          const weekday =
-            DAY_HEADER_MAP[norm] ?? DAY_HEADER_MAP[norm.replace(".", "")];
-          if (weekday !== undefined) {
-            rowColMap[colNumber] = weekday;
-          }
-        });
-
-        const dayCount = Object.keys(rowColMap).length;
-        const score = dayCount + (foundNameHeaderInRow ? 0.5 : 0);
-        if (score > bestScore && score > 1) {
-          bestScore = score;
-          headerRowIndex = rowIdx;
-          staffNameCol = foundNameHeaderInRow ? nameColForRow : staffNameCol;
-          Object.keys(bestColMap).forEach((k) => delete bestColMap[Number(k)]);
-          Object.assign(bestColMap, rowColMap);
-        }
-      }
-
-      if (bestScore <= 1 && Object.keys(bestColMap).length === 0) {
-        throw new Error("No weekday headers recognized in the uploaded file.");
-      }
-
-      const colMap = bestColMap;
-
-      const applyImportRow = (staff: EligibleStaff, parsedDays: UnresolvedImportRow["daySchedule"]) => {
-        let existingIdx = nextSchedules.findIndex((s) => s.staff_id === staff.id);
+      const applyImportRow = (
+        currentSchedules: StaffSchedule[],
+        staff: EligibleStaff,
+        parsedDays: UnresolvedImportRow["daySchedule"],
+      ) => {
+        let existingIdx = currentSchedules.findIndex((s) => s.staff_id === staff.id);
         if (existingIdx === -1) {
-          nextSchedules.push({
+          currentSchedules.push({
             staff_id: staff.id,
             staff_name: staff.full_name,
-            weekdays: Array.from({ length: 7 }, (_, i) => ({ weekday: i, works: false, shift_label: null })),
+            weekdays: Array.from({ length: 7 }, (_, i) => ({
+              weekday: i,
+              works: false,
+              shift_label: null,
+            })),
           });
-          existingIdx = nextSchedules.length - 1;
+          existingIdx = currentSchedules.length - 1;
         }
 
         const staffSched = {
-          ...nextSchedules[existingIdx],
-          weekdays: [...nextSchedules[existingIdx].weekdays],
+          ...currentSchedules[existingIdx],
+          weekdays: [...currentSchedules[existingIdx].weekdays],
         };
         parsedDays.forEach(({ weekday, shiftVal }) => {
           const hasShift = shiftVal !== "";
-          const works = hasShift && normalizeHeader(shiftVal).toUpperCase() !== "OFF";
+          const normalized = normalizeHeader(shiftVal);
+          const works = hasShift && normalized !== "off";
           staffSched.weekdays[weekday] = {
             weekday,
             works,
             shift_label: hasShift && works ? shiftVal : null,
           };
         });
-        nextSchedules[existingIdx] = staffSched;
+        currentSchedules[existingIdx] = staffSched;
       };
 
-      worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber <= headerRowIndex) return; // Skip header rows
+      for (const worksheet of workbook.worksheets) {
+        const parseResult = parseWeekScheduleSheet(worksheet, nameLookup);
+        if (parseResult.totalRows === 0) continue;
 
-        const name = cellText(row.getCell(staffNameCol));
-        if (!name) return;
-        const parsedDays = Object.entries(colMap).map(([colInx, weekday]) => ({
-          weekday,
-          shiftVal: cellText(row.getCell(Number(colInx))),
-        }));
-        const hasAnyScheduleCell = parsedDays.some(({ shiftVal }) => shiftVal !== "");
-        const staff = resolveStaffByName(nameLookup, name, false);
-        if (!staff) {
-          if (!hasAnyScheduleCell) return;
-          unresolvedRows.push({ name, daySchedule: parsedDays });
-          return;
+        seenSheets += 1;
+        totalParsedRows += parseResult.totalRows;
+        unresolvedRows.push(...parseResult.unrecognizedRows);
+
+        for (const row of parseResult.recognizedRows) {
+          const staff = resolveStaffByName(nameLookup, row.name, false, matchedStaffIds);
+          if (!staff) {
+            continue;
+          }
+          matchedStaffIds.add(staff.id);
+          applyImportRow(nextSchedules, staff, row.daySchedule);
+          appliedStaffIds.add(staff.id);
         }
-
-        matchedStaffIds.add(staff.id);
-        applyImportRow(staff, parsedDays);
-        successCount++;
-      });
+      }
 
       for (const unresolved of unresolvedRows) {
-        const resolved = resolveStaffByName(
-          nameLookup,
-          unresolved.name,
-          true,
-          matchedStaffIds,
-        );
+        const resolved = resolveStaffByName(nameLookup, unresolved.name, true, matchedStaffIds);
         if (!resolved) {
-          missingNames.push(unresolved.name);
+          missingNames.add(unresolved.name);
           continue;
         }
-
+        applyImportRow(nextSchedules, resolved, unresolved.daySchedule);
         matchedStaffIds.add(resolved.id);
-        applyImportRow(resolved, unresolved.daySchedule);
-        successCount++;
+        appliedStaffIds.add(resolved.id);
+      }
+
+      if (totalParsedRows === 0) {
+        throw new Error(`No schedule rows were found across "${file.name}".`);
       }
 
       setSchedules(nextSchedules);
-      setParseResults({ success: successCount, missing: Array.from(new Set(missingNames)) });
-      if (successCount === 0) {
-        if (missingNames.length > 0) {
+      setParseResults({
+        success: appliedStaffIds.size,
+        missing: Array.from(missingNames),
+      });
+      if (appliedStaffIds.size === 0) {
+        if (missingNames.size > 0) {
           toast(
             `No names from "${file.name}" matched active schedule staff. Save was not run.`,
             "error",
@@ -457,10 +639,19 @@ export default function StaffWeeklyGridView() {
         } else {
           toast(`No schedule rows found in "${file.name}".`, "error");
         }
+        return;
       } else {
         toast(
-          `Imported ${successCount} schedules from ${file.name}. Click Save All Changes to persist.`,
+          `Imported ${appliedStaffIds.size} staff from ${seenSheets} sheet(s) in ${file.name}. Click Save All Changes to persist.`,
           "success",
+        );
+      }
+
+      if (missingNames.size > 0) {
+        const preview = Array.from(missingNames).slice(0, 20);
+        toast(
+          `${preview.length} names need manual matching from "${file.name}". First: ${preview.join(", ")}`,
+          "error",
         );
       }
     } catch (e) {

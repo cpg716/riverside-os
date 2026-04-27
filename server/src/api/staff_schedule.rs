@@ -24,6 +24,8 @@ use crate::logic::tasks::load_store_timezone_name;
 use crate::middleware::{self, require_authenticated_staff_headers};
 use crate::models::DbStaffScheduleExceptionKind;
 
+use std::collections::HashMap;
+
 #[derive(Debug, Deserialize)]
 pub struct RangeQuery {
     pub staff_id: Uuid,
@@ -95,6 +97,27 @@ pub struct ValidateBookingQuery {
     pub starts_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct WeeklyViewQuery {
+    pub from: chrono::NaiveDate,
+    pub to: chrono::NaiveDate,
+}
+
+#[derive(Debug, Serialize)]
+struct WeeklyScheduleByStaff {
+    pub staff_id: Uuid,
+    pub full_name: String,
+    pub role: crate::models::DbStaffRole,
+    pub days: Vec<staff_schedule::EffectiveDay>,
+}
+
+#[derive(Debug, Serialize)]
+struct WeeklyScheduleViewResponse {
+    pub from: chrono::NaiveDate,
+    pub to: chrono::NaiveDate,
+    pub rows: Vec<WeeklyScheduleByStaff>,
+}
+
 fn map_err(e: StaffScheduleError) -> Response {
     match e {
         StaffScheduleError::NotFound => {
@@ -156,6 +179,7 @@ pub fn router() -> Router<AppState> {
         .route("/weekly/{staff_id}", get(get_weekly))
         .route("/weekly", put(put_weekly))
         .route("/weekly/bulk", post(post_bulk_weekly))
+        .route("/weekly-view", get(get_weekly_view))
         .route(
             "/exceptions",
             get(list_exceptions)
@@ -194,6 +218,57 @@ async fn get_weekly(
         .map_err(StaffScheduleError::Database)
         .map_err(map_err)?;
     Ok(Json(rows))
+}
+
+async fn get_weekly_view(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<WeeklyViewQuery>,
+) -> Result<Json<WeeklyScheduleViewResponse>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_VIEW)
+        .await
+        .map_err(map_gate)?;
+
+    if q.from > q.to {
+        return Err(map_err(StaffScheduleError::BadRequest(
+            "`from` date must not be after `to` date".into(),
+        )));
+    }
+
+    let rows = staff_schedule::list_effective_schedule_for_date_range(&state.db, q.from, q.to)
+        .await
+        .map_err(StaffScheduleError::Database)
+        .map_err(map_err)?;
+
+    let mut staff_map: HashMap<Uuid, WeeklyScheduleByStaff> = HashMap::new();
+    for row in rows {
+        let entry = staff_map
+            .entry(row.staff_id)
+            .or_insert_with(|| WeeklyScheduleByStaff {
+                staff_id: row.staff_id,
+                full_name: row.full_name.clone(),
+                role: row.role,
+                days: Vec::new(),
+            });
+        entry.days.push(staff_schedule::EffectiveDay {
+            date: row.date,
+            working: row.working,
+            shift_label: row.shift_label,
+        });
+    }
+
+    for entry in staff_map.values_mut() {
+        entry.days.sort_by_key(|d| d.date);
+    }
+
+    let mut rows: Vec<WeeklyScheduleByStaff> = staff_map.into_values().collect();
+    rows.sort_by(|a, b| a.full_name.cmp(&b.full_name));
+
+    Ok(Json(WeeklyScheduleViewResponse {
+        from: q.from,
+        to: q.to,
+        rows,
+    }))
 }
 
 async fn put_weekly(

@@ -7,9 +7,21 @@ UPDATE staff_error_event
 SET status = 'pending'
 WHERE status IS NULL OR status = '';
 
-ALTER TABLE staff_error_event
-    ADD CONSTRAINT IF NOT EXISTS staff_error_event_status_check
-    CHECK (LOWER(status) IN ('pending', 'complete', 'archived'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint c
+    JOIN pg_class t ON c.conrelid = t.oid
+    WHERE t.relname = 'staff_error_event'
+      AND c.conname = 'staff_error_event_status_check'
+  ) THEN
+    ALTER TABLE staff_error_event
+      ADD CONSTRAINT staff_error_event_status_check
+      CHECK (LOWER(status) IN ('pending', 'complete', 'archived'));
+  END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_staff_error_event_status
     ON staff_error_event (status);

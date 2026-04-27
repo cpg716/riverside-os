@@ -497,6 +497,16 @@ pub struct EffectiveDay {
     pub shift_label: Option<String>,
 }
 
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WeeklyScheduleRangeRow {
+    pub staff_id: Uuid,
+    pub full_name: String,
+    pub role: crate::models::DbStaffRole,
+    pub date: NaiveDate,
+    pub working: bool,
+    pub shift_label: Option<String>,
+}
+
 pub async fn get_effective_day_details(
     pool: &PgPool,
     staff_id: Uuid,
@@ -543,4 +553,45 @@ pub async fn list_effective_days(
         out.push(details);
     }
     Ok(out)
+}
+
+pub async fn list_effective_schedule_for_date_range(
+    pool: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<Vec<WeeklyScheduleRangeRow>, sqlx::Error> {
+    sqlx::query_as::<_, WeeklyScheduleRangeRow>(
+        r#"
+        WITH dates AS (
+            SELECT generate_series($1::date, $2::date, interval '1 day')::date AS date
+        )
+        SELECT
+            s.id AS staff_id,
+            s.full_name,
+            s.role,
+            d.date,
+            staff_effective_working_day(s.id, d.date) AS working,
+            CASE
+                WHEN e.id IS NOT NULL THEN e.shift_label
+                ELSE a.shift_label
+            END AS shift_label
+        FROM staff s
+        CROSS JOIN dates d
+        LEFT JOIN staff_weekly_availability a
+            ON s.id = a.staff_id
+           AND a.weekday = EXTRACT(DOW FROM d.date)::int
+        LEFT JOIN staff_day_exception e
+            ON s.id = e.staff_id
+           AND e.exception_date = d.date
+        WHERE s.is_active = TRUE
+          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+          AND d.date >= $1
+          AND d.date <= $2
+        ORDER BY s.full_name ASC, d.date ASC
+        "#,
+    )
+    .bind(from)
+    .bind(to)
+    .fetch_all(pool)
+    .await
 }
