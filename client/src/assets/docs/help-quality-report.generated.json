@@ -1,8 +1,8 @@
 {
-  "generated_at": "2026-04-26T15:51:42.565Z",
+  "generated_at": "2026-04-27T01:24:55.651Z",
   "standard_version": "help-manual-standard-v1",
-  "published_manual_count": 59,
-  "draft_manual_count": 105,
+  "published_manual_count": 60,
+  "draft_manual_count": 111,
   "manuals": [
     {
       "id": "pos",
@@ -79,7 +79,7 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
@@ -87,7 +87,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 6,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -131,7 +131,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 10,
+      "numbered_steps": 18,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -316,7 +316,7 @@
     },
     {
       "id": "alterations-workspace",
-      "title": "Alterations Workspace (alterations)",
+      "title": "Alterations Workspace",
       "status": "approved",
       "source_path": "client/src/assets/docs/alterations-workspace-manual.md",
       "required_buckets": [
@@ -353,7 +353,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
+      "numbered_steps": 9,
       "placeholder_hits": [],
       "errors": [],
       "warnings": []
@@ -407,7 +407,7 @@
     {
       "id": "customers-customer-alterations-panel",
       "title": "Customer Alterations Panel (customers)",
-      "status": "approved",
+      "status": "draft",
       "source_path": "client/src/assets/docs/customers-customer-alterations-panel-manual.md",
       "required_buckets": [
         {
@@ -2169,6 +2169,52 @@
       "warnings": []
     },
     {
+      "id": "layout-global-command-search",
+      "title": "Global Command Search (layout)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/layout-global-command-search-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
       "id": "layout-register-required-modal",
       "title": "Register Required Modal (layout)",
       "status": "draft",
@@ -2714,7 +2760,7 @@
     },
     {
       "id": "operations-operational-home",
-      "title": "Operations Home",
+      "title": "Operations Home (Action Board)",
       "status": "approved",
       "source_path": "client/src/assets/docs/operations-operational-home-manual.md",
       "required_buckets": [
@@ -2738,7 +2784,7 @@
         {
           "key": "when",
           "label": "When to use it / prerequisites / permissions",
-          "present": false
+          "present": true
         },
         {
           "key": "outcome",
@@ -2748,15 +2794,13 @@
         {
           "key": "related",
           "label": "Related workflows",
-          "present": false
+          "present": true
         }
       ],
-      "numbered_steps": 2,
+      "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Add at least one follow-up section such as when to use it, expected result, or related workflows."
-      ]
+      "warnings": []
     },
     {
       "id": "operations-reviews-operations-section",
@@ -2889,7 +2933,7 @@
           "present": true
         }
       ],
-      "numbered_steps": 5,
+      "numbered_steps": 4,
       "placeholder_hits": [
         "add pngs under"
       ],
@@ -4453,6 +4497,52 @@
       ]
     },
     {
+      "id": "pos-alteration-intake-modal",
+      "title": "Pos Alteration Intake Modal (pos)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/pos-alteration-intake-modal-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
       "id": "pos-register-reports",
       "title": "Register Reports & Daily Sales",
       "status": "approved",
@@ -4547,6 +4637,52 @@
       "title": "Register Shift Handoff Modal (pos)",
       "status": "draft",
       "source_path": "client/src/assets/docs/pos-register-shift-handoff-modal-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "pos-refund-modal",
+      "title": "Pos Refund Modal (pos)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/pos-refund-modal-manual.md",
       "required_buckets": [
         {
           "key": "purpose",
@@ -4910,8 +5046,8 @@
     },
     {
       "id": "scheduler-workspace",
-      "title": "Scheduler Workspace (scheduler)",
-      "status": "draft",
+      "title": "Scheduler Workspace",
+      "status": "approved",
       "source_path": "client/src/assets/docs/scheduler-workspace-manual.md",
       "required_buckets": [
         {
@@ -4947,10 +5083,8 @@
           "present": true
         }
       ],
-      "numbered_steps": 4,
-      "placeholder_hits": [
-        "add pngs under"
-      ],
+      "numbered_steps": 6,
+      "placeholder_hits": [],
       "errors": [],
       "warnings": []
     },
@@ -6142,24 +6276,24 @@
     },
     {
       "id": "staff-workspace",
-      "title": "Staff Workspace (staff)",
-      "status": "draft",
+      "title": "Staff Workspace (Team)",
+      "status": "approved",
       "source_path": "client/src/assets/docs/staff-workspace-manual.md",
       "required_buckets": [
         {
           "key": "purpose",
           "label": "Purpose / what this is",
-          "present": false
+          "present": true
         },
         {
           "key": "steps",
           "label": "Numbered steps / how to use it",
-          "present": false
+          "present": true
         },
         {
           "key": "guardrails",
           "label": "What to watch for / common mistakes / tips",
-          "present": false
+          "present": true
         }
       ],
       "optional_buckets": [
@@ -6171,23 +6305,18 @@
         {
           "key": "outcome",
           "label": "What happens next / expected result",
-          "present": false
+          "present": true
         },
         {
           "key": "related",
           "label": "Related workflows",
-          "present": false
+          "present": true
         }
       ],
-      "numbered_steps": 0,
+      "numbered_steps": 3,
       "placeholder_hits": [],
       "errors": [],
-      "warnings": [
-        "Draft manual is missing: Purpose / what this is.",
-        "Draft manual is missing: Numbered steps / how to use it.",
-        "Draft manual is missing: What to watch for / common mistakes / tips.",
-        "Draft manual still needs a real numbered step list."
-      ]
+      "warnings": []
     },
     {
       "id": "storefront-public-storefront",
@@ -6702,6 +6831,52 @@
       "title": "Sidebar Rail Tooltip (ui)",
       "status": "draft",
       "source_path": "client/src/assets/docs/ui-sidebar-rail-tooltip-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "settings-shippo-settings-panel",
+      "title": "Shippo Settings Panel (settings)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/settings-shippo-settings-panel-manual.md",
       "required_buckets": [
         {
           "key": "purpose",
@@ -7342,6 +7517,52 @@
       "warnings": []
     },
     {
+      "id": "ui-address-autocomplete-input",
+      "title": "Address Autocomplete Input (ui)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/ui-address-autocomplete-input-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
       "id": "ui-dashboard-stats-card",
       "title": "Dashboard Stats Card (ui)",
       "status": "draft",
@@ -7434,10 +7655,102 @@
       "warnings": []
     },
     {
+      "id": "ui-integration-brand-logo",
+      "title": "Integration Brand Logo (ui)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/ui-integration-brand-logo-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
       "id": "wedding-manager-components-wedding-health-heatmap",
       "title": "Wedding Health Heatmap (wedding-manager / components)",
       "status": "draft",
       "source_path": "client/src/assets/docs/wedding-manager-components-wedding-health-heatmap-manual.md",
+      "required_buckets": [
+        {
+          "key": "purpose",
+          "label": "Purpose / what this is",
+          "present": true
+        },
+        {
+          "key": "steps",
+          "label": "Numbered steps / how to use it",
+          "present": true
+        },
+        {
+          "key": "guardrails",
+          "label": "What to watch for / common mistakes / tips",
+          "present": true
+        }
+      ],
+      "optional_buckets": [
+        {
+          "key": "when",
+          "label": "When to use it / prerequisites / permissions",
+          "present": true
+        },
+        {
+          "key": "outcome",
+          "label": "What happens next / expected result",
+          "present": true
+        },
+        {
+          "key": "related",
+          "label": "Related workflows",
+          "present": true
+        }
+      ],
+      "numbered_steps": 4,
+      "placeholder_hits": [
+        "add pngs under"
+      ],
+      "errors": [],
+      "warnings": []
+    },
+    {
+      "id": "ui-transaction-search-input",
+      "title": "Transaction Search Input (ui)",
+      "status": "draft",
+      "source_path": "client/src/assets/docs/ui-transaction-search-input-manual.md",
       "required_buckets": [
         {
           "key": "purpose",

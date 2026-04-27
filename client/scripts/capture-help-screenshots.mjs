@@ -118,9 +118,7 @@ async function waitForBackofficeShellReady(page, message) {
 
 async function selectBackofficeStaffMember(page) {
   const preferredName = process.env.E2E_BO_STAFF_NAME?.trim() || "Chris G";
-  const selectorButton = page.getByRole("button", {
-    name: /select staff member|select\.\.\.|select your name/i,
-  });
+  const selectorButton = page.getByTestId("staff-selector-button");
   if (!(await selectorButton.isVisible().catch(() => false))) {
     return;
   }
@@ -484,6 +482,25 @@ async function runSpec(page, api, spec, opts) {
         state: "visible",
         timeout: 15000,
       });
+      return capture(page, spec);
+    }
+    case "workspace-tab": {
+      await prepareBase(page, opts);
+      await openBackofficeSidebarTab(page, new RegExp(`^${spec.tab}$`, "i"));
+      if (spec.subSection) {
+        const nav = await ensureMainNavigationVisible(page);
+        const subButton = nav.getByRole("button", { name: new RegExp(`^${spec.subSection}$`, "i") });
+        if (await subButton.isVisible().catch(() => false)) {
+          await subButton.click();
+        } else {
+          // Try finding by the label if the ID/ID-part isn't matching
+          const fallback = nav.locator("button").filter({ hasText: new RegExp(spec.subSection.replace(/_/g, " "), "i") });
+          if (await fallback.isVisible().catch(() => false)) {
+            await fallback.click();
+          }
+        }
+      }
+      await page.waitForTimeout(1000);
       return capture(page, spec);
     }
     default:
