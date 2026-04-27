@@ -1,4 +1,5 @@
 //! Domain logic (tax, pricing, etc.).
+pub mod alterations_scheduler;
 
 pub mod backups;
 pub mod bug_reports;

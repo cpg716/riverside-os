@@ -27,7 +27,7 @@ use crate::models::DbStaffScheduleExceptionKind;
 use std::collections::HashMap;
 
 fn normalize_week_start(d: NaiveDate) -> NaiveDate {
-    let weekday = i64::from(d.weekday().num_days_from_sunday());
+    let weekday = i64::from(d.weekday().num_days_from_monday());
     d - Duration::days(weekday)
 }
 
@@ -46,12 +46,15 @@ pub struct PutWeeklyBody {
 }
 
 #[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct WeekdayEntry {
     pub weekday: i16,
     pub works: bool,
     pub shift_label: Option<String>,
     #[serde(default)]
     pub base_works: bool,
+    #[serde(default)]
+    pub base_shift_label: Option<String>,
     #[serde(default)]
     pub is_highlighted: bool,
 }
@@ -90,8 +93,11 @@ pub struct MarkAbsenceBody {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BulkPutWeeklyBody {
     pub schedules: Vec<StaffWeeklySchedule>,
+    #[serde(default)]
+    pub status: Option<crate::models::DbStaffWeeklyScheduleStatus>,
 }
 
 #[derive(Debug, Serialize)]
@@ -104,6 +110,7 @@ struct WeekStaffScheduleResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub struct StaffWeeklySchedule {
     pub staff_id: Uuid,
     pub weekdays: Vec<WeekdayEntry>,
@@ -226,6 +233,12 @@ pub fn router() -> Router<AppState> {
         .route("/effective", get(get_effective))
         .route("/mark-absence", post(post_mark_absence))
         .route("/validate-booking", get(get_validate_booking))
+        .route(
+            "/events",
+            get(list_events)
+                .post(post_event)
+                .delete(delete_event_route),
+        )
 }
 
 async fn get_eligible(
@@ -291,6 +304,7 @@ async fn get_weekly_view(
             date: row.date,
             working: row.working,
             shift_label: row.shift_label,
+            is_highlighted: row.is_highlighted,
         });
     }
 
@@ -386,6 +400,8 @@ async fn get_week_schedule(
             works: row.works,
             shift_label: row.shift_label,
             base_works: row.base_works,
+            base_shift_label: row.base_shift_label,
+            is_highlighted: row.is_highlighted,
         });
     }
 
@@ -427,16 +443,21 @@ async fn put_week_schedule(
                     weekday: day.weekday,
                     works: day.works,
                     shift_label: day.shift_label,
+                    is_highlighted: day.is_highlighted,
                 })
                 .collect(),
         })
         .collect::<Vec<_>>();
 
+    let status = body
+        .status
+        .unwrap_or(crate::models::DbStaffWeeklyScheduleStatus::Draft);
     staff_schedule::upsert_week_schedule_for_week(
         &state.db,
         actor,
         normalized_week_start,
         &schedules,
+        status,
     )
     .await
     .map_err(map_err)?;
@@ -632,6 +653,8 @@ async fn get_weekly_template(
             works: row.works,
             shift_label: row.shift_label,
             base_works: row.base_works,
+            base_shift_label: row.base_shift_label,
+            is_highlighted: row.is_highlighted,
         });
     }
 
@@ -669,4 +692,71 @@ async fn post_clone_week(
         "week_start": normalized_week_start,
         "copied_days": copied,
     })))
+}
+#[derive(Debug, Deserialize)]
+pub struct PostEventBody {
+    pub id: Option<Uuid>,
+    pub event_date: NaiveDate,
+    pub label: String,
+    pub notes: Option<String>,
+    pub is_all_staff: bool,
+    pub attendees: Vec<Uuid>,
+}
+
+async fn list_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<RangeQuery>,
+) -> Result<Json<Vec<staff_schedule::ScheduleEventRow>>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_VIEW)
+        .await
+        .map_err(map_gate)?;
+    let rows = staff_schedule::list_events_range(&state.db, q.from, q.to)
+        .await
+        .map_err(StaffScheduleError::Database)
+        .map_err(map_err)?;
+    Ok(Json(rows))
+}
+
+async fn post_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(body): Json<PostEventBody>,
+) -> Result<Json<Uuid>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_MANAGE_ACCESS)
+        .await
+        .map_err(map_gate)?;
+    let id = staff_schedule::upsert_event(
+        &state.db,
+        body.event_date,
+        body.label,
+        body.notes,
+        body.is_all_staff,
+        body.attendees,
+        body.id,
+    )
+    .await
+    .map_err(StaffScheduleError::Database)
+    .map_err(map_err)?;
+    Ok(Json(id))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeleteEventQuery {
+    pub id: Uuid,
+}
+
+async fn delete_event_route(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<DeleteEventQuery>,
+) -> Result<Json<serde_json::Value>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_MANAGE_ACCESS)
+        .await
+        .map_err(map_gate)?;
+    let deleted = staff_schedule::delete_event(&state.db, q.id)
+        .await
+        .map_err(StaffScheduleError::Database)
+        .map_err(map_err)?;
+    Ok(Json(json!({ "ok": true, "deleted": deleted })))
 }

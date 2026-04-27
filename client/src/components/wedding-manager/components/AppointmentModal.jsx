@@ -423,6 +423,7 @@ const AppointmentModal = ({ isOpen, onClose, onSave, initialData, parties: _part
                             >
                                 <option>Measurement</option>
                                 <option>Fitting</option>
+                                <option>Alteration</option>
                                 <option>Pickup</option>
                                 <option>Consultation</option>
                                 <option>Other</option>

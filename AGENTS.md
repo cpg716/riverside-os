@@ -29,6 +29,20 @@ The main shell component is a critical part of the application that manages UI s
 
 Help maintain, debug, and extend Riverside OS safely inside the existing architecture.
 
+### v0.3.4 Staff Scheduling & Event Invariants
+
+RiversideOS v0.3.4 introduces a refined scheduling model focused on privacy, multi-staff events, and operational clarity.
+
+- **Strict "Published Only" Visibility**: 
+  - Staff View, Staff Profiles, and the live Appointments Scheduler **MUST ONLY** consume **Published** weekly schedules. 
+  - Drafts and the Master Template are planning tools only and MUST NOT be visible in public-facing roster views.
+- **Badge-First Notifications**: 
+  - Prefer subtle icons/badges (Alert circles, "M" badges) for schedule warnings (Conflicts, Overrides, Meetings) rather than aggressive full-cell coloring or borders.
+- **Highlighter Authority**: 
+  - Solid Yellow (`#fff176`) is the authoritative color for the manual highlighter tool, used to emphasize specific shifts for printing.
+- **Meeting Symmetry**: 
+  - Store Events recorded in the "Store Events" header MUST be visually reflected in the individual shift boxes of all attendees via the "M" badge.
+
 ### v0.3.0 Operational Perfection
 
 RiversideOS v0.3.0 is a refinement release focused on operator clarity, trust, and efficiency rather than new modules.

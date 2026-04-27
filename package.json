@@ -45,6 +45,7 @@
     "wait-on": "^8.0.5"
   },
   "dependencies": {
-    "@playwright/test": "^1.59.1"
+    "@playwright/test": "^1.59.1",
+    "exceljs": "^4.4.0"
   }
 }

@@ -16,8 +16,8 @@ type ExceptionRow = {
   kind: string;
   notes: string | null;
 };
-type EffectiveDay = { date: string; working: boolean };
-type WeeklyViewDay = { date: string; working: boolean; shift_label: string | null };
+type EffectiveDay = { date: string; working: boolean; is_highlighted?: boolean };
+type WeeklyViewDay = { date: string; working: boolean; shift_label: string | null; is_highlighted?: boolean };
 type WeeklyViewStaff = {
   staff_id: string;
   full_name: string;
@@ -517,10 +517,12 @@ export default function StaffSchedulePanel() {
                             return (
                               <td key={day.date} className="px-2 py-2 align-middle text-center text-xs">
                                 <div
-                                  className={`rounded-lg border px-2 py-2 text-xs font-black ${
-                                    isWorking
-                                      ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
-                                      : "border-app-border bg-app-surface-2 text-app-text-muted"
+                                  className={`rounded-lg border px-2 py-2 text-xs font-black transition-all ${
+                                    dayEntry?.is_highlighted
+                                      ? "border-amber-400 bg-amber-400 text-black shadow-lg shadow-amber-400/20"
+                                      : isWorking
+                                        ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-700 dark:text-emerald-200"
+                                        : "border-app-border bg-app-surface-2 text-app-text-muted"
                                   }`}
                                 >
                                   {isWorking ? shift ?? "Work" : "OFF"}
@@ -895,7 +897,7 @@ function MonthGrid({
   monthCursor,
   onRemoveException,
 }: {
-  cells: { date: string; dayNum: number; working: boolean; exception?: ExceptionRow }[];
+  cells: { date: string; dayNum: number; working: boolean; exception?: ExceptionRow; is_highlighted?: boolean }[];
   monthCursor: Date;
   onRemoveException?: (d: string) => void;
 }) {
@@ -918,9 +920,11 @@ function MonthGrid({
         <div
           key={c.date}
           className={`flex min-h-[3.25rem] flex-col rounded-lg border p-1 text-left text-xs ${
-            c.working
-              ? "border-app-border bg-app-surface-2/40"
-              : "border-app-border bg-app-surface-2/80 opacity-90"
+            c.is_highlighted
+              ? "border-amber-400 bg-amber-400 text-black"
+              : c.working
+                ? "border-app-border bg-app-surface-2/40"
+                : "border-app-border bg-app-surface-2/80 opacity-90"
           } ${c.exception ? "ring-1 ring-amber-400/60" : ""}`}
         >
           <span className="font-black text-app-text">{c.dayNum}</span>

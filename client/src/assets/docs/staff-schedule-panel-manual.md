@@ -18,9 +18,9 @@ The Staff Schedule workspace is the authoritative source for team availability i
 
 This workspace is divided into three primary modes to balance long-term planning with daily operational needs:
 
-1.  **Weekly View (Store Agenda)**: The master calendar showing every floor staff member's working status for a specific week.
+1.  **Weekly View (Finalized Agenda)**: A read-only view of the **Published** schedule. This is what the team sees and what drives the Scheduler.
 2.  **Individual View (Personnel Management)**: Detailed availability for a single staff member, including their master template, sick days, and PTO.
-3.  **Master Template (Planning & Overrides)**: The "planning board" where managers build the upcoming schedule, import from Excel, and **Publish** overrides for future weeks.
+3.  **Planning Mode (Master Grid)**: The command center where managers build upcoming schedules, manage **Store Events**, and **Publish** the final agenda.
 
 ## When to use it
 
@@ -34,34 +34,44 @@ This workspace is divided into three primary modes to balance long-term planning
 Riverside OS calculates availability using a strict hierarchy (from highest to lowest priority):
 
 1.  **Day Exceptions**: Explicit sick days, PTO, or extra shifts.
-2.  **Published Weekly Overrides**: Per-week plans published from the Master Template.
-3.  **Master Template**: The standard recurring availability defined in the Individual View.
-4.  **Default OFF**: If none of the above are set, the staff member is considered off.
+2.  **Published Weekly Overrides**: Per-week plans published from the Planning Mode.
+3.  **Strict Privacy Invariant**: Drafts or unpublished weeks **NEVER** appear in the Weekly View or Staff Profiles. If a week is not published, staff are considered "OFF" in all public views.
+4.  **Master Template**: Used as the starting point (pre-fill) for Planning Mode.
 
 ---
 
-## Weekly Planning Workflow (Master Template)
+## Store Events & Meetings (v0.3.3)
 
-The Master Template mode allows you to build a specific plan for any future week without affecting the standard template.
+Managers can now track shared activities that affect the entire team or specific groups.
+
+- **Store Events Row**: A dedicated row at the top of the Planning Grid for shared events (e.g., "Monthly Store Meeting").
+- **Meeting Indicators**: When a staff member is assigned to an event, a small **"M" badge** appears in their shift box.
+- **Attendance**: Events can be marked for "All Staff" or limited to selected team members.
+
+---
+
+## Visual Indicators (Legend)
+
+The Planning Grid uses subtle badges and colors to provide operational warnings:
+
+- **Conflict (Red Pulse Icon)**: Staff member has a "Request Off" (PTO, Sick, etc.) on this day. Avoid scheduling them.
+- **Override (Amber Icon)**: Staff member is working on a day they are normally "OFF" in the Master Template.
+- **Meeting (Amber M Badge)**: Linked to a Store Event. Hover to see details.
+*   **Highlighter (Solid Yellow)**: A manual toggle to highlight specific shifts for high-visibility printing.
+
+---
+
+## Weekly Planning Workflow (Planning Mode)
+
+The Planning Mode allows you to build a specific plan for any future week without affecting the standard template.
 
 ### 1. Build the Schedule
-- Navigate to the **Master** tab.
 - Select the week you want to plan using the **Next week** / **Prev week** controls.
-- By default, the grid shows values from the standard template.
+- Use **Copy Previous Week** to pull forward the last published schedule as a starting point.
 
-### 2. Import or Edit
-- **Manual Entry**: Click the toggles or type shift labels (e.g., "9-5") directly in the grid.
-- **Excel Import**: Click **Upload Excel** to parse an existing spreadsheet. The system uses fuzzy matching to link names (e.g., "Tom Z" will match "Tom Zotos").
-
-### 3. Save as Draft
-- Click **Save All Changes**. The week is now saved as a **Draft**. Drafts are visible to managers but do not yet affect the live Scheduler or register sign-ins.
-
-### 4. Publish Week
-- Once the plan is finalized, click **Publish Week**. 
-- The schedule is now live and will override the standard template for that specific week only.
-
-### 5. Clear Overrides
-- If you need to revert a specific week back to the standard template, click **Clear Overrides**. This deletes any draft or published overrides for that week.
+### 2. High-Visibility Printing
+- Use the **Highlighter** tool to mark key shifts in bright yellow.
+- These highlights are preserved in the professional print document, which also includes a specialized **Sunday Exception Box** and clear role separators.
 
 ---
 

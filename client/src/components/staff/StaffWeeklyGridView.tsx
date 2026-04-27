@@ -13,6 +13,8 @@ import {
   UserPlus,
   Trash2,
   Highlighter,
+  Plus,
+  X,
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -30,8 +32,18 @@ interface WeeklyEntry {
   weekday: number;
   works: boolean;
   shift_label: string | null;
-  base_works?: boolean;
-  is_highlighted?: boolean;
+  base_works: boolean;
+  base_shift_label: string | null;
+  is_highlighted: boolean;
+}
+
+interface ScheduleEvent {
+  id: string;
+  event_date: string;
+  label: string;
+  notes?: string;
+  is_all_staff: boolean;
+  attendees: string[];
 }
 
 interface StaffSchedule {
@@ -69,7 +81,7 @@ type NameLookup = {
   all: EligibleStaff[];
 };
 
-const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 const MONTH_TOKENS = new Set([
   "jan",
@@ -103,22 +115,22 @@ const excludedStaffNames = new Set(["chris garcia"]);
 const DAY_LABEL_BLACKLIST = new Set(["master", "note change"]);
 
 const DAY_HEADER_MAP: Record<string, number> = {
-  mon: 1,
-  monday: 1,
-  tue: 2,
-  tues: 2,
-  tuesday: 2,
-  wed: 3,
-  wednesday: 3,
-  thu: 4,
-  thurs: 4,
-  thursday: 4,
-  fri: 5,
-  friday: 5,
-  sat: 6,
-  saturday: 6,
-  sun: 0,
-  sunday: 0,
+  mon: 0,
+  monday: 0,
+  tue: 1,
+  tues: 1,
+  tuesday: 1,
+  wed: 2,
+  wednesday: 2,
+  thu: 3,
+  thurs: 3,
+  thursday: 3,
+  fri: 4,
+  friday: 4,
+  sat: 5,
+  saturday: 5,
+  sun: 6,
+  sunday: 6,
 };
 
 const NAME_HEADER_KEYS = new Set([
@@ -538,7 +550,7 @@ const parseWeekScheduleSheet = (
   nameLookup: NameLookup,
 ): {
   totalRows: number;
-  recognizedRows: UnresolvedImportRow[];
+  recognizedRows: Array<UnresolvedImportRow & { staff: EligibleStaff }>;
   unrecognizedRows: UnresolvedImportRow[];
 } => {
   const scan = scanWorksheetForSchedule(worksheet);
@@ -546,7 +558,7 @@ const parseWeekScheduleSheet = (
     return { totalRows: 0, recognizedRows: [], unrecognizedRows: [] };
   }
 
-  const recognizedRows: UnresolvedImportRow[] = [];
+  const recognizedRows: Array<UnresolvedImportRow & { staff: EligibleStaff }> = [];
   const unrecognizedRows: UnresolvedImportRow[] = [];
   const { headerRowIndex, staffNameCol, colMap } = scan;
   let totalRows = 0;
@@ -570,7 +582,7 @@ const parseWeekScheduleSheet = (
     const rowData = { name, daySchedule };
     const staff = resolveStaffByName(nameLookup, name);
     if (staff) {
-      recognizedRows.push(rowData);
+      recognizedRows.push({ ...rowData, staff });
     } else {
       unrecognizedRows.push(rowData);
     }
@@ -590,10 +602,16 @@ const toYmdLocal = (d: Date): string => {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
-const sundayStart = (date: Date): Date => {
+const mondayStart = (date: Date): Date => {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = d.getDay();
-  d.setDate(d.getDate() - day);
+  // d.getDay() is 0 for Sun, 1 for Mon...
+  // We want to shift to the most recent Monday.
+  // If today is Sun (0), we go back 6 days.
+  // If today is Mon (1), we go back 0 days.
+  // If today is Tue (2), we go back 1 day.
+  const diff = (day + 6) % 7; 
+  d.setDate(d.getDate() - diff);
   return d;
 };
 
@@ -618,11 +636,42 @@ const formatWeekLabel = (from: Date, to: Date): string => {
   )}`;
 };
 
-const defaultWeekStart = (): Date => sundayStart(new Date());
+const defaultWeekStart = (): Date => mondayStart(new Date());
+
+const tryParseDateFromSheetName = (name: string): Date | null => {
+  const norm = name.trim().toLowerCase();
+  if (norm === "master") return null;
+
+  // Try "April 26" or "Apr 26"
+  const monthNames = [
+    "jan", "feb", "mar", "apr", "may", "jun",
+    "jul", "aug", "sep", "oct", "nov", "dec"
+  ];
+  const monthMatch = norm.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d+)/);
+  if (monthMatch) {
+    const monthIdx = monthNames.indexOf(monthMatch[1]);
+    const day = parseInt(monthMatch[2], 10);
+    const d = new Date(new Date().getFullYear(), monthIdx, day);
+    if (!isNaN(d.getTime())) return mondayStart(d);
+  }
+
+  // Try "4/26" or "4-26"
+  const numericMatch = norm.match(/^(\d+)[/-](\d+)/);
+  if (numericMatch) {
+    const month = parseInt(numericMatch[1], 10);
+    const day = parseInt(numericMatch[2], 10);
+    const d = new Date(new Date().getFullYear(), month - 1, day);
+    if (!isNaN(d.getTime())) return mondayStart(d);
+  }
+
+  return null;
+};
 
 const buildStaffPrintDocument = (
   schedules: StaffSchedule[],
   weekLabel: string,
+  events: ScheduleEvent[],
+  weekStart: Date,
 ): string => {
   const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const printableSchedules = schedules.filter(
@@ -630,8 +679,7 @@ const buildStaffPrintDocument = (
   );
   const rowCount = Math.max(printableSchedules.length, 1);
   const compactMode = rowCount > 18;
-  const sundayShiftRows =
-    printableSchedules.filter((s) => s.weekdays?.[0]?.works).length || 1;
+
   const sundayShifts = printableSchedules
     .filter((s) => s.weekdays?.[0]?.works)
     .map((s) => ({
@@ -641,6 +689,23 @@ const buildStaffPrintDocument = (
 
   let lastGroup = "";
   let rowsHtml = "";
+
+  // 1. Store Events Row in Print
+  const monToSat = [1, 2, 3, 4, 5, 6];
+  const eventsHtml = `
+    <tr style="background: #fff8e1">
+      <td class="staff" style="font-size: 9px; font-weight: 900; background: #fff8e1">STORE EVENTS / MEETINGS</td>
+      ${monToSat.map(wd => {
+        const ymd = toYmdLocal(addDays(weekStart, wd));
+        const dayEvents = events.filter(e => e.event_date === ymd);
+        return `<td style="font-size: 8px; font-weight: 800; color: #795548; vertical-align: top; padding: 2px">
+          ${dayEvents.map(e => `<div>• ${escapeForPrint(e.label)}</div>`).join("")}
+        </td>`;
+      }).join("")}
+    </tr>
+  `;
+  
+  rowsHtml += eventsHtml;
   
   for (const s of printableSchedules) {
     // Coarse grouping for separators: group all 'support' roles together
@@ -664,12 +729,16 @@ const buildStaffPrintDocument = (
         ${printDays
           .map((_, index) => {
             const w = s.weekdays[index + 1];
+            const ymd = toYmdLocal(addDays(weekStart, index + 1));
+            const hasMeeting = events.some(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
+            
             const text = escapeForPrint(
               w?.works ? w.shift_label || "Working" : "OFF",
             );
             return `
               <td class="${w?.works ? "work-cell" : "off-cell"} ${w?.is_highlighted ? "highlighted-cell" : ""}">
                 ${text.toUpperCase()}
+                ${hasMeeting ? `<div style="font-size: 7px; color: #795548; font-weight: 900; margin-top: 1px">[MEETING]</div>` : ""}
               </td>
             `;
           })
@@ -937,9 +1006,13 @@ export default function StaffWeeklyGridView() {
     success: number;
     missing: string[];
   } | null>(null);
-  const [dirtyStaff, setDirtyStaff] = useState<Set<string>>(new Set());
+  const [unsaved, setUnsaved] = useState(false);
+  const [importedThisSession, setImportedThisSession] = useState(false);
   const [weekExceptions, setWeekExceptions] = useState<WeekException[]>([]);
+  const [events, setEvents] = useState<ScheduleEvent[]>([]);
   const [planningMode, setPlanningMode] = useState<"week" | "template">("week");
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<ScheduleEvent | null>(null);
 
   useEffect(() => {
     const style = document.createElement("style");
@@ -950,11 +1023,11 @@ export default function StaffWeeklyGridView() {
     return () => {
       document.head.removeChild(style);
     };
-  }, []);
+  }, [printStyle]);
   const [weekCursor, setWeekCursor] = useState(defaultWeekStart);
 
   const headers = useMemo(() => backofficeHeaders(), [backofficeHeaders]);
-  const weekStart = useMemo(() => sundayStart(weekCursor), [weekCursor]);
+  const weekStart = useMemo(() => mondayStart(weekCursor), [weekCursor]);
   const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
   const weekStartParam = toYmdLocal(weekStart);
   const weekLabel = useMemo(
@@ -973,7 +1046,7 @@ export default function StaffWeeklyGridView() {
       schedules.some((s) => s.status === "published"),
     [schedules, planningMode],
   );
-  const unsaved = useMemo(() => dirtyStaff.size > 0, [dirtyStaff]);
+
 
   const coverageStats = useMemo(() => {
     const stats = Array.from({ length: 7 }, () => ({
@@ -996,16 +1069,8 @@ export default function StaffWeeklyGridView() {
     return stats;
   }, [schedules]);
 
-  const setStaffDirty = useCallback((staffId: string, isDirty: boolean) => {
-    setDirtyStaff((prev) => {
-      const next = new Set(prev);
-      if (isDirty) {
-        next.add(staffId);
-      } else {
-        next.delete(staffId);
-      }
-      return next;
-    });
+  const setStaffDirty = useCallback((_staffId: string, isDirty: boolean) => {
+    if (isDirty) setUnsaved(true);
   }, []);
 
   const updateScheduleRows = (rows: StaffSchedule[]) => {
@@ -1015,7 +1080,7 @@ export default function StaffWeeklyGridView() {
       return (a.full_name || "").localeCompare(b.full_name || "");
     });
     setSchedules(sorted);
-    setDirtyStaff(new Set());
+    setUnsaved(false);
   };
 
   const loadData = useCallback(async () => {
@@ -1032,12 +1097,18 @@ export default function StaffWeeklyGridView() {
               `${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`,
             ];
 
-      const [eligRes, weekRes, excRes] = await Promise.all([
+      const [eligRes, weekRes, excRes, eventRes] = await Promise.all([
         fetch(endpoints[0], { headers }),
         fetch(endpoints[1], { headers }),
         planningMode === "week"
           ? fetch(
               `${baseUrl}/api/staff/schedule/exceptions?from=${weekStartParam}&to=${toYmdLocal(weekEnd)}`,
+              { headers },
+            )
+          : Promise.resolve(null),
+        planningMode === "week"
+          ? fetch(
+              `${baseUrl}/api/staff/schedule/events?from=${weekStartParam}&to=${toYmdLocal(weekEnd)}`,
               { headers },
             )
           : Promise.resolve(null),
@@ -1060,7 +1131,16 @@ export default function StaffWeeklyGridView() {
           ...row,
           weekdays: WEEKDAY_LABELS.map((_, weekday) => {
             const match = row.weekdays.find((w) => w.weekday === weekday);
-            return match ?? { weekday, works: false, shift_label: null };
+            return (
+              match ?? {
+                weekday,
+                works: false,
+                shift_label: null,
+                base_works: false,
+                base_shift_label: null,
+                is_highlighted: false,
+              }
+            );
           }),
         }))
         .filter((schedule) => !isExcludedStaffName(schedule.full_name));
@@ -1074,6 +1154,11 @@ export default function StaffWeeklyGridView() {
         );
       } else {
         setWeekExceptions([]);
+      }
+      if (eventRes && eventRes.ok) {
+        setEvents(await eventRes.json());
+      } else {
+        setEvents([]);
       }
     } catch (e) {
       toast(e instanceof Error ? e.message : "Load failed", "error");
@@ -1143,6 +1228,9 @@ export default function StaffWeeklyGridView() {
         weekday,
         works: false,
         shift_label: null,
+        base_works: false,
+        base_shift_label: null,
+        is_highlighted: false,
       })),
     };
 
@@ -1164,11 +1252,7 @@ export default function StaffWeeklyGridView() {
     if (!staff) return;
 
     setSchedules((prev) => prev.filter((s) => s.staff_id !== staffId));
-    setDirtyStaff((prev) => {
-      const next = new Set(prev);
-      next.add("reconcile"); // Ensure unsaved is true
-      return next;
-    });
+    setUnsaved(true);
     toast(`${staff.full_name} removed from this week's schedule.`, "info");
   };
 
@@ -1188,8 +1272,10 @@ export default function StaffWeeklyGridView() {
             weekday: w.weekday,
             works: w.works,
             shift_label: w.shift_label,
+            is_highlighted: w.is_highlighted,
           })),
         })),
+        status: planningMode === "week" && importedThisSession ? "published" : undefined,
       };
 
       const url =
@@ -1216,9 +1302,10 @@ export default function StaffWeeklyGridView() {
       toast(
         planningMode === "template"
           ? "Master template saved."
-          : "Weekly draft saved for selected week.",
+          : `Weekly ${importedThisSession ? "published schedule" : "draft"} saved.`,
         "success",
       );
+      setImportedThisSession(false);
       await loadData();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Save failed", "error");
@@ -1354,6 +1441,9 @@ export default function StaffWeeklyGridView() {
               weekday: i,
               works: false,
               shift_label: null,
+              base_works: false,
+              base_shift_label: null,
+              is_highlighted: false,
             })),
           };
           parsedDays.forEach(({ weekday, shiftVal }) => {
@@ -1364,6 +1454,9 @@ export default function StaffWeeklyGridView() {
               weekday,
               works,
               shift_label: hasShift && works ? shiftVal : null,
+              base_works: false,
+              base_shift_label: null,
+              is_highlighted: false,
             };
           });
           currentSchedules.push(newRow);
@@ -1382,6 +1475,9 @@ export default function StaffWeeklyGridView() {
             weekday,
             works,
             shift_label: hasShift && works ? shiftVal : null,
+            base_works: staffSched.weekdays[weekday]?.base_works ?? false,
+            base_shift_label: staffSched.weekdays[weekday]?.base_shift_label ?? null,
+            is_highlighted: staffSched.weekdays[weekday]?.is_highlighted ?? false,
           };
         });
         staffSched.status = "draft";
@@ -1389,26 +1485,95 @@ export default function StaffWeeklyGridView() {
         setStaffDirty(staff.id, true);
       };
 
-      for (const worksheet of workbook.worksheets) {
+      // Sort worksheets to process MASTER first if it exists
+      const sortedWorksheets = [...workbook.worksheets].sort((a, b) => {
+        const aName = a.name.trim().toLowerCase();
+        const bName = b.name.trim().toLowerCase();
+        if (aName === "master") return -1;
+        if (bName === "master") return 1;
+        return 0;
+      });
+
+      for (const worksheet of sortedWorksheets) {
+        const wsName = worksheet.name.trim().toLowerCase();
+        
+        let isCurrentWeek = false;
+        let targetWeekStart: Date | null = null;
+
+        if (planningMode === "template") {
+          if (wsName !== "master") continue;
+          isCurrentWeek = true; // In template mode, "master" IS the current week
+        } else {
+          const weekDateStr = weekStart.toLocaleString(undefined, { month: "numeric", day: "numeric" });
+          
+          const isMaster = wsName === "master";
+          const isExactDate = wsName.includes(weekDateStr.replace("/", "-")) || wsName.includes(weekDateStr);
+          
+          isCurrentWeek = isExactDate;
+          targetWeekStart = tryParseDateFromSheetName(worksheet.name);
+
+          // Special case: if we haven't seen any sheet yet and this is MASTER, treat it as current baseline
+          if (isMaster && seenSheets === 0) {
+            isCurrentWeek = true;
+            targetWeekStart = weekStart;
+          }
+
+          if (!isMaster && !targetWeekStart && !isCurrentWeek) continue;
+
+          // April - June only (Months 3 to 5)
+          if (targetWeekStart && !isCurrentWeek) {
+            const m = targetWeekStart.getMonth();
+            if (m < 3 || m > 5) continue;
+          }
+        }
+
         const parseResult = parseWeekScheduleSheet(worksheet, nameLookup);
         if (parseResult.totalRows === 0) continue;
 
-        seenSheets += 1;
-        totalParsedRows += parseResult.totalRows;
-        unresolvedRows.push(...parseResult.unrecognizedRows);
-        for (const row of parseResult.recognizedRows) {
-          const staff = resolveStaffByName(
-            nameLookup,
-            row.name,
-            matchedStaffIds,
-          );
-          if (!staff) {
-            unresolvedRows.push(row);
-            continue;
+        // If it's for a DIFFERENT week, we save it directly to DB
+        if (planningMode === "week" && targetWeekStart && !isCurrentWeek) {
+          const bulkSchedules: StaffSchedule[] = [];
+          for (const row of parseResult.recognizedRows) {
+            const entry: StaffSchedule = {
+              staff_id: row.staff.id,
+              full_name: row.staff.full_name,
+              role: row.staff.role,
+              status: "published",
+              weekdays: row.daySchedule.map(ds => ({
+                weekday: ds.weekday,
+                works: ds.shiftVal !== "" && normalizeHeader(ds.shiftVal) !== "off",
+                shift_label: ds.shiftVal !== "" && normalizeHeader(ds.shiftVal) !== "off" ? ds.shiftVal : null,
+                base_works: false,
+                base_shift_label: null,
+                is_highlighted: false,
+              }))
+            };
+            bulkSchedules.push(entry);
           }
-          matchedStaffIds.add(staff.id);
-          applyImportRow(nextSchedules, staff, row.daySchedule);
-          appliedStaffIds.add(staff.id);
+          
+          if (bulkSchedules.length > 0) {
+            const weekStr = toYmdLocal(targetWeekStart);
+            await fetch(`${baseUrl}/api/staff/schedule/weeks/${weekStr}`, {
+              method: "PUT",
+              headers: { ...headers, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                schedules: bulkSchedules,
+                status: "published"
+              }),
+            });
+            toast(`Automatically published schedule for week of ${weekStr}`, "info");
+          }
+          continue;
+        }
+        if (isCurrentWeek) {
+          seenSheets += 1;
+          totalParsedRows += parseResult.totalRows;
+          unresolvedRows.push(...parseResult.unrecognizedRows);
+          for (const row of parseResult.recognizedRows) {
+            applyImportRow(nextSchedules, row.staff, row.daySchedule);
+            appliedStaffIds.add(row.staff.id);
+            matchedStaffIds.add(row.staff.id);
+          }
         }
       }
 
@@ -1451,6 +1616,8 @@ export default function StaffWeeklyGridView() {
 
       console.log("Import process complete. Applied:", appliedStaffIds.size, "Missing:", missingNames.size);
       setSchedules(sortedSchedules);
+      setImportedThisSession(true);
+      setUnsaved(true);
       setParseResults({
         success: appliedStaffIds.size,
         missing: Array.from(missingNames),
@@ -1463,7 +1630,7 @@ export default function StaffWeeklyGridView() {
               ? `${missingNames.size} names were not recognized.`
               : ""
           } Click Save All Changes to persist.`,
-          missingNames.size > 0 ? "warning" : "success"
+          missingNames.size > 0 ? "info" : "success"
         );
       }
 
@@ -1498,7 +1665,7 @@ export default function StaffWeeklyGridView() {
   }
 
   const handlePrint = () => {
-    const doc = buildStaffPrintDocument(schedules, weekLabel);
+    const doc = buildStaffPrintDocument(schedules, weekLabel, events, mondayStart(weekCursor));
     const printWindow = window.open("", "_blank", "width=1400,height=900");
     if (!printWindow) return;
     printWindow.document.open();
@@ -1550,7 +1717,7 @@ export default function StaffWeeklyGridView() {
           <button
             type="button"
             onClick={() => setPlanningMode("template")}
-            className={`px-4 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all ${
+            className={`px-4 py-2 rounded-xl text-xs font-black transition-all ${
               planningMode === "template"
                 ? "bg-white text-app-text shadow-sm"
                 : "text-app-text-muted hover:text-app-text"
@@ -1558,6 +1725,26 @@ export default function StaffWeeklyGridView() {
           >
             Master Template
           </button>
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 px-4 py-1.5 rounded-2xl bg-app-surface-2/40 border border-app-border text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+          <div className="flex items-center gap-1.5" title="Request Off Conflict (PTO, Sick, etc.)">
+            <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+            <span>Conflict</span>
+          </div>
+          <div className="flex items-center gap-1.5" title="Scheduled on a standard day off">
+            <div className="w-2 h-2 rounded-full bg-amber-500" />
+            <span>Override</span>
+          </div>
+          <div className="flex items-center gap-1.5" title="Store Meeting or Event">
+            <div className="w-4 h-4 rounded-full bg-amber-500 border border-white flex items-center justify-center text-[7px] text-white">M</div>
+            <span>Meeting</span>
+          </div>
+          <div className="flex items-center gap-1.5" title="Manual Highlighter for Print">
+            <div className="w-3 h-2 rounded-sm bg-amber-300 border border-amber-500" />
+            <span>Highlight</span>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -1716,6 +1903,26 @@ export default function StaffWeeklyGridView() {
         </div>
       </div>
 
+      {planningMode === "template" && (
+        <div className="rounded-2xl border border-app-accent/20 bg-app-accent/5 p-4 print:hidden">
+          <div className="flex items-center gap-2 text-app-accent">
+            <AlertCircle size={18} />
+            <h4 className="text-sm font-black uppercase">
+              Master Template Sync
+            </h4>
+          </div>
+          <p className="mt-1 text-xs text-app-text-muted">
+            The Master Template defines the standard shifts. To sync this from your Excel file:
+            <br />
+            1. Ensure the first tab is named <strong>MASTER</strong>.
+            <br />
+            2. Click <strong>Upload Excel</strong> above.
+            <br />
+            3. Click <strong>Save All Changes</strong> to update the database.
+          </p>
+        </div>
+      )}
+
       {planningMode === "week" && weekExceptions.length > 0 && (
         <div className="rounded-2xl border border-app-accent/20 bg-app-accent/5 p-4 print:hidden">
           <div className="flex items-center gap-2 text-app-accent">
@@ -1791,6 +1998,59 @@ export default function StaffWeeklyGridView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border">
+              {/* Store Events Row */}
+              <tr className="bg-amber-500/5 border-b-2 border-amber-500/20">
+                <td className="sticky left-0 bg-amber-500/5 z-10 border-r border-app-border px-4 py-2 font-black text-amber-700 text-[11px] uppercase tracking-wider">
+                  <div className="flex items-center gap-2">
+                    <CalendarDays size={14} />
+                    Store Events
+                  </div>
+                </td>
+                {WEEKDAY_LABELS.map((_, i) => {
+                  const ymd = toYmdLocal(addDays(mondayStart(weekCursor), i));
+                  const dayEvents = events.filter((e) => e.event_date === ymd);
+                  return (
+                    <td key={i} className="px-2 py-1 align-top">
+                      <div className="flex flex-col gap-1">
+                        {dayEvents.map((e) => (
+                          <div
+                            key={e.id}
+                            onClick={() => {
+                              setEditingEvent(e);
+                              setShowEventModal(true);
+                            }}
+                            className="group/evt relative rounded-md bg-amber-100 border border-amber-200 p-1 cursor-pointer hover:bg-amber-200 transition-colors"
+                          >
+                            <p className="text-[9px] font-black leading-tight text-amber-900 line-clamp-2">
+                              {e.label}
+                            </p>
+                          </div>
+                        ))}
+                        {canEdit && (
+                          <button
+                            onClick={() => {
+                              setEditingEvent({
+                                id: "",
+                                event_date: ymd,
+                                label: "",
+                                is_all_staff: true,
+                                attendees: [],
+                              });
+                              setShowEventModal(true);
+                            }}
+                            className="mt-1 flex items-center justify-center gap-1 py-1 rounded-md border border-dashed border-amber-300 text-amber-600 hover:bg-amber-100 hover:border-amber-400 text-[9px] font-bold transition-all"
+                          >
+                            <Plus size={10} />
+                            Add Event
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  );
+                })}
+                <td className="bg-amber-500/5" />
+              </tr>
+
               {schedules.map((s) => (
                 <tr
                   key={s.staff_id}
@@ -1819,7 +2079,7 @@ export default function StaffWeeklyGridView() {
                     </div>
                   </td>
                   {s.weekdays.map((w, i) => {
-                    const ymd = toYmdLocal(addDays(sundayStart(weekCursor), i));
+                    const ymd = toYmdLocal(addDays(mondayStart(weekCursor), i));
                     const conflict = weekExceptions.find(
                       (ex) =>
                         ex.staff_id === s.staff_id &&
@@ -1827,7 +2087,8 @@ export default function StaffWeeklyGridView() {
                         ex.kind !== "extra_shift",
                     );
                     const isOverride = w.works && !w.base_works;
-
+                    const isRemoved = !w.works && w.base_works;
+                    
                     return (
                       <td key={i} className="px-1 py-1 align-middle">
                         <div className="relative group/cell">
@@ -1836,41 +2097,77 @@ export default function StaffWeeklyGridView() {
                             disabled={!canEdit}
                             className={`w-full rounded-xl border-2 px-2 py-3 text-center text-xs font-black transition-all focus:border-app-accent focus:bg-white focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${
                               w.is_highlighted
-                                ? "border-amber-400 bg-amber-400/20 ring-4 ring-amber-400/20"
+                                ? "border-amber-500 bg-[#fff176] text-black shadow-lg shadow-amber-400/20"
                                 : !w.works
                                   ? "border-transparent text-app-text-muted opacity-40 italic bg-transparent"
                                   : conflict
-                                    ? "border-red-500/50 bg-red-500/5 text-red-700 dark:text-red-300"
-                                    : isOverride
-                                      ? "border-amber-500/50 bg-amber-500/5 text-amber-700 dark:text-amber-300"
-                                      : "border-transparent bg-transparent text-app-text"
+                                    ? "border-red-500 bg-red-500/5 text-red-700 dark:text-red-300 ring-2 ring-red-500/20"
+                                    : "border-transparent bg-transparent text-app-text"
                             }`}
                             value={w.shift_label || (w.works ? "" : "OFF")}
                             readOnly={highlighterActive}
                             onClick={() => {
                               if (highlighterActive) {
-                                toggleHighlight(s.staff_id, w.weekday);
+                                toggleHighlight(s.staff_id, i);
+                                return;
                               }
                             }}
-                            onChange={(ev) =>
-                              handleShiftChange(
-                                s.staff_id,
-                                w.weekday,
-                                ev.target.value,
-                              )
+                            onChange={(e) =>
+                              handleShiftChange(s.staff_id, i, e.target.value)
                             }
                             placeholder="OFF"
                           />
+                          {/* Conflict / Request Off Indicator */}
                           {conflict && (
-                            <div className="absolute -top-1 -right-1 z-20 rounded-full bg-red-500 p-0.5 text-white shadow-sm opacity-0 group-hover/cell:opacity-100 transition-opacity">
+                            <div 
+                              className="absolute -top-1 -left-1 z-30 rounded-full bg-red-600 border-2 border-white p-0.5 text-white shadow-md animate-pulse"
+                              title={`${conflict.kind.replace("_", " ")}: ${conflict.notes || "No notes"}`}
+                            >
                               <AlertCircle size={10} />
                             </div>
                           )}
-                          {isOverride && !conflict && (
-                            <div className="absolute -top-1 -right-1 z-20 rounded-full bg-amber-500 p-0.5 text-white shadow-sm opacity-0 group-hover/cell:opacity-100 transition-opacity">
-                              <AlertCircle size={10} />
-                            </div>
-                          )}
+
+                           {/* Override Warning Indicator (Extra Shift: Scheduled on day off) */}
+                           {isOverride && !conflict && (
+                             <div 
+                               className="absolute -top-1 -left-1 z-20 rounded-full bg-amber-500 border-2 border-white p-0.5 text-white shadow-sm cursor-help"
+                               title={`Extra Shift: This day is normally OFF in the Master Template${w.base_shift_label ? ` (${w.base_shift_label})` : ""}`} 
+                             >
+                               <AlertCircle size={10} />
+                             </div>
+                           )}
+
+                           {/* Removed Warning Indicator (Normally works, but marked OFF) */}
+                           {isRemoved && !conflict && (
+                             <div 
+                               className="absolute -top-1 -left-1 z-20 rounded-full bg-slate-400 border-2 border-white p-0.5 text-white shadow-sm cursor-help"
+                               title={`Removed: Normally works ${w.base_shift_label || "this day"} in Master Template`} 
+                             >
+                               <AlertCircle size={10} />
+                             </div>
+                           )}
+
+                          {/* Event / Meeting Indicator */}
+                          {planningMode === "week" && (() => {
+                            const ymd = toYmdLocal(addDays(mondayStart(weekCursor), i));
+                            const myEvents = events.filter(e => 
+                              e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id))
+                            );
+                            if (myEvents.length === 0) return null;
+                            return (
+                              <div className="absolute -top-1 -right-1 flex gap-0.5 z-20">
+                                {myEvents.map(e => (
+                                  <div 
+                                    key={e.id}
+                                    title={`Meeting: ${e.label}${e.notes ? ` (${e.notes})` : ""}`}
+                                    className="w-4 h-4 rounded-full bg-amber-500 border-2 border-white shadow-sm flex items-center justify-center text-[8px] text-white font-black"
+                                  >
+                                    M
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })()}
                         </div>
                       </td>
                     );
@@ -2005,6 +2302,190 @@ export default function StaffWeeklyGridView() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+      <StaffEventModal
+        open={showEventModal}
+        onClose={() => {
+          setShowEventModal(false);
+          setEditingEvent(null);
+        }}
+        event={editingEvent}
+        staffList={eligible}
+        onSave={() => void loadData()}
+      />
+    </div>
+  );
+}
+
+interface StaffEventModalProps {
+  open: boolean;
+  onClose: () => void;
+  event: ScheduleEvent | null;
+  staffList: { id: string; full_name: string; role: string }[];
+  onSave: () => void;
+}
+
+function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEventModalProps) {
+  const { backofficeHeaders } = useBackofficeAuth();
+  const { toast } = useToast();
+  const [label, setLabel] = useState("");
+  const [notes, setNotes] = useState("");
+  const [allStaff, setAllStaff] = useState(true);
+  const [attendees, setAttendees] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (event) {
+      setLabel(event.label || "");
+      setNotes(event.notes || "");
+      setAllStaff(event.is_all_staff);
+      setAttendees(event.attendees || []);
+    }
+  }, [event, open]);
+
+  const save = async () => {
+    if (!label.trim()) {
+      toast("Event label is required", "error");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await fetch(`${getBaseUrl()}/api/staff/schedule/events`, {
+        method: "POST",
+        headers: { ...backofficeHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: event?.id || null,
+          event_date: event?.event_date,
+          label,
+          notes,
+          is_all_staff: allStaff,
+          attendees,
+        }),
+      });
+      if (!res.ok) throw new Error("Failed to save event");
+      toast("Event saved", "success");
+      onSave();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Save failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!event?.id) return;
+    if (!confirm("Are you sure you want to delete this event?")) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`${getBaseUrl()}/api/staff/schedule/events?id=${event.id}`, {
+        method: "DELETE",
+        headers: backofficeHeaders(),
+      });
+      if (!res.ok) throw new Error("Failed to delete event");
+      toast("Event deleted", "success");
+      onSave();
+      onClose();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Delete failed", "error");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open || !event) return null;
+
+  return (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+      <div className="w-full max-w-md rounded-3xl bg-app-surface border border-app-border shadow-2xl p-6 space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-black tracking-tight text-app-text">
+            {event.id ? "Edit Event" : "Add Store Event"}
+          </h2>
+          <button onClick={onClose} className="p-2 rounded-xl hover:bg-app-surface-2">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          <label className="block">
+            <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Label</span>
+            <input 
+              value={label}
+              onChange={e => setLabel(e.target.value)}
+              className="ui-input w-full"
+              placeholder="e.g. Monthly Store Meeting"
+            />
+          </label>
+
+          <label className="block">
+            <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Notes (Optional)</span>
+            <textarea 
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              className="ui-input w-full h-20 py-2"
+              placeholder="Meeting agenda, details..."
+            />
+          </label>
+
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-black uppercase text-app-text-muted">Attendance</span>
+              <button 
+                onClick={() => setAllStaff(!allStaff)}
+                className={`px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest transition-all ${
+                  allStaff ? "bg-amber-500 text-white" : "bg-app-surface-2 text-app-text-muted"
+                }`}
+              >
+                {allStaff ? "All Staff" : "Selected Staff Only"}
+              </button>
+            </div>
+
+            {!allStaff && (
+              <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 rounded-xl bg-app-surface-2/40 border border-app-border">
+                {staffList.map(s => (
+                  <label key={s.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-app-surface-2 cursor-pointer transition-colors">
+                    <input 
+                      type="checkbox"
+                      checked={attendees.includes(s.id)}
+                      onChange={e => {
+                        if (e.target.checked) setAttendees([...attendees, s.id]);
+                        else setAttendees(attendees.filter(id => id !== s.id));
+                      }}
+                      className="h-3.5 w-3.5 rounded border-app-border text-amber-500 focus:ring-amber-500/20"
+                    />
+                    <span className="text-[10px] font-bold text-app-text truncate">{s.full_name}</span>
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 pt-2">
+          {event.id && (
+            <button 
+              onClick={() => void remove()}
+              disabled={busy}
+              className="flex items-center justify-center gap-2 p-3 rounded-2xl border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors"
+            >
+              <Trash2 size={18} />
+            </button>
+          )}
+          <button 
+            onClick={onClose}
+            className="flex-1 p-3 rounded-2xl border border-app-border font-black text-[11px] uppercase tracking-widest hover:bg-app-surface-2 transition-colors"
+          >
+            Cancel
+          </button>
+          <button 
+            onClick={() => void save()}
+            disabled={busy}
+            className="flex-1 p-3 rounded-2xl bg-app-accent text-white font-black text-[11px] uppercase tracking-widest shadow-lg shadow-app-accent/20 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-50"
+          >
+            {busy ? "Saving..." : "Save Event"}
+          </button>
         </div>
       </div>
     </div>

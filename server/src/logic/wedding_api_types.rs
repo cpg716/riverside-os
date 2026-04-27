@@ -103,6 +103,7 @@ pub struct WeddingMemberApi {
     /// Original customer data from import (before verification)
     pub import_customer_name: Option<String>,
     pub import_customer_phone: Option<String>,
+    pub alteration_status: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

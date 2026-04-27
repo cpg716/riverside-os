@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
  
+## [0.3.4] — 2026-04-27
+### Added
+- **Store Events & Meetings Framework**: 
+  - New system for tracking shared store activities (meetings, training, holiday events).
+  - Dedicated "Store Events" header row in the Planning Grid.
+  - Individual "Meeting" (M) badges for attendees, synchronized with individual shift boxes.
+  - **StaffEventModal**: Integrated event manager for creating, editing, and deleting multi-staff events.
+- **Schedule Indicators & Legend**:
+  - Implemented a persistent **Schedule Legend** in the toolbar for quick icon reference.
+  - **Conflict Badge (Red Pulse)**: Real-time notification of "Request Off" (PTO/Sick/Vacation) overlaps.
+  - **Override Badge (Amber Circle)**: Indicators for shifts that deviate from the Master Template.
+  - Added descriptive tooltips to all grid icons explaining their status and notes.
+- **Professional Print Overhaul**:
+  - Grid-style printed schedules with clear **Role Separators** and high-fidelity text.
+  - Dedicated **Sunday Exception Box** for specialized weekend shift visibility.
+  - Preserved **Highlighter Tool** support for high-contrast yellow marking on physical copies.
+
+### Changed
+- **Strict Published Visibility Invariant**: 
+  - Enforced a system-wide privacy rule where **only Published weeks** are visible in the Staff View and Staff Profiles. 
+  - Drafts and planning-in-progress data are strictly confined to the Planning Mode to prevent staff confusion.
+- **Highlighter Enhancement**: Overhauled the Highlighter tool to use solid, bright yellow (`#fff176`) with dark borders for maximum visibility.
+- **UI Refinement**: Replaced full-cell colored borders with subtle, high-context badges (Red Alert for Conflicts, Amber for Overrides) to maintain operational awareness without cluttering the grid.
+
+### Fixed
+- Resolved confusing amber "auto-borders" on normal shifts for Alterations and Support staff.
+- Fixed Sunday shift visibility in the Planning Grid and professional print document.
+- Synchronized the Scheduler's "Available Staff" logic with the new strict published-only database truth.
+
 ## [0.3.3] — 2026-04-26
 ### Changed
 - **Standardized Stacking Tiers & Portaling Mandate (v0.3.3+)**: Completed a systemic sweep of the entire UI overlay architecture to resolve "buried" interactive elements.

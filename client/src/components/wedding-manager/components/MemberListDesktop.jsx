@@ -21,6 +21,7 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                         <th scope="col" className="px-1 py-4 text-center text-xs font-bold text-app-text-muted uppercase tracking-wider w-24">Ordered</th>
                         <th scope="col" className="px-1 py-4 text-center text-xs font-bold text-app-text-muted uppercase tracking-wider w-24">Received</th>
                         <th scope="col" className="px-1 py-4 text-center text-xs font-bold text-app-text-muted uppercase tracking-wider w-24">Fitted</th>
+                        <th scope="col" className="px-1 py-4 text-center text-xs font-bold text-app-text-muted uppercase tracking-wider w-24">Alt</th>
                         <th scope="col" className="px-1 py-4 text-center text-xs font-bold text-app-text-muted uppercase tracking-wider w-24">Picked Up</th>
                     </tr>
                 </thead>
@@ -201,6 +202,12 @@ const MemberListDesktop = React.memo(({ members, partyId, paymentStatusByMemberI
                                         >
                                             {member.fitting ? <><Icon name="Scissors" size={14} /> DONE</> : 'PENDING'}
                                         </button>
+                                    </td>
+                                    <td className="px-1 py-3 whitespace-nowrap text-center">
+                                        <div className={`w-full py-2.5 rounded-lg text-xs font-black border-2 transition-all flex flex-col items-center justify-center gap-0.5 min-h-[44px] shadow-sm ${member.alteration_status ? 'bg-amber-50 text-amber-700 border-amber-200' : 'bg-app-surface text-app-text-muted border-app-border'}`} title={member.alteration_status ? `Alteration Status: ${member.alteration_status}` : 'No Alterations'}>
+                                            <Icon name="Activity" size={14} />
+                                            <span className="text-[9px] truncate max-w-[60px]">{member.alteration_status || '-'}</span>
+                                        </div>
                                     </td>
                                     <td className="px-1 py-3 whitespace-nowrap text-center">
                                         <button type="button"

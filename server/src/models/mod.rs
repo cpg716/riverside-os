@@ -139,6 +139,16 @@ pub enum DbStaffScheduleExceptionKind {
     Vacation,
     DoctorsAppt,
     Other,
+    Meeting,
+    StoreEvent,
+}
+
+#[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "staff_weekly_schedule_status", rename_all = "lowercase")]
+pub enum DbStaffWeeklyScheduleStatus {
+    Draft,
+    Published,
 }
 
 #[derive(Debug, Serialize, Deserialize, Type, PartialEq, Eq, Clone, Copy)]

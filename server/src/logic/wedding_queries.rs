@@ -94,7 +94,8 @@ pub async fn load_members_for_party(
             wm.is_free_suit_promo,
             wm.customer_verified,
             wm.import_customer_name,
-            wm.import_customer_phone
+            wm.import_customer_phone,
+            (SELECT status::text FROM alteration_orders WHERE wedding_member_id = wm.id ORDER BY created_at DESC LIMIT 1) AS alteration_status
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.wedding_party_id = $1
@@ -706,7 +707,8 @@ pub async fn fetch_member_optional(
             wm.is_free_suit_promo,
             wm.customer_verified,
             wm.import_customer_name,
-            wm.import_customer_phone
+            wm.import_customer_phone,
+            (SELECT status::text FROM alteration_orders WHERE wedding_member_id = wm.id ORDER BY created_at DESC LIMIT 1) AS alteration_status
         FROM wedding_members wm
         JOIN customers c ON c.id = wm.customer_id
         WHERE wm.id = $1

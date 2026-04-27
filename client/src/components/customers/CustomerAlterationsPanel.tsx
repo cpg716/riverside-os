@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import { useToast } from "../ui/ToastProviderLogic";
+import AlterationSchedulingDrawer from "../alterations/scheduler/AlterationSchedulingDrawer";
 
 const baseUrl = getBaseUrl();
 
@@ -27,8 +28,13 @@ type AlterationRow = {
   customer_city: string | null;
   customer_state: string | null;
   customer_postal_code: string | null;
+  wedding_member_id: string | null;
   status: string;
   due_at: string | null;
+  fitting_at: string | null;
+  appointment_id: string | null;
+  total_units_jacket: number;
+  total_units_pant: number;
   notes: string | null;
   linked_transaction_id: string | null;
   linked_transaction_display_id: string | null;
@@ -41,6 +47,16 @@ type AlterationRow = {
   charge_amount: string | number | null;
   intake_channel: string;
   source_snapshot: Record<string, unknown> | null;
+  created_at: string;
+};
+
+type AlterationOrderItem = {
+  id: string;
+  alteration_order_id: string;
+  label: string;
+  capacity_bucket: "jacket" | "pant" | "other";
+  units: number;
+  completed_at: string | null;
   created_at: string;
 };
 
@@ -155,6 +171,7 @@ export default function CustomerAlterationsPanel({
   const [sourceFilter, setSourceFilter] = useState<string>("all");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [schedulingAlt, setSchedulingAlt] = useState<AlterationRow | null>(null);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -465,6 +482,13 @@ export default function CustomerAlterationsPanel({
                 {s.replace("_", " ")}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setSchedulingAlt(r)}
+              className="rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-tight text-blue-400 transition-all hover:bg-blue-500 hover:text-white"
+            >
+              Plan & Schedule
+            </button>
          </div>
       </div>
     </div>
@@ -660,6 +684,14 @@ export default function CustomerAlterationsPanel({
           </div>
         </section>
       </div>
+      {schedulingAlt && (
+        <AlterationSchedulingDrawer 
+          alteration={schedulingAlt}
+          apiAuth={apiAuth}
+          onClose={() => setSchedulingAlt(null)}
+          onUpdated={load}
+        />
+      )}
     </div>
   );
 }

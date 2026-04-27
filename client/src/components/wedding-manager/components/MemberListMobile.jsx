@@ -85,7 +85,12 @@ const MemberListMobile = React.memo(({ members, partyId, paymentStatusByMemberId
                                     <span className={`font-bold uppercase ${['Groom', 'Customer'].includes(member.role) ? 'text-gold-600' : 'text-app-text-muted'}`}>{member.role}</span>
                                     {member.oot && <span className="bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded font-bold">OOT</span>}
                                     <span className={`px-1.5 py-0.5 rounded font-bold uppercase ${paymentBadgeClass}`}>{paymentStatus}</span>
-                                </div>
+                                    {member.alteration_status && (
+                                        <span className="bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 rounded font-bold uppercase flex items-center gap-1">
+                                            <Icon name="Activity" size={10} /> {member.alteration_status}
+                                        </span>
+                                    )}
+                                 </div>
                                 {member.pinNote === 1 && member.notes && (
                                     <div className="mt-2 p-2 bg-gold-50 border border-gold-200 rounded text-[11px] text-gold-700 font-medium italic shadow-sm">
                                         {member.notes}

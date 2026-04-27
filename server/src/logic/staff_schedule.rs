@@ -12,7 +12,7 @@ use crate::logic::tasks::{self, load_store_timezone_name};
 use crate::models::DbStaffScheduleExceptionKind;
 
 fn normalize_week_start(d: NaiveDate) -> NaiveDate {
-    let weekday = i64::from(d.weekday().num_days_from_sunday());
+    let weekday = i64::from(d.weekday().num_days_from_monday());
     d - Duration::days(weekday)
 }
 
@@ -56,7 +56,7 @@ pub async fn list_working_floor_staff_for_date(
     pool: &PgPool,
     d: NaiveDate,
 ) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
-    let weekday = d.weekday().num_days_from_sunday() as i16;
+    let weekday = d.weekday().num_days_from_monday() as i16;
     let week_start = normalize_week_start(d);
 
     sqlx::query_as::<_, FloorStaffTodayRow>(
@@ -206,6 +206,7 @@ pub struct WeeklyScheduleInstanceRow {
     pub shift_label: Option<String>,
     pub schedule_status: Option<String>,
     pub base_works: bool,
+    pub base_shift_label: Option<String>,
     pub is_highlighted: bool,
 }
 
@@ -257,6 +258,7 @@ pub async fn list_week_schedule_for_week(
                 ELSE NULL
             END AS schedule_status,
             COALESCE(swa.works, FALSE) AS base_works,
+            swa.shift_label AS base_shift_label,
             COALESCE(
                 CASE
                     WHEN sws.status IN ('draft','published') THEN swd.is_highlighted
@@ -301,6 +303,7 @@ pub async fn upsert_week_schedule_for_week(
     actor: Uuid,
     week_start: NaiveDate,
     rows: &[WeekScheduleInput],
+    status: crate::models::DbStaffWeeklyScheduleStatus,
 ) -> Result<(), StaffScheduleError> {
     if rows.is_empty() {
         return Err(StaffScheduleError::BadRequest(
@@ -377,9 +380,9 @@ pub async fn upsert_week_schedule_for_week(
         sqlx::query(
             r#"
             INSERT INTO staff_weekly_schedule (staff_id, week_start, status, created_by_staff_id, updated_by_staff_id)
-            VALUES ($1, $2, 'draft'::staff_weekly_schedule_status, $3, $3)
+            VALUES ($1, $2, $4, $3, $3)
             ON CONFLICT (staff_id, week_start) DO UPDATE
-            SET status = 'draft'::staff_weekly_schedule_status,
+            SET status = EXCLUDED.status,
                 updated_by_staff_id = $3,
                 updated_at = NOW()
             "#,
@@ -387,6 +390,7 @@ pub async fn upsert_week_schedule_for_week(
         .bind(staff_id)
         .bind(week_start)
         .bind(actor)
+        .bind(status)
         .execute(&mut *tx)
         .await?;
 
@@ -396,6 +400,7 @@ pub async fn upsert_week_schedule_for_week(
         .bind(staff_id)
         .bind(week_start)
         .execute(&mut *tx)
+        .await?;
         for d in &row.weekdays {
             sqlx::query(
                 r#"
@@ -411,7 +416,7 @@ pub async fn upsert_week_schedule_for_week(
             .bind(week_start)
             .bind(d.weekday)
             .bind(d.works)
-            .bind(d.shift_label.as_ref().map(str::trim).filter(|s| !s.is_empty()))
+            .bind(d.shift_label.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()))
             .bind(d.is_highlighted)
             .execute(&mut *tx)
             .await?;
@@ -552,6 +557,16 @@ pub struct ExceptionRow {
     pub kind: DbStaffScheduleExceptionKind,
     pub shift_label: Option<String>,
     pub notes: Option<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct ScheduleEventRow {
+    pub id: Uuid,
+    pub event_date: NaiveDate,
+    pub label: String,
+    pub notes: Option<String>,
+    pub is_all_staff: bool,
+    pub attendees: Vec<Uuid>,
 }
 
 pub async fn list_exceptions_range(
@@ -800,6 +815,7 @@ pub struct EffectiveDay {
     pub date: NaiveDate,
     pub working: bool,
     pub shift_label: Option<String>,
+    pub is_highlighted: bool,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -810,6 +826,7 @@ pub struct WeeklyScheduleRangeRow {
     pub date: NaiveDate,
     pub working: bool,
     pub shift_label: Option<String>,
+    pub is_highlighted: bool,
 }
 
 pub async fn get_effective_day_details(
@@ -817,28 +834,38 @@ pub async fn get_effective_day_details(
     staff_id: Uuid,
     d: NaiveDate,
 ) -> Result<EffectiveDay, sqlx::Error> {
-    let weekday = d.weekday().num_days_from_sunday() as i16;
+    let weekday = d.weekday().num_days_from_monday() as i16;
     let week_start = normalize_week_start(d);
-    let working = is_working_day(pool, staff_id, d).await?;
-
-    let shift_label: Option<String> = sqlx::query_scalar(
+    let row: (bool, Option<String>, bool) = sqlx::query_as(
         r#"
         SELECT 
+            COALESCE(
+                CASE 
+                    WHEN e.id IS NOT NULL THEN (e.kind = 'extra_shift')
+                    WHEN sws.status = 'published' THEN swd.works
+                    ELSE FALSE
+                END, 
+                FALSE
+            ) AS working,
             CASE 
                 WHEN e.id IS NOT NULL THEN e.shift_label
                 WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, swa.shift_label)
-                ELSE swa.shift_label
-            END
+                ELSE NULL
+            END AS shift_label,
+            CASE
+                WHEN sws.status = 'published' THEN COALESCE(swd.is_highlighted, swa.is_highlighted, FALSE)
+                ELSE FALSE
+            END AS is_highlighted
         FROM staff s
         LEFT JOIN staff_weekly_availability swa ON s.id = swa.staff_id AND swa.weekday = $3
         LEFT JOIN staff_weekly_schedule sws
             ON sws.staff_id = s.id
-           AND sws.status = 'published'
-           AND sws.week_start = $4
+            AND sws.status = 'published'
+            AND sws.week_start = $4
         LEFT JOIN staff_weekly_schedule_day swd
             ON swd.staff_id = s.id
-           AND swd.week_start = sws.week_start
-           AND swd.weekday = $3
+            AND swd.week_start = sws.week_start
+            AND swd.weekday = $3
         LEFT JOIN staff_day_exception e ON s.id = e.staff_id AND e.exception_date = $2
         WHERE s.id = $1
         "#,
@@ -852,8 +879,9 @@ pub async fn get_effective_day_details(
 
     Ok(EffectiveDay {
         date: d,
-        working,
-        shift_label,
+        working: row.0,
+        shift_label: row.1,
+        is_highlighted: row.2,
     })
 }
 
@@ -892,12 +920,23 @@ pub async fn list_effective_schedule_for_date_range(
             s.full_name,
             s.role,
             d.date,
-            staff_effective_working_day(s.id, d.date) AS working,
+            COALESCE(
+                CASE 
+                    WHEN e.id IS NOT NULL THEN (e.kind = 'extra_shift')
+                    WHEN sws.status = 'published' THEN swd.works
+                    ELSE FALSE
+                END, 
+                FALSE
+            ) AS working,
             CASE
                 WHEN e.id IS NOT NULL THEN e.shift_label
                 WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, swa.shift_label)
-                ELSE swa.shift_label
-            END AS shift_label
+                ELSE NULL
+            END AS shift_label,
+            CASE
+                WHEN sws.status = 'published' THEN COALESCE(swd.is_highlighted, swa.is_highlighted, FALSE)
+                ELSE FALSE
+            END AS is_highlighted
         FROM staff s
         CROSS JOIN dates d
         LEFT JOIN staff_weekly_availability swa
@@ -942,6 +981,7 @@ pub async fn list_master_template(pool: &PgPool) -> Result<Vec<MasterTemplateRow
                COALESCE(swa.works, FALSE) AS works,
                swa.shift_label,
                COALESCE(swa.works, FALSE) AS base_works,
+               swa.shift_label AS base_shift_label,
                COALESCE(swa.is_highlighted, FALSE) AS is_highlighted
         FROM staff s
         CROSS JOIN (SELECT generate_series(0, 6) AS day) gs
@@ -966,6 +1006,7 @@ pub struct MasterTemplateRow {
     pub works: bool,
     pub shift_label: Option<String>,
     pub base_works: bool,
+    pub base_shift_label: Option<String>,
     pub is_highlighted: bool,
 }
 
@@ -1027,4 +1068,108 @@ pub async fn clone_week_schedule_week(
 
     tx.commit().await?;
     Ok(copied)
+}
+pub async fn list_events_range(
+    pool: &PgPool,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> Result<Vec<ScheduleEventRow>, sqlx::Error> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT e.*, COALESCE(array_agg(a.staff_id) FILTER (WHERE a.staff_id IS NOT NULL), '{}') as attendees
+        FROM staff_schedule_events e
+        LEFT JOIN staff_schedule_event_attendees a ON a.event_id = e.id
+        WHERE e.event_date >= $1 AND e.event_date <= $2
+        GROUP BY e.id
+        ORDER BY e.event_date ASC, e.label ASC
+        "#,
+        from,
+        to
+    )
+    .fetch_all(pool)
+    .await?;
+
+    Ok(rows
+        .into_iter()
+        .map(|r| ScheduleEventRow {
+            id: r.id,
+            event_date: r.event_date,
+            label: r.label,
+            notes: r.notes,
+            is_all_staff: r.is_all_staff.unwrap_or(false),
+            attendees: r.attendees.unwrap_or_default(),
+        })
+        .collect())
+}
+
+pub async fn upsert_event(
+    pool: &PgPool,
+    event_date: NaiveDate,
+    label: String,
+    notes: Option<String>,
+    is_all_staff: bool,
+    attendees: Vec<Uuid>,
+    event_id: Option<Uuid>,
+) -> Result<Uuid, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+
+    let id = if let Some(eid) = event_id {
+        sqlx::query!(
+            r#"
+            UPDATE staff_schedule_events
+            SET event_date = $1, label = $2, notes = $3, is_all_staff = $4, updated_at = NOW()
+            WHERE id = $5
+            RETURNING id
+            "#,
+            event_date,
+            label,
+            notes,
+            is_all_staff,
+            eid
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .id
+    } else {
+        sqlx::query!(
+            r#"
+            INSERT INTO staff_schedule_events (event_date, label, notes, is_all_staff)
+            VALUES ($1, $2, $3, $4)
+            RETURNING id
+            "#,
+            event_date,
+            label,
+            notes,
+            is_all_staff
+        )
+        .fetch_one(&mut *tx)
+        .await?
+        .id
+    };
+
+    sqlx::query!("DELETE FROM staff_schedule_event_attendees WHERE event_id = $1", id)
+        .execute(&mut *tx)
+        .await?;
+
+    if !is_all_staff {
+        for sid in attendees {
+            sqlx::query!(
+                "INSERT INTO staff_schedule_event_attendees (event_id, staff_id) VALUES ($1, $2)",
+                id,
+                sid
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(id)
+}
+
+pub async fn delete_event(pool: &PgPool, id: Uuid) -> Result<u64, sqlx::Error> {
+    Ok(sqlx::query!("DELETE FROM staff_schedule_events WHERE id = $1", id)
+        .execute(pool)
+        .await?
+        .rows_affected())
 }

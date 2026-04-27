@@ -7,7 +7,7 @@ use axum::{
     routing::{get, patch},
     Json, Router,
 };
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -37,6 +37,10 @@ pub struct AlterationOrderRow {
     pub wedding_member_id: Option<Uuid>,
     pub status: String,
     pub due_at: Option<DateTime<Utc>>,
+    pub fitting_at: Option<DateTime<Utc>>,
+    pub appointment_id: Option<Uuid>,
+    pub total_units_jacket: i32,
+    pub total_units_pant: i32,
     pub notes: Option<String>,
     pub linked_transaction_id: Option<Uuid>,
     pub linked_transaction_display_id: Option<String>,
@@ -54,6 +58,17 @@ pub struct AlterationOrderRow {
     pub source_snapshot: Option<Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct AlterationOrderItemRow {
+    pub id: Uuid,
+    pub alteration_order_id: Uuid,
+    pub label: String,
+    pub capacity_bucket: String,
+    pub units: i32,
+    pub completed_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -88,7 +103,16 @@ pub struct CreateAlterationBody {
 pub struct PatchAlterationBody {
     pub status: Option<String>,
     pub due_at: Option<DateTime<Utc>>,
+    pub fitting_at: Option<DateTime<Utc>>,
+    pub appointment_id: Option<Uuid>,
     pub notes: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateOrderItemBody {
+    pub label: String,
+    pub capacity_bucket: String,
+    pub units: i32,
 }
 
 const VALID_ALTERATION_STATUSES: &[&str] = &["intake", "in_work", "ready", "picked_up"];
@@ -248,7 +272,159 @@ impl IntoResponse for AlterationError {
 pub fn router() -> Router<AppState> {
     Router::new()
         .route("/", get(list_alterations).post(create_alteration))
+        .route("/capacity", get(get_capacity))
+        .route("/suggest-slots", get(get_suggested_slots))
         .route("/{id}", patch(patch_alteration))
+        .route("/{id}/items", get(list_alteration_items).post(add_alteration_item))
+        .route(
+            "/{id}/items/{item_id}",
+            patch(patch_alteration_item).delete(delete_alteration_item),
+        )
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CapacityQuery {
+    pub start: NaiveDate,
+    pub end: NaiveDate,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SuggestSlotsQuery {
+    pub jacket_units: i32,
+    pub pant_units: i32,
+    pub due_date: NaiveDate,
+}
+
+async fn get_capacity(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<CapacityQuery>,
+) -> Result<Json<Vec<crate::logic::alterations_scheduler::CapacitySummary>>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    let cap = crate::logic::alterations_scheduler::get_capacity_for_range(&state.db, q.start, q.end).await?;
+    Ok(Json(cap))
+}
+
+async fn get_suggested_slots(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Query(q): Query<SuggestSlotsQuery>,
+) -> Result<Json<Vec<crate::logic::alterations_scheduler::SuggestedSlot>>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    let slots = crate::logic::alterations_scheduler::find_suggested_slots(
+        &state.db,
+        q.jacket_units,
+        q.pant_units,
+        q.due_date,
+        10,
+    )
+    .await?;
+    Ok(Json(slots))
+}
+
+async fn list_alteration_items(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<AlterationOrderItemRow>>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    let rows = sqlx::query_as::<_, AlterationOrderItemRow>(
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
+         FROM alteration_order_items WHERE alteration_order_id = $1 ORDER BY created_at ASC"
+    )
+    .bind(id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(rows))
+}
+
+async fn add_alteration_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateOrderItemBody>,
+) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
+    let staff = require_manage(&state, &headers).await?;
+    
+    let mut tx = state.db.begin().await?;
+    
+    let item_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO alteration_order_items (alteration_order_id, label, capacity_bucket, units) 
+         VALUES ($1, $2, $3::alteration_bucket, $4) RETURNING id"
+    )
+    .bind(id)
+    .bind(&body.label)
+    .bind(&body.capacity_bucket)
+    .bind(body.units)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    crate::logic::alterations_scheduler::update_order_unit_totals(&state.db, id).await?;
+    
+    let row = sqlx::query_as::<_, AlterationOrderItemRow>(
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
+         FROM alteration_order_items WHERE id = $1"
+    )
+    .bind(item_id)
+    .fetch_one(&mut *tx)
+    .await?;
+
+    tx.commit().await?;
+    Ok(Json(row))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchOrderItemBody {
+    pub completed_at: Option<Option<DateTime<Utc>>>,
+}
+
+async fn patch_alteration_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, item_id)): Path<(Uuid, Uuid)>,
+    Json(body): Json<PatchOrderItemBody>,
+) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    
+    if let Some(completed_at) = body.completed_at {
+        sqlx::query("UPDATE alteration_order_items SET completed_at = $1 WHERE id = $2 AND alteration_order_id = $3")
+            .bind(completed_at)
+            .bind(item_id)
+            .bind(id)
+            .execute(&state.db)
+            .await?;
+    }
+
+    let row = sqlx::query_as::<_, AlterationOrderItemRow>(
+        "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
+         FROM alteration_order_items WHERE id = $1"
+    )
+    .bind(item_id)
+    .fetch_one(&state.db)
+    .await?;
+
+    Ok(Json(row))
+}
+
+async fn delete_alteration_item(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path((id, item_id)): Path<(Uuid, Uuid)>,
+) -> Result<StatusCode, AlterationError> {
+    let _staff = require_manage(&state, &headers).await?;
+    
+    let mut tx = state.db.begin().await?;
+    
+    sqlx::query("DELETE FROM alteration_order_items WHERE id = $1 AND alteration_order_id = $2")
+        .bind(item_id)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    crate::logic::alterations_scheduler::update_order_unit_totals(&state.db, id).await?;
+    
+    tx.commit().await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 async fn require_manage(
@@ -322,7 +498,9 @@ async fn list_alterations(
                c.address_line1 AS customer_address_line1, c.city AS customer_city,
                c.state AS customer_state, c.postal_code AS customer_postal_code,
                a.wedding_member_id, a.status::text AS status,
-               a.due_at, a.notes, a.transaction_id AS linked_transaction_id,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
                lt.display_id AS linked_transaction_display_id,
                a.source_type::text AS source_type, a.item_description, a.work_requested,
                a.source_product_id, a.source_variant_id, a.source_sku,
@@ -474,7 +652,9 @@ async fn create_alteration(
                c.address_line1 AS customer_address_line1, c.city AS customer_city,
                c.state AS customer_state, c.postal_code AS customer_postal_code,
                a.wedding_member_id, a.status::text AS status,
-               a.due_at, a.notes, a.transaction_id AS linked_transaction_id,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
                lt.display_id AS linked_transaction_display_id,
                a.source_type::text AS source_type, a.item_description, a.work_requested,
                a.source_product_id, a.source_variant_id, a.source_sku,
@@ -550,6 +730,22 @@ async fn patch_alteration(
             .await?;
     }
 
+    if body.fitting_at.is_some() {
+        sqlx::query("UPDATE alteration_orders SET fitting_at = $1, updated_at = now() WHERE id = $2")
+            .bind(body.fitting_at)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if body.appointment_id.is_some() {
+        sqlx::query("UPDATE alteration_orders SET appointment_id = $1, updated_at = now() WHERE id = $2")
+            .bind(body.appointment_id)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
     if let Some(ref n) = notes_trimmed {
         sqlx::query("UPDATE alteration_orders SET notes = $1, updated_at = now() WHERE id = $2")
             .bind(n)
@@ -565,7 +761,9 @@ async fn patch_alteration(
                c.address_line1 AS customer_address_line1, c.city AS customer_city,
                c.state AS customer_state, c.postal_code AS customer_postal_code,
                a.wedding_member_id, a.status::text AS status,
-               a.due_at, a.notes, a.transaction_id AS linked_transaction_id,
+               a.due_at, a.fitting_at, a.appointment_id,
+               a.total_units_jacket, a.total_units_pant,
+               a.notes, a.transaction_id AS linked_transaction_id,
                lt.display_id AS linked_transaction_display_id,
                a.source_type::text AS source_type, a.item_description, a.work_requested,
                a.source_product_id, a.source_variant_id, a.source_sku,
