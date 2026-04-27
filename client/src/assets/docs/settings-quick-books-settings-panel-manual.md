@@ -4,7 +4,7 @@ title: "Quick Books Settings Panel (settings)"
 order: 1096
 summary: "Draft maintainer scaffold for client/src/components/settings/QuickBooksSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/QuickBooksSettingsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-quick-books-settings-panel, component, auto-scaffold
 status: draft
 ---

@@ -4,7 +4,7 @@ title: "Register Cash Adjust Modal (pos)"
 order: 1069
 summary: "Draft maintainer scaffold for client/src/components/pos/RegisterCashAdjustModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/RegisterCashAdjustModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-register-cash-adjust-modal, component, auto-scaffold
 status: draft
 ---

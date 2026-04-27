@@ -4,7 +4,7 @@ title: "Store Page Studio Editor (settings)"
 order: 1101
 summary: "Draft maintainer scaffold for client/src/components/settings/StorePageStudioEditor.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/StorePageStudioEditor.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-store-page-studio-editor, component, auto-scaffold
 status: draft
 ---

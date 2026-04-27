@@ -9,15 +9,15 @@ tags: inventory-product-hub-drawer, inventory, product-hub, retail-price-tags
 status: approved
 ---
 
-# Product Hub Drawer (inventory)
+# Product Hub Drawer
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/inventory/ProductHubDrawer.tsx`._
-<!-- /help:component-source -->
+The Product Hub is the single source of truth for a specific SKU. Use it to verify inventory levels, review variations, and print retail price tags.
+
+![Product Hub Drawer](../images/help/inventory-product-hub-drawer/main.png)
 
 ## What this is
 
-Use Product Hub when staff need the authoritative SKU view for inventory, recent movement, and purchase-order context.
+Use the **Product Hub** when you need to drill down into the details of a single product. It aggregates live inventory counts, recent movement logs, and purchase order context into one side panel.
 
 ## When to use it
 

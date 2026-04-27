@@ -1,18 +1,18 @@
 ---
-id: layout-sidebar
-title: "Sidebar (layout)"
-order: 1039
-summary: "Draft maintainer scaffold for client/src/components/layout/Sidebar.tsx. Promote to approved after SOP review and screenshot capture."
-source: client/src/components/layout/Sidebar.tsx
+id: layout-global-command-search
+title: "Global Command Search (layout)"
+order: 1036
+summary: "Draft maintainer scaffold for client/src/components/layout/GlobalCommandSearch.tsx. Promote to approved after SOP review and screenshot capture."
+source: client/src/components/layout/GlobalCommandSearch.tsx
 last_scanned: 2026-04-27
-tags: layout-sidebar, component, auto-scaffold
+tags: layout-global-command-search, component, auto-scaffold
 status: draft
 ---
 
-# Sidebar (layout)
+# Global Command Search (layout)
 
 <!-- help:component-source -->
-_Linked component: `client/src/components/layout/Sidebar.tsx`._
+_Linked component: `client/src/components/layout/GlobalCommandSearch.tsx`._
 <!-- /help:component-source -->
 
 ## What this is
@@ -52,7 +52,7 @@ Explain the expected result, where the staff member lands next, and whether anot
 
 ## Screenshots
 
-Add PNGs under `../images/help/layout-sidebar/` and replace this example with governed screenshots.
+Add PNGs under `../images/help/layout-global-command-search/` and replace this example with governed screenshots.
 
-![Example](../images/help/layout-sidebar/example.png)
+![Example](../images/help/layout-global-command-search/example.png)
 

@@ -4,7 +4,7 @@ title: "Customer Profile Completion Modal (pos)"
 order: 1052
 summary: "Draft maintainer scaffold for client/src/components/pos/CustomerProfileCompletionModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/CustomerProfileCompletionModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-customer-profile-completion-modal, component, auto-scaffold
 status: draft
 ---

@@ -4,7 +4,7 @@ title: "Staff Search Input (ui)"
 order: 1129
 summary: "Draft maintainer scaffold for client/src/components/ui/StaffSearchInput.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/StaffSearchInput.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-staff-search-input, component, auto-scaffold
 status: draft
 ---

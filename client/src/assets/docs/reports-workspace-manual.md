@@ -4,7 +4,7 @@ title: "Reports Workspace (reports)"
 order: 1083
 summary: "Draft maintainer scaffold for client/src/components/reports/ReportsWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/reports/ReportsWorkspace.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: reports-workspace, component, auto-scaffold
 status: draft
 ---

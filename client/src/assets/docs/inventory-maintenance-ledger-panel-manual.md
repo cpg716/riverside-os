@@ -4,7 +4,7 @@ title: "Maintenance Ledger Panel (inventory)"
 order: 1019
 summary: "Draft maintainer scaffold for client/src/components/inventory/MaintenanceLedgerPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/MaintenanceLedgerPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-maintenance-ledger-panel, component, auto-scaffold
 status: draft
 ---

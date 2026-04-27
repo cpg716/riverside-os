@@ -4,7 +4,7 @@ title: "Tag Designer Panel (settings)"
 order: 1121
 summary: "Draft maintainer scaffold for client/src/components/settings/TagDesignerPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/TagDesignerPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-tag-designer-panel, component, auto-scaffold
 status: draft
 ---

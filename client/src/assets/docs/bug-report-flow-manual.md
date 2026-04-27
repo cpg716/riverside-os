@@ -4,7 +4,7 @@ title: "Bug Report Flow (bug-report)"
 order: 1001
 summary: "Draft maintainer scaffold for client/src/components/bug-report/BugReportFlow.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/bug-report/BugReportFlow.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: bug-report-flow, component, auto-scaffold
 status: draft
 ---

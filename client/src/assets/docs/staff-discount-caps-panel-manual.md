@@ -4,7 +4,7 @@ title: "Staff Discount Caps Panel (staff)"
 order: 1107
 summary: "Draft maintainer scaffold for client/src/components/staff/StaffDiscountCapsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/StaffDiscountCapsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: staff-discount-caps-panel, component, auto-scaffold
 status: draft
 ---

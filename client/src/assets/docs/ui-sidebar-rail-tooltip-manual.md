@@ -4,7 +4,7 @@ title: "Sidebar Rail Tooltip (ui)"
 order: 1119
 summary: "Draft maintainer scaffold for client/src/components/ui/SidebarRailTooltip.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/SidebarRailTooltip.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-sidebar-rail-tooltip, component, auto-scaffold
 status: draft
 ---

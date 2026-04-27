@@ -4,7 +4,7 @@ title: "Online Store Settings Panel (settings)"
 order: 1092
 summary: "Draft maintainer scaffold for client/src/components/settings/OnlineStoreSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/OnlineStoreSettingsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-online-store-settings-panel, component, auto-scaffold
 status: draft
 ---

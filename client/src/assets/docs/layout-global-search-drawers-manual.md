@@ -4,7 +4,7 @@ title: "Global Search Drawers (layout)"
 order: 1030
 summary: "Draft maintainer scaffold for client/src/components/layout/GlobalSearchDrawers.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/layout/GlobalSearchDrawers.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: layout-global-search-drawers, component, auto-scaffold
 status: draft
 ---

@@ -4,7 +4,7 @@ title: "Prompt Modal (ui)"
 order: 1118
 summary: "Draft maintainer scaffold for client/src/components/ui/PromptModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/PromptModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-prompt-modal, component, auto-scaffold
 status: draft
 ---

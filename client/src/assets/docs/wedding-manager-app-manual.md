@@ -4,7 +4,7 @@ title: "Wedding Manager App (wedding-manager)"
 order: 1123
 summary: "Draft maintainer scaffold for client/src/components/wedding-manager/WeddingManagerApp.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/wedding-manager/WeddingManagerApp.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: wedding-manager-app, component, auto-scaffold
 status: draft
 ---

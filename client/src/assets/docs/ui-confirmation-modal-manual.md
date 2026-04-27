@@ -4,7 +4,7 @@ title: "Confirmation Modal (ui)"
 order: 1114
 summary: "Draft maintainer scaffold for client/src/components/ui/ConfirmationModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/ConfirmationModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-confirmation-modal, component, auto-scaffold
 status: draft
 ---

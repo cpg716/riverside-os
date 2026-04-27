@@ -1,58 +1,59 @@
 ---
 id: scheduler-workspace
-title: "Scheduler Workspace (scheduler)"
+title: "Scheduler Workspace"
 order: 1085
-summary: "Draft maintainer scaffold for client/src/components/scheduler/SchedulerWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Store-wide appointment scheduler: viewing calendar, booking fittings/consultations, and managing staff availability."
 source: client/src/components/scheduler/SchedulerWorkspace.tsx
-last_scanned: 2026-04-23
-tags: scheduler-workspace, component, auto-scaffold
-status: draft
+tags: scheduler, appointments, calendar, booking
+status: approved
 ---
 
-# Scheduler Workspace (scheduler)
+# Scheduler Workspace
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/scheduler/SchedulerWorkspace.tsx`._
-<!-- /help:component-source -->
+The Scheduler is the central hub for managing store appointments, consultations, and fittings. It provides a visual calendar interface to ensure your team is never double-booked.
+
+![Scheduler Calendar View](../images/help/scheduler-workspace/main.png)
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+Use the **Scheduler** to:
+- View the daily, weekly, or monthly store agenda.
+- Book new appointments for fittings, consultations, or pick-ups.
+- Manage staff assignments for specific appointment slots.
+- Identify and resolve scheduling conflicts.
 
 ## When to use it
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+- When a customer calls to book a fitting.
+- When reviewing staff coverage for a busy Saturday.
+- When checking if a specific fitting room or consultant is available.
 
 ## Before you start
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
+- Ensure the **Customer** is already in the system (or be ready to add them).
+- Confirm **Staff Availability** for the requested time slot.
 
 ## Steps
 
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+1. Open **Appointments → Scheduler** in the sidebar.
+2. Select your preferred view (Day, Week, Month).
+3. **Book Appointment**: Click on an empty time slot or use the **New Appointment** button.
+4. Fill in the **Customer**, **Appointment Type** (e.g., Bridal Consultation, Tux Fitting), and **Assigned Staff**.
+5. Save the appointment. It will appear on the calendar and notify the assigned staff member.
+6. **Edit/Move**: Drag and drop appointments to change times, or click an entry to open the full edit dialog.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
+- **Conflicts**: Red highlights or warnings indicate a staff member or room is overbooked.
+- **Syncing**: Changes made here may sync to external calendars (Google/Outlook) if your store has enabled that integration in Settings.
+- **Customer Notifications**: Confirmation and reminder messages are sent based on the customer's communication preferences.
 
 ## What happens next
 
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+- Appointments appear in the **Staff Tasks** view for the assigned consultant.
+- On the day of the appointment, the customer can be "Checked In" directly from the calendar.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/scheduler-workspace/` and replace this example with governed screenshots.
-
-![Example](../images/help/scheduler-workspace/example.png)
-
+- [Customer Hub](manual:customers-customer-relationship-hub-drawer)
+- [Staff Schedule](manual:staff-schedule-panel)

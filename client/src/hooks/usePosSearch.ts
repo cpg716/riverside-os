@@ -68,6 +68,7 @@ export function usePosSearch({
             state_tax: 0,
             local_tax: 0,
             stock_on_hand: 0,
+            vendor_sku: "",
           },
         ];
         setSearchResults(results);
@@ -116,6 +117,7 @@ export function usePosSearch({
             state_tax: r.state_tax || 0,
             local_tax: r.local_tax || 0,
             tax_category: r.tax_category as "clothing" | "footwear" | "other",
+            vendor_sku: (r.vendor_sku as string) || "",
           }));
           collected.push(...(mapped as SearchResult[]));
         }

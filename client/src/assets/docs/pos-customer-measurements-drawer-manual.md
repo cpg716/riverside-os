@@ -4,7 +4,7 @@ title: "Pos Customer Measurements Drawer (pos)"
 order: 1058
 summary: "Draft maintainer scaffold for client/src/components/pos/PosCustomerMeasurementsDrawer.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/PosCustomerMeasurementsDrawer.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-customer-measurements-drawer, component, auto-scaffold
 status: draft
 ---

@@ -4,7 +4,7 @@ title: "Wedding Lookup Drawer (pos)"
 order: 1080
 summary: "Draft maintainer scaffold for client/src/components/pos/WeddingLookupDrawer.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/WeddingLookupDrawer.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-wedding-lookup-drawer, component, auto-scaffold
 status: draft
 ---

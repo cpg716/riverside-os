@@ -4,7 +4,7 @@ title: "Bug Reports Settings Panel (settings)"
 order: 1086
 summary: "Draft maintainer scaffold for client/src/components/settings/BugReportsSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/BugReportsSettingsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-bug-reports-settings-panel, component, auto-scaffold
 status: draft
 ---

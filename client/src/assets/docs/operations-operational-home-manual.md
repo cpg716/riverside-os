@@ -1,52 +1,64 @@
 ---
 id: operations-operational-home
-title: "Operations Home"
+title: "Operations Home (Action Board)"
 order: 1047
-summary: "Use Operations for the store dashboard, alterations snapshot, daily sales, pickup queue, Podium inbox, and review tracking."
+summary: "Store-wide action board for triage: tracking daily movement, wedding party health, alterations, and priority pickup queues."
 source: client/src/components/operations/OperationalHome.tsx
-last_scanned: 2026-04-22
-tags: operations, dashboard, daily-sales, pickup-queue, podium-inbox, reviews
+tags: operations, dashboard, action-board, triage, weddings, alterations
+status: approved
 ---
 
-# Operations Home
+# Operations Home (Action Board)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/operations/OperationalHome.tsx`._
-<!-- /help:component-source -->
+Operations is the central triage area for Riverside OS. Use it to quickly identify what changed today and what needs your immediate attention.
+
+![Operations Home / Action Board](../images/help/operations-operational-home/main.png)
 
 ## What this is
 
-Operations is the Back Office triage area for live store work. It is not the same thing as the Orders workspace.
+The **Action Board** is designed for store managers and leads to oversee the live state of the store. It aggregates data from Weddings, Alterations, Sales, and the Pickup Queue into a single, high-level summary.
 
-Use it for:
+## When to use it
 
-- **Dashboard**: store-wide action board, alterations snapshot, activity, weather, and team context
-- **Daily Sales**: register totals and daily reporting
-- **Pickup Queue**: priority order follow-up for ready, rush, due-soon, and blocked orders
-- **Podium Inbox**: shared SMS and email thread list
-- **Reviews**: review invite tracking
+- At the start of a shift to review the day's goals.
+- To check the "health" of active wedding parties.
+- To see which garments are overdue in Alterations.
+- To triage customer messages in the Podium Inbox.
+
+## Key Sections
+
+### 1. What Changed Today
+This section provides a plain-language summary of store activity, including:
+- **Booked Sales**: Total value of new transactions rung today.
+- **Pickups**: Number of garments/orders fulfilled.
+- **Wedding Activity**: New parties booked or registered.
+- **Appointments**: Count of scheduled fittings and consultations.
+
+### 2. Wedding Health Heatmap
+A visual representation of all active wedding parties. Red or Amber indicators signal that a party has missing measurements, overdue payments, or unfulfilled garments close to the event date.
+
+### 3. What Needs Attention
+A prioritized list of "Blocked" or "Stalled" workflows. This includes orders missing vendor confirmations, failed payment syncs, or overdue tasks.
+
+### 4. Alterations Snapshot
+A high-level view of the tailoring queue. Tap the card to jump into the full **Alterations Hub** for detailed management.
 
 ## How to use it
 
-1. Open **Operations** from the Back Office sidebar.
-2. Pick the subsection that matches the job:
-   - **Dashboard** for triage
-   - **Daily Sales** for register/day reporting
-   - **Pickup Queue** for order pickup follow-up
-   - **Podium Inbox** for customer communications
-   - **Reviews** for post-sale reputation follow-up
+1. Open **Operations** from the sidebar.
+2. Review the **Action Board** for any red alerts or overdue items.
+3. Use the **Sub-sections** for deeper triage:
+   - **Daily Sales**: Review register totals and individual transaction logs.
+   - **Pickup Queue**: Follow up on orders that are ready for the customer.
+   - **Podium Inbox**: Respond to customer SMS and email threads.
 
-On the main dashboard, start with:
+## What to watch for
 
-- **What Changed Today** for booked sales, pickups, online orders, appointments, new wedding activity, and the short plain-language movement summary under those counts
-- **What Needs Attention** for the shortest list of problems that already need a decision
-- **Top Issues** for the operator-readable meaning of the queue, inventory, and inbox load
-- **Alterations** for overdue, due-today, ready pickup, and total open garment work created from Register intake
+- **Data Basis**: Operations data is typically shown on a **Booked** basis (when the action occurred), which may differ from the **Recognition** basis used in final financial reports.
+- **Action Required**: If a wedding party is "Red" on the heatmap, click the party name to open the **Wedding Relationship Hub** and resolve the issue.
 
-## Tips
+## Related workflows
 
-- **Orders** is still the full transaction and order workspace. Use **Pickup Queue** to decide what needs attention first, then open the order record to finish the work.
-- **Alterations** on Operations is only a snapshot. Use the Alterations Hub for full workbench filtering, search, and status movement.
-- **Podium Inbox** is a communications surface, not a general task inbox.
-- If a subsection is missing, check permissions before assuming the feature is broken.
-- The dashboard is meant to answer "what changed" and "what matters" quickly. If you need the full ledger or transaction detail, jump from Operations into the dedicated workspace instead of treating the overview as the full report.
+- [Alterations Workspace](manual:alterations-workspace)
+- [Wedding Relationship Hub](manual:customers-customer-relationship-hub-drawer)
+- [Pickup Queue](manual:operations-fulfillment-command-center)

@@ -4,7 +4,7 @@ title: "Shell Backdrop Context (layout)"
 order: 1038
 summary: "Draft maintainer scaffold for client/src/components/layout/ShellBackdropContext.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/layout/ShellBackdropContext.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: layout-shell-backdrop-context, component, auto-scaffold
 status: draft
 ---

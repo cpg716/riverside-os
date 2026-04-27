@@ -4,7 +4,7 @@ title: "Pos Suit Swap Wizard (pos)"
 order: 1063
 summary: "Draft maintainer scaffold for client/src/components/pos/PosSuitSwapWizard.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/PosSuitSwapWizard.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-suit-swap-wizard, component, auto-scaffold
 status: draft
 ---

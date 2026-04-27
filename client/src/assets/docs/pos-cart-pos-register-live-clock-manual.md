@@ -4,7 +4,7 @@ title: "Pos Register Live Clock (pos / cart)"
 order: 1060
 summary: "Draft maintainer scaffold for client/src/components/pos/cart/PosRegisterLiveClock.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/cart/PosRegisterLiveClock.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-cart-pos-register-live-clock, component, auto-scaffold
 status: draft
 ---

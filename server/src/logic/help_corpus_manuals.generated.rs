@@ -10,7 +10,6 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("settings-backups", "client/src/assets/docs/settings-backups-manual.md"),
     ("stripe-payments", "client/src/assets/docs/stripe-payments-manual.md"),
     ("alterations-workspace", "client/src/assets/docs/alterations-workspace-manual.md"),
-    ("customers-customer-alterations-panel", "client/src/assets/docs/customers-customer-alterations-panel-manual.md"),
     ("customers-customer-relationship-hub-drawer", "client/src/assets/docs/customers-customer-relationship-hub-drawer-manual.md"),
     ("customers-workspace", "client/src/assets/docs/customers-workspace-manual.md"),
     ("customers-podium-messaging-inbox-section", "client/src/assets/docs/customers-podium-messaging-inbox-section-manual.md"),
@@ -53,6 +52,7 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("pos-register-reports", "client/src/assets/docs/pos-register-reports-manual.md"),
     ("qbo-mapping-matrix", "client/src/assets/docs/qbo-mapping-matrix-manual.md"),
     ("qbo-workspace", "client/src/assets/docs/qbo-workspace-manual.md"),
+    ("scheduler-workspace", "client/src/assets/docs/scheduler-workspace-manual.md"),
     ("settings-counterpoint-sync-settings-panel", "client/src/assets/docs/settings-counterpoint-sync-settings-panel-manual.md"),
     ("settings-meilisearch-settings-panel", "client/src/assets/docs/settings-meilisearch-settings-panel-manual.md"),
     ("settings-receipt-builder-panel", "client/src/assets/docs/settings-receipt-builder-panel-manual.md"),
@@ -61,4 +61,5 @@ pub const HELP_MANUAL_FILES: &[(&str, &str)] = &[
     ("staff-commission-payouts-panel", "client/src/assets/docs/staff-commission-payouts-panel-manual.md"),
     ("settings-printers-and-scanners-panel", "client/src/assets/docs/settings-printers-and-scanners-panel-manual.md"),
     ("staff-commission-manager-workspace", "client/src/assets/docs/staff-commission-manager-workspace-manual.md"),
+    ("staff-workspace", "client/src/assets/docs/staff-workspace-manual.md"),
 ];

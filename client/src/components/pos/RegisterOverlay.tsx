@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
+  Wifi,
 } from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
 import {
@@ -23,6 +24,10 @@ import NumericPinKeypad, { PinDots } from "../ui/NumericPinKeypad";
 import { useShellBackdropLayer } from "../layout/ShellBackdropContextLogic";
 import { useDialogAccessibility } from "../../hooks/useDialogAccessibility";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
+import {
+  checkReceiptPrinterConnection,
+  resolvePrinterAddress,
+} from "../../lib/printerBridge";
 import RiversideJustLogo from "../../assets/images/logo1.png";
 
 export interface SessionOpenedPayload {

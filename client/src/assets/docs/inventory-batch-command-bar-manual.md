@@ -4,7 +4,7 @@ title: "Batch Command Bar (inventory)"
 order: 1012
 summary: "Draft maintainer scaffold for client/src/components/inventory/BatchCommandBar.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/BatchCommandBar.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-batch-command-bar, component, auto-scaffold
 status: draft
 ---

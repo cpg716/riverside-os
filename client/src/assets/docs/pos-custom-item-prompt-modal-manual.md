@@ -4,7 +4,7 @@ title: "Custom Item Prompt Modal (pos)"
 order: 1054
 summary: "Draft maintainer scaffold for client/src/components/pos/CustomItemPromptModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/CustomItemPromptModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-custom-item-prompt-modal, component, auto-scaffold
 status: draft
 ---

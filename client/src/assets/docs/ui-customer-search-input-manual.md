@@ -4,7 +4,7 @@ title: "Customer Search Input (ui)"
 order: 1115
 summary: "Draft maintainer scaffold for client/src/components/ui/CustomerSearchInput.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/CustomerSearchInput.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-customer-search-input, component, auto-scaffold
 status: draft
 ---

@@ -4,7 +4,7 @@ title: "Compass Member Detail Drawer (operations)"
 order: 1046
 summary: "Draft maintainer scaffold for client/src/components/operations/CompassMemberDetailDrawer.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/operations/CompassMemberDetailDrawer.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: operations-compass-member-detail-drawer, component, auto-scaffold
 status: draft
 ---

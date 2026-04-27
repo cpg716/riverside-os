@@ -4,7 +4,7 @@ title: "Nuorder Settings Panel (settings)"
 order: 1091
 summary: "Draft maintainer scaffold for client/src/components/settings/NuorderSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/NuorderSettingsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-nuorder-settings-panel, component, auto-scaffold
 status: draft
 ---

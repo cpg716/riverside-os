@@ -4,7 +4,7 @@ title: "Weather Settings Panel (settings)"
 order: 1103
 summary: "Draft maintainer scaffold for client/src/components/settings/WeatherSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/WeatherSettingsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-weather-settings-panel, component, auto-scaffold
 status: draft
 ---

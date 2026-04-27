@@ -4,7 +4,7 @@ title: "Quick Keys (pos)"
 order: 1067
 summary: "Draft maintainer scaffold for client/src/components/pos/QuickKeys.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/QuickKeys.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-quick-keys, component, auto-scaffold
 status: draft
 ---

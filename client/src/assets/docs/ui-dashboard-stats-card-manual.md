@@ -4,7 +4,7 @@ title: "Dashboard Stats Card (ui)"
 order: 1141
 summary: "Draft maintainer scaffold for client/src/components/ui/DashboardStatsCard.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/DashboardStatsCard.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-dashboard-stats-card, component, auto-scaffold
 status: draft
 ---

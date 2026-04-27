@@ -4,7 +4,7 @@ title: "Stripe Vault Card Modal (customers)"
 order: 1010
 summary: "Draft maintainer scaffold for client/src/components/customers/StripeVaultCardModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/customers/StripeVaultCardModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: customers-stripe-vault-card-modal, component, auto-scaffold
 status: draft
 ---

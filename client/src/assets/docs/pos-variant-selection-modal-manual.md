@@ -4,7 +4,7 @@ title: "Variant Selection Modal (pos)"
 order: 1079
 summary: "Draft maintainer scaffold for client/src/components/pos/VariantSelectionModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/VariantSelectionModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-variant-selection-modal, component, auto-scaffold
 status: draft
 ---

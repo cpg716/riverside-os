@@ -1,61 +1,60 @@
 ---
 id: alterations-workspace
-title: "Alterations Workspace (alterations)"
+title: "Alterations Workspace"
 order: 1000
-summary: "Garment-based alterations workbench with overdue, due-today, ready pickup, total-open cards, search, source labels, and status movement after Register intake."
+summary: "Garment-based alterations workbench: tracking due dates, status movement, and intake review."
 source: client/src/components/alterations/AlterationsWorkspace.tsx
-last_scanned: 2026-04-23
-tags: alterations-workspace, component, auto-scaffold
+tags: alterations, tailoring, fitting, intake
 status: approved
 ---
 
-# Alterations Workspace (alterations)
+# Alterations Workspace
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/alterations/AlterationsWorkspace.tsx`._
-<!-- /help:component-source -->
+The Alterations workspace is a garment-based tailoring workbench. It tracks customers, garments, due dates, and work status for every job started at the Register.
+
+![Alterations Workspace Main Queue](../images/help/alterations-workspace/main.png)
 
 ## What this is
 
-The Alterations workspace is a garment-based tailoring workbench shared by Back Office and POS. It tracks customer, item being altered, source label, work requested, optional charge note, target due date, notes, and status after alteration intake is created from the Register.
-
-It starts with summary cards for **Overdue**, **Due Today**, **Ready for Pickup**, and **Total Open**, then lays the workbench out as section cards for **Overdue**, **Due Today**, **Ready for Pickup**, **Intake / Not Started**, and **In Work**. Existing order details appear only as source context when the garment came from a transaction line.
-
-It does not create new alteration jobs, create Register cart lines, collect payment, print tickets/barcodes, or act as an orders dashboard.
+Use the **Alterations** workspace to manage the lifecycle of a garment after intake. It provides a high-density view of:
+- **Overdue** jobs that missed their target date.
+- **Due Today** work that needs priority attention.
+- **Ready for Pickup** garments waiting for the customer.
+- **Total Open** workload for the tailoring team.
 
 ## When to use it
 
-Use it to review active garment work by due/status/source, search for a customer or garment, move work from **Intake** to **In Work**, mark work **Ready**, or close it as **Picked Up**.
+Use this workspace when you need to:
+1. Review the daily workload for the tailoring department.
+2. Move a job from **Intake** to **In Work** when sewing begins.
+3. Mark a job as **Ready** after final inspection.
+4. Close a job as **Picked Up** when the customer retrieves their garment.
 
 ## Before you start
 
-- Confirm you have **alterations.manage**.
-- Start alteration intake from the Register.
-- Confirm any actual price, rush fee, or payment handling outside this queue.
+- **Permissions**: You need **alterations.manage** to change statuses or edit notes.
+- **Intake Source**: Jobs must be started from the **Register** (Alteration Intake modal) before they appear in this queue.
 
 ## Steps
 
-1. Open **Alterations**.
-2. Use the summary cards, search, due filters, source filters, or status filters to narrow the garment workbench.
-3. For an existing job, read the customer, garment, source label, work requested, due date, and charge note.
-4. Change status only when the physical work actually moved.
+1. Open **Alterations** from the sidebar.
+2. Review the **Summary Cards** at the top to gauge the day's priorities.
+3. Use the **Search** bar or **Filters** (Vendor, Status, Source) to find a specific garment or customer.
+4. Tap a garment card to see the full work description and charge notes.
+5. **Change Status**: Drag-and-drop or use the status buttons to move the work through the pipeline (Intake → In Work → Ready → Picked Up).
 
 ## What to watch for
 
-- Marking a job **Ready** may notify the customer.
-- Source labels are **Current sale**, **Stock/catalog item**, **Existing order**, **Past purchase**, and **Custom/manual item**.
-- This queue can record an optional charge note, but it does not replace Register payment or transaction handling.
-- Keep notes operational and customer-safe.
+- **Notifications**: Marking a job **Ready** may trigger an automated SMS/Email to the customer (depending on store settings).
+- **Charge Notes**: This queue displays the "Alteration Charge Note" from the intake, but it does not collect payment. All financial transactions must happen at the Register.
+- **Due Dates**: Red dates indicate the job is overdue. Contact the customer if a delay is expected.
 
 ## What happens next
 
-The queue refreshes and the job remains visible under the matching status filter.
+- Once marked **Picked Up**, the job moves to the history archive and is no longer shown in the active "Total Open" count.
+- Related order balances are updated to reflect that fulfillment is complete.
 
 ## Related workflows
 
-- `docs/staff/alterations-back-office.md`
-- `docs/staff/pos-alterations.md`
-
-## Screenshots
-
-Screenshots are not currently embedded for this workflow.
+- [POS Alteration Intake](manual:pos-alteration-intake-modal)
+- [Customers Workspace](manual:customers-workspace)

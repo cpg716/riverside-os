@@ -4,7 +4,7 @@ title: "Pos Search Result List (pos / cart)"
 order: 1061
 summary: "Draft maintainer scaffold for client/src/components/pos/cart/PosSearchResultList.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/cart/PosSearchResultList.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-cart-pos-search-result-list, component, auto-scaffold
 status: draft
 ---

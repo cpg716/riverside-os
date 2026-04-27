@@ -4,7 +4,7 @@ title: "Insights Settings Panel (settings)"
 order: 1089
 summary: "Draft maintainer scaffold for client/src/components/settings/InsightsSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/InsightsSettingsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-insights-settings-panel, component, auto-scaffold
 status: draft
 ---

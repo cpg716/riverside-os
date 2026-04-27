@@ -6,13 +6,15 @@ summary: "Book made-to-measure custom work in POS, capture vendor references, an
 tags: pos, custom-orders, rush, fulfillment
 ---
 
-# Custom Orders & Rush Orders
+# Custom & Rush Orders
 
-This manual covers Custom garment orders in POS and how to flag them for rush handling.
+Custom orders are used for made-to-measure (MTM) garments that require specific vendor-form details and individualized pricing.
+
+![Custom Order Booking Modal](../images/help/pos/custom-order-modal.png)
 
 ## What this is
 
-Use this workflow for made-to-measure or custom garment bookings that should stay separate from standard stocked items.
+Use the **Custom Order** workflow for garments like HSM Custom Suits or Individualized Shirts. Unlike standard retail items, custom orders capture manufacturing details (lapels, buttons, vents) and can be flagged for **Rush** handling.
 
 ## How to use it
 

@@ -4,7 +4,7 @@ title: "Dashboard Grid Card (ui)"
 order: 1140
 summary: "Draft maintainer scaffold for client/src/components/ui/DashboardGridCard.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/DashboardGridCard.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-dashboard-grid-card, component, auto-scaffold
 status: draft
 ---

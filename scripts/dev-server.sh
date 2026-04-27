@@ -157,6 +157,6 @@ else
 fi
 
 cd "$ROOT/server"
-cargo run "$@" &
+cargo run --bin riverside-server "$@" &
 SERVER_PID="$!"
 wait "$SERVER_PID"

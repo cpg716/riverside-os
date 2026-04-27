@@ -4,7 +4,7 @@ title: "Reviews Operations Section (operations)"
 order: 1048
 summary: "Draft maintainer scaffold for client/src/components/operations/ReviewsOperationsSection.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/operations/ReviewsOperationsSection.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: operations-reviews-operations-section, component, auto-scaffold
 status: draft
 ---

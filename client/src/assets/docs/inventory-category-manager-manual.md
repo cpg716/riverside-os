@@ -4,7 +4,7 @@ title: "Category Manager (inventory)"
 order: 1013
 summary: "Draft maintainer scaffold for client/src/components/inventory/CategoryManager.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/CategoryManager.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-category-manager, component, auto-scaffold
 status: draft
 ---

@@ -10,6 +10,8 @@ tags: inventory-control-board, inventory, control-board, catalog
 
 # Inventory Control Board (inventory)
 
+![Inventory List / Control Board](../images/help/inventory-control-board/main.png)
+
 <!-- help:component-source -->
 _Linked component: `client/src/components/inventory/InventoryControlBoard.tsx`._
 <!-- /help:component-source -->

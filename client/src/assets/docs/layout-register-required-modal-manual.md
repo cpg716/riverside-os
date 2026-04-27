@@ -4,7 +4,7 @@ title: "Register Required Modal (layout)"
 order: 1036
 summary: "Draft maintainer scaffold for client/src/components/layout/RegisterRequiredModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/layout/RegisterRequiredModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: layout-register-required-modal, component, auto-scaffold
 status: draft
 ---

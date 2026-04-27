@@ -4,7 +4,7 @@ title: "Task Checklist Drawer (tasks)"
 order: 1113
 summary: "Draft maintainer scaffold for client/src/components/tasks/TaskChecklistDrawer.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/tasks/TaskChecklistDrawer.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: tasks-task-checklist-drawer, component, auto-scaffold
 status: draft
 ---

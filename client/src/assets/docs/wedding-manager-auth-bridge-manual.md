@@ -4,7 +4,7 @@ title: "Wedding Manager Auth Bridge (wedding-manager)"
 order: 1124
 summary: "Draft maintainer scaffold for client/src/components/wedding-manager/WeddingManagerAuthBridge.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/wedding-manager/WeddingManagerAuthBridge.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: wedding-manager-auth-bridge, component, auto-scaffold
 status: draft
 ---

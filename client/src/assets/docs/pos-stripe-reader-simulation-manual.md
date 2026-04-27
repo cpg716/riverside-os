@@ -4,7 +4,7 @@ title: "Stripe Reader Simulation (pos)"
 order: 1078
 summary: "Draft maintainer scaffold for client/src/components/pos/StripeReaderSimulation.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/StripeReaderSimulation.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-stripe-reader-simulation, component, auto-scaffold
 status: draft
 ---

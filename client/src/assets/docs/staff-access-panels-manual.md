@@ -4,7 +4,7 @@ title: "Staff Access Panels (staff)"
 order: 1105
 summary: "Draft maintainer scaffold for client/src/components/staff/StaffAccessPanels.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/StaffAccessPanels.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: staff-access-panels, component, auto-scaffold
 status: draft
 ---

@@ -141,6 +141,7 @@ After checkout, staff should either:
 
 ---
 
-## Refreshing the pictures in this guide
-
-Screenshots should be re-captured with **[aidocs-cli](https://github.com/BinarCode/aidocs-cli)** (Playwright-backed `/docs:generate`, `/docs:flow`, etc.) so they match the live UI. Configure output or copy exported images into **`client/src/assets/images/help/pos/`** using the same filenames this guide references (see **`docs/MANUAL_CREATION.md`**).
+## Related workflows
+- [Reports (curated)](manual:reports)
+- [Insights (Metabase)](manual:insights)
+- [Register Reports](manual:pos-register-reports)

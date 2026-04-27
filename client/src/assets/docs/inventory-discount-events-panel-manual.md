@@ -4,7 +4,7 @@ title: "Discount Events Panel (inventory)"
 order: 1014
 summary: "Draft maintainer scaffold for client/src/components/inventory/DiscountEventsPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/DiscountEventsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-discount-events-panel, component, auto-scaffold
 status: draft
 ---

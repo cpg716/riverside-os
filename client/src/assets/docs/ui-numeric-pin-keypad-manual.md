@@ -4,7 +4,7 @@ title: "Numeric Pin Keypad (ui)"
 order: 1117
 summary: "Draft maintainer scaffold for client/src/components/ui/NumericPinKeypad.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/NumericPinKeypad.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-numeric-pin-keypad, component, auto-scaffold
 status: draft
 ---

@@ -4,7 +4,7 @@ title: "Storefront Embed Host (layout)"
 order: 1040
 summary: "Draft maintainer scaffold for client/src/components/layout/StorefrontEmbedHost.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/layout/StorefrontEmbedHost.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: layout-storefront-embed-host, component, auto-scaffold
 status: draft
 ---

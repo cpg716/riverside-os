@@ -4,7 +4,7 @@ title: "Commission Trace Modal (staff)"
 order: 1120
 summary: "Draft maintainer scaffold for client/src/components/staff/CommissionTraceModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/CommissionTraceModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: staff-commission-trace-modal, component, auto-scaffold
 status: draft
 ---

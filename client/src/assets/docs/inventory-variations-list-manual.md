@@ -4,7 +4,7 @@ title: "Variations List (inventory)"
 order: 1028
 summary: "Draft maintainer scaffold for client/src/components/inventory/VariationsList.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/VariationsList.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-variations-list, component, auto-scaffold
 status: draft
 ---

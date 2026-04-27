@@ -1,18 +1,18 @@
 ---
-id: layout-sidebar
-title: "Sidebar (layout)"
-order: 1039
-summary: "Draft maintainer scaffold for client/src/components/layout/Sidebar.tsx. Promote to approved after SOP review and screenshot capture."
-source: client/src/components/layout/Sidebar.tsx
+id: settings-shippo-settings-panel
+title: "Shippo Settings Panel (settings)"
+order: 1120
+summary: "Draft maintainer scaffold for client/src/components/settings/ShippoSettingsPanel.tsx. Promote to approved after SOP review and screenshot capture."
+source: client/src/components/settings/ShippoSettingsPanel.tsx
 last_scanned: 2026-04-27
-tags: layout-sidebar, component, auto-scaffold
+tags: settings-shippo-settings-panel, component, auto-scaffold
 status: draft
 ---
 
-# Sidebar (layout)
+# Shippo Settings Panel (settings)
 
 <!-- help:component-source -->
-_Linked component: `client/src/components/layout/Sidebar.tsx`._
+_Linked component: `client/src/components/settings/ShippoSettingsPanel.tsx`._
 <!-- /help:component-source -->
 
 ## What this is
@@ -52,7 +52,7 @@ Explain the expected result, where the staff member lands next, and whether anot
 
 ## Screenshots
 
-Add PNGs under `../images/help/layout-sidebar/` and replace this example with governed screenshots.
+Add PNGs under `../images/help/settings-shippo-settings-panel/` and replace this example with governed screenshots.
 
-![Example](../images/help/layout-sidebar/example.png)
+![Example](../images/help/settings-shippo-settings-panel/example.png)
 

@@ -4,7 +4,7 @@ title: "Customer Measurement Vault Form (customers)"
 order: 1003
 summary: "Draft maintainer scaffold for client/src/components/customers/CustomerMeasurementVaultForm.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/customers/CustomerMeasurementVaultForm.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: customers-customer-measurement-vault-form, component, auto-scaffold
 status: draft
 ---

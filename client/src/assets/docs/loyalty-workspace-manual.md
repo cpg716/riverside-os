@@ -10,7 +10,13 @@ tags: loyalty, rewards, fulfillment, analytics
 
 # Loyalty Management Hub
 
-The Loyalty Management Hub helps staff see who is ready for a reward, review recent loyalty activity, and handle reward-card fulfillment.
+The Loyalty Management Hub is where store staff manage the Elite Rewards program. Use it to identify reward-eligible customers, issue reward cards, and track loyalty history.
+
+![Loyalty Workspace Main Hub](../images/help/loyalty-workspace/main.png)
+
+## What this is
+
+This workspace handles the end-to-end "Fulfillment" of loyalty rewards. While points are earned automatically at the Register, the final issuance of reward cards happens here.
 
 ## What this is
 

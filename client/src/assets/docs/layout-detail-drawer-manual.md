@@ -4,7 +4,7 @@ title: "Detail Drawer (layout)"
 order: 1029
 summary: "Draft maintainer scaffold for client/src/components/layout/DetailDrawer.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/layout/DetailDrawer.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: layout-detail-drawer, component, auto-scaffold
 status: draft
 ---

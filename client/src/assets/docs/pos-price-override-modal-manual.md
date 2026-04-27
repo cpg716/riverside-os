@@ -4,7 +4,7 @@ title: "Price Override Modal (pos)"
 order: 1064
 summary: "Draft maintainer scaffold for client/src/components/pos/PriceOverrideModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/PriceOverrideModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-price-override-modal, component, auto-scaffold
 status: draft
 ---

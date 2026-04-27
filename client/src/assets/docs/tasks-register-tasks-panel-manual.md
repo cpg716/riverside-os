@@ -4,7 +4,7 @@ title: "Register Tasks Panel (tasks)"
 order: 1112
 summary: "Draft maintainer scaffold for client/src/components/tasks/RegisterTasksPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/tasks/RegisterTasksPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: tasks-register-tasks-panel, component, auto-scaffold
 status: draft
 ---

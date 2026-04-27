@@ -4,7 +4,7 @@ title: "Appointment Modal (scheduler)"
 order: 1084
 summary: "Draft maintainer scaffold for client/src/components/scheduler/AppointmentModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/scheduler/AppointmentModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: scheduler-appointment-modal, component, auto-scaffold
 status: draft
 ---

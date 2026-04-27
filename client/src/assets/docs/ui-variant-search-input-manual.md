@@ -4,7 +4,7 @@ title: "Variant Search Input (ui)"
 order: 1122
 summary: "Draft maintainer scaffold for client/src/components/ui/VariantSearchInput.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/VariantSearchInput.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-variant-search-input, component, auto-scaffold
 status: draft
 ---

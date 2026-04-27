@@ -4,7 +4,7 @@ title: "Ros Dev Center Panel (settings)"
 order: 1115
 summary: "Draft maintainer scaffold for client/src/components/settings/RosDevCenterPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/RosDevCenterPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-ros-dev-center-panel, component, auto-scaffold
 status: draft
 ---

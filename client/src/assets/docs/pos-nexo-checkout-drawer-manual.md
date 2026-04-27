@@ -8,13 +8,15 @@ last_scanned: 2026-04-11
 tags: pos, checkout, stripe, card, manual-entry, payment
 ---
 
-# Nexo Checkout Drawer (pos)
+# Checkout & Payment (Nexo)
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/pos/NexoCheckoutDrawer.tsx`._
-<!-- /help:component-source -->
+The Checkout Drawer is the final step for every sale. It handles tender collection, receipt generation, and real-time Stripe integration.
 
-The **Checkout Drawer** is the final step for every sale. It handles tender collection, receipt generation, and real-time Stripe integration.
+![Payment Ledger / Checkout Drawer](../images/help/pos/nexo-checkout-drawer.png)
+
+## What this is
+
+Use the **Checkout** side panel to collect payments, apply deposits, and finalize the transaction. It is designed to guide the cashier through the correct tender sequence for Retail, Order, and Wedding sales.
 
 ## What this is
 

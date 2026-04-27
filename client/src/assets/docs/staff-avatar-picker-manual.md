@@ -4,7 +4,7 @@ title: "Staff Avatar Picker (staff)"
 order: 1106
 summary: "Draft maintainer scaffold for client/src/components/staff/StaffAvatarPicker.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/StaffAvatarPicker.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: staff-avatar-picker, component, auto-scaffold
 status: draft
 ---

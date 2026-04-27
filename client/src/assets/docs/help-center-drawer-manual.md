@@ -4,7 +4,7 @@ title: "Help Center Drawer (help)"
 order: 1011
 summary: "Draft maintainer scaffold for client/src/components/help/HelpCenterDrawer.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/help/HelpCenterDrawer.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: help-center-drawer, component, auto-scaffold
 status: draft
 ---

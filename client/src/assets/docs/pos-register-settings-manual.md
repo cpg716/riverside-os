@@ -4,7 +4,7 @@ title: "Register Settings (pos)"
 order: 1075
 summary: "Draft maintainer scaffold for client/src/components/pos/RegisterSettings.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/RegisterSettings.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-register-settings, component, auto-scaffold
 status: draft
 ---

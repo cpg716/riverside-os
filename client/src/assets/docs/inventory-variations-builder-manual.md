@@ -4,7 +4,7 @@ title: "Variations Builder (inventory)"
 order: 1027
 summary: "Draft maintainer scaffold for client/src/components/inventory/VariationsBuilder.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/VariationsBuilder.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-variations-builder, component, auto-scaffold
 status: draft
 ---

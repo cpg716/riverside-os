@@ -4,7 +4,7 @@ title: "Cart (pos)"
 order: 1050
 summary: "Register cart surface for sale lines, customer context, toolbar actions, and safe alteration intake handoff."
 source: client/src/components/pos/Cart.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-cart, component, auto-scaffold
 status: draft
 ---
@@ -17,47 +17,42 @@ _Linked component: `client/src/components/pos/Cart.tsx`._
 
 ## What this is
 
-The Register cart is the selling surface for active sale lines, customer context, payment entry, and sale tools. The toolbar includes separate actions for Wedding, Alteration, Exchange, Layaway, Gift Card, Park Sale, Clear Sale, Options, and Orders. Shipping for the current sale lives in the cart totals area as **Ship current sale** so address, quote, and shipment tracking stay together.
-
-The **Alteration** action starts intake for garment work orders. Every Register alteration creates an editable **Alteration** cart line. Free/included alterations show **$0.00**; charged alterations show the entered service amount. Alteration-only scanned, past-purchase, or custom items are tracked as sources and are not sold again.
+This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
 
 ## When to use it
 
-Use this screen when helping a customer at the Register, adding sale lines, reviewing sale tools, or starting alteration intake tied to a selected customer.
+Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
 
 ## Before you start
 
-- Confirm the cashier is signed in.
-- Select or create the customer before using **Alteration**.
-- For alteration-only scanned or past-purchase items, use the Alteration intake modal. Do not add those garments to the sale.
+- Confirm which workspace or role opens this component.
+- Confirm any permission, prerequisite record, or previous workflow step staff need first.
+- Capture screenshots only after the UI state is stable and redacted.
 
 ## Steps
 
-1. Add sale lines through product search or scanner when the customer is buying items.
-2. Use toolbar actions as separate commands; **Exchange** and **Layaway** are independent actions.
-3. To start alteration intake, select the customer, choose **Alteration**, choose the item source, enter work requested, and save.
-4. Review the alteration cart line. Use **Edit** on that line to change work requested, source details, due date, notes, or charge amount before checkout.
-5. Use **Ship current sale** when ordinary in-stock merchandise should be delivered instead of handed to the customer. Shipping does not require converting the merchandise line into a Special Order.
+1. Enter the workspace or drawer that opens this component.
+2. Describe the staff action that starts the task.
+3. Describe the key review or confirmation step.
+4. Describe how staff finish or exit cleanly.
 
 ## What to watch for
 
-- Alteration intake requires a customer.
-- Scanned/entered alteration-only items are lookup-only and are not added to the cart.
-- Every alteration cart line must match its intake before checkout can complete.
-- Charged alteration lines are service lines, not merchandise lines.
-- Ship current sale requires a valid shipping quote; choosing Ship in a generic order review is not enough.
+- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
+- Keep the wording staff-facing and operational instead of implementation-heavy.
 
 ## What happens next
 
-Sale items remain in the Register cart. Register alteration drafts stay attached to their alteration cart line and become linked alteration work orders when checkout succeeds. Removing an alteration line removes its pending intake.
+Explain the expected result, where the staff member lands next, and whether another workspace takes over.
 
 ## Related workflows
 
-- `docs/staff/pos-alterations.md`
-- `docs/staff/pos-register-cart.md`
+- Link to the broader workspace manual when this component is only one step in a larger SOP.
+- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
 
 ## Screenshots
 
 Add PNGs under `../images/help/pos-cart/` and replace this example with governed screenshots.
 
 ![Example](../images/help/pos-cart/example.png)
+

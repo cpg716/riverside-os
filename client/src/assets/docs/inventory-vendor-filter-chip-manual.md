@@ -4,7 +4,7 @@ title: "Vendor Filter Chip (inventory)"
 order: 1026
 summary: "Draft maintainer scaffold for client/src/components/inventory/VendorFilterChip.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/inventory/VendorFilterChip.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: inventory-vendor-filter-chip, component, auto-scaffold
 status: draft
 ---

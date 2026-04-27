@@ -4,7 +4,7 @@ title: "Attach Order To Wedding Modal (orders)"
 order: 1053
 summary: "Draft maintainer scaffold for client/src/components/orders/AttachOrderToWeddingModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/orders/AttachOrderToWeddingModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: orders-attach-order-to-wedding-modal, component, auto-scaffold
 status: draft
 ---

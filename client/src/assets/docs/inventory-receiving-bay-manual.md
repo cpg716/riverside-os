@@ -10,6 +10,8 @@ tags: inventory-receiving-bay, inventory, receiving, purchase-orders
 
 # Receive Stock (inventory)
 
+![Receiving Bay](../images/help/inventory-receiving-bay/main.png)
+
 <!-- help:component-source -->
 _Linked component: `client/src/components/inventory/ReceivingBay.tsx`._
 <!-- /help:component-source -->

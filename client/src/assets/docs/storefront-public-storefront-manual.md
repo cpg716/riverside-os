@@ -4,7 +4,7 @@ title: "Public Storefront (storefront)"
 order: 1111
 summary: "Draft maintainer scaffold for client/src/components/storefront/PublicStorefront.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/storefront/PublicStorefront.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: storefront-public-storefront, component, auto-scaffold
 status: draft
 ---

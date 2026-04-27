@@ -4,7 +4,7 @@ title: "Staff Tasks Panel (staff)"
 order: 1109
 summary: "Draft maintainer scaffold for client/src/components/staff/StaffTasksPanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/StaffTasksPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: staff-tasks-panel, component, auto-scaffold
 status: draft
 ---

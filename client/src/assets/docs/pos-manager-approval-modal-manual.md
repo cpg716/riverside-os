@@ -4,7 +4,7 @@ title: "Manager Approval Modal (pos)"
 order: 1067
 summary: "Draft maintainer scaffold for client/src/components/pos/ManagerApprovalModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/ManagerApprovalModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-manager-approval-modal, component, auto-scaffold
 status: draft
 ---

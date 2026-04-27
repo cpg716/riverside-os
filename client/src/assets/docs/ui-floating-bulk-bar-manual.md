@@ -4,7 +4,7 @@ title: "Floating Bulk Bar (ui)"
 order: 1116
 summary: "Draft maintainer scaffold for client/src/components/ui/FloatingBulkBar.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/FloatingBulkBar.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-floating-bulk-bar, component, auto-scaffold
 status: draft
 ---

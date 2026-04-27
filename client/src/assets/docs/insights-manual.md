@@ -8,19 +8,53 @@ tags: insights, metabase, reports, analytics, commission
 
 # Insights (Metabase) — staff guide
 
-This guide covers **Insights** (powered by **Metabase**) and **commission reports** (under **Staff**). For **Back Office → Reports** (curated tiles, basis, CSV, Admin-only margin), open **Help → Reports (curated)**.
-
----
+![Insights Metabase dashboard](../images/help/insights/metabase-main.png)
 
 ## What this is
 
-- **Insights** in the left sidebar opens a **full-screen shell** with a thin Riverside header and a large **embedded Metabase** window.
-- **Exploratory reporting** (questions, dashboards, SQL where your store allows it) happens **inside Metabase**, not in old built-in chart tabs.
-- **Riverside** and **Metabase** use **separate logins**. Your staff code and PIN do **not** automatically sign you into Metabase.
+Insights displays **Metabase** dashboards directly within Riverside OS. Use this for advanced analytics, staff commissions, and custom store performance tracking.
 
 ## When to use it
 
-Use **Insights** when staff need exploratory dashboards, saved Metabase questions, or analytics views that go beyond the fixed Riverside **Reports** card library.
+Use **Insights** when you need:
+- Staff commission reporting (Fulfilled/Recognition basis).
+- Detailed inventory performance charts.
+- Custom management dashboards.
+- Drill-down analysis that the curated **Reports** library doesn't offer.
+
+## Sign in to Metabase
+
+1. Open **Insights** in the left rail.
+2. If you see a login screen, enter your store-provided **Metabase credentials**. This is separate from your Riverside Access PIN.
+3. Once signed in, you will land on your default dashboard (usually the Store Overview).
+
+## Quick steps
+
+1. Select a dashboard from the **Collections** or use the sidebar shortcuts.
+2. Adjust **Filters** at the top of the dashboard (e.g., Date Range, Staff Member, Category).
+3. Click **Update** or wait for the cards to refresh.
+4. To drill down into a specific number, click on the value in the chart or table.
+5. Use the **Download** icon on any individual card to export that specific data set.
+
+## What to watch for
+
+- **Session Expiry**: Metabase sessions are separate from Riverside. If a dashboard fails to load, try refreshing the page or re-authenticating.
+- **Data Freshness**: Insights data is pulled from the live PostgreSQL database but may have a slight caching delay depending on the Metabase configuration.
+- **Permissions**: Your Metabase role (Staff vs Admin) determines which dashboards and collections you can see.
+
+## What to watch for
+
+- **PIN Security**: PINs are 4 digits. Avoid using simple sequences (1234, 1111).
+- **Role Sync**: Changing a staff member's Role will reset their permissions to the role's default baseline.
+- **Employment Dates**: Staff members with a future 'Start Date' or a past 'End Date' will not be able to sign in to the register.
+
+- You can stay in Metabase to perform ad-hoc "Questions" if your role allows.
+- Navigate back to **Operations** or **Reports** for standard store management tasks.
+
+## Related workflows
+
+- [Reports (curated)](manual:reports)
+- [Staff Commissions](manual:staff-commission-manager-workspace)
 
 ---
 

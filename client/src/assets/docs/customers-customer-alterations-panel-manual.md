@@ -4,9 +4,9 @@ title: "Customer Alterations Panel (customers)"
 order: 1002
 summary: "Shared garment-based alterations workbench with summary cards, search, source labels, optional charge notes, due dates, and status movement after Register intake."
 source: client/src/components/customers/CustomerAlterationsPanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: customers-customer-alterations-panel, component, auto-scaffold
-status: approved
+status: draft
 ---
 
 # Customer Alterations Panel (customers)

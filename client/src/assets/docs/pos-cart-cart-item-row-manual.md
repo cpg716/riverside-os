@@ -4,7 +4,7 @@ title: "Cart Item Row (pos / cart)"
 order: 1059
 summary: "Draft maintainer scaffold for client/src/components/pos/cart/CartItemRow.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/cart/CartItemRow.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-cart-cart-item-row, component, auto-scaffold
 status: draft
 ---

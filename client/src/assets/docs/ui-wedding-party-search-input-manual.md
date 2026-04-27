@@ -4,7 +4,7 @@ title: "Wedding Party Search Input (ui)"
 order: 1132
 summary: "Draft maintainer scaffold for client/src/components/ui/WeddingPartySearchInput.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/ui/WeddingPartySearchInput.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: ui-wedding-party-search-input, component, auto-scaffold
 status: draft
 ---

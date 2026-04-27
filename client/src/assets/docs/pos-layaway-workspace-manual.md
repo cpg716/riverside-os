@@ -4,7 +4,7 @@ title: "Layaway Workspace (pos)"
 order: 1055
 summary: "Draft maintainer scaffold for client/src/components/pos/LayawayWorkspace.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/LayawayWorkspace.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-layaway-workspace, component, auto-scaffold
 status: draft
 ---

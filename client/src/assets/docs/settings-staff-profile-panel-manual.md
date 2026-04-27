@@ -4,7 +4,7 @@ title: "Staff Profile Panel (settings)"
 order: 1118
 summary: "Draft maintainer scaffold for client/src/components/settings/StaffProfilePanel.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/settings/StaffProfilePanel.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: settings-staff-profile-panel, component, auto-scaffold
 status: draft
 ---
@@ -18,12 +18,10 @@ _Linked component: `client/src/components/settings/StaffProfilePanel.tsx`._
 ## What this is
 
 This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
-The live panel now includes personal notification category preferences so staff can reduce routine inbox noise without turning off critical system alerts.
 
 ## When to use it
 
 Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
-This includes updating personal notification preferences for orders, tasks, weddings and appointments, inventory and purchasing, customers and loyalty, and team announcements.
 
 ## Before you start
 
@@ -57,3 +55,4 @@ Explain the expected result, where the staff member lands next, and whether anot
 Add PNGs under `../images/help/settings-staff-profile-panel/` and replace this example with governed screenshots.
 
 ![Example](../images/help/settings-staff-profile-panel/example.png)
+

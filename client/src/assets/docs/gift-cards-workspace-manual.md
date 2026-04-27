@@ -10,7 +10,16 @@ tags: gift-cards, back-office, staff-manual
 
 # Gift Cards Workspace
 
-Use this Back Office screen to look up gift cards, issue donated/giveaway cards, and void cards when store policy allows it. Purchased gift cards are sold or reloaded from Register only.
+The Gift Cards workspace is the Back Office control surface for managing the store's gift card liability and promotional card issuance.
+
+![Gift Cards Workspace Main List](../images/help/gift-cards-workspace/main.png)
+
+## What this is
+
+Use this workspace to look up card balances, review transaction history, issue promotional (donated) cards, and void cards when necessary. 
+
+> [!IMPORTANT]
+> Purchased gift cards must be sold or reloaded from the **Register** to ensure correct financial recording. This workspace is for administrative management and promotional issuance only.
 
 ## What this screen is for
 

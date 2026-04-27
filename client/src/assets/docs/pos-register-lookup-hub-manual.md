@@ -4,7 +4,7 @@ title: "Register Lookup Hub (pos)"
 order: 1072
 summary: "Draft maintainer scaffold for client/src/components/pos/RegisterLookupHub.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/pos/RegisterLookupHub.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: pos-register-lookup-hub, component, auto-scaffold
 status: draft
 ---

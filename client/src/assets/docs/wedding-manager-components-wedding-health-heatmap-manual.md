@@ -4,7 +4,7 @@ title: "Wedding Health Heatmap (wedding-manager / components)"
 order: 1151
 summary: "Draft maintainer scaffold for client/src/components/wedding-manager/components/WeddingHealthHeatmap.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/wedding-manager/components/WeddingHealthHeatmap.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: wedding-manager-components-wedding-health-heatmap, component, auto-scaffold
 status: draft
 ---

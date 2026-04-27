@@ -4,7 +4,7 @@ title: "Duplicate Review Queue Section (customers)"
 order: 1006
 summary: "Draft maintainer scaffold for client/src/components/customers/DuplicateReviewQueueSection.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/customers/DuplicateReviewQueueSection.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: customers-duplicate-review-queue-section, component, auto-scaffold
 status: draft
 ---

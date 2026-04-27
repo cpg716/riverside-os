@@ -4,7 +4,7 @@ title: "Combo Editor Modal (staff)"
 order: 1109
 summary: "Draft maintainer scaffold for client/src/components/staff/ComboEditorModal.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/staff/ComboEditorModal.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: staff-combo-editor-modal, component, auto-scaffold
 status: draft
 ---

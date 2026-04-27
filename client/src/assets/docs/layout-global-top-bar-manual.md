@@ -4,7 +4,7 @@ title: "Global Top Bar (layout)"
 order: 1037
 summary: "Draft maintainer scaffold for client/src/components/layout/GlobalTopBar.tsx. Promote to approved after SOP review and screenshot capture."
 source: client/src/components/layout/GlobalTopBar.tsx
-last_scanned: 2026-04-23
+last_scanned: 2026-04-27
 tags: layout-global-top-bar, component, auto-scaffold
 status: draft
 ---

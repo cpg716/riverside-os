@@ -1,18 +1,18 @@
 ---
-id: layout-sidebar
-title: "Sidebar (layout)"
-order: 1039
-summary: "Draft maintainer scaffold for client/src/components/layout/Sidebar.tsx. Promote to approved after SOP review and screenshot capture."
-source: client/src/components/layout/Sidebar.tsx
+id: ui-address-autocomplete-input
+title: "Address Autocomplete Input (ui)"
+order: 1141
+summary: "Draft maintainer scaffold for client/src/components/ui/AddressAutocompleteInput.tsx. Promote to approved after SOP review and screenshot capture."
+source: client/src/components/ui/AddressAutocompleteInput.tsx
 last_scanned: 2026-04-27
-tags: layout-sidebar, component, auto-scaffold
+tags: ui-address-autocomplete-input, component, auto-scaffold
 status: draft
 ---
 
-# Sidebar (layout)
+# Address Autocomplete Input (ui)
 
 <!-- help:component-source -->
-_Linked component: `client/src/components/layout/Sidebar.tsx`._
+_Linked component: `client/src/components/ui/AddressAutocompleteInput.tsx`._
 <!-- /help:component-source -->
 
 ## What this is
@@ -52,7 +52,7 @@ Explain the expected result, where the staff member lands next, and whether anot
 
 ## Screenshots
 
-Add PNGs under `../images/help/layout-sidebar/` and replace this example with governed screenshots.
+Add PNGs under `../images/help/ui-address-autocomplete-input/` and replace this example with governed screenshots.
 
-![Example](../images/help/layout-sidebar/example.png)
+![Example](../images/help/ui-address-autocomplete-input/example.png)
 
