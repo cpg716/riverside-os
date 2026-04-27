@@ -12,9 +12,57 @@ defaults:
     shell: bash
 
 jobs:
-  e2e:
+  build:
+    name: Build Stack
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: server
+
+      - name: Build server
+        run: cd server && cargo build
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies
+        run: cd client && npm ci
+
+      - name: Build client (SPA)
+        run: cd client && npm run build
+
+      - name: Upload Server Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-binary
+          path: server/target/debug/riverside-server
+
+      - name: Upload Frontend Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: client/dist/
+
+  e2e:
+    name: Playwright Shard ${{ matrix.shard }}/4
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
 
     services:
       postgres:
@@ -47,6 +95,7 @@ jobs:
       RIVERSIDE_CORECARD_REGION: us
       RIVERSIDE_CORECARD_ENVIRONMENT: e2e
       RIVERSIDE_CORECARD_WEBHOOK_SECRET: e2e-corecard-webhook
+      FRONTEND_DIST: ./dist
 
     steps:
       - uses: actions/checkout@v4
@@ -66,18 +115,6 @@ jobs:
       - name: Seed default admin staff for E2E
         run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f scripts/seed_staff_register_test.sql
 
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: "1.88"
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: server
-
-      - name: Build server
-        run: cd server && cargo build
-
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
@@ -90,8 +127,19 @@ jobs:
       - name: Install Playwright Chromium
         run: cd client && npx playwright install chromium --with-deps
 
-      - name: Build client (SPA for Axum static fallback)
-        run: cd client && npm run build
+      - name: Download Server Binary
+        uses: actions/download-artifact@v4
+        with:
+          name: server-binary
+
+      - name: Download Frontend Bundle
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Fix Binary Permissions
+        run: chmod +x ./riverside-server
 
       - name: Start fake CoreCard host
         run: |
@@ -111,7 +159,6 @@ jobs:
 
       - name: Start API server
         run: |
-          cd server
           nohup env DATABASE_URL="$DATABASE_URL" RIVERSIDE_HTTP_BIND=127.0.0.1:3000 \
             RIVERSIDE_ENABLE_E2E_TEST_SUPPORT="$RIVERSIDE_ENABLE_E2E_TEST_SUPPORT" \
             RIVERSIDE_CORECARD_BASE_URL="$RIVERSIDE_CORECARD_BASE_URL" \
@@ -120,7 +167,8 @@ jobs:
             RIVERSIDE_CORECARD_REGION="$RIVERSIDE_CORECARD_REGION" \
             RIVERSIDE_CORECARD_ENVIRONMENT="$RIVERSIDE_CORECARD_ENVIRONMENT" \
             RIVERSIDE_CORECARD_WEBHOOK_SECRET="$RIVERSIDE_CORECARD_WEBHOOK_SECRET" \
-            ./target/debug/riverside-server > /tmp/ros-server.log 2>&1 &
+            FRONTEND_DIST="$FRONTEND_DIST" \
+            ./riverside-server > /tmp/ros-server.log 2>&1 &
           echo $! > /tmp/ros-server.pid
           for i in $(seq 1 90); do
             if curl -sf "http://127.0.0.1:3000/api/staff/list-for-pos" | grep -q '\['; then
@@ -172,14 +220,14 @@ jobs:
           echo "$body"
           exit 1
 
-      - name: Run Playwright
-        run: cd client && npx playwright test --workers=1
+      - name: Run Playwright Shard
+        run: cd client && npx playwright test --shard=${{ matrix.shard }}/4
 
       - name: Upload Playwright report
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-output
+          name: playwright-report-shard-${{ matrix.shard }}
           path: |
             client/test-results/
             client/playwright-report/

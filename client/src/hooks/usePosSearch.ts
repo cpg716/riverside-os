@@ -27,7 +27,7 @@ export function usePosSearch({
     const q = raw.trim();
     if (q.length < 2) {
       setSearchResults([]);
-      return;
+      return [];
     }
 
     if (q.toLowerCase() === "payment") {
@@ -57,7 +57,7 @@ export function usePosSearch({
           meta = payload;
           setRmsPaymentMeta(meta);
         }
-        setSearchResults([
+        const results = [
           {
             product_id: meta.product_id,
             variant_id: meta.variant_id,
@@ -69,12 +69,14 @@ export function usePosSearch({
             local_tax: 0,
             stock_on_hand: 0,
           },
-        ]);
+        ];
+        setSearchResults(results);
+        return results;
       } catch {
         setSearchResults([]);
         toast("Could not load RMS payment line.", "error");
       }
-      return;
+      return [];
     }
 
     const requests: Promise<void>[] = [];
@@ -129,8 +131,10 @@ export function usePosSearch({
         return true;
       });
       setSearchResults(finalResults);
+      return finalResults;
     } catch (e) {
       console.error("POS Search Error", e);
+      return [];
     }
   }, [baseUrl, apiAuth, rmsPaymentMeta, setRmsPaymentMeta, toast]);
 
@@ -160,8 +164,15 @@ export function usePosSearch({
       if (!groups[r.product_id]) groups[r.product_id] = [];
       groups[r.product_id].push(r);
     });
-    return Object.values(groups).sort((a,b) => a[0].name.localeCompare(b[0].name));
-  }, [searchResults]);
+    return Object.values(groups).sort((a,b) => {
+      const q = search.trim().toLowerCase();
+      const aExact = a.some(v => v.sku.toLowerCase() === q);
+      const bExact = b.some(v => v.sku.toLowerCase() === q);
+      if (aExact && !bExact) return -1;
+      if (!aExact && bExact) return 1;
+      return a[0].name.localeCompare(b[0].name);
+    });
+  }, [searchResults, search]);
 
   return {
     search,

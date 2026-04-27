@@ -1438,7 +1438,13 @@ export default function Cart({
                 const q = search.trim();
                 if (q.length < 2) return;
                 e.preventDefault();
-                void runSearch(search);
+                runSearch(search).then(results => {
+                  if (!results) return;
+                  const exact = results.filter(r => r.sku.toLowerCase() === q.toLowerCase() || r.vendor_sku?.toLowerCase() === q.toLowerCase());
+                  if (exact.length === 1) {
+                    addItem(exact[0]);
+                  }
+                }).catch(() => {});
               }}
               className="ui-input h-11 w-full border-2 border-app-border pl-10 pr-28 text-base font-black shadow-inner focus:border-app-accent"
             />

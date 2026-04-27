@@ -290,14 +290,30 @@ export function useCartActions({
   );
 
   const handleLaserScan = useCallback(
-    (code: string, runSearch: (q: string) => Promise<void>) => {
+    (code: string, runSearch: (q: string) => Promise<SearchResult[] | undefined>) => {
       if (!ensureSaleCashier()) return;
       const trimmed = code.trim();
       if (trimmed.length < 2) return;
+
+      const existing = lines.find(l => l.sku.toLowerCase() === trimmed.toLowerCase() || l.vendor_sku?.toLowerCase() === trimmed.toLowerCase());
+      if (existing) {
+        setLines(prev => prev.map(l => l.cart_row_id === existing.cart_row_id ? { ...l, quantity: l.quantity + 1 } : l));
+        setSearch("");
+        setSearchResults([]);
+        playPosScanSuccess();
+        return;
+      }
+
       setSearch(trimmed);
-      void runSearch(trimmed);
+      runSearch(trimmed).then(results => {
+        if (!results) return;
+        const exact = results.filter(r => r.sku.toLowerCase() === trimmed.toLowerCase() || r.vendor_sku?.toLowerCase() === trimmed.toLowerCase());
+        if (exact.length === 1) {
+          addItem(exact[0]);
+        }
+      }).catch(() => {});
     },
-    [ensureSaleCashier, setSearch],
+    [ensureSaleCashier, setSearch, lines, setLines, setSearchResults, addItem],
   );
   
   const handleSearchResultClick = useCallback((

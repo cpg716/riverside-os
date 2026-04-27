@@ -12,13 +12,8 @@ import {
   AlertTriangle,
   CheckCircle2,
   RefreshCw,
-  Wifi,
 } from "lucide-react";
 import { centsToFixed2, parseMoney, parseMoneyToCents } from "../../lib/money";
-import {
-  checkReceiptPrinterConnection,
-  resolvePrinterAddress,
-} from "../../lib/printerBridge";
 import {
   getPosRegisterAuth,
   mergedPosStaffHeaders,
