@@ -1,7 +1,7 @@
 //! Weekly availability and day-level exceptions for salesperson / sales_support.
 //! `staff_effective_working_day` in PostgreSQL is the source of truth; Rust calls it via `is_working_day`.
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Datelike, Duration, NaiveDate, Utc};
 use chrono_tz::Tz;
 use serde::Serialize;
 use sqlx::PgPool;
@@ -10,6 +10,11 @@ use uuid::Uuid;
 
 use crate::logic::tasks::{self, load_store_timezone_name};
 use crate::models::DbStaffScheduleExceptionKind;
+
+fn normalize_week_start(d: NaiveDate) -> NaiveDate {
+    let weekday = i64::from(d.weekday().num_days_from_sunday());
+    d - Duration::days(weekday)
+}
 
 #[derive(Debug, Error)]
 pub enum StaffScheduleError {
@@ -51,23 +56,44 @@ pub async fn list_working_floor_staff_for_date(
     pool: &PgPool,
     d: NaiveDate,
 ) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
+    let weekday = d.weekday().num_days_from_sunday() as i16;
+    let week_start = normalize_week_start(d);
+
     sqlx::query_as::<_, FloorStaffTodayRow>(
         r#"
         SELECT s.id, s.full_name, s.role, s.avatar_key,
                CASE 
-                 WHEN e.id IS NULL THEN a.shift_label
+                 WHEN e.id IS NULL THEN COALESCE(swd.shift_label, swa.shift_label)
                  ELSE e.shift_label
                END as shift_label
         FROM staff s
-        LEFT JOIN staff_weekly_availability a ON s.id = a.staff_id AND a.weekday = EXTRACT(DOW FROM $1::date)::int
+        LEFT JOIN staff_weekly_availability swa ON s.id = swa.staff_id AND swa.weekday = EXTRACT(DOW FROM $1::date)::int
+        LEFT JOIN staff_weekly_schedule sws
+            ON sws.staff_id = s.id
+           AND sws.status = 'published'
+           AND sws.week_start = $2
+        LEFT JOIN staff_weekly_schedule_day swd
+            ON swd.staff_id = s.id
+           AND swd.week_start = sws.week_start
+           AND swd.weekday = $3
         LEFT JOIN staff_day_exception e ON s.id = e.staff_id AND e.exception_date = $1
         WHERE s.is_active = TRUE
           AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
           AND staff_effective_working_day(s.id, $1)
-        ORDER BY s.full_name ASC
+        ORDER BY
+          CASE s.role
+            WHEN 'salesperson' THEN 1
+            WHEN 'sales_support' THEN 2
+            WHEN 'staff_support' THEN 2
+            WHEN 'alterations' THEN 3
+            ELSE 4
+          END,
+          s.full_name ASC
         "#,
     )
     .bind(d)
+    .bind(week_start)
+    .bind(weekday)
     .fetch_all(pool)
     .await
 }
@@ -147,7 +173,15 @@ pub async fn list_eligible_staff(pool: &PgPool) -> Result<Vec<EligibleStaffRow>,
         SELECT id, full_name, role
         FROM staff
         WHERE is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
-        ORDER BY full_name ASC
+        ORDER BY
+          CASE role
+            WHEN 'salesperson' THEN 1
+            WHEN 'sales_support' THEN 2
+            WHEN 'staff_support' THEN 2
+            WHEN 'alterations' THEN 3
+            ELSE 4
+          END,
+          full_name ASC
         "#,
     )
     .fetch_all(pool)
@@ -159,6 +193,238 @@ pub struct WeeklyRow {
     pub weekday: i16,
     pub works: bool,
     pub shift_label: Option<String>,
+}
+
+#[derive(Debug, Serialize, sqlx::FromRow)]
+pub struct WeeklyScheduleInstanceRow {
+    pub staff_id: Uuid,
+    pub full_name: String,
+    pub role: crate::models::DbStaffRole,
+    pub weekday: i16,
+    pub works: bool,
+    pub shift_label: Option<String>,
+    pub schedule_status: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WeekInputDay {
+    pub weekday: i16,
+    pub works: bool,
+    pub shift_label: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WeekScheduleInput {
+    pub staff_id: Uuid,
+    pub weekdays: Vec<WeekInputDay>,
+}
+
+pub async fn list_week_schedule_for_week(
+    pool: &PgPool,
+    week_start: NaiveDate,
+) -> Result<Vec<WeeklyScheduleInstanceRow>, sqlx::Error> {
+    let week_start = normalize_week_start(week_start);
+    sqlx::query_as::<_, WeeklyScheduleInstanceRow>(
+        r#"
+        SELECT
+            s.id AS staff_id,
+            s.full_name,
+            s.role,
+            gs.day::smallint AS weekday,
+            COALESCE(
+                CASE
+                    WHEN sws.status IN ('draft','published') THEN swd.works
+                    ELSE NULL
+                END,
+                swa.works,
+                FALSE
+            ) AS works,
+            COALESCE(
+                CASE
+                    WHEN sws.status IN ('draft','published') THEN swd.shift_label
+                    ELSE NULL
+                END,
+                swa.shift_label
+            ) AS shift_label,
+            CASE
+                WHEN sws.status = 'published' THEN 'published'::text
+                WHEN sws.status = 'draft' THEN 'draft'::text
+                WHEN sws.status = 'archived' THEN 'archived'::text
+                ELSE NULL
+            END AS schedule_status
+        FROM staff s
+        CROSS JOIN generate_series(0,6) AS gs(day)
+        LEFT JOIN staff_weekly_schedule sws
+            ON sws.staff_id = s.id
+           AND sws.week_start = $1
+        LEFT JOIN staff_weekly_schedule_day swd
+            ON swd.staff_id = s.id
+           AND swd.week_start = $1
+           AND swd.weekday = gs.day
+        LEFT JOIN staff_weekly_availability swa
+            ON swa.staff_id = s.id
+           AND swa.weekday = gs.day
+        WHERE s.is_active = TRUE
+          AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+        ORDER BY
+          CASE s.role
+            WHEN 'salesperson' THEN 1
+            WHEN 'sales_support' THEN 2
+            WHEN 'staff_support' THEN 2
+            WHEN 'alterations' THEN 3
+            ELSE 4
+          END,
+          s.full_name ASC,
+          gs.day ASC
+        "#,
+    )
+    .bind(week_start)
+    .fetch_all(pool)
+    .await
+}
+
+pub async fn upsert_week_schedule_for_week(
+    pool: &PgPool,
+    actor: Uuid,
+    week_start: NaiveDate,
+    rows: &[WeekScheduleInput],
+) -> Result<(), StaffScheduleError> {
+    if rows.is_empty() {
+        return Err(StaffScheduleError::BadRequest(
+            "weekly schedule import requires at least one staff row".into(),
+        ));
+    }
+
+    let week_start = normalize_week_start(week_start);
+
+    let mut tx = pool.begin().await?;
+    for row in rows {
+        let staff_id = row.staff_id;
+        if row.weekdays.is_empty() {
+            return Err(StaffScheduleError::BadRequest(
+                "every staff schedule must include at least one weekday entry".into(),
+            ));
+        }
+
+        let mut seen_weekday = [false; 7];
+        for day in &row.weekdays {
+            if day.weekday < 0 || day.weekday > 6 {
+                return Err(StaffScheduleError::BadRequest(format!(
+                    "invalid weekday {} for staff {}",
+                    day.weekday, staff_id
+                )));
+            }
+            let idx = day.weekday as usize;
+            if seen_weekday[idx] {
+                return Err(StaffScheduleError::BadRequest(format!(
+                    "duplicate weekday {} for staff {}",
+                    day.weekday, staff_id
+                )));
+            }
+            seen_weekday[idx] = true;
+        }
+
+        let role_ok: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM staff
+                WHERE id = $1 AND is_active = TRUE AND role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+            )
+            "#,
+        )
+        .bind(staff_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if !role_ok {
+            return Err(StaffScheduleError::BadRequest(
+                "schedule applies only to active floor/support staff".into(),
+            ));
+        }
+
+        sqlx::query(
+            r#"
+            INSERT INTO staff_weekly_schedule (staff_id, week_start, status, created_by_staff_id, updated_by_staff_id)
+            VALUES ($1, $2, 'draft'::staff_weekly_schedule_status, $3, $3)
+            ON CONFLICT (staff_id, week_start) DO UPDATE
+            SET status = 'draft'::staff_weekly_schedule_status,
+                updated_by_staff_id = $3,
+                updated_at = NOW()
+            "#,
+        )
+        .bind(staff_id)
+        .bind(week_start)
+        .bind(actor)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            "DELETE FROM staff_weekly_schedule_day WHERE staff_id = $1 AND week_start = $2",
+        )
+        .bind(staff_id)
+        .bind(week_start)
+        .execute(&mut *tx)
+        .await?;
+
+        for day in &row.weekdays {
+            sqlx::query(
+                r#"
+                INSERT INTO staff_weekly_schedule_day (staff_id, week_start, weekday, works, shift_label)
+                VALUES ($1, $2, $3, $4, $5)
+                "#,
+            )
+            .bind(staff_id)
+            .bind(week_start)
+            .bind(day.weekday)
+            .bind(day.works)
+            .bind(&day.shift_label)
+            .execute(&mut *tx)
+            .await?;
+        }
+    }
+
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn publish_week_schedule_week(
+    pool: &PgPool,
+    actor: Uuid,
+    week_start: NaiveDate,
+) -> Result<u64, StaffScheduleError> {
+    let week_start = normalize_week_start(week_start);
+    let rows = sqlx::query(
+        r#"
+        UPDATE staff_weekly_schedule
+        SET status = 'published'::staff_weekly_schedule_status,
+            updated_by_staff_id = $2,
+            updated_at = NOW()
+        WHERE week_start = $1
+        "#,
+    )
+    .bind(week_start)
+    .bind(actor)
+    .execute(pool)
+    .await?
+    .rows_affected();
+
+    if rows == 0 {
+        return Err(StaffScheduleError::NotFound);
+    }
+    Ok(rows)
+}
+
+pub async fn delete_week_schedule_week(
+    pool: &PgPool,
+    week_start: NaiveDate,
+) -> Result<u64, StaffScheduleError> {
+    let week_start = normalize_week_start(week_start);
+    Ok(
+        sqlx::query("DELETE FROM staff_weekly_schedule WHERE week_start = $1")
+            .bind(week_start)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+    )
 }
 
 pub async fn get_weekly_availability(
@@ -512,6 +778,8 @@ pub async fn get_effective_day_details(
     staff_id: Uuid,
     d: NaiveDate,
 ) -> Result<EffectiveDay, sqlx::Error> {
+    let weekday = d.weekday().num_days_from_sunday() as i16;
+    let week_start = normalize_week_start(d);
     let working = is_working_day(pool, staff_id, d).await?;
 
     let shift_label: Option<String> = sqlx::query_scalar(
@@ -519,16 +787,27 @@ pub async fn get_effective_day_details(
         SELECT 
             CASE 
                 WHEN e.id IS NOT NULL THEN e.shift_label
-                ELSE a.shift_label
+                WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, swa.shift_label)
+                ELSE swa.shift_label
             END
         FROM staff s
-        LEFT JOIN staff_weekly_availability a ON s.id = a.staff_id AND a.weekday = EXTRACT(DOW FROM $2::date)::int
+        LEFT JOIN staff_weekly_availability a ON s.id = a.staff_id AND a.weekday = $3
+        LEFT JOIN staff_weekly_schedule sws
+            ON sws.staff_id = s.id
+           AND sws.status = 'published'
+           AND sws.week_start = $4
+        LEFT JOIN staff_weekly_schedule_day swd
+            ON swd.staff_id = s.id
+           AND swd.week_start = sws.week_start
+           AND swd.weekday = $3
         LEFT JOIN staff_day_exception e ON s.id = e.staff_id AND e.exception_date = $2
         WHERE s.id = $1
         "#,
     )
     .bind(staff_id)
     .bind(d)
+    .bind(weekday)
+    .bind(week_start)
     .fetch_one(pool)
     .await?;
 
@@ -560,6 +839,10 @@ pub async fn list_effective_schedule_for_date_range(
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<Vec<WeeklyScheduleRangeRow>, sqlx::Error> {
+    if from > to {
+        return Ok(Vec::new());
+    }
+
     sqlx::query_as::<_, WeeklyScheduleRangeRow>(
         r#"
         WITH dates AS (
@@ -573,6 +856,7 @@ pub async fn list_effective_schedule_for_date_range(
             staff_effective_working_day(s.id, d.date) AS working,
             CASE
                 WHEN e.id IS NOT NULL THEN e.shift_label
+                WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, a.shift_label)
                 ELSE a.shift_label
             END AS shift_label
         FROM staff s
@@ -580,6 +864,14 @@ pub async fn list_effective_schedule_for_date_range(
         LEFT JOIN staff_weekly_availability a
             ON s.id = a.staff_id
            AND a.weekday = EXTRACT(DOW FROM d.date)::int
+        LEFT JOIN staff_weekly_schedule sws
+            ON sws.staff_id = s.id
+           AND sws.status = 'published'
+           AND sws.week_start = (d.date - (EXTRACT(DOW FROM d.date)::int * INTERVAL '1 day'))::date
+        LEFT JOIN staff_weekly_schedule_day swd
+            ON swd.staff_id = s.id
+           AND swd.week_start = sws.week_start
+           AND swd.weekday = EXTRACT(DOW FROM d.date)::int
         LEFT JOIN staff_day_exception e
             ON s.id = e.staff_id
            AND e.exception_date = d.date
@@ -587,7 +879,16 @@ pub async fn list_effective_schedule_for_date_range(
           AND s.role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
           AND d.date >= $1
           AND d.date <= $2
-        ORDER BY s.full_name ASC, d.date ASC
+        ORDER BY
+          CASE s.role
+            WHEN 'salesperson' THEN 1
+            WHEN 'sales_support' THEN 2
+            WHEN 'staff_support' THEN 2
+            WHEN 'alterations' THEN 3
+            ELSE 4
+          END,
+          s.full_name ASC,
+          d.date ASC
         "#,
     )
     .bind(from)

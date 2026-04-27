@@ -1,12 +1,15 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useState, useCallback, useEffect, useMemo, type ChangeEvent } from "react";
-import { 
-  FileUp, 
-  Printer, 
-  Save, 
-  Loader2, 
+import { ChangeEvent, useCallback, useMemo, useState, useEffect } from "react";
+import {
+  CalendarDays,
+  CalendarRange,
+  FileUp,
+  LayoutGrid,
+  Loader2,
+  Save,
+  RotateCcw,
+  Printer,
   AlertCircle,
-  LayoutGrid
 } from "lucide-react";
 import ExcelJS from "exceljs";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
@@ -29,6 +32,8 @@ interface WeeklyEntry {
 interface StaffSchedule {
   staff_id: string;
   staff_name: string;
+  role: string;
+  status: string | null;
   weekdays: WeeklyEntry[];
 }
 
@@ -50,6 +55,35 @@ type NameLookup = {
 };
 
 const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+const MONTH_TOKENS = new Set([
+  "jan",
+  "january",
+  "feb",
+  "february",
+  "mar",
+  "march",
+  "apr",
+  "april",
+  "may",
+  "jun",
+  "june",
+  "jul",
+  "july",
+  "aug",
+  "august",
+  "sep",
+  "sept",
+  "september",
+  "oct",
+  "october",
+  "nov",
+  "november",
+  "dec",
+  "december",
+]);
+
+const DAY_LABEL_BLACKLIST = new Set(["master", "note change"]);
 
 const DAY_HEADER_MAP: Record<string, number> = {
   mon: 1,
@@ -79,9 +113,35 @@ const NAME_HEADER_KEYS = new Set([
   "full name",
 ]);
 
+const ROLE_GROUP_ORDER: Array<Array<string>> = [
+  ["salesperson"],
+  ["sales_support", "salesperson_support", "sales support"],
+  ["staff_support", "support"],
+  ["alterations", "tailor", "tailors"],
+];
+
+const ROLE_GROUP_LABEL: Record<string, string> = {
+  salesperson: "Sales Persons",
+  sales_support: "Support",
+  staff_support: "Support",
+  alterations: "Tailors",
+};
+
+const roleSortOrder = (role: string): number => {
+  const normalized = normalizeName(role);
+  for (let i = 0; i < ROLE_GROUP_ORDER.length; i += 1) {
+    if (ROLE_GROUP_ORDER[i].includes(normalized)) return i;
+  }
+  return ROLE_GROUP_ORDER.length;
+};
+
+const roleLabel = (role: string): string => {
+  const normalized = normalizeName(role);
+  return ROLE_GROUP_LABEL[normalized as keyof typeof ROLE_GROUP_LABEL] ?? role;
+};
+
 const normalizeHeader = (v: unknown): string =>
   String(v ?? "")
-    .toString()
     .trim()
     .toLowerCase()
     .replace(/\s+/g, " ")
@@ -93,6 +153,47 @@ const normalizeName = (name: string): string =>
     .toLowerCase()
     .replace(/\s+/g, " ")
     .trim();
+
+const normalizeMonthToken = (name: string): string =>
+  normalizeName(name)
+    .replace(/[^a-z\s]/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+
+const isMonthHeaderName = (name: string): boolean => {
+  const normalized = normalizeMonthToken(name);
+  if (!normalized) return false;
+
+  const tokens = normalized.split(" ").filter(Boolean);
+  if (tokens.length === 0) return false;
+  if (tokens.length === 1) {
+    return MONTH_TOKENS.has(tokens[0]) && tokens[0].length <= 10;
+  }
+
+  if (tokens.length === 2) {
+    return MONTH_TOKENS.has(tokens[0]) && MONTH_TOKENS.has(tokens[1]);
+  }
+
+  return false;
+};
+
+const isLikelyStaffName = (name: string): boolean => {
+  const normalized = normalizeName(name);
+  if (!normalized) return false;
+  if (DAY_LABEL_BLACKLIST.has(normalized)) return false;
+  if (isMonthHeaderName(name)) return false;
+  if (!/[a-z]/.test(normalized)) return false;
+  if (/\b(vac|off|hsm trunk|bridal show|note change)\b/.test(normalized)) return false;
+  if (normalized.includes("/")) return false;
+  if (normalized.length < 2) return false;
+
+  const words = cleanName(name).split(" ").filter(Boolean);
+  if (words.length === 0) return false;
+  if (words.length > 4) return false;
+  if (words.every((word) => word.length <= 1)) return false;
+  if (words.length === 1 && words[0].length <= 1) return false;
+  return true;
+};
 
 const cleanName = (name: string): string =>
   normalizeName(name).replace(/[^a-z0-9]+/g, " ").trim();
@@ -128,13 +229,30 @@ const fuzzyNameScore = (a: string, b: string): number => {
   const tokensA = na.split(" ").filter(Boolean);
   const tokensB = nb.split(" ").filter(Boolean);
   const baseDistance = levenshteinDistance(na, nb);
-  const bonusFirstToken = tokensA[0] && tokensB[0] && tokensA[0] === tokensB[0] ? -1 : 0;
+  const bonusFirstToken =
+    tokensA[0] && tokensB[0] && tokensA[0] === tokensB[0] ? -1 : 0;
   const bonusLastToken =
-    tokensA.length > 1 && tokensB.length > 1 && tokensA[tokensA.length - 1] === tokensB[tokensB.length - 1]
+    tokensA.length > 1 &&
+    tokensB.length > 1 &&
+    tokensA[tokensA.length - 1] === tokensB[tokensB.length - 1]
       ? -1
       : 0;
 
   return Math.max(0, baseDistance + bonusFirstToken + bonusLastToken);
+};
+
+const looksLikeNameToken = (candidate: string, input: string): boolean => {
+  const normalizedCandidate = normalizeName(candidate);
+  const normalizedInput = normalizeName(input);
+  if (!normalizedCandidate || !normalizedInput) return false;
+  if (normalizedCandidate === normalizedInput) return true;
+  if (
+    normalizedCandidate.startsWith(normalizedInput) ||
+    normalizedInput.startsWith(normalizedCandidate)
+  ) {
+    return true;
+  }
+  return fuzzyNameScore(normalizedCandidate, normalizedInput) <= 2;
 };
 
 const buildNameLookup = (rows: EligibleStaff[]): NameLookup => {
@@ -184,14 +302,12 @@ const buildNameLookup = (rows: EligibleStaff[]): NameLookup => {
       const firstInitialBucket = byFirstInitial.get(firstInitial) ?? [];
       firstInitialBucket.push(staff);
       byFirstInitial.set(firstInitial, firstInitialBucket);
-
-      const lastInitial = `${last[0]} ${first}`;
       const lastTokenBucket = byLastToken.get(last) ?? [];
       lastTokenBucket.push(staff);
       byLastToken.set(last, lastTokenBucket);
-      const lastInitialBucket = byLastInitial.get(lastInitial) ?? [];
+      const lastInitialBucket = byLastInitial.get(`${last[0]} ${first}`) ?? [];
       lastInitialBucket.push(staff);
-      byLastInitial.set(lastInitial, lastInitialBucket);
+      byLastInitial.set(`${last[0]} ${first}`, lastInitialBucket);
     }
 
     const reversed = parts.slice().reverse().join(" ");
@@ -199,6 +315,7 @@ const buildNameLookup = (rows: EligibleStaff[]): NameLookup => {
       byClean.set(reversed, staff);
     }
   }
+
   return {
     exact,
     byClean,
@@ -221,6 +338,7 @@ const resolveStaffByName = (
   const normalized = normalizeName(rawName);
   if (!normalized) return null;
   const tokens = cleanName(rawName).split(/\s+/).filter(Boolean);
+  if (tokens.length === 0) return null;
   const firstToken = tokens[0];
 
   const exact = rowsByName.exact.get(normalized);
@@ -232,9 +350,7 @@ const resolveStaffByName = (
     if (byClean) return byClean;
   }
 
-  const firstTokenCandidates = firstToken
-    ? rowsByName.bySingleToken.get(firstToken) ?? []
-    : [];
+  const firstTokenCandidates = firstToken ? rowsByName.bySingleToken.get(firstToken) ?? [] : [];
   const singleNameCandidates = rowsByName.bySingleName.get(normalized) ?? [];
   const lastToken = tokens[tokens.length - 1];
   const lastTokenCandidates = lastToken ? rowsByName.byLastToken.get(lastToken) ?? [] : [];
@@ -246,9 +362,7 @@ const resolveStaffByName = (
   const eligibleSingleNameCandidates = singleNameCandidates.filter(
     (s) => !disallowedStaffIds.has(s.id),
   );
-  if (eligibleSingleNameCandidates.length === 1) {
-    return eligibleSingleNameCandidates[0];
-  }
+  if (eligibleSingleNameCandidates.length === 1) return eligibleSingleNameCandidates[0];
 
   const eligibleFirstTokenCandidates = disambiguateSingleToken
     ? firstTokenCandidates.filter((s) => !disallowedStaffIds.has(s.id))
@@ -277,6 +391,30 @@ const resolveStaffByName = (
   );
   if (eligibleLastInitialCandidates.length === 1) return eligibleLastInitialCandidates[0];
 
+  const initialAliasCandidates = rowsByName.all
+    .map((staff) => {
+      const parts = normalizeName(staff.full_name).split(/\s+/).filter(Boolean);
+      if (parts.length < 2) return null;
+      const first = parts[0];
+      const last = parts[parts.length - 1];
+      if (!first || !last || first.length === 0 || last.length === 0) return null;
+      if (tokens.length < 2) return null;
+      if (tokens[0] !== first) return null;
+      if (tokens[1] !== last[0]) return null;
+      if (!looksLikeNameToken(first, tokens[0])) return null;
+      return { staff, score: fuzzyNameScore(rawName, staff.full_name) };
+    })
+    .filter(
+      (entry): entry is { staff: EligibleStaff; score: number } =>
+        entry !== null && !disallowedStaffIds.has(entry.staff.id),
+    )
+    .sort((a, b) => a.score - b.score);
+
+  if (initialAliasCandidates.length === 1) return initialAliasCandidates[0].staff;
+  if (initialAliasCandidates.length > 1 && initialAliasCandidates[0].score <= 2) {
+    return initialAliasCandidates[0].staff;
+  }
+
   if (tokens.length >= 2) {
     const firstLast = `${tokens[0]} ${tokens[1]}`;
     const firstLastMatches = rowsByName.byFirstLast.get(firstLast) ?? [];
@@ -295,14 +433,11 @@ const resolveStaffByName = (
   let best: { score: number; staff: EligibleStaff } | null = null;
   for (const candidate of fuzzyCandidates) {
     const score = fuzzyNameScore(rawName, candidate.full_name);
-    if (score <= 3) {
-      if (!best || score < best.score) {
-        best = { score, staff: candidate };
-      }
+    if (score <= 3 && (!best || score < best.score)) {
+      best = { score, staff: candidate };
     }
   }
   return best?.staff ?? null;
-
 };
 
 const scanWorksheetForSchedule = (
@@ -318,7 +453,7 @@ const scanWorksheetForSchedule = (
   let bestScore = -1;
 
   const headerScanLimit = Math.min(worksheet.rowCount, 12);
-  for (let rowIdx = 1; rowIdx <= headerScanLimit; rowIdx++) {
+  for (let rowIdx = 1; rowIdx <= headerScanLimit; rowIdx += 1) {
     const row = worksheet.getRow(rowIdx);
     const rowColMap: Record<number, number> = {};
     let foundNameHeaderInRow = false;
@@ -343,8 +478,8 @@ const scanWorksheetForSchedule = (
       bestScore = score;
       headerRowIndex = rowIdx;
       staffNameCol = foundNameHeaderInRow ? nameColForRow : staffNameCol;
-      for (const k of Object.keys(bestColMap)) {
-        delete bestColMap[Number(k)];
+      for (const key of Object.keys(bestColMap)) {
+        delete bestColMap[Number(key)];
       }
       Object.assign(bestColMap, rowColMap);
     }
@@ -372,10 +507,7 @@ const cellText = (cell: ExcelJS.Cell): string => {
   if (asObj.text) return asObj.text.trim();
   if (asObj.result) return String(asObj.result).trim();
   if (Array.isArray(asObj.richText) && asObj.richText.length > 0) {
-    return asObj.richText
-      .map((r) => r.text)
-      .join("")
-      .trim();
+    return asObj.richText.map((r) => r.text).join("").trim();
   }
   return String(v).trim();
 };
@@ -402,11 +534,11 @@ const parseWeekScheduleSheet = (
     if (rowNumber <= headerRowIndex) return;
 
     const name = cellText(row.getCell(staffNameCol));
-    if (!name) return;
+    if (!name || !isLikelyStaffName(name)) return;
 
-    const daySchedule = Object.entries(colMap).map(([colInx, weekday]) => ({
+    const daySchedule = Object.entries(colMap).map(([colIndex, weekday]) => ({
       weekday,
-      shiftVal: cellText(row.getCell(Number(colInx))),
+      shiftVal: cellText(row.getCell(Number(colIndex))),
     }));
     const hasAnyScheduleCell = daySchedule.some(({ shiftVal }) => shiftVal !== "");
     if (!hasAnyScheduleCell) return;
@@ -428,6 +560,43 @@ const parseWeekScheduleSheet = (
   };
 };
 
+const toYmdLocal = (d: Date): string => {
+  const y = d.getFullYear();
+  const m = d.getMonth() + 1;
+  const day = d.getDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+const sundayStart = (date: Date): Date => {
+  const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const day = d.getDay();
+  d.setDate(d.getDate() - day);
+  return d;
+};
+
+const addDays = (date: Date, count: number): Date =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate() + count);
+
+const formatWeekLabel = (from: Date, to: Date): string => {
+  const sameYear = from.getFullYear() === to.getFullYear();
+  const sameMonth = from.getMonth() === to.getMonth();
+  if (sameYear && sameMonth) {
+    return `${from.toLocaleString(undefined, { month: "short", day: "numeric" })} – ${to.getDate()}, ${from.getFullYear()}`;
+  }
+  if (sameYear) {
+    return `${from.toLocaleString(undefined, { month: "short", day: "numeric" })} – ${to.toLocaleString(
+      undefined,
+      { month: "short", day: "numeric" },
+    )}, ${from.getFullYear()}`;
+  }
+  return `${from.toLocaleString(undefined, { month: "short", day: "numeric", year: "numeric" })} – ${to.toLocaleString(
+    undefined,
+    { month: "short", day: "numeric", year: "numeric" },
+  )}`;
+};
+
+const defaultWeekStart = (): Date => sundayStart(new Date());
+
 export default function StaffWeeklyGridView() {
   const { backofficeHeaders, hasPermission } = useBackofficeAuth();
   const { toast } = useToast();
@@ -437,93 +606,197 @@ export default function StaffWeeklyGridView() {
   const [schedules, setSchedules] = useState<StaffSchedule[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [publishing, setPublishing] = useState(false);
+  const [discarding, setDiscarding] = useState(false);
   const [parseResults, setParseResults] = useState<{ success: number; missing: string[] } | null>(null);
+  const [dirtyStaff, setDirtyStaff] = useState<Set<string>>(new Set());
+  const [weekCursor, setWeekCursor] = useState(defaultWeekStart);
 
   const headers = useMemo(() => backofficeHeaders(), [backofficeHeaders]);
+  const weekStart = useMemo(() => sundayStart(weekCursor), [weekCursor]);
+  const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
+  const weekStartParam = toYmdLocal(weekStart);
+  const weekLabel = useMemo(
+    () => formatWeekLabel(weekStart, weekEnd),
+    [weekStart, weekEnd],
+  );
 
-  const loadData = useCallback(async () => {
+  const hasDraft = useMemo(() => schedules.some((s) => s.status === "draft"), [schedules]);
+  const hasPublished = useMemo(() => schedules.some((s) => s.status === "published"), [schedules]);
+  const unsaved = useMemo(() => dirtyStaff.size > 0, [dirtyStaff]);
+
+  const setStaffDirty = useCallback((staffId: string, isDirty: boolean) => {
+    setDirtyStaff((prev) => {
+      const next = new Set(prev);
+      if (isDirty) {
+        next.add(staffId);
+      } else {
+        next.delete(staffId);
+      }
+      return next;
+    });
+  }, []);
+
+  const setScheduleRows = (rows: StaffSchedule[]) => {
+    const sorted = [...rows].sort((a, b) => {
+      const order = roleSortOrder(a.role) - roleSortOrder(b.role);
+      if (order !== 0) return order;
+      return a.staff_name.localeCompare(b.staff_name);
+    });
+    setSchedules(sorted);
+    setDirtyStaff(new Set());
+  };
+
+    const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${baseUrl}/api/staff/schedule/eligible`, { headers });
-      if (!res.ok) {
-        if (res.status === 401) {
-          throw new Error("Session expired. Sign in again to access staff schedules.");
-        }
-        throw new Error("Could not load eligible staff");
+      const [eligRes, weekRes] = await Promise.all([
+        fetch(`${baseUrl}/api/staff/schedule/eligible`, { headers }),
+        fetch(`${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`, { headers }),
+      ]);
+
+      if (!eligRes.ok) {
+        throw new Error("Could not load eligible staff.");
       }
-      const staffList = (await res.json()) as EligibleStaff[];
+      const staffList = (await eligRes.json()) as EligibleStaff[];
       setEligible(staffList);
 
-      const scheduleData: StaffSchedule[] = [];
-      for (const s of staffList) {
-        const sRes = await fetch(`${baseUrl}/api/staff/schedule/weekly/${s.id}`, { headers });
-        if (sRes.ok) {
-          const rows = (await sRes.json()) as { weekday: number; works: boolean; shift_label: string | null }[];
-          const weekdays = Array.from({ length: 7 }, (_, i) => {
-            const row = rows.find(r => r.weekday === i);
-            return row ? { ...row, shift_label: row.shift_label || null } : { weekday: i, works: false, shift_label: null };
-          });
-          scheduleData.push({ staff_id: s.id, staff_name: s.full_name, weekdays });
+      if (!weekRes.ok) {
+        if (weekRes.status === 401) {
+          throw new Error("Session expired. Sign in again to edit schedules.");
         }
+        throw new Error("Could not load weekly schedules.");
       }
-      setSchedules(scheduleData);
+      const rows = (await weekRes.json()) as Array<
+        Omit<StaffSchedule, "weekdays"> & { weekdays: WeeklyEntry[] }
+      >;
+      const normalizedRows: StaffSchedule[] = rows.map((row) => ({
+        ...row,
+        weekdays: WEEKDAY_LABELS.map((_, weekday) => {
+          const match = row.weekdays.find((w) => w.weekday === weekday);
+          return match ?? { weekday, works: false, shift_label: null };
+        }),
+      }));
+      setScheduleRows(normalizedRows);
     } catch (e) {
       toast(e instanceof Error ? e.message : "Load failed", "error");
     } finally {
       setLoading(false);
     }
-  }, [headers, toast]);
+  }, [headers, toast, weekStartParam]);
 
   useEffect(() => {
     void loadData();
   }, [loadData]);
 
   const handleShiftChange = (staffId: string, weekday: number, val: string) => {
-    setSchedules(prev => prev.map(s => {
-      if (s.staff_id !== staffId) return s;
-      const nextWeekdays = [...s.weekdays];
-      const normalized = val.trim();
-      const works = normalized.toUpperCase() !== "OFF" && normalized !== "";
-      nextWeekdays[weekday] = { ...nextWeekdays[weekday], shift_label: normalized || null, works };
-      return { ...s, weekdays: nextWeekdays };
-    }));
+    setSchedules((prev) =>
+      prev.map((s) => {
+        if (s.staff_id !== staffId) return s;
+        const nextWeekdays = [...s.weekdays];
+        const normalized = val.trim();
+        const works = normalized.toUpperCase() !== "OFF" && normalized !== "";
+        nextWeekdays[weekday] = {
+          ...nextWeekdays[weekday],
+          shift_label: works ? normalized || null : null,
+          works,
+        };
+        return { ...s, status: s.status, weekdays: nextWeekdays };
+      }),
+    );
+    setStaffDirty(staffId, true);
   };
 
   const handleSaveAll = async () => {
     if (!canEdit) return;
+    if (!unsaved) {
+      toast("No changes to save for this week.", "success");
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = {
-        schedules: schedules.map(s => ({
+        schedules: schedules.map((s) => ({
           staff_id: s.staff_id,
-          weekdays: s.weekdays.map(w => ({
+          weekdays: s.weekdays.map((w) => ({
             weekday: w.weekday,
             works: w.works,
-            shift_label: w.shift_label
-          }))
-        }))
+            shift_label: w.shift_label,
+          })),
+        })),
       };
 
-      const res = await fetch(`${baseUrl}/api/staff/schedule/weekly/bulk`, {
-        method: "POST",
+      const res = await fetch(`${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`, {
+        method: "PUT",
         headers: { "Content-Type": "application/json", ...headers },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         if (res.status === 401) {
-          throw new Error("Session expired. Re-enter your staff code and Access PIN, then try again.");
+          throw new Error(
+            "Session expired. Re-enter your staff code and Access PIN, then try again.",
+          );
         }
         const b = await res.json().catch(() => ({}));
-        throw new Error(b.error ?? "Bulk save failed");
+        throw new Error((b as { error?: string }).error ?? "Save failed");
       }
 
-      toast("Weekly schedules saved successfully", "success");
-      void loadData();
+      toast("Weekly draft saved for selected week.", "success");
+      await loadData();
     } catch (e) {
       toast(e instanceof Error ? e.message : "Save failed", "error");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handlePublish = async () => {
+    if (!canEdit) return;
+    setPublishing(true);
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}/publish`,
+        { method: "POST", headers },
+      );
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Session expired. Re-enter credentials and retry.");
+        }
+        const b = await res.json().catch(() => ({}));
+        throw new Error((b as { error?: string }).error ?? "Could not publish week.");
+      }
+      toast("Week published. Published schedules are now active.", "success");
+      await loadData();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Publish failed", "error");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleDiscardDraft = async () => {
+    if (!canEdit || !hasDraft) return;
+    setDiscarding(true);
+    try {
+      const res = await fetch(`${baseUrl}/api/staff/schedule/weeks/${encodeURIComponent(weekStartParam)}`, {
+        method: "DELETE",
+        headers,
+      });
+      if (!res.ok) {
+        if (res.status === 404) {
+          throw new Error("No draft found for this week.");
+        }
+        const b = await res.json().catch(() => ({}));
+        throw new Error((b as { error?: string }).error ?? "Could not clear draft.");
+      }
+      toast("Weekly draft cleared. Template values restored.", "success");
+      await loadData();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : "Discard failed", "error");
+    } finally {
+      setDiscarding(false);
     }
   };
 
@@ -546,7 +819,6 @@ export default function StaffWeeklyGridView() {
       }
 
       const nameLookup = buildNameLookup(eligible);
-
       const nextSchedules = [...schedules];
       const missingNames = new Set<string>();
       const unresolvedRows: UnresolvedImportRow[] = [];
@@ -560,20 +832,10 @@ export default function StaffWeeklyGridView() {
         staff: EligibleStaff,
         parsedDays: UnresolvedImportRow["daySchedule"],
       ) => {
-        let existingIdx = currentSchedules.findIndex((s) => s.staff_id === staff.id);
+        const existingIdx = currentSchedules.findIndex((s) => s.staff_id === staff.id);
         if (existingIdx === -1) {
-          currentSchedules.push({
-            staff_id: staff.id,
-            staff_name: staff.full_name,
-            weekdays: Array.from({ length: 7 }, (_, i) => ({
-              weekday: i,
-              works: false,
-              shift_label: null,
-            })),
-          });
-          existingIdx = currentSchedules.length - 1;
+          return;
         }
-
         const staffSched = {
           ...currentSchedules[existingIdx],
           weekdays: [...currentSchedules[existingIdx].weekdays],
@@ -588,7 +850,9 @@ export default function StaffWeeklyGridView() {
             shift_label: hasShift && works ? shiftVal : null,
           };
         });
+        staffSched.status = "draft";
         currentSchedules[existingIdx] = staffSched;
+        setStaffDirty(staff.id, true);
       };
 
       for (const worksheet of workbook.worksheets) {
@@ -601,9 +865,7 @@ export default function StaffWeeklyGridView() {
 
         for (const row of parseResult.recognizedRows) {
           const staff = resolveStaffByName(nameLookup, row.name, false, matchedStaffIds);
-          if (!staff) {
-            continue;
-          }
+          if (!staff) continue;
           matchedStaffIds.add(staff.id);
           applyImportRow(nextSchedules, staff, row.daySchedule);
           appliedStaffIds.add(staff.id);
@@ -616,8 +878,8 @@ export default function StaffWeeklyGridView() {
           missingNames.add(unresolved.name);
           continue;
         }
-        applyImportRow(nextSchedules, resolved, unresolved.daySchedule);
         matchedStaffIds.add(resolved.id);
+        applyImportRow(nextSchedules, resolved, unresolved.daySchedule);
         appliedStaffIds.add(resolved.id);
       }
 
@@ -625,7 +887,7 @@ export default function StaffWeeklyGridView() {
         throw new Error(`No schedule rows were found across "${file.name}".`);
       }
 
-      setSchedules(nextSchedules);
+      setSchedules([...nextSchedules]);
       setParseResults({
         success: appliedStaffIds.size,
         missing: Array.from(missingNames),
@@ -633,13 +895,12 @@ export default function StaffWeeklyGridView() {
       if (appliedStaffIds.size === 0) {
         if (missingNames.size > 0) {
           toast(
-            `No names from "${file.name}" matched active schedule staff. Save was not run.`,
+            `No names from "${file.name}" matched active floor staff. Save was not run.`,
             "error",
           );
         } else {
           toast(`No schedule rows found in "${file.name}".`, "error");
         }
-        return;
       } else {
         toast(
           `Imported ${appliedStaffIds.size} staff from ${seenSheets} sheet(s) in ${file.name}. Click Save All Changes to persist.`,
@@ -662,18 +923,26 @@ export default function StaffWeeklyGridView() {
     }
   };
 
-  const handlePrint = () => {
-    window.print();
-  };
-
   if (loading && schedules.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center p-12">
         <Loader2 className="h-8 w-8 animate-spin text-app-accent" />
-        <span className="ml-3 font-bold text-app-text-muted">Loading schedule grid…</span>
+        <span className="ml-3 text-sm font-black text-app-text-muted">
+          Loading weekly master schedule…
+        </span>
       </div>
     );
   }
+
+  const handlePrint = () => {
+    window.print();
+  };
+
+  const statusText = hasPublished
+    ? "Published week"
+    : hasDraft
+      ? "Draft week"
+      : "Template week (no per-week override)";
 
   return (
     <div className="flex flex-1 flex-col gap-6 print:p-0">
@@ -683,40 +952,110 @@ export default function StaffWeeklyGridView() {
             <LayoutGrid className="h-6 w-6" />
           </div>
           <div>
-            <h3 className="text-xl font-black tracking-tight text-app-text">Weekly Master Grid</h3>
+            <h3 className="text-xl font-black tracking-tight text-app-text">Master Weekly Schedule</h3>
             <p className="text-xs font-bold text-app-text-muted">
-              Configure standard weekly shifts for the entire team. Labels like &quot;9:30-6&quot; will show in the scheduler.
+              Pick a week, import from Excel, save as draft, and publish. Published weeks override the
+              MASTER template for that week.
             </p>
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-            <label
-              className={`ui-btn-secondary flex cursor-pointer items-center gap-2 px-4 py-2 ${
-                !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
-              }`}
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-2 rounded-xl border border-app-border bg-app-surface-2 px-3 py-1">
+            <button
+              type="button"
+              className="ui-btn-secondary px-3 py-1 text-xs"
+              onClick={() =>
+                setWeekCursor((current) => {
+                  const next = new Date(current);
+                  next.setDate(next.getDate() - 7);
+                  return next;
+                })
+              }
             >
-              <FileUp size={16} />
-              Upload Excel
-              <input
-                type="file"
-                accept=".xlsx"
-                className="hidden"
-                disabled={!canEdit}
-                onChange={handleFileUpload}
-              />
-            </label>
-          <button 
-            type="button" 
+              Prev week
+            </button>
+            <CalendarRange size={14} className="text-app-text-muted" />
+            <span className="text-xs font-black uppercase tracking-wider text-app-text">{weekLabel}</span>
+            <button
+              type="button"
+              className="ui-btn-secondary px-3 py-1 text-xs"
+              onClick={() =>
+                setWeekCursor((current) => {
+                  const next = new Date(current);
+                  next.setDate(next.getDate() + 7);
+                  return next;
+                })
+              }
+            >
+              Next week
+            </button>
+            <input
+              type="date"
+              className="ui-input h-8 w-36 px-2 text-xs"
+              value={weekStartParam}
+              onChange={(e) => {
+                const next = new Date(`${e.target.value}T12:00:00`);
+                if (!Number.isNaN(next.getTime())) {
+                  setWeekCursor(next);
+                }
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="rounded-full border border-app-border px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+            {statusText}
+          </span>
+          <button
+            type="button"
+            className={`ui-btn-secondary flex items-center gap-2 px-3 py-2 text-xs ${
+              !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
+            }`}
+            disabled={!canEdit || (!hasDraft && !hasPublished)}
+            onClick={handleDiscardDraft}
+          >
+            {discarding ? <Loader2 size={14} className="animate-spin" /> : <RotateCcw size={14} />}
+            Clear Overrides
+          </button>
+          <button
+            type="button"
+            className={`ui-btn-secondary flex items-center gap-2 px-3 py-2 text-xs ${
+              !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
+            }`}
+            disabled={!canEdit || publishing || unsaved || !hasDraft}
+            onClick={handlePublish}
+          >
+            {publishing ? <Loader2 size={14} className="animate-spin" /> : <CalendarDays size={14} />}
+            Publish Week
+          </button>
+          <label
+            className={`ui-btn-secondary flex cursor-pointer items-center gap-2 px-4 py-2 text-sm ${
+              !canEdit ? "pointer-events-none cursor-not-allowed opacity-50" : ""
+            }`}
+          >
+            <FileUp size={16} />
+            Upload Excel
+            <input
+              type="file"
+              accept=".xlsx"
+              className="hidden"
+              disabled={!canEdit}
+              onChange={handleFileUpload}
+            />
+          </label>
+          <button
+            type="button"
             onClick={handlePrint}
             className="ui-btn-secondary flex items-center gap-2 px-4 py-2"
           >
             <Printer size={16} />
             Print
           </button>
-          <button 
-            type="button" 
-            disabled={saving || !canEdit}
+          <button
+            type="button"
+            disabled={saving || !canEdit || !unsaved}
             onClick={handleSaveAll}
             className="ui-btn-primary flex items-center gap-2 px-6 py-2 shadow-lg shadow-app-accent/20"
           >
@@ -733,11 +1072,15 @@ export default function StaffWeeklyGridView() {
             <h4 className="text-sm font-black uppercase">Import Warnings</h4>
           </div>
           <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
-            The following names in the Excel file did not exactly match active staff in ROS. Please check spelling or add them to the system first:
+            The following names in the Excel file did not exactly match active floor staff. Add them to
+            Staff / roles in ROS first if needed.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {parseResults.missing.map(name => (
-              <span key={name} className="rounded-lg bg-amber-200/50 px-2 py-1 text-[10px] font-black dark:bg-amber-900/50">
+            {parseResults.missing.map((name) => (
+              <span
+                key={name}
+                className="rounded-lg bg-amber-200/50 px-2 py-1 text-[10px] font-black dark:bg-amber-900/50"
+              >
                 {name}
               </span>
             ))}
@@ -750,38 +1093,63 @@ export default function StaffWeeklyGridView() {
           <table className="w-full border-collapse text-left text-sm table-fixed">
             <thead className="border-b border-app-border bg-app-surface text-[10px] font-black uppercase tracking-widest text-app-text-muted">
               <tr>
-                <th className="w-48 px-4 py-4 sticky left-0 bg-app-surface z-10 border-r border-app-border">Staff Member</th>
+                <th className="w-44 px-4 py-3 sticky left-0 bg-app-surface z-10 border-r border-app-border">
+                  Staff Member
+                </th>
                 {WEEKDAY_LABELS.map((day, i) => (
-                  <th key={day} className={`px-4 py-4 text-center ${i === 0 ? "text-red-500/70" : ""}`}>
+                  <th
+                    key={day}
+                    className={`px-4 py-3 text-center ${i === 0 ? "text-red-500/70" : ""}`}
+                  >
                     {day}
                   </th>
                 ))}
+                <th className="w-28 px-3 py-3 text-center">Status</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-app-border">
               {schedules.map((s) => (
                 <tr key={s.staff_id} className="group hover:bg-app-surface-2 transition-colors">
                   <td className="sticky left-0 bg-app-surface group-hover:bg-app-surface-2 z-10 border-r border-app-border px-4 py-3 align-middle font-black text-app-text">
-                    <div className="truncate" title={s.staff_name}>{s.staff_name}</div>
+                    <div className="truncate" title={s.staff_name}>
+                      {s.staff_name}
+                    </div>
+                    <div className="text-[10px] uppercase text-app-text-muted">{roleLabel(s.role)}</div>
                   </td>
                   {s.weekdays.map((w, i) => (
                     <td key={i} className="px-1 py-1 align-middle">
                       <input
                         type="text"
                         disabled={!canEdit}
-                        className={`w-full rounded-xl border border-transparent bg-transparent px-2 py-3 text-center text-xs font-bold transition-all focus:border-app-accent focus:bg-white focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${!w.works ? "text-app-text-muted opacity-40 italic" : "text-app-text"}`}
+                        className={`w-full rounded-xl border border-transparent bg-transparent px-2 py-3 text-center text-xs font-black transition-all focus:border-app-accent focus:bg-white focus:ring-4 focus:ring-app-accent/5 dark:focus:bg-app-surface-3 ${
+                          !w.works ? "text-app-text-muted opacity-40 italic" : "text-app-text"
+                        }`}
                         value={w.shift_label || (w.works ? "" : "OFF")}
-                        onChange={(e) => handleShiftChange(s.staff_id, w.weekday, e.target.value)}
+                        onChange={(ev) => handleShiftChange(s.staff_id, w.weekday, ev.target.value)}
                         placeholder="OFF"
                       />
                     </td>
                   ))}
+                  <td className="px-3 py-3 text-center text-[10px] font-black">
+                    <span
+                      className={`rounded-full px-2 py-1 text-xs ${
+                        s.status === "published"
+                          ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200"
+                          : s.status === "draft"
+                            ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200"
+                            : "bg-app-surface-2 text-app-text-muted"
+                      }`}
+                    >
+                      {s.status ?? "Template"}
+                    </span>
+                  </td>
                 </tr>
               ))}
               {schedules.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-4 py-12 text-center text-app-text-muted italic">
-                    No eligible staff found for scheduling. Add staff with salesperson, support, or alterations roles first.
+                  <td colSpan={9} className="px-4 py-12 text-center text-app-text-muted italic">
+                    No eligible staff found for scheduling. Add staff with salesperson, support, or
+                    alterations roles first.
                   </td>
                 </tr>
               )}

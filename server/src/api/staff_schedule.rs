@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use chrono::NaiveDate;
+use chrono::{Datelike, Duration, NaiveDate};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use uuid::Uuid;
@@ -26,6 +26,11 @@ use crate::models::DbStaffScheduleExceptionKind;
 
 use std::collections::HashMap;
 
+fn normalize_week_start(d: NaiveDate) -> NaiveDate {
+    let weekday = i64::from(d.weekday().num_days_from_sunday());
+    d - Duration::days(weekday)
+}
+
 #[derive(Debug, Deserialize)]
 pub struct RangeQuery {
     pub staff_id: Uuid,
@@ -40,7 +45,7 @@ pub struct PutWeeklyBody {
     pub weekdays: Vec<WeekdayEntry>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct WeekdayEntry {
     pub weekday: i16,
     pub works: bool,
@@ -85,6 +90,15 @@ pub struct BulkPutWeeklyBody {
     pub schedules: Vec<StaffWeeklySchedule>,
 }
 
+#[derive(Debug, Serialize)]
+struct WeekStaffScheduleResponse {
+    pub staff_id: Uuid,
+    pub full_name: String,
+    pub role: crate::models::DbStaffRole,
+    pub status: Option<String>,
+    pub weekdays: Vec<WeekdayEntry>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct StaffWeeklySchedule {
     pub staff_id: Uuid,
@@ -116,6 +130,16 @@ struct WeeklyScheduleViewResponse {
     pub from: chrono::NaiveDate,
     pub to: chrono::NaiveDate,
     pub rows: Vec<WeeklyScheduleByStaff>,
+}
+
+fn role_order_value(role: crate::models::DbStaffRole) -> &'static str {
+    match role {
+        crate::models::DbStaffRole::Salesperson => "salesperson",
+        crate::models::DbStaffRole::SalesSupport => "sales_support",
+        crate::models::DbStaffRole::StaffSupport => "staff_support",
+        crate::models::DbStaffRole::Alterations => "alterations",
+        crate::models::DbStaffRole::Admin => "admin",
+    }
 }
 
 fn map_err(e: StaffScheduleError) -> Response {
@@ -179,6 +203,13 @@ pub fn router() -> Router<AppState> {
         .route("/weekly/{staff_id}", get(get_weekly))
         .route("/weekly", put(put_weekly))
         .route("/weekly/bulk", post(post_bulk_weekly))
+        .route(
+            "/weeks/{week_start}",
+            get(get_week_schedule)
+                .put(put_week_schedule)
+                .delete(delete_week_schedule),
+        )
+        .route("/weeks/{week_start}/publish", post(publish_week_schedule))
         .route("/weekly-view", get(get_weekly_view))
         .route(
             "/exceptions",
@@ -316,6 +347,137 @@ async fn post_bulk_weekly(
         .await
         .map_err(|e| map_err(StaffScheduleError::Database(e)))?;
     Ok(Json(json!({ "ok": true })))
+}
+
+async fn get_week_schedule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(week_start): Path<NaiveDate>,
+) -> Result<Json<Vec<WeekStaffScheduleResponse>>, Response> {
+    middleware::require_staff_with_permission(&state, &headers, STAFF_VIEW)
+        .await
+        .map_err(map_gate)?;
+
+    let rows =
+        staff_schedule::list_week_schedule_for_week(&state.db, normalize_week_start(week_start))
+            .await
+            .map_err(StaffScheduleError::Database)
+            .map_err(map_err)?;
+
+    let mut grouped: HashMap<Uuid, WeekStaffScheduleResponse> = HashMap::new();
+    for row in rows {
+        let entry = grouped
+            .entry(row.staff_id)
+            .or_insert_with(|| WeekStaffScheduleResponse {
+                staff_id: row.staff_id,
+                full_name: row.full_name.clone(),
+                role: row.role,
+                status: row.schedule_status,
+                weekdays: Vec::with_capacity(7),
+            });
+        entry.weekdays.push(WeekdayEntry {
+            weekday: row.weekday,
+            works: row.works,
+            shift_label: row.shift_label,
+        });
+    }
+
+    let mut rows: Vec<WeekStaffScheduleResponse> = grouped
+        .into_values()
+        .map(|mut row| {
+            row.weekdays.sort_by_key(|d| d.weekday);
+            row
+        })
+        .collect();
+
+    rows.sort_by(|a, b| {
+        role_order_value(a.role)
+            .cmp(role_order_value(b.role))
+            .then(a.full_name.cmp(&b.full_name))
+    });
+
+    Ok(Json(rows))
+}
+
+async fn put_week_schedule(
+    State(state): State<AppState>,
+    Path(week_start): Path<NaiveDate>,
+    headers: HeaderMap,
+    Json(body): Json<BulkPutWeeklyBody>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_editor(&state, &headers).await?;
+    let normalized_week_start = normalize_week_start(week_start);
+
+    let schedules = body
+        .schedules
+        .into_iter()
+        .map(|s| staff_schedule::WeekScheduleInput {
+            staff_id: s.staff_id,
+            weekdays: s
+                .weekdays
+                .into_iter()
+                .map(|day| staff_schedule::WeekInputDay {
+                    weekday: day.weekday,
+                    works: day.works,
+                    shift_label: day.shift_label,
+                })
+                .collect(),
+        })
+        .collect::<Vec<_>>();
+
+    staff_schedule::upsert_week_schedule_for_week(
+        &state.db,
+        actor,
+        normalized_week_start,
+        &schedules,
+    )
+    .await
+    .map_err(map_err)?;
+
+    Ok(Json(
+        json!({ "ok": true, "week_start": normalized_week_start }),
+    ))
+}
+
+async fn publish_week_schedule(
+    State(state): State<AppState>,
+    Path(week_start): Path<NaiveDate>,
+    headers: HeaderMap,
+) -> Result<Json<serde_json::Value>, Response> {
+    let actor = require_editor(&state, &headers).await?;
+    let normalized_week_start = normalize_week_start(week_start);
+    let published =
+        staff_schedule::publish_week_schedule_week(&state.db, actor, normalized_week_start)
+            .await
+            .map_err(map_err)?;
+    if published == 0 {
+        return Err(map_err(StaffScheduleError::NotFound));
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "week_start": normalized_week_start,
+        "published": published,
+    })))
+}
+
+async fn delete_week_schedule(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(week_start): Path<NaiveDate>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let _actor = require_editor(&state, &headers).await?;
+    let normalized_week_start = normalize_week_start(week_start);
+    let deleted = staff_schedule::delete_week_schedule_week(&state.db, normalized_week_start)
+        .await
+        .map_err(map_err)?;
+    if deleted == 0 {
+        return Err(map_err(StaffScheduleError::NotFound));
+    }
+    Ok(Json(json!({
+        "ok": true,
+        "week_start": normalized_week_start,
+        "deleted": deleted,
+    })))
 }
 
 async fn list_exceptions(
