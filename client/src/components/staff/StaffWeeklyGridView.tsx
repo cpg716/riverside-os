@@ -391,6 +391,13 @@ const resolveStaffByName = (
     if (startsWithCandidates.length === 1) return startsWithCandidates[0];
   }
 
+  // LAST RESORT: Search full eligible list for any match including Admins
+  const fallback = rowsByName.all.find(s => {
+    const fn = normalizeName(s.full_name);
+    return (fn.includes(normalized) || normalized.includes(fn)) && !disallowedStaffIds.has(s.id);
+  });
+  if (fallback) return fallback;
+
   const fuzzyCandidates = rowsByName.all.filter((s) => !disallowedStaffIds.has(s.id));
   let best: { score: number; staff: EligibleStaff } | null = null;
   for (const candidate of fuzzyCandidates) {
@@ -1475,37 +1482,39 @@ function SchedulePrintView({
 
       <table className="w-full border-collapse border-[2.5px] border-black">
         <thead>
-          <tr className="bg-gray-100">
-            <th className="border-[1.5px] border-black p-2 text-left text-xs font-black uppercase bg-gray-200/50">
+          <tr className="bg-black text-white">
+            <th className="border-[1.5px] border-black p-3 text-left text-sm font-black uppercase w-[180px]">
               Staff Member
             </th>
             {printDays.map((day) => (
               <th 
                 key={day} 
-                className="border-[1.5px] border-black p-2 text-center text-xs font-black uppercase"
+                className="border-[1.5px] border-black p-3 text-center text-sm font-black uppercase"
               >
                 {day}
               </th>
             ))}
           </tr>
         </thead>
-        <tbody>
+        <tbody className="flex-1">
           {schedules.map((s) => (
-            <tr key={s.staff_id}>
-              <td className="border-[1.5px] border-black px-3 py-1.5 font-black text-xs uppercase bg-gray-50/50 whitespace-nowrap">
-                {s.full_name}
-                <div className="text-[8px] font-bold text-gray-500 leading-tight">
+            <tr key={s.staff_id} className="flex-1">
+              <td className="border-[1.5px] border-black px-4 py-4 font-black text-sm uppercase bg-gray-50/30 whitespace-nowrap">
+                <div className="leading-tight">{s.full_name}</div>
+                <div className="text-[10px] font-bold text-gray-400 mt-0.5">
                   {s.role.replace("_", " ")}
                 </div>
               </td>
               {s.weekdays.slice(1).map((w, i) => (
                 <td 
                   key={i} 
-                  className={`border-[1.5px] border-black px-2 py-1.5 text-center text-[11px] font-black ${
+                  className={`border-[1.5px] border-black px-2 py-4 text-center text-lg font-black ${
                     !w.works ? "bg-gray-100 text-gray-400 italic" : "text-black"
                   }`}
                 >
-                  {w.works ? (w.shift_label || "Working") : "OFF"}
+                  <span className="inline-block scale-y-110">
+                    {w.works ? (w.shift_label || "Working") : "OFF"}
+                  </span>
                 </td>
               ))}
             </tr>
