@@ -52,6 +52,7 @@ pub struct StaffErrorEventRow {
     pub created_at: DateTime<Utc>,
     pub staff_id: Option<Uuid>,
     pub staff_name: Option<String>,
+    pub status: String,
     pub message: String,
     pub event_source: String,
     pub severity: String,
@@ -257,9 +258,9 @@ pub async fn insert_staff_error_event(
     sqlx::query_scalar::<_, Uuid>(
         r#"
         INSERT INTO staff_error_event (
-            staff_id, message, event_source, severity, route, client_meta, server_log_snapshot
+            staff_id, status, message, event_source, severity, route, client_meta, server_log_snapshot
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7)
+        VALUES ($1, 'pending', $2, $3, $4, $5, $6, $7)
         RETURNING id
         "#,
     )
@@ -274,6 +275,66 @@ pub async fn insert_staff_error_event(
     .await
 }
 
+pub async fn get_staff_error_event(
+    pool: &PgPool,
+    id: Uuid,
+) -> Result<Option<StaffErrorEventRow>, sqlx::Error> {
+    sqlx::query_as::<_, StaffErrorEventRow>(
+        r#"
+        SELECT
+            e.id,
+            e.created_at,
+            e.staff_id,
+            s.full_name AS staff_name,
+            lower(coalesce(e.status, 'pending')) as status,
+            e.message,
+            e.event_source,
+            e.severity,
+            e.route,
+            e.client_meta,
+            e.server_log_snapshot
+        FROM staff_error_event e
+        LEFT JOIN staff s ON s.id = e.staff_id
+        WHERE e.id = $1
+        "#,
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+}
+
+pub async fn set_staff_error_event_status(
+    pool: &PgPool,
+    id: Uuid,
+    status: &str,
+) -> Result<bool, sqlx::Error> {
+    let r = sqlx::query(
+        r#"
+        UPDATE staff_error_event
+        SET status = $2
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .bind(status)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() > 0)
+}
+
+pub async fn delete_staff_error_event(pool: &PgPool, id: Uuid) -> Result<bool, sqlx::Error> {
+    let r = sqlx::query(
+        r#"
+        DELETE FROM staff_error_event
+        WHERE id = $1
+        "#,
+    )
+    .bind(id)
+    .execute(pool)
+    .await?;
+    Ok(r.rows_affected() > 0)
+}
+
 pub async fn list_staff_error_events(
     pool: &PgPool,
 ) -> Result<Vec<StaffErrorEventRow>, sqlx::Error> {
@@ -284,6 +345,7 @@ pub async fn list_staff_error_events(
             e.created_at,
             e.staff_id,
             s.full_name AS staff_name,
+            lower(coalesce(e.status, 'pending')) as status,
             e.message,
             e.event_source,
             e.severity,
@@ -292,6 +354,7 @@ pub async fn list_staff_error_events(
             e.server_log_snapshot
         FROM staff_error_event e
         LEFT JOIN staff s ON s.id = e.staff_id
+        WHERE lower(coalesce(e.status, 'pending')) IN ('pending', 'complete', 'archived')
         ORDER BY e.created_at DESC
         LIMIT 500
         "#,

@@ -4,7 +4,7 @@ use axum::{
     extract::{Path, State},
     http::{HeaderMap, HeaderName, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, patch, post},
     Json, Router,
 };
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
@@ -37,6 +37,7 @@ const SUBMIT_RATE_WINDOW_MINUTES: i64 = 15;
 const MAX_CLIENT_META_JSON_BYTES: usize = 65_536;
 const MAX_ERROR_EVENT_MESSAGE_LEN: usize = 2_000;
 const MAX_ERROR_EVENT_ROUTE_LEN: usize = 2_048;
+const MAX_ERROR_EVENT_STATUS_LEN: usize = 32;
 
 #[derive(Debug, Deserialize)]
 pub struct SubmitBugReportBody {
@@ -71,6 +72,12 @@ pub struct PatchBugReportBody {
     pub resolver_notes: Option<String>,
     #[serde(default)]
     pub external_url: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PatchErrorEventBody {
+    #[serde(default)]
+    pub status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -109,6 +116,17 @@ pub struct BugReportDetailResponse {
 
 fn bad_request(msg: &str) -> Response {
     (StatusCode::BAD_REQUEST, Json(json!({ "error": msg }))).into_response()
+}
+
+fn normalize_error_event_status(raw: &str) -> Result<String, &'static str> {
+    let status = raw.trim().to_ascii_lowercase();
+    if status.len() > MAX_ERROR_EVENT_STATUS_LEN {
+        return Err("status too long");
+    }
+    match status.as_str() {
+        "pending" | "complete" | "archived" => Ok(status),
+        _ => Err("invalid status"),
+    }
 }
 
 fn too_many_reports() -> Response {
@@ -494,6 +512,69 @@ async fn list_error_events(
     Ok(Json(rows))
 }
 
+async fn patch_error_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<PatchErrorEventBody>,
+) -> Result<Json<StaffErrorEventRow>, Response> {
+    let _ = require_settings_admin(&state, &headers).await?;
+    let status = body
+        .status
+        .as_deref()
+        .ok_or_else(|| bad_request("status required"))?;
+    let status = normalize_error_event_status(status).map_err(bad_request)?;
+    let ok = bug_reports::set_staff_error_event_status(&state.db, id, &status)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "set_staff_error_event_status failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not update error event" })),
+            )
+                .into_response()
+        })?;
+    if !ok {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response());
+    }
+    let row = bug_reports::get_staff_error_event(&state.db, id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "get_staff_error_event failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "load failed" })),
+            )
+                .into_response()
+        })?;
+    let Some(r) = row else {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response());
+    };
+    Ok(Json(r))
+}
+
+async fn delete_error_event(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Response, Response> {
+    let _ = require_settings_admin(&state, &headers).await?;
+    let ok = bug_reports::delete_staff_error_event(&state.db, id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "delete_staff_error_event failed");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(json!({ "error": "could not delete error event" })),
+            )
+                .into_response()
+        })?;
+    if !ok {
+        return Err((StatusCode::NOT_FOUND, Json(json!({ "error": "not found" }))).into_response());
+    }
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
 pub fn submit_router() -> Router<AppState> {
     Router::new()
         .route("/", post(submit_bug_report))
@@ -504,6 +585,10 @@ pub fn settings_subrouter() -> Router<AppState> {
     Router::new()
         .route("/bug-reports", get(list_bug_reports))
         .route("/bug-reports/error-events", get(list_error_events))
+        .route(
+            "/bug-reports/error-events/{id}",
+            patch(patch_error_event).delete(delete_error_event),
+        )
         .route(
             "/bug-reports/{id}",
             get(get_bug_report).patch(patch_bug_report),

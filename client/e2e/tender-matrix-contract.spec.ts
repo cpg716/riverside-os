@@ -401,7 +401,7 @@ test.describe("Tender matrix payment-intent contract", () => {
     expect(detail.items[0]?.is_internal).toBe(true);
 
     const receiptRes = await request.get(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}/receipt.zpl?register_session_id=${encodeURIComponent(sessionId)}`,
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/receipt.escpos?register_session_id=${encodeURIComponent(sessionId)}`,
       {
         headers: {
           "x-riverside-pos-session-id": sessionId,
@@ -411,7 +411,8 @@ test.describe("Tender matrix payment-intent contract", () => {
       },
     );
     expect(receiptRes.status()).toBe(200);
-    const receipt = await receiptRes.text();
+    const receiptBody = await receiptRes.text();
+    const receipt = (JSON.parse(receiptBody) as { receiptline_markdown?: string }).receiptline_markdown ?? "";
     expect(receipt).not.toContain("RMS CHARGE PAYMENT");
     expect(receipt).toContain("Total 50.00");
     expect(receipt).toContain("Cash");

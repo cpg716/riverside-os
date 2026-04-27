@@ -3,6 +3,9 @@ import { CheckCircle2, AlertTriangle, Info, X } from "lucide-react";
 import { ToastContext, type Toast, type ToastType } from "./ToastProviderLogic";
 import { getBaseUrl } from "../../lib/apiConfig";
 import { sessionPollAuthHeaders } from "../../lib/posRegisterAuth";
+import {
+  buildClientErrorCaptureMeta,
+} from "../../lib/clientDiagnostics";
 
 const baseUrl = getBaseUrl();
 const recentErrorEventKeys = new Map<string, number>();
@@ -19,27 +22,37 @@ function recordErrorToastEvent(message: string) {
   const headers = sessionPollAuthHeaders();
   if (!headers["x-riverside-staff-code"]) return;
 
-  void fetch(`${baseUrl}/api/bug-reports/error-events`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...headers,
-    },
-    body: JSON.stringify({
-      message: trimmed,
-      event_source: "client_toast",
-      severity: "error",
-      route: `${window.location.pathname}${window.location.search}${window.location.hash}`,
-      client_meta: {
-        user_agent: navigator.userAgent,
-        viewport: {
-          width: window.innerWidth,
-          height: window.innerHeight,
+  const route = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  void (async () => {
+    const clientMeta = await buildClientErrorCaptureMeta({
+      captureType: "toast_error_event",
+      message,
+      route,
+      extra: { toast_source: "client" },
+    });
+
+    try {
+      const res = await fetch(`${baseUrl}/api/bug-reports/error-events`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...headers,
         },
-        online: navigator.onLine,
-      },
-    }),
-  }).catch(() => {
+        body: JSON.stringify({
+          message: trimmed,
+          event_source: "client_toast",
+          severity: "error",
+          route,
+          client_meta: clientMeta,
+        }),
+      });
+      if (!res.ok) {
+        void res.text().catch(() => "");
+      }
+    } catch {
+      /* best-effort telemetry; never create a second staff-facing error */
+    }
+  })().catch(() => {
     /* best-effort telemetry; never create a second staff-facing error */
   });
 }

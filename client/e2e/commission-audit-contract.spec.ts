@@ -625,7 +625,7 @@ test.describe("commission audit contract", () => {
     expect(internalLines.some((item) => item.custom_item_type === "spiff_reward")).toBe(true);
 
     const receiptRes = await request.get(
-      `${apiBase()}/api/transactions/${checkout.transaction_id}/receipt.zpl?register_session_id=${encodeURIComponent(sessionId)}`,
+      `${apiBase()}/api/transactions/${checkout.transaction_id}/receipt.escpos?register_session_id=${encodeURIComponent(sessionId)}`,
       {
         headers: {
           ...staffHeaders(),
@@ -636,7 +636,8 @@ test.describe("commission audit contract", () => {
       },
     );
     expect(receiptRes.status()).toBe(200);
-    const receipt = await receiptRes.text();
+    const receiptBody = await receiptRes.text();
+    const receipt = (JSON.parse(receiptBody) as { receiptline_markdown?: string }).receiptline_markdown ?? "";
     expect(receipt).toContain(`SKU ${product.sku}`);
     expect(receipt).not.toContain("spiff_reward");
     expect(receipt).not.toContain("12.34");

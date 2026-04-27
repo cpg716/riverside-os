@@ -3,7 +3,7 @@ import {
   checkoutFinancedSale,
   checkoutRmsPaymentCollection,
   ensureSessionAuth,
-  fetchReceiptZpl,
+  fetchReceiptEscpos,
   getFakeCoreCardCalls,
   getTransactionArtifacts,
   resetFakeCoreCardHost,
@@ -34,7 +34,7 @@ test.describe("POS RMS Charge", () => {
     expect(rmsRecord.host_reference).toContain("HOST-");
     expect(rmsRecord.posting_status).toBe("posted");
 
-    const receipt = await fetchReceiptZpl(request, checkout.body!.transaction_id, sessionId);
+    const receipt = await fetchReceiptEscpos(request, checkout.body!.transaction_id, sessionId);
     expect(receipt).toContain("RMS Charge");
     expect(receipt).toContain("RMS 90");
     expect(receipt).toContain(rmsRecord.masked_account ?? "••••");
@@ -157,7 +157,7 @@ test.describe("POS RMS Charge", () => {
       posting_status: "posted",
     });
 
-    const receipt = await fetchReceiptZpl(request, checkout.body!.transaction_id, sessionId);
+    const receipt = await fetchReceiptEscpos(request, checkout.body!.transaction_id, sessionId);
     expect(receipt).toContain("Tender: Cash");
     expect(receipt).toContain("RMS Ref:");
     expect(receipt).toContain(artifacts.rms_records[0]?.host_reference ?? "HOST-");
@@ -186,8 +186,8 @@ test.describe("POS RMS Charge", () => {
       fixture: rms90Fixture,
       programCode: "rms90",
     });
-    const standardReceipt = await fetchReceiptZpl(request, standard.body!.transaction_id, sessionId);
-    const rms90Receipt = await fetchReceiptZpl(request, rms90.body!.transaction_id, sessionId);
+    const standardReceipt = await fetchReceiptEscpos(request, standard.body!.transaction_id, sessionId);
+    const rms90Receipt = await fetchReceiptEscpos(request, rms90.body!.transaction_id, sessionId);
     expect(standardReceipt).toContain("Program: Standard");
     expect(standardReceipt).not.toContain("RMS90");
     expect(rms90Receipt).toContain("Program: RMS 90");

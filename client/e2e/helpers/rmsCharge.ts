@@ -482,12 +482,12 @@ export async function checkoutRmsPaymentCollection(
   };
 }
 
-export async function fetchReceiptZpl(
+export async function fetchReceiptEscpos(
   request: APIRequestContext,
   transactionId: string,
   registerSessionId: string,
 ) {
-  const receiptUrl = `${apiBase()}/api/transactions/${transactionId}/receipt.zpl`;
+  const receiptUrl = `${apiBase()}/api/transactions/${transactionId}/receipt.escpos`;
   let res = await request.get(
     `${receiptUrl}?register_session_id=${encodeURIComponent(registerSessionId)}`,
     {
@@ -503,7 +503,11 @@ export async function fetchReceiptZpl(
   }
   const body = await res.text();
   expect(res.status(), body.slice(0, 1000)).toBe(200);
-  return body;
+
+  const parsed = JSON.parse(body) as { receiptline_markdown?: string };
+  expect(parsed.receiptline_markdown, body.slice(0, 1000)).toBeDefined();
+
+  return parsed.receiptline_markdown ?? "";
 }
 
 export async function postCoreCardWebhook(

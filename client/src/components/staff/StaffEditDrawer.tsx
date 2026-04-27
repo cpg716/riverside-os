@@ -191,8 +191,9 @@ export default function StaffEditDrawer({
           recalculateEligibleCommission;
       }
 
-      if (staff.id === "NEW") {
-        payload.cashier_code = newPin.trim();
+      const nextPin = newPin.trim();
+      if (staff.id === "NEW" && nextPin.length === 4) {
+        payload.cashier_code = nextPin;
       }
 
       if (detachEmployeeCustomer) {
@@ -216,14 +217,16 @@ export default function StaffEditDrawer({
           body: JSON.stringify(payload),
         },
       );
+      const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        const b = await res.json().catch(() => ({}));
-        throw new Error(b.error ?? "Update failed");
+        throw new Error(typeof body.error === "string" ? body.error : "Update failed");
       }
 
       let effectiveId = staff.id;
       if (staff.id === "NEW") {
-        const body = await res.json().catch(() => ({}));
+        if (typeof body.id !== "string") {
+          throw new Error("Server did not return new staff id.");
+        }
         effectiveId = body.id;
       }
 
@@ -240,23 +243,33 @@ export default function StaffEditDrawer({
             body: JSON.stringify({ granted: [...granted].sort() }),
           },
         );
-        if (!pr.ok) throw new Error("Permissions update failed");
+        if (!pr.ok) {
+          const p = await pr.json().catch(() => ({}));
+          throw new Error(typeof p.error === "string" ? p.error : "Permissions update failed");
+        }
       }
 
       // PIN Update
-      if (hasPermission("staff.manage_pins") && newPin.trim().length === 4) {
+      if (hasPermission("staff.manage_pins") && nextPin.length === 4) {
         const pinRes = await fetch(
-          `${baseUrl}/api/staff/admin/${encodeURIComponent(staff.id)}/set-pin`,
+          `${baseUrl}/api/staff/admin/${encodeURIComponent(effectiveId)}/set-pin`,
           {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
               ...backofficeHeaders(),
             },
-            body: JSON.stringify({ pin: newPin.trim() }),
+            body: JSON.stringify({ pin: nextPin }),
           },
         );
-        if (!pinRes.ok) throw new Error("PIN update failed");
+        const pinBody = await pinRes.json().catch(() => ({}));
+        if (!pinRes.ok) {
+          throw new Error(
+            typeof pinBody.error === "string"
+              ? `PIN update failed: ${pinBody.error}`
+              : "PIN update failed",
+          );
+        }
       }
 
       toast("Staff profile updated", "success");

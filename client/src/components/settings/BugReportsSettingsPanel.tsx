@@ -1,7 +1,14 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import { AlertTriangle, Bug, Download, RefreshCw } from "lucide-react";
+import {
+  AlertTriangle,
+  Bug,
+  Clipboard,
+  Download,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
 import ConfirmationModal from "../ui/ConfirmationModal";
@@ -9,6 +16,7 @@ import ConfirmationModal from "../ui/ConfirmationModal";
 const baseUrl = getBaseUrl();
 
 type BugStatus = "pending" | "complete" | "dismissed";
+type ErrorEventStatus = "pending" | "complete" | "archived";
 
 type ListRow = {
   id: string;
@@ -45,6 +53,7 @@ type ErrorEventRow = {
   created_at: string;
   staff_id: string | null;
   staff_name: string | null;
+  status: ErrorEventStatus;
   message: string;
   event_source: string;
   severity: string;
@@ -73,6 +82,25 @@ function downloadTextFile(filename: string, text: string) {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+async function copyToClipboardOrDownload(
+  payload: string,
+  filename: string,
+  onCopySuccess: () => void,
+) {
+  try {
+    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(payload);
+      onCopySuccess();
+      return;
+    }
+  } catch {
+    // fall through to download fallback
+  }
+
+  downloadTextFile(filename, payload);
+  onCopySuccess();
 }
 
 function downloadPng(filename: string, base64: string) {
@@ -104,6 +132,22 @@ function statusLabel(status: BugStatus): string {
   return "Pending";
 }
 
+function errorEventStatusPillClass(status: ErrorEventStatus): string {
+  if (status === "complete") {
+    return "bg-emerald-500/15 text-emerald-800 dark:text-emerald-200";
+  }
+  if (status === "archived") {
+    return "bg-app-border/40 text-app-text-muted";
+  }
+  return "bg-amber-500/15 text-amber-900 dark:text-amber-100";
+}
+
+function errorEventStatusLabel(status: ErrorEventStatus): string {
+  if (status === "complete") return "Completed";
+  if (status === "archived") return "Archived";
+  return "Pending";
+}
+
 export default function BugReportsSettingsPanel({
   deepLinkReportId = null,
   onDeepLinkConsumed,
@@ -125,13 +169,25 @@ export default function BugReportsSettingsPanel({
     id: string;
     next: BugStatus;
   } | null>(null);
+  const [eventStatusConfirm, setEventStatusConfirm] = useState<{
+    id: string;
+    next: ErrorEventStatus;
+  } | null>(null);
+  const [eventDeleteConfirm, setEventDeleteConfirm] = useState<string | null>(null);
   const [listFilter, setListFilter] = useState<
     "all" | "pending" | "complete" | "dismissed"
+  >("pending");
+  const [eventListFilter, setEventListFilter] = useState<
+    "all" | ErrorEventStatus
   >("pending");
   const [viewMode, setViewMode] = useState<"reports" | "events">("reports");
 
   const filteredRows =
     listFilter === "all" ? rows : rows.filter((r) => r.status === listFilter);
+  const filteredErrorEvents =
+    eventListFilter === "all"
+      ? errorEvents
+      : errorEvents.filter((event) => event.status === eventListFilter);
 
   const loadList = useCallback(async () => {
     if (!hasPermission("settings.admin")) return;
@@ -236,8 +292,90 @@ export default function BugReportsSettingsPanel({
     }
   };
 
+  const patchErrorEventStatus = async (
+    id: string,
+    next: ErrorEventStatus,
+  ) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/bug-reports/error-events/${id}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+          body: JSON.stringify({ status: next }),
+        },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(j.error ?? "Could not update error event", "error");
+        return;
+      }
+      const updated = (await res.json()) as ErrorEventRow;
+      setErrorEvents((prev) =>
+        prev.map((event) => (event.id === id ? updated : event)),
+      );
+      if (eventDetail?.id === id) {
+        setEventDetail(updated);
+      }
+      toast(
+        `Error event marked ${errorEventStatusLabel(next).toLowerCase()}`,
+        "success",
+      );
+      void loadErrorEvents();
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setEventStatusConfirm(null);
+    }
+  };
+
+  const deleteErrorEvent = async (id: string) => {
+    try {
+      const res = await fetch(
+        `${baseUrl}/api/settings/bug-reports/error-events/${id}`,
+        {
+          method: "DELETE",
+          headers: {
+            ...(backofficeHeaders() as Record<string, string>),
+          },
+        },
+      );
+      if (!res.ok) {
+        const j = (await res.json().catch(() => ({}))) as { error?: string };
+        toast(j.error ?? "Could not delete error event", "error");
+        return;
+      }
+      setErrorEvents((prev) => prev.filter((event) => event.id !== id));
+      setEventDetail((current) => (current?.id === id ? null : current));
+      toast("Error event deleted", "success");
+      void loadErrorEvents();
+    } catch {
+      toast("Network error", "error");
+    } finally {
+      setEventDeleteConfirm(null);
+    }
+  };
+
   const saveTriageFields = () =>
     void patchReport({ resolver_notes: draftNotes, external_url: draftUrl });
+
+  const errorEventCapture = useMemo(() => {
+    if (!eventDetail) return null;
+    const raw = eventDetail.client_meta?.event_capture;
+    if (raw && typeof raw === "object") {
+      return raw as Record<string, unknown>;
+    }
+    return null;
+  }, [eventDetail]);
+
+  const errorEventDiagTail = useMemo(() => {
+    if (!eventDetail) return null;
+    const tail = eventDetail.client_meta?.diag_tail_lines;
+    return typeof tail === "string" ? tail : null;
+  }, [eventDetail]);
 
   if (!hasPermission("settings.admin")) {
     return null;
@@ -304,12 +442,41 @@ export default function BugReportsSettingsPanel({
         <div className="ui-card overflow-hidden">
           {eventsLoading ? (
             <p className="p-6 text-sm text-app-text-muted">Loading…</p>
-          ) : errorEvents.length === 0 ? (
+          ) : filteredErrorEvents.length === 0 ? (
             <p className="p-6 text-sm text-app-text-muted">
-              No automated error events yet.
+              No automated error events in this filter.
             </p>
           ) : (
-            <div className="overflow-x-auto">
+            <div>
+              <div className="flex flex-wrap gap-2 border-b border-app-border bg-app-surface-2/40 p-3">
+                {(
+                  [
+                    ["pending", "Pending"],
+                    ["complete", "Completed"],
+                    ["archived", "Archived"],
+                    ["all", "All"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setEventListFilter(key)}
+                    className={`rounded-lg border px-3 py-1.5 text-[10px] font-black uppercase tracking-widest transition-colors ${
+                      eventListFilter === key
+                        ? "border-app-accent bg-app-accent/15 text-app-text"
+                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:bg-app-border/20"
+                    }`}
+                  >
+                    {label}
+                    <span className="ml-1.5 tabular-nums opacity-70">
+                      ({key === "all"
+                        ? errorEvents.length
+                        : errorEvents.filter((e) => e.status === key).length})
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <div className="overflow-x-auto">
               <table className="w-full min-w-[760px] border-collapse text-left text-sm">
                 <thead className="border-b border-app-border bg-app-surface-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   <tr>
@@ -317,12 +484,13 @@ export default function BugReportsSettingsPanel({
                     <th className="px-4 py-3">Staff</th>
                     <th className="px-4 py-3">Source</th>
                     <th className="px-4 py-3">Message</th>
+                    <th className="px-4 py-3">Status</th>
                     <th className="px-4 py-3">Route</th>
                     <th className="px-4 py-3 text-right">Open</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-app-border">
-                  {errorEvents.map((event) => (
+                  {filteredErrorEvents.map((event) => (
                     <tr key={event.id} className="hover:bg-app-surface-2/80">
                       <td className="whitespace-nowrap px-4 py-3 text-xs text-app-text-muted">
                         {new Date(event.created_at).toLocaleString()}
@@ -337,6 +505,13 @@ export default function BugReportsSettingsPanel({
                       </td>
                       <td className="max-w-md px-4 py-3 text-xs text-app-text line-clamp-2">
                         {event.message}
+                      </td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`ui-pill text-[9px] ${errorEventStatusPillClass(event.status)}`}
+                        >
+                          {errorEventStatusLabel(event.status)}
+                        </span>
                       </td>
                       <td className="max-w-[14rem] truncate px-4 py-3 font-mono text-[10px] text-app-text-muted">
                         {event.route ?? "—"}
@@ -354,6 +529,7 @@ export default function BugReportsSettingsPanel({
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           )}
         </div>
@@ -717,6 +893,13 @@ export default function BugReportsSettingsPanel({
                 <p className="mt-2 text-sm font-bold text-app-text">
                   {eventDetail.message}
                 </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span
+                    className={`ui-pill text-[9px] ${errorEventStatusPillClass(eventDetail.status)}`}
+                  >
+                    {errorEventStatusLabel(eventDetail.status)}
+                  </span>
+                </div>
               </div>
               <button
                 type="button"
@@ -727,6 +910,24 @@ export default function BugReportsSettingsPanel({
               </button>
             </div>
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className="ui-btn-secondary inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase"
+                  onClick={() =>
+                    void copyToClipboardOrDownload(
+                      JSON.stringify(eventDetail, null, 2),
+                      `ros-error-event-${eventDetail.id}-all.json`,
+                      () => {
+                        toast("Error event details copied", "success");
+                      },
+                    )
+                  }
+                >
+                  <Clipboard className="h-3.5 w-3.5" aria-hidden />
+                  Copy all
+                </button>
+              </div>
               <div className="grid gap-3 md:grid-cols-2">
                 <div className="rounded-xl border border-app-border bg-app-surface-2 p-3">
                   <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -747,6 +948,26 @@ export default function BugReportsSettingsPanel({
                 </div>
               </div>
               <div>
+                {errorEventCapture ? (
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Error event context
+                    </p>
+                    <pre className="mt-1 max-h-48 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text">
+                      {JSON.stringify(errorEventCapture, null, 2)}
+                    </pre>
+                  </div>
+                ) : null}
+                {errorEventDiagTail ? (
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                      Recent client diagnostics
+                    </p>
+                    <pre className="mt-1 max-h-52 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
+                      {errorEventDiagTail}
+                    </pre>
+                  </div>
+                ) : null}
                 <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
                   Client meta
                 </p>
@@ -761,6 +982,84 @@ export default function BugReportsSettingsPanel({
                 <pre className="mt-1 max-h-56 overflow-auto rounded-xl border border-app-border bg-app-surface-2 p-3 text-[10px] text-app-text whitespace-pre-wrap">
                   {eventDetail.server_log_snapshot || "—"}
                 </pre>
+              </div>
+              <div className="flex flex-wrap gap-2 border-t border-app-border pt-2">
+                {eventDetail.status === "pending" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="ui-btn-primary px-3 py-2 text-[10px] font-black uppercase"
+                      onClick={() =>
+                        setEventStatusConfirm({
+                          id: eventDetail.id,
+                          next: "complete",
+                        })
+                      }
+                    >
+                      Mark completed
+                    </button>
+                    <button
+                      type="button"
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase"
+                      onClick={() =>
+                        setEventStatusConfirm({
+                          id: eventDetail.id,
+                          next: "archived",
+                        })
+                      }
+                    >
+                      Archive
+                    </button>
+                  </>
+                ) : eventDetail.status === "complete" ? (
+                  <>
+                    <button
+                      type="button"
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase"
+                      onClick={() =>
+                        setEventStatusConfirm({
+                          id: eventDetail.id,
+                          next: "archived",
+                        })
+                      }
+                    >
+                      Archive
+                    </button>
+                    <button
+                      type="button"
+                      className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase"
+                      onClick={() =>
+                        setEventStatusConfirm({
+                          id: eventDetail.id,
+                          next: "pending",
+                        })
+                      }
+                    >
+                      Reopen
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    className="ui-btn-secondary px-3 py-2 text-[10px] font-black uppercase"
+                    onClick={() =>
+                      setEventStatusConfirm({
+                        id: eventDetail.id,
+                        next: "pending",
+                      })
+                    }
+                  >
+                    Mark pending
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-2 px-3 py-2 text-[10px] font-black uppercase text-app-danger hover:text-red-500"
+                  onClick={() => setEventDeleteConfirm(eventDetail.id)}
+                >
+                  <Trash2 className="h-3.5 w-3.5" aria-hidden />
+                  Delete
+                </button>
               </div>
             </div>
           </div>
@@ -800,6 +1099,51 @@ export default function BugReportsSettingsPanel({
               external_url: draftUrl,
             })
           }
+        />
+      ) : null}
+
+      {eventStatusConfirm ? (
+        <ConfirmationModal
+          isOpen
+          title={
+            eventStatusConfirm.next === "complete"
+              ? "Mark this error event complete?"
+              : eventStatusConfirm.next === "archived"
+                ? "Archive this error event?"
+                : "Reopen this error event?"
+          }
+          message={
+            eventStatusConfirm.next === "complete"
+              ? "This marks this event as completed."
+              : eventStatusConfirm.next === "archived"
+                ? "This moves the event into the archived status."
+                : "This moves the event back to pending."
+          }
+          confirmLabel={
+            eventStatusConfirm.next === "complete"
+              ? "Mark completed"
+              : eventStatusConfirm.next === "archived"
+                ? "Archive"
+                : "Mark pending"
+          }
+          onClose={() => setEventStatusConfirm(null)}
+          onConfirm={() =>
+            void patchErrorEventStatus(
+              eventStatusConfirm.id,
+              eventStatusConfirm.next,
+            )
+          }
+        />
+      ) : null}
+
+      {eventDeleteConfirm ? (
+        <ConfirmationModal
+          isOpen
+          title="Delete this error event?"
+          message="This removes the event permanently from the list."
+          confirmLabel="Delete"
+          onClose={() => setEventDeleteConfirm(null)}
+          onConfirm={() => void deleteErrorEvent(eventDeleteConfirm)}
         />
       ) : null}
     </div>

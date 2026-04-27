@@ -9,9 +9,8 @@ import { useToast } from "../ui/ToastProviderLogic";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import {
+  buildClientErrorCaptureMeta,
   getClientDiagnosticLogText,
-  getClientMetaSnapshot,
-  withTauriShellVersion,
 } from "../../lib/clientDiagnostics";
 import { CLIENT_SEMVER, GIT_SHORT } from "../../clientBuildMeta";
 
@@ -147,13 +146,18 @@ export default function BugReportFlow({
     setBusy(true);
     try {
       const consoleLog = getClientDiagnosticLogText();
-      const meta = await withTauriShellVersion(
-        getClientMetaSnapshot({
+      const meta = await buildClientErrorCaptureMeta({
+        captureType: "manual_bug_report",
+        message: summ,
+        extra: {
           client_semver: CLIENT_SEMVER,
           git_short: GIT_SHORT,
           ros_navigation: navigationContext ?? null,
-        }),
-      );
+          include_capture: includeCapture,
+          steps_context: st,
+          summary: summ,
+        },
+      });
       const res = await fetch(`${baseUrl}/api/bug-reports`, {
         method: "POST",
         headers: {

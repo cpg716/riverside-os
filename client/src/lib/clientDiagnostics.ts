@@ -83,6 +83,12 @@ export function getClientDiagnosticLogText(): string {
   return lines.join("\n");
 }
 
+export function getClientDiagnosticTail(maxTailBytes = 24_000): string {
+  const fullLog = getClientDiagnosticLogText();
+  const tail = fullLog.split("\n").slice(-80).join("\n");
+  return tail.length > maxTailBytes ? tail.slice(-maxTailBytes) : tail;
+}
+
 /** iPadOS 13+ reports a “Mac” platform with touch. */
 function isLikelyIpados(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -167,6 +173,41 @@ export function getClientMetaSnapshot(
     note: "Recent Riverside API server tracing output is attached automatically on submit (in-process buffer). For external terminals or multi-instance deploys, note the time and host.",
     ...extra,
   };
+}
+
+export type ErrorCaptureKind = "toast_error_event" | "manual_bug_report";
+
+export interface ErrorCapturePayloadOptions {
+  captureType: ErrorCaptureKind;
+  message?: string;
+  route?: string;
+  severity?: string;
+  extra?: Record<string, unknown>;
+}
+
+export async function buildClientErrorCaptureMeta(
+  options: ErrorCapturePayloadOptions,
+): Promise<Record<string, unknown>> {
+  const route =
+    options.route ??
+    `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const capture = {
+    capture_type: options.captureType,
+    captured_at: new Date().toISOString(),
+    message: options.message,
+    route,
+    severity: options.severity,
+    ...options.extra,
+  };
+
+  return withTauriShellVersion(
+    getClientMetaSnapshot({
+      event_capture: capture,
+      route,
+      diag_tail_lines: getClientDiagnosticTail(),
+      online: typeof navigator === "undefined" ? false : navigator.onLine,
+    }),
+  );
 }
 
 /** Adds Tauri shell version when running inside the desktop app (no-op on web/PWA). */
