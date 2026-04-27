@@ -378,7 +378,7 @@ const resolveStaffByName = (
   if (eligibleFirstTokenCandidates.length > 1) {
     // If multiple "Tom"s, pick the first one alphabetically by default
     return [...eligibleFirstTokenCandidates].sort((a, b) =>
-      a.full_name.localeCompare(b.full_name, undefined, { sensitivity: "base" }),
+      (a.full_name || "").localeCompare(b.full_name || "", undefined, { sensitivity: "base" }),
     )[0];
   }
 
@@ -633,7 +633,7 @@ export default function StaffWeeklyGridView() {
     const sorted = [...rows].sort((a, b) => {
       const order = roleSortOrder(a.role) - roleSortOrder(b.role);
       if (order !== 0) return order;
-      return a.full_name.localeCompare(b.full_name);
+      return (a.full_name || "").localeCompare(b.full_name || "");
     });
     setSchedules(sorted);
     setDirtyStaff(new Set());
@@ -738,7 +738,7 @@ export default function StaffWeeklyGridView() {
       const next = [...prev, newRow].sort((a, b) => {
         const order = roleSortOrder(a.role) - roleSortOrder(b.role);
         if (order !== 0) return order;
-        return a.full_name.localeCompare(b.full_name);
+        return (a.full_name || "").localeCompare(b.full_name || "");
       });
       return next;
     });
@@ -1394,7 +1394,7 @@ export default function StaffWeeklyGridView() {
                     <option value="" disabled>Add staff member to week...</option>
                     {eligible
                       .filter(e => !schedules.some(s => s.staff_id === e.id))
-                      .sort((a, b) => a.full_name.localeCompare(b.full_name))
+                      .sort((a, b) => (a.full_name || "").localeCompare(b.full_name || ""))
                       .map(e => (
                         <option key={e.id} value={e.id}>{e.full_name} ({roleLabel(e.role)})</option>
                       ))
