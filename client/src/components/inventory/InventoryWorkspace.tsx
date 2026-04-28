@@ -45,56 +45,124 @@ interface InventoryWorkspaceProps {
   surface?: "backoffice" | "pos";
 }
 
-const SECTION_META: Record<InventorySection, { title: string; subtitle: string }> = {
+const SECTION_META: Record<InventorySection, { title: string; subtitle: string; toolLabel: string }> = {
   list: {
-    title: "Inventory List",
+    title: "Find Item",
     subtitle: "Look up items, review stock, and open product details.",
+    toolLabel: "Inventory List",
   },
   purchase_orders: {
-    title: "Purchase Orders",
+    title: "Order Stock",
     subtitle: "Build vendor orders, add invoice lines, and send items to receiving.",
+    toolLabel: "Purchase Orders",
   },
   receiving: {
     title: "Receive Stock",
     subtitle: "Post received items from submitted purchase orders or direct vendor invoices.",
+    toolLabel: "Receive Stock",
   },
   vendors: {
-    title: "Vendors",
+    title: "Add/Edit Catalog",
     subtitle: "Create, update, and clean up vendor records used for ordering and receiving.",
+    toolLabel: "Vendors",
   },
   add: {
-    title: "Add Item",
+    title: "Add/Edit Catalog",
     subtitle: "Create a new item and its sellable SKUs.",
+    toolLabel: "Add Item",
   },
   categories: {
-    title: "Categories",
+    title: "Add/Edit Catalog",
     subtitle: "Organize item groups, tax rules, and default size or color options.",
+    toolLabel: "Categories",
   },
   discount_events: {
-    title: "Promotions",
+    title: "Add/Edit Catalog",
     subtitle: "Schedule time-boxed markdowns by SKU, category, or vendor.",
+    toolLabel: "Promotions",
   },
   import: {
-    title: "Catalog Import",
+    title: "Add/Edit Catalog",
     subtitle: "Catalog-only CSV mapping for vendor manifests; Counterpoint sync owns pre-launch inventory quantities.",
+    toolLabel: "Catalog Import",
   },
   physical: {
-    title: "Physical Inventory",
+    title: "Count/Reconcile",
     subtitle: "Cycle counting and full-store reconciliation workflows.",
+    toolLabel: "Physical Inventory",
   },
   damaged: {
-    title: "Damaged / Loss",
-    subtitle: "Record damaged or missing stock with clear staff notes.",
+    title: "Correct Stock",
+    subtitle: "Review damaged or missing stock movements and audit correction history.",
+    toolLabel: "Damaged / Loss",
   },
   rtv: {
-    title: "Return to Vendor",
-    subtitle: "Track stock sent back for vendor credits and claims.",
+    title: "Correct Stock",
+    subtitle: "Review stock sent back for vendor credits and claims.",
+    toolLabel: "Return to Vendor",
   },
   intelligence: {
-    title: "Stock Guidance",
+    title: "Order Stock",
     subtitle: "Review reorder and markdown suggestions with plain-language reasons.",
+    toolLabel: "Stock Guidance",
   },
 };
+
+type InventoryJob = {
+  label: string;
+  description: string;
+  primarySection: InventorySection;
+  sections: InventorySection[];
+};
+
+const INVENTORY_JOBS: InventoryJob[] = [
+  {
+    label: "Find Item",
+    description: "Search items, inspect stock, print tags, and open product details.",
+    primarySection: "list",
+    sections: ["list"],
+  },
+  {
+    label: "Add/Edit Catalog",
+    description: "Maintain products, categories, vendors, imports, and promotions.",
+    primarySection: "add",
+    sections: ["add", "categories", "vendors", "import", "discount_events"],
+  },
+  {
+    label: "Order Stock",
+    description: "Create purchase orders and review buying guidance.",
+    primarySection: "purchase_orders",
+    sections: ["purchase_orders", "intelligence"],
+  },
+  {
+    label: "Receive Stock",
+    description: "Post arrived vendor paperwork into live inventory.",
+    primarySection: "receiving",
+    sections: ["receiving"],
+  },
+  {
+    label: "Correct Stock",
+    description: "Review damage, loss, and return-to-vendor movements.",
+    primarySection: "damaged",
+    sections: ["damaged", "rtv"],
+  },
+  {
+    label: "Count/Reconcile",
+    description: "Run physical counts and publish reviewed variances.",
+    primarySection: "physical",
+    sections: ["physical"],
+  },
+];
+
+const JOB_BY_SECTION = INVENTORY_JOBS.reduce<Record<InventorySection, InventoryJob>>(
+  (acc, job) => {
+    job.sections.forEach((jobSection) => {
+      acc[jobSection] = job;
+    });
+    return acc;
+  },
+  {} as Record<InventorySection, InventoryJob>,
+);
 
 interface BoardStats {
   total_asset_value: string;
@@ -169,6 +237,7 @@ export default function InventoryWorkspace({
 
   const meta = SECTION_META[section];
   const isPosSurface = surface === "pos";
+  const activeJob = JOB_BY_SECTION[section];
 
   return (
     <div className="flex flex-1 flex-col bg-transparent animate-in fade-in duration-700">
@@ -176,24 +245,29 @@ export default function InventoryWorkspace({
         
         {/* Harmonized Dashboard Header */}
         {!isPosSurface && (
-        <div className="flex flex-col gap-6 mb-10">
-          <div className="flex flex-wrap items-center justify-between gap-6">
-            <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <div className="h-1 w-4 rounded-full bg-app-accent shadow-[0_0_8px_rgba(var(--app-accent-rgb),0.5)]" />
-                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
-                  Inventory Hub · {section.replace("_", " ")}
-                </p>
-              </div>
-              <h2 className="text-3xl font-bold tracking-tight text-app-text">
-                {meta.title}
-              </h2>
-              <p className="max-w-2xl text-sm font-medium text-app-text-muted leading-relaxed">
-                {meta.subtitle}
-              </p>
-            </div>
+	        <div className="flex flex-col gap-6 mb-10">
+	          <div className="flex flex-wrap items-center justify-between gap-6">
+	            <div className="space-y-3">
+	              <div className="flex items-center gap-2">
+	                <div className="h-1 w-4 rounded-full bg-app-accent shadow-[0_0_8px_rgba(var(--app-accent-rgb),0.5)]" />
+	                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
+	                  Inventory Hub · {activeJob.label}
+	                </p>
+	              </div>
+	              <h2 className="text-3xl font-bold tracking-tight text-app-text">
+	                {meta.title}
+	              </h2>
+	              <p className="max-w-2xl text-sm font-medium text-app-text-muted leading-relaxed">
+	                {meta.subtitle}
+	              </p>
+	              {meta.toolLabel !== meta.title ? (
+	                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+	                  Current tool: <span className="text-app-text">{meta.toolLabel}</span>
+	                </p>
+	              ) : null}
+	            </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
+	            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
                 <DashboardStatsCard
                   title="Asset Value"
                   value={formatUsdFromCents(parseMoneyToCents(globalStats.total_asset_value))}
@@ -217,10 +291,57 @@ export default function InventoryWorkspace({
                   icon={VENDOR_ICON}
                   color="purple"
                 />
-            </div>
-          </div>
-        </div>
-        )}
+	            </div>
+	          </div>
+	          <div className="rounded-[28px] border border-app-border bg-app-surface p-4 shadow-sm">
+	            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+	              {INVENTORY_JOBS.map((job) => {
+	                const isActive = job.label === activeJob.label;
+	                return (
+	                  <button
+	                    key={job.label}
+	                    type="button"
+	                    onClick={() => setSection(job.primarySection)}
+	                    className={`rounded-2xl border px-4 py-3 text-left transition-all active:scale-95 ${
+	                      isActive
+	                        ? "border-app-accent bg-app-accent/10 text-app-text"
+	                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-text"
+	                    }`}
+	                  >
+	                    <span className="block text-[10px] font-black uppercase tracking-[0.18em]">
+	                      {job.label}
+	                    </span>
+	                    <span className="mt-2 block text-[11px] font-semibold leading-relaxed">
+	                      {job.description}
+	                    </span>
+	                  </button>
+	                );
+	              })}
+	            </div>
+	            {activeJob.sections.length > 1 ? (
+	              <div className="mt-4 flex flex-wrap gap-2 border-t border-app-border pt-4">
+	                {activeJob.sections.map((jobSection) => {
+	                  const isActiveSection = section === jobSection;
+	                  return (
+	                    <button
+	                      key={jobSection}
+	                      type="button"
+	                      onClick={() => setSection(jobSection)}
+	                      className={`rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+	                        isActiveSection
+	                          ? "bg-app-accent text-white"
+	                          : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-text"
+	                      }`}
+	                    >
+	                      {SECTION_META[jobSection].toolLabel}
+	                    </button>
+	                  );
+	                })}
+	              </div>
+	            ) : null}
+	          </div>
+	        </div>
+	        )}
 
         {/* Section Delivery Plane */}
         <div className="min-h-0">
@@ -268,7 +389,7 @@ export default function InventoryWorkspace({
                     onClick={() => setSection("purchase_orders")}
                     className="inline-flex h-11 items-center gap-2 rounded-2xl border border-app-border bg-app-surface-2 px-4 text-[10px] font-black uppercase tracking-widest text-app-text transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
                   >
-                    Purchase Orders <ArrowUpRight size={14} strokeWidth={3} />
+	                    Order Stock <ArrowUpRight size={14} strokeWidth={3} />
                   </button>
                 </div>
               </div>

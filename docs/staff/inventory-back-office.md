@@ -2,7 +2,7 @@
 
 **Audience:** Inventory leads, buyers, receivers.
 
-**Where in ROS:** Back Office → **Inventory**. Subsections: **Inventory List**, **Add Inventory**, **Receiving**, **Categories**, **Discount events**, **Import**, **Vendors**, **Physical count**.
+**Where in ROS:** Back Office → **Inventory**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Count/Reconcile**.
 
 **Related permissions:** **catalog.view** / **catalog.edit** for catalog surfaces. **procurement.view** / **procurement.mutate** for PO-style receiving. **physical_inventory.view** for **Physical count**.
 
@@ -10,30 +10,93 @@
 
 ## How to use this area
 
-Pick the subsection that matches the **job**, not the person: **look up** → **Inventory List**; **new style** → **Add Inventory**; **truck arrived** → **Receiving**; **storewide sale** → **Discount events**; **big file** → **Import**; **yearly count** → **Physical count**.
+Pick the area that matches the **job**, not the person:
 
-## Inventory List (control board)
+| Staff job | Use it for | Previous tools now under it |
+|-----------|------------|-----------------------------|
+| **Find Item** | Search SKUs, check stock, print tags, open Product hub | Inventory List |
+| **Add/Edit Catalog** | Add items, maintain item setup, clean catalog records | Add Inventory, Categories, Vendors, Import, Discount events |
+| **Order Stock** | Build vendor orders and review buying guidance | Purchase Orders, Stock Guidance |
+| **Receive Stock** | Post arrived merchandise from vendor paperwork | Receiving, direct invoice receiving |
+| **Correct Stock** | Review damaged/lost stock and return-to-vendor movements | Damaged / Loss, Return to Vendor |
+| **Count/Reconcile** | Run physical counts and publish reviewed variances | Physical count |
+
+Old deep links and saved shortcuts still open the same tools. The labels above are the staff-facing mental model for deciding where to start.
+
+## Find Item
 
 **Purpose:** Find SKUs fast, tweak price/stock fields you are allowed to edit, open **product hub** for matrix and history.
 
-1. Go to **Inventory** → **Inventory List**.
+1. Go to **Inventory** → **Find Item**.
 2. Search by **SKU**, **style name**, or **vendor** per header fields.
 3. Use **Load more** for large catalogs — the server returns pages, not the whole world at once.
 4. Click a row or **hub** icon to open **Product hub** (general, matrix, history tabs).
 
 **Common pitfall:** Editing **on-hand** without understanding **reserved** stock for special orders — when unsure, read [INVENTORY_GUIDE.md](../../INVENTORY_GUIDE.md) or ask a lead.
 
-## Add Inventory
+## Add/Edit Catalog
 
-1. **Add Inventory** → follow wizard steps (category, matrix, initial SKU).
+Use **Add/Edit Catalog** for product setup and catalog cleanup. The tools inside this job include **Add Item**, **Categories**, **Vendors**, **Catalog Import**, and **Promotions**.
+
+### Add Item
+
+1. **Add/Edit Catalog** → **Add Item** → follow wizard steps (category, matrix, initial SKU).
 2. Enter **non-negative** base retail and cost values. Negative benchmark pricing, negative cost, and negative initial stock are blocked.
 3. Keep generated SKUs unique. If a SKU already exists anywhere in ROS, the product will not save until the conflict is resolved.
 4. **Save** each step; do not close the browser mid-wizard.
 5. Verify the SKU appears in **Inventory List** search.
 
-## Receiving
+### Categories
 
-1. **Receiving** → open expected **PO** or **direct receipt** flow your store uses.
+**Purpose:** Merchandising hierarchy — affects **filters**, **reports**, and how staff **search**.
+
+1. **Inventory** → **Add/Edit Catalog** → **Categories**.
+2. **Add** or **rename** nodes per SOP; avoid duplicate names that confuse receivers.
+3. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
+4. After big changes, spot-check **Inventory List** filters and one **Insights** slice if your role can.
+
+### Discount events
+
+**Purpose:** Time-boxed **merchandising** discounts; POS can apply eligible events automatically when lines match.
+
+1. **Inventory** → **Add/Edit Catalog** → **Promotions**.
+2. Create or edit an event: **name**, **start/end**, and **rules** your UI exposes.
+3. Attach **variants** / SKUs to the event; **save** each step.
+4. **Test at POS:** add one attached SKU in a **test** cart and confirm discount behavior **before** customer-facing launch.
+5. **Usage:** aggregated usage is available to the API as **`/api/discount-events/usage-report`** (admin reporting / future NL tools — see [AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)); use it for post-mortems after big promos.
+
+### Vendors
+
+**Purpose:** Supplier records used by **receiving**, **PO** flows, and **catalog import** matching.
+
+1. **Inventory** → **Add/Edit Catalog** → **Vendors**.
+2. Keep **vendor name** and **vendor code** unique and consistent with **Import** / **Counterpoint** mappings (see [CATALOG_IMPORT.md](../CATALOG_IMPORT.md)).
+3. When onboarding a new supplier, add the vendor **before** bulk import if your file keys off **vendor_code**.
+4. Use **Merge** to consolidate duplicate supplier records instead of letting PO and receiving history split across multiple vendors.
+5. Do not delete vendors with **open PO** history without **manager** + accounting alignment.
+
+### Import (CSV)
+
+1. **Add/Edit Catalog** → **Catalog Import** → use the **Catalog CSV** mapper for vendor or cleanup files.
+2. This tool updates **catalog structure only**. It does **not** replace live **on-hand** stock.
+3. For the initial inventory load before launch, use **Settings → Counterpoint**. After launch, quantity changes belong in **Receiving** or **Physical count**.
+4. Upload file under your IT **size limit**; if rejected, split file or ask for limit increase.
+5. Read **preview errors** row by row; do not assume “partial import” is safe without review.
+
+## Order Stock
+
+1. **Inventory** → **Order Stock**.
+2. Select the correct vendor **before** creating the PO.
+3. Standard POs stay editable only while they are **draft**.
+4. A standard PO must have at least one line before **Submit PO** is allowed.
+5. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
+6. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
+
+Direct invoices are for merchandise that arrived without a pre-built order. Start them from **Receive Stock** when the vendor paperwork is already in hand.
+
+## Receive Stock
+
+1. **Receive Stock** → open expected **PO** or **direct receipt** flow your store uses.
 2. Scan or enter **quantities** to match the packing slip.
 3. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet.
 4. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
@@ -43,54 +106,18 @@ Pick the subsection that matches the **job**, not the person: **look up** → **
 
 **At the register**, staff browse the catalog and tap **Add to sale** from **POS → Inventory** (same data family as the control board) — [pos-inventory.md](pos-inventory.md).
 
-## Categories
+## Correct Stock
 
-**Purpose:** Merchandising hierarchy — affects **filters**, **reports**, and how staff **search**.
+Use **Correct Stock** to review inventory movement history for stock that left normal sale/receiving paths.
 
-1. **Inventory** → **Categories**.
-2. **Add** or **rename** nodes per SOP; avoid duplicate names that confuse receivers.
-3. **Drag** to reparent only when **buying** and **reporting** agree — large moves need **manager** sign-off.
-4. After big changes, spot-check **Inventory List** filters and one **Insights** slice if your role can.
+1. **Damaged / Loss** shows damaged or missing stock movements.
+2. **Return to Vendor** shows stock removed for vendor credit or claims.
+3. To make a one-off correction, start from **Find Item**, open the item or SKU, and use the correction action available there.
+4. For storewide or category-wide corrections, use **Count/Reconcile** instead of many one-off edits.
 
-## Discount events
+## Count/Reconcile
 
-**Purpose:** Time-boxed **merchandising** discounts; POS can apply eligible events automatically when lines match.
-
-1. **Inventory** → **Discount events**.
-2. Create or edit an event: **name**, **start/end**, and **rules** your UI exposes.
-3. Attach **variants** / SKUs to the event; **save** each step.
-4. **Test at POS:** add one attached SKU in a **test** cart and confirm discount behavior **before** customer-facing launch.
-5. **Usage:** aggregated usage is available to the API as **`/api/discount-events/usage-report`** (admin reporting / future NL tools — see [AI_REPORTING_DATA_CATALOG.md](../AI_REPORTING_DATA_CATALOG.md)); use it for post-mortems after big promos.
-
-## Vendors
-
-**Purpose:** Supplier records used by **receiving**, **PO** flows, and **catalog import** matching.
-
-1. **Inventory** → **Vendors**.
-2. Keep **vendor name** and **vendor code** unique and consistent with **Import** / **Counterpoint** mappings (see [CATALOG_IMPORT.md](../CATALOG_IMPORT.md)).
-3. When onboarding a new supplier, add the vendor **before** bulk import if your file keys off **vendor_code**.
-4. Use **Merge** to consolidate duplicate supplier records instead of letting PO and receiving history split across multiple vendors.
-5. Do not delete vendors with **open PO** history without **manager** + accounting alignment.
-
-## Purchase Orders
-
-1. Select the correct vendor **before** creating the PO or direct invoice.
-2. Standard POs stay editable only while they are **draft**.
-3. A standard PO must have at least one line before **Submit PO** is allowed.
-4. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
-5. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
-
-## Import (CSV)
-
-1. **Import** → use the **Catalog CSV** mapper for vendor or cleanup files.
-2. This tool updates **catalog structure only**. It does **not** replace live **on-hand** stock.
-3. For the initial inventory load before launch, use **Settings → Counterpoint**. After launch, quantity changes belong in **Receiving** or **Physical count**.
-4. Upload file under your IT **size limit**; if rejected, split file or ask for limit increase.
-5. Read **preview errors** row by row; do not assume “partial import” is safe without review.
-
-## Physical count
-
-1. **Physical count** (requires **physical_inventory.view**).
+1. **Count/Reconcile** (requires **physical_inventory.view**).
 2. **Start or resume** session; scan **location** per SOP.
 3. **Review variances** before posting adjustments — large shrink hits **financial** review.
 4. For **full store** or category counts, review also surfaces in-scope SKUs that were **not counted**. Do not treat those rows as already reviewed just because they were not scanned.
