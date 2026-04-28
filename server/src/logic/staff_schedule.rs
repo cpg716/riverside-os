@@ -1038,25 +1038,28 @@ pub async fn clone_week_schedule_week(
         ));
     }
 
-    // Delete existing target if any (draft or published)
+    // Delete existing target if any (draft or published) for all staff
     sqlx::query("DELETE FROM staff_weekly_schedule WHERE week_start = $1")
         .bind(target_week_start)
         .execute(&mut *tx)
         .await?;
 
-    // Create new draft
+    // Create new drafts for all staff who had a published schedule in the source week
     sqlx::query(
         r#"
-        INSERT INTO staff_weekly_schedule (week_start, status, created_by, updated_by)
-        VALUES ($1, 'draft', $2, $2)
+        INSERT INTO staff_weekly_schedule (staff_id, week_start, status, created_by_staff_id, updated_by_staff_id)
+        SELECT staff_id, $1, 'draft', $2, $2
+        FROM staff_weekly_schedule
+        WHERE week_start = $3 AND status = 'published'
         "#,
     )
     .bind(target_week_start)
     .bind(actor_id)
+    .bind(source_week_start)
     .execute(&mut *tx)
     .await?;
 
-    // Copy days
+    // Copy days for all staff
     let copied = sqlx::query(
         r#"
         INSERT INTO staff_weekly_schedule_day (week_start, staff_id, weekday, works, shift_label)
