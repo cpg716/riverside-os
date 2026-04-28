@@ -684,12 +684,15 @@ const buildStaffPrintDocument = (
   const printableSchedules = schedules.filter((s) => {
     if (isExcludedStaffName(s.full_name)) return false;
 
+    const normName = normalizeName(s.full_name);
+    const hasAnyWork = s.weekdays?.some((w) => w.works && w.shift_label && w.shift_label.toUpperCase() !== "OFF");
+
+    // Hardcoded safety for Natalie
+    if (normName === "natalie neumann" && !hasAnyWork) return false;
+
     // If it's a template fallback (no per-week record) AND they have 0 work, hide it from print
     const isTemplate = s.status?.toLowerCase() === "template";
-    if (isTemplate) {
-      const hasAnyWork = s.weekdays?.some((w) => w.works && w.shift_label && w.shift_label.toUpperCase() !== "OFF");
-      if (!hasAnyWork) return false;
-    }
+    if (isTemplate && !hasAnyWork) return false;
 
     return true;
   });
@@ -805,6 +808,12 @@ const buildStaffPrintDocument = (
       letter-spacing: 0.12em; 
       text-transform: uppercase; 
       line-height: 1;
+    }
+    .print-header h1::after {
+      content: " - v2";
+      font-size: 12px;
+      vertical-align: middle;
+      color: #999;
     }
     .week-label { 
       margin: 0; 
