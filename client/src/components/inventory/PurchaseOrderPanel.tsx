@@ -145,6 +145,10 @@ export default function PurchaseOrderPanel({
       toast(body.error ?? "Failed to create PO draft", "error");
       return;
     }
+    const created = (await res.json().catch(() => ({}))) as { id?: string };
+    if (typeof created.id === "string" && created.id.trim().length > 0) {
+      setSelectedPo(created.id);
+    }
     refresh();
   };
 
@@ -162,6 +166,10 @@ export default function PurchaseOrderPanel({
       const body = await res.json().catch(() => ({}));
       toast(body.error ?? "Failed to create direct invoice draft", "error");
       return;
+    }
+    const created = (await res.json().catch(() => ({}))) as { id?: string };
+    if (typeof created.id === "string" && created.id.trim().length > 0) {
+      setSelectedPo(created.id);
     }
     refresh();
   };
