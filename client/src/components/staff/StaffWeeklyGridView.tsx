@@ -776,25 +776,22 @@ const buildStaffPrintDocument = (
   <meta charset="utf-8" />
   <title>Staff Schedule</title>
   <style>
-    @page { size: letter landscape; margin: 0; }
+    @page { size: letter landscape; margin: 8mm; }
     :root { color-scheme: light; }
     * { box-sizing: border-box; }
     html, body {
       margin: 0;
       padding: 0;
       width: 100%;
-      height: 100vh;
       background: #fff;
       color: #000;
     }
     body { font-family: Arial, Helvetica, sans-serif; }
     .print-page {
       width: 100%;
-      height: 100vh;
-      padding: 0 10mm 4mm 10mm;
+      padding: 0;
       display: flex;
       flex-direction: column;
-      overflow: hidden;
     }
     .print-header {
       text-align: center;
@@ -810,10 +807,7 @@ const buildStaffPrintDocument = (
       line-height: 1;
     }
     .print-header h1::after {
-      content: " - v2";
-      font-size: 12px;
-      vertical-align: middle;
-      color: #999;
+      content: "";
     }
     .week-label { 
       margin: 0; 
@@ -829,35 +823,34 @@ const buildStaffPrintDocument = (
     }
     .schedule-table { 
       width: 100%; 
-      height: 100%;
       border-collapse: collapse; 
       table-layout: fixed; 
-      border: 2pt solid #000; 
+      border: 1.5pt solid #000; 
     }
     .schedule-table th,
     .schedule-table td {
       border: 1pt solid #000;
       text-align: center;
       vertical-align: middle;
-      padding: ${compactMode ? "1px" : "3px"} 2px;
+      padding: ${compactMode ? "0.5mm" : "1.5mm"} 1mm;
     }
     .schedule-table th { 
       background: #f0f0f0; 
       color: #000; 
-      font-size: 10px; 
+      font-size: 11px; 
       font-weight: 900; 
       text-transform: uppercase;
-      height: ${compactMode ? "6mm" : "8mm"};
+      height: ${compactMode ? "5mm" : "6.8mm"};
     }
     .staff { text-align: left !important; padding-left: 8px !important; width: 20%; }
-    .staff-name { font-size: ${compactMode ? "13px" : "15px"}; font-weight: 900; text-transform: uppercase; line-height: 1; }
-    .staff-role { font-size: 7px; color: #666; font-weight: 700; text-transform: uppercase; }
-    .work-cell { font-size: ${compactMode ? "12px" : "14px"}; font-weight: 900; }
-    .off-cell { color: #999; font-size: 11px; font-style: italic; font-weight: 400; text-transform: uppercase; }
-    .highlighted-cell { background: #fff176 !important; border: 2pt solid #000 !important; color: #000 !important; }
+    .staff-name { font-size: ${compactMode ? "15px" : "18px"}; font-weight: 900; text-transform: uppercase; line-height: 1; }
+    .staff-role { font-size: 8px; color: #666; font-weight: 700; text-transform: uppercase; }
+    .work-cell { font-size: ${compactMode ? "14px" : "17px"}; font-weight: 900; }
+    .off-cell { color: #999; font-size: 13px; font-style: italic; font-weight: 400; text-transform: uppercase; }
+    .highlighted-cell { background: #fff176 !important; border: 1.5pt solid #000 !important; color: #000 !important; }
     .group-separator td {
-      height: ${compactMode ? "2mm" : "3mm"};
-      background: #444 !important;
+      height: ${compactMode ? "1.5mm" : "2.5mm"};
+      background: #f0f0f0 !important;
       border: 1pt solid #000 !important;
     }
     
