@@ -330,6 +330,14 @@ export default function CustomersWorkspace({
   const [picked, setPicked] = useState<Customer | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [_tableFocus, _setTableFocus] = useState(false);
+
+  const startSaleFromBrowseRow = useCallback(
+    (row: CustomerBrowseRow) => {
+      onStartSaleInPos(rowToCustomer(row));
+      onNavigateRegister();
+    },
+    [onNavigateRegister, onStartSaleInPos],
+  );
   const [customerGroups, setCustomerGroups] = useState<
     { id: string; code: string; label: string }[]
   >([]);
@@ -1250,6 +1258,18 @@ export default function CustomersWorkspace({
                       </div>
                     </dl>
 
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        startSaleFromBrowseRow(r);
+                      }}
+                      className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-app-success/20 bg-app-success/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-success hover:bg-app-success/15"
+                    >
+                      <ShoppingBag size={12} />
+                      Start Sale
+                    </button>
+
                     {r.wedding_active && r.wedding_party_id ? (
                       <button
                         type="button"
@@ -1392,6 +1412,17 @@ export default function CustomersWorkspace({
                                 </span>
                               ) : null}
                             </div>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              startSaleFromBrowseRow(r);
+                            }}
+                            className="mt-3 inline-flex items-center gap-2 rounded-lg border border-app-success/20 bg-app-success/10 px-3 py-1.5 text-[9px] font-black uppercase tracking-widest text-app-success hover:bg-app-success/15"
+                          >
+                            <ShoppingBag size={12} />
+                            Start Sale
                           </button>
                         </td>
                         <td className="px-5 py-4 align-middle">
