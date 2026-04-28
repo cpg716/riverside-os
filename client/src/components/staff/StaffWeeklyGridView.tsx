@@ -783,15 +783,18 @@ const buildStaffPrintDocument = (
       margin: 0;
       padding: 0;
       width: 100%;
+      height: 100vh;
       background: #fff;
       color: #000;
     }
     body { font-family: Arial, Helvetica, sans-serif; }
     .print-page {
       width: 100%;
-      padding: 0;
+      height: 100vh;
+      padding: 0 10mm 4mm 10mm;
       display: flex;
       flex-direction: column;
+      overflow: hidden;
     }
     .print-header {
       text-align: center;
@@ -823,6 +826,7 @@ const buildStaffPrintDocument = (
     }
     .schedule-table { 
       width: 100%; 
+      height: 100%;
       border-collapse: collapse; 
       table-layout: fixed; 
       border: 1.5pt solid #000; 
@@ -850,7 +854,7 @@ const buildStaffPrintDocument = (
     .highlighted-cell { background: #fff176 !important; border: 1.5pt solid #000 !important; color: #000 !important; }
     .group-separator td {
       height: ${compactMode ? "1.5mm" : "2.5mm"};
-      background: #f0f0f0 !important;
+      background: #000 !important;
       border: 1pt solid #000 !important;
     }
     
