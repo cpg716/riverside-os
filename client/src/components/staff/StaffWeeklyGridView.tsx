@@ -2095,10 +2095,16 @@ export default function StaffWeeklyGridView() {
                               setEditingEvent(e);
                               setShowEventModal(true);
                             }}
-                            className="group/evt relative rounded-md bg-amber-100 border border-amber-200 p-1 cursor-pointer hover:bg-amber-200 transition-colors"
+                            className={`group/evt relative rounded-md border p-1 cursor-pointer transition-colors ${
+                              e.kind === "holiday" 
+                                ? "bg-red-100 border-red-300 hover:bg-red-200" 
+                                : "bg-amber-100 border-amber-200 hover:bg-amber-200"
+                            }`}
                           >
-                            <p className="text-[9px] font-black leading-tight text-amber-900 line-clamp-2">
-                              {e.label}
+                            <p className={`text-[9px] font-black leading-tight line-clamp-2 ${
+                              e.kind === "holiday" ? "text-red-900" : "text-amber-900"
+                            }`}>
+                              {e.kind === "holiday" ? "★ " : ""}{e.label}
                             </p>
                           </div>
                         ))}
@@ -2507,12 +2513,25 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
             </label>
             <label className="flex-[2]">
               <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Label</span>
-              <input 
-                value={label}
-                onChange={e => setLabel(e.target.value)}
-                className="ui-input w-full"
-                placeholder="e.g. Monthly Store Meeting"
-              />
+              <div className="flex gap-2">
+                <input 
+                  value={label}
+                  onChange={e => setLabel(e.target.value)}
+                  className="ui-input w-full"
+                  placeholder="e.g. Monthly Store Meeting"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setKind("holiday");
+                    setLabel("STORE CLOSED / HOLIDAY");
+                    setAllStaff(true);
+                  }}
+                  className="px-2 rounded-xl bg-red-500/10 text-red-500 text-[9px] font-black uppercase hover:bg-red-500/20 transition-colors whitespace-nowrap"
+                >
+                  Holiday
+                </button>
+              </div>
             </label>
           </div>
 
