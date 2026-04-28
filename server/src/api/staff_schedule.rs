@@ -27,7 +27,7 @@ use crate::models::DbStaffScheduleExceptionKind;
 use std::collections::HashMap;
 
 fn normalize_week_start(d: NaiveDate) -> NaiveDate {
-    let weekday = i64::from(d.weekday().num_days_from_monday());
+    let weekday = i64::from(d.weekday().num_days_from_sunday());
     d - Duration::days(weekday)
 }
 

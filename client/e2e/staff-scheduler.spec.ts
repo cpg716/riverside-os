@@ -6,8 +6,8 @@ const ELIGIBLE_STAFF = [
     { id: "staff-2", full_name: "Bob Sales", role: "salesperson" },
 ];
 
-const WEEK_START = "2026-04-27";
-const WEEK_END = "2026-05-03";
+const WEEK_START = "2026-04-26";
+const WEEK_END = "2026-05-02";
 
 test.describe("Staff Scheduler E2E", () => {
     test.beforeEach(async ({ page }) => {
@@ -32,11 +32,15 @@ test.describe("Staff Scheduler E2E", () => {
                         staff_id: s.id,
                         full_name: s.full_name,
                         role: s.role,
-                        days: Array.from({ length: 7 }, (_, i) => ({
-                            date: `2026-04-${27 + i}`,
-                            working: true,
-                            shift_label: "9-5"
-                        }))
+                        days: [
+                            { date: "2026-04-26", working: true, shift_label: "9-5" },
+                            { date: "2026-04-27", working: true, shift_label: "9-5" },
+                            { date: "2026-04-28", working: true, shift_label: "9-5" },
+                            { date: "2026-04-29", working: true, shift_label: "9-5" },
+                            { date: "2026-04-30", working: true, shift_label: "9-5" },
+                            { date: "2026-05-01", working: true, shift_label: "9-5" },
+                            { date: "2026-05-02", working: true, shift_label: "9-5" },
+                        ]
                     })),
                 }),
             });

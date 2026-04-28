@@ -1156,7 +1156,7 @@ fn parse_dates_from_question(question: &str) -> Option<(NaiveDate, NaiveDate)> {
         return Some((today - Duration::days(29), today));
     }
     if lower.contains("this week") {
-        let weekday_offset = i64::from(today.weekday().num_days_from_monday());
+        let weekday_offset = i64::from(today.weekday().num_days_from_sunday());
         return Some((today - Duration::days(weekday_offset), today));
     }
     if lower.contains("this month") {

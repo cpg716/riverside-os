@@ -81,7 +81,7 @@ type NameLookup = {
   all: EligibleStaff[];
 };
 
-const WEEKDAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+const WEEKDAY_LABELS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const MONTH_TOKENS = new Set([
   "jan",
@@ -115,22 +115,22 @@ const excludedStaffNames = new Set(["chris garcia"]);
 const DAY_LABEL_BLACKLIST = new Set(["master", "note change"]);
 
 const DAY_HEADER_MAP: Record<string, number> = {
-  mon: 0,
-  monday: 0,
-  tue: 1,
-  tues: 1,
-  tuesday: 1,
-  wed: 2,
-  wednesday: 2,
-  thu: 3,
-  thurs: 3,
-  thursday: 3,
-  fri: 4,
-  friday: 4,
-  sat: 5,
-  saturday: 5,
-  sun: 6,
-  sunday: 6,
+  sun: 0,
+  sunday: 0,
+  mon: 1,
+  monday: 1,
+  tue: 2,
+  tues: 2,
+  tuesday: 2,
+  wed: 3,
+  wednesday: 3,
+  thu: 4,
+  thurs: 4,
+  thursday: 4,
+  fri: 5,
+  friday: 5,
+  sat: 6,
+  saturday: 6,
 };
 
 const NAME_HEADER_KEYS = new Set([
@@ -602,16 +602,10 @@ const toYmdLocal = (d: Date): string => {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
-const mondayStart = (date: Date): Date => {
+const sundayStart = (date: Date): Date => {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const day = d.getDay();
-  // d.getDay() is 0 for Sun, 1 for Mon...
-  // We want to shift to the most recent Monday.
-  // If today is Sun (0), we go back 6 days.
-  // If today is Mon (1), we go back 0 days.
-  // If today is Tue (2), we go back 1 day.
-  const diff = (day + 6) % 7; 
-  d.setDate(d.getDate() - diff);
+  const day = d.getDay(); // 0=Sun, 1=Mon...
+  d.setDate(d.getDate() - day);
   return d;
 };
 
@@ -636,7 +630,7 @@ const formatWeekLabel = (from: Date, to: Date): string => {
   )}`;
 };
 
-const defaultWeekStart = (): Date => mondayStart(new Date());
+const defaultWeekStart = (): Date => sundayStart(new Date());
 
 const tryParseDateFromSheetName = (name: string): Date | null => {
   const norm = name.trim().toLowerCase();
@@ -652,7 +646,7 @@ const tryParseDateFromSheetName = (name: string): Date | null => {
     const monthIdx = monthNames.indexOf(monthMatch[1]);
     const day = parseInt(monthMatch[2], 10);
     const d = new Date(new Date().getFullYear(), monthIdx, day);
-    if (!isNaN(d.getTime())) return mondayStart(d);
+    if (!isNaN(d.getTime())) return sundayStart(d);
   }
 
   // Try "4/26" or "4-26"
@@ -661,7 +655,7 @@ const tryParseDateFromSheetName = (name: string): Date | null => {
     const month = parseInt(numericMatch[1], 10);
     const day = parseInt(numericMatch[2], 10);
     const d = new Date(new Date().getFullYear(), month - 1, day);
-    if (!isNaN(d.getTime())) return mondayStart(d);
+    if (!isNaN(d.getTime())) return sundayStart(d);
   }
 
   return null;
@@ -673,7 +667,7 @@ const buildStaffPrintDocument = (
   events: ScheduleEvent[],
   weekStart: Date,
 ): string => {
-  const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const printDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const printableSchedules = schedules.filter(
     (s) => !isExcludedStaffName(s.full_name),
   );
@@ -691,11 +685,11 @@ const buildStaffPrintDocument = (
   let rowsHtml = "";
 
   // 1. Store Events Row in Print
-  const monToSat = [1, 2, 3, 4, 5, 6];
+  const sunToSat = [0, 1, 2, 3, 4, 5, 6];
   const eventsHtml = `
     <tr style="background: #fff8e1">
       <td class="staff" style="font-size: 9px; font-weight: 900; background: #fff8e1">STORE EVENTS / MEETINGS</td>
-      ${monToSat.map(wd => {
+      ${sunToSat.map(wd => {
         const ymd = toYmdLocal(addDays(weekStart, wd));
         const dayEvents = events.filter(e => e.event_date === ymd);
         return `<td style="font-size: 8px; font-weight: 800; color: #795548; vertical-align: top; padding: 2px">
@@ -728,8 +722,8 @@ const buildStaffPrintDocument = (
         </td>
         ${printDays
           .map((_, index) => {
-            const w = s.weekdays[index + 1];
-            const ymd = toYmdLocal(addDays(weekStart, index + 1));
+            const w = s.weekdays[index];
+            const ymd = toYmdLocal(addDays(weekStart, index));
             const hasMeeting = events.some(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
             
             const text = escapeForPrint(
@@ -821,7 +815,7 @@ const buildStaffPrintDocument = (
       text-transform: uppercase;
       height: ${compactMode ? "6mm" : "8mm"};
     }
-    .staff { text-align: left !important; padding-left: 8px !important; width: 22%; }
+    .staff { text-align: left !important; padding-left: 8px !important; width: 20%; }
     .staff-name { font-size: ${compactMode ? "13px" : "15px"}; font-weight: 900; text-transform: uppercase; line-height: 1; }
     .staff-role { font-size: 7px; color: #666; font-weight: 700; text-transform: uppercase; }
     .work-cell { font-size: ${compactMode ? "12px" : "14px"}; font-weight: 900; }
@@ -1027,7 +1021,7 @@ export default function StaffWeeklyGridView() {
   const [weekCursor, setWeekCursor] = useState(defaultWeekStart);
 
   const headers = useMemo(() => backofficeHeaders(), [backofficeHeaders]);
-  const weekStart = useMemo(() => mondayStart(weekCursor), [weekCursor]);
+  const weekStart = useMemo(() => sundayStart(weekCursor), [weekCursor]);
   const weekEnd = useMemo(() => addDays(weekStart, 6), [weekStart]);
   const weekStartParam = toYmdLocal(weekStart);
   const weekLabel = useMemo(
@@ -1520,10 +1514,10 @@ export default function StaffWeeklyGridView() {
 
           if (!isMaster && !targetWeekStart && !isCurrentWeek) continue;
 
-          // April - June only (Months 3 to 5)
+          // April - July only (Months 3 to 6)
           if (targetWeekStart && !isCurrentWeek) {
             const m = targetWeekStart.getMonth();
-            if (m < 3 || m > 5) continue;
+            if (m < 3 || m > 6) continue;
           }
         }
 
@@ -1665,7 +1659,7 @@ export default function StaffWeeklyGridView() {
   }
 
   const handlePrint = () => {
-    const doc = buildStaffPrintDocument(schedules, weekLabel, events, mondayStart(weekCursor));
+    const doc = buildStaffPrintDocument(schedules, weekLabel, events, sundayStart(weekCursor));
     const printWindow = window.open("", "_blank", "width=1400,height=900");
     if (!printWindow) return;
     printWindow.document.open();
@@ -2007,7 +2001,7 @@ export default function StaffWeeklyGridView() {
                   </div>
                 </td>
                 {WEEKDAY_LABELS.map((_, i) => {
-                  const ymd = toYmdLocal(addDays(mondayStart(weekCursor), i));
+                  const ymd = toYmdLocal(addDays(sundayStart(weekCursor), i));
                   const dayEvents = events.filter((e) => e.event_date === ymd);
                   return (
                     <td key={i} className="px-2 py-1 align-top">
@@ -2079,7 +2073,7 @@ export default function StaffWeeklyGridView() {
                     </div>
                   </td>
                   {s.weekdays.map((w, i) => {
-                    const ymd = toYmdLocal(addDays(mondayStart(weekCursor), i));
+                    const ymd = toYmdLocal(addDays(sundayStart(weekCursor), i));
                     const conflict = weekExceptions.find(
                       (ex) =>
                         ex.staff_id === s.staff_id &&
@@ -2149,7 +2143,7 @@ export default function StaffWeeklyGridView() {
 
                           {/* Event / Meeting Indicator */}
                           {planningMode === "week" && (() => {
-                            const ymd = toYmdLocal(addDays(mondayStart(weekCursor), i));
+                            const ymd = toYmdLocal(addDays(sundayStart(weekCursor), i));
                             const myEvents = events.filter(e => 
                               e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id))
                             );

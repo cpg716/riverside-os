@@ -58,15 +58,15 @@ pub fn period_key_for(recurrence: DbTaskRecurrence, anchor: NaiveDate) -> String
     }
 }
 
-fn monday_of_iso_week_containing(d: NaiveDate) -> NaiveDate {
-    let n = d.weekday().num_days_from_monday() as i64;
+fn sunday_of_week_containing(d: NaiveDate) -> NaiveDate {
+    let n = d.weekday().num_days_from_sunday() as i64;
     d - Duration::days(n)
 }
 
 fn due_date_for(recurrence: DbTaskRecurrence, anchor: NaiveDate) -> NaiveDate {
     match recurrence {
         DbTaskRecurrence::Daily => anchor,
-        DbTaskRecurrence::Weekly => monday_of_iso_week_containing(anchor) + Duration::days(6),
+        DbTaskRecurrence::Weekly => sunday_of_week_containing(anchor) + Duration::days(6),
         DbTaskRecurrence::Monthly => last_day_of_month(anchor.year(), anchor.month()),
         DbTaskRecurrence::Yearly => {
             NaiveDate::from_ymd_opt(anchor.year(), 12, 31).unwrap_or(anchor)

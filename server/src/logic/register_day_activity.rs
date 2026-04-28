@@ -294,7 +294,7 @@ pub fn resolve_register_day_range(
                 (y, y)
             }
             "this_week" => {
-                let wd = today.weekday().num_days_from_monday() as i64;
+                let wd = today.weekday().num_days_from_sunday() as i64;
                 let start = today - Duration::days(wd);
                 let end = start + Duration::days(6);
                 (start, end)

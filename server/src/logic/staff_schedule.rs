@@ -12,7 +12,7 @@ use crate::logic::tasks::{self, load_store_timezone_name};
 use crate::models::DbStaffScheduleExceptionKind;
 
 fn normalize_week_start(d: NaiveDate) -> NaiveDate {
-    let weekday = i64::from(d.weekday().num_days_from_monday());
+    let weekday = i64::from(d.weekday().num_days_from_sunday());
     d - Duration::days(weekday)
 }
 
@@ -56,7 +56,7 @@ pub async fn list_working_floor_staff_for_date(
     pool: &PgPool,
     d: NaiveDate,
 ) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
-    let weekday = d.weekday().num_days_from_monday() as i16;
+    let weekday = d.weekday().num_days_from_sunday() as i16;
     let week_start = normalize_week_start(d);
 
     sqlx::query_as::<_, FloorStaffTodayRow>(
@@ -834,7 +834,7 @@ pub async fn get_effective_day_details(
     staff_id: Uuid,
     d: NaiveDate,
 ) -> Result<EffectiveDay, sqlx::Error> {
-    let weekday = d.weekday().num_days_from_monday() as i16;
+    let weekday = d.weekday().num_days_from_sunday() as i16;
     let week_start = normalize_week_start(d);
     let row: (bool, Option<String>, bool) = sqlx::query_as(
         r#"
