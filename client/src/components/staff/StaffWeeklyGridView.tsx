@@ -723,7 +723,7 @@ const buildStaffPrintDocument = (
         const dayEvents = events.filter(e => e.event_date === ymd);
         const hasHoliday = dayEvents.some(e => e.kind === "holiday");
         
-        return `<td style="font-size: ${hasHoliday ? "14px" : "11px"}; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
+        return `<td style="font-size: ${hasHoliday ? "16px" : "13px"}; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
           ${dayEvents.map(e => `<div style="${e.kind === "holiday" ? "text-align: center; border: 1pt solid #d32f2f; background: #ffebee; padding: 2px; border-radius: 4px; margin-bottom: 2px" : "margin-bottom: 3px"}">${e.kind === "holiday" ? "★ " : "• "}${escapeForPrint(e.label).toUpperCase()}</div>`).join("")}
         </td>`;
       }).join("")}
