@@ -69,11 +69,16 @@ pub async fn calculate_wedding_health(
     };
 
     // Payment Progress
-    let total_value = stats.get::<Option<Decimal>, _>("total_value")
+    let total_value = stats
+        .get::<Option<Decimal>, _>("total_value")
         .unwrap_or_default()
         .to_f64()
         .unwrap_or(0.0);
-    let total_paid = stats.get::<Option<Decimal>, _>("total_paid").unwrap_or_default().to_f64().unwrap_or(0.0);
+    let total_paid = stats
+        .get::<Option<Decimal>, _>("total_paid")
+        .unwrap_or_default()
+        .to_f64()
+        .unwrap_or(0.0);
     let payment_progress = if total_value > 0.0 {
         total_paid / total_value
     } else {

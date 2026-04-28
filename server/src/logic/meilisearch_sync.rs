@@ -802,9 +802,16 @@ pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid)
     use sqlx::Row;
     let doc = TaskDoc {
         id: row.get::<Uuid, _>("id").to_string(),
-        status: row.get::<Option<String>, _>("status").unwrap_or_else(|| "open".to_string()),
+        status: row
+            .get::<Option<String>, _>("status")
+            .unwrap_or_else(|| "open".to_string()),
         assignee_id: None,
-        search_text: format!("{} {}", row.get::<String, _>("title"), row.get::<Option<String>, _>("assignee_name").unwrap_or_default()),
+        search_text: format!(
+            "{} {}",
+            row.get::<String, _>("title"),
+            row.get::<Option<String>, _>("assignee_name")
+                .unwrap_or_default()
+        ),
     };
 
     let index = client.index(INDEX_TASKS);
@@ -1034,7 +1041,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             ) AS web_count
         FROM products p
         WHERE p.is_active = true
-        "#
+        "#,
     )
     .fetch(pool);
 
@@ -1048,19 +1055,14 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             let brand = row.get::<Option<String>, _>("brand");
             let is_active = row.get::<Option<bool>, _>("is_active").unwrap_or(true);
             let web_count = row.get::<Option<i64>, _>("web_count").unwrap_or(0);
-            
+
             let slug_ok = !slug.is_empty();
             let catalog_ok = is_active && slug_ok && web_count > 0;
             if catalog_ok {
                 p_batch.push(StoreProductDoc {
                     id: row.get::<Uuid, _>("id").to_string(),
                     catalog_ok,
-                    search_text: format!(
-                        "{} {} {}",
-                        name,
-                        slug,
-                        brand.as_deref().unwrap_or("")
-                    ),
+                    search_text: format!("{} {} {}", name, slug, brand.as_deref().unwrap_or("")),
                 });
             }
             if p_batch.len() >= 500 {
@@ -1185,7 +1187,10 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             }
             let search_text = augment_search_with_phone_digits(
                 &base,
-                &[row.get::<Option<String>, _>("groom_phone"), row.get::<Option<String>, _>("bride_phone")],
+                &[
+                    row.get::<Option<String>, _>("groom_phone"),
+                    row.get::<Option<String>, _>("bride_phone"),
+                ],
             );
             w_batch.push(WeddingPartyDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
@@ -1222,7 +1227,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         LEFT JOIN wedding_members wm ON wm.id = o.wedding_member_id
         LEFT JOIN wedding_parties wp ON wp.id = wm.wedding_party_id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
-        "#
+        "#,
     )
     .fetch(pool);
     let mut txn_batch = Vec::with_capacity(1000);
@@ -1234,16 +1239,26 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             let s = status.as_deref().unwrap_or_default().to_lowercase();
             let status_open = s == "open" || s == "pending_measurement";
             let transaction_id = row.get::<Uuid, _>("id");
-            let display_id = row.get::<Option<String>, _>("display_id").unwrap_or_else(|| transaction_id.to_string());
+            let display_id = row
+                .get::<Option<String>, _>("display_id")
+                .unwrap_or_else(|| transaction_id.to_string());
             let transaction_id_str = transaction_id.to_string();
             let search_text = format!(
                 "{} {} {} {} {} {}",
                 transaction_id_str,
                 display_id,
-                row.get::<Option<String>, _>("customer_first").as_deref().unwrap_or(""),
-                row.get::<Option<String>, _>("customer_last").as_deref().unwrap_or(""),
-                row.get::<Option<String>, _>("party_name").as_deref().unwrap_or(""),
-                row.get::<Option<String>, _>("salesperson").as_deref().unwrap_or("")
+                row.get::<Option<String>, _>("customer_first")
+                    .as_deref()
+                    .unwrap_or(""),
+                row.get::<Option<String>, _>("customer_last")
+                    .as_deref()
+                    .unwrap_or(""),
+                row.get::<Option<String>, _>("party_name")
+                    .as_deref()
+                    .unwrap_or(""),
+                row.get::<Option<String>, _>("salesperson")
+                    .as_deref()
+                    .unwrap_or("")
             );
             txn_batch.push(TransactionDoc {
                 id: transaction_id_str,
@@ -1371,7 +1386,9 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             staff_batch.push(StaffDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
                 is_active: row.get::<Option<bool>, _>("is_active").unwrap_or(true),
-                role: row.get::<Option<String>, _>("role").unwrap_or_else(|| "cashier".to_string()),
+                role: row
+                    .get::<Option<String>, _>("role")
+                    .unwrap_or_else(|| "cashier".to_string()),
                 search_text,
             });
         }
@@ -1443,7 +1460,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
         FROM wedding_appointments a
         LEFT JOIN customers c ON c.id = a.customer_id
         LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
-        "#
+        "#,
     )
     .fetch(pool);
     let mut appt_batch = Vec::new();
@@ -1454,10 +1471,18 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             let is_cancelled = status.as_deref() == Some("Cancelled");
             let search_text = format!(
                 "{} {} {} {}",
-                row.get::<Option<String>, _>("first_name").as_deref().unwrap_or(""),
-                row.get::<Option<String>, _>("last_name").as_deref().unwrap_or(""),
-                row.get::<Option<String>, _>("party_name").as_deref().unwrap_or(""),
-                row.get::<Option<String>, _>("notes").as_deref().unwrap_or("")
+                row.get::<Option<String>, _>("first_name")
+                    .as_deref()
+                    .unwrap_or(""),
+                row.get::<Option<String>, _>("last_name")
+                    .as_deref()
+                    .unwrap_or(""),
+                row.get::<Option<String>, _>("party_name")
+                    .as_deref()
+                    .unwrap_or(""),
+                row.get::<Option<String>, _>("notes")
+                    .as_deref()
+                    .unwrap_or("")
             );
             appt_batch.push(AppointmentDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
@@ -1497,11 +1522,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             let status = row.get::<Option<String>, _>("status");
             let title = row.get::<String, _>("title");
             let assignee_name = row.get::<Option<String>, _>("assignee_name");
-            let search_text = format!(
-                "{} {}",
-                title,
-                assignee_name.as_deref().unwrap_or("")
-            );
+            let search_text = format!("{} {}", title, assignee_name.as_deref().unwrap_or(""));
             task_batch.push(TaskDoc {
                 id: row.get::<Uuid, _>("id").to_string(),
                 status: status.unwrap_or_else(|| "open".to_string()),

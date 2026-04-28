@@ -2995,7 +2995,9 @@ async fn browse_customer_pipeline_stats(
         total_customers: stats.get::<Option<i64>, _>("total_customers").unwrap_or(0),
         vip_customers: stats.get::<Option<i64>, _>("vip_customers").unwrap_or(0),
         with_balance: stats.get::<Option<i64>, _>("with_balance").unwrap_or(0),
-        upcoming_weddings: stats.get::<Option<i64>, _>("upcoming_weddings").unwrap_or(0),
+        upcoming_weddings: stats
+            .get::<Option<i64>, _>("upcoming_weddings")
+            .unwrap_or(0),
     }))
 }
 

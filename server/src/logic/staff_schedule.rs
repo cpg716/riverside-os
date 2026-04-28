@@ -317,20 +317,21 @@ pub async fn upsert_week_schedule_for_week(
 
     // Authoritative sync: identify staff members currently in the DB for this week who are NOT in our input list.
     let input_ids: std::collections::HashSet<Uuid> = rows.iter().map(|r| r.staff_id).collect();
-    let current_ids: Vec<Uuid> = sqlx::query_scalar(
-        "SELECT staff_id FROM staff_weekly_schedule WHERE week_start = $1",
-    )
-    .bind(week_start)
-    .fetch_all(&mut *tx)
-    .await?;
+    let current_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT staff_id FROM staff_weekly_schedule WHERE week_start = $1")
+            .bind(week_start)
+            .fetch_all(&mut *tx)
+            .await?;
 
     for cid in current_ids {
         if !input_ids.contains(&cid) {
-            sqlx::query("DELETE FROM staff_weekly_schedule WHERE staff_id = $1 AND week_start = $2")
-                .bind(cid)
-                .bind(week_start)
-                .execute(&mut *tx)
-                .await?;
+            sqlx::query(
+                "DELETE FROM staff_weekly_schedule WHERE staff_id = $1 AND week_start = $2",
+            )
+            .bind(cid)
+            .bind(week_start)
+            .execute(&mut *tx)
+            .await?;
         }
     }
 
@@ -1107,10 +1108,14 @@ pub async fn list_events_range(
                 id: r.get("id"),
                 event_date: r.get("event_date"),
                 label: r.get("label"),
-                kind: r.get::<Option<String>, _>("kind").unwrap_or_else(|| "meeting".to_string()),
+                kind: r
+                    .get::<Option<String>, _>("kind")
+                    .unwrap_or_else(|| "meeting".to_string()),
                 notes: r.get("notes"),
                 is_all_staff: r.get::<Option<bool>, _>("is_all_staff").unwrap_or(false),
-                attendees: r.get::<Option<Vec<Uuid>>, _>("attendees").unwrap_or_default(),
+                attendees: r
+                    .get::<Option<Vec<Uuid>>, _>("attendees")
+                    .unwrap_or_default(),
             }
         })
         .collect())
@@ -1184,9 +1189,11 @@ pub async fn upsert_event(
 }
 
 pub async fn delete_event(pool: &PgPool, id: Uuid) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query("DELETE FROM staff_schedule_events WHERE id = $1")
-        .bind(id)
-        .execute(pool)
-        .await?
-        .rows_affected())
+    Ok(
+        sqlx::query("DELETE FROM staff_schedule_events WHERE id = $1")
+            .bind(id)
+            .execute(pool)
+            .await?
+            .rows_affected(),
+    )
 }

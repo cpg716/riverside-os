@@ -948,7 +948,9 @@ async fn get_loyalty_pipeline_stats(
         total_points_liability: stats.get::<Option<i64>, _>("total_pts").unwrap_or(0),
         eligible_customers_count: stats.get::<Option<i64>, _>("eligible_count").unwrap_or(0),
         lifetime_rewards_issued: stats.get::<Option<i64>, _>("total_issuances").unwrap_or(0),
-        active_30d_adjustments: stats.get::<Option<i64>, _>("recent_adjustments").unwrap_or(0),
+        active_30d_adjustments: stats
+            .get::<Option<i64>, _>("recent_adjustments")
+            .unwrap_or(0),
     }))
 }
 

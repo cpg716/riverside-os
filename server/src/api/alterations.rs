@@ -275,7 +275,10 @@ pub fn router() -> Router<AppState> {
         .route("/capacity", get(get_capacity))
         .route("/suggest-slots", get(get_suggested_slots))
         .route("/{id}", patch(patch_alteration))
-        .route("/{id}/items", get(list_alteration_items).post(add_alteration_item))
+        .route(
+            "/{id}/items",
+            get(list_alteration_items).post(add_alteration_item),
+        )
         .route(
             "/{id}/items/{item_id}",
             patch(patch_alteration_item).delete(delete_alteration_item),
@@ -301,7 +304,9 @@ async fn get_capacity(
     Query(q): Query<CapacityQuery>,
 ) -> Result<Json<Vec<crate::logic::alterations_scheduler::CapacitySummary>>, AlterationError> {
     let _staff = require_manage(&state, &headers).await?;
-    let cap = crate::logic::alterations_scheduler::get_capacity_for_range(&state.db, q.start, q.end).await?;
+    let cap =
+        crate::logic::alterations_scheduler::get_capacity_for_range(&state.db, q.start, q.end)
+            .await?;
     Ok(Json(cap))
 }
 
@@ -345,12 +350,12 @@ async fn add_alteration_item(
     Json(body): Json<CreateOrderItemBody>,
 ) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
     let _staff = require_manage(&state, &headers).await?;
-    
+
     let mut tx = state.db.begin().await?;
-    
+
     let item_id: Uuid = sqlx::query_scalar(
         "INSERT INTO alteration_order_items (alteration_order_id, label, capacity_bucket, units) 
-         VALUES ($1, $2, $3::alteration_bucket, $4) RETURNING id"
+         VALUES ($1, $2, $3::alteration_bucket, $4) RETURNING id",
     )
     .bind(id)
     .bind(&body.label)
@@ -360,7 +365,7 @@ async fn add_alteration_item(
     .await?;
 
     crate::logic::alterations_scheduler::update_order_unit_totals(&state.db, id).await?;
-    
+
     let row = sqlx::query_as::<_, AlterationOrderItemRow>(
         "SELECT id, alteration_order_id, label, capacity_bucket::text, units, completed_at, created_at 
          FROM alteration_order_items WHERE id = $1"
@@ -385,7 +390,7 @@ async fn patch_alteration_item(
     Json(body): Json<PatchOrderItemBody>,
 ) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
     let _staff = require_manage(&state, &headers).await?;
-    
+
     if let Some(completed_at) = body.completed_at {
         sqlx::query("UPDATE alteration_order_items SET completed_at = $1 WHERE id = $2 AND alteration_order_id = $3")
             .bind(completed_at)
@@ -412,9 +417,9 @@ async fn delete_alteration_item(
     Path((id, item_id)): Path<(Uuid, Uuid)>,
 ) -> Result<StatusCode, AlterationError> {
     let _staff = require_manage(&state, &headers).await?;
-    
+
     let mut tx = state.db.begin().await?;
-    
+
     sqlx::query("DELETE FROM alteration_order_items WHERE id = $1 AND alteration_order_id = $2")
         .bind(item_id)
         .bind(id)
@@ -422,7 +427,7 @@ async fn delete_alteration_item(
         .await?;
 
     crate::logic::alterations_scheduler::update_order_unit_totals(&state.db, id).await?;
-    
+
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -731,19 +736,23 @@ async fn patch_alteration(
     }
 
     if body.fitting_at.is_some() {
-        sqlx::query("UPDATE alteration_orders SET fitting_at = $1, updated_at = now() WHERE id = $2")
-            .bind(body.fitting_at)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE alteration_orders SET fitting_at = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(body.fitting_at)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     if body.appointment_id.is_some() {
-        sqlx::query("UPDATE alteration_orders SET appointment_id = $1, updated_at = now() WHERE id = $2")
-            .bind(body.appointment_id)
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
+        sqlx::query(
+            "UPDATE alteration_orders SET appointment_id = $1, updated_at = now() WHERE id = $2",
+        )
+        .bind(body.appointment_id)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
     }
 
     if let Some(ref n) = notes_trimmed {

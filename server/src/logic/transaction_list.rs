@@ -475,7 +475,7 @@ pub async fn query_pipeline_stats(
         SELECT COUNT(*)::bigint AS ready_count
         FROM fulfillment_orders
         WHERE status = 'ready'
-        "#
+        "#,
     )
     .fetch_one(pool)
     .await?;
