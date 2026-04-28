@@ -26,10 +26,8 @@ use crate::models::DbStaffScheduleExceptionKind;
 
 use std::collections::HashMap;
 
-fn normalize_week_start(d: NaiveDate) -> NaiveDate {
-    let weekday = i64::from(d.weekday().num_days_from_sunday());
-    d - Duration::days(weekday)
-}
+// Use staff_schedule::force_sunday_start for consistency
+
 
 #[derive(Debug, Deserialize)]
 pub struct RangeQuery {
@@ -379,7 +377,7 @@ async fn get_week_schedule(
         .map_err(map_gate)?;
 
     let rows =
-        staff_schedule::list_week_schedule_for_week(&state.db, normalize_week_start(week_start))
+        staff_schedule::list_week_schedule_for_week(&state.db, staff_schedule::force_sunday_start(week_start))
             .await
             .map_err(StaffScheduleError::Database)
             .map_err(map_err)?;
@@ -429,7 +427,7 @@ async fn put_week_schedule(
     Json(body): Json<BulkPutWeeklyBody>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let actor = require_editor(&state, &headers).await?;
-    let normalized_week_start = normalize_week_start(week_start);
+    let normalized_week_start = staff_schedule::force_sunday_start(week_start);
 
     let schedules = body
         .schedules
@@ -473,9 +471,8 @@ async fn publish_week_schedule(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, Response> {
     let actor = require_editor(&state, &headers).await?;
-    let normalized_week_start = normalize_week_start(week_start);
     let published =
-        staff_schedule::publish_week_schedule_week(&state.db, actor, normalized_week_start)
+        staff_schedule::publish_week_schedule_week(&state.db, actor, staff_schedule::force_sunday_start(week_start))
             .await
             .map_err(map_err)?;
     if published == 0 {
@@ -483,7 +480,7 @@ async fn publish_week_schedule(
     }
     Ok(Json(json!({
         "ok": true,
-        "week_start": normalized_week_start,
+        "week_start": staff_schedule::force_sunday_start(week_start),
         "published": published,
     })))
 }
@@ -494,7 +491,7 @@ async fn delete_week_schedule(
     Path(week_start): Path<NaiveDate>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let _actor = require_editor(&state, &headers).await?;
-    let normalized_week_start = normalize_week_start(week_start);
+    let normalized_week_start = staff_schedule::force_sunday_start(week_start);
     let deleted = staff_schedule::delete_week_schedule_week(&state.db, normalized_week_start)
         .await
         .map_err(map_err)?;
@@ -681,7 +678,7 @@ async fn post_clone_week(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, Response> {
     let actor = require_editor(&state, &headers).await?;
-    let normalized_week_start = normalize_week_start(week_start);
+    let normalized_week_start = staff_schedule::force_sunday_start(week_start);
 
     let copied = staff_schedule::clone_week_schedule_week(&state.db, actor, normalized_week_start)
         .await

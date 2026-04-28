@@ -633,15 +633,17 @@ const formatWeekLabel = (from: Date, to: Date): string => {
 const defaultWeekStart = (): Date => sundayStart(new Date());
 
 const tryParseDateFromSheetName = (name: string): Date | null => {
-  const norm = name.trim().toLowerCase();
-  if (norm === "master") return null;
+  const norm = name.trim().toLowerCase().replace(/\s+/g, " ");
+  if (norm === "master" || norm.includes("template")) return null;
 
-  // Try "April 26" or "Apr 26"
   const monthNames = [
     "jan", "feb", "mar", "apr", "may", "jun",
     "jul", "aug", "sep", "oct", "nov", "dec"
   ];
-  const monthMatch = norm.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+(\d+)/);
+  
+  // Try "April 26", "Apr 26", "April26", "Apr26", "4/26", "4-26"
+  // Month Match: optionally followed by space or just the number
+  const monthMatch = norm.match(/^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s*(\d+)/);
   if (monthMatch) {
     const monthIdx = monthNames.indexOf(monthMatch[1]);
     const day = parseInt(monthMatch[2], 10);
@@ -649,7 +651,6 @@ const tryParseDateFromSheetName = (name: string): Date | null => {
     if (!isNaN(d.getTime())) return sundayStart(d);
   }
 
-  // Try "4/26" or "4-26"
   const numericMatch = norm.match(/^(\d+)[/-](\d+)/);
   if (numericMatch) {
     const month = parseInt(numericMatch[1], 10);
@@ -657,6 +658,9 @@ const tryParseDateFromSheetName = (name: string): Date | null => {
     const d = new Date(new Date().getFullYear(), month - 1, day);
     if (!isNaN(d.getTime())) return sundayStart(d);
   }
+
+  // Handle "MASTER JAN26" style - ignore these as they are likely templates
+  if (norm.startsWith("master")) return null;
 
   return null;
 };
@@ -1425,26 +1429,26 @@ export default function StaffWeeklyGridView() {
         const existingIdx = currentSchedules.findIndex(
           (s) => s.staff_id === staff.id,
         );
-        if (existingIdx === -1) {
-          const newRow: StaffSchedule = {
-            staff_id: staff.id,
-            full_name: staff.full_name,
-            role: staff.role,
-            status: "draft",
-            weekdays: WEEKDAY_LABELS.map((_, i) => ({
-              weekday: i,
-              works: false,
-              shift_label: null,
-              base_works: false,
-              base_shift_label: null,
-              is_highlighted: false,
-            })),
-          };
-          parsedDays.forEach(({ weekday, shiftVal }) => {
-            const hasShift = shiftVal !== "";
-            const normalized = normalizeHeader(shiftVal);
-            const works = hasShift && normalized !== "off";
-            newRow.weekdays[weekday] = {
+        
+        // Prepare a full 7-day schedule, defaulting to OFF for all days.
+        // This ensures that days missing from the Excel sheet (like Sunday in some sheets)
+        // are explicitly marked as OFF rather than falling back to the template.
+        const fullWeekdays: WeeklyEntry[] = WEEKDAY_LABELS.map((_, i) => ({
+          weekday: i,
+          works: false,
+          shift_label: null,
+          base_works: false,
+          base_shift_label: null,
+          is_highlighted: false,
+        }));
+
+        // Apply parsed shifts from Excel
+        parsedDays.forEach(({ weekday, shiftVal }) => {
+          const hasShift = shiftVal !== "";
+          const normalized = normalizeHeader(shiftVal);
+          const works = hasShift && normalized !== "off";
+          if (weekday >= 0 && weekday <= 6) {
+            fullWeekdays[weekday] = {
               weekday,
               works,
               shift_label: hasShift && works ? shiftVal : null,
@@ -1452,31 +1456,36 @@ export default function StaffWeeklyGridView() {
               base_shift_label: null,
               is_highlighted: false,
             };
-          });
+          }
+        });
+
+        if (existingIdx === -1) {
+          const newRow: StaffSchedule = {
+            staff_id: staff.id,
+            full_name: staff.full_name,
+            role: staff.role,
+            status: "draft",
+            weekdays: fullWeekdays,
+          };
           currentSchedules.push(newRow);
           setStaffDirty(staff.id, true);
-          return;
-        }
-        const staffSched = {
-          ...currentSchedules[existingIdx],
-          weekdays: [...currentSchedules[existingIdx].weekdays],
-        };
-        parsedDays.forEach(({ weekday, shiftVal }) => {
-          const hasShift = shiftVal !== "";
-          const normalized = normalizeHeader(shiftVal);
-          const works = hasShift && normalized !== "off";
-          staffSched.weekdays[weekday] = {
-            weekday,
-            works,
-            shift_label: hasShift && works ? shiftVal : null,
-            base_works: staffSched.weekdays[weekday]?.base_works ?? false,
-            base_shift_label: staffSched.weekdays[weekday]?.base_shift_label ?? null,
-            is_highlighted: staffSched.weekdays[weekday]?.is_highlighted ?? false,
+        } else {
+          // If we already have a row, preserve the 'base' info but update the overrides
+          const existing = currentSchedules[existingIdx];
+          const updatedWeekdays = fullWeekdays.map((newDay: WeeklyEntry, i: number) => ({
+            ...newDay,
+            base_works: existing.weekdays[i]?.base_works ?? false,
+            base_shift_label: existing.weekdays[i]?.base_shift_label ?? null,
+            is_highlighted: existing.weekdays[i]?.is_highlighted ?? false,
+          }));
+
+          currentSchedules[existingIdx] = {
+            ...existing,
+            weekdays: updatedWeekdays,
+            status: "draft",
           };
-        });
-        staffSched.status = "draft";
-        currentSchedules[existingIdx] = staffSched;
-        setStaffDirty(staff.id, true);
+          setStaffDirty(staff.id, true);
+        }
       };
 
       // Sort worksheets to process MASTER first if it exists
@@ -1491,35 +1500,29 @@ export default function StaffWeeklyGridView() {
       for (const worksheet of sortedWorksheets) {
         const wsName = worksheet.name.trim().toLowerCase();
         
-        let isCurrentWeek = false;
         let targetWeekStart: Date | null = null;
-
         if (planningMode === "template") {
           if (wsName !== "master") continue;
-          isCurrentWeek = true; // In template mode, "master" IS the current week
         } else {
-          const weekDateStr = weekStart.toLocaleString(undefined, { month: "numeric", day: "numeric" });
-          
-          const isMaster = wsName === "master";
-          const isExactDate = wsName.includes(weekDateStr.replace("/", "-")) || wsName.includes(weekDateStr);
-          
-          isCurrentWeek = isExactDate;
           targetWeekStart = tryParseDateFromSheetName(worksheet.name);
-
-          // Special case: if we haven't seen any sheet yet and this is MASTER, treat it as current baseline
-          if (isMaster && seenSheets === 0) {
-            isCurrentWeek = true;
+          if (!targetWeekStart && wsName !== "master") continue;
+          
+          // If it's a MASTER sheet and we are in week mode, we can use it as a baseline if we have nothing else,
+          // but usually we skip it or use it to populate the current week.
+          if (wsName === "master" && seenSheets === 0) {
             targetWeekStart = weekStart;
           }
+          
+          if (!targetWeekStart) continue;
 
-          if (!isMaster && !targetWeekStart && !isCurrentWeek) continue;
-
-          // April - July only (Months 3 to 6)
-          if (targetWeekStart && !isCurrentWeek) {
-            const m = targetWeekStart.getMonth();
-            if (m < 3 || m > 6) continue;
-          }
+          // Limit to April - July for safety (Months 3 to 6)
+          const m = targetWeekStart.getMonth();
+          if (m < 3 || m > 6) continue;
         }
+
+        const isCurrentWeek = planningMode === "template" 
+          ? wsName === "master"
+          : (targetWeekStart && targetWeekStart.getTime() === weekStart.getTime());
 
         const parseResult = parseWeekScheduleSheet(worksheet, nameLookup);
         if (parseResult.totalRows === 0) continue;
@@ -1528,25 +1531,29 @@ export default function StaffWeeklyGridView() {
         if (planningMode === "week" && targetWeekStart && !isCurrentWeek) {
           const bulkSchedules: StaffSchedule[] = [];
           for (const row of parseResult.recognizedRows) {
-            const entry: StaffSchedule = {
-              staff_id: row.staff.id,
-              full_name: row.staff.full_name,
-              role: row.staff.role,
-              status: "published",
-              weekdays: row.daySchedule.map(ds => ({
-                weekday: ds.weekday,
-                works: ds.shiftVal !== "" && normalizeHeader(ds.shiftVal) !== "off",
-                shift_label: ds.shiftVal !== "" && normalizeHeader(ds.shiftVal) !== "off" ? ds.shiftVal : null,
-                base_works: false,
-                base_shift_label: null,
+            // Build a full 7-day schedule for the background week
+            const fullWeekdays = WEEKDAY_LABELS.map((_, i) => {
+              const ds = row.daySchedule.find(d => d.weekday === i);
+              const hasShift = ds && ds.shiftVal !== "";
+              const normalized = ds ? normalizeHeader(ds.shiftVal) : "";
+              const works = hasShift && normalized !== "off";
+              return {
+                weekday: i,
+                works,
+                shift_label: hasShift && works ? ds.shiftVal : null,
                 is_highlighted: false,
-              }))
+              };
+            });
+
+            const entry: any = {
+              staff_id: row.staff.id,
+              weekdays: fullWeekdays,
             };
             bulkSchedules.push(entry);
           }
           
           if (bulkSchedules.length > 0) {
-            const weekStr = toYmdLocal(targetWeekStart);
+            const weekStr = toYmdLocal(sundayStart(targetWeekStart));
             await fetch(`${baseUrl}/api/staff/schedule/weeks/${weekStr}`, {
               method: "PUT",
               headers: { ...headers, "Content-Type": "application/json" },
@@ -2098,7 +2105,7 @@ export default function StaffWeeklyGridView() {
                                     ? "border-red-500 bg-red-500/5 text-red-700 dark:text-red-300 ring-2 ring-red-500/20"
                                     : "border-transparent bg-transparent text-app-text"
                             }`}
-                            value={w.shift_label || (w.works ? "" : "OFF")}
+                            value={w.works ? (w.shift_label || "") : "OFF"}
                             readOnly={highlighterActive}
                             onClick={() => {
                               if (highlighterActive) {

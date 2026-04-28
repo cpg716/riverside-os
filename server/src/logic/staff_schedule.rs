@@ -11,7 +11,7 @@ use uuid::Uuid;
 use crate::logic::tasks::{self, load_store_timezone_name};
 use crate::models::DbStaffScheduleExceptionKind;
 
-fn normalize_week_start(d: NaiveDate) -> NaiveDate {
+pub fn force_sunday_start(d: NaiveDate) -> NaiveDate {
     let weekday = i64::from(d.weekday().num_days_from_sunday());
     d - Duration::days(weekday)
 }
@@ -57,7 +57,7 @@ pub async fn list_working_floor_staff_for_date(
     d: NaiveDate,
 ) -> Result<Vec<FloorStaffTodayRow>, sqlx::Error> {
     let weekday = d.weekday().num_days_from_sunday() as i16;
-    let week_start = normalize_week_start(d);
+    let week_start = force_sunday_start(d);
 
     sqlx::query_as::<_, FloorStaffTodayRow>(
         r#"
@@ -228,7 +228,7 @@ pub async fn list_week_schedule_for_week(
     pool: &PgPool,
     week_start: NaiveDate,
 ) -> Result<Vec<WeeklyScheduleInstanceRow>, sqlx::Error> {
-    let week_start = normalize_week_start(week_start);
+    let week_start = force_sunday_start(week_start);
     sqlx::query_as::<_, WeeklyScheduleInstanceRow>(
         r#"
         SELECT
@@ -311,7 +311,7 @@ pub async fn upsert_week_schedule_for_week(
         ));
     }
 
-    let week_start = normalize_week_start(week_start);
+    let week_start = force_sunday_start(week_start);
 
     let mut tx = pool.begin().await?;
 
@@ -432,7 +432,7 @@ pub async fn publish_week_schedule_week(
     actor: Uuid,
     week_start: NaiveDate,
 ) -> Result<u64, StaffScheduleError> {
-    let week_start = normalize_week_start(week_start);
+    let week_start = force_sunday_start(week_start);
     let rows = sqlx::query(
         r#"
         UPDATE staff_weekly_schedule
@@ -458,7 +458,7 @@ pub async fn delete_week_schedule_week(
     pool: &PgPool,
     week_start: NaiveDate,
 ) -> Result<u64, StaffScheduleError> {
-    let week_start = normalize_week_start(week_start);
+    let week_start = force_sunday_start(week_start);
     Ok(
         sqlx::query("DELETE FROM staff_weekly_schedule WHERE week_start = $1")
             .bind(week_start)
@@ -835,7 +835,7 @@ pub async fn get_effective_day_details(
     d: NaiveDate,
 ) -> Result<EffectiveDay, sqlx::Error> {
     let weekday = d.weekday().num_days_from_sunday() as i16;
-    let week_start = normalize_week_start(d);
+    let week_start = force_sunday_start(d);
     let row: (bool, Option<String>, bool) = sqlx::query_as(
         r#"
         SELECT 
@@ -930,7 +930,12 @@ pub async fn list_effective_schedule_for_date_range(
             ) AS working,
             CASE
                 WHEN e.id IS NOT NULL THEN e.shift_label
-                WHEN sws.status = 'published' THEN COALESCE(swd.shift_label, swa.shift_label)
+                WHEN sws.status = 'published' THEN 
+                    CASE 
+                        WHEN swd.staff_id IS NOT NULL THEN 
+                            CASE WHEN swd.works = TRUE THEN swd.shift_label ELSE NULL END
+                        ELSE swa.shift_label 
+                    END
                 ELSE NULL
             END AS shift_label,
             CASE

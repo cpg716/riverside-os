@@ -510,7 +510,7 @@ pub async fn query_fulfillment_queue(
                 ELSE 'standard'
             END AS urgency,
             NULL::timestamptz AS next_deadline, -- Logic for deadline moves to fulfillment_orders soon
-            t.balance_due,
+            COALESCE(t.balance_due, 0) AS balance_due,
             {SQL_PARTY_TRACKING_LABEL_WP} AS wedding_party_name,
             NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code
         FROM fulfillment_orders o
