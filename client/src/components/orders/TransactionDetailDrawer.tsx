@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Clock,
   ExternalLink,
@@ -117,7 +117,7 @@ export interface TransactionDrawerOrderActions {
     quantity: number;
     fulfillment: FulfillmentKind;
   }) => void;
-  addBySku?: () => void;
+  addBySku?: () => Promise<boolean>;
   updateLine?: (
     item: {
       transaction_line_id: string;
@@ -513,6 +513,7 @@ export default function TransactionDetailDrawer({
     useState<EditableFulfillmentKind>("special_order");
   const [editBusy, setEditBusy] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
+  const addSkuInputRef = useRef<HTMLInputElement | null>(null);
 
   const usesControlledData =
     controlledDetail !== undefined ||
@@ -697,6 +698,13 @@ export default function TransactionDetailDrawer({
       </p>
     </div>
   ) : null;
+
+  const handleAddBySku = useCallback(async () => {
+    if (!orderActions?.addBySku) return;
+    const added = await orderActions.addBySku();
+    if (!added) addSkuInputRef.current?.focus();
+  }, [orderActions]);
+
   return (
     <>
       <DetailDrawer
@@ -1089,6 +1097,7 @@ export default function TransactionDetailDrawer({
                 orderActions.addBySku ? (
                   <div className="flex items-center gap-2">
                     <input
+                      ref={addSkuInputRef}
                       value={orderActions.sku ?? ""}
                       onChange={(event) => orderActions.setSku?.(event.target.value)}
                       placeholder="Add SKU"
@@ -1096,7 +1105,9 @@ export default function TransactionDetailDrawer({
                     />
                     <button
                       type="button"
-                      onClick={() => orderActions.addBySku?.()}
+                      onClick={() => {
+                        void handleAddBySku();
+                      }}
                       className="rounded-lg border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-accent transition-all duration-150 hover:border-app-accent/30 hover:bg-app-surface-2 active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-app-accent/20"
                     >
                       Add

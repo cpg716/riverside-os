@@ -128,7 +128,7 @@ interface OrderRowActions {
   onCancel: () => void;
   onReturnAll: () => void;
   deleteLine: (it: OrderItem) => void;
-  addBySku: () => void;
+  addBySku: () => Promise<boolean>;
   updateLine: (
     item: Pick<
       OrderItem,
@@ -583,13 +583,30 @@ export default function OrdersWorkspace({
     }
   }, [loadDetail, loadPipelineStats, loadTransactions, refreshSignal, selectedId]);
 
-  const addBySku = async () => {
-    if (!detail || !sku.trim() || !canModify) return;
-    const scanRes = await fetch(`${baseUrl}/api/inventory/scan/${encodeURIComponent(sku.trim())}`, {
-      headers: backofficeHeaders(),
-    });
-    if (!scanRes.ok) return;
-    const item = (await scanRes.json()) as ScanItem;
+  const addBySku = async (): Promise<boolean> => {
+    if (!detail || !sku.trim() || !canModify) return false;
+    const enteredSku = sku.trim();
+    let item: ScanItem;
+    try {
+      const scanRes = await fetch(
+        `${baseUrl}/api/inventory/scan/${encodeURIComponent(enteredSku)}`,
+        {
+          headers: backofficeHeaders(),
+        },
+      );
+      if (!scanRes.ok) {
+        toast(`SKU "${enteredSku}" was not found. Check it and try again.`, "error");
+        return false;
+      }
+      item = (await scanRes.json()) as ScanItem;
+    } catch {
+      toast("SKU lookup failed. Please try again.", "error");
+      return false;
+    }
+    if (!item.product_id || !item.variant_id) {
+      toast(`SKU "${enteredSku}" was not found. Check it and try again.`, "error");
+      return false;
+    }
     const res = await fetch(`${baseUrl}/api/transactions/${detail.transaction_id}/items`, {
       method: "POST",
       headers: jsonHeaders(backofficeHeaders),
@@ -607,11 +624,12 @@ export default function OrdersWorkspace({
     if (!res.ok) {
       const b = (await res.json().catch(() => ({}))) as { error?: string };
       toast(b.error ?? "We couldn't add this item. Please try again.", "error");
-      return;
+      return false;
     }
     setSku("");
     await loadDetail(detail.transaction_id);
     await loadTransactions();
+    return true;
   };
 
   const orderUnpaid = detail
@@ -1062,7 +1080,7 @@ export default function OrdersWorkspace({
                     onCancel: () => setCancelConfirmOpen(true),
                     onReturnAll: () => setReturnConfirmOpen(true),
                     deleteLine: (it: OrderItem) => void deleteLine(it),
-                    addBySku: () => void addBySku(),
+                    addBySku,
                     updateLine,
                     setSku,
                     sku,
@@ -1107,7 +1125,7 @@ export default function OrdersWorkspace({
                       onCancel: () => setCancelConfirmOpen(true),
                       onReturnAll: () => setReturnConfirmOpen(true),
                       deleteLine: (it: OrderItem) => void deleteLine(it),
-                      addBySku: () => void addBySku(),
+                      addBySku,
                       updateLine,
                       setSku,
                       sku,
@@ -1199,7 +1217,7 @@ export default function OrdersWorkspace({
           onReturnAll: () => setReturnConfirmOpen(true),
           onProcessRefund: () => setRefundModalOpen(true),
           deleteLine: (it) => void deleteLine(it),
-          addBySku: () => void addBySku(),
+          addBySku,
           updateLine,
           setSku,
           sku,
