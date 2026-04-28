@@ -84,6 +84,7 @@ export default function CustomerSelector({
   const [hasMore, setHasMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [searchBusy, setSearchBusy] = useState(false);
+  const [searchLookupFailed, setSearchLookupFailed] = useState(false);
   const [partyFilterMode, setPartyFilterMode] = useState(false);
   const [addDrawerOpen, setAddDrawerOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<PosCustomerDraft>({});
@@ -116,12 +117,14 @@ export default function CustomerSelector({
     if (query.trim().length < 2) {
       setResults([]);
       setHasMore(false);
+      setSearchLookupFailed(false);
       setPartyFilterMode(false);
       return;
     }
 
     const delayDebounce = setTimeout(async () => {
       setSearchBusy(true);
+      setSearchLookupFailed(false);
       try {
         const trimmed = query.trim();
         const res = await fetch(
@@ -152,13 +155,16 @@ export default function CustomerSelector({
             : (data as Customer[]);
           setResults(mapped);
           setHasMore(mapped.length === CUSTOMER_SELECTOR_PAGE);
+          setSearchLookupFailed(false);
         } else {
           setResults([]);
           setHasMore(false);
+          setSearchLookupFailed(true);
         }
       } catch {
         setResults([]);
         setHasMore(false);
+        setSearchLookupFailed(true);
       } finally {
         setSearchBusy(false);
       }
@@ -487,7 +493,12 @@ export default function CustomerSelector({
                {searchBusy && (
                  <div className="p-3 text-sm text-app-text-muted">Searching\u2026</div>
                )}
-               {!searchBusy && results.length === 0 && (
+               {!searchBusy && results.length === 0 && searchLookupFailed && (
+                 <div className="p-3 text-sm text-app-text-muted">
+                   Customer lookup is unavailable. Try again.
+                 </div>
+               )}
+               {!searchBusy && results.length === 0 && !searchLookupFailed && (
                  <div className="p-3 text-sm text-app-text-muted">
                    No customers found
                  </div>
