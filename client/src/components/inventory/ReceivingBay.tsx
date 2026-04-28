@@ -462,6 +462,7 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
     !receivingClosed && receivingWorkflowIndex < RECEIVING_WORKFLOW_STEPS.length - 1
       ? RECEIVING_WORKFLOW_STEPS[receivingWorkflowIndex + 1]
       : null;
+  const invoiceMissing = invoiceNum.trim() === "";
 
   // ── Render: Error ──────────────────────────────────────────────────────────
 
@@ -895,9 +896,13 @@ export default function ReceivingBay({ poId, onComplete, onClose }: Props) {
       {showPostConfirm && (
         <ConfirmationModal
           isOpen={true}
-          title="Finalize Inventory Receipt?"
-          message={`This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}. This action is audit-tracked and difficult to reverse.`}
-          confirmLabel="Confirm & Post"
+          title={invoiceMissing ? "Post Without Invoice Number?" : "Finalize Inventory Receipt?"}
+          message={
+            invoiceMissing
+              ? `No invoice number is entered. Continue only if vendor paperwork is not available yet. This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}.`
+              : `This will add stock and post a journal entry to QBO for $${centsToFixed2(grandTotalCents)}. This action is audit-tracked and difficult to reverse.`
+          }
+          confirmLabel={invoiceMissing ? "Post Without Invoice Number" : "Confirm & Post"}
           onConfirm={() => void handlePost()}
           onClose={() => setShowPostConfirm(false)}
         />
