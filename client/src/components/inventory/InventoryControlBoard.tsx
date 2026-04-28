@@ -780,6 +780,7 @@ export default function InventoryControlBoard({
     try {
       await bumpVariantStock(row.variant_id, quantityDelta, txType, notes);
       setAdjustRow(null);
+      await refreshBoard();
       toast("Inventory count updated.", "success");
       return true;
     } catch (e: unknown) {
