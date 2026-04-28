@@ -2528,17 +2528,6 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
                   className="ui-input w-full"
                   placeholder="e.g. Monthly Store Meeting"
                 />
-                <button
-                  type="button"
-                  onClick={() => {
-                    setKind("holiday");
-                    setLabel("STORE CLOSED / HOLIDAY");
-                    setAllStaff(true);
-                  }}
-                  className="px-2 rounded-xl bg-red-500/10 text-red-500 text-[9px] font-black uppercase hover:bg-red-500/20 transition-colors whitespace-nowrap"
-                >
-                  Holiday
-                </button>
               </div>
             </label>
           </div>
