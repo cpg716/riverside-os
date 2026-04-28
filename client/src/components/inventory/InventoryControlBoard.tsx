@@ -434,7 +434,12 @@ export default function InventoryControlBoard({
   const [tableFocus, setTableFocus] = useState(false);
   const [isArchiving, setIsArchiving] = useState(false);
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
-  const [scanToast, setScanToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [scanToast, setScanToast] = useState<{
+    type: "success" | "error";
+    message: string;
+    actionProductId?: string;
+    actionSeedTitle?: string;
+  } | null>(null);
   const scanToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [boardHasMore, setBoardHasMore] = useState(false);
   const [boardLoadingMore, setBoardLoadingMore] = useState(false);
@@ -800,6 +805,14 @@ export default function InventoryControlBoard({
     if (applied) setQuickAdjustNote("");
   };
 
+  const openScannedProduct = useCallback(() => {
+    if (!scanToast?.actionProductId) return;
+    if (scanToastTimer.current) clearTimeout(scanToastTimer.current);
+    setScanToast(null);
+    setHubProductId(scanToast.actionProductId);
+    setHubSeedTitle(scanToast.actionSeedTitle ?? "Product");
+  }, [scanToast]);
+
   const onScanReceive = async (sku: string) => {
     try {
       const res = await fetch(
@@ -823,8 +836,12 @@ export default function InventoryControlBoard({
       setDebouncedSearch(nextSearch);
       playScanSuccess();
       setScanToast({
-        type: 'success',
-        message: `${data.product_name} matched. Open Receiving to apply the stock update.`,
+        type: "success",
+        message: matchedRow
+          ? `${data.product_name} matched.`
+          : `${data.product_name} matched. Review the filtered result below.`,
+        actionProductId: matchedRow?.product_id,
+        actionSeedTitle: data.product_name,
       });
       if (scanToastTimer.current) clearTimeout(scanToastTimer.current);
       scanToastTimer.current = setTimeout(() => setScanToast(null), 2000);
@@ -1777,11 +1794,20 @@ export default function InventoryControlBoard({
       )}
 
       {scanToast && (
-        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-full shadow-2xl transition-all animate-in slide-in-from-bottom-4 duration-300 ${
+        <div className={`fixed bottom-24 left-1/2 -translate-x-1/2 z-[100] flex items-center gap-3 px-6 py-4 rounded-2xl shadow-2xl transition-all animate-in slide-in-from-bottom-4 duration-300 ${
           scanToast.type === 'success' ? 'bg-emerald-600 text-white' : 'bg-red-600 text-white'
         }`}>
           {scanToast.type === 'success' ? <Check size={20} /> : <SlidersHorizontal size={20} />}
           <span className="text-xs font-black uppercase tracking-widest">{scanToast.message}</span>
+          {scanToast.type === "success" && scanToast.actionProductId ? (
+            <button
+              type="button"
+              onClick={openScannedProduct}
+              className="rounded-lg border border-white/40 bg-white/10 px-3 py-1 text-[9px] font-black uppercase tracking-widest text-white hover:bg-white/20 transition-all"
+            >
+              View Item
+            </button>
+          ) : null}
         </div>
       )}
 
