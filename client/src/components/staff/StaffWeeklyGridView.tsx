@@ -671,7 +671,7 @@ const buildStaffPrintDocument = (
   events: ScheduleEvent[],
   weekStart: Date,
 ): string => {
-  const printDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   const printableSchedules = schedules.filter(
     (s) => !isExcludedStaffName(s.full_name),
   );
@@ -685,15 +685,18 @@ const buildStaffPrintDocument = (
       shift: escapeForPrint(s.weekdays?.[0]?.shift_label || "Working"),
     }));
 
+  const sundayYmd = toYmdLocal(weekStart);
+  const sundayEvents = events.filter(e => e.event_date === sundayYmd);
+
   let lastGroup = "";
   let rowsHtml = "";
 
   // 1. Store Events Row in Print
-  const sunToSat = [0, 1, 2, 3, 4, 5, 6];
+  const monToSat = [1, 2, 3, 4, 5, 6];
   const eventsHtml = `
     <tr style="background: #fff8e1">
       <td class="staff" style="font-size: 9px; font-weight: 900; background: #fff8e1">STORE EVENTS / MEETINGS</td>
-      ${sunToSat.map(wd => {
+      ${monToSat.map(wd => {
         const ymd = toYmdLocal(addDays(weekStart, wd));
         const dayEvents = events.filter(e => e.event_date === ymd);
         return `<td style="font-size: 8px; font-weight: 800; color: #795548; vertical-align: top; padding: 2px">
@@ -726,8 +729,8 @@ const buildStaffPrintDocument = (
         </td>
         ${printDays
           .map((_, index) => {
-            const w = s.weekdays[index];
-            const ymd = toYmdLocal(addDays(weekStart, index));
+            const w = s.weekdays[index + 1];
+            const ymd = toYmdLocal(addDays(weekStart, index + 1));
             const hasMeeting = events.some(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
             
             const text = escapeForPrint(
@@ -910,8 +913,9 @@ const buildStaffPrintDocument = (
         <h4>Sunday Exception Hours / Events</h4>
         <div style="display: flex; flex-direction: column; gap: 6px;">
           ${
-            sundayShifts.length
-              ? sundayShifts
+            sundayShifts.length || sundayEvents.length
+              ? `
+                ${sundayShifts
                   .map(
                     (s) =>
                       `<div class="print-sunday-entry">
@@ -919,8 +923,18 @@ const buildStaffPrintDocument = (
                         <div class="sun-staff-shift">${s.shift}</div>
                       </div>`,
                   )
-                  .join("")
-              : `<div class="print-sunday-entry" style="color:#999; font-style:italic; font-size: 14px;">No Sunday shifts scheduled</div>`
+                  .join("")}
+                ${sundayEvents
+                  .map(
+                    (e) =>
+                      `<div class="print-sunday-entry">
+                        <div class="sun-staff-name" style="color: #795548">EVENT / MEETING</div>
+                        <div class="sun-staff-shift" style="color: #795548">${escapeForPrint(e.label)}</div>
+                      </div>`,
+                  )
+                  .join("")}
+              `
+              : `<div class="print-sunday-entry" style="color:#999; font-style:italic; font-size: 14px;">No Sunday shifts or events scheduled</div>`
           }
         </div>
       </div>
