@@ -330,6 +330,7 @@ export default function CustomersWorkspace({
   const [picked, setPicked] = useState<Customer | null>(null);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [_tableFocus, _setTableFocus] = useState(false);
+  const [browseLoadFailed, setBrowseLoadFailed] = useState(false);
 
   const startSaleFromBrowseRow = useCallback(
     (row: CustomerBrowseRow) => {
@@ -462,18 +463,22 @@ export default function CustomersWorkspace({
         setHasMore(false);
       }
       setLoading(true);
+      setBrowseLoadFailed(false);
       try {
         const data = await fetchBrowsePage(0);
         setRows(data);
         setHasMore(data.length === BROWSE_PAGE_SIZE);
+        setBrowseLoadFailed(false);
       } catch {
         setRows([]);
         setHasMore(false);
+        setBrowseLoadFailed(true);
+        toast("Customer browse is temporarily unavailable. Please retry.", "error");
       } finally {
         setLoading(false);
       }
     },
-    [fetchBrowsePage],
+    [fetchBrowsePage, toast],
   );
 
   useEffect(() => {
@@ -1167,6 +1172,11 @@ export default function CustomersWorkspace({
             </div>
 
             <div className="grid gap-3 p-3 lg:hidden">
+              {browseLoadFailed && (
+                <div className="rounded-xl border border-app-warning/20 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                  Customer lookup is temporarily unavailable. Try refresh.
+                </div>
+              )}
               {rows.map((r) => {
                 const hasBalance = parseMoneyToCents(r.open_balance_due) > 0;
                 return (
@@ -1320,6 +1330,11 @@ export default function CustomersWorkspace({
               onKeyDown={onTableKeyDown}
               className="ui-table-shell hidden min-w-0 outline-none lg:block"
             >
+              {browseLoadFailed && (
+                <div className="border-b border-app-warning/20 bg-app-warning/10 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-warning">
+                  Customer lookup is temporarily unavailable. Try refresh.
+                </div>
+              )}
               <table className="w-full border-separate border-spacing-0 text-left text-sm">
                 <thead className="sticky top-0 z-10">
                   <tr className="bg-app-surface-3 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted transition-colors">
