@@ -681,12 +681,9 @@ const buildStaffPrintDocument = (
   weekStart: Date,
 ): string => {
   const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const printableSchedules = schedules.filter((s) => {
-    if (isExcludedStaffName(s.full_name)) return false;
-    // If they have 0 working days this week (Mon-Sat AND Sun), don't show them in the printout
-    const hasAnyWork = s.weekdays?.some((w) => w.works);
-    return hasAnyWork;
-  });
+  const printableSchedules = schedules.filter(
+    (s) => !isExcludedStaffName(s.full_name),
+  );
   const rowCount = Math.max(printableSchedules.length, 1);
   const compactMode = rowCount > 18;
 
