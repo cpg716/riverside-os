@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Package,
   Plus,
@@ -126,6 +127,15 @@ export default function ShipmentsHubSection({
   const { dialogRef, titleId } = useDialogAccessibility(newOpen, {
     onEscape: () => setNewOpen(false),
   });
+
+  useEffect(() => {
+    if (!newOpen) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [newOpen]);
 
   const fetchShipmentList = useCallback(
     async (useOpenOnlyFilter: boolean) => {
@@ -468,6 +478,8 @@ export default function ShipmentsHubSection({
       </div>
     );
   }
+
+  const overlayRoot = document.getElementById("drawer-root") || document.body;
 
   return (
     <div
@@ -881,8 +893,9 @@ export default function ShipmentsHubSection({
         </div>
       </div>
 
-      {newOpen ? (
-        <div className="fixed inset-0 z-[130] flex items-center justify-center p-4">
+      {newOpen
+        ? createPortal(
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
           <button
             type="button"
             className="absolute inset-0 bg-black/50"
@@ -1020,8 +1033,10 @@ export default function ShipmentsHubSection({
               </button>
             </div>
           </div>
-        </div>
-      ) : null}
+        </div>,
+        overlayRoot,
+      )
+        : null}
     </div>
   );
 }

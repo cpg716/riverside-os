@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Scissors, User } from "lucide-react";
 import AlterationItemEditor from "./AlterationItemEditor";
 import AlterationSmartScheduler from "./AlterationSmartScheduler";
@@ -76,7 +77,17 @@ export default function AlterationSchedulingDrawer({
     }
   }, [alteration.id, activeTab]);
 
-  return (
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, []);
+
+  const root = document.getElementById("drawer-root") || document.body;
+
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex justify-end bg-black/60 backdrop-blur-sm animate-in fade-in duration-300">
       <div 
         className="w-full max-w-lg bg-app-surface border-l border-app-border shadow-2xl flex flex-col animate-in slide-in-from-right duration-500 ease-out h-full top-0"
@@ -201,7 +212,8 @@ export default function AlterationSchedulingDrawer({
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    root,
   );
 }
 

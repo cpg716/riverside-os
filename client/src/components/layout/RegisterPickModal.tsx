@@ -1,4 +1,5 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { setPosRegisterAuth } from "../../lib/posRegisterAuth";
 import { useToast } from "../ui/ToastProviderLogic";
@@ -110,9 +111,20 @@ export default function RegisterPickModal({
     [baseUrl, backofficeHeaders, canAttach, onSuccess, toast],
   );
 
+  useEffect(() => {
+    if (!open) return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [open]);
+
   if (!open) return null;
 
-  return (
+  const root = document.getElementById("drawer-root") || document.body;
+
+  return createPortal(
     <div className="ui-overlay-backdrop z-[200]">
       <div
         ref={dialogRef}
@@ -178,6 +190,7 @@ export default function RegisterPickModal({
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    root,
   );
 }
