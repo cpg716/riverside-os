@@ -1408,7 +1408,14 @@ export default function NexoCheckoutDrawer({
                    {applied.length === 0 && depositDisplayCents === 0 && (
                      <div className="flex flex-col items-center justify-center h-full opacity-10 py-6 text-center">
                         <Wallet size={24} strokeWidth={1} />
-                        <p className="text-[8px] font-black uppercase tracking-widest mt-2 px-6 leading-tight">Zero Shards Detected</p>
+                        <p className="mt-2 px-6 text-[8px] font-black uppercase tracking-widest leading-tight">
+                          No payments added yet
+                        </p>
+                        {remainingCents > 0 && (
+                          <p className="mt-1 px-6 text-[8px] font-bold leading-tight">
+                            Select a tender, enter the amount, then add payment.
+                          </p>
+                        )}
                      </div>
                    )}
                    {applied.map(p => (
