@@ -595,7 +595,20 @@ export default function OrdersWorkspace({
         },
       );
       if (!scanRes.ok) {
-        toast(`SKU "${enteredSku}" was not found. Check it and try again.`, "error");
+        const body = (await scanRes.json().catch(() => ({}))) as { error?: string };
+        if (scanRes.status === 404) {
+          toast(`SKU "${enteredSku}" was not found. Check it and try again.`, "error");
+          return false;
+        }
+        if (scanRes.status === 401 || scanRes.status === 403) {
+          toast(body.error ?? "Your session or access has expired. Sign in again and retry.", "error");
+          return false;
+        }
+        if (scanRes.status >= 500) {
+          toast("SKU lookup is temporarily unavailable. Please try again.", "error");
+          return false;
+        }
+        toast(body.error ?? "SKU lookup failed. Please try again.", "error");
         return false;
       }
       item = (await scanRes.json()) as ScanItem;
