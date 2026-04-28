@@ -67,3 +67,6 @@ server/backups/*.dump
 counterpoint-bridge/bridge-execution.log
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+
+# Scratch scripts
+scratch/
