@@ -602,6 +602,15 @@ const toYmdLocal = (d: Date): string => {
   return `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 };
 
+const formatStaffName = (fullName: string): string => {
+  if (!fullName) return "";
+  const parts = fullName.trim().split(/\s+/);
+  if (parts.length <= 1) return fullName;
+  const first = parts[0];
+  const last = parts[parts.length - 1];
+  return `${first} ${last.charAt(0).toUpperCase()}.`;
+};
+
 const sundayStart = (date: Date): Date => {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
   const day = d.getDay(); // 0=Sun, 1=Mon...
@@ -681,7 +690,7 @@ const buildStaffPrintDocument = (
   const sundayShifts = printableSchedules
     .filter((s) => s.weekdays?.[0]?.works)
     .map((s) => ({
-      name: escapeForPrint(s.full_name),
+      name: escapeForPrint(formatStaffName(s.full_name)),
       shift: escapeForPrint(s.weekdays?.[0]?.shift_label || "Working"),
     }));
 
@@ -724,7 +733,7 @@ const buildStaffPrintDocument = (
     rowsHtml += `
       <tr>
         <td class="staff">
-          <div class="staff-name">${escapeForPrint(s.full_name).toUpperCase()}</div>
+          <div class="staff-name">${escapeForPrint(formatStaffName(s.full_name)).toUpperCase()}</div>
           <div class="staff-role">${escapeForPrint(roleLabel(s.role).toUpperCase())}</div>
         </td>
         ${printDays
@@ -1225,8 +1234,8 @@ export default function StaffWeeklyGridView() {
 
     if (schedules.some((s) => s.staff_id === staffId)) {
       toast(
-        `${staff.full_name} is already in the schedule for this week.`,
-        "info",
+        `${formatStaffName(staff.full_name)} is already in the schedule for this week.`,
+        "error",
       );
       return;
     }
@@ -1255,7 +1264,7 @@ export default function StaffWeeklyGridView() {
       return next;
     });
     setStaffDirty(staffId, true);
-    toast(`${staff.full_name} added to schedule.`, "success");
+    toast(`${formatStaffName(staff.full_name)} added to schedule.`, "success");
   };
 
   const handleRemoveStaff = (staffId: string) => {
@@ -1265,7 +1274,7 @@ export default function StaffWeeklyGridView() {
 
     setSchedules((prev) => prev.filter((s) => s.staff_id !== staffId));
     setUnsaved(true);
-    toast(`${staff.full_name} removed from this week's schedule.`, "info");
+    toast(`${formatStaffName(staff.full_name)} removed from this week's schedule.`, "info");
   };
 
   const handleSaveAll = async () => {
@@ -2075,7 +2084,7 @@ export default function StaffWeeklyGridView() {
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex flex-col truncate">
                         <div className="truncate" title={s.full_name}>
-                          {s.full_name}
+                          {formatStaffName(s.full_name)}
                         </div>
                         <div className="text-[10px] uppercase text-app-text-muted">
                           {roleLabel(s.role)}
@@ -2298,7 +2307,7 @@ export default function StaffWeeklyGridView() {
                       })
                       .map((e) => (
                         <option key={e.id} value={e.id}>
-                          {e.full_name} ({roleLabel(e.role)})
+                          {formatStaffName(e.full_name)} ({roleLabel(e.role)})
                         </option>
                       ))}
                   </select>
@@ -2470,7 +2479,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
                       }}
                       className="h-3.5 w-3.5 rounded border-app-border text-amber-500 focus:ring-amber-500/20"
                     />
-                    <span className="text-[10px] font-bold text-app-text truncate">{s.full_name}</span>
+                    <span className="text-[10px] font-bold text-app-text truncate">{formatStaffName(s.full_name)}</span>
                   </label>
                 ))}
               </div>
