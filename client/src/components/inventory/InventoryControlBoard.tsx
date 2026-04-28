@@ -401,6 +401,7 @@ export default function InventoryControlBoard({
   } | null>(null);
   const [maintenanceQty, setMaintenanceQty] = useState("1");
   const [maintenanceNote, setMaintenanceNote] = useState("");
+  const [quickAdjustNote, setQuickAdjustNote] = useState("");
 
   const closeMaintenance = () => {
     setMaintenanceTarget(null);
@@ -770,14 +771,32 @@ export default function InventoryControlBoard({
     );
   };
 
-  const applyStockDelta = async (row: BoardRow, quantityDelta: number, txType?: string, notes?: string) => {
+  const applyStockDelta = async (
+    row: BoardRow,
+    quantityDelta: number,
+    txType?: string,
+    notes?: string,
+  ): Promise<boolean> => {
     try {
       await bumpVariantStock(row.variant_id, quantityDelta, txType, notes);
       setAdjustRow(null);
       toast("Inventory count updated.", "success");
+      return true;
     } catch (e: unknown) {
       toast(e instanceof Error ? e.message : "Stock update failed", "error");
+      return false;
     }
+  };
+
+  const applyQuickStockAdjustment = async (quantityDelta: number) => {
+    if (!adjustRow) return;
+    const note = quickAdjustNote.trim();
+    if (note.length < 3) {
+      toast("Add a short reason before adjusting stock.", "error");
+      return;
+    }
+    const applied = await applyStockDelta(adjustRow, quantityDelta, "adjustment", note);
+    if (applied) setQuickAdjustNote("");
   };
 
   const onScanReceive = async (sku: string) => {
@@ -1192,6 +1211,7 @@ export default function InventoryControlBoard({
                 onClick={(e) => {
                   e.stopPropagation();
                   if (singleVariant && primaryVariant) {
+                    setQuickAdjustNote("");
                     setAdjustRow(primaryVariant);
                   } else {
                     openProductHub(row);
@@ -1567,10 +1587,24 @@ export default function InventoryControlBoard({
               </div>
             ) : null}
 
+            <div className="mb-4 space-y-1.5">
+              <label className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                Adjustment Reason
+              </label>
+              <textarea
+                rows={2}
+                value={quickAdjustNote}
+                onChange={(e) => setQuickAdjustNote(e.target.value)}
+                placeholder="Short reason (e.g. Cycle count correction)"
+                className="w-full rounded-xl border border-app-border bg-app-surface px-3 py-2 text-sm font-medium text-app-text outline-none ring-app-accent focus:ring-2"
+              />
+            </div>
+
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => void applyStockDelta(adjustRow, -1)}
+                onClick={() => void applyQuickStockAdjustment(-1)}
+                disabled={quickAdjustNote.trim().length < 3}
                 className="flex flex-col items-center justify-center rounded-3xl border-2 border-app-border bg-app-surface-2 py-6 transition-all hover:border-app-border hover:bg-app-surface"
               >
                 <span className="text-3xl font-black text-app-text">-1</span>
@@ -1580,7 +1614,8 @@ export default function InventoryControlBoard({
               </button>
               <button
                 type="button"
-                onClick={() => void applyStockDelta(adjustRow, 1)}
+                onClick={() => void applyQuickStockAdjustment(1)}
+                disabled={quickAdjustNote.trim().length < 3}
                 className="flex flex-col items-center justify-center rounded-3xl border-2 border-app-success/20 bg-app-success/10 py-6 transition-all hover:border-app-success/35 hover:bg-app-surface"
               >
                 <span className="text-3xl font-black text-app-success">+1</span>
@@ -1631,7 +1666,10 @@ export default function InventoryControlBoard({
 
             <button
               type="button"
-              onClick={() => setAdjustRow(null)}
+              onClick={() => {
+                setAdjustRow(null);
+                setQuickAdjustNote("");
+              }}
               className="mt-6 w-full rounded-2xl bg-app-surface-2 py-3 text-[10px] font-black uppercase tracking-[0.2em] text-app-text-muted hover:bg-app-border/40 transition-all"
             >
               Cancel
