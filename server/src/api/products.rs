@@ -1064,7 +1064,8 @@ pub async fn list_control_board(
             )
             .await
             {
-                Ok(ids) => Some(ids),
+                Ok(ids) if !ids.is_empty() => Some(ids),
+                Ok(_) => None,
                 Err(e) => {
                     tracing::warn!(
                         error = %e,
