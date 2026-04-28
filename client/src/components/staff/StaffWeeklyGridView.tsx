@@ -2429,7 +2429,6 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
 
   useEffect(() => {
     if (open && event) {
-      console.log("Opening Event Modal with kind:", event.kind);
       setLabel(event.label || "");
       setKind(event.kind || "meeting");
       setNotes(event.notes || "");
@@ -2444,7 +2443,6 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
       return;
     }
     setBusy(true);
-    console.log("Saving event with kind:", kind);
     try {
       const payload = {
         id: event?.id || null,
