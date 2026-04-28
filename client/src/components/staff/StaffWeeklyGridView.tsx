@@ -681,9 +681,17 @@ const buildStaffPrintDocument = (
   weekStart: Date,
 ): string => {
   const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const printableSchedules = schedules.filter(
-    (s) => !isExcludedStaffName(s.full_name),
-  );
+  const printableSchedules = schedules.filter((s) => {
+    if (isExcludedStaffName(s.full_name)) return false;
+
+    // If it's a template fallback (no per-week record) AND they have 0 work, hide it from print
+    if (s.status === "template") {
+      const hasAnyWork = s.weekdays?.some((w) => w.works);
+      if (!hasAnyWork) return false;
+    }
+
+    return true;
+  });
   const rowCount = Math.max(printableSchedules.length, 1);
   const compactMode = rowCount > 18;
 
