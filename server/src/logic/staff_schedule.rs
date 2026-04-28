@@ -1085,7 +1085,7 @@ pub async fn list_events_range(
 ) -> Result<Vec<ScheduleEventRow>, sqlx::Error> {
     let rows = sqlx::query(
         r#"
-        SELECT e.id, e.event_date, e.label, e.notes, e.is_all_staff, 
+        SELECT e.id, e.event_date, e.label, e.kind, e.notes, e.is_all_staff, 
                COALESCE(array_agg(a.staff_id) FILTER (WHERE a.staff_id IS NOT NULL), '{}') as attendees
         FROM staff_schedule_events e
         LEFT JOIN staff_schedule_event_attendees a ON a.event_id = e.id
