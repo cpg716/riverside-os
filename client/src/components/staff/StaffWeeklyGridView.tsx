@@ -2248,12 +2248,12 @@ export default function StaffWeeklyGridView() {
                                 {myEvents.map(e => (
                                   <div 
                                     key={e.id}
-                                    title={`${e.kind === "holiday" ? "Holiday" : "Meeting"}: ${e.label}${e.notes ? ` (${e.notes})` : ""}`}
+                                    title={`${e.kind === "holiday" ? "Holiday" : e.kind === "store_event" ? "Event" : "Meeting"}: ${e.label}${e.notes ? ` (${e.notes})` : ""}`}
                                     className={`w-4 h-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-[8px] text-white font-black ${
-                                      e.kind === "holiday" ? "bg-red-500" : "bg-amber-500"
+                                      e.kind === "holiday" ? "bg-red-500" : e.kind === "store_event" ? "bg-emerald-500" : "bg-amber-500"
                                     }`}
                                   >
-                                    {e.kind === "holiday" ? "H" : "M"}
+                                    {e.kind === "holiday" ? "H" : e.kind === "store_event" ? "E" : "M"}
                                   </div>
                                 ))}
                               </div>
