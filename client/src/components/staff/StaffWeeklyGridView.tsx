@@ -754,8 +754,9 @@ const buildStaffPrintDocument = (
         ${printDays
           .map((_, index) => {
             const w = s.weekdays[index + 1];
-            const ymd = toYmdLocal(addDays(weekStart, index + 1));
-            const hasMeeting = events.some(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
+            const dayEventsForShift = events.filter(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
+            const hasMeeting = dayEventsForShift.some(e => e.kind !== "holiday");
+            const hasHoliday = dayEventsForShift.some(e => e.kind === "holiday");
             
             const label = w?.shift_label || "";
             const isOff = !w?.works;
@@ -776,6 +777,7 @@ const buildStaffPrintDocument = (
             return `
               <td class="${!isOff ? "work-cell" : "off-cell"} ${w?.is_highlighted ? "highlighted-cell" : ""}">
                 ${escapeForPrint(text).toUpperCase()}
+                ${hasHoliday ? `<div style="font-size: 7px; color: #d32f2f; font-weight: 900; margin-top: 1px">[HOLIDAY]</div>` : ""}
                 ${hasMeeting ? `<div style="font-size: 7px; color: #795548; font-weight: 900; margin-top: 1px">[MEETING]</div>` : ""}
               </td>
             `;
@@ -2242,10 +2244,12 @@ export default function StaffWeeklyGridView() {
                                 {myEvents.map(e => (
                                   <div 
                                     key={e.id}
-                                    title={`Meeting: ${e.label}${e.notes ? ` (${e.notes})` : ""}`}
-                                    className="w-4 h-4 rounded-full bg-amber-500 border-2 border-white shadow-sm flex items-center justify-center text-[8px] text-white font-black"
+                                    title={`${e.kind === "holiday" ? "Holiday" : "Meeting"}: ${e.label}${e.notes ? ` (${e.notes})` : ""}`}
+                                    className={`w-4 h-4 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-[8px] text-white font-black ${
+                                      e.kind === "holiday" ? "bg-red-500" : "bg-amber-500"
+                                    }`}
                                   >
-                                    M
+                                    {e.kind === "holiday" ? "H" : "M"}
                                   </div>
                                 ))}
                               </div>
