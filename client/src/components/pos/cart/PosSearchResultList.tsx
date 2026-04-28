@@ -1,4 +1,5 @@
 import { Package, ArrowRight } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { type ResolvedSkuItem } from "../types";
 
 export interface SearchResult extends ResolvedSkuItem {
@@ -16,10 +17,47 @@ export function PosSearchResultList({
   groupedSearchResults,
   onSearchResultClick,
 }: PosSearchResultListProps) {
+  const [openUpward, setOpenUpward] = useState(false);
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (groupedSearchResults.length === 0) {
+      setOpenUpward(false);
+      return;
+    }
+
+    const recomputePlacement = () => {
+      const panel = panelRef.current;
+      const anchor = panel?.parentElement;
+      if (!panel || !anchor) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - anchorRect.bottom;
+      const spaceAbove = anchorRect.top;
+      const panelHeight = Math.min(
+        panel.getBoundingClientRect().height,
+        window.innerHeight * 0.65,
+      );
+      setOpenUpward(spaceBelow < panelHeight && spaceAbove > spaceBelow);
+    };
+
+    recomputePlacement();
+    window.addEventListener("resize", recomputePlacement);
+    window.addEventListener("scroll", recomputePlacement, true);
+    return () => {
+      window.removeEventListener("resize", recomputePlacement);
+      window.removeEventListener("scroll", recomputePlacement, true);
+    };
+  }, [groupedSearchResults.length, search]);
+
   if (groupedSearchResults.length === 0) return null;
 
   return (
-    <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-[65vh] overflow-y-auto rounded-3xl border-2 border-app-text bg-app-surface p-3 shadow-[0_32px_96px_-16px_rgba(0,0,0,0.5)] transition-all no-scrollbar">
+    <div
+      ref={panelRef}
+      className={`absolute left-0 right-0 z-50 max-h-[65vh] overflow-y-auto rounded-3xl border-2 border-app-text bg-app-surface p-3 shadow-[0_32px_96px_-16px_rgba(0,0,0,0.5)] transition-all no-scrollbar ${
+        openUpward ? "bottom-full mb-2" : "top-full mt-2"
+      }`}
+    >
       <div className="flex flex-col gap-2">
         {groupedSearchResults.map((group) => {
           const item = group[0];

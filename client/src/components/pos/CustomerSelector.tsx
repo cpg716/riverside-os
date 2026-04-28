@@ -1,5 +1,5 @@
 import { getBaseUrl } from "../../lib/apiConfig";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { mergedPosStaffHeaders } from "../../lib/posRegisterAuth";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { CheckCircle2, Gem, Ruler, Search, User, UserPlus, X, UserX, Clock } from "lucide-react";
@@ -87,6 +87,9 @@ export default function CustomerSelector({
   const [partyFilterMode, setPartyFilterMode] = useState(false);
   const [addDrawerOpen, setAddDrawerOpen] = useState(false);
   const [addDraft, setAddDraft] = useState<PosCustomerDraft>({});
+  const [openResultsUpward, setOpenResultsUpward] = useState(false);
+  const searchContainerRef = useRef<HTMLDivElement | null>(null);
+  const resultsPanelRef = useRef<HTMLDivElement | null>(null);
 
   const baseUrl = getBaseUrl();
   const trimmedQuery = query.trim();
@@ -220,6 +223,45 @@ export default function CustomerSelector({
     results.length,
     toast,
     apiAuth,
+  ]);
+
+  useEffect(() => {
+    if (query.trim().length < 2) {
+      setOpenResultsUpward(false);
+      return;
+    }
+
+    const recomputePlacement = () => {
+      const anchor = searchContainerRef.current;
+      if (!anchor) return;
+      const anchorRect = anchor.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - anchorRect.bottom;
+      const spaceAbove = anchorRect.top;
+      const panelHeight = resultsPanelRef.current
+        ? Math.min(
+            resultsPanelRef.current.getBoundingClientRect().height,
+            window.innerHeight * 0.78,
+          )
+        : Math.min(window.innerHeight * 0.72, 448);
+      setOpenResultsUpward(spaceBelow < panelHeight && spaceAbove > spaceBelow);
+    };
+
+    recomputePlacement();
+    window.addEventListener("resize", recomputePlacement);
+    window.addEventListener("scroll", recomputePlacement, true);
+    return () => {
+      window.removeEventListener("resize", recomputePlacement);
+      window.removeEventListener("scroll", recomputePlacement, true);
+    };
+  }, [
+    query,
+    results.length,
+    hasMore,
+    loadingMore,
+    searchBusy,
+    showAddFromSearch,
+    showWalkInOption,
+    partyFilterMode,
   ]);
 
   if (selectedCustomer) {
@@ -363,7 +405,7 @@ export default function CustomerSelector({
   return (
     <div className="space-y-4">
       {/* 1. Search Bar (Top) */}
-      <div className="group relative">
+      <div ref={searchContainerRef} className="group relative">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 text-app-text-muted transition-colors group-focus-within:text-app-accent"
             size={16}
@@ -377,7 +419,12 @@ export default function CustomerSelector({
           />
 
           {query.trim().length >= 2 && (
-            <div className="absolute left-0 right-0 top-full z-100 mt-2 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38]">
+            <div
+              ref={resultsPanelRef}
+              className={`absolute left-0 right-0 z-100 max-h-[min(78vh,28rem)] isolate overflow-hidden rounded-xl border border-app-border bg-[#fffdfa] text-app-text shadow-2xl shadow-black/30 ring-1 ring-black/10 backdrop-blur-none dark:bg-[#202a38] ${
+                openResultsUpward ? "bottom-full mb-2" : "top-full mt-2"
+              }`}
+            >
                <div className="max-h-[min(72vh,26rem)] overflow-y-auto no-scrollbar">
                {showWalkInOption && (
                  <button
