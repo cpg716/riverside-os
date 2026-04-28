@@ -685,8 +685,9 @@ const buildStaffPrintDocument = (
     if (isExcludedStaffName(s.full_name)) return false;
 
     // If it's a template fallback (no per-week record) AND they have 0 work, hide it from print
-    if (s.status === "template") {
-      const hasAnyWork = s.weekdays?.some((w) => w.works);
+    const isTemplate = s.status?.toLowerCase() === "template";
+    if (isTemplate) {
+      const hasAnyWork = s.weekdays?.some((w) => w.works && w.shift_label && w.shift_label.toUpperCase() !== "OFF");
       if (!hasAnyWork) return false;
     }
 
