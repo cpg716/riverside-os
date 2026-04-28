@@ -2414,11 +2414,12 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (event) {
+    if (open && event) {
+      console.log("Opening Event Modal with kind:", event.kind);
       setLabel(event.label || "");
       setKind(event.kind || "meeting");
       setNotes(event.notes || "");
-      setAllStaff(event.is_all_staff);
+      setAllStaff(event.is_all_staff ?? true);
       setAttendees(event.attendees || []);
     }
   }, [event, open]);
@@ -2429,19 +2430,21 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
       return;
     }
     setBusy(true);
+    console.log("Saving event with kind:", kind);
     try {
+      const payload = {
+        id: event?.id || null,
+        event_date: event?.event_date,
+        label,
+        kind,
+        notes,
+        is_all_staff: allStaff,
+        attendees,
+      };
       const res = await fetch(`${getBaseUrl()}/api/staff/schedule/events`, {
         method: "POST",
         headers: { ...backofficeHeaders(), "Content-Type": "application/json" },
-        body: JSON.stringify({
-          id: event?.id || null,
-          event_date: event?.event_date,
-          label,
-          kind,
-          notes,
-          is_all_staff: allStaff,
-          attendees,
-        }),
+        body: JSON.stringify(payload),
       });
       if (!res.ok) throw new Error("Failed to save event");
       toast("Event saved", "success");
