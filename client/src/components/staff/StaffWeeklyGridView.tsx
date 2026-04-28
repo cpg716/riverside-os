@@ -755,6 +755,7 @@ const buildStaffPrintDocument = (
         ${printDays
           .map((_, index) => {
             const w = s.weekdays[index + 1];
+            const ymd = toYmdLocal(addDays(weekStart, index + 1));
             const dayEventsForShift = events.filter(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
             const hasMeeting = dayEventsForShift.some(e => e.kind === "meeting");
             const hasHoliday = dayEventsForShift.some(e => e.kind === "holiday");
