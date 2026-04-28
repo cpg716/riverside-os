@@ -23,7 +23,7 @@ use crate::auth::permissions::{
 };
 use crate::auth::pins::{self, hash_pin, is_valid_staff_credential, log_staff_access};
 use crate::auth::staff_avatar;
-use crate::logic::{notifications, pricing_limits, register_staff_metrics};
+use crate::logic::{notifications, pricing_limits, register_staff_metrics, tasks};
 use crate::middleware::{require_authenticated_staff_headers, require_staff_with_permission};
 use crate::models::DbStaffRole;
 
@@ -697,14 +697,24 @@ async fn self_patch_staff_avatar(
 async fn list_for_pos(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<StaffListRow>>, StaffApiError> {
+    let tz_name = tasks::load_store_timezone_name(&state.db).await?;
+    let today = tasks::store_local_date(&tz_name);
     let rows = sqlx::query_as::<_, StaffListRow>(
         r#"
         SELECT id, full_name, role, avatar_key
         FROM staff
         WHERE is_active = TRUE
-        ORDER BY full_name ASC
+        ORDER BY
+            CASE
+                WHEN role IN ('salesperson', 'sales_support', 'staff_support', 'alterations')
+                     AND staff_effective_working_day(id, $1) THEN 0
+                WHEN role IN ('salesperson', 'sales_support', 'staff_support', 'alterations') THEN 1
+                ELSE 2
+            END,
+            full_name ASC
         "#,
     )
+    .bind(today)
     .fetch_all(&state.db)
     .await?;
     Ok(Json(rows))

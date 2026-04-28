@@ -1,5 +1,6 @@
 import { getBaseUrl } from "../../lib/apiConfig";
 import { ChangeEvent, useCallback, useMemo, useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarDays,
   CalendarRange,
@@ -19,6 +20,7 @@ import {
 import ExcelJS from "exceljs";
 import { useBackofficeAuth } from "../../context/BackofficeAuthContextLogic";
 import { useToast } from "../ui/ToastProviderLogic";
+import ConfirmationModal from "../ui/ConfirmationModal";
 
 const baseUrl = getBaseUrl();
 
@@ -722,7 +724,6 @@ const buildStaffPrintDocument = (
         const ymd = toYmdLocal(addDays(weekStart, wd));
         const dayEvents = events.filter(e => e.event_date === ymd);
         const hasHoliday = dayEvents.some(e => e.kind === "holiday");
-        const hasStoreEvent = dayEvents.some(e => e.kind === "store_event");
         
         return `<td style="font-size: 16px; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
           ${dayEvents.map(e => `<div style="${e.kind === "holiday" ? "text-align: center; border: 1pt solid #d32f2f; background: #ffebee; padding: 2px; border-radius: 4px; margin-bottom: 2px" : "margin-bottom: 3px"}">${e.kind === "holiday" ? "★ " : "• "}${escapeForPrint(e.label).toUpperCase()}</div>`).join("")}
@@ -1271,10 +1272,23 @@ export default function StaffWeeklyGridView() {
         if (s.staff_id !== staffId) return s;
         const nextWeekdays = [...s.weekdays];
         const normalized = val.trim();
-        const works = normalized.toUpperCase() !== "OFF" && normalized !== "";
+        const upper = normalized.toUpperCase();
+        const isCustomOffLabel =
+          upper === "VAC" ||
+          upper === "REQ OFF" ||
+          upper === "REQ" ||
+          upper === "REQUEST" ||
+          upper === "PTO" ||
+          upper === "SICK";
+        const works = normalized !== "" && upper !== "OFF" && !isCustomOffLabel;
+        const shiftLabel = works
+          ? normalized || null
+          : isCustomOffLabel
+            ? normalized
+            : null;
         nextWeekdays[weekday] = {
           ...nextWeekdays[weekday],
-          shift_label: works ? normalized || null : null,
+          shift_label: shiftLabel,
           works,
         };
         return { ...s, status: s.status, weekdays: nextWeekdays };
@@ -1608,23 +1622,31 @@ export default function StaffWeeklyGridView() {
 
         // If it's for a DIFFERENT week, we save it directly to DB
         if (planningMode === "week" && targetWeekStart && !isCurrentWeek) {
-          const bulkSchedules: StaffSchedule[] = [];
+          const bulkSchedules: Array<{
+            staff_id: string;
+            weekdays: Array<{
+              weekday: number;
+              works: boolean;
+              shift_label: string | null;
+              is_highlighted: boolean;
+            }>;
+          }> = [];
           for (const row of parseResult.recognizedRows) {
             // Build a full 7-day schedule for the background week
             const fullWeekdays = WEEKDAY_LABELS.map((_, i) => {
               const ds = row.daySchedule.find(d => d.weekday === i);
-              const hasShift = ds && ds.shiftVal !== "";
+              const hasShift = Boolean(ds && ds.shiftVal !== "");
               const normalized = ds ? normalizeHeader(ds.shiftVal) : "";
               const works = hasShift && normalized !== "off";
               return {
                 weekday: i,
                 works,
-                shift_label: hasShift && works ? ds.shiftVal : null,
+                shift_label: hasShift && works ? (ds?.shiftVal ?? null) : null,
                 is_highlighted: false,
               };
             });
 
-            const entry: any = {
+            const entry = {
               staff_id: row.staff.id,
               weekdays: fullWeekdays,
             };
@@ -2193,7 +2215,7 @@ export default function StaffWeeklyGridView() {
                                     ? "border-red-500 bg-red-500/5 text-red-700 dark:text-red-300 ring-2 ring-red-500/20"
                                     : "border-transparent bg-transparent text-app-text"
                             }`}
-                            value={w.works ? (w.shift_label || "") : "OFF"}
+                            value={w.works ? (w.shift_label || "") : (w.shift_label?.trim() || "OFF")}
                             readOnly={highlighterActive}
                             onClick={() => {
                               if (highlighterActive) {
@@ -2426,6 +2448,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
   const [allStaff, setAllStaff] = useState(true);
   const [attendees, setAttendees] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
 
   useEffect(() => {
     if (open && event) {
@@ -2471,7 +2494,6 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
 
   const remove = async () => {
     if (!event?.id) return;
-    if (!confirm("Are you sure you want to delete this event?")) return;
     setBusy(true);
     try {
       const res = await fetch(`${getBaseUrl()}/api/staff/schedule/events?id=${event.id}`, {
@@ -2486,13 +2508,16 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
       toast(e instanceof Error ? e.message : "Delete failed", "error");
     } finally {
       setBusy(false);
+      setConfirmDeleteOpen(false);
     }
   };
 
   if (!open || !event) return null;
+  const root = document.getElementById("drawer-root");
+  if (!root) return null;
 
-  return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-in fade-in duration-200">
+  return createPortal(
+    <div className="ui-overlay-backdrop z-[200] animate-in fade-in duration-200">
       <div className="w-full max-w-md rounded-3xl bg-app-surface border border-app-border shadow-2xl p-6 space-y-6">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-black tracking-tight text-app-text">
@@ -2577,7 +2602,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
         <div className="flex items-center gap-3 pt-2">
           {event.id && (
             <button 
-              onClick={() => void remove()}
+              onClick={() => setConfirmDeleteOpen(true)}
               disabled={busy}
               className="flex items-center justify-center gap-2 p-3 rounded-2xl border border-red-500/20 text-red-500 hover:bg-red-500/10 transition-colors"
             >
@@ -2599,6 +2624,18 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
           </button>
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={confirmDeleteOpen}
+        title="Delete Event"
+        message="Delete this store event from the schedule?"
+        confirmLabel="Delete Event"
+        cancelLabel="Cancel"
+        variant="danger"
+        onConfirm={() => void remove()}
+        onClose={() => setConfirmDeleteOpen(false)}
+      />
     </div>
+    ,
+    root,
   );
 }

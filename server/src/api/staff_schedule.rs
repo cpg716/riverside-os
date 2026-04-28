@@ -28,7 +28,6 @@ use std::collections::HashMap;
 
 // Use staff_schedule::force_sunday_start for consistency
 
-
 #[derive(Debug, Deserialize)]
 pub struct RangeQuery {
     pub staff_id: Option<Uuid>,
@@ -233,9 +232,7 @@ pub fn router() -> Router<AppState> {
         .route("/validate-booking", get(get_validate_booking))
         .route(
             "/events",
-            get(list_events)
-                .post(post_event)
-                .delete(delete_event_route),
+            get(list_events).post(post_event).delete(delete_event_route),
         )
 }
 
@@ -376,11 +373,13 @@ async fn get_week_schedule(
         .await
         .map_err(map_gate)?;
 
-    let rows =
-        staff_schedule::list_week_schedule_for_week(&state.db, staff_schedule::force_sunday_start(week_start))
-            .await
-            .map_err(StaffScheduleError::Database)
-            .map_err(map_err)?;
+    let rows = staff_schedule::list_week_schedule_for_week(
+        &state.db,
+        staff_schedule::force_sunday_start(week_start),
+    )
+    .await
+    .map_err(StaffScheduleError::Database)
+    .map_err(map_err)?;
 
     let mut grouped: HashMap<Uuid, WeekStaffScheduleResponse> = HashMap::new();
     for row in rows {
@@ -471,10 +470,13 @@ async fn publish_week_schedule(
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, Response> {
     let actor = require_editor(&state, &headers).await?;
-    let published =
-        staff_schedule::publish_week_schedule_week(&state.db, actor, staff_schedule::force_sunday_start(week_start))
-            .await
-            .map_err(map_err)?;
+    let published = staff_schedule::publish_week_schedule_week(
+        &state.db,
+        actor,
+        staff_schedule::force_sunday_start(week_start),
+    )
+    .await
+    .map_err(map_err)?;
     if published == 0 {
         return Err(map_err(StaffScheduleError::NotFound));
     }
@@ -724,11 +726,17 @@ async fn post_event(
     middleware::require_staff_with_permission(&state, &headers, STAFF_MANAGE_ACCESS)
         .await
         .map_err(map_gate)?;
+    let kind = body.kind.trim().to_lowercase();
+    if !matches!(kind.as_str(), "meeting" | "store_event" | "holiday") {
+        return Err(map_err(StaffScheduleError::BadRequest(
+            "event kind must be one of: meeting, store_event, holiday".into(),
+        )));
+    }
     let id = staff_schedule::upsert_event(
         &state.db,
         body.event_date,
         body.label,
-        body.kind,
+        kind,
         body.notes,
         body.is_all_staff,
         body.attendees,
