@@ -681,9 +681,12 @@ const buildStaffPrintDocument = (
   weekStart: Date,
 ): string => {
   const printDays = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const printableSchedules = schedules.filter(
-    (s) => !isExcludedStaffName(s.full_name),
-  );
+  const printableSchedules = schedules.filter((s) => {
+    if (isExcludedStaffName(s.full_name)) return false;
+    // If they have 0 working days this week (Mon-Sat AND Sun), don't show them in the printout
+    const hasAnyWork = s.weekdays?.some((w) => w.works);
+    return hasAnyWork;
+  });
   const rowCount = Math.max(printableSchedules.length, 1);
   const compactMode = rowCount > 18;
 
@@ -1092,9 +1095,11 @@ export default function StaffWeeklyGridView() {
 
   const sortedSchedules = useMemo(() => {
     return [...schedules].sort((a, b) => {
-      // Sort Natalie Neumann to the bottom as per user preference
-      if (a.full_name === "Natalie Neumann") return 1;
-      if (b.full_name === "Natalie Neumann") return -1;
+      // Sort Natalie Neumann to the bottom as per user preference (case-insensitive)
+      const nameA = normalizeName(a.full_name);
+      const nameB = normalizeName(b.full_name);
+      if (nameA === "natalie neumann") return 1;
+      if (nameB === "natalie neumann") return -1;
       const order = roleSortOrder(a.role, a.staff_id) - roleSortOrder(b.role, b.staff_id);
       if (order !== 0) return order;
       return (a.full_name || "").localeCompare(b.full_name || "");
@@ -1641,8 +1646,10 @@ export default function StaffWeeklyGridView() {
 
       // Sort final results to ensure Natalie is at bottom
       const sortedSchedules = [...nextSchedules].sort((a, b) => {
-        if (a.full_name === "Natalie Neumann") return 1;
-        if (b.full_name === "Natalie Neumann") return -1;
+        const nameA = normalizeName(a.full_name);
+        const nameB = normalizeName(b.full_name);
+        if (nameA === "natalie neumann") return 1;
+        if (nameB === "natalie neumann") return -1;
         const order =
           roleSortOrder(a.role, a.staff_id) - roleSortOrder(b.role, b.staff_id);
         if (order !== 0) return order;
