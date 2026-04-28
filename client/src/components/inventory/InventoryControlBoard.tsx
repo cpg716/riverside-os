@@ -524,7 +524,11 @@ export default function InventoryControlBoard({
         setRows(data.rows);
         setBoardHasMore(data.rows.length === boardPageLimit);
         // Global stats handled by parent workspace
+      } else {
+        toast("Inventory lookup is temporarily unavailable. Showing last synced results.", "error");
       }
+    } catch {
+      toast("Inventory lookup is temporarily unavailable. Showing last synced results.", "error");
     } finally {
       setBoardRefreshing(false);
     }
@@ -542,6 +546,7 @@ export default function InventoryControlBoard({
     webOnly,
     boardPageLimit,
     apiAuth,
+    toast,
   ]);
 
   const refresh = useCallback(async () => {
@@ -579,10 +584,15 @@ export default function InventoryControlBoard({
         apiUrl(baseUrl, `/api/inventory/control-board?${params.toString()}`),
         { headers: apiAuth() },
       );
-      if (!boardRes.ok) return;
+      if (!boardRes.ok) {
+        toast("Could not load more inventory right now. Please try again.", "error");
+        return;
+      }
       const data = (await boardRes.json()) as BoardResponse;
       setRows((prev) => [...prev, ...data.rows]);
       setBoardHasMore(data.rows.length === boardPageLimit);
+    } catch {
+      toast("Could not load more inventory right now. Please try again.", "error");
     } finally {
       setBoardLoadingMore(false);
     }
@@ -604,6 +614,7 @@ export default function InventoryControlBoard({
     boardPageLimit,
     rows.length,
     apiAuth,
+    toast,
   ]);
 
   useEffect(() => {
