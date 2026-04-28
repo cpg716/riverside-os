@@ -112,7 +112,7 @@ test.describe("Staff Scheduler E2E", () => {
         await page.getByRole("button", { name: /^Schedule$/i }).click();
         
         // Switch to "Staff" sub-view
-        await page.getByRole("button", { name: /Staff/i }).click();
+        await page.getByRole("button", { name: "Staff", exact: true }).click();
         await expect(page.getByText("Team Attendance")).toBeVisible();
 
         // Select Alice
@@ -129,7 +129,7 @@ test.describe("Staff Scheduler E2E", () => {
         await page.getByRole("button", { name: /^Schedule$/i }).click();
         
         // Switch to "Scheduler" sub-view
-        await page.getByRole("button", { name: /Scheduler/i }).click();
+        await page.getByRole("button", { name: "Scheduler", exact: true }).click();
         await expect(page.getByText("Plan specific weeks")).toBeVisible();
 
         // Verify status badge
@@ -142,7 +142,7 @@ test.describe("Staff Scheduler E2E", () => {
     test("can switch to master template mode", async ({ page }) => {
         await openBackofficeSidebarTab(page, "staff");
         await page.getByRole("button", { name: /^Schedule$/i }).click();
-        await page.getByRole("button", { name: /Scheduler/i }).click();
+        await page.getByRole("button", { name: "Scheduler", exact: true }).click();
 
         // Mock template endpoint
         await page.route("**/api/staff/schedule/weekly/template", async (route) => {

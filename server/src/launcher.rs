@@ -244,6 +244,22 @@ async fn launch_server_inner(
     }
     tracing::info!("Unified Engine: Core database schema OK.");
 
+    // Environmental Safety Interlock
+    let target_mode = std::env::var("RIVERSIDE_MODE").unwrap_or_else(|_| "development".to_string());
+    let db_mode: String = sqlx::query_scalar("SELECT environment_mode FROM store_settings WHERE id = 1")
+        .fetch_one(&pool)
+        .await?;
+
+    if target_mode != db_mode {
+        let msg = format!(
+            "ENVIRONMENT MISMATCH: Server is running in '{}' mode, but database is stamped as '{}'. ABORTING to prevent data pollution.",
+            target_mode, db_mode
+        );
+        tracing::error!("{}", msg);
+        return Err(msg.into());
+    }
+    tracing::info!(mode = %db_mode, "Environmental safety check passed.");
+
     let counterpoint_sync_token = std::env::var("COUNTERPOINT_SYNC_TOKEN")
         .ok()
         .map(|s| s.trim().to_string())

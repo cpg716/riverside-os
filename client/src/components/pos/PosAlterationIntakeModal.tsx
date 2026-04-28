@@ -126,6 +126,7 @@ export default function PosAlterationIntakeModal({
   const [workRequested, setWorkRequested] = useState("");
   const [dueAt, setDueAt] = useState("");
   const [notes, setNotes] = useState("");
+  const [fittingNeeded, setFittingNeeded] = useState(true);
   const [chargeEnabled, setChargeEnabled] = useState(false);
   const [chargeAmount, setChargeAmount] = useState("");
   const [customItemDescription, setCustomItemDescription] = useState("");
@@ -313,8 +314,13 @@ export default function PosAlterationIntakeModal({
     }
 
     const work = workRequested.trim();
-    if (!work) {
-      toast("Enter the work requested before saving.", "error");
+    if (!work && !fittingNeeded) {
+      toast("Enter the work requested before saving for Off-the-Rack items.", "error");
+      return;
+    }
+
+    if (!fittingNeeded && !dueAt) {
+      toast("Off-the-Rack alterations require a Due Date for scheduling.", "error");
       return;
     }
 
@@ -325,6 +331,7 @@ export default function PosAlterationIntakeModal({
     }
 
     const dueIso = dueAt ? new Date(`${dueAt}T12:00:00`).toISOString() : null;
+    const finalWork = work || (fittingNeeded ? "Fitting Needed" : "");
     const chargeValue = chargeEnabled ? charge : null;
     const noteValue = notes.trim() || null;
 
@@ -337,7 +344,7 @@ export default function PosAlterationIntakeModal({
         alteration_cart_row_id: editingIntake?.alteration_cart_row_id ?? null,
         cart_row_id: source.cart_row_id ?? null,
         item_description: source.item_description,
-        work_requested: work,
+        work_requested: finalWork,
         source_product_id: source.source_product_id ?? null,
         source_variant_id: source.source_variant_id ?? null,
         source_sku: source.source_sku ?? null,
@@ -648,14 +655,49 @@ export default function PosAlterationIntakeModal({
                 ) : null}
               </div>
 
+              <div className="space-y-2">
+                <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                  Workflow Type
+                </span>
+                <div className="flex gap-2 p-1 rounded-xl bg-app-surface border border-app-border">
+                  <button
+                    type="button"
+                    onClick={() => setFittingNeeded(true)}
+                    className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      fittingNeeded
+                        ? "bg-app-accent text-white shadow-sm"
+                        : "text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    Fitting Needed
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setFittingNeeded(false)}
+                    className={`flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all ${
+                      !fittingNeeded
+                        ? "bg-app-accent text-white shadow-sm"
+                        : "text-app-text-muted hover:text-app-text"
+                    }`}
+                  >
+                    Off-the-Rack
+                  </button>
+                </div>
+                <p className="px-1 text-[9px] font-bold text-app-text-muted/60">
+                  {fittingNeeded 
+                    ? "Work will be defined later during the fitting session." 
+                    : "Schedule work immediately. Due date is mandatory."}
+                </p>
+              </div>
+
               <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Work requested
+                  {fittingNeeded ? "Initial work request (Optional)" : "Work requested"}
                 </span>
                 <input
                   value={workRequested}
                   onChange={(event) => setWorkRequested(event.target.value)}
-                  placeholder="Hem pants, take in waist, shorten sleeves..."
+                  placeholder={fittingNeeded ? "e.g. Needs hem" : "Hem pants, take in waist..."}
                   data-testid="pos-alteration-work-requested"
                   className="ui-input h-11 w-full text-sm font-bold"
                 />
@@ -697,13 +739,13 @@ export default function PosAlterationIntakeModal({
 
               <label className="block space-y-2">
                 <span className="px-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Due date
+                  Due date {!fittingNeeded && <span className="text-red-500">*</span>}
                 </span>
                 <input
                   type="date"
                   value={dueAt}
                   onChange={(event) => setDueAt(event.target.value)}
-                  className="ui-input h-11 w-full text-sm font-bold"
+                  className={`ui-input h-11 w-full text-sm font-bold ${!fittingNeeded && !dueAt ? "border-red-500/50 bg-red-500/5" : ""}`}
                 />
               </label>
 

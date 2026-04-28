@@ -9,7 +9,9 @@ if ! command -v docker >/dev/null 2>&1; then
   exit 1
 fi
 
-export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5433/riverside_os}"
+E2E_DB_NAME="riverside_os_e2e"
+export RIVERSIDE_MODE="e2e"
+export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:password@localhost:5433/$E2E_DB_NAME}"
 export E2E_API_BASE="${E2E_API_BASE:-http://127.0.0.1:43300}"
 export E2E_BASE_URL="${E2E_BASE_URL:-http://localhost:43173}"
 export E2E_CORECARD_BASE="${E2E_CORECARD_BASE:-http://127.0.0.1:43400}"
@@ -41,10 +43,18 @@ ui_host="${ui_host_port%:*}"
 ui_port="${ui_host_port##*:}"
 
 docker compose up -d db
+
+# Ensure isolated E2E database exists
+echo "Ensuring E2E database $E2E_DB_NAME exists..."
+docker compose exec -T db psql -U postgres -c "SELECT 1 FROM pg_database WHERE datname = '$E2E_DB_NAME'" | grep -q 1 || \
+docker compose exec -T db psql -U postgres -c "CREATE DATABASE $E2E_DB_NAME"
+
+export RIVERSIDE_DB_NAME="$E2E_DB_NAME"
 "$ROOT/scripts/apply-migrations-docker.sh"
-docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_staff_register_test.sql"
-docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_non_admin_staff.sql"
-docker compose exec -T db psql -U postgres -d riverside_os -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_rms_staff.sql"
+
+docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_staff_register_test.sql"
+docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_non_admin_staff.sql"
+docker compose exec -T db psql -U postgres -d "$E2E_DB_NAME" -v ON_ERROR_STOP=1 < "$ROOT/scripts/seed_e2e_rms_staff.sql"
 
 exec npx concurrently -k -s first -n api,ui,corecard -c blue,magenta,cyan \
   "npm run dev:server" \

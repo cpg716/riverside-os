@@ -66,7 +66,11 @@ export default function AlterationItemEditor({
       const res = await fetch(`${baseUrl}/api/alterations/${alterationId}/items`, {
         method: "POST",
         headers: { ...apiAuth(), "Content-Type": "application/json" },
-        body: JSON.stringify(itemData),
+        body: JSON.stringify({
+          label: itemData.label,
+          capacity_bucket: itemData.bucket,
+          units: itemData.units,
+        }),
       });
       if (res.ok) {
         fetchItems();
@@ -119,13 +123,13 @@ export default function AlterationItemEditor({
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-white/90 flex items-center gap-2">
-          <Scissors className="w-4 h-4 text-blue-400" />
+        <h3 className="text-sm font-semibold text-app-text flex items-center gap-2">
+          <Scissors className="w-4 h-4 text-app-accent" />
           Work Items & Units
         </h3>
         <div className="flex gap-3 text-[10px] uppercase tracking-wider font-bold">
-          <span className="text-blue-400">Jacket: {totalJacket}u</span>
-          <span className="text-emerald-400">Pant: {totalPant}u</span>
+          <span className="text-blue-500">Jacket: {totalJacket}u</span>
+          <span className="text-emerald-500">Pant: {totalPant}u</span>
         </div>
       </div>
 
@@ -145,16 +149,16 @@ export default function AlterationItemEditor({
                 className={`w-5 h-5 rounded border flex items-center justify-center transition-colors ${
                   item.completed_at 
                     ? "bg-emerald-500 border-emerald-500 text-white" 
-                    : "border-white/20 hover:border-white/40"
+                    : "border-app-border hover:border-app-text"
                 }`}
               >
                 {item.completed_at && <Check className="w-3 h-3" />}
               </button>
               <div>
-                <p className={`text-sm font-medium ${item.completed_at ? "line-through text-white/50" : "text-white"}`}>
+                <p className={`text-sm font-medium ${item.completed_at ? "line-through text-app-text-muted" : "text-app-text"}`}>
                   {item.label}
                 </p>
-                <p className="text-[10px] text-white/40 uppercase font-bold">
+                <p className="text-[10px] text-app-text-muted uppercase font-bold">
                   {item.capacity_bucket} • {item.units} unit{item.units !== 1 ? 's' : ''}
                 </p>
               </div>
@@ -196,13 +200,13 @@ export default function AlterationItemEditor({
           </button>
         </div>
       ) : (
-        <div className="p-4 rounded-xl bg-white/5 border border-white/10 space-y-3 animate-in slide-in-from-top-2">
+        <div className="p-4 rounded-xl bg-app-surface-2 border border-app-border space-y-3 animate-in slide-in-from-top-2">
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1">
-              <label className="text-[10px] text-white/40 uppercase font-bold">Label</label>
+              <label className="text-[10px] text-app-text-muted uppercase font-bold">Label</label>
               <input 
                 autoFocus
-                className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50"
+                className="w-full bg-app-surface border border-app-border rounded-lg px-3 py-2 text-sm text-app-text focus:outline-none focus:border-app-accent/50"
                 value={newItem.label}
                 onChange={e => setNewItem({...newItem, label: e.target.value})}
                 placeholder="e.g. Hem Pants"

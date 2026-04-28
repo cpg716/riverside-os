@@ -110,40 +110,34 @@ test.describe("Smart Alterations Scheduler E2E", () => {
     test("can plan work items and schedule a slot using the smart scheduler", async ({ page }) => {
         await openBackofficeSidebarTab(page, "customers");
         
-        // Find and click customer
+        // Find and click customer (wait for list to load)
+        await expect(page.getByText("Charlie Custom")).toBeVisible();
         await page.getByText("Charlie Custom").click();
         await expect(page.getByText("E2E Test Suit")).toBeVisible();
 
         // Open Scheduler
-        await page.getByRole("button", { name: /Plan & Schedule/i }).click();
-        await expect(page.getByText("Alteration Scheduling")).toBeVisible();
+        await page.getByRole("button", { name: "Plan & Schedule", exact: true }).click();
+        await expect(page.getByText("Plan & Schedule", { exact: true })).toBeVisible();
 
         // Phase 1: Plan Work
-        const jacketSelect = page.locator('select').first(); // Jacket tasks
-        await jacketSelect.selectOption("Sleeve Length");
-        await page.getByRole("button", { name: /Add Task/i }).first().click();
+        // Click a common task button (e.g. Waist in/out)
+        await page.getByRole("button", { name: /Waist in\/out/i }).click();
+        
+        // Click a jacket common task (e.g. Shorten Sleeves)
+        await page.getByRole("button", { name: /Shorten Sleeves/i }).click();
 
-        const pantSelect = page.locator('select').nth(1); // Pant tasks
-        await pantSelect.selectOption("Hem Pants");
-        await page.getByRole("button", { name: /Add Task/i }).last().click();
+        // Verify units (Waist: 2u, Sleeves: 4u)
+        await expect(page.getByText("Jacket Units").locator("xpath=following-sibling::p")).toHaveText("4u");
+        await expect(page.getByText("Pant Units").locator("xpath=following-sibling::p")).toHaveText("2u");
 
-        // Verify units
-        await expect(page.getByText("Jacket Units: 1")).toBeVisible();
-        await expect(page.getByText("Pant Units: 1")).toBeVisible();
-
-        // Next Step: Schedule
-        await page.getByRole("button", { name: /Next: Schedule Fitting/i }).click();
+        // Next Step: Schedule (using the new tab/button)
+        await page.getByRole("button", { name: "2. Schedule Slot", exact: true }).click();
 
         // Phase 2: Schedule
-        await expect(page.getByText("Select a suggested date")).toBeVisible();
-        await expect(page.getByText("Friday, May 15, 2026")).toBeVisible();
-
-        // Select the first suggestion
-        await page.getByText("Friday, May 15, 2026").click();
-        await expect(page.getByText("Selected: May 15, 2026")).toBeVisible();
-
-        // Finish
-        await page.getByRole("button", { name: /Confirm & Schedule/i }).click();
+        await expect(page.getByText("Smart Slot Suggestions")).toBeVisible();
+        
+        // Select the first suggestion (May 15)
+        await page.getByText("Friday").first().click();
 
         // Verify card updated
         await expect(page.getByText("Scheduled for May 15, 2026")).toBeVisible();
