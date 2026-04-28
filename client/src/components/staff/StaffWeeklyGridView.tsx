@@ -2109,6 +2109,7 @@ export default function StaffWeeklyGridView() {
                                 id: "",
                                 event_date: ymd,
                                 label: "",
+                                kind: "meeting",
                                 is_all_staff: true,
                                 attendees: [],
                               });
