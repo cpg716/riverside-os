@@ -1090,6 +1090,17 @@ export default function StaffWeeklyGridView() {
     return stats;
   }, [schedules]);
 
+  const sortedSchedules = useMemo(() => {
+    return [...schedules].sort((a, b) => {
+      // Sort Natalie Neumann to the bottom as per user preference
+      if (a.full_name === "Natalie Neumann") return 1;
+      if (b.full_name === "Natalie Neumann") return -1;
+      const order = roleSortOrder(a.role, a.staff_id) - roleSortOrder(b.role, b.staff_id);
+      if (order !== 0) return order;
+      return (a.full_name || "").localeCompare(b.full_name || "");
+    });
+  }, [schedules]);
+
   const setStaffDirty = useCallback((_staffId: string, isDirty: boolean) => {
     if (isDirty) setUnsaved(true);
   }, []);
@@ -1689,7 +1700,7 @@ export default function StaffWeeklyGridView() {
   }
 
   const handlePrint = () => {
-    const doc = buildStaffPrintDocument(schedules, weekLabel, events, sundayStart(weekCursor));
+    const doc = buildStaffPrintDocument(sortedSchedules, weekLabel, events, sundayStart(weekCursor));
     const printWindow = window.open("", "_blank", "width=1400,height=900");
     if (!printWindow) return;
     printWindow.document.open();
@@ -2075,7 +2086,7 @@ export default function StaffWeeklyGridView() {
                 <td className="bg-amber-500/5" />
               </tr>
 
-              {schedules.map((s) => (
+              {sortedSchedules.map((s) => (
                 <tr
                   key={s.staff_id}
                   className="group hover:bg-app-surface-2 transition-colors"
