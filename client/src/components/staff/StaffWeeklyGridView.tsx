@@ -722,8 +722,9 @@ const buildStaffPrintDocument = (
         const ymd = toYmdLocal(addDays(weekStart, wd));
         const dayEvents = events.filter(e => e.event_date === ymd);
         const hasHoliday = dayEvents.some(e => e.kind === "holiday");
+        const hasStoreEvent = dayEvents.some(e => e.kind === "store_event");
         
-        return `<td style="font-size: ${hasHoliday ? "16px" : "13px"}; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
+        return `<td style="font-size: 16px; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
           ${dayEvents.map(e => `<div style="${e.kind === "holiday" ? "text-align: center; border: 1pt solid #d32f2f; background: #ffebee; padding: 2px; border-radius: 4px; margin-bottom: 2px" : "margin-bottom: 3px"}">${e.kind === "holiday" ? "★ " : "• "}${escapeForPrint(e.label).toUpperCase()}</div>`).join("")}
         </td>`;
       }).join("")}
@@ -755,8 +756,9 @@ const buildStaffPrintDocument = (
           .map((_, index) => {
             const w = s.weekdays[index + 1];
             const dayEventsForShift = events.filter(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
-            const hasMeeting = dayEventsForShift.some(e => e.kind !== "holiday");
+            const hasMeeting = dayEventsForShift.some(e => e.kind === "meeting");
             const hasHoliday = dayEventsForShift.some(e => e.kind === "holiday");
+            const hasStoreEvent = dayEventsForShift.some(e => e.kind === "store_event");
             
             const label = w?.shift_label || "";
             const isOff = !w?.works;
@@ -778,6 +780,7 @@ const buildStaffPrintDocument = (
               <td class="${!isOff ? "work-cell" : "off-cell"} ${w?.is_highlighted ? "highlighted-cell" : ""}">
                 ${escapeForPrint(text).toUpperCase()}
                 ${hasHoliday ? `<div style="font-size: 7px; color: #d32f2f; font-weight: 900; margin-top: 1px">[HOLIDAY]</div>` : ""}
+                ${hasStoreEvent ? `<div style="font-size: 7px; color: #388e3c; font-weight: 900; margin-top: 1px">[EVENT]</div>` : ""}
                 ${hasMeeting ? `<div style="font-size: 7px; color: #795548; font-weight: 900; margin-top: 1px">[MEETING]</div>` : ""}
               </td>
             `;
