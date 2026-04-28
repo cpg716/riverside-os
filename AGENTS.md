@@ -6,6 +6,65 @@ Riverside OS is a production retail POS/ERM platform for formalwear and wedding 
 
 ---
 
+## Codex Efficiency Mode
+
+Default mode is IMPLEMENT unless the user explicitly asks for AUDIT.
+
+### IMPLEMENT
+
+- Use when the user gives a specific bug, file, UI issue, failing test, or requested change.
+- Do not perform a broad audit.
+- Inspect only directly relevant files.
+- Apply the smallest safe diff.
+- Do not rewrite entire files when a targeted edit is enough.
+- Prefer minimal diffs over full rewrites.
+- Do not restate unchanged code.
+- If the fix is unclear within 2–3 files: STOP and ask for clarification instead of expanding scope.
+- Run targeted validation first.
+- Do not run full pack/build unless requested or clearly necessary.
+
+### AUDIT
+
+- Use only when explicitly requested.
+- Trace behavior end-to-end.
+- Classify real issues.
+- Propose fixes before applying broad changes.
+
+### VALIDATE
+
+- Use when the user asks to check work.
+- Run validation only.
+- Do not redesign or expand scope.
+
+## Scope Enforcement
+
+- Do NOT read entire folders unless explicitly listed.
+- Do NOT open unrelated modules.
+- If required files are missing:
+  - STOP.
+  - Report what is needed.
+  - Do NOT continue scanning the repo.
+
+## Dependency Boundary Rule
+
+- Only follow direct dependencies required to complete the fix.
+- Do NOT recursively explore dependency chains.
+- Limit dependency inspection to 1 level unless explicitly required.
+- If deeper context is needed:
+  - STOP.
+  - Request clarification or additional files.
+
+## Execution Budget
+
+- Prefer solutions achievable within a small number of reasoning steps.
+- Avoid multi-strategy exploration.
+- Do not generate alternative implementations unless explicitly requested.
+- If multiple approaches exist:
+  - Choose the safest, simplest one.
+  - Proceed without exploring others.
+
+---
+
 ## Mission
 
 The main shell component is a critical part of the application that manages UI state and renders content based on user interactions and application state. In v0.2.0, the **Persistent Top Bar** architecture was introduced as the universal navigation anchor, moving away from fragmented headers. It supports various modes such as POS (Point of Sale), Insights (analytics and reporting tools), and Wedding (wedding-related functionalities). The component includes features like sidebar navigation, the new Top Bar navigation, global search drawer, deep link handling, permissions and access control, theme mode, error handling, and navigation and routing.
@@ -285,9 +344,15 @@ cargo sqlx prepare --workspace
  - **Manual Overrides**: The synchronization logic must attempt to preserve existing manual user overrides while ensuring the staff member attains the mandatory baseline of their new role.
  
  ### Codex & ROSIE Invariants (v0.3.2+)
- - **Narrow Audit Mandate**: When given directions, the agent MUST adhere to the structured mindset defined in **`codex_prompt_template.md`**. This includes tracing behavior end-to-end, identifying real (not theoretical) issues, and proposing the smallest correct fix.
- - **ROSIE Safety Rails**: When touching AI features (ROSIE), the agent MUST strictly follow the **ROSIE Rules** in **`codex_prompt_template.md`** (No raw SQL, no RBAC bypass, server-validated tool execution, and user-confirmed mutations).
- - **Scope Locking**: Do not broaden scope, switch branches, or redesign entire systems unless explicitly requested.
+ - **Mode Enforcement**:
+   - IMPLEMENT mode is default and MUST NOT perform full audits
+   - AUDIT mode is required for end-to-end tracing
+ - **Audit Mandate (AUDIT mode only)**:
+   - When explicitly requested, trace behavior end-to-end
+   - Identify real (not theoretical) issues
+   - Propose the smallest correct fix
+ - **ROSIE Safety Rails**:
+   - When touching AI features (ROSIE), the agent MUST strictly follow the **ROSIE Rules** in **`codex_prompt_template.md`** (No raw SQL, no RBAC bypass, server-validated tool execution, and user-confirmed mutations).
 
 ---
 
