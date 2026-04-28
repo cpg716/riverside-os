@@ -36,12 +36,18 @@ RiversideOS v0.3.4 introduces a refined scheduling model focused on privacy, mul
 - **Strict "Published Only" Visibility**: 
   - Staff View, Staff Profiles, and the live Appointments Scheduler **MUST ONLY** consume **Published** weekly schedules. 
   - Drafts and the Master Template are planning tools only and MUST NOT be visible in public-facing roster views.
-- **Badge-First Notifications**: 
-  - Prefer subtle icons/badges (Alert circles, "M" badges) for schedule warnings (Conflicts, Overrides, Meetings) rather than aggressive full-cell coloring or borders.
+- **Unified Badge System (H/E/M)**: 
+  - All store activities MUST be categorized using the `kind` field:
+    - **H (Red)**: Holiday / Store Closed.
+    - **E (Green)**: Store Event / Training.
+    - **M (Amber)**: Meeting.
+  - These badges MUST be visually reflected in the individual shift boxes of all attendees.
+- **Professional Print Invariants**:
+  - **Numerical Dates**: Header labels MUST include day-of-month (e.g., "Mon 27").
+  - **Large Bold Rendering**: Holidays and Events MUST use a 16px bold font in the header row.
+  - **Flexible Labeling**: The printout MUST respect custom shift labels (e.g., "VAC", "REQ OFF") for non-working days.
 - **Highlighter Authority**: 
   - Solid Yellow (`#fff176`) is the authoritative color for the manual highlighter tool, used to emphasize specific shifts for printing.
-- **Meeting Symmetry**: 
-  - Store Events recorded in the "Store Events" header MUST be visually reflected in the individual shift boxes of all attendees via the "M" badge.
 
 ### v0.3.0 Operational Perfection
 

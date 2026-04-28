@@ -40,12 +40,19 @@ Riverside OS calculates availability using a strict hierarchy (from highest to l
 
 ---
 
-## Store Events & Meetings (v0.3.3)
+## Store Events, Meetings & Holidays (v0.3.4)
 
-Managers can now track shared activities that affect the entire team or specific groups.
+Managers can now track shared activities and store closures that affect the entire team.
 
-- **Store Events Row**: A dedicated row at the top of the Planning Grid for shared events (e.g., "Monthly Store Meeting").
-- **Meeting Indicators**: When a staff member is assigned to an event, a small **"M" badge** appears in their shift box.
+- **Store Events Row**: A dedicated row at the top of the Planning Grid for shared events (e.g., "Memorial Day").
+- **Event Types**: Use the **Type** dropdown in the event modal to categorize activities:
+  - **Holiday (Closed)**: For store-wide closures. Renders in **Red** with a star (★) and large font on printouts.
+  - **Store Event**: For training or special events. Renders with an **"E"** badge.
+  - **Meeting**: For standard staff meetings. Renders with an **"M"** badge.
+- **Unified Badges**: When a staff member is assigned to an event, a color-coded circular badge appears in their shift box:
+  - **H (Red)**: Holiday.
+  - **E (Green)**: Store Event.
+  - **M (Amber)**: Meeting.
 - **Attendance**: Events can be marked for "All Staff" or limited to selected team members.
 
 ---
@@ -56,8 +63,10 @@ The Planning Grid uses subtle badges and colors to provide operational warnings:
 
 - **Conflict (Red Pulse Icon)**: Staff member has a "Request Off" (PTO, Sick, etc.) on this day. Avoid scheduling them.
 - **Override (Amber Icon)**: Staff member is working on a day they are normally "OFF" in the Master Template.
+- **Holiday (Red H Badge)**: Indicates a store-wide holiday or closure.
+- **Event (Green E Badge)**: Indicates a store event or training.
 - **Meeting (Amber M Badge)**: Linked to a Store Event. Hover to see details.
-*   **Highlighter (Solid Yellow)**: A manual toggle to highlight specific shifts for high-visibility printing.
+- **Highlighter (Solid Yellow)**: A manual toggle to highlight specific shifts for high-visibility printing.
 
 ---
 

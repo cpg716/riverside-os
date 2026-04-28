@@ -1,58 +1,56 @@
 ---
 id: staff-weekly-grid-view
-title: "Staff Weekly Grid View (staff)"
+title: "Staff Weekly Grid View"
 order: 1133
-summary: "Draft maintainer scaffold for client/src/components/staff/StaffWeeklyGridView.tsx. Promote to approved after SOP review and screenshot capture."
+summary: "Professional printing, store event management, and unified badge reference for the weekly schedule."
 source: client/src/components/staff/StaffWeeklyGridView.tsx
-last_scanned: 2026-04-27
-tags: staff-weekly-grid-view, component, auto-scaffold
-status: draft
+tags: staff, schedule, grid, printing, events
+status: approved
 ---
 
-# Staff Weekly Grid View (staff)
+# Staff Weekly Grid View
 
-<!-- help:component-source -->
-_Linked component: `client/src/components/staff/StaffWeeklyGridView.tsx`._
-<!-- /help:component-source -->
+The Weekly Grid View is the primary interactive surface for building and printing your store's weekly agenda. It provides a high-density overview of all staff shifts, store events, and operational warnings.
+
+![Weekly Grid Overview](../images/help/staff-weekly-grid-view/main.png)
 
 ## What this is
 
-This draft exists so the Help Center maintainer can turn the linked component into a staff-ready procedure guide.
+This view acts as the "Command Center" for the Weekly Schedule. It allows you to:
+- Build upcoming schedules using the Master Template or by copying previous weeks.
+- Manage shared **Store Events**, **Meetings**, and **Holidays**.
+- Print professional, high-fidelity schedules for physical posting.
 
-## When to use it
+## Professional Printing
 
-Use this manual when you need to explain the job this component supports, where staff open it, and what task it should finish.
+Riverside OS includes a specialized print engine designed for store-room posting:
+- **Numerical Dates**: Header labels include the day of the month (e.g., "Mon 27").
+- **Unified Event Badges**: Shift boxes include color-coded badges for easy recognition:
+  - **[HOLIDAY]** (Red): Store-wide closures.
+  - **[EVENT]** (Green): Shared store activities or training.
+  - **[MEETING]** (Amber): Staff meetings.
+- **Role Separators**: The printout automatically groups staff by their role (Salesperson, Tailor, etc.) for better organization.
+- **Custom Non-Working Labels**: If a staff member is off for a specific reason (e.g., **VAC**, **REQ OFF**), the printout will reflect that specific reason instead of a generic "OFF".
 
-## Before you start
+## Managing Store Events
 
-- Confirm which workspace or role opens this component.
-- Confirm any permission, prerequisite record, or previous workflow step staff need first.
-- Capture screenshots only after the UI state is stable and redacted.
-
-## Steps
-
-1. Enter the workspace or drawer that opens this component.
-2. Describe the staff action that starts the task.
-3. Describe the key review or confirmation step.
-4. Describe how staff finish or exit cleanly.
+Use the **Store Events** row at the top of the grid to manage shared activities:
+1. Click **+ Add Event** on the desired day.
+2. Select the **Type**:
+   - **Holiday (Closed)**: Automatically centers the label and uses a large bold font on printouts.
+   - **Store Event**: For activities like "Inventory Training".
+   - **Meeting**: For standard recurring meetings.
+3. Choose **Attendance** (All Staff or Selected Staff).
+4. Click **Save Event**. Attendees will automatically receive the corresponding badge in their shift cell.
 
 ## What to watch for
 
-- Replace this draft note with real guardrails, validation rules, or common mistakes from the live UI.
-- Keep the wording staff-facing and operational instead of implementation-heavy.
-
-## What happens next
-
-Explain the expected result, where the staff member lands next, and whether another workspace takes over.
+- **Published Status**: Only weeks marked as **Published** are visible to the general staff. Always remember to click **Publish Week** after finalizing your draft.
+- **Red Conflicts**: If you see a pulsing red icon, it means a staff member has an approved "Request Off" that overlaps with a scheduled shift.
+- **Star Icons (★)**: These indicate store-wide holidays and closures.
 
 ## Related workflows
 
-- Link to the broader workspace manual when this component is only one step in a larger SOP.
-- Link to adjacent drawer or troubleshooting manuals when they help staff recover.
-
-## Screenshots
-
-Add PNGs under `../images/help/staff-weekly-grid-view/` and replace this example with governed screenshots.
-
-![Example](../images/help/staff-weekly-grid-view/example.png)
+- [Staff Workspace](manual:staff-workspace)
+- [Staff Schedule Panel](manual:staff-schedule-panel)
 

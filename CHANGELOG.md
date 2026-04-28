@@ -5,34 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepashangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
  
-## [0.3.4] — 2026-04-27
+## [0.3.4] — 2026-04-28
 ### Added
-- **Store Events & Meetings Framework**: 
-  - New system for tracking shared store activities (meetings, training, holiday events).
-  - Dedicated "Store Events" header row in the Planning Grid.
-  - Individual "Meeting" (M) badges for attendees, synchronized with individual shift boxes.
-  - **StaffEventModal**: Integrated event manager for creating, editing, and deleting multi-staff events.
-- **Schedule Indicators & Legend**:
-  - Implemented a persistent **Schedule Legend** in the toolbar for quick icon reference.
-  - **Conflict Badge (Red Pulse)**: Real-time notification of "Request Off" (PTO/Sick/Vacation) overlaps.
-  - **Override Badge (Amber Circle)**: Indicators for shifts that deviate from the Master Template.
-  - Added descriptive tooltips to all grid icons explaining their status and notes.
+- **Store Events & Holidays Refinement**: 
+  - Added **Holiday (Closed)** as a dedicated event kind with distinct visual rendering.
+  - Implemented **Numerical Dates** in the print header (e.g., "Mon 27") for better date-of-month clarity.
+  - **Unified Event Badges (H/E/M)**: New color-coded badge system for shift boxes:
+    - **H (Red)**: Holiday / Store Closed.
+    - **E (Green)**: Store Event / Training.
+    - **M (Amber)**: Meeting.
 - **Professional Print Overhaul**:
-  - Grid-style printed schedules with clear **Role Separators** and high-fidelity text.
-  - Dedicated **Sunday Exception Box** for specialized weekend shift visibility.
-  - Preserved **Highlighter Tool** support for high-contrast yellow marking on physical copies.
-
-### Changed
-- **Strict Published Visibility Invariant**: 
-  - Enforced a system-wide privacy rule where **only Published weeks** are visible in the Staff View and Staff Profiles. 
-  - Drafts and planning-in-progress data are strictly confined to the Planning Mode to prevent staff confusion.
-- **Highlighter Enhancement**: Overhauled the Highlighter tool to use solid, bright yellow (`#fff176`) with dark borders for maximum visibility.
-- **UI Refinement**: Replaced full-cell colored borders with subtle, high-context badges (Red Alert for Conflicts, Amber for Overrides) to maintain operational awareness without cluttering the grid.
+  - Full-page landscape utilization with high-density legibility pass.
+  - **Large Bold Rendering**: Holidays and Events now use a massive 16px font in the header row for maximum visibility.
+  - **Flexible "OFF" Labels**: The printout now respects custom non-working reasons like **"VAC"**, **"REQ OFF"**, and **"REQ"** instead of defaulting to generic "OFF".
 
 ### Fixed
-- Resolved confusing amber "auto-borders" on normal shifts for Alterations and Support staff.
-- Fixed Sunday shift visibility in the Planning Grid and professional print document.
-- Synchronized the Scheduler's "Available Staff" logic with the new strict published-only database truth.
+- **Cloning Logic 500 Error**: Resolved a critical database schema mismatch that crashed the "Copy from Last Week" function.
+- **Event Persistence**: Fixed a server-side loading bug where "Holiday" and "Event" types would reset to "Meeting" upon reload.
+- **Print Button Crash**: Resolved a JavaScript error in the print builder caused by a missing date variable.
+- **Filtering**: Staff marked as "Template" with zero hours are now correctly excluded from the printed schedule to save space.
+
+### Changed
+- **Header Unification**: All store events (not just holidays) now use the 16px bold font size in the professional print header.
+- **Visual Grid**: Updated the Planning Grid to use red backgrounds for Holidays and star (★) icons for better at-a-glance recognition.
 
 ## [0.3.3] — 2026-04-26
 ### Changed

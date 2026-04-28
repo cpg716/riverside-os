@@ -143,6 +143,39 @@ test.describe("Staff Scheduler E2E", () => {
         await expect(page.getByText("Upload Excel")).toBeVisible();
     });
 
+    test("can manage store events (meetings/holidays)", async ({ page }) => {
+        await openBackofficeSidebarTab(page, "staff");
+        await page.getByRole("button", { name: /^Schedule$/i }).click();
+        await page.getByRole("button", { name: "Scheduler", exact: true }).click();
+
+        // Mock events fetch
+        await page.route("**/api/staff/schedule/events*", async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify([
+                    { 
+                        id: "evt-1", 
+                        event_date: "2026-04-27", 
+                        label: "Memorial Day", 
+                        kind: "holiday", 
+                        is_all_staff: true, 
+                        attendees: [] 
+                    }
+                ]),
+            });
+        });
+
+        // Verify holiday star and red color in grid (top row)
+        const holidayCell = page.getByText("★ Memorial Day");
+        await expect(holidayCell).toBeVisible();
+        
+        // Verify staff shift badge (red 'H' for holiday)
+        const shiftBadge = page.getByText("H").first();
+        await expect(shiftBadge).toBeVisible();
+        await expect(shiftBadge).toHaveClass(/bg-red-500/);
+    });
+
     test("can switch to master template mode", async ({ page }) => {
         await openBackofficeSidebarTab(page, "staff");
         await page.getByRole("button", { name: /^Schedule$/i }).click();
