@@ -41,6 +41,7 @@ interface ScheduleEvent {
   id: string;
   event_date: string;
   label: string;
+  kind: string;
   notes?: string;
   is_all_staff: boolean;
   attendees: string[];
@@ -716,12 +717,14 @@ const buildStaffPrintDocument = (
   const monToSat = [1, 2, 3, 4, 5, 6];
   const eventsHtml = `
     <tr style="background: #fff8e1">
-      <td class="staff" style="font-size: 9px; font-weight: 900; background: #fff8e1">STORE EVENTS / MEETINGS</td>
+      <td class="staff" style="font-size: 10px; font-weight: 900; background: #fff8e1; border-bottom: 2pt solid #000">STORE EVENTS / MEETINGS</td>
       ${monToSat.map(wd => {
         const ymd = toYmdLocal(addDays(weekStart, wd));
         const dayEvents = events.filter(e => e.event_date === ymd);
-        return `<td style="font-size: 8px; font-weight: 800; color: #795548; vertical-align: top; padding: 2px">
-          ${dayEvents.map(e => `<div>• ${escapeForPrint(e.label)}</div>`).join("")}
+        const hasHoliday = dayEvents.some(e => e.kind === "holiday");
+        
+        return `<td style="font-size: ${hasHoliday ? "14px" : "11px"}; font-weight: 900; color: ${hasHoliday ? "#d32f2f" : "#795548"}; vertical-align: top; padding: 4px; border-bottom: 2pt solid #000">
+          ${dayEvents.map(e => `<div style="${e.kind === "holiday" ? "text-align: center; border: 1pt solid #d32f2f; background: #ffebee; padding: 2px; border-radius: 4px; margin-bottom: 2px" : "margin-bottom: 3px"}">${e.kind === "holiday" ? "★ " : "• "}${escapeForPrint(e.label).toUpperCase()}</div>`).join("")}
         </td>`;
       }).join("")}
     </tr>
@@ -754,12 +757,25 @@ const buildStaffPrintDocument = (
             const ymd = toYmdLocal(addDays(weekStart, index + 1));
             const hasMeeting = events.some(e => e.event_date === ymd && (e.is_all_staff || e.attendees.includes(s.staff_id)));
             
-            const text = escapeForPrint(
-              w?.works ? w.shift_label || "Working" : "OFF",
-            );
+            const label = w?.shift_label || "";
+            const isOff = !w?.works;
+            let text = "";
+            
+            if (!isOff) {
+              text = label || "Working";
+            } else {
+              // If not working, check if there's a special label like VAC or REQ OFF
+              const upperLabel = label.toUpperCase();
+              if (upperLabel === "VAC" || upperLabel === "REQ OFF" || upperLabel === "REQ" || upperLabel === "REQUEST") {
+                text = label;
+              } else {
+                text = "OFF";
+              }
+            }
+
             return `
-              <td class="${w?.works ? "work-cell" : "off-cell"} ${w?.is_highlighted ? "highlighted-cell" : ""}">
-                ${text.toUpperCase()}
+              <td class="${!isOff ? "work-cell" : "off-cell"} ${w?.is_highlighted ? "highlighted-cell" : ""}">
+                ${escapeForPrint(text).toUpperCase()}
                 ${hasMeeting ? `<div style="font-size: 7px; color: #795548; font-weight: 900; margin-top: 1px">[MEETING]</div>` : ""}
               </td>
             `;
@@ -923,7 +939,13 @@ const buildStaffPrintDocument = (
         <thead>
           <tr>
             <th>Staff Member</th>
-            ${printDays.map((day) => `<th>${day}</th>`).join("")}
+            ${printDays.map((day, i) => {
+              const d = addDays(weekStart, i + 1);
+              return `<th>
+                <div style="font-size: 11px">${day}</div>
+                <div style="font-size: 15px; margin-top: 1px">${d.getDate()}</div>
+              </th>`;
+            }).join("")}
           </tr>
         </thead>
         <tbody>
@@ -2384,6 +2406,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
   const { backofficeHeaders } = useBackofficeAuth();
   const { toast } = useToast();
   const [label, setLabel] = useState("");
+  const [kind, setKind] = useState("meeting");
   const [notes, setNotes] = useState("");
   const [allStaff, setAllStaff] = useState(true);
   const [attendees, setAttendees] = useState<string[]>([]);
@@ -2392,6 +2415,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
   useEffect(() => {
     if (event) {
       setLabel(event.label || "");
+      setKind(event.kind || "meeting");
       setNotes(event.notes || "");
       setAllStaff(event.is_all_staff);
       setAttendees(event.attendees || []);
@@ -2412,6 +2436,7 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
           id: event?.id || null,
           event_date: event?.event_date,
           label,
+          kind,
           notes,
           is_all_staff: allStaff,
           attendees,
@@ -2463,15 +2488,29 @@ function StaffEventModal({ open, onClose, event, staffList, onSave }: StaffEvent
         </div>
 
         <div className="space-y-4">
-          <label className="block">
-            <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Label</span>
-            <input 
-              value={label}
-              onChange={e => setLabel(e.target.value)}
-              className="ui-input w-full"
-              placeholder="e.g. Monthly Store Meeting"
-            />
-          </label>
+          <div className="flex gap-4">
+            <label className="flex-1">
+              <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Type</span>
+              <select 
+                value={kind}
+                onChange={e => setKind(e.target.value)}
+                className="ui-input w-full bg-app-surface-2"
+              >
+                <option value="meeting">Meeting</option>
+                <option value="store_event">Store Event</option>
+                <option value="holiday">Holiday (Closed)</option>
+              </select>
+            </label>
+            <label className="flex-[2]">
+              <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Label</span>
+              <input 
+                value={label}
+                onChange={e => setLabel(e.target.value)}
+                className="ui-input w-full"
+                placeholder="e.g. Monthly Store Meeting"
+              />
+            </label>
+          </div>
 
           <label className="block">
             <span className="text-[10px] font-black uppercase text-app-text-muted mb-1 block">Notes (Optional)</span>

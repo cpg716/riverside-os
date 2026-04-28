@@ -564,6 +564,7 @@ pub struct ScheduleEventRow {
     pub id: Uuid,
     pub event_date: NaiveDate,
     pub label: String,
+    pub kind: String,
     pub notes: Option<String>,
     pub is_all_staff: bool,
     pub attendees: Vec<Uuid>,
@@ -1106,6 +1107,7 @@ pub async fn list_events_range(
                 id: r.get("id"),
                 event_date: r.get("event_date"),
                 label: r.get("label"),
+                kind: r.get::<Option<String>, _>("kind").unwrap_or_else(|| "meeting".to_string()),
                 notes: r.get("notes"),
                 is_all_staff: r.get::<Option<bool>, _>("is_all_staff").unwrap_or(false),
                 attendees: r.get::<Option<Vec<Uuid>>, _>("attendees").unwrap_or_default(),
@@ -1118,6 +1120,7 @@ pub async fn upsert_event(
     pool: &PgPool,
     event_date: NaiveDate,
     label: String,
+    kind: String,
     notes: Option<String>,
     is_all_staff: bool,
     attendees: Vec<Uuid>,
@@ -1129,13 +1132,14 @@ pub async fn upsert_event(
         sqlx::query_scalar::<_, Uuid>(
             r#"
             UPDATE staff_schedule_events
-            SET event_date = $1, label = $2, notes = $3, is_all_staff = $4, updated_at = NOW()
-            WHERE id = $5
+            SET event_date = $1, label = $2, kind = $3, notes = $4, is_all_staff = $5, updated_at = NOW()
+            WHERE id = $6
             RETURNING id
             "#,
         )
         .bind(event_date)
         .bind(label)
+        .bind(kind)
         .bind(notes)
         .bind(is_all_staff)
         .bind(eid)
@@ -1144,13 +1148,14 @@ pub async fn upsert_event(
     } else {
         sqlx::query_scalar::<_, Uuid>(
             r#"
-            INSERT INTO staff_schedule_events (event_date, label, notes, is_all_staff)
-            VALUES ($1, $2, $3, $4)
+            INSERT INTO staff_schedule_events (event_date, label, kind, notes, is_all_staff)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING id
             "#,
         )
         .bind(event_date)
         .bind(label)
+        .bind(kind)
         .bind(notes)
         .bind(is_all_staff)
         .fetch_one(&mut *tx)
