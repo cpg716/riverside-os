@@ -930,7 +930,7 @@ async fn get_loyalty_pipeline_stats(
             .fetch_one(&state.db)
             .await?;
 
-    let stats = sqlx::query!(
+    let stats = sqlx::query(
         r#"
         SELECT
             (SELECT COALESCE(SUM(loyalty_points), 0)::bigint FROM customers WHERE is_active = TRUE) as total_pts,
@@ -938,16 +938,17 @@ async fn get_loyalty_pipeline_stats(
             (SELECT COUNT(*)::bigint FROM loyalty_reward_issuances) as total_issuances,
             (SELECT COUNT(*)::bigint FROM loyalty_point_ledger WHERE created_at > (now() - interval '30 days') AND reason = 'manual_adjust') as recent_adjustments
         "#,
-        threshold
     )
+    .bind(threshold)
     .fetch_one(&state.db)
     .await?;
 
+    use sqlx::Row;
     Ok(Json(LoyaltyPipelineStats {
-        total_points_liability: stats.total_pts.unwrap_or(0),
-        eligible_customers_count: stats.eligible_count.unwrap_or(0),
-        lifetime_rewards_issued: stats.total_issuances.unwrap_or(0),
-        active_30d_adjustments: stats.recent_adjustments.unwrap_or(0),
+        total_points_liability: stats.get::<Option<i64>, _>("total_pts").unwrap_or(0),
+        eligible_customers_count: stats.get::<Option<i64>, _>("eligible_count").unwrap_or(0),
+        lifetime_rewards_issued: stats.get::<Option<i64>, _>("total_issuances").unwrap_or(0),
+        active_30d_adjustments: stats.get::<Option<i64>, _>("recent_adjustments").unwrap_or(0),
     }))
 }
 

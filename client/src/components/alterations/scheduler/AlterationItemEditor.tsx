@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { Plus, Trash2, Check, Scissors, Ruler } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { Plus, Trash2, Check, Scissors } from "lucide-react";
 import { getBaseUrl } from "../../../lib/apiConfig";
 
 const baseUrl = getBaseUrl();
@@ -39,13 +39,13 @@ export default function AlterationItemEditor({
   const [items, setItems] = useState<AlterationOrderItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
-  const [newItem, setNewItem] = useState({ label: "", bucket: "other" as const, units: 1 });
+  const [newItem, setNewItem] = useState<{
+    label: string;
+    bucket: AlterationOrderItem["capacity_bucket"];
+    units: number;
+  }>({ label: "", bucket: "other", units: 1 });
 
-  useEffect(() => {
-    fetchItems();
-  }, [alterationId]);
-
-  const fetchItems = async () => {
+  const fetchItems = useCallback(async () => {
     try {
       const res = await fetch(`${baseUrl}/api/alterations/${alterationId}/items`, {
         headers: apiAuth(),
@@ -59,7 +59,11 @@ export default function AlterationItemEditor({
     } finally {
       setLoading(false);
     }
-  };
+  }, [alterationId, apiAuth]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
 
   const addItem = async (itemData: { label: string; bucket: string; units: number }) => {
     try {
@@ -217,7 +221,7 @@ export default function AlterationItemEditor({
               <select 
                 className="w-full bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500/50"
                 value={newItem.bucket}
-                onChange={e => setNewItem({...newItem, bucket: e.target.value as any})}
+                onChange={e => setNewItem({...newItem, bucket: e.target.value as AlterationOrderItem["capacity_bucket"]})}
               >
                 <option value="jacket">Jacket (28u limit)</option>
                 <option value="pant">Pant (24u limit)</option>

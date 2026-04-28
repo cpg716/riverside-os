@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { X, Calendar, Clock, Scissors, Check, AlertTriangle, User, UserCheck } from "lucide-react";
+import { X, Scissors, User } from "lucide-react";
 import AlterationItemEditor from "./AlterationItemEditor";
 import AlterationSmartScheduler from "./AlterationSmartScheduler";
 import { getBaseUrl } from "../../../lib/apiConfig";
@@ -38,12 +38,10 @@ export default function AlterationSchedulingDrawer({
 }: AlterationSchedulingDrawerProps) {
   const [activeTab, setActiveTab] = useState<"items" | "schedule">("items");
   const [localAlt, setLocalAlt] = useState(alteration);
-  const [saving, setSaving] = useState(false);
 
   const customerName = `${localAlt.customer_first_name ?? ""} ${localAlt.customer_last_name ?? ""}`.trim() || "Unassigned Customer";
 
   const updateAlteration = async (patch: Partial<AlterationRow>) => {
-    setSaving(true);
     try {
       const res = await fetch(`${baseUrl}/api/alterations/${localAlt.id}`, {
         method: "PATCH",
@@ -58,7 +56,7 @@ export default function AlterationSchedulingDrawer({
     } catch (e) {
       console.error("Failed to update alteration", e);
     } finally {
-      setSaving(false);
+      // Done
     }
   };
 
@@ -207,7 +205,7 @@ export default function AlterationSchedulingDrawer({
   );
 }
 
-function ChevronRight(props: any) {
+function ChevronRight(props: React.SVGProps<SVGSVGElement>) {
   return (
     <svg 
       {...props} 

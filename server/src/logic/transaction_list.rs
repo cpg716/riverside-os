@@ -455,7 +455,7 @@ mod tests {
 pub async fn query_pipeline_stats(
     pool: &sqlx::PgPool,
 ) -> Result<TransactionPipelineStats, sqlx::Error> {
-    let row = sqlx::query!(
+    let row = sqlx::query(
         r#"
         SELECT
             COUNT(*) FILTER (WHERE status IN ('open', 'ready'))::bigint AS needs_action,
@@ -467,8 +467,10 @@ pub async fn query_pipeline_stats(
     .fetch_one(pool)
     .await?;
 
+    use sqlx::Row;
+
     // We'll estimate "ready_for_pickup" as status=ready
-    let ready_row = sqlx::query!(
+    let ready_row = sqlx::query(
         r#"
         SELECT COUNT(*)::bigint AS ready_count
         FROM fulfillment_orders
@@ -479,10 +481,10 @@ pub async fn query_pipeline_stats(
     .await?;
 
     Ok(TransactionPipelineStats {
-        needs_action: row.needs_action.unwrap_or(0),
-        ready_for_pickup: ready_row.ready_count.unwrap_or(0),
-        overdue: row.overdue.unwrap_or(0),
-        wedding_orders: row.wedding_orders.unwrap_or(0),
+        needs_action: row.get::<Option<i64>, _>("needs_action").unwrap_or(0),
+        ready_for_pickup: ready_row.get::<Option<i64>, _>("ready_count").unwrap_or(0),
+        overdue: row.get::<Option<i64>, _>("overdue").unwrap_or(0),
+        wedding_orders: row.get::<Option<i64>, _>("wedding_orders").unwrap_or(0),
     })
 }
 

@@ -1,7 +1,7 @@
 //! Smart Alterations Scheduler: capacity-aware garment work slot finding.
 //! Standardized workweek: Monday to Sunday.
 
-use chrono::{Datelike, Duration, NaiveDate, NaiveDateTime, Utc};
+use chrono::{Datelike, Duration, NaiveDate, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 use serde::Serialize;

@@ -1074,30 +1074,34 @@ pub async fn list_events_range(
     from: NaiveDate,
     to: NaiveDate,
 ) -> Result<Vec<ScheduleEventRow>, sqlx::Error> {
-    let rows = sqlx::query!(
+    let rows = sqlx::query(
         r#"
-        SELECT e.*, COALESCE(array_agg(a.staff_id) FILTER (WHERE a.staff_id IS NOT NULL), '{}') as attendees
+        SELECT e.id, e.event_date, e.label, e.notes, e.is_all_staff, 
+               COALESCE(array_agg(a.staff_id) FILTER (WHERE a.staff_id IS NOT NULL), '{}') as attendees
         FROM staff_schedule_events e
         LEFT JOIN staff_schedule_event_attendees a ON a.event_id = e.id
         WHERE e.event_date >= $1 AND e.event_date <= $2
         GROUP BY e.id
         ORDER BY e.event_date ASC, e.label ASC
         "#,
-        from,
-        to
     )
+    .bind(from)
+    .bind(to)
     .fetch_all(pool)
     .await?;
 
     Ok(rows
         .into_iter()
-        .map(|r| ScheduleEventRow {
-            id: r.id,
-            event_date: r.event_date,
-            label: r.label,
-            notes: r.notes,
-            is_all_staff: r.is_all_staff.unwrap_or(false),
-            attendees: r.attendees.unwrap_or_default(),
+        .map(|r| {
+            use sqlx::Row;
+            ScheduleEventRow {
+                id: r.get("id"),
+                event_date: r.get("event_date"),
+                label: r.get("label"),
+                notes: r.get("notes"),
+                is_all_staff: r.get::<Option<bool>, _>("is_all_staff").unwrap_or(false),
+                attendees: r.get::<Option<Vec<Uuid>>, _>("attendees").unwrap_or_default(),
+            }
         })
         .collect())
 }
@@ -1114,50 +1118,49 @@ pub async fn upsert_event(
     let mut tx = pool.begin().await?;
 
     let id = if let Some(eid) = event_id {
-        sqlx::query!(
+        sqlx::query_scalar::<_, Uuid>(
             r#"
             UPDATE staff_schedule_events
             SET event_date = $1, label = $2, notes = $3, is_all_staff = $4, updated_at = NOW()
             WHERE id = $5
             RETURNING id
             "#,
-            event_date,
-            label,
-            notes,
-            is_all_staff,
-            eid
         )
+        .bind(event_date)
+        .bind(label)
+        .bind(notes)
+        .bind(is_all_staff)
+        .bind(eid)
         .fetch_one(&mut *tx)
         .await?
-        .id
     } else {
-        sqlx::query!(
+        sqlx::query_scalar::<_, Uuid>(
             r#"
             INSERT INTO staff_schedule_events (event_date, label, notes, is_all_staff)
             VALUES ($1, $2, $3, $4)
             RETURNING id
             "#,
-            event_date,
-            label,
-            notes,
-            is_all_staff
         )
+        .bind(event_date)
+        .bind(label)
+        .bind(notes)
+        .bind(is_all_staff)
         .fetch_one(&mut *tx)
         .await?
-        .id
     };
 
-    sqlx::query!("DELETE FROM staff_schedule_event_attendees WHERE event_id = $1", id)
+    sqlx::query("DELETE FROM staff_schedule_event_attendees WHERE event_id = $1")
+        .bind(id)
         .execute(&mut *tx)
         .await?;
 
     if !is_all_staff {
         for sid in attendees {
-            sqlx::query!(
+            sqlx::query(
                 "INSERT INTO staff_schedule_event_attendees (event_id, staff_id) VALUES ($1, $2)",
-                id,
-                sid
             )
+            .bind(id)
+            .bind(sid)
             .execute(&mut *tx)
             .await?;
         }
@@ -1168,7 +1171,8 @@ pub async fn upsert_event(
 }
 
 pub async fn delete_event(pool: &PgPool, id: Uuid) -> Result<u64, sqlx::Error> {
-    Ok(sqlx::query!("DELETE FROM staff_schedule_events WHERE id = $1", id)
+    Ok(sqlx::query("DELETE FROM staff_schedule_events WHERE id = $1")
+        .bind(id)
         .execute(pool)
         .await?
         .rows_affected())

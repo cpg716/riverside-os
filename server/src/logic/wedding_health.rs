@@ -1,5 +1,6 @@
 use chrono::Utc;
 use rust_decimal::prelude::ToPrimitive;
+use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -29,15 +30,15 @@ pub async fn calculate_wedding_health(
     wedding_id: Uuid,
 ) -> Result<WeddingHealthScore, sqlx::Error> {
     // 1. Fetch event date
-    let event_date = sqlx::query_scalar!(
+    let event_date = sqlx::query_scalar::<_, chrono::NaiveDate>(
         "SELECT event_date FROM wedding_parties WHERE id = $1",
-        wedding_id
     )
+    .bind(wedding_id)
     .fetch_one(pool)
     .await?;
 
     // 2. Fetch Aggregates
-    let stats = sqlx::query!(
+    let stats = sqlx::query(
         r#"
         SELECT 
             COUNT(DISTINCT c.id) as total_members,
@@ -49,16 +50,18 @@ pub async fn calculate_wedding_health(
         LEFT JOIN transactions o ON o.customer_id = c.id AND o.status != 'cancelled'
         WHERE c.wedding_id = $1
         "#,
-        wedding_id
     )
+    .bind(wedding_id)
     .fetch_one(pool)
     .await?;
+
+    use sqlx::Row;
 
     let days_until = (event_date - Utc::now().naive_utc().date()).num_days();
 
     // Measurement Progress
-    let total_members = stats.total_members.unwrap_or(0);
-    let measured_members = stats.measured_members.unwrap_or(0);
+    let total_members = stats.get::<Option<i64>, _>("total_members").unwrap_or(0);
+    let measured_members = stats.get::<Option<i64>, _>("measured_members").unwrap_or(0);
     let measurement_progress = if total_members > 0 {
         measured_members as f64 / total_members as f64
     } else {
@@ -66,12 +69,11 @@ pub async fn calculate_wedding_health(
     };
 
     // Payment Progress
-    let total_value = stats
-        .total_value
+    let total_value = stats.get::<Option<Decimal>, _>("total_value")
         .unwrap_or_default()
         .to_f64()
         .unwrap_or(0.0);
-    let total_paid = stats.total_paid.unwrap_or_default().to_f64().unwrap_or(0.0);
+    let total_paid = stats.get::<Option<Decimal>, _>("total_paid").unwrap_or_default().to_f64().unwrap_or(0.0);
     let payment_progress = if total_value > 0.0 {
         total_paid / total_value
     } else {

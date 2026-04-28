@@ -781,29 +781,30 @@ pub async fn upsert_appointment_document(client: &Client, pool: &PgPool, appt_id
 }
 
 pub async fn upsert_task_document(client: &Client, pool: &PgPool, task_id: Uuid) {
-    let task = sqlx::query!(
+    let task = sqlx::query(
         r#"
         SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, ti.due_date, s.full_name AS assignee_name
         FROM task_instance ti
         LEFT JOIN staff s ON s.id = ti.assignee_staff_id
         WHERE ti.id = $1
         "#,
-        task_id
     )
+    .bind(task_id)
     .fetch_optional(pool)
     .await;
 
-    let Ok(Some(task)) = task else {
+    let Ok(Some(row)) = task else {
         let index = client.index(INDEX_TASKS);
         let _ = index.delete_document(task_id.to_string()).await;
         return;
     };
 
+    use sqlx::Row;
     let doc = TaskDoc {
-        id: task.id.to_string(),
-        status: task.status.unwrap_or_else(|| "open".to_string()),
+        id: row.get::<Uuid, _>("id").to_string(),
+        status: row.get::<Option<String>, _>("status").unwrap_or_else(|| "open".to_string()),
         assignee_id: None,
-        search_text: format!("{} {}", task.title, task.assignee_name),
+        search_text: format!("{} {}", row.get::<String, _>("title"), row.get::<Option<String>, _>("assignee_name").unwrap_or_default()),
     };
 
     let index = client.index(INDEX_TASKS);
@@ -1019,7 +1020,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 2. Store Products
     let index_p = client.index(INDEX_STORE_PRODUCTS);
     index_p.delete_all_documents().await?;
-    let mut product_stream = sqlx::query!(
+    let mut product_stream = sqlx::query(
         r#"
         SELECT
             p.id,
@@ -1041,19 +1042,24 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let mut n_products = 0usize;
     while let Some(res) = product_stream.next().await {
         if let Ok(row) = res {
-            let slug = row.slug.unwrap_or_default();
+            use sqlx::Row;
+            let slug = row.get::<Option<String>, _>("slug").unwrap_or_default();
+            let name = row.get::<String, _>("name");
+            let brand = row.get::<Option<String>, _>("brand");
+            let is_active = row.get::<Option<bool>, _>("is_active").unwrap_or(true);
+            let web_count = row.get::<Option<i64>, _>("web_count").unwrap_or(0);
+            
             let slug_ok = !slug.is_empty();
-            let catalog_ok =
-                row.is_active.unwrap_or(true) && slug_ok && row.web_count.unwrap_or(0) > 0;
+            let catalog_ok = is_active && slug_ok && web_count > 0;
             if catalog_ok {
                 p_batch.push(StoreProductDoc {
-                    id: row.id.to_string(),
+                    id: row.get::<Uuid, _>("id").to_string(),
                     catalog_ok,
                     search_text: format!(
                         "{} {} {}",
-                        row.name,
+                        name,
                         slug,
-                        row.brand.as_deref().unwrap_or("")
+                        brand.as_deref().unwrap_or("")
                     ),
                 });
             }
@@ -1073,7 +1079,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 3. Customers
     let index_c = client.index(INDEX_CUSTOMERS);
     index_c.delete_all_documents().await?;
-    let mut customer_stream = sqlx::query!(
+    let mut customer_stream = sqlx::query(
         r#"
         SELECT
             id, customer_code, first_name, last_name, company_name, email, phone,
@@ -1094,23 +1100,36 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let mut n_customers = 0usize;
     while let Some(res) = customer_stream.next().await {
         if let Ok(row) = res {
+            use sqlx::Row;
+            let first_name = row.get::<Option<String>, _>("first_name");
+            let last_name = row.get::<Option<String>, _>("last_name");
+            let customer_code = row.get::<String, _>("customer_code");
+            let company_name = row.get::<Option<String>, _>("company_name");
+            let email = row.get::<Option<String>, _>("email");
+            let phone = row.get::<Option<String>, _>("phone");
+            let city = row.get::<Option<String>, _>("city");
+            let state = row.get::<Option<String>, _>("state");
+            let postal_code = row.get::<Option<String>, _>("postal_code");
+            let address_line1 = row.get::<Option<String>, _>("address_line1");
+            let wedding_names = row.get::<Option<String>, _>("wedding_names");
+
             let search_text = build_customer_search_text(
-                row.first_name.as_deref(),
-                row.last_name.as_deref(),
-                Some(&row.customer_code),
-                row.company_name.as_deref(),
-                row.email.as_deref(),
-                row.phone.as_deref(),
-                row.city.as_deref(),
-                row.state.as_deref(),
-                row.postal_code.as_deref(),
-                row.address_line1.as_deref(),
-                row.wedding_names.as_deref(),
+                first_name.as_deref(),
+                last_name.as_deref(),
+                Some(&customer_code),
+                company_name.as_deref(),
+                email.as_deref(),
+                phone.as_deref(),
+                city.as_deref(),
+                state.as_deref(),
+                postal_code.as_deref(),
+                address_line1.as_deref(),
+                wedding_names.as_deref(),
             );
             c_batch.push(CustomerDoc {
-                id: row.id.to_string(),
+                id: row.get::<Uuid, _>("id").to_string(),
                 search_text,
-                customer_code: Some(row.customer_code),
+                customer_code: Some(customer_code),
             });
             if c_batch.len() >= 1000 {
                 n_customers += c_batch.len();
@@ -1128,7 +1147,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 4. Wedding Parties
     let index_w = client.index(INDEX_WEDDING_PARTIES);
     index_w.delete_all_documents().await?;
-    let mut party_stream = sqlx::query!(
+    let mut party_stream = sqlx::query(
         r#"
         SELECT
             wp.id, wp.is_deleted, wp.party_name, wp.groom_name, wp.notes,
@@ -1146,15 +1165,16 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let mut n_weddings = 0usize;
     while let Some(res) = party_stream.next().await {
         if let Ok(row) = res {
+            use sqlx::Row;
             let mut base = String::new();
             for p in [
-                row.party_name.as_deref(),
-                Some(row.groom_name.as_ref()),
-                row.notes.as_deref(),
-                row.groom_email.as_deref(),
-                row.bride_name.as_deref(),
-                row.bride_email.as_deref(),
-                row.member_blob.as_deref(),
+                row.get::<Option<String>, _>("party_name").as_deref(),
+                Some(row.get::<String, _>("groom_name")).as_deref(),
+                row.get::<Option<String>, _>("notes").as_deref(),
+                row.get::<Option<String>, _>("groom_email").as_deref(),
+                row.get::<Option<String>, _>("bride_name").as_deref(),
+                row.get::<Option<String>, _>("bride_email").as_deref(),
+                row.get::<Option<String>, _>("member_blob").as_deref(),
             ] {
                 if let Some(s) = p.filter(|x| !x.trim().is_empty()) {
                     if !base.is_empty() {
@@ -1165,11 +1185,11 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
             }
             let search_text = augment_search_with_phone_digits(
                 &base,
-                &[row.groom_phone.clone(), row.bride_phone.clone()],
+                &[row.get::<Option<String>, _>("groom_phone"), row.get::<Option<String>, _>("bride_phone")],
             );
             w_batch.push(WeddingPartyDoc {
-                id: row.id.to_string(),
-                is_deleted: row.is_deleted,
+                id: row.get::<Uuid, _>("id").to_string(),
+                is_deleted: row.get::<Option<bool>, _>("is_deleted").unwrap_or(false),
                 search_text,
             });
             if w_batch.len() >= 500 {
@@ -1188,11 +1208,11 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 5. Transactions
     let index_txns = client.index(INDEX_TRANSACTIONS);
     index_txns.delete_all_documents().await?;
-    let mut txn_stream = sqlx::query!(
+    let mut txn_stream = sqlx::query(
         r#"
         SELECT
-            o.id AS "id!",
-            o.display_id AS "display_id!",
+            o.id,
+            o.display_id,
             o.status::text AS status,
             c.first_name AS customer_first, c.last_name AS customer_last,
             NULLIF(TRIM(COALESCE(wp.party_name, '')), '') AS party_name,
@@ -1209,21 +1229,25 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let mut n_txns = 0usize;
     while let Some(res) = txn_stream.next().await {
         if let Ok(row) = res {
-            let s = row.status.as_deref().unwrap_or_default().to_lowercase();
+            use sqlx::Row;
+            let status = row.get::<Option<String>, _>("status");
+            let s = status.as_deref().unwrap_or_default().to_lowercase();
             let status_open = s == "open" || s == "pending_measurement";
-            let transaction_id_str = row.id.to_string();
+            let transaction_id = row.get::<Uuid, _>("id");
+            let display_id = row.get::<Option<String>, _>("display_id").unwrap_or_else(|| transaction_id.to_string());
+            let transaction_id_str = transaction_id.to_string();
             let search_text = format!(
                 "{} {} {} {} {} {}",
                 transaction_id_str,
-                row.display_id,
-                row.customer_first.as_deref().unwrap_or(""),
-                row.customer_last.as_deref().unwrap_or(""),
-                row.party_name.as_deref().unwrap_or(""),
-                row.salesperson.as_deref().unwrap_or("")
+                display_id,
+                row.get::<Option<String>, _>("customer_first").as_deref().unwrap_or(""),
+                row.get::<Option<String>, _>("customer_last").as_deref().unwrap_or(""),
+                row.get::<Option<String>, _>("party_name").as_deref().unwrap_or(""),
+                row.get::<Option<String>, _>("salesperson").as_deref().unwrap_or("")
             );
             txn_batch.push(TransactionDoc {
                 id: transaction_id_str,
-                display_id: row.display_id,
+                display_id,
                 status_open,
                 search_text,
             });
@@ -1335,16 +1359,19 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let index_staff = client.index(INDEX_STAFF);
     index_staff.delete_all_documents().await?;
     let mut staff_stream =
-        sqlx::query!("SELECT id, full_name, cashier_code, role::text, is_active FROM staff")
+        sqlx::query("SELECT id, full_name, cashier_code, role::text, is_active FROM staff")
             .fetch(pool);
     let mut staff_batch = Vec::new();
     while let Some(res) = staff_stream.next().await {
         if let Ok(row) = res {
-            let search_text = format!("{} {}", row.full_name, row.cashier_code);
+            use sqlx::Row;
+            let full_name = row.get::<String, _>("full_name");
+            let cashier_code = row.get::<String, _>("cashier_code");
+            let search_text = format!("{} {}", full_name, cashier_code);
             staff_batch.push(StaffDoc {
-                id: row.id.to_string(),
-                is_active: row.is_active.unwrap_or(true),
-                role: row.role.clone().unwrap_or_else(|| "cashier".to_string()),
+                id: row.get::<Uuid, _>("id").to_string(),
+                is_active: row.get::<Option<bool>, _>("is_active").unwrap_or(true),
+                role: row.get::<Option<String>, _>("role").unwrap_or_else(|| "cashier".to_string()),
                 search_text,
             });
         }
@@ -1358,14 +1385,17 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let index_vendors = client.index(INDEX_VENDORS);
     index_vendors.delete_all_documents().await?;
     let mut vendor_stream =
-        sqlx::query!("SELECT id, name, vendor_code, is_active FROM vendors").fetch(pool);
+        sqlx::query("SELECT id, name, vendor_code, is_active FROM vendors").fetch(pool);
     let mut vendor_batch = Vec::new();
     while let Some(res) = vendor_stream.next().await {
         if let Ok(row) = res {
+            use sqlx::Row;
+            let name = row.get::<String, _>("name");
+            let vendor_code = row.get::<Option<String>, _>("vendor_code");
             vendor_batch.push(VendorDoc {
-                id: row.id.to_string(),
-                is_active: row.is_active,
-                search_text: format!("{} {}", row.name, row.vendor_code.as_deref().unwrap_or("")),
+                id: row.get::<Uuid, _>("id").to_string(),
+                is_active: row.get::<bool, _>("is_active"),
+                search_text: format!("{} {}", name, vendor_code.as_deref().unwrap_or("")),
             });
         }
     }
@@ -1379,13 +1409,14 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 10. Categories
     let index_categories = client.index(INDEX_CATEGORIES);
     index_categories.delete_all_documents().await?;
-    let mut category_stream = sqlx::query!("SELECT id, name FROM categories").fetch(pool);
+    let mut category_stream = sqlx::query("SELECT id, name FROM categories").fetch(pool);
     let mut category_batch = Vec::new();
     while let Some(res) = category_stream.next().await {
         if let Ok(row) = res {
+            use sqlx::Row;
             category_batch.push(CategoryDoc {
-                id: row.id.to_string(),
-                search_text: row.name,
+                id: row.get::<Uuid, _>("id").to_string(),
+                search_text: row.get::<String, _>("name"),
             });
         }
     }
@@ -1406,9 +1437,9 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 11. Appointments
     let index_appointments = client.index(INDEX_APPOINTMENTS);
     index_appointments.delete_all_documents().await?;
-    let mut appt_stream = sqlx::query!(
+    let mut appt_stream = sqlx::query(
         r#"
-        SELECT a.id, c.first_name, c.last_name, wp.party_name, a.notes, a.status
+        SELECT a.id, c.first_name, c.last_name, wp.party_name, a.notes, a.status::text as status
         FROM wedding_appointments a
         LEFT JOIN customers c ON c.id = a.customer_id
         LEFT JOIN wedding_parties wp ON wp.id = a.wedding_party_id
@@ -1418,16 +1449,18 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let mut appt_batch = Vec::new();
     while let Some(res) = appt_stream.next().await {
         if let Ok(row) = res {
-            let is_cancelled = row.status == "Cancelled";
+            use sqlx::Row;
+            let status = row.get::<Option<String>, _>("status");
+            let is_cancelled = status.as_deref() == Some("Cancelled");
             let search_text = format!(
                 "{} {} {} {}",
-                row.first_name.as_deref().unwrap_or(""),
-                row.last_name.as_deref().unwrap_or(""),
-                row.party_name.as_deref().unwrap_or(""),
-                row.notes.as_deref().unwrap_or("")
+                row.get::<Option<String>, _>("first_name").as_deref().unwrap_or(""),
+                row.get::<Option<String>, _>("last_name").as_deref().unwrap_or(""),
+                row.get::<Option<String>, _>("party_name").as_deref().unwrap_or(""),
+                row.get::<Option<String>, _>("notes").as_deref().unwrap_or("")
             );
             appt_batch.push(AppointmentDoc {
-                id: row.id.to_string(),
+                id: row.get::<Uuid, _>("id").to_string(),
                 is_cancelled,
                 search_text,
             });
@@ -1450,7 +1483,7 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     // 12. Tasks
     let index_tasks = client.index(INDEX_TASKS);
     index_tasks.delete_all_documents().await?;
-    let mut task_stream = sqlx::query!(
+    let mut task_stream = sqlx::query(
         r#"
         SELECT ti.id, ti.title_snapshot AS title, ti.status::text AS status, s.full_name AS assignee_name
         FROM task_instance ti
@@ -1460,14 +1493,18 @@ pub async fn reindex_all_meilisearch(client: &Client, pool: &PgPool) -> anyhow::
     let mut task_batch = Vec::new();
     while let Some(res) = task_stream.next().await {
         if let Ok(row) = res {
+            use sqlx::Row;
+            let status = row.get::<Option<String>, _>("status");
+            let title = row.get::<String, _>("title");
+            let assignee_name = row.get::<Option<String>, _>("assignee_name");
             let search_text = format!(
                 "{} {}",
-                row.title,
-                row.assignee_name.as_deref().unwrap_or("")
+                title,
+                assignee_name.as_deref().unwrap_or("")
             );
             task_batch.push(TaskDoc {
-                id: row.id.to_string(),
-                status: row.status.clone().unwrap_or_else(|| "open".to_string()),
+                id: row.get::<Uuid, _>("id").to_string(),
+                status: status.unwrap_or_else(|| "open".to_string()),
                 assignee_id: None,
                 search_text,
             });

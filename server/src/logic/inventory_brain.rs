@@ -33,7 +33,7 @@ pub async fn query_inventory_recommendations(
     let start_45 = now - chrono::Duration::days(45);
 
     // 1. Fetch Velocity Data and Stock levels with frequency tracking
-    let rows = sqlx::query!(
+    let rows = sqlx::query(
         r#"
         WITH velocity AS (
             SELECT 
@@ -59,18 +59,20 @@ pub async fn query_inventory_recommendations(
         LEFT JOIN velocity v ON v.variant_id = pv.id
         WHERE p.is_active = TRUE
         "#,
-        start_45
     )
+    .bind(start_45)
     .fetch_all(pool)
     .await?;
+
+    use sqlx::Row;
 
     let mut recs = Vec::new();
 
     for r in rows {
         let mut recommendation = None;
-        let v_daily = r.velocity_daily.unwrap_or(0.0);
-        let stock = r.stock_on_hand.unwrap_or(0);
-        let freq = r.sale_frequency.unwrap_or(0);
+        let v_daily = r.get::<Option<f64>, _>("velocity_daily").unwrap_or(0.0);
+        let stock = r.get::<Option<i32>, _>("stock_on_hand").unwrap_or(0);
+        let freq = r.get::<Option<i64>, _>("sale_frequency").unwrap_or(0);
 
         // Confidence logic:
         // 0.5 base + 0.05 per unique sale event (cap at 0.95)
@@ -81,10 +83,10 @@ pub async fn query_inventory_recommendations(
             let days_left = stock as f64 / v_daily;
             if days_left < 14.0 {
                 recommendation = Some(InventoryRecommendation {
-                    variant_id: r.variant_id,
-                    product_id: r.product_id,
-                    sku: r.sku.clone(),
-                    product_name: r.product_name.clone(),
+                    variant_id: r.get("variant_id"),
+                    product_id: r.get("product_id"),
+                    sku: r.get::<String, _>("sku").clone(),
+                    product_name: r.get::<String, _>("product_name").clone(),
                     recommendation_type: RecommendationType::Reorder,
                     confidence,
                     velocity_45: v_daily * 45.0,
@@ -98,10 +100,10 @@ pub async fn query_inventory_recommendations(
         // Rule B: Clearance (Dead stock)
         if recommendation.is_none() && v_daily == 0.0 && stock > 10 {
             recommendation = Some(InventoryRecommendation {
-                variant_id: r.variant_id,
-                product_id: r.product_id,
-                sku: r.sku.clone(),
-                product_name: r.product_name.clone(),
+                variant_id: r.get("variant_id"),
+                product_id: r.get("product_id"),
+                sku: r.get::<String, _>("sku").clone(),
+                product_name: r.get::<String, _>("product_name").clone(),
                 recommendation_type: RecommendationType::Clearance,
                 confidence: 0.8, // Fairly confident if zero sales in 45 days
                 velocity_45: 0.0,

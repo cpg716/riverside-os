@@ -24,12 +24,12 @@ const ALTERATION = {
 
 test.describe("Smart Alterations Scheduler E2E", () => {
     test.beforeEach(async ({ page }) => {
-        // Mock Customers
-        await page.route("**/api/customers?*", async (route) => {
+        // Mock Customers (matches /api/customers, /api/customers/browse, etc)
+        await page.route(/\/api\/customers($|\?|\/)/, async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify({ items: [CUSTOMER], total: 1 }),
+                body: JSON.stringify([CUSTOMER]),
             });
         });
 
@@ -111,8 +111,8 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await openBackofficeSidebarTab(page, "customers");
         
         // Find and click customer (wait for list to load)
-        await expect(page.getByText("Charlie Custom")).toBeVisible();
-        await page.getByText("Charlie Custom").click();
+        await expect(page.getByRole("button", { name: "Charlie Custom", exact: false }).first()).toBeVisible();
+        await page.getByRole("button", { name: "Charlie Custom", exact: false }).first().click();
         await expect(page.getByText("E2E Test Suit")).toBeVisible();
 
         // Open Scheduler

@@ -2966,7 +2966,7 @@ async fn browse_customer_pipeline_stats(
 ) -> Result<Json<CustomerPipelineStats>, CustomerError> {
     require_customer_access(&state, &headers).await?;
 
-    let stats = sqlx::query!(
+    let stats = sqlx::query(
         r#"
         SELECT
             COUNT(*)::bigint AS total_customers,
@@ -2985,16 +2985,17 @@ async fn browse_customer_pipeline_stats(
                   AND wp.event_date <= CURRENT_DATE + INTERVAL '30 days'
             ) AS upcoming_weddings
         FROM customers
-        "#
+        "#,
     )
     .fetch_one(&state.db)
     .await?;
 
+    use sqlx::Row;
     Ok(Json(CustomerPipelineStats {
-        total_customers: stats.total_customers.unwrap_or(0),
-        vip_customers: stats.vip_customers.unwrap_or(0),
-        with_balance: stats.with_balance.unwrap_or(0),
-        upcoming_weddings: stats.upcoming_weddings.unwrap_or(0),
+        total_customers: stats.get::<Option<i64>, _>("total_customers").unwrap_or(0),
+        vip_customers: stats.get::<Option<i64>, _>("vip_customers").unwrap_or(0),
+        with_balance: stats.get::<Option<i64>, _>("with_balance").unwrap_or(0),
+        upcoming_weddings: stats.get::<Option<i64>, _>("upcoming_weddings").unwrap_or(0),
     }))
 }
 

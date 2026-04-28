@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Calendar, Clock, CheckCircle2, AlertTriangle, ChevronRight, Info } from "lucide-react";
 import { getBaseUrl } from "../../../lib/apiConfig";
 import { format } from "date-fns";
@@ -10,15 +10,6 @@ type SuggestedSlot = {
   score: number;
 };
 
-type CapacitySummary = {
-  date: string;
-  jacket_units_used: number;
-  pant_units_used: number;
-  jacket_units_available: number;
-  pant_units_available: number;
-  is_manual_only: bool;
-  has_staff: bool;
-};
 
 type AlterationSmartSchedulerProps = {
   alterationId: string;
@@ -31,7 +22,6 @@ type AlterationSmartSchedulerProps = {
 };
 
 export default function AlterationSmartScheduler({
-  alterationId,
   jacketUnits,
   pantUnits,
   dueDate,
@@ -40,17 +30,10 @@ export default function AlterationSmartScheduler({
   onSlotSelected,
 }: AlterationSmartSchedulerProps) {
   const [slots, setSlots] = useState<SuggestedSlot[]>([]);
-  const [capacity, setCapacity] = useState<CapacitySummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (dueDate && (jacketUnits > 0 || pantUnits > 0)) {
-      fetchSlots();
-    }
-  }, [dueDate, jacketUnits, pantUnits]);
-
-  const fetchSlots = async () => {
+  const fetchSlots = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -70,12 +53,18 @@ export default function AlterationSmartScheduler({
       } else {
         setError("No valid slots found for this capacity and due date.");
       }
-    } catch (e) {
+    } catch {
       setError("Failed to calculate capacity slots.");
     } finally {
       setLoading(false);
     }
-  };
+  }, [dueDate, jacketUnits, pantUnits, apiAuth]);
+
+  useEffect(() => {
+    if (dueDate && (jacketUnits > 0 || pantUnits > 0)) {
+      fetchSlots();
+    }
+  }, [fetchSlots, dueDate, jacketUnits, pantUnits]);
 
   const selectSlot = (date: string) => {
     onSlotSelected(date);

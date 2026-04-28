@@ -25,7 +25,7 @@ pub async fn query_commission_trace(
     transaction_line_id: Uuid,
 ) -> Result<CommissionTrace, String> {
     // 1. Fetch the order item and salesperson info
-    let row = sqlx::query!(
+    let row = sqlx::query(
         r#"
         SELECT 
             oi.transaction_id,
@@ -36,7 +36,7 @@ pub async fn query_commission_trace(
             p.id as product_id,
             p.category_id,
             s.full_name as salesperson_name,
-            s.role as "salesperson_role: DbStaffRole",
+            s.role as salesperson_role,
             s.base_commission_rate as staff_base_rate,
             p.name as product_name
         FROM transaction_lines oi
@@ -45,22 +45,24 @@ pub async fn query_commission_trace(
         LEFT JOIN staff s ON oi.salesperson_id = s.id
         WHERE oi.id = $1
         "#,
-        transaction_line_id
     )
+    .bind(transaction_line_id)
     .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?
     .ok_or_else(|| "Order item not found".to_string())?;
 
-    let _sid = row
-        .salesperson_id
+    use sqlx::Row;
+    let salesperson_role: DbStaffRole = row.get("salesperson_role");
+
+    let _sid = row.get::<Option<Uuid>, _>("salesperson_id")
         .ok_or_else(|| "No salesperson attributed to this line".to_string())?;
-    let base_rate = row.staff_base_rate.unwrap_or(Decimal::ZERO);
-    let gross = row.unit_price * Decimal::from(row.quantity);
+    let base_rate = row.get::<Option<Decimal>, _>("staff_base_rate").unwrap_or(Decimal::ZERO);
+    let gross = row.get::<Decimal, _>("unit_price") * Decimal::from(row.get::<i32, _>("quantity"));
 
     // 2. Replication of logic in sales_commission.rs with TRACE capturing
     // Use specialty rule lookup first (Specificity: Variant > Product > Category)
-    let rule = sqlx::query!(
+    let rule = sqlx::query(
         r#"
         SELECT id, override_rate, fixed_spiff_amount, match_type
         FROM commission_rules
@@ -80,10 +82,10 @@ pub async fn query_commission_trace(
           END ASC
         LIMIT 1
         "#,
-        row.variant_id,
-        row.product_id,
-        row.category_id
     )
+    .bind(row.get::<Uuid, _>("variant_id"))
+    .bind(row.get::<Uuid, _>("product_id"))
+    .bind(row.get::<Option<Uuid>, _>("category_id"))
     .fetch_optional(pool)
     .await
     .map_err(|e| e.to_string())?;
@@ -94,26 +96,27 @@ pub async fn query_commission_trace(
     let mut explanation = format!(
         "Calculated using default staff commission ({}%) for {:?}.",
         base_rate * Decimal::from(100),
-        row.salesperson_role
+        salesperson_role
     );
 
     if let Some(r) = rule {
-        applied_rate = r.override_rate.unwrap_or(base_rate);
-        flat_spiff = r.fixed_spiff_amount.unwrap_or(Decimal::ZERO) * Decimal::from(row.quantity);
+        let match_type = r.get::<String, _>("match_type");
+        applied_rate = r.get::<Option<Decimal>, _>("override_rate").unwrap_or(base_rate);
+        flat_spiff = r.get::<Option<Decimal>, _>("fixed_spiff_amount").unwrap_or(Decimal::ZERO) * Decimal::from(row.get::<i32, _>("quantity"));
         source = format!(
             "{} Rule",
-            r.match_type[..1].to_uppercase() + &r.match_type[1..]
+            match_type[..1].to_uppercase() + &match_type[1..]
         );
         explanation = format!(
             "Specific {} rule match. Rule ID: {}. Captured rate: {}% + ${} fixed SPIFF per unit.",
-            r.match_type,
-            r.id,
+            match_type,
+            r.get::<Uuid, _>("id"),
             applied_rate * Decimal::from(100),
-            r.fixed_spiff_amount.unwrap_or(Decimal::ZERO)
+            r.get::<Option<Decimal>, _>("fixed_spiff_amount").unwrap_or(Decimal::ZERO)
         );
     } else {
         // Fallback to legacy
-        if let Some(cid) = row.category_id {
+        if let Some(cid) = row.get::<Option<Uuid>, _>("category_id") {
             let legacy_rate: Option<Decimal> = sqlx::query_scalar(
                 "SELECT commission_rate FROM category_commission_overrides WHERE category_id = $1",
             )
@@ -133,10 +136,10 @@ pub async fn query_commission_trace(
     let total = round_money_usd(gross * applied_rate + flat_spiff);
 
     Ok(CommissionTrace {
-        transaction_id: row.transaction_id.unwrap_or(Uuid::nil()),
+        transaction_id: row.get::<Option<Uuid>, _>("transaction_id").unwrap_or(Uuid::nil()),
         transaction_line_id,
-        salesperson_name: row.salesperson_name.clone(),
-        role: row.salesperson_role,
+        salesperson_name: row.get::<String, _>("salesperson_name"),
+        role: salesperson_role,
         line_gross: gross,
         base_rate,
         applied_rate,

@@ -344,7 +344,7 @@ async fn add_alteration_item(
     Path(id): Path<Uuid>,
     Json(body): Json<CreateOrderItemBody>,
 ) -> Result<Json<AlterationOrderItemRow>, AlterationError> {
-    let staff = require_manage(&state, &headers).await?;
+    let _staff = require_manage(&state, &headers).await?;
     
     let mut tx = state.db.begin().await?;
     

@@ -50,15 +50,6 @@ type AlterationRow = {
   created_at: string;
 };
 
-type AlterationOrderItem = {
-  id: string;
-  alteration_order_id: string;
-  label: string;
-  capacity_bucket: "jacket" | "pant" | "other";
-  units: number;
-  completed_at: string | null;
-  created_at: string;
-};
 
 const STATUS_FILTERS = ["all", "intake", "in_work", "ready", "picked_up"] as const;
 const SOURCE_FILTERS = [
@@ -156,7 +147,7 @@ export default function CustomerAlterationsPanel({
   highlightAlterationId,
   onHighlightConsumed,
 }: {
-  apiAuth: () => HeadersInit;
+  apiAuth: () => Record<string, string>;
   customerId?: string | null;
   highlightAlterationId?: string | null;
   onHighlightConsumed?: () => void;

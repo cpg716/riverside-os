@@ -2916,23 +2916,26 @@ async fn adjust_variant_stock(
 
     let mut tx = state.db.begin().await?;
 
-    let row = sqlx::query!(
+    let row = sqlx::query(
         r#"
         UPDATE product_variants
         SET stock_on_hand = stock_on_hand + $1
         WHERE id = $2
         RETURNING stock_on_hand, cost_override, (SELECT base_cost FROM products p WHERE p.id = product_id) as base_cost
         "#,
-        body.quantity_delta,
-        variant_id
     )
+    .bind(body.quantity_delta)
+    .bind(variant_id)
     .fetch_optional(&mut *tx)
     .await?;
 
+    use sqlx::Row;
     let (new_stock, unit_cost) = match row {
         Some(r) => (
-            r.stock_on_hand,
-            r.cost_override.or(r.base_cost).unwrap_or_default(),
+            r.get::<i32, _>("stock_on_hand"),
+            r.get::<Option<Decimal>, _>("cost_override")
+                .or(r.get::<Option<Decimal>, _>("base_cost"))
+                .unwrap_or_default(),
         ),
         None => return Err(ProductError::VariantNotFound),
     };

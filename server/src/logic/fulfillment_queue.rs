@@ -37,7 +37,7 @@ pub async fn query_fulfillment_queue(
     // We target orders that are 'open' or 'pending_measurement'
     // and have at least one unfulfilled item (except for 'Ready' status).
     
-    let rows = sqlx::query!(
+    let rows = sqlx::query(
         r#"
         WITH order_stats AS (
             SELECT 
@@ -63,7 +63,7 @@ pub async fn query_fulfillment_queue(
         SELECT 
             transaction_id,
             booked_at,
-            status AS "status: DbOrderStatus",
+            status,
             customer_id,
             customer_name,
             wedding_party_name,
@@ -74,7 +74,7 @@ pub async fn query_fulfillment_queue(
             balance_due
         FROM order_stats
         ORDER BY was_rush DESC, earliest_deadline ASC NULLS LAST, booked_at ASC
-        "#
+        "#,
     )
     .fetch_all(pool)
     .await?;
@@ -82,18 +82,19 @@ pub async fn query_fulfillment_queue(
     let now = Utc::now().naive_utc().date();
     let four_days_from_now = now + chrono::Duration::days(4);
 
+    use sqlx::Row;
     let items = rows.into_iter().map(|r| {
         let mut urgency = FulfillmentUrgency::Standard;
         
-        let total_items = r.item_count.unwrap_or(0);
-        let fulfilled_items = r.fulfilled_item_count.unwrap_or(0);
-        let booked_at = r.booked_at.unwrap_or_else(Utc::now);
+        let total_items = r.get::<Option<i64>, _>("item_count").unwrap_or(0);
+        let fulfilled_items = r.get::<Option<i64>, _>("fulfilled_item_count").unwrap_or(0);
+        let booked_at = r.get::<Option<DateTime<Utc>>, _>("booked_at").unwrap_or_else(Utc::now);
 
         if total_items == fulfilled_items && total_items > 0 {
              urgency = FulfillmentUrgency::Ready;
-        } else if r.was_rush.unwrap_or(false) {
+        } else if r.get::<Option<bool>, _>("was_rush").unwrap_or(false) {
             urgency = FulfillmentUrgency::Rush;
-        } else if let Some(deadline) = r.earliest_deadline {
+        } else if let Some(deadline) = r.get::<Option<NaiveDate>, _>("earliest_deadline") {
             if deadline <= four_days_from_now {
                 urgency = FulfillmentUrgency::DueSoon;
             }
@@ -102,18 +103,18 @@ pub async fn query_fulfillment_queue(
         }
 
         FulfillmentQueueItem {
-            transaction_id: r.transaction_id,
-            order_short_id: r.transaction_id.to_string()[..8].to_string(), 
+            transaction_id: r.get("transaction_id"),
+            order_short_id: r.get::<Uuid, _>("transaction_id").to_string()[..8].to_string(), 
             booked_at,
-            status: r.status.unwrap_or(DbOrderStatus::Open),
-            customer_id: r.customer_id,
-            customer_name: r.customer_name,
+            status: r.get::<Option<DbOrderStatus>, _>("status").unwrap_or(DbOrderStatus::Open),
+            customer_id: r.get("customer_id"),
+            customer_name: r.get("customer_name"),
             item_count: total_items,
             fulfilled_item_count: fulfilled_items,
             urgency,
-            next_deadline: r.earliest_deadline,
-            balance_due: r.balance_due,
-            wedding_party_name: r.wedding_party_name,
+            next_deadline: r.get("earliest_deadline"),
+            balance_due: r.get("balance_due"),
+            wedding_party_name: r.get("wedding_party_name"),
         }
     }).collect();
 
