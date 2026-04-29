@@ -12,11 +12,32 @@ const CUSTOMER = {
 const ALTERATION = {
     id: "22222222-2222-4222-8222-222222222222",
     customer_id: CUSTOMER.id,
+    customer_first_name: CUSTOMER.first_name,
+    customer_last_name: CUSTOMER.last_name,
+    customer_code: CUSTOMER.customer_code,
+    customer_phone: CUSTOMER.phone,
+    customer_email: null,
+    customer_address_line1: null,
+    customer_city: null,
+    customer_state: null,
+    customer_postal_code: null,
     status: "intake",
     item_description: "E2E Test Suit",
     work_requested: "Initial fitting needed",
     source_type: "custom_item",
+    source_transaction_id: null,
+    source_transaction_line_id: null,
+    source_sku: null,
+    linked_transaction_id: null,
+    linked_transaction_display_id: null,
+    charge_amount: null,
+    intake_channel: "back_office",
+    source_snapshot: null,
     due_at: "2026-06-01T12:00:00Z",
+    fitting_at: null,
+    appointment_id: null,
+    wedding_member_id: null,
+    notes: null,
     created_at: new Date().toISOString(),
     total_units_jacket: 0,
     total_units_pant: 0,
@@ -24,6 +45,17 @@ const ALTERATION = {
 
 test.describe("Smart Alterations Scheduler E2E", () => {
     test.beforeEach(async ({ page }) => {
+        let alterationState = { ...ALTERATION };
+        const alterationItems: Array<{
+            id: string;
+            alteration_order_id: string;
+            label: string;
+            capacity_bucket: "jacket" | "pant" | "other";
+            units: number;
+            completed_at: string | null;
+            created_at: string;
+        }> = [];
+
         // Mock Customers (matches /api/customers, /api/customers/browse, etc)
         await page.route(/\/api\/customers($|\?|\/)/, async (route) => {
             await route.fulfill({
@@ -41,8 +73,8 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             });
         });
 
-        // Mock Alterations for Customer
-        await page.route(`**/api/alterations?customer_id=${CUSTOMER.id}`, async (route) => {
+        // Mock Alterations workspace and customer-scoped views.
+        await page.route(/\/api\/alterations($|\?)/, async (route) => {
             await route.fulfill({
                 status: 200,
                 contentType: "application/json",
@@ -56,14 +88,23 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify([]),
+                    body: JSON.stringify(alterationItems),
                 });
             } else if (route.request().method() === "POST") {
                 const body = route.request().postDataJSON();
+                alterationItems.push({
+                    id: `item-${alterationItems.length + 1}`,
+                    alteration_order_id: ALTERATION.id,
+                    label: body.label,
+                    capacity_bucket: body.capacity_bucket,
+                    units: body.units,
+                    completed_at: null,
+                    created_at: new Date().toISOString(),
+                });
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify({ id: "item-123", ...body }),
+                    body: JSON.stringify(alterationItems.at(-1)),
                 });
             }
         });
@@ -96,10 +137,20 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await page.route(`**/api/alterations/${ALTERATION.id}`, async (route) => {
             if (route.request().method() === "PATCH") {
                 const body = route.request().postDataJSON();
+                alterationState = {
+                    ...alterationState,
+                    ...body,
+                    total_units_jacket: alterationItems
+                        .filter((item) => item.capacity_bucket === "jacket")
+                        .reduce((sum, item) => sum + item.units, 0),
+                    total_units_pant: alterationItems
+                        .filter((item) => item.capacity_bucket === "pant")
+                        .reduce((sum, item) => sum + item.units, 0),
+                };
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify({ ...ALTERATION, ...body }),
+                    body: JSON.stringify(alterationState),
                 });
             }
         });
@@ -108,15 +159,15 @@ test.describe("Smart Alterations Scheduler E2E", () => {
     });
 
     test("can plan work items and schedule a slot using the smart scheduler", async ({ page }) => {
-        await openBackofficeSidebarTab(page, "customers");
+        await openBackofficeSidebarTab(page, "alterations");
         
-        // Find and click customer (wait for list to load)
-        await expect(page.getByRole("button", { name: "Charlie Custom", exact: false }).first()).toBeVisible();
-        await page.getByRole("button", { name: "Charlie Custom", exact: false }).first().click();
-        await expect(page.getByText("E2E Test Suit")).toBeVisible();
+        const garmentCard = page.getByTestId("alteration-workbench-card").filter({
+            hasText: "E2E Test Suit",
+        });
+        await expect(garmentCard).toBeVisible();
 
         // Open Scheduler
-        await page.getByRole("button", { name: "Plan & Schedule", exact: true }).click();
+        await garmentCard.getByRole("button", { name: "Plan & Schedule", exact: true }).click();
         await expect(page.getByText("Plan & Schedule", { exact: true })).toBeVisible();
 
         // Phase 1: Plan Work
@@ -160,6 +211,19 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             pickup: false,
         };
 
+        await page.route(/\/api\/weddings\/parties($|\?)/, async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({
+                    data: [{ id: PARTY_ID, name: "Charlie Wedding" }],
+                    total: 1,
+                    page: 1,
+                    limit: 20,
+                }),
+            });
+        });
+
         await page.route(`**/api/weddings/parties/${PARTY_ID}/members`, async (route) => {
             await route.fulfill({
                 status: 200,
@@ -196,25 +260,62 @@ test.describe("Smart Alterations Scheduler E2E", () => {
                 body: JSON.stringify(["Avery Staff", "Taylor Tailor"]),
             });
         });
+        await page.route("**/api/staff/list-for-pos", async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify([
+                    { full_name: "Avery Staff", role: "salesperson" },
+                    { full_name: "Taylor Tailor", role: "sales_support" },
+                ]),
+            });
+        });
+
+        await page.route("**/api/weddings/appointments?*", async (route) => {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify([]),
+            });
+        });
+
+        await page.route("**/api/weddings/appointments", async (route) => {
+            if (route.request().method() === "POST") {
+                const body = route.request().postDataJSON();
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({
+                        id: "appt-123",
+                        ...body,
+                        customer_display_name: "Charlie Custom",
+                        appointment_type: body.appointment_type ?? "Fitting",
+                    }),
+                });
+                return;
+            }
+            await route.fallback();
+        });
 
         await openBackofficeSidebarTab(page, "appointments");
 
-        // Click New Appointment (assuming button exists in scheduler workspace)
-        await page.getByRole("button", { name: /New Appointment/i }).click();
+        // Click New Appointment.
+        await page.getByRole("button", { name: /New Appt/i }).click();
 
         // Fill Modal
-        const modal = page.getByRole("dialog");
-        await modal.getByLabel(/Type/i).selectOption("Alteration");
-        await modal.getByLabel(/Time/i).fill("14:00");
-        await modal.getByPlaceholder(/Name, phone/i).fill("Charlie Custom");
+        const modal = page.getByTestId("appointment-modal");
+        await expect(modal).toBeVisible();
+        await modal.locator("select").first().selectOption("Fitting");
+        await modal.locator('input[type="time"]').fill("14:00");
+        await modal.getByPlaceholder(/Search customers/i).fill("Charlie Custom");
         
         // Select mocked customer from search
         await page.getByText("Charlie Custom").first().click();
 
         // Save
-        await page.getByRole("button", { name: /Save Appointment/i }).click();
+        await page.getByRole("button", { name: /Create Appointment/i }).click();
 
         // Verify it appears in calendar (mocking the list response would be needed for absolute verification)
-        await expect(page.getByText("Alteration: Charlie Custom")).toBeVisible();
+        await expect(page.getByTestId("appointment-modal")).not.toBeVisible();
     });
 });

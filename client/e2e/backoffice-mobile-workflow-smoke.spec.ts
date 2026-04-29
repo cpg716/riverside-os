@@ -53,8 +53,8 @@ for (const viewport of WORKFLOW_VIEWPORTS) {
     await expect(page.getByText(/start with the vendor paperwork in hand/i)).toBeVisible({
       timeout: 20_000,
     });
-    await page.getByRole("button", { name: /^purchase orders$/i }).first().click();
-    await expect(page.getByRole("heading", { name: /^purchase orders$/i }).first()).toBeVisible({
+    await openMainNavSubItem(page, /^order stock$/i);
+    await expect(page.getByRole("heading", { name: /^order stock$/i }).first()).toBeVisible({
       timeout: 20_000,
     });
 

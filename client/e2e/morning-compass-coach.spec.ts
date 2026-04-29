@@ -3,6 +3,7 @@ import { expect, test } from "@playwright/test";
 import { signInToBackOffice } from "./helpers/backofficeSignIn";
 import {
   ensurePosRegisterSessionOpen,
+  ensurePosSaleCashierSignedIn,
   enterPosShell,
 } from "./helpers/openPosRegister";
 
@@ -18,6 +19,7 @@ test.describe("Morning Compass coach", () => {
     await signInToBackOffice(page);
     await enterPosShell(page);
     await ensurePosRegisterSessionOpen(page);
+    await ensurePosSaleCashierSignedIn(page);
 
     const dashboardTab = page
       .getByRole("navigation", { name: "POS Navigation" })

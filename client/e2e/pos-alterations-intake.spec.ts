@@ -60,11 +60,11 @@ async function openPosRegisterSurface(page: Page): Promise<void> {
   await expect(posNav).toBeVisible({ timeout: 20_000 });
 
   await ensurePosRegisterSessionOpen(page);
+  await ensurePosSaleCashierSignedIn(page);
   const registerTab = page.getByTestId("pos-sidebar-tab-register");
   if (await registerTab.isVisible().catch(() => false)) {
     await registerTab.click();
   }
-  await ensurePosSaleCashierSignedIn(page);
   await expect(page.getByTestId("pos-product-search")).toBeVisible({
     timeout: 25_000,
   });

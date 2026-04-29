@@ -102,7 +102,7 @@ test.describe("Staff Scheduler E2E", () => {
         await openBackofficeSidebarTab(page, "staff");
         await page.getByRole("button", { name: /^Schedule$/i }).click();
         
-        await expect(page.getByText("Weekly schedule")).toBeVisible();
+        await expect(page.getByRole("heading", { name: "Weekly schedule" })).toBeVisible();
         await expect(page.getByText("Alice Admin")).toBeVisible();
         await expect(page.getByText("Bob Sales")).toBeVisible();
         
@@ -116,7 +116,10 @@ test.describe("Staff Scheduler E2E", () => {
         await page.getByRole("button", { name: /^Schedule$/i }).click();
         
         // Switch to "Staff" sub-view
-        await page.getByRole("button", { name: "Staff", exact: true }).click();
+        await page
+            .getByTestId("app-shell-state")
+            .getByRole("button", { name: "Staff", exact: true })
+            .click();
         await expect(page.getByText("Team Attendance")).toBeVisible();
 
         // Select Alice
@@ -144,10 +147,6 @@ test.describe("Staff Scheduler E2E", () => {
     });
 
     test("can manage store events (meetings/holidays)", async ({ page }) => {
-        await openBackofficeSidebarTab(page, "staff");
-        await page.getByRole("button", { name: /^Schedule$/i }).click();
-        await page.getByRole("button", { name: "Scheduler", exact: true }).click();
-
         // Mock events fetch
         await page.route("**/api/staff/schedule/events*", async (route) => {
             await route.fulfill({
@@ -165,6 +164,10 @@ test.describe("Staff Scheduler E2E", () => {
                 ]),
             });
         });
+
+        await openBackofficeSidebarTab(page, "staff");
+        await page.getByRole("button", { name: /^Schedule$/i }).click();
+        await page.getByRole("button", { name: "Scheduler", exact: true }).click();
 
         // Verify holiday star and red color in grid (top row)
         const holidayCell = page.getByText("★ Memorial Day");

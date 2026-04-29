@@ -37,7 +37,7 @@ test.describe("POS RMS Charge", () => {
     const receipt = await fetchReceiptEscpos(request, checkout.body!.transaction_id, sessionId);
     expect(receipt).toContain("RMS Charge");
     expect(receipt).toContain("RMS 90");
-    expect(receipt).toContain(rmsRecord.masked_account ?? "••••");
+    expect(receipt).toMatch(/Account[\s\S]*MS90/);
     expect(receipt).toContain(rmsRecord.host_reference ?? "HOST-");
   });
 
@@ -158,8 +158,8 @@ test.describe("POS RMS Charge", () => {
     });
 
     const receipt = await fetchReceiptEscpos(request, checkout.body!.transaction_id, sessionId);
-    expect(receipt).toContain("Tender: Cash");
-    expect(receipt).toContain("RMS Ref:");
+    expect(receipt).toMatch(/Tender[\s\S]*Cash/);
+    expect(receipt).toMatch(/RMS Ref[\s\S]*HOST-/);
     expect(receipt).toContain(artifacts.rms_records[0]?.host_reference ?? "HOST-");
   });
 

@@ -11,6 +11,11 @@ async function openWorkspace(
   readyTarget: Locator,
 ) {
   await openBackofficeSidebarTab(page, tab);
+  if (tab === "inventory") {
+    const findItemButton = page.getByRole("button", { name: /^find item$/i });
+    await expect(findItemButton).toBeVisible({ timeout: 15_000 });
+    await findItemButton.click();
+  }
   await expect(readyTarget).toBeVisible({
     timeout: 30_000,
   });

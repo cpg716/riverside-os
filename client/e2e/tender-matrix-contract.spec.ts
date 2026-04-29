@@ -414,7 +414,7 @@ test.describe("Tender matrix payment-intent contract", () => {
     const receiptBody = await receiptRes.text();
     const receipt = (JSON.parse(receiptBody) as { receiptline_markdown?: string }).receiptline_markdown ?? "";
     expect(receipt).not.toContain("RMS CHARGE PAYMENT");
-    expect(receipt).toContain("Total 50.00");
+    expect(receipt).toMatch(/Total[\s\S]*50\.00/);
     expect(receipt).toContain("Cash");
 
     const rmsRecordsRes = await request.get(

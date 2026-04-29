@@ -18,7 +18,7 @@ async function openInventoryPhysicalCount(page: Parameters<typeof test>[0]["page
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
   const physicalCountButton = page.getByRole("button", {
-    name: /^physical counts$/i,
+    name: /^count\/reconcile$/i,
   });
   await expect(physicalCountButton).toBeVisible({ timeout: 15_000 });
   await physicalCountButton.click({ force: true });

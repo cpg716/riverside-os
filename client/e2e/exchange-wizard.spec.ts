@@ -244,6 +244,7 @@ test.describe("POS exchange wizard", () => {
     const posNav = page.getByRole("navigation", { name: "POS Navigation" });
     await expect(posNav).toBeVisible({ timeout: 15_000 });
     await ensurePosRegisterSessionOpen(page);
+    await ensurePosSaleCashierSignedIn(page);
     const registerTab = page.getByTestId("pos-sidebar-tab-register");
     const registerNavButton = posNav.getByRole("button", { name: /^register$/i });
     const goToRegisterButton = page.getByRole("button", {
@@ -269,7 +270,6 @@ test.describe("POS exchange wizard", () => {
       await expect(registerNavButton).toBeEnabled();
       await registerNavButton.click();
     }
-    await ensurePosSaleCashierSignedIn(page);
     await expect(page.getByTestId("pos-product-search")).toBeVisible({
       timeout: 20_000,
     });

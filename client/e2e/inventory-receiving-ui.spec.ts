@@ -32,7 +32,7 @@ async function openInventoryPurchaseOrders(page: Parameters<typeof test>[0]["pag
     page.getByRole("navigation", { name: "Breadcrumb" }).getByText(/^inventory$/i),
   ).toBeVisible({ timeout: 15_000 });
   const purchaseOrdersButton = page.getByRole("button", {
-    name: /^purchase orders$/i,
+    name: /^order stock$/i,
   });
   await expect(purchaseOrdersButton).toBeVisible({ timeout: 15_000 });
   await purchaseOrdersButton.click({ force: true });
@@ -73,10 +73,10 @@ test.describe("Inventory receiving operator verification", () => {
     await signInToBackOffice(page, { persistSession: true });
     await openInventoryReceiveStock(page);
 
-    await expect(page.getByText(/choose an open purchase order/i)).toBeVisible({
+    await expect(page.getByText(/receive from a submitted po below/i)).toBeVisible({
       timeout: 10_000,
     });
-    await expect(page.getByText(/create a direct invoice/i).first()).toBeVisible({
+    await expect(page.getByText(/direct invoice/i).first()).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByText(/standalone|offline/i)).toHaveCount(0);

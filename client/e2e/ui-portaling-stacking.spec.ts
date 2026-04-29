@@ -3,6 +3,7 @@ import {
   signInToBackOffice,
   openBackofficeSidebarTab,
 } from "./helpers/backofficeSignIn";
+import { ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
 import {
   apiBase,
   ensureSessionAuth,
@@ -34,6 +35,7 @@ test.describe("UI Portaling and Stacking", () => {
       data: {
         session_id: sessionId,
         operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
         customer_id: fixture.customer.id,
         payment_method: "cash",
         total_price: "108.75",
@@ -129,6 +131,7 @@ test.describe("UI Portaling and Stacking", () => {
       data: {
         session_id: sessionId,
         operator_staff_id: operatorStaffId,
+        primary_salesperson_id: operatorStaffId,
         customer_id: fixture.customer.id,
         payment_method: "cash",
         total_price: "108.75",
@@ -185,6 +188,7 @@ test.describe("UI Portaling and Stacking", () => {
     // Enter POS
     const posNav = page.getByRole("navigation", { name: "POS Navigation" });
     await expect(posNav).toBeVisible({ timeout: 20_000 });
+    await ensurePosSaleCashierSignedIn(page);
 
     // Open Exchange Wizard
     const trigger = page.getByTestId("pos-exchange-wizard-trigger");
@@ -219,6 +223,7 @@ test.describe("UI Portaling and Stacking", () => {
     test.setTimeout(60_000);
     await signInToBackOffice(page, { persistSession: true });
     await openBackofficeSidebarTab(page, "inventory");
+    await page.getByRole("button", { name: /^find item$/i }).click();
 
     // 1. Open Product Hub Drawer
     const productRow = page.locator("tr").filter({ hasText: /[^]/ }).first();
