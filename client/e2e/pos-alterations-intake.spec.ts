@@ -352,6 +352,7 @@ test.describe("POS alteration intake", () => {
     await expect(page.getByText(/sale complete/i)).toBeVisible({ timeout: 20_000 });
     await page.getByRole("button", { name: /begin new sale/i }).click();
     await expect(page.getByText(/sale complete/i)).toBeHidden({ timeout: 10_000 });
+    await ensurePosSaleCashierSignedIn(page);
 
     expect(checkoutBody).toMatchObject({
       customer_id: CUSTOMER.id,
@@ -404,7 +405,7 @@ test.describe("POS alteration intake", () => {
       });
     });
 
-    await page.getByTitle("View previous orders for this customer").click();
+    await page.getByTitle("View customer Transaction Records").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
     const paymentModal = page.getByTestId("pos-order-payment-entry-modal");
     await expect(paymentModal).toBeVisible();
@@ -427,7 +428,7 @@ test.describe("POS alteration intake", () => {
     await orderPaymentLine.getByTestId("pos-order-payment-remove").click();
     await expect(page.getByTestId("pos-order-payment-cart-line")).toHaveCount(0);
 
-    await page.getByTitle("View previous orders for this customer").click();
+    await page.getByTitle("View customer Transaction Records").click();
     await page.getByTestId(`pos-order-make-payment-${OPEN_ORDER.display_id}`).click();
     await page.getByTestId("pos-order-payment-amount").fill("40.00");
     await page.getByTestId("pos-order-payment-add-to-cart").click();
