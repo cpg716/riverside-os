@@ -3,7 +3,7 @@ import {
   signInToBackOffice,
   openBackofficeSidebarTab,
 } from "./helpers/backofficeSignIn";
-import { ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
+import { enterPosShell, ensurePosSaleCashierSignedIn } from "./helpers/openPosRegister";
 import {
   apiBase,
   ensureSessionAuth,
@@ -38,8 +38,8 @@ test.describe("UI Portaling and Stacking", () => {
         primary_salesperson_id: operatorStaffId,
         customer_id: fixture.customer.id,
         payment_method: "cash",
-        total_price: "108.75",
-        amount_paid: "108.75",
+        total_price: "100.00",
+        amount_paid: "100.00",
         items: [
           {
             product_id: fixture.product.product_id,
@@ -48,8 +48,8 @@ test.describe("UI Portaling and Stacking", () => {
             quantity: 1,
             unit_price: "100.00",
             unit_cost: "40.00",
-            state_tax: "4.00",
-            local_tax: "4.75",
+            state_tax: "0.00",
+            local_tax: "0.00",
           },
         ],
       },
@@ -134,8 +134,8 @@ test.describe("UI Portaling and Stacking", () => {
         primary_salesperson_id: operatorStaffId,
         customer_id: fixture.customer.id,
         payment_method: "cash",
-        total_price: "108.75",
-        amount_paid: "108.75",
+        total_price: "100.00",
+        amount_paid: "100.00",
         items: [
           {
             product_id: fixture.product.product_id,
@@ -144,8 +144,8 @@ test.describe("UI Portaling and Stacking", () => {
             quantity: 1,
             unit_price: "100.00",
             unit_cost: "40.00",
-            state_tax: "4.00",
-            local_tax: "4.75",
+            state_tax: "0.00",
+            local_tax: "0.00",
           },
         ],
       },
@@ -183,7 +183,7 @@ test.describe("UI Portaling and Stacking", () => {
   }) => {
     test.setTimeout(120_000);
     await signInToBackOffice(page, { persistSession: true });
-    await openBackofficeSidebarTab(page, "register");
+    await enterPosShell(page);
 
     // Enter POS
     const posNav = page.getByRole("navigation", { name: "POS Navigation" });
@@ -230,7 +230,7 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(manageButton).toBeVisible({ timeout: 30_000 });
     await manageButton.click();
 
-    const hubDrawer = page.getByRole("dialog", { name: /Product Hub/i });
+    const hubDrawer = page.getByRole("dialog").filter({ hasText: /Item Identity|General|Stock Status/i }).last();
     await expect(hubDrawer).toBeVisible({ timeout: 15_000 });
 
     // 2. Trigger Stock Adjustment modal from the BOARD (behind the drawer)

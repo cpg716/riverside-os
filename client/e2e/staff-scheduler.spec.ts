@@ -123,7 +123,7 @@ test.describe("Staff Scheduler E2E", () => {
         await expect(page.getByText(/Time & Attendance|Team Attendance/)).toBeVisible();
 
         // Select Alice
-        await page.locator('select').selectOption({ label: "Alice Admin" });
+        await page.locator("select").first().selectOption({ label: "Alice Admin" });
         await expect(page.getByText("Managing Schedule")).toBeVisible();
         await expect(page.getByText("Alice Admin")).toBeVisible();
 
@@ -174,7 +174,7 @@ test.describe("Staff Scheduler E2E", () => {
         await expect(holidayCell).toBeVisible();
         
         // Verify staff shift badge (red 'H' for holiday)
-        const shiftBadge = page.getByText("H").first();
+        const shiftBadge = page.getByText("H", { exact: true }).first();
         await expect(shiftBadge).toBeVisible();
         await expect(shiftBadge).toContainText("H");
     });
