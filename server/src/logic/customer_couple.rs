@@ -194,9 +194,16 @@ pub async fn link_couple(
     .execute(&mut *tx)
     .await?;
 
-    // Implementation Detail: Loyalty and Balance.
-    // The user said "Only 1 account keeps that history as counted... the other just gets an archived view... but does not duplicate sales revenue/inventory/finance/loyalty".
-    // This implies we should MOVE the loyalty points from secondary to primary?
+    sqlx::query(
+        r#"
+        INSERT INTO customer_relationship_periods (parent_customer_id, child_customer_id, linked_at)
+        VALUES ($1, $2, now())
+        "#,
+    )
+    .bind(primary_id)
+    .bind(secondary_id)
+    .execute(&mut *tx)
+    .await?;
 
     let secondary_points: i32 =
         sqlx::query_scalar("SELECT loyalty_points FROM customers WHERE id = $1")
@@ -258,10 +265,25 @@ pub async fn unlink_couple(pool: &PgPool, customer_id: Uuid) -> Result<(), Coupl
         .fetch_all(&mut *tx)
         .await?;
 
+        let member_ids: Vec<Uuid> = members.iter().map(|member| member.id).collect();
+
         sqlx::query(
             "UPDATE customers SET couple_id = NULL, couple_primary_id = NULL, couple_linked_at = NULL WHERE couple_id = $1"
         )
         .bind(cid)
+        .execute(&mut *tx)
+        .await?;
+
+        sqlx::query(
+            r#"
+            UPDATE customer_relationship_periods
+            SET unlinked_at = now(), updated_at = now()
+            WHERE unlinked_at IS NULL
+              AND parent_customer_id = ANY($1)
+              AND child_customer_id = ANY($1)
+            "#,
+        )
+        .bind(&member_ids)
         .execute(&mut *tx)
         .await?;
 

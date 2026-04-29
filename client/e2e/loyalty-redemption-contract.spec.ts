@@ -1,5 +1,12 @@
 import { expect, test } from "@playwright/test";
-import { apiBase, seedRmsFixture, staffHeaders } from "./helpers/rmsCharge";
+import {
+  apiBase,
+  ensureSessionAuth,
+  seedRmsFixture,
+  staffHeaders,
+  verifyStaffId,
+  type SeedFixtureResponse,
+} from "./helpers/rmsCharge";
 
 type LoyaltyProgramSummary = {
   loyalty_point_threshold: number;
@@ -33,6 +40,16 @@ type GiftCardLookup = {
 type CustomerTimelineEvent = {
   kind: string;
   summary: string;
+};
+
+type CustomerTransactionHistoryItem = {
+  transaction_id: string;
+  transaction_display_id: string;
+};
+
+type CheckoutResponse = {
+  transaction_id: string;
+  transaction_display_id: string;
 };
 
 function rewardAmountString(value: string | number): string {
@@ -148,6 +165,72 @@ async function fetchCustomerTimeline(
   expect(res.status()).toBe(200);
   const body = (await res.json()) as { events: CustomerTimelineEvent[] };
   return body.events;
+}
+
+async function checkoutFixtureSale(
+  request: Parameters<typeof test>[0]["request"],
+  fixture: SeedFixtureResponse,
+  customerId: string,
+): Promise<CheckoutResponse> {
+  const { sessionId, sessionToken } = await ensureSessionAuth(request);
+  const operatorStaffId = await verifyStaffId(request);
+  const res = await request.post(`${apiBase()}/api/transactions/checkout`, {
+    headers: {
+      ...staffHeaders(),
+      "x-riverside-pos-session-id": sessionId,
+      "x-riverside-pos-session-token": sessionToken,
+      "Content-Type": "application/json",
+    },
+    data: {
+      session_id: sessionId,
+      operator_staff_id: operatorStaffId,
+      customer_id: customerId,
+      payment_method: "cash",
+      total_price: fixture.product.unit_price,
+      amount_paid: fixture.product.unit_price,
+      payment_splits: [
+        {
+          payment_method: "cash",
+          amount: fixture.product.unit_price,
+        },
+      ],
+      items: [
+        {
+          product_id: fixture.product.product_id,
+          variant_id: fixture.product.variant_id,
+          fulfillment: "takeaway",
+          quantity: 1,
+          unit_price: fixture.product.unit_price,
+          unit_cost: fixture.product.unit_cost,
+          state_tax: "0.00",
+          local_tax: "0.00",
+        },
+      ],
+      checkout_client_id: crypto.randomUUID(),
+      is_tax_exempt: true,
+      tax_exempt_reason: "Out of State",
+    },
+    failOnStatusCode: false,
+  });
+  const bodyText = await res.text();
+  expect(res.status(), bodyText.slice(0, 1000)).toBe(200);
+  return JSON.parse(bodyText) as CheckoutResponse;
+}
+
+async function fetchCustomerTransactionHistory(
+  request: Parameters<typeof test>[0]["request"],
+  customerId: string,
+): Promise<CustomerTransactionHistoryItem[]> {
+  const res = await request.get(
+    `${apiBase()}/api/customers/${customerId}/transaction-history?record_scope=transactions&limit=50`,
+    {
+      headers: staffHeaders(),
+      failOnStatusCode: false,
+    },
+  );
+  expect(res.status()).toBe(200);
+  const body = (await res.json()) as { items: CustomerTransactionHistoryItem[] };
+  return body.items;
 }
 
 test.describe("Loyalty redemption contract", () => {
@@ -379,5 +462,33 @@ test.describe("Loyalty redemption contract", () => {
       event.summary.includes("Unlinked profile from") &&
       event.summary.includes(primary.customer.customer_code),
     )).toBe(true);
+  });
+
+  test("unlinked profiles keep only transactions from the linked period shared", async ({
+    request,
+  }) => {
+    const primary = await seedRmsFixture(request, "single_valid", "History Period Primary");
+    const partner = await seedRmsFixture(request, "single_valid", "History Period Partner");
+
+    await linkCouple(request, primary.customer.id, partner.customer.id);
+    const duringLinkedSale = await checkoutFixtureSale(request, partner, partner.customer.id);
+    await unlinkCouple(request, primary.customer.id);
+    const afterUnlinkSale = await checkoutFixtureSale(request, partner, partner.customer.id);
+
+    const primaryHistory = await fetchCustomerTransactionHistory(
+      request,
+      primary.customer.id,
+    );
+    const primaryIds = primaryHistory.map((row) => row.transaction_id);
+    expect(primaryIds).toContain(duringLinkedSale.transaction_id);
+    expect(primaryIds).not.toContain(afterUnlinkSale.transaction_id);
+
+    const primaryTimeline = await fetchCustomerTimeline(request, primary.customer.id);
+    expect(primaryTimeline.some((event) =>
+      event.summary.includes(duringLinkedSale.transaction_display_id),
+    )).toBe(true);
+    expect(primaryTimeline.some((event) =>
+      event.summary.includes(afterUnlinkSale.transaction_display_id),
+    )).toBe(false);
   });
 });

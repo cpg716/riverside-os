@@ -4168,89 +4168,66 @@ async fn build_customer_timeline(
     pool: &sqlx::PgPool,
     customer_id: Uuid,
 ) -> Result<Vec<CustomerTimelineEvent>, sqlx::Error> {
-    let couple_id: Option<Uuid> =
-        sqlx::query_scalar("SELECT couple_id FROM customers WHERE id = $1")
-            .bind(customer_id)
-            .fetch_one(pool)
-            .await?;
+    let orders = sqlx::query_as::<_, OrderTimelineRow>(
+        r#"
+        SELECT
+            o.id,
+            COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
+            o.booked_at,
+            STRING_AGG(
+                (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
+                ', ' ORDER BY COALESCE(p.name, '')
+            ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
+        FROM transactions o
+        LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
+        LEFT JOIN products p ON p.id = oi.product_id
+        WHERE (
+            o.customer_id = $1
+            OR EXISTS (
+                SELECT 1
+                FROM customer_relationship_periods crp
+                WHERE (
+                    (crp.parent_customer_id = $1 AND crp.child_customer_id = o.customer_id)
+                    OR
+                    (crp.child_customer_id = $1 AND crp.parent_customer_id = o.customer_id)
+                )
+                  AND o.booked_at >= crp.linked_at
+                  AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
+            )
+        )
+          AND o.status != 'cancelled'::order_status
+        GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
+        ORDER BY o.booked_at DESC
+        LIMIT 25
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
 
-    let orders = if let Some(cid) = couple_id {
-        sqlx::query_as::<_, OrderTimelineRow>(
-            r#"
-            SELECT
-                o.id,
-                COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
-                o.booked_at,
-                STRING_AGG(
-                    (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
-                    ', ' ORDER BY COALESCE(p.name, '')
-                ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
-            FROM transactions o
-            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
-            LEFT JOIN products p ON p.id = oi.product_id
-            WHERE o.customer_id IN (SELECT id FROM customers WHERE couple_id = $1)
-              AND o.status != 'cancelled'::order_status
-            GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
-            ORDER BY o.booked_at DESC
-            LIMIT 25
-            "#,
-        )
-        .bind(cid)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as::<_, OrderTimelineRow>(
-            r#"
-            SELECT
-                o.id,
-                COALESCE(NULLIF(TRIM(o.display_id), ''), o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.id::text) AS display_id,
-                o.booked_at,
-                STRING_AGG(
-                    (oi.quantity::text || '× ' || COALESCE(p.name, 'Item')),
-                    ', ' ORDER BY COALESCE(p.name, '')
-                ) FILTER (WHERE oi.id IS NOT NULL) AS items_summary
-            FROM transactions o
-            LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
-            LEFT JOIN products p ON p.id = oi.product_id
-            WHERE o.customer_id = $1
-              AND o.status != 'cancelled'::order_status
-            GROUP BY o.id, o.display_id, o.counterpoint_doc_ref, o.counterpoint_ticket_ref, o.booked_at
-            ORDER BY o.booked_at DESC
-            LIMIT 25
-            "#,
-        )
-        .bind(customer_id)
-        .fetch_all(pool)
-        .await?
-    };
-
-    let payments = if let Some(cid) = couple_id {
-        sqlx::query_as::<_, PaymentTimelineRow>(
-            r#"
-            SELECT id, created_at, payment_method, amount
-            FROM payment_transactions
-            WHERE payer_id IN (SELECT id FROM customers WHERE couple_id = $1)
-            ORDER BY created_at DESC
-            LIMIT 28
-            "#,
-        )
-        .bind(cid)
-        .fetch_all(pool)
-        .await?
-    } else {
-        sqlx::query_as::<_, PaymentTimelineRow>(
-            r#"
-            SELECT id, created_at, payment_method, amount
-            FROM payment_transactions
-            WHERE payer_id = $1
-            ORDER BY created_at DESC
-            LIMIT 28
-            "#,
-        )
-        .bind(customer_id)
-        .fetch_all(pool)
-        .await?
-    };
+    let payments = sqlx::query_as::<_, PaymentTimelineRow>(
+        r#"
+        SELECT id, created_at, payment_method, amount
+        FROM payment_transactions p
+        WHERE p.payer_id = $1
+           OR EXISTS (
+               SELECT 1
+               FROM customer_relationship_periods crp
+               WHERE (
+                   (crp.parent_customer_id = $1 AND crp.child_customer_id = p.payer_id)
+                   OR
+                   (crp.child_customer_id = $1 AND crp.parent_customer_id = p.payer_id)
+               )
+                 AND p.created_at >= crp.linked_at
+                 AND (crp.unlinked_at IS NULL OR p.created_at <= crp.unlinked_at)
+           )
+        ORDER BY created_at DESC
+        LIMIT 28
+        "#,
+    )
+    .bind(customer_id)
+    .fetch_all(pool)
+    .await?;
 
     let wedding_logs = sqlx::query_as::<_, WeddingLogTimelineRow>(&format!(
         r#"
@@ -4265,7 +4242,20 @@ async fn build_customer_timeline(
         WHERE EXISTS (
             SELECT 1 FROM wedding_members wm
             WHERE wm.wedding_party_id = l.wedding_party_id
-              AND wm.customer_id = $1
+              AND (
+                  wm.customer_id = $1
+                  OR EXISTS (
+                      SELECT 1
+                      FROM customer_relationship_periods crp
+                      WHERE (
+                          (crp.parent_customer_id = $1 AND crp.child_customer_id = wm.customer_id)
+                          OR
+                          (crp.child_customer_id = $1 AND crp.parent_customer_id = wm.customer_id)
+                      )
+                        AND l.created_at >= crp.linked_at
+                        AND (crp.unlinked_at IS NULL OR l.created_at <= crp.unlinked_at)
+                  )
+              )
               AND (l.wedding_member_id IS NULL OR l.wedding_member_id = wm.id)
         )
           AND (wp.is_deleted IS NULL OR wp.is_deleted = FALSE)
@@ -4280,8 +4270,19 @@ async fn build_customer_timeline(
     let notes = sqlx::query_as::<_, NoteTimelineRow>(
         r#"
         SELECT id, created_at, body
-        FROM customer_timeline_notes
-        WHERE customer_id = $1
+        FROM customer_timeline_notes n
+        WHERE n.customer_id = $1
+           OR EXISTS (
+               SELECT 1
+               FROM customer_relationship_periods crp
+               WHERE (
+                   (crp.parent_customer_id = $1 AND crp.child_customer_id = n.customer_id)
+                   OR
+                   (crp.child_customer_id = $1 AND crp.parent_customer_id = n.customer_id)
+               )
+                 AND n.created_at >= crp.linked_at
+                 AND (crp.unlinked_at IS NULL OR n.created_at <= crp.unlinked_at)
+           )
         ORDER BY created_at DESC
         LIMIT 30
         "#,
@@ -4293,8 +4294,19 @@ async fn build_customer_timeline(
     let meas = sqlx::query_as::<_, MeasTimelineRow>(
         r#"
         SELECT id, created_at
-        FROM measurements
-        WHERE customer_id = $1
+        FROM measurements m
+        WHERE m.customer_id = $1
+           OR EXISTS (
+               SELECT 1
+               FROM customer_relationship_periods crp
+               WHERE (
+                   (crp.parent_customer_id = $1 AND crp.child_customer_id = m.customer_id)
+                   OR
+                   (crp.child_customer_id = $1 AND crp.parent_customer_id = m.customer_id)
+               )
+                 AND m.created_at >= crp.linked_at
+                 AND (crp.unlinked_at IS NULL OR m.created_at <= crp.unlinked_at)
+           )
         ORDER BY created_at DESC
         LIMIT 18
         "#,
@@ -4310,6 +4322,21 @@ async fn build_customer_timeline(
         LEFT JOIN wedding_members wm ON wm.id = wa.wedding_member_id
         WHERE wa.customer_id = $1
            OR wm.customer_id = $1
+           OR EXISTS (
+               SELECT 1
+               FROM customer_relationship_periods crp
+               WHERE (
+                   (crp.parent_customer_id = $1 AND crp.child_customer_id = wa.customer_id)
+                   OR
+                   (crp.child_customer_id = $1 AND crp.parent_customer_id = wa.customer_id)
+                   OR
+                   (crp.parent_customer_id = $1 AND crp.child_customer_id = wm.customer_id)
+                   OR
+                   (crp.child_customer_id = $1 AND crp.parent_customer_id = wm.customer_id)
+               )
+                 AND wa.starts_at >= crp.linked_at
+                 AND (crp.unlinked_at IS NULL OR wa.starts_at <= crp.unlinked_at)
+           )
         ORDER BY wa.starts_at DESC
         LIMIT 20
         "#,
@@ -4330,6 +4357,17 @@ async fn build_customer_timeline(
         INNER JOIN shipment s ON s.id = e.shipment_id
         LEFT JOIN staff st ON st.id = e.staff_id
         WHERE s.customer_id = $1
+           OR EXISTS (
+               SELECT 1
+               FROM customer_relationship_periods crp
+               WHERE (
+                   (crp.parent_customer_id = $1 AND crp.child_customer_id = s.customer_id)
+                   OR
+                   (crp.child_customer_id = $1 AND crp.parent_customer_id = s.customer_id)
+               )
+                 AND e.at >= crp.linked_at
+                 AND (crp.unlinked_at IS NULL OR e.at <= crp.unlinked_at)
+           )
         ORDER BY e.at DESC
         LIMIT 35
         "#,

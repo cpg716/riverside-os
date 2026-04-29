@@ -88,18 +88,37 @@ pub async fn query_customer_transaction_history(
             COUNT(oi.id)::bigint AS item_count,
             EXISTS(SELECT 1 FROM transaction_lines WHERE transaction_id = o.id AND fulfillment != 'takeaway') AS is_fulfillment_order,
             o.is_counterpoint_import,
-            o.counterpoint_customer_code,
+            NULLIF(TRIM(c.customer_code), '') AS counterpoint_customer_code,
             ps.full_name AS primary_salesperson_name,
             COUNT(*) OVER()::bigint AS total_count
         FROM transactions o
         LEFT JOIN transaction_lines oi ON oi.transaction_id = o.id
         LEFT JOIN staff ps ON ps.id = o.primary_salesperson_id
+        LEFT JOIN customers c ON c.id = o.customer_id
         WHERE (o.customer_id = "#,
     );
     qb.push_bind(customer_id);
-    qb.push(" OR o.customer_id IN (SELECT id FROM customers WHERE couple_id = (SELECT couple_id FROM customers WHERE id = ");
+    qb.push(
+        r#" OR EXISTS (
+            SELECT 1
+            FROM customer_relationship_periods crp
+            WHERE (
+                (crp.parent_customer_id = "#,
+    );
     qb.push_bind(customer_id);
-    qb.push(") AND couple_id IS NOT NULL)) ");
+    qb.push(
+        r#" AND crp.child_customer_id = o.customer_id)
+                OR
+                (crp.child_customer_id = "#,
+    );
+    qb.push_bind(customer_id);
+    qb.push(
+        r#" AND crp.parent_customer_id = o.customer_id)
+            )
+              AND o.booked_at >= crp.linked_at
+              AND (crp.unlinked_at IS NULL OR o.booked_at <= crp.unlinked_at)
+        )) "#,
+    );
     qb.push(" AND o.status != 'cancelled'::order_status ");
     match q.record_scope {
         CustomerHistoryRecordScope::Transactions => {
@@ -130,7 +149,7 @@ pub async fn query_customer_transaction_history(
         }
     }
     qb.push(
-        " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, o.is_counterpoint_import, o.counterpoint_customer_code, ps.full_name ",
+        " GROUP BY o.id, o.display_id, o.booked_at, o.status, o.sale_channel, o.total_price, o.amount_paid, o.balance_due, o.is_counterpoint_import, c.customer_code, ps.full_name ",
     );
     qb.push(" ORDER BY o.booked_at DESC LIMIT ");
     qb.push_bind(limit);
