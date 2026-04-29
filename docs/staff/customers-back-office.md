@@ -2,15 +2,15 @@
 
 **Audience:** Sales and CRM staff.
 
-**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **RMS charge** (linked accounts plus R2S/CoreCard **charge** vs **payment** ledger; needs **`customers.rms_charge.view`** or legacy **`customers.rms_charge`**), **Duplicate review** (queue inbox; needs **`customers_duplicate_review`**).
+**Where in ROS:** Back Office → **Customers**. Subsections: **All Customers**, **Add Customer**, **Layaways** (all-customer layaway workspace), **Shipments Hub** (all-customer shipping workspace), **RMS Charge** (all-customer private-label credit workspace), and **Duplicate Review** (all-customer profile review queue).
 
-**Related permissions:** Browse/search/create use general customer access. The **Relationship hub** and aligned APIs use **fine-grained keys** (migration **63**): **`customers.hub_view`**, **`customers.hub_edit`**, **`customers.timeline`**, **`customers.measurements`**, plus **`orders.view`** for the **Orders** tab. An **open register** session can satisfy the same checks as staff with those keys for many calls — see **[`../CUSTOMER_HUB_AND_RBAC.md`](../CUSTOMER_HUB_AND_RBAC.md)** and **[`../STAFF_PERMISSIONS.md`](../STAFF_PERMISSIONS.md)**. **Joint Couple Accounts** (link/unlink partners) require **`customers.couple_manage`**. **Duplicate review queue** and **Merge** (two customers selected) need **`customers_duplicate_review`** and **`customers.merge`** respectively; migration **64** grants both to default **`salesperson`** and **`sales_support`** roles. **403** on a specific hub action usually means a **missing key**, not a bug.
+**Related permissions:** Browse/search/create use general customer access. Some hub tabs and customer-related workspaces are role-limited. If a tab or action is missing, ask a manager to review your customer, Orders, Shipping, RMS Charge, or Duplicate Review access.
 
 ---
 
 ## How to use this area
 
-**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is the customer review drawer for profile details, messages, measurements, orders, shipments, and weddings. If you **cannot open** the hub, you likely lack **`customers.hub_view`**. If a **tab is missing**, your role may not include **`orders.view`**, **`shipments.view`**, or **`customers.measurements`**. If you can open the hub but **cannot edit** marketing/VIP/profile fields, you may lack **`customers.hub_edit`**. **Timeline** read/write needs **`customers.timeline`**.
+**All Customers** is the **searchable directory**. **Add Customer** opens the **drawer** form. The **Relationship hub** is scoped to the customer you opened: use it for this customer’s profile, messages, measurements, TRX records, ORD fulfillment work, shipments, weddings, and related history. The sidebar workspaces are broader queues or operational tools across customers.
 
 ## All Customers
 
@@ -21,21 +21,21 @@
 
 ### Relationship hub tabs
 
-- **Profile** — the main customer review tab. Use it for customer notes, contact details, VIP flag, joint account linkage, and overall account context. This is also where staff can see store credit, deposit waiting, loyalty points, and active wedding linkage.
-- **Messages** — Podium message review and follow-up when available.
-- **Transactions** — customer sale history.
-- **Orders** — order-linked history and handoff into the Back Office Orders workflow.
-- **Shipments** — customer shipment history and shipment drill-in (**`shipments.view`**).
-- **Measurements** — sizing vault (**`customers.measurements`**); **PII** — verify identity before reading aloud.
-- **Weddings** — wedding party linkage and wedding shortcuts.
+- **Profile** — this customer’s contact details, notes, VIP flag, joint account linkage, store credit/deposit context, loyalty points, and active wedding linkage.
+- **Messages** — this customer’s Podium message thread and follow-up when available.
+- **TRX Records** — this customer’s financial sale records.
+- **ORD Work** — this customer’s Special, Custom, or Wedding fulfillment work and handoff into the Back Office Orders workflow.
+- **Shipments** — this customer’s shipment history and shipment drill-in.
+- **Measurements** — this customer’s sizing records; **PII** — verify identity before reading aloud.
+- **Wedding Links** — this customer’s wedding party linkage and wedding shortcuts.
 
 ### Relationship hub versus RMS Charge
 
-- Use the **Relationship hub** to understand the customer record.
-- Use **RMS Charge** to manage RMS-linked accounts, RMS transaction posting, RMS exceptions, and RMS reconciliation.
-- Do not treat the Relationship hub as the place to resolve RMS financing issues. It provides customer context, not the full RMS support workflow.
+- Use the **Relationship hub** for this customer’s RMS Charge context and related customer history.
+- Use **RMS Charge** for all-customer account review, posting status, exceptions, and reconciliation.
+- Do not treat the Relationship hub as the global RMS Charge support workflow.
 
-**Add Customer** after save: **VIP** on create and **initial note** only apply if you have **`customers.hub_edit`** and **`customers.timeline`** respectively; otherwise the app shows a **toast** and still creates the customer.
+**Add Customer** after save: **VIP** on create and **initial note** only apply when your role can edit customer profiles and notes; otherwise the app shows a message and still creates the customer.
 
 ## Add Customer
 
@@ -48,19 +48,19 @@
 
 The same Add Customer intake is used from POS when staff search by a name, phone, or email that does not exist. The same address behavior is used in the Relationship hub **Profile** tab: suggested addresses are a helper only, and manual entry remains valid.
 
-## RMS charge (linked accounts and reporting)
+## RMS Charge (linked accounts and reporting)
 
-1. **Customers** → **RMS charge** (if your role includes **`customers.rms_charge.view`** or legacy **`customers.rms_charge`**).
-2. Select a customer to review any linked CoreCredit/CoreCard accounts. Account cards show **masked** account ids, status, program group, and last verification timestamp.
-3. If your role also includes **`customers.rms_charge.manage_links`**, you can manually **link** or **unlink** an account from this workspace.
-4. Use the records table to reconcile **R2S** activity with the portal:
-   - **charge** rows now read as **RMS Charge** and can show program/account metadata
-   - **payment** rows still come from register **PAYMENT** → **RMS CHARGE PAYMENT** checkouts (**cash/check**)
-   - Phase 3 adds operational **Overview**, **Accounts**, **Transactions**, **Programs**, **Exceptions**, and **Reconciliation** sections with sync health and retry tools
-5. Exception queue and reconciliation actions require RMS operational permissions such as **`customers.rms_charge.resolve_exceptions`**, **`customers.rms_charge.reconcile`**, and **`customers.rms_charge.reporting`**.
+1. **Customers** → **RMS Charge**.
+2. Use customer lookup to review linked RMS Charge accounts. Account cards show masked account ids, status, program group, and last verification timestamp.
+3. If your role allows it, you can manually **link** or **unlink** an account from this workspace.
+4. Use the records table to reconcile RMS Charge activity with the portal:
+   - **Charge** rows show RMS Charge activity and account details.
+   - **Payment** rows come from register **PAYMENT** → **RMS CHARGE PAYMENT** checkouts (**cash/check**).
+   - **Overview**, **Accounts**, **Transactions**, **Programs**, **Exceptions**, and **Reconciliation** are all-customer RMS Charge support sections.
+5. Exception queue and reconciliation actions require RMS operational access.
 6. In the Back Office workspace:
-   - `Exceptions` is the staff ownership queue for assign / retry / resolve work
-   - `Reconciliation` is a global RMS support review tab and is not filtered to only the customer currently selected
+   - **Exceptions** is the staff ownership queue for assign / retry / resolve work.
+   - **Reconciliation** is a global RMS support review tab and is not filtered to only the customer currently selected.
 7. Resolution notes should explain what cleared the issue instead of using a generic close-out.
 8. In `Accounts`, use `Remove Link` only to correct the Riverside customer relationship to an RMS account. The confirmation step explains that CoreCard itself is not changed and the correction is logged.
 9. Live RMS refund/reversal actions are manager/admin-sensitive and should only be used by approved staff with the required permissions.
@@ -70,7 +70,7 @@ The same Add Customer intake is used from POS when staff search by a name, phone
    - **[RMS Charge transactions](rms-charge-transactions.md)**
    - **[RMS Charge exceptions](rms-charge-exceptions.md)**
    - **[RMS Charge reconciliation](rms-charge-reconciliation.md)**
-11. Use **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** when you need deeper engineering detail about APIs, persistence, or accounting support behavior.
+11. Use **[Parked sales and RMS charges](../POS_PARKED_SALES_AND_RMS_CHARGES.md)** for the RMS Charge payment workflow.
 
 ## Groups and imports
 
@@ -85,10 +85,10 @@ The same Add Customer intake is used from POS when staff search by a name, phone
 | Search empty | Shorter term; **Load more** | Typo |
 | Drawer won’t save | Scroll to first error | Network |
 | Duplicate warning | Search existing | Manager **merge** |
-| Hub tab missing | **`orders.view`** / **`customers.measurements`** / role default | **Staff → User overrides** or manager |
-| “No permission to open the customer hub” | Missing **`customers.hub_view`** | Manager / **`permissions-and-access.md`** |
-| Timeline hidden or “no permission” | Missing **`customers.timeline`** | Manager |
-| Cannot edit marketing or VIP | Missing **`customers.hub_edit`** | Manager |
+| Hub tab missing | Role does not include that customer area | Manager |
+| “No permission to open the customer hub” | Customer profile access missing | Manager |
+| Timeline hidden or “no permission” | Notes/history access missing | Manager |
+| Cannot edit marketing or VIP | Profile edit access missing | Manager |
 
 ## Helping a coworker
 

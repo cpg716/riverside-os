@@ -145,7 +145,7 @@ export default function LayawayWorkspace({
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search by customer name or order ID…"
+              placeholder="Search by customer name or layaway ID…"
               className="ui-input h-12 w-full rounded-2xl bg-app-surface-2 pl-12 pr-4 text-sm font-bold shadow-inner focus:bg-app-surface sm:text-base"
             />
           </div>

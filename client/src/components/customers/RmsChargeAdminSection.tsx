@@ -304,9 +304,9 @@ export default function RmsChargeAdminSection({
   );
   const reconciliationScopeMessage = useMemo(() => {
     if (selectedCustomerId) {
-      return "Reconciliation reviews all RMS activity. The selected customer helps with account review, but it does not filter mismatch results on this tab.";
+      return "Reconciliation reviews all RMS Charge activity across customers. Customer lookup does not filter mismatch results on this tab.";
     }
-    return "Reconciliation reviews all RMS activity across linked RMS accounts. Use this tab for support and finance review, not customer-by-customer browsing.";
+    return "Reconciliation reviews all RMS Charge activity across customers. Use this tab for support and finance review, not customer-by-customer browsing.";
   }, [selectedCustomerId]);
 
   const loadAccounts = useCallback(async () => {
@@ -775,7 +775,7 @@ export default function RmsChargeAdminSection({
         <p className="mt-1 max-w-3xl text-sm text-app-text-muted">
           {surface === "pos"
             ? "Use this view to check the customer's RMS account, recent activity, and available plans."
-            : "Use this workspace to manage linked RMS Charge accounts, transactions, issues, and reconciliation for the selected customer."}
+            : "Use this all-customer workspace for RMS Charge account lookup, transactions, issues, and reconciliation."}
         </p>
       </div>
 
@@ -821,10 +821,10 @@ export default function RmsChargeAdminSection({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                Customer Context
+                Customer Lookup
               </p>
               <h3 className="text-lg font-black tracking-tight text-app-text">
-                Active Linked Accounts
+                Linked Accounts
               </h3>
             </div>
             <button
@@ -890,7 +890,7 @@ export default function RmsChargeAdminSection({
               <div className="rounded-xl border border-dashed border-app-border bg-app-bg p-4 text-sm text-app-text-muted">
                 {selectedCustomerId
                   ? "No linked CoreCredit/CoreCard accounts for this customer yet."
-                  : "Select a customer to view linked accounts."}
+                  : "Search a customer to review linked RMS Charge accounts."}
               </div>
             ) : (
               accounts.map((account) => (

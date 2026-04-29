@@ -843,7 +843,7 @@ export default function CustomersWorkspace({
       return (
         <div className="ui-page p-6">
           <p className="text-sm text-app-text-muted">
-            You don&apos;t have access to Shipments (shipments.view).
+            You don&apos;t have access to the all-customer Shipments workspace.
           </p>
         </div>
       );
@@ -882,7 +882,7 @@ export default function CustomersWorkspace({
       return (
         <div className="ui-page p-6">
           <p className="text-sm text-app-text-muted">
-            You don&apos;t have access to RMS charge reporting.
+            You don&apos;t have access to the all-customer RMS Charge workspace.
           </p>
         </div>
       );
@@ -932,7 +932,7 @@ export default function CustomersWorkspace({
         <div className="flex shrink-0 items-stretch gap-4 overflow-x-auto p-4 sm:p-6 sm:pb-2 no-scrollbar">
           {[
             {
-              label: "Total CRM",
+              label: "Customer Profiles",
               count: pipelineStats?.total_customers,
               icon: Users,
               color: "text-app-info",
@@ -941,7 +941,7 @@ export default function CustomersWorkspace({
               tint: "ui-tint-info",
             },
             {
-              label: "VIP Premium",
+              label: "VIP Customers",
               count: pipelineStats?.vip_customers,
               icon: Gem,
               color: "text-app-warning",
@@ -950,7 +950,7 @@ export default function CustomersWorkspace({
               tint: "ui-tint-warning",
             },
             {
-              label: "Balance Recovery",
+              label: "Customers with Balance",
               count: pipelineStats?.with_balance,
               icon: Wallet,
               color: "text-app-danger",
@@ -959,7 +959,7 @@ export default function CustomersWorkspace({
               tint: "ui-tint-danger",
             },
             {
-              label: "Occasions (30d)",
+              label: "Wedding Dates (30d)",
               count: pipelineStats?.upcoming_weddings,
               icon: Heart,
               color: "text-app-accent",
@@ -994,10 +994,10 @@ export default function CustomersWorkspace({
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-                  Customer Completeness
+                  Profile Completeness
                 </p>
                 <p className="mt-1 text-sm font-semibold text-app-text">
-                  Visible CRM rows missing the phone or email Riverside already uses for a complete customer profile.
+                  Customer profiles in this list missing a phone or email.
                 </p>
               </div>
               <span className="rounded-full border border-app-border bg-app-surface-3 px-3 py-1 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -1590,18 +1590,18 @@ export default function CustomersWorkspace({
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-app-success shadow-sm" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  Live Sync Enabled
+                  Customer List Updated
                 </span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full bg-app-accent shadow-sm shadow-app-accent/50" />
                 <span className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  High Density Grid
+                  Compact List
                 </span>
               </div>
             </div>
             <p className="text-[10px] font-black uppercase tracking-[0.2em] text-app-text-disabled">
-              Riverside OS CRM — Performance-First Architecture
+              Customer profiles
             </p>
           </div>
         </div>
@@ -1817,13 +1817,12 @@ export default function CustomersWorkspace({
                 <Users size={20} />
               </div>
               <h2 className="text-sm font-black uppercase tracking-widest text-app-text">
-                Bulk Wedding Assignment
+                Add Customers to Wedding
               </h2>
             </div>
 
             <p className="mb-6 text-xs text-app-text-muted">
-              Select the wedding party to assign these **{selected.size}**
-              customers to. Searching by groom name or party tag is recommended.
+              Select the wedding party for these {selected.size} customers.
             </p>
 
             <div className="space-y-4">
@@ -2327,7 +2326,7 @@ export function AddCustomerDrawer({
       onCreatedCustomer?.(created as Customer);
       if (form.is_vip) {
         if (!hasPermission("customers.hub_edit")) {
-          toast("VIP flag not saved: missing customers.hub_edit.", "error");
+          toast("VIP flag not saved: you need permission to edit customer profiles.", "error");
         } else {
           const vipRes = await fetch(`${baseUrl}/api/customers/${created.id}`, {
             method: "PATCH",
@@ -2344,7 +2343,7 @@ export function AddCustomerDrawer({
       }
       if (form.notes.trim()) {
         if (!hasPermission("customers.timeline")) {
-          toast("Note not saved: missing customers.timeline.", "error");
+          toast("Note not saved: you need permission to add customer notes.", "error");
         } else {
           const noteRes = await fetch(
             `${baseUrl}/api/customers/${created.id}/notes`,

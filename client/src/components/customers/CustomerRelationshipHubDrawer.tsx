@@ -1254,13 +1254,13 @@ export function CustomerRelationshipHubDrawer({
       actions={
         <div className="flex flex-wrap gap-2">
           {tabBtn("profile", "Profile")}
-          {canHubView ? tabBtn("messages", "Communications") : null}
-          {canOrdersView ? tabBtn("transactions", "Transactions") : null}
-          {canOrdersView ? tabBtn("orders", "Orders") : null}
+          {canHubView ? tabBtn("messages", "Messages") : null}
+          {canOrdersView ? tabBtn("transactions", "TRX Records") : null}
+          {canOrdersView ? tabBtn("orders", "ORD Work") : null}
           {canAlterationsView ? tabBtn("alterations", "Alterations") : null}
-          {tabBtn("weddings", "Weddings")}
+          {tabBtn("weddings", "Wedding Links")}
           {canMeasurements ? tabBtn("measurements", "Measurements") : null}
-          {canShipmentsView ? tabBtn("shipments", "Shipping") : null}
+          {canShipmentsView ? tabBtn("shipments", "Shipments") : null}
         </div>
       }
     >
@@ -1269,12 +1269,12 @@ export function CustomerRelationshipHubDrawer({
           <div className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
             <h3 className="mb-1 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
               <Receipt size={14} aria-hidden />
-              {tab === "transactions" ? "Transaction history" : "Order history"}
+              {tab === "transactions" ? "This customer’s TRX records" : "This customer’s ORD work"}
             </h3>
             <p className="mb-3 text-xs text-app-text-muted">
               {tab === "transactions"
-                ? "Every sale record for this customer. Open any row for receipt and salesperson corrections."
-                : "Order-linked records for this customer. Open the full record first, then move into the editable order workspace when needed."}{" "}
+                ? "Financial sale records for this customer. Open a TRX for receipt or salesperson corrections."
+                : "Special, Custom, or Wedding fulfillment work for this customer. Open an ORD record, then continue in Orders when needed."}{" "}
               Showing {customer.first_name} {customer.last_name} ·{" "}
               {customer.customer_code}
             </p>
@@ -1379,7 +1379,7 @@ export function CustomerRelationshipHubDrawer({
                         }}
                         className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                       >
-                        {tab === "transactions" ? "Open Transaction" : "Open Order"}
+                        {tab === "transactions" ? "Open TRX" : "Open ORD record"}
                       </button>
                     </div>
                   </article>
@@ -1392,7 +1392,7 @@ export function CustomerRelationshipHubDrawer({
                     <tr>
                       <th className="px-3 py-2">Booked</th>
                       <th className="px-3 py-2">
-                        {tab === "transactions" ? "Transaction" : "Order"}
+                        {tab === "transactions" ? "TRX" : "ORD"}
                       </th>
                       <th className="px-3 py-2">Channel</th>
                       <th className="px-3 py-2">Status</th>
@@ -1418,13 +1418,13 @@ export function CustomerRelationshipHubDrawer({
                             <span>{row.transaction_display_id}</span>
                             {row.is_counterpoint_import ? (
                               <span className="rounded bg-zinc-500/10 px-1.5 py-0.5 text-[8px] font-black uppercase tracking-widest text-zinc-600">
-                                CP
+                                Imported
                               </span>
                             ) : null}
                           </div>
                           {row.counterpoint_customer_code ? (
                             <div className="mt-1 text-[9px] font-bold text-app-text-muted">
-                              CP #{row.counterpoint_customer_code}
+                              Imported customer code {row.counterpoint_customer_code}
                             </div>
                           ) : null}
                         </td>
@@ -1462,8 +1462,8 @@ export function CustomerRelationshipHubDrawer({
                             className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-tight text-app-success"
                           >
                             {tab === "transactions"
-                              ? "Open Transaction"
-                              : "Open Order"}
+                              ? "Open TRX"
+                              : "Open ORD record"}
                           </button>
                         </td>
                       </tr>
@@ -1860,16 +1860,15 @@ export function CustomerRelationshipHubDrawer({
                     {hub.id !== hub.couple_primary_id && (
                       <div className="ml-auto flex flex-col items-end gap-1">
                         <span className="px-2 py-0.5 rounded-full bg-app-surface-active text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                          Archived Profile
+                          Linked Profile
                         </span>
                         <div className="group relative">
                           <span className="cursor-help underline decoration-dotted text-app-text-muted text-[10px]">
                             What is this?
                           </span>
                           <div className="absolute right-0 bottom-full mb-2 w-48 scale-0 group-hover:scale-100 origin-bottom-right transition-transform bg-app-surface border border-app-border p-3 text-xs text-app-text shadow-xl rounded-xl z-50">
-                            This profile acts as an alias for the joint account.
-                            Sales history is stored on the primary profile
-                            balance.
+                            This profile is linked to the joint account. Sales
+                            history is kept on the primary profile.
                           </div>
                         </div>
                       </div>
@@ -2029,8 +2028,7 @@ export function CustomerRelationshipHubDrawer({
                 </div>
                 {!canTimeline ? (
                   <p className="text-sm text-app-text-muted">
-                    You do not have permission to view the timeline
-                    (customers.timeline).
+                    You need permission to view this customer’s notes and history.
                   </p>
                 ) : timelineLoading ? (
                   <p className="text-sm text-app-text-muted">
@@ -2123,7 +2121,7 @@ export function CustomerRelationshipHubDrawer({
                 <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                   <h3 className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                     <MessageSquarePlus size={14} aria-hidden />
-                    Thread (Podium)
+                    This customer’s messages
                   </h3>
                   <button
                     type="button"
@@ -2139,8 +2137,7 @@ export function CustomerRelationshipHubDrawer({
                   </p>
                 ) : podiumThread.length === 0 ? (
                   <p className="text-xs text-app-text-muted">
-                    No messages yet. Inbound SMS/email appears here after the
-                    Podium webhook is configured.
+                    No messages yet. New SMS or email messages for this customer appear here.
                   </p>
                 ) : (
                   <ul className="max-h-[280px] space-y-2 overflow-y-auto pr-1">
@@ -2216,16 +2213,10 @@ export function CustomerRelationshipHubDrawer({
 
               <section className="rounded-2xl border border-app-border bg-app-surface p-4">
                 <h3 className="mb-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Send email (Podium)
+                  Send email
                 </h3>
                 <p className="mb-3 text-xs text-app-text-muted leading-relaxed">
-                  Delivers to the email on this customer&apos;s profile via
-                  Podium (
-                  <code className="rounded bg-app-surface-2 px-1 font-mono text-[10px]">
-                    POST /v4/messages
-                  </code>
-                  ). Requires Integrations: operational email enabled and server
-                  Podium credentials.
+                  Sends to the email on this customer&apos;s profile.
                 </p>
                 {!hub.email ? (
                   <p className="mb-3 text-sm font-semibold text-app-warning">
@@ -2243,14 +2234,14 @@ export function CustomerRelationshipHubDrawer({
                   placeholder="Regarding your recent visit…"
                 />
                 <label className="mb-2 block text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                  HTML body
+                  Email message
                 </label>
                 <textarea
                   className="ui-input mb-3 min-h-[120px] w-full resize-y p-3 font-mono text-xs"
                   value={podiumComposeHtml}
                   onChange={(e) => setPodiumComposeHtml(e.target.value)}
                   disabled={!canHubEdit || !hub.email}
-                  placeholder="<p>Hello …</p>"
+                  placeholder="Write the email message…"
                   spellCheck={false}
                 />
                 <button
@@ -2269,7 +2260,7 @@ export function CustomerRelationshipHubDrawer({
                 </button>
                 {!canHubEdit ? (
                   <p className="mt-2 text-xs text-app-text-muted">
-                    Sending requires customers.hub_edit.
+                    You need permission to send from this customer profile.
                   </p>
                 ) : null}
               </section>
@@ -2277,11 +2268,10 @@ export function CustomerRelationshipHubDrawer({
               <section className="rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
                 <h3 className="mb-2 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
                   <Mail size={14} aria-hidden />
-                  Podium Web (link)
+                  Open in Podium
                 </h3>
                 <p className="mb-3 text-xs text-app-text-muted leading-relaxed">
-                  Optional shortcut to this customer&apos;s thread in Podium Web
-                  Inbox.
+                  Optional shortcut to this customer&apos;s thread in Podium.
                 </p>
                 <input
                   type="url"
@@ -2407,7 +2397,7 @@ export function CustomerRelationshipHubDrawer({
                   <div ref={printRef} className="space-y-4">
                     <div className="flex flex-wrap items-center justify-between gap-3">
                       <h3 className="text-lg font-black text-app-text">
-                        Measurements — {title}
+                        This customer’s measurements — {title}
                       </h3>
                       <button
                         type="button"
@@ -2420,7 +2410,7 @@ export function CustomerRelationshipHubDrawer({
                     </div>
                     <section>
                       <h4 className="mb-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                        Latest block
+                        Current measurements
                       </h4>
                       <CustomerMeasurementVaultForm
                         draft={measDraft}
@@ -2440,7 +2430,7 @@ export function CustomerRelationshipHubDrawer({
                         </button>
                         {!vault?.latest ? (
                           <span className="text-xs text-app-text-muted">
-                            No block yet — saving creates the vault row.
+                            No measurements saved yet.
                           </span>
                         ) : null}
                       </div>
@@ -2926,7 +2916,7 @@ export function CustomerRelationshipHubDrawer({
                 </button>
               ) : (
                 <p className="text-xs text-app-text-muted">
-                  Profile edits require customers.hub_edit.
+                  You need permission to edit this customer profile.
                 </p>
               )}
             </div>
