@@ -359,7 +359,6 @@ export default function InventoryWorkspace({
               <PurchaseOrderPanel
                 initialPoId={procurementDeepLinkPoId ?? null}
                 onInitialPoConsumed={onProcurementDeepLinkConsumed}
-                mode="receive"
               />
             </div>
           )}
@@ -397,6 +396,7 @@ export default function InventoryWorkspace({
               <PurchaseOrderPanel
                 initialPoId={procurementDeepLinkPoId ?? null}
                 onInitialPoConsumed={onProcurementDeepLinkConsumed}
+                mode="receive"
               />
             </div>
           )}
