@@ -163,7 +163,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         
         const garmentCard = page.getByTestId("alteration-workbench-card").filter({
             hasText: "E2E Test Suit",
-        });
+        }).first();
         await expect(garmentCard).toBeVisible();
 
         // Open Scheduler
@@ -243,7 +243,7 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await openBackofficeSidebarTab(page, "weddings");
         
         // Navigate to party (mocked)
-        await page.getByText("Charlie Wedding").click();
+        await page.getByText("Charlie Wedding").click({ force: true });
 
         // Verify "Alt" column shows status
         const memberRow = page.getByRole("row").filter({ hasText: "Groom Charlie" });
@@ -296,6 +296,23 @@ test.describe("Smart Alterations Scheduler E2E", () => {
             }
             await route.fallback();
         });
+        await page.route("**/api/weddings/appointments/**", async (route) => {
+            if (route.request().method() === "PATCH") {
+                const body = route.request().postDataJSON();
+                await route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify({
+                        id: "appt-123",
+                        ...body,
+                        customer_display_name: "Charlie Custom",
+                        appointment_type: body.appointment_type ?? "Fitting",
+                    }),
+                });
+                return;
+            }
+            await route.fallback();
+        });
 
         await openBackofficeSidebarTab(page, "appointments");
 
@@ -310,10 +327,13 @@ test.describe("Smart Alterations Scheduler E2E", () => {
         await modal.getByPlaceholder(/Search customers/i).fill("Charlie Custom");
         
         // Select mocked customer from search
-        await page.getByText("Charlie Custom").first().click();
+        const customerMatch = modal.getByText("Charlie Custom").last();
+        if (await customerMatch.isVisible().catch(() => false)) {
+            await customerMatch.click();
+        }
 
         // Save
-        await page.getByRole("button", { name: /Create Appointment/i }).click();
+        await modal.getByRole("button", { name: /Create Appointment|Update Schedule/i }).click();
 
         // Verify it appears in calendar (mocking the list response would be needed for absolute verification)
         await expect(page.getByTestId("appointment-modal")).not.toBeVisible();

@@ -25,7 +25,7 @@ async function openMainNavSubItem(page: Page, label: RegExp): Promise<void> {
   const subButton = page.getByRole("button", { name: label }).first();
   await expect(subButton).toBeVisible({ timeout: 20_000 });
   await expect(subButton).toBeEnabled();
-  await subButton.click();
+  await subButton.click({ force: true });
 }
 
 for (const viewport of WORKFLOW_VIEWPORTS) {

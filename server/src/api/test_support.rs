@@ -345,7 +345,11 @@ async fn create_seed_customer(
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or("Fixture");
-    let suffix = Utc::now().format("%Y%m%d%H%M%S%3f").to_string();
+    let suffix = format!(
+        "{}-{}",
+        Utc::now().format("%Y%m%d%H%M%S%3f"),
+        Uuid::new_v4().simple()
+    );
     let fixture_name = match fixture {
         SeedFixtureKind::SingleValid => "Single",
         SeedFixtureKind::MultiMatch => "Multi",

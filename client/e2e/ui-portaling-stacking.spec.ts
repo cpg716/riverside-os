@@ -226,12 +226,9 @@ test.describe("UI Portaling and Stacking", () => {
     await page.getByRole("button", { name: /^find item$/i }).click();
 
     // 1. Open Product Hub Drawer
-    const productRow = page.locator("tr").filter({ hasText: /[^]/ }).first();
-    await expect(productRow).toBeVisible({ timeout: 30_000 });
-    
-    // Click the name to open Hub
-    const nameCell = productRow.locator("td").nth(1);
-    await nameCell.click();
+    const manageButton = page.getByRole("button", { name: /manage/i }).first();
+    await expect(manageButton).toBeVisible({ timeout: 30_000 });
+    await manageButton.click();
 
     const hubDrawer = page.getByRole("dialog", { name: /Product Hub/i });
     await expect(hubDrawer).toBeVisible({ timeout: 15_000 });
@@ -247,7 +244,7 @@ test.describe("UI Portaling and Stacking", () => {
     await expect(hubDrawer).toBeHidden();
 
     // Trigger adjustment modal
-    const adjustBtn = productRow.getByRole("button", { name: /Adjust/i }).first();
+    const adjustBtn = page.getByRole("button", { name: /quick adjust|adjust/i }).first();
     if (await adjustBtn.isVisible()) {
       await adjustBtn.click();
       const adjustModal = page.getByText(/Stock Adjustment/i);

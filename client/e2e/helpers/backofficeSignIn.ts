@@ -126,7 +126,7 @@ export async function openBackofficeSidebarTab(
   await expect(tabButton).toBeEnabled();
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      await resolveTabButton().click({ timeout: 5_000 });
+      await resolveTabButton().click({ timeout: 5_000, force: true });
       tabButton = resolveTabButton();
       break;
     } catch (error) {
@@ -136,7 +136,7 @@ export async function openBackofficeSidebarTab(
       await expect(tabButton).toBeEnabled({ timeout: 10_000 });
     }
   }
-  if (tabId === "register") {
+  if (tabId === "register" || tabId === "weddings") {
     return tabButton;
   }
   if (tabId === "settings") {

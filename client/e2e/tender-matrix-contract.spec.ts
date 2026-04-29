@@ -145,15 +145,11 @@ async function ensureSessionAuth(
   }
 
   const tokenRes = await request.post(
-    `${apiBase()}/api/sessions/${sessionId}/pos-api-token`,
+    `${apiBase()}/api/sessions/${sessionId}/attach`,
     {
       headers: {
         ...adminHeaders(),
         "Content-Type": "application/json",
-      },
-      data: {
-        cashier_code: e2eAdminCode(),
-        pin: e2eAdminCode(),
       },
       failOnStatusCode: false,
     },

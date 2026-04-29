@@ -49,6 +49,7 @@ async function addDummyItem(page: Parameters<typeof test>[0]["page"]): Promise<v
   // Use specific testid to avoid sidebar Gift Cards tab
   await page.getByTestId("pos-action-gift-card").click();
   const dialog = page.getByRole("dialog", { name: /gift card/i });
+  await expect(dialog).toBeVisible({ timeout: 10_000 });
   await dialog.getByRole("button", { name: "5", exact: true }).click();
   await dialog.getByRole("button", { name: "0", exact: true }).click();
   await dialog.getByLabel(/card code/i).fill("E2E-TAX-TEST");

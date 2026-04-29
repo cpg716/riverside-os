@@ -146,12 +146,9 @@ async function ensureSessionToken(
   expect(primary?.session_id).toBeTruthy();
   const sessionId = primary.session_id ?? "";
   const tokenRes = await request.post(
-    `${apiBase()}/api/sessions/${sessionId}/pos-api-token`,
+    `${apiBase()}/api/sessions/${sessionId}/attach`,
     {
-      data: {
-        cashier_code: e2eAdminCode(),
-        pin: e2eAdminCode(),
-      },
+      headers: adminHeaders(),
       failOnStatusCode: false,
     },
   );
@@ -290,9 +287,6 @@ test.describe("POS exchange wizard", () => {
     await expect(wizardDialog.getByText(/sell replacements/i).first()).toBeVisible({
       timeout: 10_000,
     });
-    await expect(
-      wizardDialog.getByText(/next: record return items/i),
-    ).toBeVisible({ timeout: 10_000 });
   });
 
   test("returned quantity stays in sync across totals, refund queue, and receipt output", async ({

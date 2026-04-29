@@ -187,14 +187,10 @@ export async function ensureSessionAuth(
     };
   }
 
-  const tokenRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/pos-api-token`, {
+  const tokenRes = await request.post(`${apiBase()}/api/sessions/${sessionId}/attach`, {
     headers: {
       ...staffHeaders(code),
       "Content-Type": "application/json",
-    },
-    data: {
-      cashier_code: staffCode(code),
-      pin: staffCode(code),
     },
     failOnStatusCode: false,
   });

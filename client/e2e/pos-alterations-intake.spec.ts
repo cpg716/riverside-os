@@ -153,7 +153,7 @@ async function addProductToCart(page: Page): Promise<void> {
   const search = page.getByTestId("pos-product-search");
   await search.fill(PRODUCT.sku);
   await search.press("Enter");
-  await page.getByRole("button", { name: /Phase 2 Suit Jacket/i }).click();
+  await page.getByRole("button", { name: "Phase 2 Suit Jacket", exact: true }).click();
   await expect(page.getByText(PRODUCT.sku)).toBeVisible({ timeout: 10_000 });
 }
 

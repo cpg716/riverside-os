@@ -133,7 +133,7 @@ test.describe("Inventory receiving operator verification", () => {
     await receivingNowInput.fill("1");
     await expect(page.getByText(/next: post inventory/i)).toBeVisible({ timeout: 10_000 });
 
-    const postInventoryButton = page.getByRole("button", { name: /^post inventory$/i });
+    const postInventoryButton = page.getByRole("button", { name: /post receipt to inventory/i });
     await expect(postInventoryButton).toBeEnabled({ timeout: 10_000 });
     const receiveResponse = page.waitForResponse(
       (response) =>

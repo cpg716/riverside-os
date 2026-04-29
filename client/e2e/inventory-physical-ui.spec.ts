@@ -22,7 +22,7 @@ async function openInventoryPhysicalCount(page: Parameters<typeof test>[0]["page
   });
   await expect(physicalCountButton).toBeVisible({ timeout: 15_000 });
   await physicalCountButton.click({ force: true });
-  await expect(page.getByRole("heading", { name: /physical inventory/i }).first()).toBeVisible({
+  await expect(page.getByRole("heading", { name: /count\/reconcile|physical inventory|review phase/i }).first()).toBeVisible({
     timeout: 20_000,
   });
 }
