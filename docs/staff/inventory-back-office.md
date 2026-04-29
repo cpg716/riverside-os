@@ -92,15 +92,21 @@ Use **Add/Edit Catalog** for product setup and catalog cleanup. The tools inside
 5. PO lines require a valid SKU, quantity above zero, and non-negative unit cost.
 6. If a SKU is already linked to a different **primary vendor**, ROS blocks adding it to the wrong vendor’s PO.
 
-Direct invoices are for merchandise that arrived without a pre-built order. Start them from **Receive Stock** when the vendor paperwork is already in hand.
+Use **Order Stock** when you are planning or building a vendor order before merchandise arrives. Direct invoices are for merchandise that arrived without a pre-built order, so start them from **Receive Stock** when the vendor paperwork is already in hand.
 
 ## Receive Stock
 
-1. **Receive Stock** → open expected **PO** or **direct receipt** flow your store uses.
-2. Scan or enter **quantities** to match the packing slip.
-3. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet.
-4. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
-5. Watch for messages about **reserved** stock for open special orders after posting.
+Use **Receive Stock** when merchandise is already here and you have vendor paperwork in hand.
+
+1. **Receive Stock** → choose a submitted **PO** that is ready to receive, or create a **Direct Invoice** if the shipment arrived without a pre-built PO.
+2. Check the document state before opening the receiving worksheet:
+   - **Submitted PO** = ready to receive.
+   - **Direct invoice** = arrived without a pre-built PO and can open receiving immediately.
+   - **Draft PO** = order setup; submit it before receiving.
+3. Scan or enter **quantities** to match the packing slip.
+4. Scanning and worksheet entry only **stage** the receipt. They do **not** change live stock yet.
+5. **Post inventory** (finalize receipt into stock) is the **emerald** primary action (**green** with a **thick bottom edge**) — same **“terminal completion”** pattern as **Complete Sale** on the register (**`UI_STANDARDS.md`**). Read totals before confirming.
+6. Watch for messages about **reserved** stock for open special orders after posting.
 
 **Direct invoices** and submitted **standard POs** now share the same final posting path. If a receipt is retried, ROS prevents duplicate stock posting for the same receipt payload.
 

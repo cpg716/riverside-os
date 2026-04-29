@@ -33,6 +33,8 @@ interface Vendor {
   name: string;
 }
 
+type PurchaseOrderPanelMode = "order" | "receive";
+
 const baseUrl = getBaseUrl();
 
 function purchaseOrderTypeLabel(kind?: string): string {
@@ -59,9 +61,11 @@ function purchaseOrderStatusLabel(status: string): string {
 export default function PurchaseOrderPanel({
   initialPoId,
   onInitialPoConsumed,
+  mode = "order",
 }: {
   initialPoId?: string | null;
   onInitialPoConsumed?: () => void;
+  mode?: PurchaseOrderPanelMode;
 }) {
   const { toast } = useToast();
   const { backofficeHeaders } = useBackofficeAuth();
@@ -236,6 +240,7 @@ export default function PurchaseOrderPanel({
     order.status !== "cancelled" &&
     order.status !== "closed" &&
     (order.po_kind === "direct_invoice" ? true : order.status !== "draft");
+  const isReceiveMode = mode === "receive";
 
   return (
     <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
@@ -250,12 +255,16 @@ export default function PurchaseOrderPanel({
         />
       )}
       <div className="px-2">
-        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">Vendor Orders</h3>
-        <h2 className="text-2xl font-black tracking-tight text-app-text">Purchase Orders & Receiving</h2>
+        <h3 className="text-[11px] font-black uppercase tracking-[0.3em] text-app-text-muted opacity-40 mb-1">
+          {isReceiveMode ? "Vendor Paperwork" : "Vendor Orders"}
+        </h3>
+        <h2 className="text-2xl font-black tracking-tight text-app-text">
+          {isReceiveMode ? "Vendor Paperwork to Receive" : "Purchase Orders & Receiving"}
+        </h2>
       </div>
 
       <DashboardGridCard 
-        title="Active Purchase Orders"
+        title={isReceiveMode ? "Ready-to-Receive Documents" : "Active Purchase Orders"}
         subtitle={`${orders.length} vendor document${orders.length === 1 ? "" : "s"} listed`}
         icon={ListFilter}
       >
@@ -277,7 +286,7 @@ export default function PurchaseOrderPanel({
             onClick={createDraft}
             className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 hover:brightness-110 active:scale-95 disabled:opacity-40 transition-all"
           >
-            <Plus size={14} /> New PO
+            <Plus size={14} /> {isReceiveMode ? "New PO Setup" : "New PO"}
           </button>
           <button
             type="button"
@@ -285,16 +294,19 @@ export default function PurchaseOrderPanel({
             onClick={() => void createDirectInvoice()}
             className="flex items-center gap-2 h-10 px-6 rounded-xl bg-app-accent-2/10 border border-app-accent-2/20 text-[10px] font-black uppercase tracking-widest text-app-text hover:bg-app-accent-2/20 disabled:opacity-40 transition-all active:scale-95"
           >
-            <Sparkles size={14} /> Direct Invoice
+            <Sparkles size={14} /> {isReceiveMode ? "Direct Invoice - Arrived Stock" : "Direct Invoice"}
           </button>
         </div>
         <div className="mb-6 rounded-2xl border border-app-border bg-app-surface/30 px-5 py-4">
           <p className="text-sm font-black text-app-text">
-            To receive stock, choose an open purchase order below and click Receive.
+            {isReceiveMode
+              ? "Receive from a submitted PO below, or create a Direct Invoice when merchandise is already here without a pre-built order."
+              : "To receive stock, choose an open purchase order below and click Receive."}
           </p>
           <p className="mt-1 text-xs font-semibold leading-relaxed text-app-text-muted">
-            If the shipment arrived without an order, select the vendor and create a Direct Invoice.
-            If there is no vendor yet, add the vendor in Vendors first.
+            {isReceiveMode
+              ? "Submitted PO = ready to receive. Direct invoice = arrived without a pre-built PO. Draft PO = order setup; submit before receiving."
+              : "If the shipment arrived without an order, select the vendor and create a Direct Invoice. If there is no vendor yet, add the vendor in Vendors first."}
           </p>
         </div>
         <div className="overflow-hidden rounded-[2.5rem] border border-app-border/40 bg-app-bg/10 backdrop-blur-md">
@@ -302,7 +314,7 @@ export default function PurchaseOrderPanel({
             <table className="w-full text-left text-xs">
               <thead className="bg-app-surface/40 border-b border-app-border/40 font-black uppercase tracking-widest text-app-text-muted opacity-60">
                 <tr>
-                  <th className="px-6 py-4">PO #</th>
+                  <th className="px-6 py-4">{isReceiveMode ? "Document #" : "PO #"}</th>
                   <th className="px-6 py-4">Vendor</th>
                   <th className="px-6 py-4">Type</th>
                   <th className="px-6 py-4">Status</th>
@@ -314,10 +326,14 @@ export default function PurchaseOrderPanel({
                   <tr>
                     <td colSpan={5} className="px-6 py-12 text-center">
                       <p className="text-sm font-black text-app-text">
-                        No purchase orders or direct invoices yet.
+                        {isReceiveMode
+                          ? "No vendor paperwork is ready to receive yet."
+                          : "No purchase orders or direct invoices yet."}
                       </p>
                       <p className="mt-2 text-xs font-semibold text-app-text-muted">
-                        Select a vendor above, then create a New PO or Direct Invoice to begin receiving.
+                        {isReceiveMode
+                          ? "Select a vendor, then create a Direct Invoice for arrived merchandise or use New PO Setup if this is still an order."
+                          : "Select a vendor above, then create a New PO or Direct Invoice to begin receiving."}
                       </p>
                     </td>
                   </tr>
@@ -393,8 +409,16 @@ export default function PurchaseOrderPanel({
       </DashboardGridCard>
 
       <DashboardGridCard 
-        title="PO Lines"
-        subtitle={selected ? `Adding items to ${selected.po_number}` : "Select a purchase order before adding items"}
+        title={isReceiveMode ? "Document Lines" : "PO Lines"}
+        subtitle={
+          selected
+            ? isReceiveMode
+              ? `Match arrived items to ${selected.po_number}`
+              : `Adding items to ${selected.po_number}`
+            : isReceiveMode
+              ? "Select vendor paperwork before staging receipt lines"
+              : "Select a purchase order before adding items"
+        }
         icon={Sparkles}
       >
         <div className="grid gap-6 md:grid-cols-[1fr_1fr_120px_160px]">
@@ -436,7 +460,7 @@ export default function PurchaseOrderPanel({
               onClick={addLine}
               className="h-12 rounded-2xl bg-app-accent text-[10px] font-black uppercase tracking-widest text-white shadow-xl shadow-app-accent/20 hover:brightness-110 disabled:opacity-20 active:scale-95 transition-all"
             >
-              Add Line
+              {isReceiveMode ? "Add Line to Paperwork" : "Add Line"}
             </button>
           </div>
         </div>
@@ -451,7 +475,9 @@ export default function PurchaseOrderPanel({
                 Final stock posts only from Receive Stock.
               </p>
               <p className="text-xs text-app-text-muted">
-                Standard purchase orders must be submitted before receiving. Direct invoices can open receiving immediately.
+                {isReceiveMode
+                  ? "Open Receive Stock when the submitted PO or direct invoice matches the paperwork in hand."
+                  : "Standard purchase orders must be submitted before receiving. Direct invoices can open receiving immediately."}
               </p>
             </div>
             <div className="flex gap-3">
