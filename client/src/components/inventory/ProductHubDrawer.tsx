@@ -575,148 +575,276 @@ export default function ProductHubDrawer({
         <>
           {tab === "general" && (
             <div className="space-y-5">
-              <div className="flex flex-wrap items-center gap-3">
-                <span className="rounded-full border border-app-accent/35 bg-app-accent/10 px-4 py-2 text-sm font-black uppercase italic tracking-tight text-app-accent shadow-app-accent/30">
-                  In stock: {totalStock} units
-                </span>
-                {hub.product.is_clothing_footwear ? (
-                  <span className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
-                    Clothing / footwear tax class
-                  </span>
-                ) : null}
-                {hub.product.tax_category_override ? (
-                  <span className="rounded-lg border border-amber-300/50 bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
-                    Product tax override: {hub.product.tax_category_override}
-                  </span>
-                ) : null}
-              </div>
-
-              <label className="block rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
-                <span className="text-sm font-bold text-app-text">
-                  Tax category
-                </span>
-                <select
-                  value={hub.product.tax_category_override ?? ""}
-                  onChange={(event) => {
-                    const value = event.target.value as ProductTaxOverride;
-                    void patchPrimaryVendor(
-                      value
-                        ? { tax_category_override: value }
-                        : { clear_tax_category_override: true },
-                    );
-                  }}
-                  className="mt-2 h-11 w-full rounded-xl border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text"
-                >
-                  <option value="">Inherit from category</option>
-                  <option value="clothing">Clothing</option>
-                  <option value="footwear">Footwear</option>
-                  <option value="accessory">Accessory / taxable item</option>
-                  <option value="service">Service / non-taxable</option>
-                </select>
-                <span className="mt-2 block text-xs text-app-text-muted">
-                  Product overrides apply to every SKU under this parent item. Leave inherited unless this product differs from the category rule.
-                </span>
-              </label>
-
-              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4 transition-colors duration-150 hover:bg-app-surface-2">
-                <input
-                  type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-app-border"
-                  checked={hub.product.track_low_stock}
-                  onChange={(e) =>
-                    void patchPrimaryVendor({ track_low_stock: e.target.checked })
-                  }
-                />
-                <div>
-                  <p className="text-sm font-bold text-app-text">
-                    Track low stock (template)
-                  </p>
-                  <p className="mt-1 text-xs text-app-text-muted">
-                    When enabled, individual SKUs can still opt in on the Variations tab. Morning admin
-                    alerts only include variants where both this box and the SKU box are on, and
-                    available quantity is at or below reorder point.
-                  </p>
-                </div>
-              </label>
-
-              <section className="ui-panel ui-tint-info p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                      Inventory truth
-                    </h3>
-                    <p className="mt-1 text-xs text-app-text-muted">
-                      This view uses current server inventory values. Reserved units are already
-                      promised to open orders and are not available for walk-in sale.
-                    </p>
-                  </div>
-                  <div className="ui-metric-cell ui-tint-neutral px-3 py-2 text-right">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      Last physical count
-                    </p>
-                    <p className="mt-1 text-sm font-bold text-app-text">
-                      {formatDateTime(hub.stats.last_physical_count_at)}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      On hand
-                    </p>
-                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                      {hub.stats.total_units_on_hand}
-                    </p>
-                  </div>
-                  <div className="ui-metric-cell ui-tint-warning px-4 py-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      Reserved in store
-                    </p>
-                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                      {hub.stats.total_reserved_units}
-                    </p>
-                  </div>
-                  <div className="ui-metric-cell ui-tint-success px-4 py-3">
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      Available now
-                    </p>
-                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                      {hub.stats.total_available_units}
-                    </p>
-                  </div>
-                  {hub.can_view_procurement ? (
-                    <div className="ui-metric-cell ui-tint-info px-4 py-3">
-                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                        On order
-                      </p>
-                      <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                        {hub.po_summary.pending_receive_units}
-                      </p>
-                    </div>
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  Item Identity
+                </h3>
+                <div className="mb-4 flex flex-wrap items-center gap-3">
+                  {hub.product.is_clothing_footwear ? (
+                    <span className="rounded-lg border border-app-success/20 bg-app-success/10 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-app-success">
+                      Clothing / footwear tax class
+                    </span>
+                  ) : null}
+                  {hub.product.tax_category_override ? (
+                    <span className="rounded-lg border border-amber-300/50 bg-amber-100 px-2 py-1 text-[10px] font-black uppercase tracking-widest text-amber-800">
+                      Product tax override: {hub.product.tax_category_override}
+                    </span>
                   ) : null}
                 </div>
-
-                <div className="ui-panel ui-tint-neutral mt-3 px-4 py-3">
-                  <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                    How inventory rules work
-                  </p>
-                  <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
-                    <p>
-                      Available now follows the live server rule: on hand minus units already reserved for open store work.
-                    </p>
-                    <p>
-                      Reserved in store covers units already committed to orders, weddings, or other promised pickup work.
-                    </p>
-                    {hub.can_view_procurement ? (
-                      <p>
-                        On order shows incoming purchase-order units only. They do not become sellable inventory until the receipt posts.
-                      </p>
-                    ) : null}
+                <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-app-text-muted">Name</dt>
+                    <dd className="font-bold text-app-text">{hub.product.name}</dd>
                   </div>
-                </div>
+                  <div>
+                    <dt className="text-app-text-muted">Brand</dt>
+                    <dd className="font-bold text-app-text">
+                      {hub.product.brand ?? "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-text-muted">Category</dt>
+                    <dd className="font-bold text-app-text">
+                      {hub.product.category_name ?? "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-text-muted">Base retail</dt>
+                    <dd className="font-bold text-app-text">
+                      {money(hub.product.base_retail_price)}
+                    </dd>
+                  </div>
+                  {hub.product.description ? (
+                    <div className="sm:col-span-2">
+                      <dt className="text-app-text-muted">Description</dt>
+                      <dd className="text-app-text">{hub.product.description}</dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </section>
 
-                <div className="mt-3 overflow-x-auto">
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  Vendor & Catalog
+                </h3>
+                <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div className="sm:col-span-2">
+                    <dt className="mb-1.5 flex items-center gap-1.5 text-app-text-muted">
+                      <VENDOR_ICON size={14} className="text-app-text-muted" />
+                      Primary vendor
+                    </dt>
+                    <dd>
+                      <div
+                        ref={vendorPickerRef}
+                        className="relative flex flex-col gap-2 sm:flex-row sm:items-start"
+                      >
+                        <div className="relative min-w-0 flex-1">
+                          <div className="relative">
+                            <ChevronsUpDown
+                              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted"
+                              aria-hidden
+                            />
+                            <input
+                              type="text"
+                              role="combobox"
+                              aria-expanded={vendorMenuOpen}
+                              aria-controls="vendor-hub-combo-list"
+                              disabled={vendorSaving}
+                              value={
+                                vendorMenuOpen
+                                  ? vendorQuery
+                                  : (hub.product.primary_vendor_name ??
+                                    "")
+                              }
+                              placeholder="Search vendors…"
+                              onChange={(e) => {
+                                setVendorQuery(e.target.value);
+                                setVendorMenuOpen(true);
+                              }}
+                              onFocus={() => {
+                                setVendorQuery("");
+                                setVendorMenuOpen(true);
+                              }}
+                              className="w-full rounded-xl border border-app-border bg-app-surface-2 py-2.5 pl-3 pr-10 text-sm font-semibold text-app-text outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 disabled:opacity-50"
+                            />
+                          </div>
+                          {vendorMenuOpen ? (
+                            <ul
+                              id="vendor-hub-combo-list"
+                              role="listbox"
+                              className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-lg"
+                            >
+                              {filteredVendors.length === 0 ? (
+                                <li className="px-3 py-2 text-xs text-app-text-muted">
+                                  No matches.
+                                </li>
+                              ) : (
+                                filteredVendors.slice(0, 80).map((v) => (
+                                  <li key={v.id} role="none">
+                                    <button
+                                      type="button"
+                                      role="option"
+                                      className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-app-accent/10"
+                                      onClick={() =>
+                                        void patchPrimaryVendor({
+                                          primary_vendor_id: v.id,
+                                        })
+                                      }
+                                    >
+                                      <span className="font-bold text-app-text">
+                                        {v.name}
+                                      </span>
+                                      <span className="font-mono text-[10px] text-app-text-muted">
+                                        {v.id}
+                                      </span>
+                                    </button>
+                                  </li>
+                                ))
+                              )}
+                            </ul>
+                          ) : null}
+                        </div>
+                        {hub.product.primary_vendor_id ? (
+                          <button
+                            type="button"
+                            disabled={vendorSaving}
+                            onClick={() =>
+                              void patchPrimaryVendor({
+                                clear_primary_vendor_id: true,
+                              })
+                            }
+                            className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
+                          >
+                            <X size={14} /> Clear
+                          </button>
+                        ) : null}
+                      </div>
+                      <p className="mt-1 text-[10px] text-app-text-muted">
+                        Used for PO suggestions and stock-out context. Freight
+                        stays on the receipt document, not in WAC.
+                      </p>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-text-muted">Catalog handle</dt>
+                    <dd className="font-mono text-app-text">
+                      {hub.product.nuorder_product_id ?? "—"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-app-text-muted">Base cost</dt>
+                    <dd className="font-mono text-app-text">
+                      {money(hub.product.base_cost)}
+                    </dd>
+                  </div>
+                  <div className="sm:col-span-2">
+                    <dt className="text-app-text-muted">Variation axes</dt>
+                    <dd className="mt-1 flex flex-wrap gap-1">
+                      {(hub.product.variation_axes ?? []).length ? (
+                        hub.product.variation_axes.map((a) => (
+                          <span
+                            key={a}
+                            className="rounded-lg bg-app-surface-2 px-2 py-0.5 text-xs font-semibold text-app-text"
+                          >
+                            {a}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="text-app-text-muted">—</span>
+                      )}
+                    </dd>
+                  </div>
+                </dl>
+              </section>
+
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                    Stock Status
+                  </h3>
+                  <span className="rounded-full border border-app-accent/35 bg-app-accent/10 px-4 py-2 text-sm font-black uppercase italic tracking-tight text-app-accent shadow-app-accent/30">
+                    In stock: {totalStock} units
+                  </span>
+                </div>
+                <div className="space-y-3">
+                  <section className="ui-panel ui-tint-info p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <h4 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                          Inventory truth
+                        </h4>
+                        <p className="mt-1 text-xs text-app-text-muted">
+                          This view uses current server inventory values. Reserved units are already
+                          promised to open orders and are not available for walk-in sale.
+                        </p>
+                      </div>
+                      <div className="ui-metric-cell ui-tint-neutral px-3 py-2 text-right">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Last physical count
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-app-text">
+                          {formatDateTime(hub.stats.last_physical_count_at)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="ui-metric-cell ui-tint-neutral px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          On hand
+                        </p>
+                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                          {hub.stats.total_units_on_hand}
+                        </p>
+                      </div>
+                      <div className="ui-metric-cell ui-tint-warning px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Reserved in store
+                        </p>
+                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                          {hub.stats.total_reserved_units}
+                        </p>
+                      </div>
+                      <div className="ui-metric-cell ui-tint-success px-4 py-3">
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          Available now
+                        </p>
+                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                          {hub.stats.total_available_units}
+                        </p>
+                      </div>
+                      {hub.can_view_procurement ? (
+                        <div className="ui-metric-cell ui-tint-info px-4 py-3">
+                          <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                            On order
+                          </p>
+                          <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                            {hub.po_summary.pending_receive_units}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    <div className="ui-panel ui-tint-neutral mt-3 px-4 py-3">
+                      <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                        How inventory rules work
+                      </p>
+                      <div className="mt-2 space-y-1.5 text-[11px] font-medium leading-relaxed text-app-text-muted">
+                        <p>
+                          Available now follows the live server rule: on hand minus units already reserved for open store work.
+                        </p>
+                        <p>
+                          Reserved in store covers units already committed to orders, weddings, or other promised pickup work.
+                        </p>
+                        {hub.can_view_procurement ? (
+                          <p>
+                            On order shows incoming purchase-order units only. They do not become sellable inventory until the receipt posts.
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-3 overflow-x-auto">
                   <table className="min-w-full text-left text-sm">
                     <thead>
                       <tr className="border-b border-app-border text-[10px] font-black uppercase tracking-widest text-app-text-muted">
@@ -764,141 +892,175 @@ export default function ProductHubDrawer({
                       ))}
                     </tbody>
                   </table>
-                </div>
+                    </div>
 
-                <div className="mt-3">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                    Recent inventory events
-                  </p>
-                  {timelineLoading && inventoryEvents.length === 0 ? (
-                    <p className="mt-2 text-sm text-app-text-muted">Loading recent activity…</p>
-                  ) : inventoryEvents.length === 0 ? (
-                    <p className="mt-2 text-sm text-app-text-muted">
-                      No inventory movements recorded for this template yet.
-                    </p>
-                  ) : (
-                    <ul className="mt-2 space-y-2">
-                      {inventoryEvents.map((event, index) => (
-                        <li
-                          key={`${event.at}-${index}`}
-                          className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
-                        >
-                          <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
-                            {formatDateTime(event.at)} · {formatEventKind(event.kind)}
+                    <div className="mt-3">
+                      <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                        Recent inventory events
+                      </p>
+                      {timelineLoading && inventoryEvents.length === 0 ? (
+                        <p className="mt-2 text-sm text-app-text-muted">Loading recent activity…</p>
+                      ) : inventoryEvents.length === 0 ? (
+                        <p className="mt-2 text-sm text-app-text-muted">
+                          No inventory movements recorded for this template yet.
+                        </p>
+                      ) : (
+                        <ul className="mt-2 space-y-2">
+                          {inventoryEvents.map((event, index) => (
+                            <li
+                              key={`${event.at}-${index}`}
+                              className="rounded-xl border border-app-border bg-app-surface-2/80 px-3 py-2"
+                            >
+                              <p className="text-[10px] font-black uppercase tracking-widest text-app-text-muted">
+                                {formatDateTime(event.at)} · {formatEventKind(event.kind)}
+                              </p>
+                              <p className="mt-1 text-sm font-semibold text-app-text">
+                                {event.summary}
+                              </p>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
+                  </section>
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      ["$ value on hand", money(hub?.stats?.value_on_hand ?? 0)],
+                      ["Total sold (units)", String(hub?.stats?.units_sold_all_time ?? 0)],
+                      ["Open order units", String(hub?.stats?.open_order_units ?? 0)],
+                      [
+                        "Purchase orders",
+                        !hub.can_view_procurement
+                          ? "Procurement access required"
+                          : (hub?.po_summary?.open_po_count ?? 0) === 0 &&
+                        (hub?.po_summary?.pending_receive_units ?? 0) === 0
+                          ? "No open pipeline"
+                          : `${hub?.po_summary?.open_po_count ?? 0} open PO${
+                              (hub?.po_summary?.open_po_count ?? 0) === 1 ? "" : "s"
+                            } · ${hub?.po_summary?.pending_receive_units ?? 0} pending`,
+                      ],
+                    ].map(([k, v]) => (
+                      <div
+                        key={k}
+                        className="ui-metric-cell ui-tint-neutral px-4 py-3"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
+                          {k}
+                        </p>
+                        <p className="mt-1 text-lg font-black tabular-nums text-app-text">
+                          {v}
+                        </p>
+                        {k === "Purchase orders" &&
+                        hub.can_view_procurement &&
+                        ((hub?.po_summary?.open_po_count ?? 0) > 0 ||
+                          (hub?.po_summary?.pending_receive_units ?? 0) > 0) ? (
+                          <p className="mt-1 text-[11px] font-semibold tabular-nums text-app-text-muted">
+                            ≈ {money(hub?.po_summary?.pending_commit_value_usd ?? 0)} committed (at
+                            line unit cost)
                           </p>
-                          <p className="mt-1 text-sm font-semibold text-app-text">
-                            {event.summary}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
+                        ) : null}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </section>
 
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                {[
-                  ["$ value on hand", money(hub?.stats?.value_on_hand ?? 0)],
-                  ["Total sold (units)", String(hub?.stats?.units_sold_all_time ?? 0)],
-                  ["Open order units", String(hub?.stats?.open_order_units ?? 0)],
-                  [
-                    "Purchase orders",
-                    !hub.can_view_procurement
-                      ? "Procurement access required"
-                      : (hub?.po_summary?.open_po_count ?? 0) === 0 &&
-                    (hub?.po_summary?.pending_receive_units ?? 0) === 0
-                      ? "No open pipeline"
-                      : `${hub?.po_summary?.open_po_count ?? 0} open PO${
-                          (hub?.po_summary?.open_po_count ?? 0) === 1 ? "" : "s"
-                        } · ${hub?.po_summary?.pending_receive_units ?? 0} pending`,
-                  ],
-                ].map(([k, v]) => (
-                  <div
-                    key={k}
-                    className="ui-metric-cell ui-tint-neutral px-4 py-3"
-                  >
-                    <p className="text-[9px] font-black uppercase tracking-widest text-app-text-muted">
-                      {k}
-                    </p>
-                    <p className="mt-1 text-lg font-black tabular-nums text-app-text">
-                      {v}
-                    </p>
-                    {k === "Purchase orders" &&
-                    hub.can_view_procurement &&
-                    ((hub?.po_summary?.open_po_count ?? 0) > 0 ||
-                      (hub?.po_summary?.pending_receive_units ?? 0) > 0) ? (
-                      <p className="mt-1 text-[11px] font-semibold tabular-nums text-app-text-muted">
-                        ≈ {money(hub?.po_summary?.pending_commit_value_usd ?? 0)} committed (at
-                        line unit cost)
-                      </p>
-                    ) : null}
-                  </div>
-                ))}
-              </div>
-
-              <section className="ui-panel ui-tint-neutral p-5">
-                <h3 className="mb-1 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Employee sale price
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  Pricing & Selling
                 </h3>
-                <p className="mb-4 text-xs text-app-text-muted">
-                  Unit price for employee sales is{" "}
-                  <span className="font-semibold text-app-text">
-                    cost × (1 + markup%) + extra
-                  </span>
-                  . Leave markup blank to use the store default (
-                  {formatMoney(
-                    parseMoney(
-                      hub.store_default_employee_markup_percent ?? 15,
-                    ),
-                  )}
-                  %). Extra is added per unit after markup.
-                </p>
-                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
-                  <div className="min-w-[140px] flex-1">
-                    <label
-                      htmlFor="hub-employee-markup"
-                      className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                <div className="space-y-3">
+                  <label className="block rounded-2xl border border-app-border bg-app-surface-2/80 p-4">
+                    <span className="text-sm font-bold text-app-text">
+                      Tax category
+                    </span>
+                    <select
+                      value={hub.product.tax_category_override ?? ""}
+                      onChange={(event) => {
+                        const value = event.target.value as ProductTaxOverride;
+                        void patchPrimaryVendor(
+                          value
+                            ? { tax_category_override: value }
+                            : { clear_tax_category_override: true },
+                        );
+                      }}
+                      className="mt-2 h-11 w-full rounded-xl border border-app-border bg-app-surface px-3 text-xs font-bold text-app-text"
                     >
-                      Markup % override
-                    </label>
-                    <input
-                      id="hub-employee-markup"
-                      type="text"
-                      inputMode="decimal"
-                      placeholder={`Default (${formatMoney(parseMoney(hub.store_default_employee_markup_percent ?? 15))}%)`}
-                      value={employeeMarkupDraft}
-                      onChange={(e) => setEmployeeMarkupDraft(e.target.value)}
-                      disabled={employeeSaving}
-                      className="ui-input w-full py-2.5 text-sm font-semibold"
-                    />
-                  </div>
-                  <div className="min-w-[140px] flex-1">
-                    <label
-                      htmlFor="hub-employee-extra"
-                      className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
-                    >
-                      Extra / unit ($)
-                    </label>
-                    <input
-                      id="hub-employee-extra"
-                      type="text"
-                      inputMode="decimal"
-                      value={employeeExtraDraft}
-                      onChange={(e) => setEmployeeExtraDraft(e.target.value)}
-                      disabled={employeeSaving}
-                      className="ui-input w-full py-2.5 text-sm font-semibold tabular-nums"
-                    />
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      disabled={employeeSaving}
-                      onClick={() => void saveEmployeePricing()}
-                      className="ui-btn-primary rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest"
-                    >
-                      Save
-                    </button>
-                    {hub.product.employee_markup_percent != null ? (
+                      <option value="">Inherit from category</option>
+                      <option value="clothing">Clothing</option>
+                      <option value="footwear">Footwear</option>
+                      <option value="accessory">Accessory / taxable item</option>
+                      <option value="service">Service / non-taxable</option>
+                    </select>
+                    <span className="mt-2 block text-xs text-app-text-muted">
+                      Product overrides apply to every SKU under this parent item. Leave inherited unless this product differs from the category rule.
+                    </span>
+                  </label>
+
+                  <section className="ui-panel ui-tint-neutral p-5">
+                    <h4 className="mb-1 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                      Employee sale price
+                    </h4>
+                    <p className="mb-4 text-xs text-app-text-muted">
+                      Unit price for employee sales is{" "}
+                      <span className="font-semibold text-app-text">
+                        cost × (1 + markup%) + extra
+                      </span>
+                      . Leave markup blank to use the store default (
+                      {formatMoney(
+                        parseMoney(
+                          hub.store_default_employee_markup_percent ?? 15,
+                        ),
+                      )}
+                      %). Extra is added per unit after markup.
+                    </p>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                      <div className="min-w-[140px] flex-1">
+                        <label
+                          htmlFor="hub-employee-markup"
+                          className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                        >
+                          Markup % override
+                        </label>
+                        <input
+                          id="hub-employee-markup"
+                          type="text"
+                          inputMode="decimal"
+                          placeholder={`Default (${formatMoney(parseMoney(hub.store_default_employee_markup_percent ?? 15))}%)`}
+                          value={employeeMarkupDraft}
+                          onChange={(e) => setEmployeeMarkupDraft(e.target.value)}
+                          disabled={employeeSaving}
+                          className="ui-input w-full py-2.5 text-sm font-semibold"
+                        />
+                      </div>
+                      <div className="min-w-[140px] flex-1">
+                        <label
+                          htmlFor="hub-employee-extra"
+                          className="mb-1 block text-[10px] font-black uppercase tracking-widest text-app-text-muted"
+                        >
+                          Extra / unit ($)
+                        </label>
+                        <input
+                          id="hub-employee-extra"
+                          type="text"
+                          inputMode="decimal"
+                          value={employeeExtraDraft}
+                          onChange={(e) => setEmployeeExtraDraft(e.target.value)}
+                          disabled={employeeSaving}
+                          className="ui-input w-full py-2.5 text-sm font-semibold tabular-nums"
+                        />
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          disabled={employeeSaving}
+                          onClick={() => void saveEmployeePricing()}
+                          className="ui-btn-primary rounded-xl px-4 py-2.5 text-xs font-black uppercase tracking-widest"
+                        >
+                          Save
+                        </button>
+                        {hub.product.employee_markup_percent != null ? (
                       <button
                         type="button"
                         disabled={employeeSaving}
@@ -907,12 +1069,40 @@ export default function ProductHubDrawer({
                       >
                         Use store markup
                       </button>
-                    ) : null}
-                  </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  </section>
                 </div>
               </section>
 
-              <section className="ui-panel ui-tint-accent p-5">
+              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
+                <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
+                  System / Tools
+                </h3>
+                <div className="space-y-3">
+                  <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-app-border bg-app-surface-2/80 p-4 transition-colors duration-150 hover:bg-app-surface-2">
+                    <input
+                      type="checkbox"
+                      className="mt-1 h-4 w-4 rounded border-app-border"
+                      checked={hub.product.track_low_stock}
+                      onChange={(e) =>
+                        void patchPrimaryVendor({ track_low_stock: e.target.checked })
+                      }
+                    />
+                    <div>
+                      <p className="text-sm font-bold text-app-text">
+                        Track low stock (template)
+                      </p>
+                      <p className="mt-1 text-xs text-app-text-muted">
+                        When enabled, individual SKUs can still opt in on the Variations tab. Morning admin
+                        alerts only include variants where both this box and the SKU box are on, and
+                        available quantity is at or below reorder point.
+                      </p>
+                    </div>
+                  </label>
+
+                  <section className="ui-panel ui-tint-accent p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <h3 className="text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
@@ -1129,6 +1319,8 @@ export default function ProductHubDrawer({
                     </div>
                   </div>
                 ) : null}
+                  </section>
+                </div>
               </section>
 
               {hub.po_summary.recent_lines.length > 0 ? (
@@ -1160,152 +1352,6 @@ export default function ProductHubDrawer({
                   </ul>
                 </section>
               ) : null}
-
-              <section className="rounded-2xl border border-app-border bg-app-surface p-5">
-                <h3 className="mb-4 text-[10px] font-black uppercase tracking-[0.15em] text-app-text-muted">
-                  Template
-                </h3>
-                <dl className="grid gap-3 text-sm sm:grid-cols-2">
-                  <div className="sm:col-span-2">
-                    <dt className="mb-1.5 flex items-center gap-1.5 text-app-text-muted">
-                      <VENDOR_ICON size={14} className="text-app-text-muted" />
-                      Primary vendor
-                    </dt>
-                    <dd>
-                      <div
-                        ref={vendorPickerRef}
-                        className="relative flex flex-col gap-2 sm:flex-row sm:items-start"
-                      >
-                        <div className="relative min-w-0 flex-1">
-                          <div className="relative">
-                            <ChevronsUpDown
-                              className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-app-text-muted"
-                              aria-hidden
-                            />
-                            <input
-                              type="text"
-                              role="combobox"
-                              aria-expanded={vendorMenuOpen}
-                              aria-controls="vendor-hub-combo-list"
-                              disabled={vendorSaving}
-                              value={
-                                vendorMenuOpen
-                                  ? vendorQuery
-                                  : (hub.product.primary_vendor_name ??
-                                    "")
-                              }
-                              placeholder="Search vendors…"
-                              onChange={(e) => {
-                                setVendorQuery(e.target.value);
-                                setVendorMenuOpen(true);
-                              }}
-                              onFocus={() => {
-                                setVendorQuery("");
-                                setVendorMenuOpen(true);
-                              }}
-                              className="w-full rounded-xl border border-app-border bg-app-surface-2 py-2.5 pl-3 pr-10 text-sm font-semibold text-app-text outline-none focus:border-app-accent focus:ring-2 focus:ring-app-accent/20 disabled:opacity-50"
-                            />
-                          </div>
-                          {vendorMenuOpen ? (
-                            <ul
-                              id="vendor-hub-combo-list"
-                              role="listbox"
-                              className="absolute z-20 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-app-border bg-app-surface py-1 shadow-lg"
-                            >
-                              {filteredVendors.length === 0 ? (
-                                <li className="px-3 py-2 text-xs text-app-text-muted">
-                                  No matches.
-                                </li>
-                              ) : (
-                                filteredVendors.slice(0, 80).map((v) => (
-                                  <li key={v.id} role="none">
-                                    <button
-                                      type="button"
-                                      role="option"
-                                      className="flex w-full flex-col items-start px-3 py-2 text-left text-sm hover:bg-app-accent/10"
-                                      onClick={() =>
-                                        void patchPrimaryVendor({
-                                          primary_vendor_id: v.id,
-                                        })
-                                      }
-                                    >
-                                      <span className="font-bold text-app-text">
-                                        {v.name}
-                                      </span>
-                                      <span className="font-mono text-[10px] text-app-text-muted">
-                                        {v.id}
-                                      </span>
-                                    </button>
-                                  </li>
-                                ))
-                              )}
-                            </ul>
-                          ) : null}
-                        </div>
-                        {hub.product.primary_vendor_id ? (
-                          <button
-                            type="button"
-                            disabled={vendorSaving}
-                            onClick={() =>
-                              void patchPrimaryVendor({
-                                clear_primary_vendor_id: true,
-                              })
-                            }
-                            className="inline-flex shrink-0 items-center gap-1 rounded-xl border border-app-border bg-app-surface px-3 py-2 text-[10px] font-black uppercase tracking-widest text-app-text-muted hover:border-red-200 hover:bg-red-50 hover:text-red-800 disabled:opacity-50"
-                          >
-                            <X size={14} /> Clear
-                          </button>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 text-[10px] text-app-text-muted">
-                        Used for PO suggestions and stock-out context. Freight
-                        stays on the receipt document, not in WAC.
-                      </p>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-app-text-muted">Category</dt>
-                    <dd className="font-bold text-app-text">
-                      {hub.product.category_name ?? "—"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-app-text-muted">Base retail</dt>
-                    <dd className="font-bold text-app-text">
-                      {money(hub.product.base_retail_price)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-app-text-muted">Base cost</dt>
-                    <dd className="font-mono text-app-text">
-                      {money(hub.product.base_cost)}
-                    </dd>
-                  </div>
-                  <div className="sm:col-span-2">
-                    <dt className="text-app-text-muted">Variation axes</dt>
-                    <dd className="mt-1 flex flex-wrap gap-1">
-                      {(hub.product.variation_axes ?? []).length ? (
-                        hub.product.variation_axes.map((a) => (
-                          <span
-                            key={a}
-                            className="rounded-lg bg-app-surface-2 px-2 py-0.5 text-xs font-semibold text-app-text"
-                          >
-                            {a}
-                          </span>
-                        ))
-                      ) : (
-                        <span className="text-app-text-muted">—</span>
-                      )}
-                    </dd>
-                  </div>
-                  {hub.product.description ? (
-                    <div className="sm:col-span-2">
-                      <dt className="text-app-text-muted">Description</dt>
-                      <dd className="text-app-text">{hub.product.description}</dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </section>
             </div>
           )}
 
