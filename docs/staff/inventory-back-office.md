@@ -2,7 +2,7 @@
 
 **Audience:** Inventory leads, buyers, receivers.
 
-**Where in ROS:** Back Office → **Inventory**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Count/Reconcile**.
+**Where in ROS:** Back Office → **Inventory**. Opening Inventory shows the **Inventory Hub**. Main jobs: **Find Item**, **Add/Edit Catalog**, **Order Stock**, **Receive Stock**, **Correct Stock**, **Count/Reconcile**.
 
 **Related permissions:** **catalog.view** / **catalog.edit** for catalog surfaces. **procurement.view** / **procurement.mutate** for PO-style receiving. **physical_inventory.view** for **Physical count**.
 

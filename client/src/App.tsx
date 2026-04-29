@@ -100,6 +100,7 @@ import {
 export type ThemeMode = "light" | "dark" | "system";
 
 const INVENTORY_SECTION_KEYS = new Set([
+  "hub",
   "list",
   "add",
   "purchase_orders",
@@ -213,6 +214,8 @@ function App() {
       setActiveTab(tab);
       if (section) {
         setActiveSubSection(section);
+      } else if (tab === "inventory") {
+        setActiveSubSection("hub");
       }
     },
     [],
@@ -246,7 +249,7 @@ function App() {
         ? INVENTORY_SECTION_KEYS.has(activeSubSection)
         : subs.some((sub) => sub.id === activeSubSection);
     if (!hasValidSubSection) {
-      setActiveSubSection(subs[0].id);
+      setActiveSubSection(activeTab === "inventory" ? "hub" : subs[0].id);
     }
   }, [activeTab, activeSubSection]);
 
@@ -526,9 +529,10 @@ function App() {
 
       if (t === "inventory") {
         enterBackofficeShell("inventory");
-        const sec = linkStr(link, "section") || "list";
-        setActiveSubSection(INVENTORY_SECTION_KEYS.has(sec) ? sec : "list");
         const pid = linkStr(link, "product_id");
+        const fallbackSec = pid ? "list" : "hub";
+        const sec = linkStr(link, "section") || fallbackSec;
+        setActiveSubSection(INVENTORY_SECTION_KEYS.has(sec) ? sec : fallbackSec);
         if (pid) setInventoryProductHubProductId(pid);
         return;
       }
@@ -1325,6 +1329,9 @@ function AppShell({
                   setInsightsMode(false);
                 }
                 setActiveTab(tab);
+                if (tab === "inventory") {
+                  setActiveSubSection("hub");
+                }
                 if (window.innerWidth < 1024) setSidebarCollapsed(true);
               }}
               collapsed={sidebarCollapsed}

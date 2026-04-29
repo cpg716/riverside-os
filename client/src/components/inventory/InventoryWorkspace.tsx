@@ -23,6 +23,7 @@ const SHIPPING_ICON = getAppIcon("shipping");
 const VENDOR_ICON = getAppIcon("vendor");
 
 type InventorySection =
+  | "hub"
   | "list"
   | "purchase_orders"
   | "receiving"
@@ -46,6 +47,11 @@ interface InventoryWorkspaceProps {
 }
 
 const SECTION_META: Record<InventorySection, { title: string; subtitle: string; toolLabel: string }> = {
+  hub: {
+    title: "Inventory Hub",
+    subtitle: "Choose the inventory job you need.",
+    toolLabel: "Inventory Hub",
+  },
   list: {
     title: "Find Item",
     subtitle: "Look up items, review stock, and open product details.",
@@ -154,7 +160,7 @@ const INVENTORY_JOBS: InventoryJob[] = [
   },
 ];
 
-const JOB_BY_SECTION = INVENTORY_JOBS.reduce<Record<InventorySection, InventoryJob>>(
+const JOB_BY_SECTION = INVENTORY_JOBS.reduce<Partial<Record<InventorySection, InventoryJob>>>(
   (acc, job) => {
     job.sections.forEach((jobSection) => {
       acc[jobSection] = job;
@@ -180,7 +186,7 @@ export default function InventoryWorkspace({
   onProductHubDeepLinkConsumed,
   surface = "backoffice",
 }: InventoryWorkspaceProps) {
-  const [section, setSection] = useState<InventorySection>("list");
+  const [section, setSection] = useState<InventorySection>("hub");
   const { backofficeHeaders } = useBackofficeAuth();
   const baseUrl = getBaseUrl();
   const [globalStats, setGlobalStats] = useState<BoardStats>({
@@ -213,6 +219,7 @@ export default function InventoryWorkspace({
 
   useEffect(() => {
     const valid: InventorySection[] = [
+      "hub",
       "list",
       "purchase_orders",
       "receiving",
@@ -238,6 +245,28 @@ export default function InventoryWorkspace({
   const meta = SECTION_META[section];
   const isPosSurface = surface === "pos";
   const activeJob = JOB_BY_SECTION[section];
+  const renderSubtoolChips = (job: InventoryJob) =>
+    job.sections.length > 1 ? (
+      <div className="mt-4 flex flex-wrap gap-2">
+        {job.sections.map((jobSection) => {
+          const isActiveSection = section === jobSection;
+          return (
+            <button
+              key={jobSection}
+              type="button"
+              onClick={() => setSection(jobSection)}
+              className={`rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
+                isActiveSection
+                  ? "bg-app-accent text-white"
+                  : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-text"
+              }`}
+            >
+              {SECTION_META[jobSection].toolLabel}
+            </button>
+          );
+        })}
+      </div>
+    ) : null;
 
   return (
     <div className="flex flex-1 flex-col bg-transparent animate-in fade-in duration-700">
@@ -245,101 +274,97 @@ export default function InventoryWorkspace({
         
         {/* Harmonized Dashboard Header */}
         {!isPosSurface && (
-	        <div className="flex flex-col gap-6 mb-10">
-	          <div className="flex flex-wrap items-center justify-between gap-6">
-	            <div className="space-y-3">
-	              <div className="flex items-center gap-2">
-	                <div className="h-1 w-4 rounded-full bg-app-accent shadow-[0_0_8px_rgba(var(--app-accent-rgb),0.5)]" />
-	                <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
-	                  Inventory Hub · {activeJob.label}
-	                </p>
-	              </div>
-	              <h2 className="text-3xl font-bold tracking-tight text-app-text">
-	                {meta.title}
-	              </h2>
-	              <p className="max-w-2xl text-sm font-medium text-app-text-muted leading-relaxed">
-	                {meta.subtitle}
-	              </p>
-	              {meta.toolLabel !== meta.title ? (
-	                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
-	                  Current tool: <span className="text-app-text">{meta.toolLabel}</span>
-	                </p>
-	              ) : null}
-	            </div>
+	        <div className="mb-8">
+            {section === "hub" ? (
+              <div className="flex flex-col gap-6">
+                <div className="flex flex-wrap items-center justify-between gap-6">
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <div className="h-1 w-4 rounded-full bg-app-accent shadow-[0_0_8px_rgba(var(--app-accent-rgb),0.5)]" />
+                      <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
+                        Inventory
+                      </p>
+                    </div>
+                    <h2 className="text-3xl font-bold tracking-tight text-app-text">
+                      Inventory Hub
+                    </h2>
+                    <p className="max-w-2xl text-sm font-medium text-app-text-muted leading-relaxed">
+                      Pick the job that matches what you need to do.
+                    </p>
+                  </div>
 
-	            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 w-full">
-                <DashboardStatsCard
-                  title="Asset Value"
-                  value={formatUsdFromCents(parseMoneyToCents(globalStats.total_asset_value))}
-                  icon={TrendingUp}
-                  trend={{ value: "+2.4%", isUp: true }}
-                />
-                <DashboardStatsCard
-                  title="Stock Alerts"
-                  value={globalStats.skus_out_of_stock.toString()}
-                  icon={AlertCircle}
-                  color="orange"
-                />
-                <DashboardStatsCard
-                  title="Replenishments"
-                  value={(globalStats.oos_replenishment_skus || 0).toString()}
-                  icon={INVENTORY_ICON}
-                />
-                <DashboardStatsCard
-                  title="Vendors"
-                  value={globalStats.active_vendors.toString()}
-                  icon={VENDOR_ICON}
-                  color="purple"
-                />
-	            </div>
-	          </div>
-	          <div className="rounded-[28px] border border-app-border bg-app-surface p-4 shadow-sm">
-	            <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-	              {INVENTORY_JOBS.map((job) => {
-	                const isActive = job.label === activeJob.label;
-	                return (
-	                  <button
-	                    key={job.label}
-	                    type="button"
-	                    onClick={() => setSection(job.primarySection)}
-	                    className={`rounded-2xl border px-4 py-3 text-left transition-all active:scale-95 ${
-	                      isActive
-	                        ? "border-app-accent bg-app-accent/10 text-app-text"
-	                        : "border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-text"
-	                    }`}
-	                  >
-	                    <span className="block text-[10px] font-black uppercase tracking-[0.18em]">
-	                      {job.label}
-	                    </span>
-	                    <span className="mt-2 block text-[11px] font-semibold leading-relaxed">
-	                      {job.description}
-	                    </span>
-	                  </button>
-	                );
-	              })}
-	            </div>
-	            {activeJob.sections.length > 1 ? (
-	              <div className="mt-4 flex flex-wrap gap-2 border-t border-app-border pt-4">
-	                {activeJob.sections.map((jobSection) => {
-	                  const isActiveSection = section === jobSection;
-	                  return (
-	                    <button
-	                      key={jobSection}
-	                      type="button"
-	                      onClick={() => setSection(jobSection)}
-	                      className={`rounded-xl px-3 py-2 text-[10px] font-black uppercase tracking-widest transition-all active:scale-95 ${
-	                        isActiveSection
-	                          ? "bg-app-accent text-white"
-	                          : "border border-app-border bg-app-surface-2 text-app-text-muted hover:border-app-accent hover:text-app-text"
-	                      }`}
-	                    >
-	                      {SECTION_META[jobSection].toolLabel}
-	                    </button>
-	                  );
-	                })}
-	              </div>
-	            ) : null}
-	          </div>
+                  <div className="grid w-full grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                    <DashboardStatsCard
+                      title="Asset Value"
+                      value={formatUsdFromCents(parseMoneyToCents(globalStats.total_asset_value))}
+                      icon={TrendingUp}
+                      trend={{ value: "+2.4%", isUp: true }}
+                    />
+                    <DashboardStatsCard
+                      title="Stock Alerts"
+                      value={globalStats.skus_out_of_stock.toString()}
+                      icon={AlertCircle}
+                      color="orange"
+                    />
+                    <DashboardStatsCard
+                      title="Replenishments"
+                      value={(globalStats.oos_replenishment_skus || 0).toString()}
+                      icon={INVENTORY_ICON}
+                    />
+                    <DashboardStatsCard
+                      title="Vendors"
+                      value={globalStats.active_vendors.toString()}
+                      icon={VENDOR_ICON}
+                      color="purple"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {INVENTORY_JOBS.map((job) => (
+                    <section
+                      key={job.label}
+                      className="rounded-2xl border border-app-border bg-app-surface p-4 shadow-sm"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setSection(job.primarySection)}
+                        className="block w-full rounded-xl border border-app-border bg-app-surface-2 px-4 py-3 text-left transition-all hover:border-app-accent hover:text-app-accent active:scale-95"
+                      >
+                        <span className="block text-[10px] font-black uppercase tracking-[0.18em] text-app-text">
+                          {job.label}
+                        </span>
+                        <span className="mt-2 block text-[11px] font-semibold leading-relaxed text-app-text-muted">
+                          {job.description}
+                        </span>
+                      </button>
+                      {renderSubtoolChips(job)}
+                    </section>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div className="flex items-center gap-2">
+                  <div className="h-1 w-4 rounded-full bg-app-accent shadow-[0_0_8px_rgba(var(--app-accent-rgb),0.5)]" />
+                  <p className="text-[9px] font-black uppercase tracking-[0.2em] text-app-text-muted opacity-60">
+                    {activeJob?.label ?? "Inventory"}
+                  </p>
+                </div>
+                <h2 className="text-3xl font-bold tracking-tight text-app-text">
+                  {meta.title}
+                </h2>
+                <p className="max-w-2xl text-sm font-medium text-app-text-muted leading-relaxed">
+                  {meta.subtitle}
+                </p>
+                {meta.toolLabel !== meta.title ? (
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-app-text-muted">
+                    Current tool: <span className="text-app-text">{meta.toolLabel}</span>
+                  </p>
+                ) : null}
+                {activeJob ? renderSubtoolChips(activeJob) : null}
+              </div>
+            )}
 	        </div>
 	        )}
 
