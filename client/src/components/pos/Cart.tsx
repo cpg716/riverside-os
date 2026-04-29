@@ -510,21 +510,21 @@ export default function Cart({
 
   const addOrderPaymentLine = useCallback((order: CustomerOrder, amountCents: number) => {
     if (!selectedCustomer) {
-      toast("Select a customer before adding an order payment.", "error");
+      toast("Select a customer before adding a transaction payment.", "error");
       return;
     }
     const orderCustomerId = order.customer_id ?? selectedCustomer.id;
     if (orderCustomerId !== selectedCustomer.id) {
-      toast("That order belongs to a different customer. Select the matching customer first.", "error");
+      toast("That Transaction Record belongs to a different customer. Select the matching customer first.", "error");
       return;
     }
     const balanceCents = parseMoneyToCents(order.balance_due);
     if (amountCents <= 0) {
-      toast("Enter an order payment amount greater than $0.00.", "error");
+      toast("Enter a transaction payment amount greater than $0.00.", "error");
       return;
     }
     if (amountCents > balanceCents) {
-      toast("Order payment cannot be more than the balance due.", "error");
+      toast("Transaction payment cannot be more than the balance due.", "error");
       return;
     }
     const orderPaymentDisplayId = order.order_payment_display_id || order.display_id;
@@ -549,7 +549,7 @@ export default function Cart({
           : line,
       );
     });
-    toast(`Payment for ${orderPaymentDisplayId} added to this sale.`, "success");
+    toast(`Transaction payment for ${orderPaymentDisplayId} added to this sale.`, "success");
   }, [selectedCustomer, toast]);
 
   const openOrderPaymentEdit = useCallback((line: OrderPaymentCartLine) => {
@@ -562,11 +562,11 @@ export default function Cart({
     const amountCents = parseMoneyToCents(editingOrderPaymentAmount);
     const balanceCents = parseMoneyToCents(editingOrderPaymentLine.balance_before);
     if (amountCents <= 0) {
-      toast("Enter an order payment amount greater than $0.00.", "error");
+      toast("Enter a transaction payment amount greater than $0.00.", "error");
       return;
     }
     if (amountCents > balanceCents) {
-      toast("Order payment cannot be more than the balance due.", "error");
+      toast("Transaction payment cannot be more than the balance due.", "error");
       return;
     }
     setOrderPaymentLines((prev) =>
@@ -833,10 +833,10 @@ export default function Cart({
             });
             setOrderLoadOpen(true);
           } else {
-            toast("Could not load the customer for this order.", "error");
+            toast("Could not load the customer for this transaction.", "error");
           }
         } else {
-          toast("Order has no customer attached.", "error");
+          toast("Transaction has no customer attached.", "error");
         }
       }
     } catch {
@@ -1064,12 +1064,12 @@ export default function Cart({
 
       if (detail.fulfillment_method === "ship" || parseMoneyToCents(detail.shipping_amount_usd ?? "0") > 0) {
         toast(
-          `Loaded ${detail.transaction_display_id ?? "order"} into the register. Review shipping details before checkout because this handoff starts a new sale.`,
+          `Loaded ${detail.transaction_display_id ?? "transaction"} into the register. Review shipping details before checkout because this handoff starts a new sale.`,
           "info",
         );
       } else {
         toast(
-          `Loaded ${detail.transaction_display_id ?? "order"} into the register. This starts a new sale and does not collect payment on the original order.`,
+          `Loaded ${detail.transaction_display_id ?? "transaction"} into the register. This starts a new sale and does not collect payment on the original transaction.`,
           "info",
         );
       }
@@ -1569,11 +1569,11 @@ export default function Cart({
                 type="button"
                 disabled={!selectedCustomer}
                 onClick={() => setOrderLoadOpen(true)}
-                title={selectedCustomer ? "View previous orders for this customer" : "Select a customer to view orders"}
+                title={selectedCustomer ? "View customer Transaction Records" : "Select a customer to view Transaction Records"}
                 className="flex h-10 items-center justify-center gap-1.5 rounded-xl border-2 border-app-info/35 bg-app-info/10 px-3 text-[10px] font-black uppercase tracking-widest text-app-info transition-all hover:bg-app-info hover:text-white disabled:opacity-20"
               >
                 <ORDER_HISTORY_ICON size={16} className="shrink-0" aria-hidden />
-                Orders
+                Transactions
               </button>
           </div>
           {pendingAlterationIntakes.length > 0 ? (
@@ -1637,7 +1637,7 @@ export default function Cart({
                   Payment Only
                 </p>
                 <p className="mt-2 max-w-[22rem] text-sm font-medium normal-case tracking-normal text-app-text-muted">
-                  Existing order payments are ready below. No new merchandise is being sold.
+                  Existing transaction payments are ready below. No new merchandise is being sold.
                 </p>
              </div>
           ) : (
@@ -1657,7 +1657,7 @@ export default function Cart({
               <div className="flex items-center gap-3 px-2">
                 <div className="h-px flex-1 bg-gradient-to-r from-violet-500/35 to-transparent" />
                 <span className="text-[10px] font-black uppercase tracking-[0.3em] text-violet-600">
-                  Existing Order Payments
+                  Existing Transaction Payments
                 </span>
                 <div className="h-px flex-1 bg-gradient-to-l from-violet-500/35 to-transparent" />
               </div>
@@ -1673,7 +1673,7 @@ export default function Cart({
                     </div>
                     <div className="min-w-0">
                       <h4 className="truncate text-sm font-black text-app-text">
-                        Payment on {line.target_display_id}
+                        Payment toward {line.target_display_id}
                       </h4>
                       <p className="text-[10px] font-bold text-app-text-muted">
                         Remaining after payment: ${line.projected_balance_after}
@@ -1888,7 +1888,7 @@ export default function Cart({
               )}
               {totals.orderPaymentCents > 0 ? (
                 <div className="col-span-2 flex items-baseline justify-between gap-2 rounded-lg bg-violet-500/8 px-2 py-1 text-[10px] font-black uppercase tracking-wide text-violet-700">
-                  <span>Existing order payments</span>
+                  <span>Existing transaction payments</span>
                   <span className="tabular-nums">${centsToFixed2(totals.orderPaymentCents)}</span>
                 </div>
               ) : null}
@@ -1964,7 +1964,7 @@ export default function Cart({
              data-testid="pos-pay-button"
              disabled={!hasCheckoutWork || checkoutBusy}
              onClick={() => {
-               if (!hasCheckoutWork) return toast("Add at least one item or order payment before checking out.", "error");
+               if (!hasCheckoutWork) return toast("Add at least one item or transaction payment before checking out.", "error");
                 if (!ensureSaleCashier()) return;
                if (isRmsPaymentCart) {
                  if (!selectedCustomer) {
@@ -2035,7 +2035,7 @@ export default function Cart({
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
-                  Edit Order Payment
+                  Edit Transaction Payment
                 </p>
                 <h3 className="text-lg font-black text-app-text">
                   {editingOrderPaymentLine.target_display_id}
@@ -2048,7 +2048,7 @@ export default function Cart({
                   setEditingOrderPaymentAmount("");
                 }}
                 className="rounded-lg p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-                aria-label="Close order payment edit"
+                aria-label="Close transaction payment edit"
               >
                 <X size={18} />
               </button>
@@ -2918,14 +2918,14 @@ export default function Cart({
                     }));
                   });
                   toast(
-                    `Unfulfilled lines from ${order.display_id} were copied into the register. This starts a new sale and does not collect payment on the original order.`,
+                    `Unfulfilled lines from ${order.display_id} were copied into the register. This starts a new sale and does not collect payment on the original transaction.`,
                     "info",
                   );
                 } catch (e) {
                   toast(
                     e instanceof Error
                       ? e.message
-                      : "We couldn't copy that order into the register. Please try again.",
+                      : "We couldn't copy those items into the register. Please try again.",
                     "error",
                   );
                 }

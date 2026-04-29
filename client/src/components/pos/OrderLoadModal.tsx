@@ -48,6 +48,23 @@ interface OrderLoadModalProps {
   onMakePayment?: (order: CustomerOrder, amountCents: number) => void;
 }
 
+const fulfillmentLabel = (fulfillment: string) => {
+  switch (fulfillment) {
+    case "wedding_order":
+      return "Wedding Order";
+    case "special_order":
+      return "Special Order";
+    case "custom":
+      return "Custom Order";
+    case "layaway":
+      return "Layaway";
+    case "takeaway":
+      return "Takeaway";
+    default:
+      return "Fulfillment";
+  }
+};
+
 export default function OrderLoadModal({
   isOpen,
   customerId,
@@ -76,7 +93,7 @@ export default function OrderLoadModal({
     });
     if (!res.ok) {
       const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error || `Could not load order items (${res.status})`);
+      throw new Error(body.error || `Could not load transaction items (${res.status})`);
     }
     const data = (await res.json()) as OrderItem[];
     return Array.isArray(data) ? data : [];
@@ -90,7 +107,7 @@ export default function OrderLoadModal({
     } catch (e) {
       setSelectedOrderItems([]);
       toast(
-        e instanceof Error ? e.message : "We couldn't load those order items. Please try again.",
+        e instanceof Error ? e.message : "We couldn't load those transaction items. Please try again.",
         "error",
       );
     }
@@ -108,7 +125,7 @@ export default function OrderLoadModal({
       headers: apiAuth(),
     })
       .then(async (r) => {
-        if (!r.ok) throw new Error("Could not load customer orders");
+        if (!r.ok) throw new Error("Could not load customer transactions");
         return r.json();
       })
       .then((data) => {
@@ -117,7 +134,7 @@ export default function OrderLoadModal({
       })
       .catch(() => {
         setOrders([]);
-        toast("We couldn't load this customer's orders. Please try again.", "error");
+        toast("We couldn't load this customer's transactions. Please try again.", "error");
       })
       .finally(() => setLoading(false));
   }, [isOpen, customerId, registerSessionId, baseUrl, apiAuth, toast]);
@@ -151,7 +168,7 @@ export default function OrderLoadModal({
     if (order.status === "fulfilled") {
       return isWedding
         ? "This wedding order is already completed at pickup."
-        : "This order is already completed at pickup.";
+        : "These items are already marked picked up.";
     }
     if (order.status === "pending_measurement") {
       return isWedding
@@ -166,11 +183,11 @@ export default function OrderLoadModal({
     if (parseMoneyToCents(order.amount_paid) > 0) {
       return isWedding
         ? "A wedding deposit has been recorded. Collect the remaining balance only when the linked member is ready for pickup."
-        : "A deposit has been recorded. Collect the remaining balance only when the order is ready.";
+        : "A deposit has been recorded on this Transaction Record. Collect the remaining balance only when the order is ready.";
     }
     return isWedding
       ? "No payment is on this wedding order yet. Confirm member readiness before collecting money or promising pickup."
-      : "No payment is on the order yet. Confirm receiving and pickup status before collecting money.";
+      : "No payment is on this Transaction Record yet. Confirm receiving and pickup status before collecting money.";
   };
 
   const copyOrderItems = async (order: CustomerOrder) => {
@@ -178,7 +195,7 @@ export default function OrderLoadModal({
       const items = await fetchOrderItems(order.id);
       const unfulfilled = items.filter((item) => !item.is_fulfilled);
       if (unfulfilled.length === 0) {
-        toast("All order lines are already marked complete.", "info");
+        toast("All fulfillment lines are already marked complete.", "info");
         return;
       }
       onCopyOrder(order, unfulfilled);
@@ -186,7 +203,7 @@ export default function OrderLoadModal({
       toast(
         e instanceof Error
           ? e.message
-          : "We couldn't prepare this order for the register. Please try again.",
+          : "We couldn't prepare these items for the register. Please try again.",
         "error",
       );
     }
@@ -195,7 +212,7 @@ export default function OrderLoadModal({
   const openPaymentEntry = (order: CustomerOrder) => {
     const dueCents = parseMoneyToCents(order.balance_due);
     if (dueCents <= 0) {
-      toast("That order does not have a balance due.", "info");
+      toast("That Transaction Record does not have a balance due.", "info");
       return;
     }
     setPaymentOrder(order);
@@ -207,11 +224,11 @@ export default function OrderLoadModal({
     const amountCents = parseMoneyToCents(paymentAmount);
     const dueCents = parseMoneyToCents(paymentOrder.balance_due);
     if (amountCents <= 0) {
-      toast("Enter an order payment amount greater than $0.00.", "error");
+      toast("Enter a transaction payment amount greater than $0.00.", "error");
       return;
     }
     if (amountCents > dueCents) {
-      toast("Order payment cannot be more than the balance due.", "error");
+      toast("Transaction payment cannot be more than the balance due.", "error");
       return;
     }
     onMakePayment?.(paymentOrder, amountCents);
@@ -228,7 +245,7 @@ export default function OrderLoadModal({
         <div className="flex items-center justify-between border-b border-app-border px-5 py-4">
           <div className="flex items-center gap-2">
             <Package size={20} className="text-blue-600" />
-            <span className="font-black text-app-text">Customer Orders</span>
+            <span className="font-black text-app-text">Customer Transactions</span>
           </div>
           <button onClick={onClose} className="rounded-lg p-1 hover:bg-app-surface-2">
             <X size={20} />
@@ -243,12 +260,12 @@ export default function OrderLoadModal({
         <div className="flex-1 overflow-y-auto p-3.5 sm:p-4">
           {loading ? (
             <div className="flex items-center justify-center py-8">
-              <span className="animate-pulse text-app-text-muted">Loading orders...</span>
+              <span className="animate-pulse text-app-text-muted">Loading transaction records...</span>
             </div>
           ) : orders.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-8 text-center">
               <AlertCircle size={32} className="text-app-text-muted" />
-              <span className="text-app-text-muted">No open orders for this customer</span>
+              <span className="text-app-text-muted">No open Transaction Records for this customer</span>
             </div>
           ) : (
             <div className="grid gap-3 lg:grid-cols-2">
@@ -309,7 +326,7 @@ export default function OrderLoadModal({
                         className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-violet-500/40 bg-violet-50 px-3 text-xs font-bold text-violet-700 transition-all hover:bg-violet-600 hover:text-white"
                       >
                         <CreditCard size={14} />
-                        Make Payment
+                        Add Payment
                       </button>
                     ) : null}
                     <button
@@ -319,7 +336,7 @@ export default function OrderLoadModal({
                       }}
                       className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-blue-500/40 bg-blue-50 px-3 text-xs font-bold text-blue-700 transition-all hover:bg-blue-500 hover:text-white"
                     >
-                      Review
+                      View Lines
                       <ArrowRight size={14} />
                     </button>
                     <button
@@ -329,7 +346,7 @@ export default function OrderLoadModal({
                       }}
                       className="flex h-9 items-center justify-center gap-1 rounded-lg border-2 border-emerald-600/40 bg-emerald-50 px-3 text-xs font-bold text-emerald-700 transition-all hover:bg-emerald-600 hover:text-white"
                     >
-                      Copy to Register
+                      Copy Items
                     </button>
                   </div>
                 </div>
@@ -341,7 +358,7 @@ export default function OrderLoadModal({
             <div className="mt-4 border-t border-app-border pt-4">
               <div className="mb-2 flex items-center justify-between">
                 <span className="font-medium text-app-text">
-                  {selectedOrder?.display_id ?? "Order"} details
+                  {selectedOrder?.display_id ?? "Transaction"} lines
                 </span>
                 <button
                   onClick={() => {
@@ -366,7 +383,7 @@ export default function OrderLoadModal({
                     <div className="flex flex-1 flex-col">
                       <span className="font-medium text-app-text">{item.product_name}</span>
                       <span className="text-app-text-muted">
-                        {item.sku} · {item.fulfillment === "wedding_order" ? "wedding order" : item.fulfillment}
+                        {item.sku} · {fulfillmentLabel(item.fulfillment)}
                       </span>
                       {item.fulfillment === "wedding_order" && (
                         <span className="mt-1 text-[10px] font-bold uppercase tracking-widest text-rose-600">
@@ -385,7 +402,7 @@ export default function OrderLoadModal({
               </div>
               <p className="mt-3 text-[11px] font-semibold text-app-text-muted">
                 Copying items starts a new register sale. It does not collect payment on the
-                original order record.
+                original Transaction Record.
               </p>
               {selectedOrder?.order_kind === "wedding_order" && (
                 <p className="mt-2 text-[11px] font-semibold text-rose-700">
@@ -419,7 +436,7 @@ export default function OrderLoadModal({
             <div className="mb-4 flex items-center justify-between gap-3">
               <div>
                 <p className="text-[10px] font-black uppercase tracking-[0.28em] text-app-text-muted">
-                  Existing Order Payment
+                  Existing Transaction Payment
                 </p>
                 <h3 className="text-lg font-black text-app-text">
                   {paymentOrder.display_id}
@@ -429,7 +446,7 @@ export default function OrderLoadModal({
                 type="button"
                 onClick={() => setPaymentOrder(null)}
                 className="rounded-lg p-1 text-app-text-muted hover:bg-app-surface-2 hover:text-app-text"
-                aria-label="Close order payment entry"
+                aria-label="Close transaction payment entry"
               >
                 <X size={18} />
               </button>
