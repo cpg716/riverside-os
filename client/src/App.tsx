@@ -99,6 +99,21 @@ import {
 
 export type ThemeMode = "light" | "dark" | "system";
 
+const INVENTORY_SECTION_KEYS = new Set([
+  "list",
+  "add",
+  "purchase_orders",
+  "receiving",
+  "damaged",
+  "physical",
+  "vendors",
+  "categories",
+  "discount_events",
+  "import",
+  "rtv",
+  "intelligence",
+]);
+
 function App() {
   const { toast } = useToast();
   const [activeTab, setActiveTab] = useState<SidebarTabId>("home");
@@ -226,7 +241,10 @@ function App() {
   useEffect(() => {
     const subs = SIDEBAR_SUB_SECTIONS[activeTab];
     if (subs.length === 0) return;
-    const hasValidSubSection = subs.some((sub) => sub.id === activeSubSection);
+    const hasValidSubSection =
+      activeTab === "inventory"
+        ? INVENTORY_SECTION_KEYS.has(activeSubSection)
+        : subs.some((sub) => sub.id === activeSubSection);
     if (!hasValidSubSection) {
       setActiveSubSection(subs[0].id);
     }
@@ -509,21 +527,7 @@ function App() {
       if (t === "inventory") {
         enterBackofficeShell("inventory");
         const sec = linkStr(link, "section") || "list";
-        const allowedI = new Set([
-          "list",
-          "purchase_orders",
-          "receiving",
-          "vendors",
-          "add",
-          "categories",
-          "discount_events",
-          "import",
-          "physical",
-          "damaged",
-          "rtv",
-          "intelligence",
-        ]);
-        setActiveSubSection(allowedI.has(sec) ? sec : "list");
+        setActiveSubSection(INVENTORY_SECTION_KEYS.has(sec) ? sec : "list");
         const pid = linkStr(link, "product_id");
         if (pid) setInventoryProductHubProductId(pid);
         return;
@@ -1673,6 +1677,18 @@ function AppMainColumn({
     if (!permissionsLoaded) return;
     const subs = SIDEBAR_SUB_SECTIONS[activeTab];
     if (!subs?.length) return;
+    if (
+      activeTab === "inventory" &&
+      INVENTORY_SECTION_KEYS.has(activeSubSection) &&
+      subSectionVisible(
+        activeTab,
+        activeSubSection,
+        hasPermission,
+        permissionsLoaded,
+      )
+    ) {
+      return;
+    }
     const isValidAndVisible = subs.some(
       (s) =>
         s.id === activeSubSection &&
