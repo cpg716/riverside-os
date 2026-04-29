@@ -41,6 +41,134 @@ function pctFromDecimal(d: string | number): string {
   return (v * 100).toFixed(2);
 }
 
+function titleCaseAuditText(value: string): string {
+  return value
+    .replace(/[._-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function formatAuditWhen(created_at: string): string {
+  const date = new Date(created_at);
+  if (Number.isNaN(date.getTime())) return "Time not available";
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(date);
+}
+
+function formatAuditAction(event_kind: string): string {
+  const actionLabels: Record<string, string> = {
+    checkout: "Checkout completed",
+    checkout_auth: "Checkout access verified",
+    checkout_operator_verified: "Checkout access verified",
+    manager_override: "Manager override approved",
+    notification_broadcast: "Notification sent",
+    register_adjustment: "Register adjustment recorded",
+    register_close: "Register closed",
+    register_open: "Register opened",
+    sale_checkout: "Sale completed",
+    staff_apply_role_defaults: "Role defaults applied",
+    staff_permission_save: "Staff access changed",
+    staff_pin_reset: "Access PIN changed",
+    staff_profile_update: "Staff profile updated",
+    staff_role_update: "Staff role changed",
+    transaction_attribution_update: "Sale attribution updated",
+  };
+  const normalized = event_kind.trim().toLowerCase();
+  return actionLabels[normalized] ?? titleCaseAuditText(event_kind || "Recorded activity");
+}
+
+function formatPermissionLabel(value: string): string {
+  return titleCaseAuditText(value.replace(/^staff\./, "staff "));
+}
+
+function isSystemIdKey(key: string): boolean {
+  const normalized = key.toLowerCase();
+  return normalized === "id" || normalized.endsWith("_id") || normalized.endsWith("uuid");
+}
+
+function isUuidLike(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function formatAuditValue(key: string, value: unknown): string | null {
+  if (value == null || isSystemIdKey(key)) return null;
+  const normalizedKey = key.toLowerCase();
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : null;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (!trimmed || isUuidLike(trimmed)) return null;
+    if (normalizedKey.includes("permission") || normalizedKey.includes("key")) {
+      return formatPermissionLabel(trimmed);
+    }
+    if (
+      normalizedKey.endsWith("_at") ||
+      normalizedKey.includes("time") ||
+      normalizedKey.includes("date")
+    ) {
+      return formatAuditWhen(trimmed);
+    }
+    return trimmed;
+  }
+  if (Array.isArray(value)) {
+    const formatted = value
+      .map((item) => {
+        if (typeof item !== "string") return null;
+        const trimmed = item.trim();
+        if (!trimmed || isUuidLike(trimmed)) return null;
+        return normalizedKey.includes("permission") || normalizedKey.includes("key")
+          ? formatPermissionLabel(trimmed)
+          : trimmed;
+      })
+      .filter((item): item is string => Boolean(item))
+      .slice(0, 4);
+    if (formatted.length === 0) return null;
+    const suffix = value.length > formatted.length ? ` +${value.length - formatted.length} more` : "";
+    return `${formatted.join(", ")}${suffix}`;
+  }
+  return null;
+}
+
+function formatAuditDetails(metadata: Record<string, unknown>): string {
+  const priorityKeys = [
+    "staff_name",
+    "target_staff_name",
+    "cashier_name",
+    "manager_name",
+    "role",
+    "previous_role",
+    "new_role",
+    "permission_key",
+    "permission_keys",
+    "permissions",
+    "action",
+    "reason",
+    "register_number",
+    "register",
+    "amount",
+    "status",
+  ];
+  const keys = [
+    ...priorityKeys.filter((key) => Object.prototype.hasOwnProperty.call(metadata, key)),
+    ...Object.keys(metadata).filter((key) => !priorityKeys.includes(key)),
+  ];
+  const details = keys
+    .map((key) => {
+      const value = formatAuditValue(key, metadata[key]);
+      if (!value) return null;
+      return `${titleCaseAuditText(key)}: ${value}`;
+    })
+    .filter((detail): detail is string => Boolean(detail))
+    .slice(0, 3);
+  return details.length > 0 ? details.join(" • ") : "Details recorded";
+}
+
 interface StaffWorkspaceProps {
   activeSection?: string;
   tasksFocusInstanceId?: string | null;
@@ -147,10 +275,13 @@ export default function StaffWorkspace({
       return accessLog;
     }
     return accessLog.filter((row) => {
+      const action = formatAuditAction(row.event_kind);
+      const details = formatAuditDetails(row.metadata);
       return (
         row.staff_name.toLowerCase().includes(query) ||
-        row.event_kind.toLowerCase().includes(query) ||
-        JSON.stringify(row.metadata).toLowerCase().includes(query)
+        action.toLowerCase().includes(query) ||
+        details.toLowerCase().includes(query) ||
+        titleCaseAuditText(row.event_kind).toLowerCase().includes(query)
       );
     });
   }, [accessLog, auditSearchInput]);
@@ -671,11 +802,11 @@ export default function StaffWorkspace({
                     className="rounded-2xl border border-app-border bg-app-surface px-3 py-3 text-xs shadow-sm"
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <p className="font-mono text-[11px] text-app-text-muted">
-                        {new Date(row.created_at).toISOString().replace("T", " ").slice(0, 19)}
+                      <p className="text-[11px] font-semibold text-app-text-muted">
+                        {formatAuditWhen(row.created_at)}
                       </p>
                       <p className="rounded-full border border-app-accent/20 bg-app-accent/10 px-2 py-0.5 text-[10px] font-black uppercase tracking-wide text-[var(--app-accent)]">
-                        {row.event_kind}
+                        {formatAuditAction(row.event_kind)}
                       </p>
                     </div>
                     <div className="mt-2 flex items-center gap-2">
@@ -686,8 +817,8 @@ export default function StaffWorkspace({
                       />
                       <span className="font-semibold text-app-text">{row.staff_name}</span>
                     </div>
-                    <p className="mt-2 break-all font-mono text-[11px] text-app-text-muted">
-                      {JSON.stringify(row.metadata)}
+                    <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-app-text-muted">
+                      {formatAuditDetails(row.metadata)}
                     </p>
                   </article>
                 ))}
@@ -701,13 +832,13 @@ export default function StaffWorkspace({
               <table data-testid="staff-audit-table" className="w-full text-left text-xs">
                 <thead className="sticky top-0 border-b border-app-border bg-app-surface text-[9px] font-black uppercase tracking-widest text-app-text-muted">
                   <tr>
-                    <th className="px-3 py-2">When (UTC)</th>
+                    <th className="px-3 py-2">When</th>
                     <th className="px-3 py-2">Staff</th>
-                    <th className="px-3 py-2">Event</th>
-                    <th className="px-3 py-2">Metadata</th>
+                    <th className="px-3 py-2">Action</th>
+                    <th className="px-3 py-2">Details</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-app-border font-mono text-[11px]">
+                <tbody className="divide-y divide-app-border text-[11px]">
                   {accessLogLoading && accessLog.length === 0 ? (
                     <tr>
                       <td colSpan={4} className="px-3 py-8 text-center text-app-text-muted">
@@ -718,7 +849,7 @@ export default function StaffWorkspace({
                   {filteredAccessLog.map((row) => (
                     <tr key={row.id} className="align-top transition-colors hover:bg-app-surface-2">
                       <td className="whitespace-nowrap px-3 py-2 text-app-text-muted">
-                        {new Date(row.created_at).toISOString().replace("T", " ").slice(0, 19)}
+                        {formatAuditWhen(row.created_at)}
                       </td>
                       <td className="px-3 py-2">
                         <div className="flex items-center gap-2">
@@ -730,11 +861,11 @@ export default function StaffWorkspace({
                           <span className="font-semibold text-app-text">{row.staff_name}</span>
                         </div>
                       </td>
-                      <td className="whitespace-nowrap px-3 py-2 text-[var(--app-accent)]">
-                        {row.event_kind}
+                      <td className="whitespace-nowrap px-3 py-2 font-semibold text-[var(--app-accent)]">
+                        {formatAuditAction(row.event_kind)}
                       </td>
-                      <td className="max-w-md break-all px-3 py-2 text-app-text-muted">
-                        {JSON.stringify(row.metadata)}
+                      <td className="max-w-md px-3 py-2 leading-relaxed text-app-text-muted">
+                        <span className="line-clamp-2">{formatAuditDetails(row.metadata)}</span>
                       </td>
                     </tr>
                   ))}
