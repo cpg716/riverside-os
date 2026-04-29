@@ -76,7 +76,7 @@ for (const viewport of MODAL_VIEWPORTS) {
     await expect(checkout.getByTestId("pos-finalize-checkout")).toBeEnabled({
       timeout: 10_000,
     });
-    await checkout.getByRole("button", { name: /finalize/i }).click({ force: true });
+    await checkout.getByTestId("pos-finalize-checkout").click({ force: true });
 
     await expect(page.getByText(/sale complete/i)).toBeVisible({
       timeout: 20_000,

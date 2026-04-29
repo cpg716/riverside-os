@@ -349,6 +349,9 @@ test.describe("POS alteration intake", () => {
     await drawer.getByRole("button", { name: /full balance/i }).click();
     await drawer.getByRole("button", { name: /add payment/i }).click();
     await drawer.getByTestId("pos-finalize-checkout").click();
+    await expect(page.getByText(/sale complete/i)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: /begin new sale/i }).click();
+    await expect(page.getByText(/sale complete/i)).toBeHidden({ timeout: 10_000 });
 
     expect(checkoutBody).toMatchObject({
       customer_id: CUSTOMER.id,
@@ -450,6 +453,9 @@ test.describe("POS alteration intake", () => {
     await drawer.getByRole("button", { name: /full balance/i }).click();
     await drawer.getByRole("button", { name: /add payment/i }).click();
     await drawer.getByTestId("pos-finalize-checkout").click();
+    await expect(page.getByText(/sale complete/i)).toBeVisible({ timeout: 20_000 });
+    await page.getByRole("button", { name: /begin new sale/i }).click();
+    await expect(page.getByText(/sale complete/i)).toBeHidden({ timeout: 10_000 });
 
     expect(checkoutBody).toMatchObject({
       customer_id: CUSTOMER.id,
